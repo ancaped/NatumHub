@@ -549,10 +549,10 @@ pub async fn trigger_db_sync(
 
     match crate::legacy_db::sync_from_sql_server(&db_path).await {
         Ok(res) => {
-            let total_records = (res.products + res.items + res.suppliers + res.invoices + res.formulations + res.movements) as i64;
+            let total_records = (res.products + res.items + res.suppliers + res.invoices + res.formulations + res.movements + res.purchase_orders) as i64;
             let detail_msg = format!(
-                "Sincronizados: {} produtos, {} insumos/materiais, {} fornecedores, {} compras, {} consumos, {} receitas, {} movimentações",
-                res.products, res.items, res.suppliers, res.invoices, res.consumption, res.formulations, res.movements
+                "Sincronizados: {} produtos, {} insumos/materiais, {} fornecedores, {} compras, {} consumos, {} receitas, {} movimentações, {} pedidos de compra",
+                res.products, res.items, res.suppliers, res.invoices, res.consumption, res.formulations, res.movements, res.purchase_orders
             );
             let _ = state.db.record_import(
                 "sync",
@@ -574,9 +574,10 @@ pub async fn trigger_db_sync(
                         "invoices": res.invoices,
                         "consumption": res.consumption,
                         "formulations": res.formulations,
-                        "movements": res.movements
+                        "movements": res.movements,
+                        "purchase_orders": res.purchase_orders
                     },
-                    "message": format!("Sincronização concluída com sucesso! {} produtos, {} insumos/materiais, {} receitas e {} movimentações atualizados.", res.products, res.items, res.formulations, res.movements)
+                    "message": format!("Sincronização concluída com sucesso! {} produtos, {} insumos/materiais, {} receitas e {} pedidos de compra atualizados.", res.products, res.items, res.formulations, res.purchase_orders)
                 }))
             ).into_response()
         }
@@ -1110,5 +1111,333 @@ pub async fn save_setting_handler(
         Ok(_) => (StatusCode::OK, Json(json!({ "status": "success" }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     }
+}
+
+// ===== PEDIDOS DE COMPRA & ITEM EXTRA INFO HANDLERS =====
+
+#[derive(serde::Deserialize, Debug)]
+pub struct PedidosQueryParams {
+    pub search: Option<String>,
+    pub status: Option<String>,
+}
+
+#[derive(serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PurchaseOrderResponse {
+    pub n_pedido: i32,
+    pub d_pedido: Option<String>,
+    pub n_cod_fornec: Option<i32>,
+    pub c_nome_f: Option<String>,
+    pub c_usuario: Option<String>,
+    pub c_status: Option<String>,
+    pub c_prazo_pgto: Option<String>,
+    pub c_prev_entrega: Option<String>,
+    pub n_valor: f64,
+    pub d_previsao: Option<String>,
+    pub c_email: Option<String>,
+    pub m_observac: Option<String>,
+}
+
+#[derive(serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PurchaseOrderItemResponse {
+    pub id: i32,
+    pub n_pedido: i32,
+    pub c_referencia: String,
+    pub n_qtde: f64,
+    pub n_preco: f64,
+    pub n_chegou: f64,
+    pub c_descricao: Option<String>,
+    pub c_unidade: Option<String>,
+    pub n_valor_total: f64,
+    pub n_registro: i32,
+    pub c_chegada: Option<String>,
+}
+
+#[derive(serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PurchaseOrderDetailResponse {
+    #[serde(flatten)]
+    pub header: PurchaseOrderResponse,
+    pub items: Vec<PurchaseOrderItemResponse>,
+}
+
+#[derive(serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductLoteInfo {
+    pub id: String,
+    pub quantity: f64,
+    pub date: String,
+    pub document_number: Option<String>,
+    pub details: Option<String>,
+}
+
+#[derive(serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingPurchaseOrderInfo {
+    pub n_pedido: i32,
+    pub d_pedido: Option<String>,
+    pub c_nome_f: Option<String>,
+    pub n_qtde: f64,
+    pub n_chegou: f64,
+    pub n_preco: f64,
+}
+
+// GET /api/compras/pedidos
+pub async fn list_purchase_orders(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<PedidosQueryParams>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+    
+    let mut query = "SELECT n_pedido, d_pedido, n_cod_fornec, c_nome_f, c_usuario, c_status, c_prazo_pgto, c_prev_entrega, n_valor, d_previsao, c_email, m_observac FROM purchase_orders WHERE 1=1".to_string();
+    let mut args: Vec<String> = Vec::new();
+
+    if let Some(ref status) = params.status {
+        if !status.is_empty() && status != "ALL" {
+            query.push_str(" AND c_status = ?");
+            args.push(status.clone());
+        }
+    }
+
+    if let Some(ref search) = params.search {
+        if !search.trim().is_empty() {
+            query.push_str(" AND (c_nome_f LIKE ? OR CAST(n_pedido AS TEXT) LIKE ?)");
+            let like_arg = format!("%{}%", search.trim());
+            args.push(like_arg.clone());
+            args.push(like_arg);
+        }
+    }
+
+    query.push_str(" ORDER BY d_pedido DESC, n_pedido DESC");
+
+    let mut stmt = match conn.prepare(&query) {
+        Ok(s) => s,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let params_converted = rusqlite::params_from_iter(args.iter());
+    let rows = stmt.query_map(params_converted, |row| {
+        Ok(PurchaseOrderResponse {
+            n_pedido: row.get(0)?,
+            d_pedido: row.get(1)?,
+            n_cod_fornec: row.get(2)?,
+            c_nome_f: row.get(3)?,
+            c_usuario: row.get(4)?,
+            c_status: row.get(5)?,
+            c_prazo_pgto: row.get(6)?,
+            c_prev_entrega: row.get(7)?,
+            n_valor: row.get(8)?,
+            d_previsao: row.get(9)?,
+            c_email: row.get(10)?,
+            m_observac: row.get(11)?,
+        })
+    });
+
+    match rows {
+        Ok(iter) => {
+            let mut list = Vec::new();
+            for r in iter {
+                if let Ok(m) = r { list.push(m); }
+            }
+            (StatusCode::OK, Json(list)).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+// GET /api/compras/pedidos/:id
+pub async fn get_purchase_order_detail(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i32>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    // 1. Fetch header
+    let header_res = conn.query_row(
+        "SELECT n_pedido, d_pedido, n_cod_fornec, c_nome_f, c_usuario, c_status, c_prazo_pgto, c_prev_entrega, n_valor, d_previsao, c_email, m_observac FROM purchase_orders WHERE n_pedido = ?1",
+        params![id],
+        |row| {
+            Ok(PurchaseOrderResponse {
+                n_pedido: row.get(0)?,
+                d_pedido: row.get(1)?,
+                n_cod_fornec: row.get(2)?,
+                c_nome_f: row.get(3)?,
+                c_usuario: row.get(4)?,
+                c_status: row.get(5)?,
+                c_prazo_pgto: row.get(6)?,
+                c_prev_entrega: row.get(7)?,
+                n_valor: row.get(8)?,
+                d_previsao: row.get(9)?,
+                c_email: row.get(10)?,
+                m_observac: row.get(11)?,
+            })
+        }
+    );
+
+    let header = match header_res {
+        Ok(h) => h,
+        Err(rusqlite::Error::QueryReturnedNoRows) => return (StatusCode::NOT_FOUND, Json(json!({ "error": "Pedido não encontrado" }))).into_response(),
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    // 2. Fetch items
+    let mut stmt = match conn.prepare(
+        "SELECT id, n_pedido, c_referencia, n_qtde, n_preco, n_chegou, c_descricao, c_unidade, n_valor_total, n_registro, c_chegada FROM purchase_order_items WHERE n_pedido = ?1 ORDER BY id ASC"
+    ) {
+        Ok(s) => s,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let items_rows = stmt.query_map(params![id], |row| {
+        Ok(PurchaseOrderItemResponse {
+            id: row.get(0)?,
+            n_pedido: row.get(1)?,
+            c_referencia: row.get(2)?,
+            n_qtde: row.get(3)?,
+            n_preco: row.get(4)?,
+            n_chegou: row.get(5)?,
+            c_descricao: row.get(6)?,
+            c_unidade: row.get(7)?,
+            n_valor_total: row.get(8)?,
+            n_registro: row.get(9)?,
+            c_chegada: row.get(10)?,
+        })
+    });
+
+    let mut items = Vec::new();
+    if let Ok(iter) = items_rows {
+        for r in iter {
+            if let Ok(item) = r { items.push(item); }
+        }
+    }
+
+    (StatusCode::OK, Json(PurchaseOrderDetailResponse { header, items })).into_response()
+}
+
+// GET /api/estoque/item-info/:code
+pub async fn get_item_extra_info(
+    State(state): State<Arc<AppState>>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let mut invoices = Vec::new();
+    let mut pending_orders = Vec::new();
+    let mut formulation = Vec::new();
+    let mut lotes = Vec::new();
+
+    // 1. Fetch recent purchase invoices (from invoices table)
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date FROM invoices WHERE item_code = ?1 ORDER BY invoice_date DESC LIMIT 10"
+    ) {
+        let rows = stmt.query_map(params![code], |row| {
+            Ok(crate::Invoice {
+                id: row.get(0)?,
+                invoice_number: row.get(1)?,
+                item_code: row.get(2)?,
+                description: row.get(3)?,
+                unit: row.get(4)?,
+                quantity: row.get(5)?,
+                unit_price: row.get(6)?,
+                total_value: row.get(7)?,
+                supplier_name: row.get(8)?,
+                supplier_id: row.get(9)?,
+                invoice_date: row.get(10)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(inv) = r { invoices.push(inv); }
+            }
+        }
+    }
+
+    // 2. Fetch pending purchase orders (from purchase_orders & purchase_order_items where n_chegou < n_qtde)
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT po.n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, poi.n_preco 
+         FROM purchase_order_items poi
+         INNER JOIN purchase_orders po ON poi.n_pedido = po.n_pedido
+         WHERE poi.c_referencia = ?1 AND poi.n_chegou < poi.n_qtde
+         ORDER BY po.d_pedido DESC"
+    ) {
+        let rows = stmt.query_map(params![code], |row| {
+            Ok(PendingPurchaseOrderInfo {
+                n_pedido: row.get(0)?,
+                d_pedido: row.get(1)?,
+                c_nome_f: row.get(2)?,
+                n_qtde: row.get(3)?,
+                n_chegou: row.get(4)?,
+                n_preco: row.get(5)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(po) = r { pending_orders.push(po); }
+            }
+        }
+    }
+
+    // 3. Fetch formulation composition (if it's a finished product)
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT product_code, ingredient_code, description, quantity, percentage FROM formulations WHERE product_code = ?1 ORDER BY quantity DESC"
+    ) {
+        let rows = stmt.query_map(params![code], |row| {
+            Ok(crate::models::FormulationLine {
+                product_code: row.get(0)?,
+                ingredient_code: row.get(1)?,
+                description: row.get(2)?,
+                quantity: row.get(3)?,
+                percentage: row.get(4)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(line) = r { formulation.push(line); }
+            }
+        }
+    }
+
+    // 4. Fetch production batches / lotes (from stock_movements with type 'entrada' and item_type 'produto')
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT id, quantity, date, document_number, details 
+         FROM stock_movements 
+         WHERE item_code = ?1 AND item_type = 'produto' AND movement_type = 'entrada'
+         ORDER BY date DESC LIMIT 15"
+    ) {
+        let rows = stmt.query_map(params![code], |row| {
+            Ok(ProductLoteInfo {
+                id: row.get(0)?,
+                quantity: row.get(1)?,
+                date: row.get(2)?,
+                document_number: row.get(3)?,
+                details: row.get(4)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(lote) = r { lotes.push(lote); }
+            }
+        }
+    }
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "invoices": invoices,
+            "pendingOrders": pending_orders,
+            "formulation": formulation,
+            "lotes": lotes,
+        }))
+    ).into_response()
 }
 

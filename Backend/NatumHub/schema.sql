@@ -144,3 +144,36 @@ CREATE TABLE IF NOT EXISTS stock_movements (
 CREATE INDEX IF NOT EXISTS idx_movements_item ON stock_movements(item_code);
 CREATE INDEX IF NOT EXISTS idx_movements_date ON stock_movements(date);
 
+-- Pedidos de Compra (Header e Itens)
+CREATE TABLE IF NOT EXISTS purchase_orders (
+    n_pedido        INTEGER PRIMARY KEY,
+    d_pedido        TEXT,
+    n_cod_fornec    INTEGER,
+    c_nome_f        TEXT,
+    c_usuario       TEXT,
+    c_status        TEXT,
+    c_prazo_pgto    TEXT,
+    c_prev_entrega  TEXT,
+    n_valor         REAL,
+    d_previsao      TEXT,
+    c_email         TEXT,
+    m_observac      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS purchase_order_items (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    n_pedido        INTEGER,
+    c_referencia    TEXT,
+    n_qtde          REAL,
+    n_preco         REAL,
+    n_chegou        REAL,
+    c_descricao     TEXT,
+    c_unidade       TEXT,
+    n_valor_total   REAL,
+    n_registro      INTEGER,
+    c_chegada       TEXT,
+    FOREIGN KEY (n_pedido) REFERENCES purchase_orders(n_pedido) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_poi_pedido ON purchase_order_items(n_pedido);
+CREATE INDEX IF NOT EXISTS idx_poi_ref ON purchase_order_items(c_referencia);
+

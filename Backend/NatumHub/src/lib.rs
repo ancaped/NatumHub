@@ -647,6 +647,39 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         );
         CREATE INDEX IF NOT EXISTS idx_movements_item ON stock_movements(item_code);
         CREATE INDEX IF NOT EXISTS idx_movements_date ON stock_movements(date);
+
+        -- Pedidos de Compra (Header e Itens)
+        CREATE TABLE IF NOT EXISTS purchase_orders (
+            n_pedido        INTEGER PRIMARY KEY,
+            d_pedido        TEXT,
+            n_cod_fornec    INTEGER,
+            c_nome_f        TEXT,
+            c_usuario       TEXT,
+            c_status        TEXT,
+            c_prazo_pgto    TEXT,
+            c_prev_entrega  TEXT,
+            n_valor         REAL,
+            d_previsao      TEXT,
+            c_email         TEXT,
+            m_observac      TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS purchase_order_items (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            n_pedido        INTEGER,
+            c_referencia    TEXT,
+            n_qtde          REAL,
+            n_preco         REAL,
+            n_chegou        REAL,
+            c_descricao     TEXT,
+            c_unidade       TEXT,
+            n_valor_total   REAL,
+            n_registro      INTEGER,
+            c_chegada       TEXT,
+            FOREIGN KEY (n_pedido) REFERENCES purchase_orders(n_pedido) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_poi_pedido ON purchase_order_items(n_pedido);
+        CREATE INDEX IF NOT EXISTS idx_poi_ref ON purchase_order_items(c_referencia);
     ")?;
 
     Ok(())
@@ -2418,6 +2451,9 @@ fn start_axum_server() {
             .route("/api/import/watch-config", get(handlers::get_watch_config_handler).post(handlers::save_watch_config_handler))
             .route("/api/estoque/movimentacoes/:code", get(handlers::get_stock_movements))
             .route("/api/produtos/formulacao/:code", get(handlers::get_product_formulation))
+            .route("/api/estoque/item-info/:code", get(handlers::get_item_extra_info))
+            .route("/api/compras/pedidos", get(handlers::list_purchase_orders))
+            .route("/api/compras/pedidos/:id", get(handlers::get_purchase_order_detail))
             .route("/api/historico", get(handlers::list_producao).post(handlers::add_producao))
             .route("/api/historico/:id", delete(handlers::delete_producao))
             .route("/api/google/status", get(google_drive::get_google_status))
@@ -2517,6 +2553,7 @@ mod tests {
                 println!("  Snapshots: {}", res.snapshots);
                 println!("  Invoices: {}", res.invoices);
                 println!("  Consumption: {}", res.consumption);
+                println!("  Purchase Orders: {}", res.purchase_orders);
             }
             Err(e) => {
                 println!("Sync failed with error: {:?}", e);

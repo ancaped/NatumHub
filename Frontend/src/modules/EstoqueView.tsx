@@ -3,14 +3,18 @@ import { api } from '../lib/api';
 import { 
   ArrowLeft, Search, Database, Layers, Boxes, Calendar, FileText, 
   RefreshCw, CheckCircle2, AlertTriangle, ArrowUpRight, ArrowDownRight, 
-  Info, Shield, Package, ShoppingCart, User, HelpCircle, FileSpreadsheet, Lock
+  Info, Shield, Package, ShoppingCart, User, HelpCircle, FileSpreadsheet, Lock,
+  Truck, Receipt, Clock
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { StockMovement, FormulationLine, DbDumpResult } from '../types';
 
 const API_BASE = 'http://127.0.0.1:3001/api';
 
+type EstoqueMode = 'insumos' | 'produtos' | 'materiais';
+
 interface EstoqueViewProps {
+  mode: EstoqueMode;
   onBackToHub: () => void;
 }
 
@@ -47,9 +51,69 @@ interface DemandResultWithIgnored {
   notes: string | null;
 }
 
-export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
-  // Navigation / Tabs
-  const [activeTab, setActiveTab] = useState<'insumos' | 'produtos' | 'materiais'>('insumos');
+// Extra info from /api/estoque/item-info/:code
+interface InvoiceInfo {
+  id: number;
+  invoiceNumber: string;
+  itemCode: string;
+  description: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  totalValue: number;
+  supplierName: string;
+  supplierId: string;
+  invoiceDate: string;
+}
+
+interface PendingOrderInfo {
+  nPedido: number;
+  dPedido: string | null;
+  cNomeF: string | null;
+  nQtde: number;
+  nChegou: number;
+  nPreco: number;
+}
+
+interface ProductLoteInfo {
+  id: string;
+  quantity: number;
+  date: string;
+  documentNumber: string | null;
+  details: string | null;
+}
+
+interface ItemExtraInfo {
+  invoices: InvoiceInfo[];
+  pendingOrders: PendingOrderInfo[];
+  formulation: FormulationLine[];
+  lotes: ProductLoteInfo[];
+}
+
+const MODE_CONFIGS = {
+  insumos: {
+    title: 'Insumos & Matérias-Primas',
+    subtitle: 'Matérias-primas químicas, essências e embalagens com movimentação física e pedidos pendentes.',
+    icon: Layers,
+    pageName: 'Módulo de Estoque > Insumos',
+  },
+  produtos: {
+    title: 'Produtos Acabados',
+    subtitle: 'Formulações, estoque atual, previsões de demanda, ordens recomendadas e histórico de lotes.',
+    icon: Package,
+    pageName: 'Módulo de Estoque > Produtos',
+  },
+  materiais: {
+    title: 'Materiais & Consumíveis',
+    subtitle: 'Materiais de escritório, laboratório, limpeza e itens auxiliares de consumo geral.',
+    icon: Boxes,
+    pageName: 'Módulo de Estoque > Materiais',
+  },
+};
+
+export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
+  const config = MODE_CONFIGS[mode];
+  const ModeIcon = config.icon;
   
   // Data States
   const [demands, setDemands] = useState<DemandResultWithIgnored[]>([]);
@@ -65,9 +129,10 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
     type: 'insumo' | 'produto' | 'material';
     stock: number;
   } | null>(null);
-  const [drawerTab, setDrawerTab] = useState<'movimentacoes' | 'formulacao'>('movimentacoes');
+  const [drawerTab, setDrawerTab] = useState<'movimentacoes' | 'formulacao' | 'notas' | 'pedidos' | 'lotes'>('movimentacoes');
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [formulation, setFormulation] = useState<FormulationLine[]>([]);
+  const [extraInfo, setExtraInfo] = useState<ItemExtraInfo | null>(null);
   const [drawerLoading, setDrawerLoading] = useState(false);
   const [drawerError, setDrawerError] = useState<string | null>(null);
 
@@ -75,15 +140,17 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
   const loadData = async () => {
     setLoading(true);
     try {
-      // 1. Get raw items/demands via Tauri API (for stock snapshots of Insumos/Materiais)
-      const demandsData = await api.getDemands();
-      setDemands(demandsData as any);
-
-      // 2. Get calculated products with stocks via REST API
-      const res = await fetch(`${API_BASE}/products?limit=5000`);
-      if (res.ok) {
-        const data = await res.json();
-        setProducts(data.items || []);
+      if (mode === 'produtos') {
+        // Get calculated products with stocks via REST API
+        const res = await fetch(`${API_BASE}/products?limit=5000`);
+        if (res.ok) {
+          const data = await res.json();
+          setProducts(data.items || []);
+        }
+      } else {
+        // Get raw items/demands via Tauri API (for stock snapshots of Insumos/Materiais)
+        const demandsData = await api.getDemands();
+        setDemands(demandsData as any);
       }
     } catch (e) {
       console.error("Erro ao carregar dados de estoque:", e);
@@ -94,10 +161,8 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
 
   useEffect(() => {
     loadData();
-    (window as any).__current_page__ = "Módulo de Estoque";
-  }, []);
-
-  // SQL Sync/Dump options are managed globally on the home page settings.
+    (window as any).__current_page__ = config.pageName;
+  }, [mode]);
 
   // Click handler to open detail drawer
   const handleOpenDrawer = async (
@@ -112,8 +177,9 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
     setDrawerError(null);
     setMovements([]);
     setFormulation([]);
+    setExtraInfo(null);
     
-    // Choose default drawer tab
+    // Choose default drawer tab based on type
     if (type === 'produto') {
       setDrawerTab('formulacao');
     } else {
@@ -125,15 +191,26 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
       const movRes = await fetch(`${API_BASE}/estoque/movimentacoes/${code}`);
       if (movRes.ok) {
         setMovements(await movRes.json());
-      } else {
-        console.warn("Erro ao buscar movimentações");
       }
 
-      // If finished product, fetch formulation
+      // Fetch extra info (invoices, pending orders, formulation, lotes)
+      const extraRes = await fetch(`${API_BASE}/estoque/item-info/${code}`);
+      if (extraRes.ok) {
+        const extra: ItemExtraInfo = await extraRes.json();
+        setExtraInfo(extra);
+        if (extra.formulation.length > 0) {
+          setFormulation(extra.formulation);
+        }
+      }
+
+      // Fallback: If finished product and formulation not from item-info, fetch directly
       if (type === 'produto') {
         const formRes = await fetch(`${API_BASE}/produtos/formulacao/${code}`);
         if (formRes.ok) {
-          setFormulation(await formRes.json());
+          const formData = await formRes.json();
+          if (formData.length > 0) {
+            setFormulation(formData);
+          }
         }
       }
     } catch (e) {
@@ -144,12 +221,12 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
     }
   };
 
-  // Filter demands based on active tab and search
+  // Filter demands based on mode and search
   const filteredDemands = useMemo(() => {
     let list = demands;
-    if (activeTab === 'insumos') {
+    if (mode === 'insumos') {
       list = list.filter(d => d.categoryId === 'cat_mp' || d.categoryId === 'cat_emb');
-    } else if (activeTab === 'materiais') {
+    } else if (mode === 'materiais') {
       list = list.filter(d => d.categoryId === 'cat_mat');
     } else {
       return [];
@@ -163,11 +240,11 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
       );
     }
     return list;
-  }, [demands, activeTab, search]);
+  }, [demands, mode, search]);
 
   // Filter products based on search
   const filteredProducts = useMemo(() => {
-    if (activeTab !== 'produtos') return [];
+    if (mode !== 'produtos') return [];
     let list = products;
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -177,17 +254,37 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
       );
     }
     return list;
-  }, [products, activeTab, search]);
+  }, [products, mode, search]);
 
-  // Format bytes helper
-  const formatBytes = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const dm = 2;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  const formatCurrency = (val: number) =>
+    val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  const formatDate = (d: string | null) => {
+    if (!d) return '-';
+    try {
+      const date = new Date(d);
+      return date.toLocaleDateString('pt-BR');
+    } catch {
+      return d;
+    }
   };
+
+  // Drawer tab list depends on item type
+  const drawerTabs = useMemo(() => {
+    if (!selectedItem) return [];
+    const tabs: { id: typeof drawerTab; label: string; icon: any }[] = [];
+    
+    if (selectedItem.type === 'produto') {
+      tabs.push({ id: 'formulacao', label: 'Formulação', icon: FileSpreadsheet });
+      tabs.push({ id: 'lotes', label: 'Lotes Produzidos', icon: Package });
+      tabs.push({ id: 'movimentacoes', label: 'Movimentações', icon: ArrowUpRight });
+    } else {
+      tabs.push({ id: 'movimentacoes', label: 'Movimentações', icon: ArrowUpRight });
+      tabs.push({ id: 'notas', label: 'Notas Fiscais', icon: Receipt });
+      tabs.push({ id: 'pedidos', label: 'Pedidos Pendentes', icon: Truck });
+    }
+    return tabs;
+  }, [selectedItem]);
 
   return (
     <div className="flex h-screen bg-zinc-50 font-sans text-zinc-900 overflow-hidden">
@@ -196,9 +293,11 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
         <div className="h-16 flex items-center px-6 border-b border-zinc-200 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="bg-zinc-900 text-white p-2 rounded-xl shadow-sm">
-              <Boxes className="h-5 w-5" />
+              <ModeIcon className="h-5 w-5" />
             </div>
-            <h1 className="font-bold text-base tracking-tight text-zinc-800 uppercase">Estoque Hub</h1>
+            <h1 className="font-bold text-base tracking-tight text-zinc-800 uppercase">
+              {mode === 'insumos' ? 'Insumos' : mode === 'produtos' ? 'Produtos' : 'Materiais'}
+            </h1>
           </div>
         </div>
 
@@ -209,51 +308,67 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-all cursor-pointer border border-zinc-250/50"
           >
             <ArrowLeft className="h-4 w-4 text-zinc-400" />
-            Voltar ao Início
+            Voltar ao Estoque Hub
           </button>
         </div>
 
-        {/* Navigation Tabs */}
-        <nav className="flex-1 overflow-y-auto p-3 space-y-1">
-          {([
-            { id: 'insumos', label: 'Insumos (MP / Emb)', icon: Layers },
-            { id: 'produtos', label: 'Produtos Acabados', icon: Package },
-            { id: 'materiais', label: 'Materiais & Consumo', icon: Boxes },
-          ] as const).map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => {
-                setActiveTab(tab.id);
-                setSearch('');
-              }}
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all text-left cursor-pointer",
-                activeTab === tab.id 
-                  ? "bg-zinc-900 text-white shadow-md" 
-                  : "text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900"
-              )}
-            >
-              <tab.icon className={cn("h-4 w-4 shrink-0", activeTab === tab.id ? "text-white" : "text-zinc-400")} />
-              {tab.label}
-            </button>
-          ))}
-        </nav>
+        {/* Module Description in sidebar */}
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="bg-zinc-50 rounded-xl p-4 space-y-3 border border-zinc-100">
+            <h3 className="text-xs font-bold text-zinc-700 uppercase tracking-wider">{config.title}</h3>
+            <p className="text-xs text-zinc-500 leading-relaxed">{config.subtitle}</p>
+          </div>
+          
+          {/* Quick stats */}
+          <div className="mt-4 space-y-2">
+            <div className="flex justify-between items-center px-1">
+              <span className="text-[10px] text-zinc-400 font-bold uppercase">Total Itens</span>
+              <span className="text-sm font-extrabold text-zinc-900">
+                {mode === 'produtos' ? filteredProducts.length : filteredDemands.length}
+              </span>
+            </div>
+            {mode !== 'produtos' && (
+              <>
+                <div className="flex justify-between items-center px-1">
+                  <span className="text-[10px] text-zinc-400 font-bold uppercase">Críticos</span>
+                  <span className="text-sm font-extrabold text-red-600">
+                    {filteredDemands.filter(d => d.urgency === 'critical').length}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center px-1">
+                  <span className="text-[10px] text-zinc-400 font-bold uppercase">Atenção</span>
+                  <span className="text-sm font-extrabold text-amber-600">
+                    {filteredDemands.filter(d => d.urgency === 'warning').length}
+                  </span>
+                </div>
+              </>
+            )}
+            {mode === 'produtos' && (
+              <>
+                <div className="flex justify-between items-center px-1">
+                  <span className="text-[10px] text-zinc-400 font-bold uppercase">Críticos</span>
+                  <span className="text-sm font-extrabold text-red-600">
+                    {filteredProducts.filter(p => p.status === 'critico').length}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center px-1">
+                  <span className="text-[10px] text-zinc-400 font-bold uppercase">Requer Ordem</span>
+                  <span className="text-sm font-extrabold text-amber-600">
+                    {filteredProducts.filter(p => p.status === 'ordem').length}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
         <header className="h-16 bg-white border-b border-zinc-200 flex items-center justify-between px-8 shrink-0">
           <div>
-            <h2 className="text-xl font-bold tracking-tight text-zinc-900">
-              {activeTab === 'insumos' && "Insumos & Matérias-Primas"}
-              {activeTab === 'produtos' && "Produtos Acabados"}
-              {activeTab === 'materiais' && "Materiais & Consumíveis"}
-            </h2>
-            <p className="text-xs text-zinc-500 mt-0.5">
-              {activeTab === 'insumos' && "Matérias-primas químicas e embalagens integradas com movimentação física."}
-              {activeTab === 'produtos' && "Formulações, estoque atual, previsões de demanda e ordens recomendadas."}
-              {activeTab === 'materiais' && "Materiais de consumo, escritório, laboratório e de manutenção geral."}
-            </p>
+            <h2 className="text-xl font-bold tracking-tight text-zinc-900">{config.title}</h2>
+            <p className="text-xs text-zinc-500 mt-0.5">{config.subtitle}</p>
           </div>
         </header>
 
@@ -273,7 +388,7 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
                   />
                 </div>
                 <div className="text-xs font-semibold text-zinc-500 bg-zinc-100 px-3 py-1.5 rounded-lg">
-                  {activeTab === 'produtos' ? `${filteredProducts.length} itens` : `${filteredDemands.length} itens`}
+                  {mode === 'produtos' ? `${filteredProducts.length} itens` : `${filteredDemands.length} itens`}
                 </div>
               </div>
 
@@ -285,7 +400,7 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
                       <RefreshCw className="h-5 w-5 animate-spin text-zinc-500" />
                       Carregando dados de estoque...
                     </div>
-                  ) : activeTab === 'produtos' ? (
+                  ) : mode === 'produtos' ? (
                     filteredProducts.length === 0 ? (
                       <div className="p-12 text-center text-zinc-400">Nenhum produto encontrado.</div>
                     ) : (
@@ -379,12 +494,12 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
                                     d.itemCode,
                                     d.description,
                                     d.unit,
-                                    activeTab === 'insumos' ? 'insumo' : 'material',
+                                    mode === 'insumos' ? 'insumo' : 'material',
                                     d.currentStock
                                   )}
                                   className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-900 hover:text-white rounded-lg text-xs font-bold text-zinc-700 transition-all cursor-pointer shadow-sm border border-zinc-200"
                                 >
-                                  Ver Movimentação
+                                  Ver Detalhes
                                 </button>
                               </td>
                             </tr>
@@ -400,7 +515,7 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
         </main>
       </div>
 
-      {/* Side Detail Drawer (Movimentações & Fórmula) */}
+      {/* Side Detail Drawer (Movimentações, Fórmula, Notas, Pedidos, Lotes) */}
       {selectedItem && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-end">
           {/* Overlay click to close */}
@@ -426,29 +541,22 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
               </button>
             </div>
 
-            {/* Drawer navigation if Finished Product */}
-            {selectedItem.type === 'produto' && (
-              <div className="flex border-b border-zinc-200 bg-zinc-50 shrink-0">
+            {/* Drawer Tab Navigation */}
+            <div className="flex border-b border-zinc-200 bg-zinc-50 shrink-0">
+              {drawerTabs.map(tab => (
                 <button
-                  onClick={() => setDrawerTab('formulacao')}
+                  key={tab.id}
+                  onClick={() => setDrawerTab(tab.id)}
                   className={cn(
-                    "flex-1 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer",
-                    drawerTab === 'formulacao' ? "border-zinc-900 text-zinc-900 font-extrabold" : "border-transparent text-zinc-500 hover:text-zinc-800"
+                    "flex-1 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center justify-center gap-1.5",
+                    drawerTab === tab.id ? "border-zinc-900 text-zinc-900 font-extrabold" : "border-transparent text-zinc-500 hover:text-zinc-800"
                   )}
                 >
-                  Fórmula breakdown
+                  <tab.icon className="h-3.5 w-3.5" />
+                  {tab.label}
                 </button>
-                <button
-                  onClick={() => setDrawerTab('movimentacoes')}
-                  className={cn(
-                    "flex-1 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer",
-                    drawerTab === 'movimentacoes' ? "border-zinc-900 text-zinc-900 font-extrabold" : "border-transparent text-zinc-500 hover:text-zinc-800"
-                  )}
-                >
-                  Movimentações (Histórico)
-                </button>
-              </div>
-            )}
+              ))}
+            </div>
 
             {/* Drawer Body */}
             <div className="flex-1 overflow-y-auto p-6">
@@ -495,6 +603,145 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  )}
+                </div>
+              ) : drawerTab === 'lotes' ? (
+                /* Product Batch History */
+                <div className="space-y-4">
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-500 font-medium">
+                    <Package className="h-3.5 w-3.5 text-zinc-400" />
+                    Últimos lotes produzidos registrados no sistema.
+                  </div>
+                  {(!extraInfo || extraInfo.lotes.length === 0) ? (
+                    <div className="text-center py-12 text-zinc-400">Nenhum lote registrado recentemente.</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {extraInfo.lotes.map((lote) => (
+                        <div key={lote.id} className="bg-white border border-zinc-150 p-4 rounded-xl shadow-sm space-y-2 hover:border-zinc-300 transition-colors">
+                          <div className="flex items-center justify-between">
+                            <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-200 text-[9px] font-bold uppercase rounded">
+                              Lote Produzido
+                            </span>
+                            <span className="text-[10px] text-zinc-400 font-medium flex items-center gap-1">
+                              <Calendar size={10} />
+                              {formatDate(lote.date)}
+                            </span>
+                          </div>
+                          <div className="flex items-baseline justify-between pt-1">
+                            <strong className="text-zinc-900 text-base font-extrabold">
+                              +{lote.quantity.toLocaleString('pt-BR')} UN
+                            </strong>
+                            {lote.documentNumber && (
+                              <span className="text-xs font-mono font-bold text-zinc-500">
+                                Doc: #{lote.documentNumber}
+                              </span>
+                            )}
+                          </div>
+                          {lote.details && (
+                            <p className="text-xs text-zinc-500 font-medium pt-1 border-t border-zinc-100 mt-1">
+                              {lote.details}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : drawerTab === 'notas' ? (
+                /* Recent Invoices for Insumos/Materiais */
+                <div className="space-y-4">
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-500 font-medium">
+                    <Receipt className="h-3.5 w-3.5 text-zinc-400" />
+                    Últimas notas fiscais de compra registradas para este item.
+                  </div>
+                  {(!extraInfo || extraInfo.invoices.length === 0) ? (
+                    <div className="text-center py-12 text-zinc-400">Nenhuma nota fiscal encontrada para este item.</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {extraInfo.invoices.map((inv) => (
+                        <div key={inv.id} className="bg-white border border-zinc-150 p-4 rounded-xl shadow-sm space-y-2 hover:border-zinc-300 transition-colors">
+                          <div className="flex items-center justify-between">
+                            <span className="px-2 py-0.5 bg-blue-50 text-blue-600 border border-blue-200 text-[9px] font-bold uppercase rounded">
+                              NF #{inv.invoiceNumber}
+                            </span>
+                            <span className="text-[10px] text-zinc-400 font-medium flex items-center gap-1">
+                              <Calendar size={10} />
+                              {formatDate(inv.invoiceDate)}
+                            </span>
+                          </div>
+                          <div className="flex items-baseline justify-between pt-1">
+                            <strong className="text-zinc-900 text-base font-extrabold">
+                              {inv.quantity.toLocaleString('pt-BR')} {inv.unit}
+                            </strong>
+                            <span className="text-sm font-bold text-zinc-700">
+                              {formatCurrency(inv.totalValue)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-xs text-zinc-500 pt-1 border-t border-zinc-100">
+                            <span className="font-medium">{inv.supplierName || 'Fornecedor não informado'}</span>
+                            <span className="font-semibold">P.U. {formatCurrency(inv.unitPrice)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : drawerTab === 'pedidos' ? (
+                /* Pending Purchase Orders for Insumos/Materiais */
+                <div className="space-y-4">
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-500 font-medium">
+                    <Truck className="h-3.5 w-3.5 text-zinc-400" />
+                    Pedidos de compra com quantidade pendente de recebimento.
+                  </div>
+                  {(!extraInfo || extraInfo.pendingOrders.length === 0) ? (
+                    <div className="text-center py-12 text-zinc-400">Nenhum pedido pendente para este item.</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {extraInfo.pendingOrders.map((po) => {
+                        const remaining = po.nQtde - po.nChegou;
+                        const percent = po.nQtde > 0 ? (po.nChegou / po.nQtde) * 100 : 0;
+                        return (
+                          <div key={po.nPedido} className="bg-white border border-zinc-150 p-4 rounded-xl shadow-sm space-y-3 hover:border-zinc-300 transition-colors">
+                            <div className="flex items-center justify-between">
+                              <span className="px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-200 text-[9px] font-bold uppercase rounded">
+                                Pedido #{po.nPedido}
+                              </span>
+                              <span className="text-[10px] text-zinc-400 font-medium flex items-center gap-1">
+                                <Calendar size={10} />
+                                {formatDate(po.dPedido)}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-3 text-xs">
+                              <div>
+                                <span className="text-zinc-400 font-medium">Solicitado</span>
+                                <p className="font-bold text-zinc-900">{po.nQtde.toLocaleString('pt-BR')}</p>
+                              </div>
+                              <div>
+                                <span className="text-zinc-400 font-medium">Recebido</span>
+                                <p className="font-bold text-emerald-600">{po.nChegou.toLocaleString('pt-BR')}</p>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-zinc-400 font-medium">Faltante</span>
+                                <p className="font-bold text-amber-600">{remaining.toLocaleString('pt-BR')}</p>
+                              </div>
+                            </div>
+                            {/* Progress bar */}
+                            <div className="space-y-1">
+                              <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-amber-500 rounded-full transition-all duration-500"
+                                  style={{ width: `${Math.min(percent, 100)}%` }}
+                                />
+                              </div>
+                            </div>
+                            <div className="flex justify-between text-xs text-zinc-500 pt-1 border-t border-zinc-100">
+                              <span className="font-medium">{po.cNomeF || 'Fornecedor não informado'}</span>
+                              <span className="font-semibold">P.U. {formatCurrency(po.nPreco)}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

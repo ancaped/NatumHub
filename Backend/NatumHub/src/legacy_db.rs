@@ -16,6 +16,7 @@ pub struct SyncResult {
     pub consumption: usize,
     pub formulations: usize,
     pub movements: usize,
+    pub purchase_orders: usize,
 }
 
 // Intermediate thread-safe structs to hold SQL Server data
@@ -122,6 +123,34 @@ struct VendaRow {
     date_str: String,
     client_name: Option<String>,
     nota_fiscal: Option<i32>,
+}
+
+struct PedidoCpa1Row {
+    n_pedido: i32,
+    d_pedido: Option<String>,
+    n_cod_fornec: Option<i32>,
+    c_nome_f: Option<String>,
+    c_usuario: Option<String>,
+    c_status: Option<String>,
+    c_prazo_pgto: Option<String>,
+    c_prev_entrega: Option<String>,
+    n_valor: f64,
+    d_previsao: Option<String>,
+    c_email: Option<String>,
+    m_observac: Option<String>,
+}
+
+struct PedidoCpa2Row {
+    n_pedido: i32,
+    c_referencia: String,
+    n_qtde: f64,
+    n_preco: f64,
+    n_chegou: f64,
+    c_descricao: Option<String>,
+    c_unidade: Option<String>,
+    n_valor_total: f64,
+    n_registro: i32,
+    c_chegada: Option<String>,
 }
 
 fn get_setting_from_db_or_file(conn: Option<&Connection>, key: &str, default: &str) -> String {
@@ -592,6 +621,90 @@ WHERE v2.dVenda >= DATEADD(month, -12, GETDATE())
         });
     }
 
+    // K. Query PedidoCpa1 (Purchase Orders Header)
+    let query_pedido_cpa1 = "
+SELECT 
+    nPedido,
+    CONVERT(varchar, dPedido, 120) COLLATE Latin1_General_CI_AS as dPedido,
+    nCodFornec,
+    cNomeF COLLATE Latin1_General_CI_AS as cNomeF,
+    cUsuario COLLATE Latin1_General_CI_AS as cUsuario,
+    cStatus COLLATE Latin1_General_CI_AS as cStatus,
+    cPrazoPgto COLLATE Latin1_General_CI_AS as cPrazoPgto,
+    cPrevEntrega COLLATE Latin1_General_CI_AS as cPrevEntrega,
+    CAST(nValor AS FLOAT) as nValor,
+    CONVERT(varchar, dPrevisao, 120) COLLATE Latin1_General_CI_AS as dPrevisao,
+    cEmail COLLATE Latin1_General_CI_AS as cEmail,
+    CAST(mObservac AS NVARCHAR(MAX)) COLLATE Latin1_General_CI_AS as mObservac
+FROM PedidoCpa1 WITH (NOLOCK)
+WHERE dPedido >= DATEADD(month, -12, GETDATE()) OR (cStatus <> 'T' AND cStatus IS NOT NULL);
+    ";
+    println!("Step K: Querying PedidoCpa1");
+    let stream = client.query(query_pedido_cpa1, &[]).await?;
+    let db_rows_pedido_cpa1 = stream.into_first_result().await?;
+    let mut pedido_cpa1_list = Vec::new();
+    for row in db_rows_pedido_cpa1 {
+        let n_pedido: i32 = row.get(0).unwrap_or(0);
+        if n_pedido == 0 { continue; }
+        pedido_cpa1_list.push(PedidoCpa1Row {
+            n_pedido,
+            d_pedido: row.get(1).map(|s: &str| s.trim().to_string()),
+            n_cod_fornec: row.get(2),
+            c_nome_f: row.get(3).map(|s: &str| s.trim().to_string()),
+            c_usuario: row.get(4).map(|s: &str| s.trim().to_string()),
+            c_status: row.get(5).map(|s: &str| s.trim().to_string()),
+            c_prazo_pgto: row.get(6).map(|s: &str| s.trim().to_string()),
+            c_prev_entrega: row.get(7).map(|s: &str| s.trim().to_string()),
+            n_valor: row.get(8).unwrap_or(0.0),
+            d_previsao: row.get(9).map(|s: &str| s.trim().to_string()),
+            c_email: row.get(10).map(|s: &str| s.trim().to_string()),
+            m_observac: row.get(11).map(|s: &str| s.trim().to_string()),
+        });
+    }
+
+    // L. Query PedidoCpa2 (Purchase Orders Items)
+    let query_pedido_cpa2 = "
+SELECT 
+    nPedido,
+    cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
+    CAST(nQtde AS FLOAT) as nQtde,
+    CAST(nPreco AS FLOAT) as nPreco,
+    CAST(nChegou AS FLOAT) as nChegou,
+    cDescricao COLLATE Latin1_General_CI_AS as cDescricao,
+    cUnidade COLLATE Latin1_General_CI_AS as cUnidade,
+    CAST(VALOR_TOTAL AS FLOAT) as VALOR_TOTAL,
+    nRegistro,
+    cChegada COLLATE Latin1_General_CI_AS as cChegada
+FROM PedidoCpa2 WITH (NOLOCK)
+WHERE nPedido IN (
+    SELECT nPedido 
+    FROM PedidoCpa1 WITH (NOLOCK) 
+    WHERE dPedido >= DATEADD(month, -12, GETDATE()) OR (cStatus <> 'T' AND cStatus IS NOT NULL)
+);
+    ";
+    println!("Step L: Querying PedidoCpa2");
+    let stream = client.query(query_pedido_cpa2, &[]).await?;
+    let db_rows_pedido_cpa2 = stream.into_first_result().await?;
+    let mut pedido_cpa2_list = Vec::new();
+    for row in db_rows_pedido_cpa2 {
+        let n_pedido: i32 = row.get(0).unwrap_or(0);
+        let c_referencia: &str = row.get(1).unwrap_or("");
+        let n_registro: i32 = row.get(8).unwrap_or(0);
+        if n_pedido == 0 || c_referencia.is_empty() || n_registro == 0 { continue; }
+        pedido_cpa2_list.push(PedidoCpa2Row {
+            n_pedido,
+            c_referencia: c_referencia.trim().to_string(),
+            n_qtde: row.get(2).unwrap_or(0.0),
+            n_preco: row.get(3).unwrap_or(0.0),
+            n_chegou: row.get(4).unwrap_or(0.0),
+            c_descricao: row.get(5).map(|s: &str| s.trim().to_string()),
+            c_unidade: row.get(6).map(|s: &str| s.trim().to_string()),
+            n_valor_total: row.get(7).unwrap_or(0.0),
+            n_registro,
+            c_chegada: row.get(9).map(|s: &str| s.trim().to_string()),
+        });
+    }
+
     // ==========================================
     // 2. OPEN TRANSACTION AND WRITE TO SQLITE (NO AWAIT POINTS)
     // ==========================================
@@ -886,6 +999,52 @@ WHERE v2.dVenda >= DATEADD(month, -12, GETDATE())
         count_movements += 1;
     }
 
+    // Write Purchase Orders
+    let mut count_pos = 0;
+    tx.execute("DELETE FROM purchase_order_items", [])?;
+    tx.execute("DELETE FROM purchase_orders", [])?;
+
+    for po in pedido_cpa1_list {
+        tx.execute(
+            "INSERT INTO purchase_orders (n_pedido, d_pedido, n_cod_fornec, c_nome_f, c_usuario, c_status, c_prazo_pgto, c_prev_entrega, n_valor, d_previsao, c_email, m_observac)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                po.n_pedido,
+                po.d_pedido,
+                po.n_cod_fornec,
+                po.c_nome_f,
+                po.c_usuario,
+                po.c_status,
+                po.c_prazo_pgto,
+                po.c_prev_entrega,
+                po.n_valor,
+                po.d_previsao,
+                po.c_email,
+                po.m_observac,
+            ],
+        )?;
+        count_pos += 1;
+    }
+
+    for poi in pedido_cpa2_list {
+        tx.execute(
+            "INSERT INTO purchase_order_items (n_pedido, c_referencia, n_qtde, n_preco, n_chegou, c_descricao, c_unidade, n_valor_total, n_registro, c_chegada)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                poi.n_pedido,
+                poi.c_referencia,
+                poi.n_qtde,
+                poi.n_preco,
+                poi.n_chegou,
+                poi.c_descricao,
+                poi.c_unidade,
+                poi.n_valor_total,
+                poi.n_registro,
+                poi.c_chegada,
+            ],
+        )?;
+    }
+
     tx.commit()?;
     let _ = sqlite_conn.execute("PRAGMA foreign_keys = ON", []);
 
@@ -898,6 +1057,7 @@ WHERE v2.dVenda >= DATEADD(month, -12, GETDATE())
         consumption: count_consumption,
         formulations: count_formulations,
         movements: count_movements,
+        purchase_orders: count_pos,
     })
 }
 
