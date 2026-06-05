@@ -17,6 +17,10 @@ impl Db {
         }
     }
 
+    pub fn db_path(&self) -> &str {
+        &self.db_path
+    }
+
     pub fn connect(&self) -> Result<Connection> {
         Connection::open(&self.db_path)
     }

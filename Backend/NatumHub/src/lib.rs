@@ -485,6 +485,17 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             value TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT
+        );
+
+        INSERT OR IGNORE INTO settings (key, value) VALUES ('sql_host', '192.168.101.249');
+        INSERT OR IGNORE INTO settings (key, value) VALUES ('sql_port', '1433');
+        INSERT OR IGNORE INTO settings (key, value) VALUES ('sql_user', 'sa');
+        INSERT OR IGNORE INTO settings (key, value) VALUES ('sql_password', 'byteonDS2015');
+        INSERT OR IGNORE INTO settings (key, value) VALUES ('sql_database', 'NATUM');
+
         CREATE TABLE IF NOT EXISTS feedbacks (
             id          TEXT PRIMARY KEY,
             type        TEXT,
@@ -1502,15 +1513,33 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
         let avg26: f64 = row.get(11)?;
         let notes: Option<String> = row.get(12)?;
 
-        let avg26_corrected = if avg26 > 0.0 {
-            (avg26 * 5.0) / (119.0 / 30.0)
-        } else { 
-            0.0 
+        use chrono::Datelike;
+        let now = chrono::Local::now();
+        let current_year = now.year();
+        let day_of_year = (now.ordinal() as f64).max(1.0);
+        let elapsed_months = day_of_year / 30.0;
+
+        let avg24_corrected = if current_year == 2024 {
+            if avg24 > 0.0 { (avg24 * 12.0) / elapsed_months } else { 0.0 }
+        } else {
+            avg24
+        };
+
+        let avg25_corrected = if current_year == 2025 {
+            if avg25 > 0.0 { (avg25 * 12.0) / elapsed_months } else { 0.0 }
+        } else {
+            avg25
+        };
+
+        let avg26_corrected = if current_year == 2026 {
+            if avg26 > 0.0 { (avg26 * 12.0) / elapsed_months } else { 0.0 }
+        } else {
+            avg26
         };
 
         let mut avgs = Vec::new();
-        if avg24 > 0.1 { avgs.push(avg24); }
-        if avg25 > 0.1 { avgs.push(avg25); }
+        if avg24_corrected > 0.1 { avgs.push(avg24_corrected); }
+        if avg25_corrected > 0.1 { avgs.push(avg25_corrected); }
         if avg26_corrected > 0.1 { avgs.push(avg26_corrected); }
         
         let median_monthly = if avgs.is_empty() {
@@ -1561,8 +1590,8 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
             reserved_qty,
             in_production,
             in_orders,
-            avg2024: avg24,
-            avg2025: avg25,
+            avg2024: avg24_corrected,
+            avg2025: avg25_corrected,
             avg2026: avg26_corrected,
             overall_avg,
             future_stock_forecast,
@@ -2353,11 +2382,11 @@ fn start_axum_server() {
         
         let state = std::sync::Arc::new(handlers::AppState { db });
 
-        // Start file watcher for Producao
-        let watcher_state = state.clone();
-        tauri::async_runtime::spawn(async move {
-            watcher::start_folder_watcher(watcher_state).await;
-        });
+        // Spreadsheet folder watcher disabled as spreadsheet imports are removed
+        // let watcher_state = state.clone();
+        // tauri::async_runtime::spawn(async move {
+        //     watcher::start_folder_watcher(watcher_state).await;
+        // });
 
         // CORS Setup
         use tower_http::cors::{Any, CorsLayer};
@@ -2383,6 +2412,7 @@ fn start_axum_server() {
             .route("/api/import/kits", post(handlers::import_kits))
             .route("/api/import/sync", post(handlers::trigger_db_sync))
             .route("/api/import/dump", post(handlers::trigger_db_dump))
+            .route("/api/settings/:key", get(handlers::get_setting_handler).post(handlers::save_setting_handler))
             .route("/api/import/history", get(handlers::get_import_history))
             .route("/api/import/status", get(handlers::get_import_status))
             .route("/api/import/watch-config", get(handlers::get_watch_config_handler).post(handlers::save_watch_config_handler))
@@ -2475,10 +2505,10 @@ mod tests {
     #[tokio::test]
     async fn test_sync_execution() {
         let db_path = "../data.db";
-        let mut conn = Connection::open(db_path).unwrap();
+        let conn = Connection::open(db_path).unwrap();
         super::initialize_hub_db(&conn).unwrap();
         println!("Starting sync from SQL Server...");
-        match crate::legacy_db::sync_from_sql_server(&mut conn).await {
+        match crate::legacy_db::sync_from_sql_server(db_path).await {
             Ok(res) => {
                 println!("Sync succeeded!");
                 println!("  Products: {}", res.products);

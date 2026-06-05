@@ -34,6 +34,15 @@ export default function App() {
   const [restoringManual, setRestoringManual] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
+  // SQL Server states
+  const [sqlHost, setSqlHost] = useState('192.168.101.249');
+  const [sqlPort, setSqlPort] = useState('1433');
+  const [sqlUser, setSqlUser] = useState('sa');
+  const [sqlPassword, setSqlPassword] = useState('byteonDS2015');
+  const [sqlDatabase, setSqlDatabase] = useState('NATUM');
+  const [savingSql, setSavingSql] = useState(false);
+  const [syncingSql, setSyncingSql] = useState(false);
+
   const fetchGoogleStatus = async () => {
     try {
       const res = await fetch('http://127.0.0.1:3001/api/google/status');
@@ -47,8 +56,82 @@ export default function App() {
     }
   };
 
+  const fetchSqlConfig = async () => {
+    try {
+      const keys = ['sql_host', 'sql_port', 'sql_user', 'sql_password', 'sql_database'];
+      const vals = await Promise.all(
+        keys.map(async (key) => {
+          const res = await fetch(`http://127.0.0.1:3001/api/settings/${key}`);
+          if (res.ok) {
+            const data = await res.json();
+            return data.value;
+          }
+          return null;
+        })
+      );
+      if (vals[0]) setSqlHost(vals[0]);
+      if (vals[1]) setSqlPort(vals[1]);
+      if (vals[2]) setSqlUser(vals[2]);
+      if (vals[3]) setSqlPassword(vals[3]);
+      if (vals[4]) setSqlDatabase(vals[4]);
+    } catch (e) {
+      console.error("Error fetching SQL config:", e);
+    }
+  };
+
+  const handleSaveSqlConfig = async () => {
+    setSavingSql(true);
+    try {
+      const configs = [
+        { key: 'sql_host', value: sqlHost },
+        { key: 'sql_port', value: sqlPort },
+        { key: 'sql_user', value: sqlUser },
+        { key: 'sql_password', value: sqlPassword },
+        { key: 'sql_database', value: sqlDatabase },
+      ];
+      await Promise.all(
+        configs.map(async (cfg) => {
+          await fetch(`http://127.0.0.1:3001/api/settings/${cfg.key}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: cfg.value }),
+          });
+        })
+      );
+      setMessage({ text: "Configurações de conexão salvas!", type: 'success' });
+    } catch (e) {
+      console.error(e);
+      setMessage({ text: "Erro ao salvar conexões SQL Server", type: 'error' });
+    } finally {
+      setSavingSql(false);
+      setTimeout(() => setMessage(null), 4000);
+    }
+  };
+
+  const handleSyncSqlDatabase = async () => {
+    setSyncingSql(true);
+    try {
+      const res = await fetch('http://127.0.0.1:3001/api/import/sync', {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setMessage({ text: data.message || "Sincronização realizada com sucesso!", type: 'success' });
+      } else {
+        setMessage({ text: data.error || "Erro ao sincronizar com o banco de dados NATUM", type: 'error' });
+      }
+    } catch (e) {
+      console.error(e);
+      setMessage({ text: "Erro ao conectar com a API de sincronização", type: 'error' });
+    } finally {
+      setSyncingSql(false);
+      setTimeout(() => setMessage(null), 4000);
+    }
+  };
+
   useEffect(() => {
     fetchGoogleStatus();
+    fetchSqlConfig();
   }, []);
 
   const handleSaveGoogleConfig = async () => {
@@ -252,7 +335,7 @@ export default function App() {
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
               {/* Card 1: Google Drive Cloud Backup */}
               <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col justify-between min-h-[420px]">
                 <div>
@@ -377,6 +460,102 @@ export default function App() {
                   </button>
                 </div>
               </div>
+
+              {/* Card 3: SQL Server Sync & Config */}
+              <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col justify-between min-h-[420px]">
+                <div>
+                  <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50 text-left">
+                    <h3 className="font-bold text-zinc-800 flex items-center gap-2 text-base">
+                      <Database className="h-5 w-5 text-zinc-500" />
+                      Banco de Dados SQL Server
+                    </h3>
+                    <p className="text-xs text-zinc-500 font-medium">Conectividade e Sincronização com o ERP Local</p>
+                  </div>
+                  
+                  <div className="p-6 space-y-3 text-left">
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="col-span-2 space-y-1">
+                        <label className="text-xs font-semibold text-zinc-655 text-zinc-600 block">Host / IP Servidor</label>
+                        <input 
+                          type="text" 
+                          className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
+                          placeholder="Ex: 192.168.101.249"
+                          value={sqlHost}
+                          onChange={(e) => setSqlHost(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-zinc-600 block">Porta</label>
+                        <input 
+                          type="text" 
+                          className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
+                          placeholder="Ex: 1433"
+                          value={sqlPort}
+                          onChange={(e) => setSqlPort(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-zinc-600 block">Usuário</label>
+                        <input 
+                          type="text" 
+                          className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
+                          placeholder="Ex: sa"
+                          value={sqlUser}
+                          onChange={(e) => setSqlUser(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-zinc-600 block">Senha</label>
+                        <input 
+                          type="password" 
+                          className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
+                          placeholder="Senha SQL Server"
+                          value={sqlPassword}
+                          onChange={(e) => setSqlPassword(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-zinc-600 block">Nome do Banco (Database)</label>
+                      <input 
+                        type="text" 
+                        className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
+                        placeholder="Ex: NATUM"
+                        value={sqlDatabase}
+                        onChange={(e) => setSqlDatabase(e.target.value)}
+                      />
+                    </div>
+
+                    <button 
+                      onClick={handleSaveSqlConfig} 
+                      disabled={savingSql}
+                      className="text-xs bg-zinc-950 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-zinc-800 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shadow-sm transition-all"
+                    >
+                      {savingSql ? 'Salvando...' : 'Salvar Conexão'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-6 bg-zinc-50 border-t border-zinc-200">
+                  <div className="flex flex-col gap-2">
+                    <button 
+                      onClick={handleSyncSqlDatabase} 
+                      disabled={syncingSql} 
+                      className="w-full bg-zinc-950 text-white py-2.5 rounded-xl text-xs font-bold hover:bg-zinc-800 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-sm transition-all"
+                    >
+                      <RefreshCw size={14} className={syncingSql ? 'animate-spin' : ''} />
+                      {syncingSql ? 'Sincronizando...' : 'Sincronizar SQL Server Agora'}
+                    </button>
+                    <p className="text-[9px] text-zinc-400 text-center mt-1">
+                      Esta ação baixa produtos, insumos, movimentações e receitas diretamente do ERP local para o buffer SQLite do aplicativo.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           </main>
 
@@ -406,7 +585,7 @@ export default function App() {
               Natum v0.002 alpha
             </div>
             <button 
-              onClick={() => setView('hub_settings')}
+              onClick={() => { fetchSqlConfig(); setView('hub_settings'); }}
               className="bg-zinc-100 hover:bg-zinc-200 p-2 rounded-lg text-zinc-650 hover:text-zinc-900 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-bold border border-zinc-200 shadow-sm"
               title="Configurações Gerais"
             >

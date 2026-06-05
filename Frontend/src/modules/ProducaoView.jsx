@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   AlertTriangle, CheckCircle2, X, RefreshCw, Database, Check, Play,
   ArrowUpDown, ArrowUp, ArrowDown, LayoutDashboard, Table, Layers, History,
-  FileSpreadsheet, Settings, ArrowLeft
+  Settings, ArrowLeft
 } from 'lucide-react';
 
 const API_BASE = 'http://127.0.0.1:3001/api';
@@ -12,7 +12,6 @@ import { DashboardTab } from '../components/producao/DashboardTab';
 import { InventoryTab } from '../components/producao/InventoryTab';
 import { KitsTab } from '../components/producao/KitsTab';
 import { HistoryTab } from '../components/producao/HistoryTab';
-import { ImportsTab } from '../components/producao/ImportsTab';
 import { SettingsTab } from '../components/producao/SettingsTab';
 
 export default function ProducaoView({ onBackToHub }) {
@@ -969,32 +968,7 @@ export default function ProducaoView({ onBackToHub }) {
             <span>Histórico de Produção</span>
           </button>
           
-          <button 
-            className={`sidebar-link cursor-pointer ${currentView === 'import' ? 'active' : ''}`}
-            onClick={() => {
-              setCurrentView('import');
-              fetchImportStatus();
-              fetchImportHistory();
-              fetchWatchConfig();
-            }}
-          >
-            <FileSpreadsheet size={16} />
-            <span>Importar Planilhas</span>
-            {importAlertCount > 0 && (
-              <span className="import-alert-badge" style={{
-                marginLeft: 'auto',
-                backgroundColor: 'hsl(var(--danger-hsl))',
-                color: '#ffffff',
-                borderRadius: '9999px',
-                padding: '2px 6px',
-                fontSize: '0.7rem',
-                fontWeight: 'bold',
-                lineHeight: '1'
-              }}>
-                {importAlertCount}
-              </span>
-            )}
-          </button>
+
           
           <button 
             className={`sidebar-link cursor-pointer ${currentView === 'settings' ? 'active' : ''}`}
@@ -1141,26 +1115,7 @@ export default function ProducaoView({ onBackToHub }) {
             />
           )}
 
-          {/* VIEW: PLANILHAS (IMPORTATION) */}
-          {currentView === 'import' && (
-            <ImportsTab
-              importStatus={importStatus}
-              importHistory={importHistory}
-              watchConfig={watchConfig}
-              setWatchConfig={setWatchConfig}
-              onSaveWatchConfig={saveWatchConfig}
-              onFileUpload={handleFileUpload}
-              uploadingLev={uploadingLev}
-              uploadingFat={uploadingFat}
-              syncingDb={syncingDb}
-              onSyncDatabase={handleSyncDatabase}
-              onRefresh={async () => {
-                await fetchImportStatus();
-                await fetchImportHistory();
-                await fetchWatchConfig();
-              }}
-            />
-          )}
+
 
           {/* VIEW: SETTINGS */}
           {currentView === 'settings' && (

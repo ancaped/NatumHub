@@ -124,12 +124,41 @@ struct VendaRow {
     nota_fiscal: Option<i32>,
 }
 
-pub async fn connect_sql_server() -> anyhow::Result<Client<tokio_util::compat::Compat<TcpStream>>> {
+fn get_setting_from_db_or_file(conn: Option<&Connection>, key: &str, default: &str) -> String {
+    if let Some(c) = conn {
+        if let Ok(val) = c.query_row("SELECT value FROM settings WHERE key = ?1", params![key], |r| r.get::<_, String>(0)) {
+            return val;
+        }
+    }
+    // Fallback: try to open "../data.db"
+    if let Ok(c) = Connection::open("../data.db") {
+        if let Ok(val) = c.query_row("SELECT value FROM settings WHERE key = ?1", params![key], |r| r.get::<_, String>(0)) {
+            return val;
+        }
+    }
+    default.to_string()
+}
+
+pub async fn connect_sql_server(sqlite_path: Option<&str>) -> anyhow::Result<Client<tokio_util::compat::Compat<TcpStream>>> {
+    let path = sqlite_path.unwrap_or("../data.db");
+    let (host, port_str, user, password, database) = {
+        let conn = Connection::open(path).ok();
+        let conn_ref = conn.as_ref();
+        let host = get_setting_from_db_or_file(conn_ref, "sql_host", "192.168.101.249");
+        let port_str = get_setting_from_db_or_file(conn_ref, "sql_port", "1433");
+        let user = get_setting_from_db_or_file(conn_ref, "sql_user", "sa");
+        let password = get_setting_from_db_or_file(conn_ref, "sql_password", "byteonDS2015");
+        let database = get_setting_from_db_or_file(conn_ref, "sql_database", "NATUM");
+        (host, port_str, user, password, database)
+    };
+    
+    let port: u16 = port_str.parse().unwrap_or(1433);
+
     let mut config = Config::new();
-    config.host("192.168.101.249");
-    config.port(1433);
-    config.authentication(tiberius::AuthMethod::sql_server("sa", "byteonDS2015"));
-    config.database("NATUM");
+    config.host(&host);
+    config.port(port);
+    config.authentication(tiberius::AuthMethod::sql_server(&user, &password));
+    config.database(&database);
     config.trust_cert(); // trust local SQL Server certs
 
     let tcp = TcpStream::connect(config.get_addr()).await?;
@@ -139,8 +168,8 @@ pub async fn connect_sql_server() -> anyhow::Result<Client<tokio_util::compat::C
     Ok(client)
 }
 
-pub async fn sync_from_sql_server(sqlite_conn: &mut Connection) -> anyhow::Result<SyncResult> {
-    let mut client = connect_sql_server().await?;
+pub async fn sync_from_sql_server(sqlite_path: &str) -> anyhow::Result<SyncResult> {
+    let mut client = connect_sql_server(Some(sqlite_path)).await?;
 
     // ==========================================
     // 1. FETCH ALL DATA FROM SQL SERVER FIRST (AWAIT POINTS)
@@ -566,6 +595,7 @@ WHERE v2.dVenda >= DATEADD(month, -12, GETDATE())
     // ==========================================
     // 2. OPEN TRANSACTION AND WRITE TO SQLITE (NO AWAIT POINTS)
     // ==========================================
+    let mut sqlite_conn = Connection::open(sqlite_path)?;
     sqlite_conn.execute("PRAGMA foreign_keys = OFF", [])?;
     let tx = sqlite_conn.transaction()?;
 
@@ -883,17 +913,13 @@ impl ProductRow {
 // ==========================================
 pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::models::DbDumpResult> {
     let start_time = std::time::Instant::now();
-    let mut client = connect_sql_server().await?;
+    let mut client = connect_sql_server(None).await?;
     
-    // Create/overwrite SQLite file
-    let mut sqlite_conn = Connection::open(sqlite_path)?;
-    sqlite_conn.execute("PRAGMA foreign_keys = OFF", [])?;
-    let _ = sqlite_conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()));
-    sqlite_conn.execute("PRAGMA synchronous = NORMAL", [])?;
-    
-    let mut tables_copied = Vec::new();
+    // ==========================================
+    // 1. FETCH ALL DATA FROM SQL SERVER FIRST (AWAIT POINTS)
+    // ==========================================
 
-    // 1. Dump Insumos
+    // A. Dump Insumos
     let insumos_rows = {
         let stream = client.query("
             SELECT 
@@ -912,6 +938,193 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
         ).await?;
         stream.into_first_result().await?
     };
+
+    // B. Dump Produtos
+    let produtos_rows = {
+        let stream = client.query("
+            SELECT 
+                cCodProd COLLATE Latin1_General_CI_AS,
+                cNomeProd COLLATE Latin1_General_CI_AS,
+                cunidade COLLATE Latin1_General_CI_AS,
+                cInativo COLLATE Latin1_General_CI_AS,
+                CAST(nQtdeEstoque AS FLOAT),
+                CAST(nQtdeProducao AS FLOAT),
+                CAST(nPedidos AS FLOAT),
+                cBase COLLATE Latin1_General_CI_AS,
+                cNomeTipo COLLATE Latin1_General_CI_AS
+            FROM Produtos WITH (NOLOCK)", 
+            &[]
+        ).await?;
+        stream.into_first_result().await?
+    };
+
+    // C. Dump Materiais
+    let materiais_rows = {
+        let stream = client.query("
+            SELECT 
+                cReferencia COLLATE Latin1_General_CI_AS,
+                cDescricao COLLATE Latin1_General_CI_AS,
+                cUnidade COLLATE Latin1_General_CI_AS,
+                cReferenciaNova COLLATE Latin1_General_CI_AS,
+                cCF COLLATE Latin1_General_CI_AS,
+                CAST(nQtdeEstoque AS FLOAT),
+                CAST(0.0 AS FLOAT),
+                CAST(nQtdeProducao AS FLOAT),
+                CAST(nQtdePedidos AS FLOAT),
+                cInativo COLLATE Latin1_General_CI_AS
+            FROM Materiais WITH (NOLOCK)", 
+            &[]
+        ).await?;
+        stream.into_first_result().await?
+    };
+
+    // D. Dump Composicao
+    let composicao_rows = {
+        let stream = client.query("
+            SELECT 
+                cCodProd COLLATE Latin1_General_CI_AS,
+                cReferencia COLLATE Latin1_General_CI_AS,
+                cDescricao COLLATE Latin1_General_CI_AS,
+                CAST(nQuantidade AS FLOAT),
+                CAST(NPERCENTUAL AS FLOAT)
+            FROM Composicao WITH (NOLOCK)", 
+            &[]
+        ).await?;
+        stream.into_first_result().await?
+    };
+
+    // E. Dump Fornecedores
+    let fornecedores_rows = {
+        let stream = client.query("SELECT nCodFornec, cNomeF COLLATE Latin1_General_CI_AS, cContatoF COLLATE Latin1_General_CI_AS, cEmail COLLATE Latin1_General_CI_AS, mObservacF COLLATE Latin1_General_CI_AS FROM Fornecedores WITH (NOLOCK)", &[]).await?;
+        stream.into_first_result().await?
+    };
+
+    // F. Dump Clientes
+    let clientes_rows = {
+        let stream = client.query("SELECT nCodigo, cNome COLLATE Latin1_General_CI_AS FROM Clientes WITH (NOLOCK)", &[]).await?;
+        stream.into_first_result().await?
+    };
+
+    // G. Dump Lotes
+    let lotes_rows = {
+        let stream = client.query("
+            SELECT 
+                nLote,
+                cCodProd COLLATE Latin1_General_CI_AS,
+                CAST(nQtde AS FLOAT),
+                CONVERT(varchar, dLote, 120) COLLATE Latin1_General_CI_AS,
+                cStatus COLLATE Latin1_General_CI_AS,
+                cFabricadopor COLLATE Latin1_General_CI_AS,
+                cAutorizadopor COLLATE Latin1_General_CI_AS
+            FROM Lotes WITH (NOLOCK)
+            WHERE dLote >= DATEADD(month, -24, GETDATE())", 
+            &[]
+        ).await?;
+        stream.into_first_result().await?
+    };
+
+    // H. Dump Baixas
+    let baixas_rows = {
+        let stream = client.query("
+            SELECT 
+                Registro,
+                nLote,
+                cReferencia COLLATE Latin1_General_CI_AS,
+                CAST(nQtde AS FLOAT),
+                CONVERT(varchar, dLog, 120) COLLATE Latin1_General_CI_AS,
+                cUsuario COLLATE Latin1_General_CI_AS,
+                cJustificativa COLLATE Latin1_General_CI_AS,
+                cCodProd COLLATE Latin1_General_CI_AS
+            FROM Lotes_Baixas WITH (NOLOCK)
+            WHERE dLog >= DATEADD(month, -24, GETDATE())", 
+            &[]
+        ).await?;
+        stream.into_first_result().await?
+    };
+
+    // I. Dump Compras1
+    let compras1_rows = {
+        let stream = client.query("
+            SELECT
+                NOTA,
+                CONVERT(varchar, DATA_EMISSAO, 120) COLLATE Latin1_General_CI_AS,
+                RAZAO_SOCIAL COLLATE Latin1_General_CI_AS,
+                nCodFornec 
+            FROM COMPRAS1 WITH (NOLOCK)
+            WHERE DATA_EMISSAO >= DATEADD(month, -24, GETDATE())", 
+            &[]
+        ).await?;
+        stream.into_first_result().await?
+    };
+
+    // J. Dump Compras2
+    let compras2_rows = {
+        let stream = client.query("
+            SELECT 
+                c.NOTA,
+                c.nCodFornec,
+                c.CODIGO_PRODUTO COLLATE Latin1_General_CI_AS,
+                c.DESCRICAO_PRODUTO COLLATE Latin1_General_CI_AS,
+                c.UNIDADE COLLATE Latin1_General_CI_AS,
+                CAST(c.QUANTIDADE AS FLOAT),
+                CAST(c.VALOR_UNITARIO AS FLOAT),
+                CAST(c.VALOR_TOTAL AS FLOAT)
+            FROM COMPRAS2 c WITH (NOLOCK)
+            WHERE c.nCodFornec IS NOT NULL 
+              AND c.NOTA IN (
+                  SELECT NOTA FROM COMPRAS1 WITH (NOLOCK) WHERE DATA_EMISSAO >= DATEADD(month, -24, GETDATE())
+              )", 
+            &[]
+        ).await?;
+        stream.into_first_result().await?
+    };
+
+    // K. Dump Vendas1
+    let vendas1_rows = {
+        let stream = client.query("
+            SELECT
+                nVenda,
+                CONVERT(varchar, dVenda, 120) COLLATE Latin1_General_CI_AS,
+                cNome COLLATE Latin1_General_CI_AS,
+                NNOTAFISCAL 
+            FROM VENDAS1 WITH (NOLOCK)
+            WHERE dVenda >= DATEADD(month, -24, GETDATE())", 
+            &[]
+        ).await?;
+        stream.into_first_result().await?
+    };
+
+    // L. Dump Vendas2
+    let vendas2_rows = {
+        let stream = client.query("
+            SELECT 
+                nRegistro,
+                nVenda,
+                CONVERT(varchar, dVenda, 120) COLLATE Latin1_General_CI_AS,
+                cCodProd COLLATE Latin1_General_CI_AS,
+                nQtde,
+                CAST(nPreco AS FLOAT),
+                CAST(nValor AS FLOAT),
+                nNotaFiscal,
+                cLote COLLATE Latin1_General_CI_AS
+            FROM VENDAS2 WITH (NOLOCK)
+            WHERE dVenda >= DATEADD(month, -24, GETDATE())", 
+            &[]
+        ).await?;
+        stream.into_first_result().await?
+    };
+
+    // ==========================================
+    // 2. OPEN TRANSACTION AND WRITE TO SQLITE (NO AWAIT POINTS)
+    // ==========================================
+    let mut sqlite_conn = Connection::open(sqlite_path)?;
+    sqlite_conn.execute("PRAGMA foreign_keys = OFF", [])?;
+    let _ = sqlite_conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()));
+    sqlite_conn.execute("PRAGMA synchronous = NORMAL", [])?;
+    
+    let mut tables_copied = Vec::new();
+
+    // 1. Write Insumos
     {
         let tx = sqlite_conn.transaction()?;
         tx.execute("DROP TABLE IF EXISTS insumos", [])?;
@@ -953,24 +1166,7 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
     }
     tables_copied.push("Insumos".to_string());
 
-    // 2. Dump Produtos
-    let produtos_rows = {
-        let stream = client.query("
-            SELECT 
-                cCodProd COLLATE Latin1_General_CI_AS,
-                cNomeProd COLLATE Latin1_General_CI_AS,
-                cunidade COLLATE Latin1_General_CI_AS,
-                cInativo COLLATE Latin1_General_CI_AS,
-                CAST(nQtdeEstoque AS FLOAT),
-                CAST(nQtdeProducao AS FLOAT),
-                CAST(nPedidos AS FLOAT),
-                cBase COLLATE Latin1_General_CI_AS,
-                cNomeTipo COLLATE Latin1_General_CI_AS
-            FROM Produtos WITH (NOLOCK)", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
+    // 2. Write Produtos
     {
         let tx = sqlite_conn.transaction()?;
         tx.execute("DROP TABLE IF EXISTS produtos", [])?;
@@ -1010,25 +1206,7 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
     }
     tables_copied.push("Produtos".to_string());
 
-    // 3. Dump Materiais
-    let materiais_rows = {
-        let stream = client.query("
-            SELECT 
-                cReferencia COLLATE Latin1_General_CI_AS,
-                cDescricao COLLATE Latin1_General_CI_AS,
-                cUnidade COLLATE Latin1_General_CI_AS,
-                cReferenciaNova COLLATE Latin1_General_CI_AS,
-                cCF COLLATE Latin1_General_CI_AS,
-                CAST(nQtdeEstoque AS FLOAT),
-                CAST(0.0 AS FLOAT),
-                CAST(nQtdeProducao AS FLOAT),
-                CAST(nQtdePedidos AS FLOAT),
-                cInativo COLLATE Latin1_General_CI_AS
-            FROM Materiais WITH (NOLOCK)", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
+    // 3. Write Materiais
     {
         let tx = sqlite_conn.transaction()?;
         tx.execute("DROP TABLE IF EXISTS materiais", [])?;
@@ -1070,20 +1248,7 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
     }
     tables_copied.push("Materiais".to_string());
 
-    // 4. Dump Composicao
-    let composicao_rows = {
-        let stream = client.query("
-            SELECT 
-                cCodProd COLLATE Latin1_General_CI_AS,
-                cReferencia COLLATE Latin1_General_CI_AS,
-                cDescricao COLLATE Latin1_General_CI_AS,
-                CAST(nQuantidade AS FLOAT),
-                CAST(NPERCENTUAL AS FLOAT)
-            FROM Composicao WITH (NOLOCK)", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
+    // 4. Write Composicao
     {
         let tx = sqlite_conn.transaction()?;
         tx.execute("DROP TABLE IF EXISTS composicao", [])?;
@@ -1117,11 +1282,7 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
     }
     tables_copied.push("Composicao".to_string());
 
-    // 5. Dump Fornecedores
-    let fornecedores_rows = {
-        let stream = client.query("SELECT nCodFornec, cNomeF COLLATE Latin1_General_CI_AS, cContatoF COLLATE Latin1_General_CI_AS, cEmail COLLATE Latin1_General_CI_AS, mObservacF COLLATE Latin1_General_CI_AS FROM Fornecedores WITH (NOLOCK)", &[]).await?;
-        stream.into_first_result().await?
-    };
+    // 5. Write Fornecedores
     {
         let tx = sqlite_conn.transaction()?;
         tx.execute("DROP TABLE IF EXISTS fornecedores", [])?;
@@ -1153,11 +1314,7 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
     }
     tables_copied.push("Fornecedores".to_string());
 
-    // 6. Dump Clientes
-    let clientes_rows = {
-        let stream = client.query("SELECT nCodigo, cNome COLLATE Latin1_General_CI_AS FROM Clientes WITH (NOLOCK)", &[]).await?;
-        stream.into_first_result().await?
-    };
+    // 6. Write Clientes
     {
         let tx = sqlite_conn.transaction()?;
         tx.execute("DROP TABLE IF EXISTS clientes", [])?;
@@ -1180,23 +1337,7 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
     }
     tables_copied.push("Clientes".to_string());
 
-    // 7. Dump Lotes (Last 24 months)
-    let lotes_rows = {
-        let stream = client.query("
-            SELECT 
-                nLote,
-                cCodProd COLLATE Latin1_General_CI_AS,
-                CAST(nQtde AS FLOAT),
-                CONVERT(varchar, dLote, 120) COLLATE Latin1_General_CI_AS,
-                cStatus COLLATE Latin1_General_CI_AS,
-                cFabricadopor COLLATE Latin1_General_CI_AS,
-                cAutorizadopor COLLATE Latin1_General_CI_AS
-            FROM Lotes WITH (NOLOCK)
-            WHERE dLote >= DATEADD(month, -24, GETDATE())", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
+    // 7. Write Lotes
     {
         let tx = sqlite_conn.transaction()?;
         tx.execute("DROP TABLE IF EXISTS lotes", [])?;
@@ -1232,24 +1373,7 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
     }
     tables_copied.push("Lotes".to_string());
 
-    // 8. Dump Lotes_Baixas (Last 24 months)
-    let baixas_rows = {
-        let stream = client.query("
-            SELECT 
-                Registro,
-                nLote,
-                cReferencia COLLATE Latin1_General_CI_AS,
-                CAST(nQtde AS FLOAT),
-                CONVERT(varchar, dLog, 120) COLLATE Latin1_General_CI_AS,
-                cUsuario COLLATE Latin1_General_CI_AS,
-                cJustificativa COLLATE Latin1_General_CI_AS,
-                cCodProd COLLATE Latin1_General_CI_AS
-            FROM Lotes_Baixas WITH (NOLOCK)
-            WHERE dLog >= DATEADD(month, -24, GETDATE())", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
+    // 8. Write Baixas
     {
         let tx = sqlite_conn.transaction()?;
         tx.execute("DROP TABLE IF EXISTS lotes_baixas", [])?;
@@ -1287,20 +1411,7 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
     }
     tables_copied.push("Lotes_Baixas".to_string());
 
-    // 9. Dump Compras1 (Last 24 months)
-    let compras1_rows = {
-        let stream = client.query("
-            SELECT
-                NOTA,
-                CONVERT(varchar, DATA_EMISSAO, 120) COLLATE Latin1_General_CI_AS,
-                RAZAO_SOCIAL COLLATE Latin1_General_CI_AS,
-                nCodFornec 
-            FROM COMPRAS1 WITH (NOLOCK)
-            WHERE DATA_EMISSAO >= DATEADD(month, -24, GETDATE())", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
+    // 9. Write Compras1
     {
         let tx = sqlite_conn.transaction()?;
         tx.execute("DROP TABLE IF EXISTS compras1", [])?;
@@ -1332,27 +1443,7 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
     }
     tables_copied.push("COMPRAS1".to_string());
 
-    // 10. Dump Compras2 (Last 24 months)
-    let compras2_rows = {
-        let stream = client.query("
-            SELECT 
-                c.NOTA,
-                c.nCodFornec,
-                c.CODIGO_PRODUTO COLLATE Latin1_General_CI_AS,
-                c.DESCRICAO_PRODUTO COLLATE Latin1_General_CI_AS,
-                c.UNIDADE COLLATE Latin1_General_CI_AS,
-                CAST(c.QUANTIDADE AS FLOAT),
-                CAST(c.VALOR_UNITARIO AS FLOAT),
-                CAST(c.VALOR_TOTAL AS FLOAT)
-            FROM COMPRAS2 c WITH (NOLOCK)
-            WHERE c.nCodFornec IS NOT NULL 
-              AND c.NOTA IN (
-                  SELECT NOTA FROM COMPRAS1 WITH (NOLOCK) WHERE DATA_EMISSAO >= DATEADD(month, -24, GETDATE())
-              )", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
+    // 10. Write Compras2
     {
         let tx = sqlite_conn.transaction()?;
         tx.execute("DROP TABLE IF EXISTS compras2", [])?;
@@ -1391,20 +1482,7 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
     }
     tables_copied.push("COMPRAS2".to_string());
 
-    // 11. Dump Vendas1 (Last 24 months)
-    let vendas1_rows = {
-        let stream = client.query("
-            SELECT
-                nVenda,
-                CONVERT(varchar, dVenda, 120) COLLATE Latin1_General_CI_AS,
-                cNome COLLATE Latin1_General_CI_AS,
-                NNOTAFISCAL 
-            FROM VENDAS1 WITH (NOLOCK)
-            WHERE dVenda >= DATEADD(month, -24, GETDATE())", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
+    // 11. Write Vendas1
     {
         let tx = sqlite_conn.transaction()?;
         tx.execute("DROP TABLE IF EXISTS vendas1", [])?;
@@ -1434,25 +1512,7 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
     }
     tables_copied.push("VENDAS1".to_string());
 
-    // 12. Dump Vendas2 (Last 24 months)
-    let vendas2_rows = {
-        let stream = client.query("
-            SELECT 
-                nRegistro,
-                nVenda,
-                CONVERT(varchar, dVenda, 120) COLLATE Latin1_General_CI_AS,
-                cCodProd COLLATE Latin1_General_CI_AS,
-                nQtde,
-                CAST(nPreco AS FLOAT),
-                CAST(nValor AS FLOAT),
-                nNotaFiscal,
-                cLote COLLATE Latin1_General_CI_AS
-            FROM VENDAS2 WITH (NOLOCK)
-            WHERE dVenda >= DATEADD(month, -24, GETDATE())", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
+    // 12. Write Vendas2
     {
         let tx = sqlite_conn.transaction()?;
         tx.execute("DROP TABLE IF EXISTS vendas2", [])?;

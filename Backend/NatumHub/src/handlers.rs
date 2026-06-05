@@ -545,15 +545,9 @@ pub async fn import_kits(
 pub async fn trigger_db_sync(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let mut conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro de conexão com o SQLite local: {}", e) }))
-        ).into_response(),
-    };
+    let db_path = state.db.db_path().to_string();
 
-    match crate::legacy_db::sync_from_sql_server(&mut conn).await {
+    match crate::legacy_db::sync_from_sql_server(&db_path).await {
         Ok(res) => {
             let total_records = (res.products + res.items + res.suppliers + res.invoices + res.formulations + res.movements) as i64;
             let detail_msg = format!(
@@ -1086,6 +1080,35 @@ pub async fn trigger_db_dump(
     match crate::legacy_db::create_database_dump(dump_path).await {
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("Falha ao gerar cópia do banco: {}", e) }))).into_response(),
+    }
+}
+
+// GET /api/settings/:key
+pub async fn get_setting_handler(
+    State(state): State<Arc<AppState>>,
+    Path(key): Path<String>,
+) -> impl IntoResponse {
+    match state.db.get_setting(&key) {
+        Ok(Some(val)) => (StatusCode::OK, Json(json!({ "key": key, "value": val }))).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({ "error": "Setting not found" }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+// POST /api/settings/:key
+#[derive(serde::Deserialize)]
+pub struct SaveSettingInput {
+    pub value: String,
+}
+
+pub async fn save_setting_handler(
+    State(state): State<Arc<AppState>>,
+    Path(key): Path<String>,
+    Json(body): Json<SaveSettingInput>,
+) -> impl IntoResponse {
+    match state.db.save_setting(&key, &body.value) {
+        Ok(_) => (StatusCode::OK, Json(json!({ "status": "success" }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     }
 }
 

@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { ImportWizard } from '../components/compras/ImportWizard';
 import { DemandTable } from '../components/compras/DemandTable';
 import { QuotationManager } from '../components/compras/QuotationManager';
 import { SupplierManager } from '../components/compras/SupplierManager';
@@ -14,10 +13,9 @@ interface ComprasViewProps {
 }
 
 export default function ComprasView({ onBackToHub }: ComprasViewProps) {
-  const [activeTab, setActiveTab] = useState('import');
+  const [activeTab, setActiveTab] = useState('demands');
 
   const navItems = [
-    { id: 'import', label: 'Importação', icon: Database },
     { id: 'demands', label: 'Demandas', icon: Package },
     { id: 'quotations', label: 'Cotações', icon: ShoppingCart },
     { id: 'registry', label: 'Cadastro', icon: Boxes },
@@ -78,7 +76,6 @@ export default function ComprasView({ onBackToHub }: ComprasViewProps) {
         </header>
         <main className="flex-1 overflow-y-auto p-2 lg:p-4">
           <div className="w-full max-w-none">
-            {activeTab === 'import' && <ImportWizard />}
             {activeTab === 'demands' && <DemandTable />}
             {activeTab === 'quotations' && <QuotationManager />}
             {activeTab === 'registry' && <ItemRegistry />}
