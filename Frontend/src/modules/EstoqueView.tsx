@@ -49,21 +49,13 @@ interface DemandResultWithIgnored {
 
 export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
   // Navigation / Tabs
-  const [activeTab, setActiveTab] = useState<'insumos' | 'produtos' | 'materiais' | 'dump'>('insumos');
+  const [activeTab, setActiveTab] = useState<'insumos' | 'produtos' | 'materiais'>('insumos');
   
   // Data States
   const [demands, setDemands] = useState<DemandResultWithIgnored[]>([]);
   const [products, setProducts] = useState<ProductCalculationResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  
-  // Dump States
-  const [dumpResult, setDumpResult] = useState<DbDumpResult | null>(null);
-  const [dumpLoading, setDumpLoading] = useState(false);
-  const [dumpError, setDumpError] = useState<string | null>(null);
-
-  // Sync state
-  const [syncLoading, setSyncLoading] = useState(false);
 
   // Side Drawer States
   const [selectedItem, setSelectedItem] = useState<{
@@ -105,48 +97,7 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
     (window as any).__current_page__ = "Módulo de Estoque";
   }, []);
 
-  // Sync ERP data
-  const handleSyncERP = async () => {
-    if (!window.confirm("Deseja iniciar a sincronização com o banco de dados do ERP? Esta operação realiza consultas no SQL Server usando hints WITH (NOLOCK) para evitar conflitos com suas atividades.")) return;
-    setSyncLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/import/sync`, { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        alert(`Sincronização concluída com sucesso!\nProdutos: ${data.products}\nFornecedores: ${data.suppliers}\nInsumos/Materiais: ${data.items}\nMovimentações: ${data.movements}`);
-        await loadData();
-      } else {
-        const err = await res.json();
-        alert(`Erro na sincronização: ${err.error || 'Erro desconhecido'}`);
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Falha de rede ao tentar sincronizar com a API.");
-    } finally {
-      setSyncLoading(false);
-    }
-  };
-
-  // Run DB Dump
-  const handleTriggerDump = async () => {
-    setDumpLoading(true);
-    setDumpError(null);
-    setDumpResult(null);
-    try {
-      const res = await fetch(`${API_BASE}/import/dump`, { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        setDumpResult(data);
-      } else {
-        setDumpError(data.error || "Erro ao tentar realizar a cópia de segurança.");
-      }
-    } catch (e) {
-      console.error(e);
-      setDumpError("Erro de comunicação com o servidor.");
-    } finally {
-      setDumpLoading(false);
-    }
-  };
+  // SQL Sync/Dump options are managed globally on the home page settings.
 
   // Click handler to open detail drawer
   const handleOpenDrawer = async (
@@ -268,7 +219,6 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
             { id: 'insumos', label: 'Insumos (MP / Emb)', icon: Layers },
             { id: 'produtos', label: 'Produtos Acabados', icon: Package },
             { id: 'materiais', label: 'Materiais & Consumo', icon: Boxes },
-            { id: 'dump', label: 'Cópia SQL Server', icon: Database },
           ] as const).map(tab => (
             <button
               key={tab.id}
@@ -288,25 +238,6 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
             </button>
           ))}
         </nav>
-
-        {/* ERP Sync Info Banner */}
-        <div className="p-4 border-t border-zinc-200 bg-zinc-50/50 space-y-3">
-          <div className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider flex items-center gap-1.5">
-            <Shield className="h-3 w-3 text-emerald-600" />
-            Consultas Seguras Ativas
-          </div>
-          <p className="text-[11px] text-zinc-500 leading-relaxed">
-            Todas as conexões ao SQL Server utilizam <strong>NOLOCK</strong>, prevenindo travamentos ou quedas do ERP.
-          </p>
-          <button
-            onClick={handleSyncERP}
-            disabled={syncLoading || loading}
-            className="w-full text-center py-2 px-3 bg-zinc-150 hover:bg-zinc-200 disabled:opacity-50 text-xs font-bold text-zinc-800 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm border border-zinc-300 bg-white"
-          >
-            <RefreshCw size={12} className={cn(syncLoading ? 'animate-spin' : '')} />
-            {syncLoading ? "Sincronizando..." : "Sincronizar ERP"}
-          </button>
-        </div>
       </div>
 
       {/* Main Content Area */}
@@ -317,19 +248,17 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
               {activeTab === 'insumos' && "Insumos & Matérias-Primas"}
               {activeTab === 'produtos' && "Produtos Acabados"}
               {activeTab === 'materiais' && "Materiais & Consumíveis"}
-              {activeTab === 'dump' && "Cópia de Segurança do SQL Server"}
             </h2>
             <p className="text-xs text-zinc-500 mt-0.5">
               {activeTab === 'insumos' && "Matérias-primas químicas e embalagens integradas com movimentação física."}
               {activeTab === 'produtos' && "Formulações, estoque atual, previsões de demanda e ordens recomendadas."}
               {activeTab === 'materiais' && "Materiais de consumo, escritório, laboratório e de manutenção geral."}
-              {activeTab === 'dump' && "Gere e gerencie cópias compactas locais para uso offline."}
             </p>
           </div>
         </header>
 
         <main className="flex-1 overflow-y-auto p-6">
-          {activeTab !== 'dump' ? (
+
             <div className="space-y-6">
               {/* Controls bar */}
               <div className="flex items-center justify-between gap-4">
@@ -467,112 +396,7 @@ export default function EstoqueView({ onBackToHub }: EstoqueViewProps) {
                 </div>
               </div>
             </div>
-          ) : (
-            <div className="max-w-2xl mx-auto space-y-6">
-              {/* Explanation Card */}
-              <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-4">
-                <div className="flex items-start gap-4">
-                  <div className="bg-zinc-150 p-3 rounded-xl">
-                    <Database className="h-6 w-6 text-zinc-800" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-zinc-900">Sobre o Backup Compacto (SQLite Dump)</h3>
-                    <p className="text-sm text-zinc-650 mt-1 leading-relaxed">
-                      Esta ferramenta extrai e compacta as tabelas operacionais ativas do seu SQL Server e as grava em um arquivo standalone SQLite chamado <code className="bg-zinc-100 px-1 py-0.5 rounded font-mono text-xs">legacy_dump.db</code> na pasta do sistema. 
-                    </p>
-                  </div>
-                </div>
 
-                <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 flex gap-3 text-xs leading-relaxed">
-                  <Shield className="h-5 w-5 text-amber-700 shrink-0" />
-                  <div>
-                    <strong className="font-bold">Garantia de Segurança Operacional:</strong>
-                    <p className="mt-1">
-                      Todas as queries são executadas com hints <code className="bg-amber-100/60 px-1 py-0.5 rounded font-mono">WITH (NOLOCK)</code>. Isso impede que o processo crie bloqueios no servidor de produção, eliminando qualquer risco de crashs de login ou lentidão para os outros usuários do seu ERP físico.
-                    </p>
-                  </div>
-                </div>
-
-                <p className="text-xs text-zinc-500 font-medium">
-                  As seguintes tabelas dos últimos 24 meses são incluídas: Insumos, Produtos, Materiais, Composicao, Lotes, Lotes_Baixas, COMPRAS1, COMPRAS2, VENDAS1 e VENDAS2.
-                </p>
-
-                <div className="pt-2 flex justify-end">
-                  <button
-                    onClick={handleTriggerDump}
-                    disabled={dumpLoading}
-                    className="bg-zinc-950 text-white font-bold text-sm px-6 py-3 rounded-xl shadow-lg hover:bg-zinc-850 disabled:opacity-50 flex items-center gap-2 cursor-pointer transition-all"
-                  >
-                    {dumpLoading ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
-                        Gerando Dump do Banco...
-                      </>
-                    ) : (
-                      <>
-                        <Database className="h-4 w-4" />
-                        Iniciar Cópia de Segurança
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {/* Dump error panel */}
-              {dumpError && (
-                <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl p-5 text-sm flex gap-3">
-                  <AlertTriangle className="h-5 w-5 text-rose-600 shrink-0" />
-                  <div>
-                    <h4 className="font-bold">Ocorreu um erro ao gerar a cópia</h4>
-                    <p className="mt-1 font-medium">{dumpError}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Dump Result Details */}
-              {dumpResult && (
-                <div className="bg-emerald-50/50 border border-emerald-200 rounded-2xl p-6 shadow-sm space-y-4 animate-in fade-in zoom-in-95 duration-200">
-                  <div className="flex items-center gap-3">
-                    <CheckCircle2 className="h-6 w-6 text-emerald-600 shrink-0" />
-                    <div>
-                      <h4 className="font-bold text-emerald-900 text-base">Cópia do Banco Concluída!</h4>
-                      <p className="text-xs text-emerald-700">O arquivo SQLite local foi gerado e está pronto para análise.</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 text-xs">
-                    <div className="bg-white border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
-                      <span className="text-zinc-500 font-semibold block">Nome do Arquivo</span>
-                      <strong className="text-zinc-800 text-sm font-bold font-mono mt-1 block">{dumpResult.filename}</strong>
-                    </div>
-                    <div className="bg-white border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
-                      <span className="text-zinc-500 font-semibold block">Tamanho Compactado</span>
-                      <strong className="text-zinc-800 text-sm font-bold mt-1 block">{formatBytes(dumpResult.sizeBytes)}</strong>
-                    </div>
-                    <div className="bg-white border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
-                      <span className="text-zinc-500 font-semibold block">Tempo Decorrido</span>
-                      <strong className="text-zinc-800 text-sm font-bold mt-1 block">{(dumpResult.elapsedMs / 1000).toFixed(2)}s</strong>
-                    </div>
-                    <div className="bg-white border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
-                      <span className="text-zinc-500 font-semibold block">Local de Destino</span>
-                      <strong className="text-zinc-800 text-sm font-bold mt-1 block italic font-mono">Backend/legacy_dump.db</strong>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <h5 className="font-bold text-zinc-700 text-xs uppercase tracking-wider">Tabelas Copiadas ({dumpResult.tablesCopied.length})</h5>
-                    <div className="flex flex-wrap gap-1.5">
-                      {dumpResult.tablesCopied.map(t => (
-                        <span key={t} className="px-2.5 py-1 bg-white border border-zinc-200 text-zinc-700 font-mono text-[10px] font-bold rounded-lg shadow-sm">
-                          {t}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
         </main>
       </div>
 

@@ -324,38 +324,19 @@ export function SettingsPanel() {
         </div>
       </div>
 
-      {/* Limpeza de Dados */}
+      {/* Lista Negra de Insumos */}
       <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50">
           <h3 className="font-semibold flex items-center gap-2">
-            <Trash2 className="h-5 w-5 text-zinc-500" />
-            Limpeza de Dados
+            <Package className="h-5 w-5 text-zinc-500" />
+            Lista Negra de Insumos
           </h3>
         </div>
         <div className="p-6 space-y-4">
           <p className="text-sm text-zinc-500 leading-relaxed">
-            Utilize esta opção para apagar todos os dados do banco de dados (Insumos, Consumo, Estoque e Cotações). 
-            Esta ação é útil para iniciar uma nova importação limpa.
+            Sincronize a lista negra de matérias-primas a partir de uma planilha Excel configurada localmente.
           </p>
           <div className="flex flex-wrap gap-3">
-            <button
-              onClick={async () => {
-                if (confirm('Deseja realmente apagar todos os dados do sistema? Esta ação não pode ser desfeita.')) {
-                  try {
-                    await api.resetDb();
-                    alert('Banco de dados resetado com sucesso!');
-                    window.location.reload();
-                  } catch (e) {
-                    alert('Erro ao resetar: ' + e);
-                  }
-                }
-              }}
-              className="flex items-center gap-2 px-6 py-2.5 bg-white border border-zinc-200 text-zinc-900 rounded-xl font-bold hover:bg-zinc-50 transition-all shadow-sm disabled:opacity-50 cursor-pointer text-sm"
-            >
-              <Trash2 className="w-4 h-4 text-red-500" />
-              Apagar Todos os Dados
-            </button>
-
             <button
               onClick={async () => {
                 try {
