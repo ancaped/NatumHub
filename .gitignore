@@ -32,6 +32,7 @@ Backend/NatumHub/icons/
 # Environment
 .env
 .env.local
+.github_token
 
 # Scratch scripts (dev only)
 **/scratch/
