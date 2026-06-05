@@ -1,5 +1,5 @@
 import React from 'react';
-import { UploadCloud, Check, Clock, FolderOpen, RefreshCw, X } from 'lucide-react';
+import { UploadCloud, Check, Clock, FolderOpen, RefreshCw, X, Database } from 'lucide-react';
 
 export function ImportsTab({
   importStatus,
@@ -10,15 +10,152 @@ export function ImportsTab({
   onFileUpload,
   uploadingLev,
   uploadingFat,
+  syncingDb,
+  onSyncDatabase,
   onRefresh
 }) {
+  const lastSync = importHistory.find(h => h.tipo === 'sync');
+
   return (
     <div className="view-container animate-in fade-in duration-200">
+      <style>{`
+        @keyframes loading-bar-anim {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(250%); }
+        }
+        .animate-spin {
+          animation: spin 1.2s linear infinite;
+        }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+
       <div className="view-header">
         <h2 className="view-title">Importação de Planilhas ERP</h2>
         <p className="view-subtitle">
           Importe planilhas manualmente ou configure a pasta monitorada para que o sistema atualize automaticamente as informações de estoques e faturamento.
         </p>
+      </div>
+
+      {/* Sincronização SQL Server Real-time Section */}
+      <h3 style={{ fontSize: '0.95rem', fontWeight: '700', marginBottom: '0.75rem', color: 'hsl(var(--text-primary-hsl))' }}>Sincronização em Tempo Real (Offline-First)</h3>
+      <div className="panel-card" style={{
+        padding: '1.25rem',
+        marginBottom: '1.5rem',
+        background: 'linear-gradient(135deg, rgba(24, 24, 27, 0.95) 0%, rgba(39, 39, 42, 0.95) 100%)',
+        color: '#ffffff',
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+        borderRadius: '8px',
+        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
+        position: 'relative',
+        overflow: 'hidden'
+      }}>
+        <div style={{
+          position: 'absolute',
+          top: '-20px',
+          right: '-20px',
+          width: '120px',
+          height: '120px',
+          borderRadius: '50%',
+          background: syncingDb ? 'rgba(59, 130, 246, 0.15)' : lastSync?.status === 'success' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+          filter: 'blur(25px)',
+          pointerEvents: 'none'
+        }} />
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: '280px' }}>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '8px',
+              backgroundColor: 'rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#ffffff'
+            }}>
+              <Database size={20} />
+            </div>
+            <div>
+              <h4 style={{ fontSize: '0.95rem', fontWeight: '700', margin: 0 }}>Banco de Dados Local (SQLite Buffer)</h4>
+              <p style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.65)', margin: '0.1rem 0 0' }}>
+                O sistema funciona Offline-First. Acesse e trabalhe com os dados do buffer mesmo sem conexão com o servidor.
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+            <div style={{ textAlign: 'right', fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+              <div>
+                <strong>Última Sincronização:</strong>{' '}
+                <span style={{ color: lastSync?.status === 'success' ? '#34d399' : lastSync?.status === 'error' ? '#f87171' : 'rgba(255, 255, 255, 0.5)' }}>
+                  {lastSync?.importado_em ? new Date(lastSync.importado_em.replace(' ', 'T')).toLocaleString('pt-BR') : 'Nunca'}
+                </span>
+              </div>
+              <div>
+                <strong>Status:</strong>{' '}
+                <span style={{
+                  color: lastSync?.status === 'success' ? '#34d399' : lastSync?.status === 'error' ? '#f87171' : 'rgba(255, 255, 255, 0.5)',
+                  fontWeight: '600'
+                }}>
+                  {lastSync?.status === 'success' ? 'Sucesso' : lastSync?.status === 'error' ? 'Erro na Conexão' : 'Sem Informações'}
+                </span>
+              </div>
+              {lastSync?.mensagem && (
+                <div style={{ fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.55)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={lastSync.mensagem}>
+                  {lastSync.mensagem}
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={onSyncDatabase}
+              disabled={syncingDb}
+              className={`btn-primary cursor-pointer ${syncingDb ? 'opacity-75' : ''}`}
+              style={{
+                height: '40px',
+                padding: '0 1.25rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                fontWeight: '600',
+                backgroundColor: '#ffffff',
+                color: '#18181b',
+                border: 'none',
+                borderRadius: '6px',
+                transition: 'all 0.2s',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
+              }}
+              onMouseEnter={(e) => { if (!syncingDb) { e.currentTarget.style.backgroundColor = '#e4e4e7'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
+              onMouseLeave={(e) => { if (!syncingDb) { e.currentTarget.style.backgroundColor = '#ffffff'; e.currentTarget.style.transform = 'none'; } }}
+            >
+              <RefreshCw size={16} className={syncingDb ? 'animate-spin' : ''} />
+              {syncingDb ? 'Sincronizando...' : 'Sincronizar Agora'}
+            </button>
+          </div>
+        </div>
+
+        {syncingDb && (
+          <div style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            width: '100%',
+            height: '3px',
+            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              width: '40%',
+              height: '100%',
+              backgroundColor: '#3b82f6',
+              borderRadius: '2px',
+              animation: 'loading-bar-anim 1.5s infinite ease-in-out'
+            }} />
+          </div>
+        )}
       </div>
 
       {/* Manual Upload Section */}

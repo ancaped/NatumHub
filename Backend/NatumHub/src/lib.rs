@@ -9,6 +9,7 @@ pub mod calculations;
 pub mod db;
 pub mod google_drive;
 pub mod handlers;
+pub mod legacy_db;
 pub mod models;
 pub mod parser;
 pub mod watcher;
@@ -357,6 +358,7 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         );
         INSERT OR IGNORE INTO categories (id, name, parent_id) VALUES ('cat_mp', 'Matéria Prima', NULL);
         INSERT OR IGNORE INTO categories (id, name, parent_id) VALUES ('cat_emb', 'Embalagem', NULL);
+        INSERT OR IGNORE INTO categories (id, name, parent_id) VALUES ('cat_mat', 'Materiais', NULL);
 
         CREATE TABLE IF NOT EXISTS suppliers (
             id          TEXT PRIMARY KEY,
@@ -605,6 +607,35 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             FOREIGN KEY (product_code) REFERENCES fisco_quimica_patterns(product_code) ON DELETE CASCADE,
             FOREIGN KEY (agent_id) REFERENCES fisco_quimica_corrective_agents(id) ON DELETE CASCADE
         );
+
+        -- Formulações de Produtos Acabados
+        CREATE TABLE IF NOT EXISTS formulations (
+            product_code TEXT NOT NULL,
+            ingredient_code TEXT NOT NULL,
+            description TEXT,
+            quantity REAL NOT NULL,
+            percentage REAL,
+            PRIMARY KEY (product_code, ingredient_code),
+            FOREIGN KEY (product_code) REFERENCES produtos(codigo) ON DELETE CASCADE,
+            FOREIGN KEY (ingredient_code) REFERENCES items(code) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_formulations_product ON formulations(product_code);
+        CREATE INDEX IF NOT EXISTS idx_formulations_ingredient ON formulations(ingredient_code);
+
+        -- Movimentações de Estoque (Entradas/Saídas)
+        CREATE TABLE IF NOT EXISTS stock_movements (
+            id TEXT PRIMARY KEY,
+            item_code TEXT NOT NULL,
+            item_type TEXT NOT NULL,         -- 'insumo' | 'produto' | 'material'
+            movement_type TEXT NOT NULL,     -- 'entrada' | 'saida'
+            quantity REAL NOT NULL,
+            date TEXT NOT NULL,              -- YYYY-MM-DD HH:MM:SS
+            document_number TEXT,            -- Número da Nota ou do Lote
+            details TEXT,                    -- Detalhes (ex: Fornecedor, Cliente, justificativa, etc.)
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_movements_item ON stock_movements(item_code);
+        CREATE INDEX IF NOT EXISTS idx_movements_date ON stock_movements(date);
     ")?;
 
     Ok(())
@@ -2350,9 +2381,13 @@ fn start_axum_server() {
             .route("/api/import/faturamento", post(handlers::import_faturamento))
             .route("/api/import/levantamento", post(handlers::import_levantamento))
             .route("/api/import/kits", post(handlers::import_kits))
+            .route("/api/import/sync", post(handlers::trigger_db_sync))
+            .route("/api/import/dump", post(handlers::trigger_db_dump))
             .route("/api/import/history", get(handlers::get_import_history))
             .route("/api/import/status", get(handlers::get_import_status))
             .route("/api/import/watch-config", get(handlers::get_watch_config_handler).post(handlers::save_watch_config_handler))
+            .route("/api/estoque/movimentacoes/:code", get(handlers::get_stock_movements))
+            .route("/api/produtos/formulacao/:code", get(handlers::get_product_formulation))
             .route("/api/historico", get(handlers::list_producao).post(handlers::add_producao))
             .route("/api/historico/:id", delete(handlers::delete_producao))
             .route("/api/google/status", get(google_drive::get_google_status))
@@ -2431,3 +2466,56 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    #[tokio::test]
+    async fn test_sync_execution() {
+        let db_path = "../data.db";
+        let mut conn = Connection::open(db_path).unwrap();
+        super::initialize_hub_db(&conn).unwrap();
+        println!("Starting sync from SQL Server...");
+        match crate::legacy_db::sync_from_sql_server(&mut conn).await {
+            Ok(res) => {
+                println!("Sync succeeded!");
+                println!("  Products: {}", res.products);
+                println!("  Suppliers: {}", res.suppliers);
+                println!("  Items: {}", res.items);
+                println!("  Snapshots: {}", res.snapshots);
+                println!("  Invoices: {}", res.invoices);
+                println!("  Consumption: {}", res.consumption);
+            }
+            Err(e) => {
+                println!("Sync failed with error: {:?}", e);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_dump_execution() {
+        let dump_path = "../legacy_dump.db";
+        // Remove old file if exists
+        let _ = std::fs::remove_file(dump_path);
+        println!("Starting SQL Server table dump to local SQLite...");
+        match crate::legacy_db::create_database_dump(dump_path).await {
+            Ok(res) => {
+                println!("Dump succeeded!");
+                println!("  Filename: {}", res.filename);
+                println!("  Size: {} bytes", res.size_bytes);
+                println!("  Tables copied: {:?}", res.tables_copied);
+                println!("  Elapsed time: {} ms", res.elapsed_ms);
+                assert!(std::path::Path::new(dump_path).exists());
+            }
+            Err(e) => {
+                println!("Dump failed with error: {:?}", e);
+                panic!("Dump execution failed");
+            }
+        }
+    }
+}
+
+
+

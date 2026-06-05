@@ -244,3 +244,37 @@ pub struct NewKitComposicao {
     pub kit_codigo: String,
     pub componente_codigo: String,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FormulationLine {
+    pub product_code: String,
+    pub ingredient_code: String,
+    pub description: Option<String>,
+    pub quantity: f64,
+    pub percentage: Option<f64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct StockMovement {
+    pub id: String,
+    pub item_code: String,
+    pub item_type: String,         // 'insumo' | 'produto' | 'material'
+    pub movement_type: String,     // 'entrada' | 'saida'
+    pub quantity: f64,
+    pub date: String,              // YYYY-MM-DD HH:MM:SS
+    pub document_number: Option<String>,
+    pub details: Option<String>,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DbDumpResult {
+    pub filename: String,
+    pub size_bytes: u64,
+    pub tables_copied: Vec<String>,
+    pub elapsed_ms: u64,
+}
+

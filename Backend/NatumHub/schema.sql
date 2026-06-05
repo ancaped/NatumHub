@@ -114,3 +114,33 @@ CREATE TABLE IF NOT EXISTS historico_importacoes (
     status TEXT DEFAULT 'success', -- 'success' | 'error'
     mensagem TEXT
 );
+
+-- Formulações de Produtos Acabados
+CREATE TABLE IF NOT EXISTS formulations (
+    product_code TEXT NOT NULL,
+    ingredient_code TEXT NOT NULL,
+    description TEXT,
+    quantity REAL NOT NULL,
+    percentage REAL,
+    PRIMARY KEY (product_code, ingredient_code),
+    FOREIGN KEY (product_code) REFERENCES produtos(codigo) ON DELETE CASCADE,
+    FOREIGN KEY (ingredient_code) REFERENCES items(code) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_formulations_product ON formulations(product_code);
+CREATE INDEX IF NOT EXISTS idx_formulations_ingredient ON formulations(ingredient_code);
+
+-- Movimentações de Estoque (Entradas/Saídas)
+CREATE TABLE IF NOT EXISTS stock_movements (
+    id TEXT PRIMARY KEY,
+    item_code TEXT NOT NULL,
+    item_type TEXT NOT NULL,         -- 'insumo' | 'produto' | 'material'
+    movement_type TEXT NOT NULL,     -- 'entrada' | 'saida'
+    quantity REAL NOT NULL,
+    date TEXT NOT NULL,              -- YYYY-MM-DD HH:MM:SS
+    document_number TEXT,            -- Número da Nota ou do Lote
+    details TEXT,                    -- Detalhes (ex: Fornecedor, Cliente, justificativa, etc.)
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_movements_item ON stock_movements(item_code);
+CREATE INDEX IF NOT EXISTS idx_movements_date ON stock_movements(date);
+

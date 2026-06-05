@@ -22,7 +22,7 @@ impl Db {
     }
 
     pub fn init(&self) -> Result<()> {
-        let mut conn = self.connect()?;
+        let conn = self.connect()?;
         
         // Run config_linhas migration BEFORE execute_batch to ensure schema.sql inserts succeed
         let _ = conn.execute("ALTER TABLE config_linhas ADD COLUMN visivel INTEGER NOT NULL DEFAULT 1", []);

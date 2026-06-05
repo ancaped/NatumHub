@@ -286,3 +286,31 @@ export interface FiscoQuimicaAnalysis {
   notes?: string | null;
   createdAt?: string;
 }
+
+// === ESTOQUE / DUMP TYPES ===
+export interface StockMovement {
+  id: string;
+  itemCode: string;
+  itemType: string; // 'insumo' | 'produto' | 'material'
+  movementType: string; // 'entrada' | 'saida'
+  quantity: number;
+  date: string;
+  documentNumber: string | null;
+  details: string | null;
+  createdAt: string;
+}
+
+export interface FormulationLine {
+  productCode: string;
+  ingredientCode: string;
+  description: string | null;
+  quantity: number;
+  percentage: number | null;
+}
+
+export interface DbDumpResult {
+  filename: string;
+  sizeBytes: number;
+  tablesCopied: string[];
+  elapsedMs: number;
+}

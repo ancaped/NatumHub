@@ -64,6 +64,7 @@ export default function ProducaoView({ onBackToHub }) {
   const [loading, setLoading] = useState(false);
   const [uploadingFat, setUploadingFat] = useState(false);
   const [uploadingLev, setUploadingLev] = useState(false);
+  const [syncingDb, setSyncingDb] = useState(false);
   const [toast, setToast] = useState(null);
   
   // Modal Overrides State
@@ -617,6 +618,31 @@ export default function ProducaoView({ onBackToHub }) {
     }
   };
 
+  const handleSyncDatabase = async () => {
+    setSyncingDb(true);
+    try {
+      const res = await fetch(`${API_BASE}/import/sync`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || "Sincronização realizada com sucesso!", "success");
+        fetchProducts();
+        fetchKits();
+        fetchConfigs();
+        fetchImportStatus();
+        fetchImportHistory();
+      } else {
+        showToast(data.error || "Erro ao sincronizar com o banco de dados NATUM", "error");
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("Erro ao conectar com a API de sincronização", "error");
+    } finally {
+      setSyncingDb(false);
+    }
+  };
+
   const handleFileUpload = async (event, type) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -1126,6 +1152,8 @@ export default function ProducaoView({ onBackToHub }) {
               onFileUpload={handleFileUpload}
               uploadingLev={uploadingLev}
               uploadingFat={uploadingFat}
+              syncingDb={syncingDb}
+              onSyncDatabase={handleSyncDatabase}
               onRefresh={async () => {
                 await fetchImportStatus();
                 await fetchImportHistory();

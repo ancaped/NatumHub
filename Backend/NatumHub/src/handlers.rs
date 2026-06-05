@@ -9,12 +9,13 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::Arc;
 use serde_json::json;
+use rusqlite::params;
 
 use crate::db::Db;
 use crate::models::{
-    BulkOverrideRequest, KitComponentDetail, KitCalculationResult, LineConfig, PaginatedResponse, Product, ProductCalculationResult, ProductOverride, QueryParams, Stock,
+    BulkOverrideRequest, KitComponentDetail, KitCalculationResult, LineConfig, Product, ProductCalculationResult, ProductOverride, QueryParams, Stock,
     NewProducaoEntry, HistoryQueryParams,
-    ImportRecord, ImportStatus, WatchConfig, KitComposicaoRow, NewKitComposicao,
+    WatchConfig, NewKitComposicao,
 };
 use crate::calculations::calculate_products;
 
@@ -540,6 +541,70 @@ pub async fn import_kits(
     }
 }
 
+// 7b. POST /api/import/sync
+pub async fn trigger_db_sync(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let mut conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Erro de conexão com o SQLite local: {}", e) }))
+        ).into_response(),
+    };
+
+    match crate::legacy_db::sync_from_sql_server(&mut conn).await {
+        Ok(res) => {
+            let total_records = (res.products + res.items + res.suppliers + res.invoices + res.formulations + res.movements) as i64;
+            let detail_msg = format!(
+                "Sincronizados: {} produtos, {} insumos/materiais, {} fornecedores, {} compras, {} consumos, {} receitas, {} movimentações",
+                res.products, res.items, res.suppliers, res.invoices, res.consumption, res.formulations, res.movements
+            );
+            let _ = state.db.record_import(
+                "sync",
+                "Banco SQL Server NATUM",
+                total_records,
+                "success",
+                Some(&detail_msg)
+            );
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "status": "success",
+                    "imported": res.products,
+                    "details": {
+                        "products": res.products,
+                        "suppliers": res.suppliers,
+                        "items": res.items,
+                        "snapshots": res.snapshots,
+                        "invoices": res.invoices,
+                        "consumption": res.consumption,
+                        "formulations": res.formulations,
+                        "movements": res.movements
+                    },
+                    "message": format!("Sincronização concluída com sucesso! {} produtos, {} insumos/materiais, {} receitas e {} movimentações atualizados.", res.products, res.items, res.formulations, res.movements)
+                }))
+            ).into_response()
+        }
+        Err(e) => {
+            let error_msg = e.to_string();
+            let _ = state.db.record_import(
+                "sync",
+                "Banco SQL Server NATUM",
+                0,
+                "error",
+                Some(&error_msg)
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": format!("Falha ao sincronizar com o banco de dados NATUM: {}. Certifique-se de que está conectado à rede local do servidor.", error_msg)
+                }))
+            ).into_response()
+        }
+    }
+}
+
 // 8. GET /api/kits (Get list of all kits with calculations and components)
 pub async fn list_kits(
     State(state): State<Arc<AppState>>,
@@ -940,3 +1005,87 @@ pub async fn save_watch_config_handler(
             Json(json!({ "error": format!("Erro ao salvar configuração: {}", e) }))).into_response(),
     }
 }
+
+// GET /api/estoque/movimentacoes/:code
+pub async fn get_stock_movements(
+    State(state): State<Arc<AppState>>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+    let mut stmt = match conn.prepare("SELECT id, item_code, item_type, movement_type, quantity, date, document_number, details, created_at FROM stock_movements WHERE item_code = ?1 ORDER BY date DESC") {
+        Ok(s) => s,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+    let rows = stmt.query_map(params![code], |row| {
+        Ok(crate::models::StockMovement {
+            id: row.get(0)?,
+            item_code: row.get(1)?,
+            item_type: row.get(2)?,
+            movement_type: row.get(3)?,
+            quantity: row.get(4)?,
+            date: row.get(5)?,
+            document_number: row.get(6)?,
+            details: row.get(7)?,
+            created_at: row.get(8)?,
+        })
+    });
+    match rows {
+        Ok(iter) => {
+            let mut list = Vec::new();
+            for r in iter {
+                if let Ok(m) = r { list.push(m); }
+            }
+            (StatusCode::OK, Json(list)).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+// GET /api/produtos/formulacao/:code
+pub async fn get_product_formulation(
+    State(state): State<Arc<AppState>>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+    let mut stmt = match conn.prepare("SELECT product_code, ingredient_code, description, quantity, percentage FROM formulations WHERE product_code = ?1 ORDER BY quantity DESC") {
+        Ok(s) => s,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+    let rows = stmt.query_map(params![code], |row| {
+        Ok(crate::models::FormulationLine {
+            product_code: row.get(0)?,
+            ingredient_code: row.get(1)?,
+            description: row.get(2)?,
+            quantity: row.get(3)?,
+            percentage: row.get(4)?,
+        })
+    });
+    match rows {
+        Ok(iter) => {
+            let mut list = Vec::new();
+            for r in iter {
+                if let Ok(line) = r { list.push(line); }
+            }
+            (StatusCode::OK, Json(list)).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+// POST /api/import/dump
+pub async fn trigger_db_dump(
+    State(_state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let dump_path = "../legacy_dump.db";
+    match crate::legacy_db::create_database_dump(dump_path).await {
+        Ok(res) => (StatusCode::OK, Json(res)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("Falha ao gerar cópia do banco: {}", e) }))).into_response(),
+    }
+}
+

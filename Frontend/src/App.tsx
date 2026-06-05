@@ -4,6 +4,7 @@ import MicrobiologiaView from './modules/MicrobiologiaView';
 import FiscoQuimicaView from './modules/FiscoQuimicaView';
 import ComprasView from './modules/ComprasView';
 import ComprasOnlineView from './modules/ComprasOnlineView';
+import EstoqueView from './modules/EstoqueView';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { FeedbackWidget } from './components/shared/FeedbackWidget';
 import { 
@@ -13,7 +14,7 @@ import {
 import { APP_NAME } from './lib/utils';
 import { api } from './lib/api';
 
-type HubView = 'hub' | 'producao_hub' | 'producao' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras' | 'compras_online' | 'hub_settings';
+type HubView = 'hub' | 'producao_hub' | 'producao' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras' | 'compras_online' | 'hub_settings' | 'estoque';
 
 export default function App() {
   const [view, setView] = useState<HubView>('hub');
@@ -200,6 +201,14 @@ export default function App() {
       return (
         <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Compras Online">
           <ComprasOnlineView onBackToHub={() => setView('compras_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'estoque') {
+      return (
+        <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo de Estoque">
+          <EstoqueView onBackToHub={() => setView('hub')} />
         </ErrorBoundary>
       );
     }
@@ -416,7 +425,26 @@ export default function App() {
                 <p className="text-sm text-zinc-500">Escolha a área do ecossistema Natum que deseja acessar.</p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
+                {/* Card Estoque */}
+                <button 
+                  onClick={() => setView('estoque')}
+                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
+                >
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                      <Boxes className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-zinc-900">Estoque</h3>
+                      <p className="text-sm text-zinc-500 mt-1">Níveis de insumos, matérias-primas, produtos acabados, formulações e histórico de movimentações.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                    Entrar no Módulo <ArrowRight className="h-4 w-4" />
+                  </div>
+                </button>
+
                 {/* Card Produção */}
                 <button 
                   onClick={() => setView('producao_hub')}
