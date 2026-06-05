@@ -1,0 +1,1402 @@
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { 
+  AlertTriangle, CheckCircle2, X, RefreshCw, Database, Check, Play,
+  ArrowUpDown, ArrowUp, ArrowDown, LayoutDashboard, Table, Layers, History,
+  FileSpreadsheet, Settings, ArrowLeft
+} from 'lucide-react';
+
+const API_BASE = 'http://127.0.0.1:3001/api';
+
+// Import subcomponents
+import { DashboardTab } from '../components/producao/DashboardTab';
+import { InventoryTab } from '../components/producao/InventoryTab';
+import { KitsTab } from '../components/producao/KitsTab';
+import { HistoryTab } from '../components/producao/HistoryTab';
+import { ImportsTab } from '../components/producao/ImportsTab';
+import { SettingsTab } from '../components/producao/SettingsTab';
+
+export default function ProducaoView({ onBackToHub }) {
+  // Navigation State
+  const [currentView, setCurrentView] = useState('dashboard');
+
+  useEffect(() => {
+    const viewLabels = {
+      dashboard: 'Dashboard',
+      inventory: 'Gerenciamento de Produção',
+      kits: 'Gestão de Kits',
+      history: 'Histórico de Produção',
+      imports: 'Importações ERP',
+      settings: 'Configurações'
+    };
+    window.__current_page__ = viewLabels[currentView] || currentView;
+  }, [currentView]);
+  
+  // Data State
+  const [products, setProducts] = useState([]);
+  const [stats, setStats] = useState({ critico: 0, ordem: 0, saudavel: 0, abundante: 0, lancamentos: 0 });
+  const [bases, setBases] = useState([]);
+  const [configs, setConfigs] = useState([]);
+  
+  // Filtering & Pagination State
+  const [activeTab, setActiveTab] = useState('ALL');
+  const [search, setSearch] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState('ALL');
+  const [selectedBase, setSelectedBase] = useState('ALL');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  
+  // Global Settings (Stored in LocalStorage)
+  const [diasComerciais, setDiasComerciais] = useState(() => {
+    const saved = localStorage.getItem('diasComerciais');
+    return saved ? parseInt(saved, 10) : 30;
+  });
+  const [limitPerPage, setLimitPerPage] = useState(() => {
+    const saved = localStorage.getItem('limitPerPage');
+    return saved ? parseInt(saved, 10) : 30;
+  });
+
+  // Temp settings state for inputs
+  const [tempDiasComerciais, setTempDiasComerciais] = useState(diasComerciais);
+  const [tempLimitPerPage, setTempLimitPerPage] = useState(limitPerPage);
+
+  // Loading & Action State
+  const [loading, setLoading] = useState(false);
+  const [uploadingFat, setUploadingFat] = useState(false);
+  const [uploadingLev, setUploadingLev] = useState(false);
+  const [toast, setToast] = useState(null);
+  
+  // Modal Overrides State
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [overrideIdeal, setOverrideIdeal] = useState('');
+  const [overridePedidos, setOverridePedidos] = useState('');
+  const [overrideMedia, setOverrideMedia] = useState('');
+  const [overrideLaunch, setOverrideLaunch] = useState('AUTO'); // 'AUTO', 'LAUNCH', 'REGULAR'
+  const [overrideVisible, setOverrideVisible] = useState('VISIBLE'); // 'VISIBLE', 'HIDDEN'
+  const [overrideLine, setOverrideLine] = useState('AUTO'); // 'AUTO' ou prefixo da linha
+  const [overrideObs, setOverrideObs] = useState('');
+  const [showHidden, setShowHidden] = useState(false);
+
+  // Bulk Edit States
+  const [allProducts, setAllProducts] = useState([]);
+  const [bulkSearch, setBulkSearch] = useState('');
+  const [bulkSelected, setBulkSelected] = useState([]);
+  const [bulkAction, setBulkAction] = useState('hide');
+  const [bulkValueStr, setBulkValueStr] = useState('');
+  const [bulkFilterLine, setBulkFilterLine] = useState('ALL');
+  const [bulkFilterStatus, setBulkFilterStatus] = useState('ALL');
+  const [bulkFilterVisibility, setBulkFilterVisibility] = useState('ALL');
+  const [bulkFilterLaunch, setBulkFilterLaunch] = useState('ALL');
+
+  // Kits Module States
+  const [kits, setKits] = useState([]);
+  const [kitsPage, setKitsPage] = useState(1);
+  const [kitsTotalPages, setKitsTotalPages] = useState(1);
+  const [kitsTotalItems, setKitsTotalItems] = useState(0);
+  const [kitsSearch, setKitsSearch] = useState('');
+  const [kitsSelectedStatus, setKitsSelectedStatus] = useState('ALL');
+  const [kitsActiveTab, setKitsActiveTab] = useState('ALL');
+  const [expandedKits, setExpandedKits] = useState([]);
+  const [uploadingKits, setUploadingKits] = useState(false);
+
+  // Google Drive Sync State
+  const [googleStatus, setGoogleStatus] = useState({ configured: false, authenticated: false, client_id: '', last_sync: 'Nunca sincronizado' });
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [syncingGoogle, setSyncingGoogle] = useState(false);
+
+  // Production History States
+  const [historyRecords, setHistoryRecords] = useState([]);
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyActiveTab, setHistoryActiveTab] = useState('ALL');
+  const [historyDateFilter, setHistoryDateFilter] = useState('');
+  const [expandedHistoryId, setExpandedHistoryId] = useState(null);
+  
+  // Quick Launch Modal State
+  const [launchingProduct, setLaunchingProduct] = useState(null);
+  const [launchDate, setLaunchDate] = useState(() => {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  });
+  const [launchQty, setLaunchQty] = useState(100);
+  const [launchObs, setLaunchObs] = useState('');
+
+  // New Line Creation States
+  const [showAddLineForm, setShowAddLineForm] = useState(false);
+  const [newLinePrefix, setNewLinePrefix] = useState('');
+  const [newLineName, setNewLineName] = useState('');
+  const [newLineIdeal, setNewLineIdeal] = useState('3.2');
+  const [newLineOrdem, setNewLineOrdem] = useState('1.6');
+  const [newLineProd, setNewLineProd] = useState('1.2');
+  const [newLineZ, setNewLineZ] = useState('0.0');
+
+  // === SORTING STATE ===
+  const [sortField, setSortField] = useState(null); // estoque view
+  const [sortDir, setSortDir] = useState('asc');
+  const [kitSortField, setKitSortField] = useState(null);
+  const [kitSortDir, setKitSortDir] = useState('asc');
+  const [historySortField, setHistorySortField] = useState(null);
+  const [historySortDir, setHistorySortDir] = useState('asc');
+
+  // === IMPORT STATUS / HISTORY / WATCH CONFIG ===
+  const [importStatus, setImportStatus] = useState([]);
+  const [importHistory, setImportHistory] = useState([]);
+  const [watchConfig, setWatchConfig] = useState({ pasta: 'PlanilhasBase', threshold_levantamento_dias: 7, threshold_faturamento_dias: 30, ativo: true });
+
+  // === KIT COMPOSICAO (for settings view) ===
+  const [kitComposicao, setKitComposicao] = useState([]);
+  const [kitCompNewKit, setKitCompNewKit] = useState('');
+  const [kitCompNewComp, setKitCompNewComp] = useState('');
+  const [kitCompSearch, setKitCompSearch] = useState('');
+  const [uploadingKitsConfig, setUploadingKitsConfig] = useState(false);
+
+  // Show Toast Helper
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 5000);
+  };
+
+  // === SORTING HELPERS ===
+  const toggleSort = (field, currentField, setField, currentDir, setDir) => {
+    if (currentField === field) {
+      if (currentDir === 'asc') setDir('desc');
+      else { setField(null); setDir('asc'); }
+    } else {
+      setField(field);
+      setDir('asc');
+    }
+  };
+
+  const SortIcon = ({ field, activeField, activeDir }) => {
+    if (activeField !== field) return <ArrowUpDown size={12} style={{ opacity: 0.3, marginLeft: 4 }} />;
+    if (activeDir === 'asc') return <ArrowUp size={12} style={{ opacity: 0.7, marginLeft: 4 }} />;
+    return <ArrowDown size={12} style={{ opacity: 0.7, marginLeft: 4 }} />;
+  };
+
+  // === FETCH FUNCTIONS ===
+  const fetchImportStatus = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/import/status`);
+      if (res.ok) setImportStatus(await res.json());
+    } catch (e) { console.error(e); }
+  };
+
+  const fetchImportHistory = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/import/history`);
+      if (res.ok) setImportHistory(await res.json());
+    } catch (e) { console.error(e); }
+  };
+
+  const fetchWatchConfig = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/import/watch-config`);
+      if (res.ok) setWatchConfig(await res.json());
+    } catch (e) { console.error(e); }
+  };
+
+  const saveWatchConfig = async (cfg) => {
+    try {
+      const res = await fetch(`${API_BASE}/import/watch-config`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cfg)
+      });
+      if (res.ok) { showToast('Configurações de monitoramento salvas!'); setWatchConfig(cfg); }
+    } catch (e) { showToast('Erro ao salvar configurações', 'error'); }
+  };
+
+  const fetchKitComposicao = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/kits/composicao`);
+      if (res.ok) setKitComposicao(await res.json());
+    } catch (e) { console.error(e); }
+  };
+
+  const handleAddKitComposicao = async () => {
+    if (!kitCompNewKit.trim() || !kitCompNewComp.trim()) return;
+    try {
+      const res = await fetch(`${API_BASE}/kits/composicao`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kit_codigo: kitCompNewKit.trim(), componente_codigo: kitCompNewComp.trim() })
+      });
+      if (res.ok) { showToast('Relação adicionada!'); fetchKitComposicao(); setKitCompNewKit(''); setKitCompNewComp(''); }
+      else { const e = await res.json(); showToast(e.error || 'Erro', 'error'); }
+    } catch (e) { showToast('Erro de conexão', 'error'); }
+  };
+
+  const handleDeleteKitComposicao = async (kit, comp) => {
+    if (!window.confirm(`Remover componente ${comp} do kit ${kit}?`)) return;
+    try {
+      const res = await fetch(`${API_BASE}/kits/composicao/${kit}/${comp}`, { method: 'DELETE' });
+      if (res.ok) { showToast('Relação removida!'); fetchKitComposicao(); }
+    } catch (e) { showToast('Erro', 'error'); }
+  };
+
+  const handleUploadKitsConfig = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploadingKitsConfig(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await fetch(`${API_BASE}/kits/composicao/upload`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (res.ok) { showToast(data.message || 'Kits importados!'); fetchKitComposicao(); fetchKits(); }
+      else showToast(data.error || 'Erro ao importar', 'error');
+    } catch (e) { showToast('Erro de conexão', 'error'); }
+    setUploadingKitsConfig(false);
+    e.target.value = '';
+  };
+
+  // Compute import alert for sidebar badge
+  const importAlertCount = useMemo(() => {
+    if (!importStatus.length) return 0;
+    return importStatus.filter(s => {
+      if (!s.importado_em) return true; // never imported
+      if (s.tipo === 'levantamento' && (s.dias_sem_importar ?? 999) > watchConfig.threshold_levantamento_dias) return true;
+      if (s.tipo === 'faturamento' && (s.dias_sem_importar ?? 999) > watchConfig.threshold_faturamento_dias) return true;
+      return false;
+    }).length;
+  }, [importStatus, watchConfig]);
+
+  // Fetch configs from API
+  const fetchConfigs = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/configs`);
+      if (res.ok) {
+        const data = await res.json();
+        setConfigs(data);
+      }
+    } catch (e) {
+      console.error("Error fetching configs:", e);
+    }
+  };
+
+  // Fetch products from API
+  const fetchProducts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (search.trim()) params.append('search', search.trim());
+      if (activeTab !== 'ALL') params.append('linha', activeTab);
+      if (selectedStatus !== 'ALL') params.append('status', selectedStatus);
+      if (selectedBase !== 'ALL') params.append('base', selectedBase);
+      if (showHidden) params.append('show_hidden', 'true');
+      params.append('page', page.toString());
+      params.append('limit', limitPerPage.toString());
+      if (sortField) {
+        params.append('sort', sortField);
+        params.append('order', sortDir);
+      }
+
+      const res = await fetch(`${API_BASE}/products?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setProducts(data.items || []);
+        setTotalItems(data.total || 0);
+        setTotalPages(data.total_pages || 1);
+        if (data.stats) setStats(data.stats);
+        if (data.bases) setBases(data.bases);
+      } else {
+        showToast("Erro ao buscar produtos da API", "error");
+      }
+    } catch (e) {
+      console.error("Error fetching products:", e);
+      showToast("Falha de conexão com o servidor local", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [search, activeTab, selectedStatus, selectedBase, page, limitPerPage, showHidden, sortField, sortDir]);
+
+  // Fetch kits from API
+  const fetchKits = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (kitsSearch.trim()) params.append('search', kitsSearch.trim());
+      if (kitsActiveTab !== 'ALL') params.append('linha', kitsActiveTab);
+      if (kitsSelectedStatus !== 'ALL') params.append('status', kitsSelectedStatus);
+      if (showHidden) params.append('show_hidden', 'true');
+      params.append('page', kitsPage.toString());
+      params.append('limit', limitPerPage.toString());
+      if (kitSortField) {
+        params.append('sort', kitSortField);
+        params.append('order', kitSortDir);
+      }
+
+      const res = await fetch(`${API_BASE}/kits?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setKits(data.items || []);
+        setKitsTotalItems(data.total || 0);
+        setKitsTotalPages(data.total_pages || 1);
+      } else {
+        showToast("Erro ao buscar kits da API", "error");
+      }
+    } catch (e) {
+      console.error("Error fetching kits:", e);
+      showToast("Falha de conexão ao carregar kits", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [kitsSearch, kitsActiveTab, kitsSelectedStatus, kitsPage, limitPerPage, showHidden, kitSortField, kitSortDir]);
+
+  useEffect(() => {
+    fetchKits();
+  }, [fetchKits]);
+
+  // Fetch production history from API
+  const fetchHistory = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (historySearch.trim()) params.append('search', historySearch.trim());
+      if (historyActiveTab !== 'ALL') params.append('linha', historyActiveTab);
+      if (historyDateFilter) params.append('data', historyDateFilter);
+      if (historySortField) {
+        params.append('sort', historySortField);
+        params.append('order', historySortDir);
+      }
+
+      const res = await fetch(`${API_BASE}/historico?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setHistoryRecords(data || []);
+      } else {
+        showToast("Erro ao buscar histórico de produção", "error");
+      }
+    } catch (e) {
+      console.error("Error fetching history:", e);
+      showToast("Falha de conexão com o servidor local", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [historySearch, historyActiveTab, historyDateFilter, historySortField, historySortDir]);
+
+  useEffect(() => {
+    if (currentView === 'history') {
+      fetchHistory();
+    }
+  }, [currentView, fetchHistory]);
+
+  const handleLaunchProduction = async (e) => {
+    if (e) e.preventDefault();
+    if (!launchingProduct) return;
+
+    const qty = parseInt(launchQty, 10);
+    if (isNaN(qty) || qty <= 0) {
+      showToast("Por favor, preencha uma quantidade válida maior que zero.", "error");
+      return;
+    }
+    if (!launchDate) {
+      showToast("Por favor, selecione uma data para a produção.", "error");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/historico`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          data_producao: launchDate,
+          codigo: launchingProduct.codigo,
+          quantidade: qty,
+          observacoes: launchObs.trim() === '' ? null : launchObs,
+          snap_estoque: launchingProduct.estoque ?? null,
+          snap_producao: launchingProduct.producao ?? null,
+          snap_pedidos: launchingProduct.pedidos_aberto ?? null,
+          snap_efp: launchingProduct.estoque_futuro_com_producao ?? null,
+          snap_media_vendas: launchingProduct.media_vendas ?? null,
+          snap_duracao_meses: launchingProduct.duracao_meses ?? null,
+          snap_status: launchingProduct.status ?? null,
+          snap_status_label: launchingProduct.status_label ?? null,
+          snap_producao_recomendada: launchingProduct.producao_recomendada ?? null,
+          snap_estoque_ideal_qtd: launchingProduct.estoque_ideal_qtd ?? null,
+          snap_demanda_ajustada: launchingProduct.demanda_ajustada ?? null,
+        })
+      });
+      if (res.ok) {
+        showToast(`Produção de ${qty} un. lançada com sucesso para ${launchingProduct.codigo}!`, "success");
+        setLaunchingProduct(null);
+        setLaunchObs('');
+        fetchProducts();
+        fetchKits();
+        if (currentView === 'history') {
+          fetchHistory();
+        }
+      } else {
+        const err = await res.json();
+        showToast(err.error || "Erro ao lançar lote de produção", "error");
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("Falha de conexão com o servidor", "error");
+    }
+  };
+
+  const handleDeleteHistory = async (id) => {
+    if (!window.confirm("Tem certeza que deseja estornar este lote de produção? A quantidade correspondente será subtraída do estoque em processo.")) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/historico/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        showToast("Lote de produção estornado com sucesso!", "success");
+        fetchProducts();
+        fetchKits();
+        fetchHistory();
+      } else {
+        const err = await res.json();
+        showToast(err.error || "Erro ao excluir lote de produção", "error");
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("Erro de conexão ao excluir lote", "error");
+    }
+  };
+
+  const handleTabChange = (tabId) => {
+    setActiveTab(tabId);
+    setPage(1);
+  };
+
+  const toggleKitExpanded = (code) => {
+    setExpandedKits(prev => 
+      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
+    );
+  };
+
+  const handleSaveGlobalSettings = (e) => {
+    if (e) e.preventDefault();
+    const days = parseInt(tempDiasComerciais, 10) || 30;
+    const limit = parseInt(tempLimitPerPage, 10) || 30;
+    
+    setDiasComerciais(days);
+    setLimitPerPage(limit);
+    localStorage.setItem('diasComerciais', days.toString());
+    localStorage.setItem('limitPerPage', limit.toString());
+    
+    setPage(1);
+    showToast("Configurações globais salvas com sucesso!", "success");
+  };
+
+  const handleConfigChange = async (prefix, field, value) => {
+    const updatedConfigs = configs.map(c => {
+      if (c.linha_prefix === prefix) {
+        return { ...c, [field]: parseFloat(value) || 0 };
+      }
+      return c;
+    });
+    setConfigs(updatedConfigs);
+
+    const targetConfig = updatedConfigs.find(c => c.linha_prefix === prefix);
+    if (targetConfig) {
+      try {
+        await fetch(`${API_BASE}/configs`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(targetConfig),
+        });
+        fetchProducts();
+      } catch (e) {
+        console.error("Error saving config:", e);
+      }
+    }
+  };
+
+  const handleConfigToggleVisivel = async (prefix, currentVisivel) => {
+    const nextVis = currentVisivel === 0 ? 1 : 0;
+    const targetConfig = configs.find(c => c.linha_prefix === prefix);
+    if (!targetConfig) return;
+
+    const updatedConfig = { ...targetConfig, visivel: nextVis };
+    setConfigs(prev => prev.map(c => c.linha_prefix === prefix ? updatedConfig : c));
+
+    try {
+      const res = await fetch(`${API_BASE}/configs`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedConfig),
+      });
+      if (res.ok) {
+        showToast(`Linha "${targetConfig.nome_linha}" ${nextVis === 1 ? 'ativada' : 'desativada'} com sucesso!`, 'success');
+        fetchProducts();
+        fetchKits();
+      } else {
+        showToast("Erro ao atualizar status da linha", "error");
+        fetchConfigs();
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("Erro ao conectar com a API", "error");
+      fetchConfigs();
+    }
+  };
+
+  const handleConfigDelete = async (prefix) => {
+    if (prefix === 'DEFAULT') {
+      showToast("Não é possível excluir a linha padrão DEFAULT", "error");
+      return;
+    }
+    if (!window.confirm(`Tem certeza que deseja excluir permanentemente a linha de prefixo "${prefix}"?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/configs/${prefix}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        showToast("Linha excluída com sucesso!", "success");
+        fetchConfigs();
+        fetchProducts();
+        fetchKits();
+      } else {
+        const data = await res.json();
+        showToast(data.error || "Erro ao excluir linha", "error");
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("Erro de conexão ao excluir linha", "error");
+    }
+  };
+
+  const handleConfigCreate = async (e) => {
+    if (e) e.preventDefault();
+    if (!newLinePrefix.trim() || !newLineName.trim()) {
+      showToast("Por favor, preencha o prefixo e o nome da linha.", "error");
+      return;
+    }
+
+    if (configs.some(c => c.linha_prefix === newLinePrefix.trim())) {
+      showToast(`O prefixo "${newLinePrefix}" já está cadastrado.`, "error");
+      return;
+    }
+
+    const newConfig = {
+      linha_prefix: newLinePrefix.trim(),
+      nome_linha: newLineName.trim(),
+      estoque_ideal_mult: parseFloat(newLineIdeal) || 3.2,
+      abrir_ordem_mult: parseFloat(newLineOrdem) || 1.6,
+      abrir_prod_mult: parseFloat(newLineProd) || 1.2,
+      fator_seguranca_z: parseFloat(newLineZ) || 0.0,
+      visivel: 1,
+    };
+
+    try {
+      const res = await fetch(`${API_BASE}/configs`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newConfig),
+      });
+      if (res.ok) {
+        showToast("Nova linha cadastrada com sucesso!", "success");
+        setShowAddLineForm(false);
+        setNewLinePrefix('');
+        setNewLineName('');
+        setNewLineIdeal('3.2');
+        setNewLineOrdem('1.6');
+        setNewLineProd('1.2');
+        setNewLineZ('0.0');
+        fetchConfigs();
+        fetchProducts();
+        fetchKits();
+      } else {
+        const data = await res.json();
+        showToast(data.error || "Erro ao cadastrar linha", "error");
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("Erro de conexão ao cadastrar linha", "error");
+    }
+  };
+
+  const handleFileUpload = async (event, type) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    if (type === 'faturamento') {
+      setUploadingFat(true);
+    } else if (type === 'kits') {
+      setUploadingKits(true);
+    } else {
+      setUploadingLev(true);
+    }
+
+    try {
+      const endpoint = type === 'faturamento' ? 'faturamento' : type === 'kits' ? 'kits' : 'levantamento';
+      const res = await fetch(`${API_BASE}/import/${endpoint}`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || "Importação concluída com sucesso!", "success");
+        fetchProducts();
+        fetchKits();
+        fetchConfigs();
+      } else {
+        showToast(data.error || "Erro ao processar planilha ERP", "error");
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("Erro ao conectar com a API de importação", "error");
+    } finally {
+      if (type === 'faturamento') {
+        setUploadingFat(false);
+      } else if (type === 'kits') {
+        setUploadingKits(false);
+      } else {
+        setUploadingLev(false);
+      }
+    }
+  };
+
+  const openEditModal = (prod) => {
+    setEditingProduct(prod);
+    setOverrideIdeal(prod.estoque_ideal_manual !== null ? prod.estoque_ideal_manual.toString() : '');
+    setOverridePedidos(prod.pedidos_manual !== null ? prod.pedidos_manual.toString() : '');
+    setOverrideMedia(prod.media_manual !== null ? prod.media_manual.toString() : '');
+    
+    if (prod.is_lancamento_manual === 1) {
+      setOverrideLaunch('LAUNCH');
+    } else if (prod.is_lancamento_manual === 0) {
+      setOverrideLaunch('REGULAR');
+    } else {
+      setOverrideLaunch('AUTO');
+    }
+
+    if (prod.visivel === 0) {
+      setOverrideVisible('HIDDEN');
+    } else {
+      setOverrideVisible('VISIBLE');
+    }
+
+    setOverrideLine(prod.linha_prefix_manual !== null ? prod.linha_prefix_manual : 'AUTO');
+    setOverrideObs(prod.observacao !== null ? prod.observacao : '');
+  };
+
+  const handleSaveOverrides = async () => {
+    if (!editingProduct) return;
+
+    const payload = {
+      codigo: editingProduct.codigo,
+      estoque_ideal_manual: overrideIdeal.trim() === '' ? null : parseInt(overrideIdeal, 10) || 0,
+      pedidos_manual: overridePedidos.trim() === '' ? null : parseInt(overridePedidos, 10) || 0,
+      media_manual: overrideMedia.trim() === '' ? null : parseFloat(overrideMedia) || 0.0,
+      is_lancamento_manual: overrideLaunch === 'AUTO' ? null : overrideLaunch === 'LAUNCH' ? 1 : 0,
+      visivel: overrideVisible === 'HIDDEN' ? 0 : 1,
+      linha_prefix_manual: overrideLine === 'AUTO' ? null : overrideLine,
+      observacao: overrideObs.trim() === '' ? null : overrideObs,
+    };
+
+    try {
+      const res = await fetch(`${API_BASE}/overrides`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        showToast(`Overrides salvos para ${editingProduct.codigo}`, "success");
+        setEditingProduct(null);
+        fetchProducts();
+      } else {
+        showToast("Erro ao salvar overrides manuais", "error");
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("Falha de conexão com a API", "error");
+    }
+  };
+
+  const fetchAllProducts = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/products?limit=9999&show_hidden=true`);
+      if (res.ok) {
+        const data = await res.json();
+        setAllProducts(data.items || []);
+      }
+    } catch (e) {
+      console.error("Error fetching all products:", e);
+    }
+  };
+
+  const handleBulkApply = async (e) => {
+    if (e) e.preventDefault();
+    if (bulkSelected.length === 0) {
+      showToast("Selecione pelo menos um produto na lista para aplicar a ação.", "error");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/overrides/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          codigos: bulkSelected,
+          action: bulkAction,
+          value_str: bulkValueStr.trim() === '' ? null : bulkValueStr
+        })
+      });
+
+      if (res.ok) {
+        showToast(`Ação aplicada com sucesso a ${bulkSelected.length} produtos!`, "success");
+        setBulkSelected([]);
+        setBulkValueStr('');
+        fetchProducts();
+        fetchAllProducts();
+      } else {
+        const err = await res.json();
+        showToast(err.error || "Erro ao aplicar ações em lote", "error");
+      }
+    } catch (e) {
+      console.error("Error in bulk overrides:", e);
+      showToast("Falha de conexão com o servidor local", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchGoogleStatus = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/google/status`);
+      if (res.ok) {
+        const data = await res.json();
+        setGoogleStatus(data);
+        if (data.client_id) setClientId(data.client_id);
+      }
+    } catch (e) {
+      console.error("Error fetching Google status:", e);
+    }
+  };
+
+  const handleSaveGoogleConfig = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/google/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || "Credenciais salvas com sucesso!", "success");
+        fetchGoogleStatus();
+      } else {
+        showToast(data.error || "Erro ao salvar credenciais", "error");
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("Falha de conexão com a API do Google Config", "error");
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/google/auth-url`);
+      const data = await res.json();
+      if (res.ok && data.url) {
+        window.open(data.url, '_blank');
+        showToast("Link de login do Google aberto no navegador", "info");
+      } else {
+        showToast(data.error || "Configure o Client ID antes de fazer login", "error");
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("Erro ao requisitar link de autenticação", "error");
+    }
+  };
+
+  const handleGoogleSync = async () => {
+    setSyncingGoogle(true);
+    try {
+      const res = await fetch(`${API_BASE}/google/sync`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || "Sincronização realizada com sucesso!", "success");
+        fetchGoogleStatus();
+      } else {
+        showToast(data.error || "Falha na sincronização. Verifique o login.", "error");
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("Erro ao tentar sincronizar com o Google Drive", "error");
+    } finally {
+      setSyncingGoogle(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchConfigs();
+    fetchGoogleStatus();
+    fetchAllProducts();
+    fetchImportStatus();
+    fetchImportHistory();
+    fetchWatchConfig();
+    fetchKitComposicao();
+  }, []);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
+
+  const tabOptions = [
+    { id: 'ALL', name: 'Todos' },
+    ...(configs.length > 0
+      ? configs
+          .filter(c => c.visivel !== 0)
+          .map(c => ({ id: c.linha_prefix, name: c.nome_linha }))
+      : [
+          { id: '1', name: 'Natum' },
+          { id: '2', name: 'Hair Extrattus' },
+          { id: '10', name: 'Liss Shine' },
+          { id: '14', name: 'Perfect Curls' },
+          { id: '3', name: 'Pierre Capelli' },
+          { id: '5', name: 'Bio Ozônio' },
+          { id: '70', name: 'Vita Brasil' },
+          { id: 'DEFAULT', name: 'Outros' },
+        ])
+  ];
+
+  return (
+    <div className="app-container">
+      {/* Top Header */}
+      <header>
+        <div className="logo-section">
+          <div className="logo-icon">
+            <Layers size={20} color="#fff" />
+          </div>
+          <div>
+            <h1>Natum Produção</h1>
+            <p className="header-subtitle">
+              Ecossistema de Planejamento e Estoques
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <div 
+            className={`google-sync-badge ${googleStatus.authenticated ? 'synced' : ''}`} 
+            onClick={() => googleStatus.authenticated ? handleGoogleSync() : showToast("Configure o backup no Hub principal", "info")}
+            title={googleStatus.authenticated ? `Backup Google Drive ativo. Última sincronização: ${googleStatus.last_sync}. Clique para sincronizar agora.` : 'Configure o backup no Hub principal.'}
+            style={{ cursor: 'pointer' }}
+          >
+            <Database size={14} />
+            <span style={{ fontSize: '0.75rem' }}>{googleStatus.authenticated ? 'Drive Conectado' : 'Configurar Backup'}</span>
+            {googleStatus.authenticated && <Check size={12} style={{ marginLeft: '4px' }} />}
+          </div>
+        </div>
+      </header>
+
+      {/* Main Layout containing Sidebar and active panel */}
+      <div className="main-layout">
+        {/* Navigation Sidebar */}
+        <aside className="sidebar">
+          <button 
+            className="sidebar-link cursor-pointer"
+            onClick={onBackToHub}
+            style={{ marginBottom: '1rem', borderBottom: '1px solid rgba(0,0,0,0.06)', borderRadius: '0', paddingBottom: '0.75rem' }}
+          >
+            <ArrowLeft size={16} />
+            <span style={{ fontWeight: 'bold' }}>Voltar ao Hub</span>
+          </button>
+
+          <button 
+            className={`sidebar-link cursor-pointer ${currentView === 'dashboard' ? 'active' : ''}`}
+            onClick={() => setCurrentView('dashboard')}
+          >
+            <LayoutDashboard size={16} />
+            <span>Dashboard</span>
+          </button>
+          
+          <button 
+            className={`sidebar-link cursor-pointer ${currentView === 'inventory' ? 'active' : ''}`}
+            onClick={() => setCurrentView('inventory')}
+          >
+            <Table size={16} />
+            <span>Gerenciamento de Produção</span>
+          </button>
+          
+          <button 
+            className={`sidebar-link cursor-pointer ${currentView === 'kits' ? 'active' : ''}`}
+            onClick={() => { setCurrentView('kits'); setKitsPage(1); }}
+          >
+            <Layers size={16} />
+            <span>Gestão de Kits</span>
+          </button>
+          
+          <button 
+            className={`sidebar-link cursor-pointer ${currentView === 'history' ? 'active' : ''}`}
+            onClick={() => setCurrentView('history')}
+          >
+            <History size={16} />
+            <span>Histórico de Produção</span>
+          </button>
+          
+          <button 
+            className={`sidebar-link cursor-pointer ${currentView === 'import' ? 'active' : ''}`}
+            onClick={() => {
+              setCurrentView('import');
+              fetchImportStatus();
+              fetchImportHistory();
+              fetchWatchConfig();
+            }}
+          >
+            <FileSpreadsheet size={16} />
+            <span>Importar Planilhas</span>
+            {importAlertCount > 0 && (
+              <span className="import-alert-badge" style={{
+                marginLeft: 'auto',
+                backgroundColor: 'hsl(var(--danger-hsl))',
+                color: '#ffffff',
+                borderRadius: '9999px',
+                padding: '2px 6px',
+                fontSize: '0.7rem',
+                fontWeight: 'bold',
+                lineHeight: '1'
+              }}>
+                {importAlertCount}
+              </span>
+            )}
+          </button>
+          
+          <button 
+            className={`sidebar-link cursor-pointer ${currentView === 'settings' ? 'active' : ''}`}
+            onClick={() => {
+              setCurrentView('settings');
+              fetchKitComposicao();
+            }}
+          >
+            <Settings size={16} />
+            <span>Configurações</span>
+          </button>
+
+          <div className="sidebar-footer">
+            <div>Versão: 0.002 alpha</div>
+            <div>Banco: SQLite Local</div>
+          </div>
+        </aside>
+
+        {/* View Panel Content */}
+        <main className="view-content">
+          
+          {/* VIEW: DASHBOARD */}
+          {currentView === 'dashboard' && (
+            <DashboardTab
+              stats={stats}
+              totalItems={totalItems}
+              bases={bases}
+              productsLength={products.length}
+              googleStatus={googleStatus}
+              onGoogleSync={handleGoogleSync}
+              setCurrentView={setCurrentView}
+              setSelectedStatus={setSelectedStatus}
+              setSelectedBase={setSelectedBase}
+            />
+          )}
+
+          {/* VIEW: STOCK & ALERTS */}
+          {currentView === 'inventory' && (
+            <InventoryTab
+              products={products}
+              configs={configs}
+              bases={bases}
+              activeTab={activeTab}
+              handleTabChange={handleTabChange}
+              search={search}
+              setSearch={setSearch}
+              selectedStatus={selectedStatus}
+              setSelectedStatus={setSelectedStatus}
+              selectedBase={selectedBase}
+              setSelectedBase={setSelectedBase}
+              showHidden={showHidden}
+              setShowHidden={setShowHidden}
+              page={page}
+              setPage={setPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              limitPerPage={limitPerPage}
+              diasComerciais={diasComerciais}
+              sortField={sortField}
+              setSortField={setSortField}
+              sortDir={sortDir}
+              setSortDir={setSortDir}
+              onLaunchProduct={(p) => {
+                setLaunchingProduct(p);
+                setLaunchQty(p.producao_recomendada > 0 ? p.producao_recomendada : 100);
+                const today = new Date();
+                const yyyy = today.getFullYear();
+                const mm = String(today.getMonth() + 1).padStart(2, '0');
+                const dd = String(today.getDate()).padStart(2, '0');
+                setLaunchDate(`${yyyy}-${mm}-${dd}`);
+              }}
+              onEditOverrides={openEditModal}
+              onRefresh={fetchProducts}
+              loading={loading}
+              tabOptions={tabOptions}
+              toggleSort={toggleSort}
+              SortIcon={SortIcon}
+            />
+          )}
+
+          {/* VIEW: KITS & COMPONENT DETAILS */}
+          {currentView === 'kits' && (
+            <KitsTab
+              kits={kits}
+              configs={configs}
+              kitsActiveTab={kitsActiveTab}
+              setKitsActiveTab={setKitsActiveTab}
+              kitsSearch={kitsSearch}
+              setKitsSearch={setKitsSearch}
+              kitsSelectedStatus={kitsSelectedStatus}
+              setKitsSelectedStatus={setKitsSelectedStatus}
+              kitsPage={kitsPage}
+              setKitsPage={setKitsPage}
+              kitsTotalPages={kitsTotalPages}
+              kitsTotalItems={kitsTotalItems}
+              limitPerPage={limitPerPage}
+              showHidden={showHidden}
+              kitSortField={kitSortField}
+              setKitSortField={setKitSortField}
+              kitSortDir={kitSortDir}
+              setKitSortDir={setKitSortDir}
+              onLaunchProduct={(p) => {
+                setLaunchingProduct(p);
+                setLaunchQty(p.producao_recomendada > 0 ? p.producao_recomendada : 100);
+                const today = new Date();
+                const yyyy = today.getFullYear();
+                const mm = String(today.getMonth() + 1).padStart(2, '0');
+                const dd = String(today.getDate()).padStart(2, '0');
+                setLaunchDate(`${yyyy}-${mm}-${dd}`);
+              }}
+              onEditOverrides={openEditModal}
+              onRefresh={fetchKits}
+              loading={loading}
+              tabOptions={tabOptions}
+              toggleSort={toggleSort}
+              SortIcon={SortIcon}
+              expandedKits={expandedKits}
+              toggleKitExpanded={toggleKitExpanded}
+            />
+          )}
+
+          {/* VIEW: PRODUCTION HISTORY */}
+          {currentView === 'history' && (
+            <HistoryTab
+              historyRecords={historyRecords}
+              configs={configs}
+              historySearch={historySearch}
+              setHistorySearch={setHistorySearch}
+              historyActiveTab={historyActiveTab}
+              setHistoryActiveTab={setHistoryActiveTab}
+              historyDateFilter={historyDateFilter}
+              setHistoryDateFilter={setHistoryDateFilter}
+              historySortField={historySortField}
+              setHistorySortField={setHistorySortField}
+              historySortDir={historySortDir}
+              setHistorySortDir={setHistorySortDir}
+              onDeleteHistory={handleDeleteHistory}
+              onRefresh={fetchHistory}
+              loading={loading}
+              toggleSort={toggleSort}
+              SortIcon={SortIcon}
+              expandedHistoryId={expandedHistoryId}
+              setExpandedHistoryId={setExpandedHistoryId}
+            />
+          )}
+
+          {/* VIEW: PLANILHAS (IMPORTATION) */}
+          {currentView === 'import' && (
+            <ImportsTab
+              importStatus={importStatus}
+              importHistory={importHistory}
+              watchConfig={watchConfig}
+              setWatchConfig={setWatchConfig}
+              onSaveWatchConfig={saveWatchConfig}
+              onFileUpload={handleFileUpload}
+              uploadingLev={uploadingLev}
+              uploadingFat={uploadingFat}
+              onRefresh={async () => {
+                await fetchImportStatus();
+                await fetchImportHistory();
+                await fetchWatchConfig();
+              }}
+            />
+          )}
+
+          {/* VIEW: SETTINGS */}
+          {currentView === 'settings' && (
+            <SettingsTab
+              configs={configs}
+              diasComerciais={diasComerciais}
+              limitPerPage={limitPerPage}
+              tempDiasComerciais={tempDiasComerciais}
+              setTempDiasComerciais={setTempDiasComerciais}
+              tempLimitPerPage={tempLimitPerPage}
+              setTempLimitPerPage={setTempLimitPerPage}
+              onSaveGlobalSettings={handleSaveGlobalSettings}
+              onConfigChange={handleConfigChange}
+              onConfigToggleVisivel={handleConfigToggleVisivel}
+              onConfigDelete={handleConfigDelete}
+              onConfigCreate={handleConfigCreate}
+              showAddLineForm={showAddLineForm}
+              setShowAddLineForm={setShowAddLineForm}
+              newLinePrefix={newLinePrefix}
+              setNewLinePrefix={setNewLinePrefix}
+              newLineName={newLineName}
+              setNewLineName={setNewLineName}
+              newLineIdeal={newLineIdeal}
+              setNewLineIdeal={setNewLineIdeal}
+              newLineOrdem={newLineOrdem}
+              setNewLineOrdem={setNewLineOrdem}
+              newLineProd={newLineProd}
+              setNewLineProd={setNewLineProd}
+              newLineZ={newLineZ}
+              setNewLineZ={setNewLineZ}
+              allProducts={allProducts}
+              bulkSearch={bulkSearch}
+              setBulkSearch={setBulkSearch}
+              bulkSelected={bulkSelected}
+              setBulkSelected={setBulkSelected}
+              bulkAction={bulkAction}
+              setBulkAction={setBulkAction}
+              bulkValueStr={bulkValueStr}
+              setBulkValueStr={setBulkValueStr}
+              bulkFilterLine={bulkFilterLine}
+              setBulkFilterLine={setBulkFilterLine}
+              bulkFilterStatus={bulkFilterStatus}
+              setBulkFilterStatus={setBulkFilterStatus}
+              bulkFilterVisibility={bulkFilterVisibility}
+              setBulkFilterVisibility={setBulkFilterVisibility}
+              bulkFilterLaunch={bulkFilterLaunch}
+              setBulkFilterLaunch={setBulkFilterLaunch}
+              onBulkApply={handleBulkApply}
+              kitComposicao={kitComposicao}
+              kitCompNewKit={kitCompNewKit}
+              setKitCompNewKit={setKitCompNewKit}
+              kitCompNewComp={kitCompNewComp}
+              setKitCompNewComp={setKitCompNewComp}
+              kitCompSearch={kitCompSearch}
+              setKitCompSearch={setKitCompSearch}
+              onAddKitComposicao={handleAddKitComposicao}
+              onDeleteKitComposicao={handleDeleteKitComposicao}
+              onUploadKitsConfig={handleUploadKitsConfig}
+              uploadingKitsConfig={uploadingKitsConfig}
+            />
+          )}
+
+        </main>
+      </div>
+
+      {/* Manual Override Dialog Modal */}
+      {editingProduct && (
+        <div className="modal-backdrop">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h3>Ajustar Manualmente - REF {editingProduct.codigo}</h3>
+              <button className="action-btn cursor-pointer" onClick={() => setEditingProduct(null)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body text-left">
+              <p className="modal-subtitle">
+                Defina valores manuais para ignorar temporariamente os cálculos automáticos das planilhas ERP para este produto.
+              </p>
+              
+              <div className="modal-info-box">
+                <div className="modal-info-title">
+                  <strong>{editingProduct.descricao}</strong>
+                  <div className="modal-info-sub">
+                    Estoque: {editingProduct.estoque} | Produção: {editingProduct.producao} | Pedidos Original: {editingProduct.pedidos_aberto}
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Pedidos em Aberto Manual (Sobrescrever valor original)</label>
+                <input 
+                  type="number" 
+                  className="form-control text-zinc-900" 
+                  placeholder={`Planilha original: ${editingProduct.pedidos_aberto}`}
+                  value={overridePedidos}
+                  onChange={(e) => setOverridePedidos(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group" style={{ marginTop: '0.75rem' }}>
+                <label>Média Mensal de Vendas Manual (Sobrescrever)</label>
+                <input 
+                  type="number" 
+                  step="0.1"
+                  className="form-control text-zinc-900" 
+                  placeholder={`Planilha original: ${editingProduct.media_vendas.toFixed(1)}`}
+                  value={overrideMedia}
+                  onChange={(e) => setOverrideMedia(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group" style={{ marginTop: '0.75rem' }}>
+                <label>Estoque Ideal Fixo (Unidades de Produto - Sobrescrever meses)</label>
+                <input 
+                  type="number" 
+                  className="form-control text-zinc-900" 
+                  placeholder={`Automático atual: ${editingProduct.estoque_ideal_qtd.toFixed(0)}`}
+                  value={overrideIdeal}
+                  onChange={(e) => setOverrideIdeal(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group" style={{ marginTop: '0.75rem' }}>
+                <label>Status de Vendas (Lançamento)</label>
+                <select 
+                  className="form-control text-zinc-900"
+                  value={overrideLaunch}
+                  onChange={(e) => setOverrideLaunch(e.target.value)}
+                >
+                  <option value="AUTO">Automático (Baseado no faturamento 2025)</option>
+                  <option value="LAUNCH">Lançamento (Forçar sem histórico / desvio zero)</option>
+                  <option value="REGULAR">Produto de Linha Regular (Forçar cálculo padrão)</option>
+                </select>
+              </div>
+
+              <div className="form-group" style={{ marginTop: '0.75rem' }}>
+                <label>Linha de Produto (Prefixo de Cálculo)</label>
+                <select 
+                  className="form-control text-zinc-900"
+                  value={overrideLine}
+                  onChange={(e) => setOverrideLine(e.target.value)}
+                >
+                  <option value="AUTO">Automático (Detecção automática pelo código)</option>
+                  {configs.map((c) => (
+                    <option key={c.linha_prefix} value={c.linha_prefix}>
+                      {c.nome_linha} ({c.linha_prefix})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group" style={{ marginTop: '0.75rem' }}>
+                <label>Visibilidade do Produto</label>
+                <select 
+                  className="form-control text-zinc-900"
+                  value={overrideVisible}
+                  onChange={(e) => setOverrideVisible(e.target.value)}
+                >
+                  <option value="VISIBLE">Visível (Aparecer nas listagens normais)</option>
+                  <option value="HIDDEN">Oculto (Ocultar de listagens e alertas)</option>
+                </select>
+              </div>
+
+              <div className="form-group" style={{ marginTop: '0.75rem' }}>
+                <label>Observação de Produção</label>
+                <textarea 
+                  className="form-control text-zinc-900" 
+                  placeholder="Ex: produzir somente sob encomenda/pedido..."
+                  value={overrideObs}
+                  onChange={(e) => setOverrideObs(e.target.value)}
+                  rows={2}
+                  style={{ resize: 'vertical', minHeight: '60px' }}
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-secondary cursor-pointer" onClick={() => setEditingProduct(null)}>Cancelar</button>
+              <button className="btn-primary cursor-pointer" onClick={handleSaveOverrides}>Salvar Alterações</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Launch Production Modal */}
+      {launchingProduct && (
+        <div className="modal-backdrop">
+          <div className="modal-content text-left" style={{ maxWidth: '480px' }}>
+            <div className="modal-header">
+              <h3>Registrar Lote de Produção</h3>
+              <button className="action-btn cursor-pointer" onClick={() => setLaunchingProduct(null)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p className="modal-subtitle">
+                Defina a data, a quantidade e uma observação opcional para este lote de produção. A quantidade será adicionada automaticamente ao estoque em processo do produto.
+              </p>
+              
+              <div className="modal-info-box">
+                <div className="modal-info-title">
+                  <strong>{launchingProduct.codigo} — {launchingProduct.descricao}</strong>
+                  <div className="modal-info-sub">
+                    Estoque atual: {launchingProduct.estoque} | Em Produção: {launchingProduct.producao} | Sugestão: {launchingProduct.producao_recomendada > 0 ? `${launchingProduct.producao_recomendada} un` : 'Nenhuma'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Data da Produção</label>
+                <input 
+                  type="date" 
+                  className="form-control text-zinc-900" 
+                  value={launchDate}
+                  onChange={(e) => setLaunchDate(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group" style={{ marginTop: '0.75rem' }}>
+                <label>Quantidade a Produzir (Unidades)</label>
+                <input 
+                  type="number" 
+                  className="form-control text-zinc-900 font-bold" 
+                  placeholder="Ex: 150"
+                  value={launchQty}
+                  onChange={(e) => setLaunchQty(e.target.value)}
+                  min="1"
+                />
+              </div>
+
+              <div className="form-group" style={{ marginTop: '0.75rem' }}>
+                <label>Observações (Opcional)</label>
+                <textarea 
+                  className="form-control text-zinc-900" 
+                  placeholder="Ex: Lote A1 - Produção sob encomenda, pedido #4521..."
+                  value={launchObs}
+                  onChange={(e) => setLaunchObs(e.target.value)}
+                  rows={2}
+                  style={{ resize: 'vertical', minHeight: '60px' }}
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-secondary cursor-pointer" onClick={() => setLaunchingProduct(null)}>Cancelar</button>
+              <button className="btn-primary cursor-pointer" onClick={handleLaunchProduction} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Play size={14} />
+                Lançar Produção
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Action status notification Toast */}
+      {toast && (
+        <div className={`toast ${toast.type}`}>
+          {toast.type === 'success' ? (
+            <CheckCircle2 size={18} color="hsl(var(--success-hsl))" />
+          ) : (
+            <AlertTriangle size={18} color="hsl(var(--danger-hsl))" />
+          )}
+          <span style={{ fontSize: '0.85rem', fontWeight: '600' }}>{toast.message}</span>
+        </div>
+      )}
+    </div>
+  );
+}

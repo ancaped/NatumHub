@@ -1,0 +1,323 @@
+import React from 'react';
+import { 
+  Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, HelpCircle, 
+  ChevronDown, AlertTriangle, Play, Edit3, ChevronLeft, ChevronRight 
+} from 'lucide-react';
+import { ChevronRight as ChevronRightIcon } from 'lucide-react';
+
+export function KitsTab({
+  kits,
+  configs,
+  kitsActiveTab,
+  setKitsActiveTab,
+  kitsSearch,
+  setKitsSearch,
+  kitsSelectedStatus,
+  setKitsSelectedStatus,
+  kitsPage,
+  setKitsPage,
+  kitsTotalPages,
+  kitsTotalItems,
+  limitPerPage,
+  showHidden,
+  kitSortField,
+  setKitSortField,
+  kitSortDir,
+  setKitSortDir,
+  onLaunchProduct,
+  onEditOverrides,
+  onRefresh,
+  loading,
+  tabOptions,
+  toggleSort,
+  SortIcon,
+  expandedKits,
+  toggleKitExpanded
+}) {
+  return (
+    <div className="view-container animate-in fade-in duration-200">
+      <div className="view-header">
+        <h2 className="view-title">Gestão de Kits e Componentes</h2>
+        <p className="view-subtitle">
+          Relação de kits e acompanhamento de falta de estoque de seus componentes antes da montagem.
+        </p>
+      </div>
+
+      {/* Tabs Nav */}
+      <div className="tabs-container">
+        {tabOptions.map((opt) => (
+          <button 
+            key={opt.id}
+            className={`tab-btn ${kitsActiveTab === opt.id ? 'active' : ''}`}
+            onClick={() => { setKitsActiveTab(opt.id); setKitsPage(1); }}
+          >
+            {opt.name}
+          </button>
+        ))}
+      </div>
+
+      {/* Filtering Toolbar */}
+      <div className="toolbar-section">
+        <div className="search-input-wrapper">
+          <Search size={18} />
+          <input 
+            type="text" 
+            placeholder="Buscar kit por código (REF) ou descrição..." 
+            className="search-input"
+            value={kitsSearch}
+            onChange={(e) => { setKitsSearch(e.target.value); setKitsPage(1); }}
+          />
+        </div>
+
+        <div className="filters-wrapper">
+          <select 
+            className="select-filter"
+            value={kitsSelectedStatus}
+            onChange={(e) => { setKitsSelectedStatus(e.target.value); setKitsPage(1); }}
+          >
+            <option value="ALL">Todos os Alertas</option>
+            <option value="critico">Crítico: Produzir</option>
+            <option value="ordem">Abrir Ordem</option>
+            <option value="saudavel">Estoque OK</option>
+            <option value="abundante">Abundante</option>
+          </select>
+
+          <button className="btn-secondary cursor-pointer" onClick={onRefresh} title="Recarregar dados">
+            <RefreshCw size={16} />
+          </button>
+        </div>
+      </div>
+
+      {/* Main Table Card */}
+      <div className="table-card">
+        {loading ? (
+          <div style={{ padding: '4rem', textAlign: 'center', color: 'hsl(var(--text-secondary-hsl))', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+            <RefreshCw className="animate-spin" size={32} />
+            <span>Calculando composição e estoques dos kits...</span>
+          </div>
+        ) : kits.length === 0 ? (
+          <div style={{ padding: '4rem', textAlign: 'center', color: 'hsl(var(--text-secondary-hsl))', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+            <HelpCircle size={48} style={{ opacity: 0.3 }} />
+            <span>Nenhum kit encontrado com os filtros selecionados.</span>
+          </div>
+        ) : (
+          <div className="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: '4%' }}></th>
+                  <th 
+                    style={{ width: '10%', cursor: 'pointer' }}
+                    onClick={() => toggleSort('codigo', kitSortField, setKitSortField, kitSortDir, setKitSortDir)}
+                    className="sortable-th"
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      REF Kit
+                      <SortIcon field="codigo" activeField={kitSortField} activeDir={kitSortDir} />
+                    </div>
+                  </th>
+                  <th 
+                    style={{ width: '28%', cursor: 'pointer' }}
+                    onClick={() => toggleSort('descricao', kitSortField, setKitSortField, kitSortDir, setKitSortDir)}
+                    className="sortable-th"
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      Descrição do Kit
+                      <SortIcon field="descricao" activeField={kitSortField} activeDir={kitSortDir} />
+                    </div>
+                  </th>
+                  <th 
+                    className="numeric-col sortable-th" 
+                    style={{ width: '8%', cursor: 'pointer' }}
+                    onClick={() => toggleSort('estoque_futuro_com_producao', kitSortField, setKitSortField, kitSortDir, setKitSortDir)}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                      EFP Kit
+                      <SortIcon field="estoque_futuro_com_producao" activeField={kitSortField} activeDir={kitSortDir} />
+                    </div>
+                  </th>
+                  <th 
+                    style={{ width: '15%', cursor: 'pointer' }}
+                    onClick={() => toggleSort('status', kitSortField, setKitSortField, kitSortDir, setKitSortDir)}
+                    className="sortable-th"
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      Status Kit
+                      <SortIcon field="status" activeField={kitSortField} activeDir={kitSortDir} />
+                    </div>
+                  </th>
+                  <th 
+                    className="numeric-col sortable-th" 
+                    style={{ width: '10%', cursor: 'pointer' }}
+                    onClick={() => toggleSort('producao_recomendada', kitSortField, setKitSortField, kitSortDir, setKitSortDir)}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                      Sug. Prod.
+                      <SortIcon field="producao_recomendada" activeField={kitSortField} activeDir={kitSortDir} />
+                    </div>
+                  </th>
+                  <th 
+                    style={{ width: '15%', cursor: 'pointer' }}
+                    onClick={() => toggleSort('max_montavel', kitSortField, setKitSortField, kitSortDir, setKitSortDir)}
+                    className="sortable-th"
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      Capacidade Montagem
+                      <SortIcon field="max_montavel" activeField={kitSortField} activeDir={kitSortDir} />
+                    </div>
+                  </th>
+                  <th style={{ width: '10%' }}>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {kits.map((k) => {
+                  const p = k;
+                  const isExpanded = expandedKits.includes(p.codigo);
+                  const isOverridden = p.estoque_ideal_manual !== null || p.pedidos_manual !== null || p.media_manual !== null;
+                  
+                  let capacityClass = "abundante";
+                  if (k.max_montavel === 0) {
+                    capacityClass = "ruptura";
+                  } else if (k.max_montavel < p.producao_recomendada) {
+                    capacityClass = "limitado";
+                  }
+
+                  return (
+                    <React.Fragment key={p.codigo}>
+                      <tr className={isExpanded ? "expanded-row-tr" : ""}>
+                        <td>
+                          <button 
+                            className="expand-toggle-btn cursor-pointer"
+                            onClick={() => toggleKitExpanded(p.codigo)}
+                            title={isExpanded ? "Ocultar componentes" : "Exibir componentes do kit"}
+                          >
+                            {isExpanded ? <ChevronDown size={14} /> : <ChevronRightIcon size={14} />}
+                          </button>
+                        </td>
+                        <td className="product-code">{p.codigo}</td>
+                        <td>
+                          <div className="product-desc">{p.descricao}</div>
+                          <div className="product-subinfo">
+                            <span>Linha: {p.nome_linha}</span>
+                            {isOverridden && <span className="overrides-indicator">Editado</span>}
+                          </div>
+                        </td>
+                        <td className="numeric-col" style={{ fontWeight: '700' }}>
+                          {p.estoque_futuro_com_producao}
+                          <div className="table-subtext">Est: {p.estoque} | Ped: {p.pedidos_aberto}</div>
+                        </td>
+                        <td>
+                          <span className={`status-badge ${p.status}`}>
+                            {p.status_label}
+                          </span>
+                        </td>
+                        <td className="numeric-col" style={{ fontWeight: '700', color: p.producao_recomendada > 0 ? 'hsl(var(--danger-hsl))' : 'inherit' }}>
+                          {p.producao_recomendada > 0 ? `${p.producao_recomendada} un` : '-'}
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                            <span className={`montagem-badge ${capacityClass}`}>
+                              Máx: {k.max_montavel} un montáveis
+                            </span>
+                            {k.componentes_criticos.length > 0 && (
+                              <span style={{ fontSize: '0.625rem', color: 'hsl(var(--warning-hsl))', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                <AlertTriangle size={10} />
+                                Falta produzir {k.componentes_criticos.length} itens
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                          <button 
+                            className="action-btn text-success cursor-pointer" 
+                            onClick={() => onLaunchProduct(p)} 
+                            title="Lançar Lote de Produção"
+                            style={{ color: 'hsl(var(--success-hsl))' }}
+                          >
+                            <Play size={14} />
+                          </button>
+                          <button className="action-btn cursor-pointer" onClick={() => onEditOverrides(p)} title="Ajustar overrides manuais">
+                            <Edit3 size={14} />
+                          </button>
+                        </td>
+                      </tr>
+
+                      {/* Expanded Row containing Components details */}
+                      {isExpanded && (
+                        <tr className="expanded-row-tr">
+                          <td colSpan="8" style={{ padding: 0 }}>
+                            <div className="components-detail-panel">
+                              <div className="components-panel-title">Componentes do Kit ({k.componentes.length})</div>
+                              <table className="components-table">
+                                <thead>
+                                  <tr>
+                                    <th style={{ width: '15%' }}>REF Componente</th>
+                                    <th style={{ width: '45%' }}>Descrição do Componente</th>
+                                    <th className="numeric-col" style={{ width: '10%' }}>Estoque</th>
+                                    <th className="numeric-col" style={{ width: '10%' }}>Produção</th>
+                                    <th className="numeric-col" style={{ width: '10%' }}>Pedidos</th>
+                                    <th style={{ width: '10%' }}>Necessita Prod.</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {k.componentes.map((comp) => (
+                                    <tr key={comp.codigo}>
+                                      <td className="comp-code">{comp.codigo}</td>
+                                      <td className="comp-desc">{comp.descricao}</td>
+                                      <td className="numeric-col">{comp.estoque}</td>
+                                      <td className="numeric-col">{comp.producao}</td>
+                                      <td className="numeric-col">{comp.pedidos_aberto}</td>
+                                      <td>
+                                        {comp.producao_recomendada > 0 ? (
+                                          <span className="status-badge critico" style={{ padding: '1px 4px', fontSize: '0.65rem' }}>
+                                            Falta {comp.producao_recomendada} un
+                                          </span>
+                                        ) : (
+                                          <span className="status-badge saudavel" style={{ padding: '1px 4px', fontSize: '0.65rem' }}>
+                                            Suficiente
+                                          </span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Pagination Footer */}
+        <div className="pagination-container">
+          <span>Exibindo de {(kitsPage - 1) * limitPerPage + 1} a {Math.min(kitsPage * limitPerPage, kitsTotalItems)} de {kitsTotalItems} kits</span>
+          <div className="pagination-controls">
+            <button 
+              className="pagination-btn cursor-pointer" 
+              disabled={kitsPage <= 1}
+              onClick={() => setKitsPage(p => Math.max(1, p - 1))}
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span style={{ display: 'flex', alignItems: 'center', padding: '0 0.5rem', fontWeight: '700' }}>
+              Página {kitsPage} de {kitsTotalPages}
+            </span>
+            <button 
+              className="pagination-btn cursor-pointer" 
+              disabled={kitsPage >= kitsTotalPages}
+              onClick={() => setKitsPage(p => Math.min(kitsTotalPages, p + 1))}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
