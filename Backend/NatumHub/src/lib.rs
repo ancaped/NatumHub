@@ -2454,6 +2454,7 @@ fn start_axum_server() {
             .route("/api/producao/recalcular/preview", get(handlers::preview_recalculation))
             .route("/api/producao/recalcular/ajustar", post(handlers::apply_recalculation_adjustment))
             .route("/api/estoque/item-info/:code", get(handlers::get_item_extra_info))
+            .route("/api/compras/insumos/:code/detalhes", get(handlers::get_insumo_detalhes))
             .route("/api/compras/pedidos", get(handlers::list_purchase_orders))
             .route("/api/compras/pedidos/:id", get(handlers::get_purchase_order_detail))
             .route("/api/compras/notas", get(handlers::list_invoices))

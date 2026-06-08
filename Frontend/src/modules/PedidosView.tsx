@@ -275,10 +275,10 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100">
-                      {orders.map((order) => {
+                      {orders.map((order, index) => {
                         const badge = getStatusBadge(order.cStatus);
                         return (
-                          <tr key={order.nPedido} className="hover:bg-zinc-50/50 transition-colors">
+                          <tr key={`${order.nPedido}-${index}`} className="hover:bg-zinc-50/50 transition-colors">
                             <td className="px-6 py-4 font-mono text-xs font-bold text-zinc-800">
                               #{order.nPedido}
                             </td>
@@ -415,11 +415,11 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
                     <div className="text-center py-12 text-zinc-400 text-sm">Nenhum item registrado neste pedido.</div>
                   ) : (
                     <div className="space-y-3">
-                      {selectedOrder.items.map((item) => {
+                      {selectedOrder.items.map((item, idx) => {
                         const percent = item.nQtde > 0 ? (item.nChegou / item.nQtde) * 100 : 0;
                         const isComplete = item.nChegou >= item.nQtde;
                         return (
-                          <div key={item.id} className="bg-white border border-zinc-150 rounded-xl p-4 shadow-sm space-y-3 hover:border-zinc-300 transition-colors">
+                          <div key={`${item.id}-${idx}`} className="bg-white border border-zinc-150 rounded-xl p-4 shadow-sm space-y-3 hover:border-zinc-300 transition-colors">
                             {/* Item header row */}
                             <div className="flex items-start justify-between">
                               <div className="flex-1 min-w-0">

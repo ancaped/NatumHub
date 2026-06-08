@@ -724,11 +724,11 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
                     <div className="text-center py-12 text-zinc-400">Nenhum pedido pendente para este item.</div>
                   ) : (
                     <div className="space-y-3">
-                      {extraInfo.pendingOrders.map((po) => {
+                      {extraInfo.pendingOrders.map((po, index) => {
                         const remaining = po.nQtde - po.nChegou;
                         const percent = po.nQtde > 0 ? (po.nChegou / po.nQtde) * 100 : 0;
                         return (
-                          <div key={po.nPedido} className="bg-white border border-zinc-150 p-4 rounded-xl shadow-sm space-y-3 hover:border-zinc-300 transition-colors">
+                          <div key={`${po.nPedido}-${index}`} className="bg-white border border-zinc-150 p-4 rounded-xl shadow-sm space-y-3 hover:border-zinc-300 transition-colors">
                             <div className="flex items-center justify-between">
                               <span className="px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-200 text-[9px] font-bold uppercase rounded">
                                 Pedido #{po.nPedido}

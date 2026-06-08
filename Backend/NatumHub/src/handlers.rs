@@ -1284,8 +1284,24 @@ pub async fn list_purchase_orders(
 
     if let Some(ref status) = params.status {
         if !status.is_empty() && status != "ALL" {
-            query.push_str(" AND c_status = ?");
-            args.push(status.clone());
+            match status.as_str() {
+                "ABERTO" => {
+                    query.push_str(" AND (c_status = 'A' OR c_status = 'ABERTO')");
+                }
+                "PARCIAL" => {
+                    query.push_str(" AND (c_status = 'P' OR c_status = 'PARCIAL')");
+                }
+                "FECHADO" | "CONCLUIDO" => {
+                    query.push_str(" AND (c_status = 'F' OR c_status = 'T' OR c_status = 'FECHADO' OR c_status = 'CONCLUIDO')");
+                }
+                "CANCELADO" => {
+                    query.push_str(" AND (c_status = 'C' OR c_status = 'CANCELADO')");
+                }
+                _ => {
+                    query.push_str(" AND c_status = ?");
+                    args.push(status.clone());
+                }
+            }
         }
     }
 
@@ -1698,6 +1714,170 @@ pub async fn get_item_extra_info(
             "lotes": lotes,
         }))
     ).into_response()
+}
+
+// GET /api/compras/insumos/:code/detalhes
+pub async fn get_insumo_detalhes(
+    State(state): State<Arc<AppState>>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    // 1. Fetch metadata
+    let item_res = conn.query_row(
+        "SELECT i.code, i.description, i.unit, i.notes, i.category_id, c.name 
+         FROM items i
+         LEFT JOIN categories c ON i.category_id = c.id
+         WHERE i.code = ?1",
+        params![code],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        }
+    );
+
+    let (item_code, description, unit, notes, category_id, category_name) = match item_res {
+        Ok(vals) => vals,
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            return (StatusCode::NOT_FOUND, Json(json!({ "error": "Item não encontrado" }))).into_response();
+        }
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    // 2. Fetch current stock (latest snapshot)
+    let current_stock: f64 = conn.query_row(
+        "SELECT stock_qty FROM stock_snapshots WHERE item_code = ?1 ORDER BY snapshot_date DESC, id DESC LIMIT 1",
+        params![code],
+        |row| row.get(0)
+    ).unwrap_or(0.0);
+
+    // 3. Fetch consumption YoY
+    let mut consumption_yoy = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT year, total_qty, monthly_avg FROM consumption WHERE item_code = ?1 ORDER BY year DESC"
+    ) {
+        let rows = stmt.query_map(params![code], |row| {
+            Ok(crate::models::ConsumptionYoYItem {
+                year: row.get(0)?,
+                total_qty: row.get(1)?,
+                monthly_avg: row.get(2)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(item) = r {
+                    consumption_yoy.push(item);
+                }
+            }
+        }
+    }
+
+    // 4. Fetch monthly purchases (receipts) grouping by year/month
+    let mut monthly_purchases = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT strftime('%Y-%m', invoice_date) as year_month, SUM(quantity) 
+         FROM invoices 
+         WHERE item_code = ?1 
+         GROUP BY year_month 
+         ORDER BY year_month ASC"
+    ) {
+        let rows = stmt.query_map(params![code], |row| {
+            Ok(crate::models::MonthlyPurchaseItem {
+                month: row.get::<_, String>(0)?,
+                qty: row.get::<_, f64>(1)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(item) = r {
+                    monthly_purchases.push(item);
+                }
+            }
+        }
+    }
+
+    // 5. Fetch recent invoices
+    let mut recent_invoices = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT invoice_number, quantity, unit_price, total_value, supplier_name, invoice_date 
+         FROM invoices 
+         WHERE item_code = ?1 
+         ORDER BY invoice_date DESC LIMIT 15"
+    ) {
+        let rows = stmt.query_map(params![code], |row| {
+            Ok(crate::models::InsumoInvoiceItem {
+                invoice_number: row.get(0)?,
+                quantity: row.get(1)?,
+                unit_price: row.get(2)?,
+                total_value: row.get(3)?,
+                supplier_name: row.get(4)?,
+                invoice_date: row.get(5)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(item) = r {
+                    recent_invoices.push(item);
+                }
+            }
+        }
+    }
+
+    // 6. Last time used (from stock_movements with type 'saida' and item_type 'insumo')
+    let last_used: Option<(String, String)> = conn.query_row(
+        "SELECT date, document_number FROM stock_movements 
+         WHERE item_code = ?1 AND item_type = 'insumo' AND movement_type = 'saida'
+         ORDER BY date DESC LIMIT 1",
+        params![code],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?.unwrap_or_default()))
+    ).ok();
+
+    let (last_used_date, last_used_lote) = match last_used {
+        Some((date, lote)) => (Some(date), Some(lote)),
+        None => (None, None),
+    };
+
+    // 7. Last received (from invoices)
+    let last_received: Option<(String, String)> = conn.query_row(
+        "SELECT invoice_date, invoice_number FROM invoices 
+         WHERE item_code = ?1 
+         ORDER BY invoice_date DESC LIMIT 1",
+        params![code],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    ).ok();
+
+    let (last_received_date, last_received_doc) = match last_received {
+        Some((date, doc)) => (Some(date), Some(doc)),
+        None => (None, None),
+    };
+
+    let response = crate::models::InsumoDetalhesResponse {
+        code: item_code,
+        description,
+        unit,
+        notes,
+        category_id,
+        category_name,
+        current_stock,
+        consumption_yoy,
+        monthly_purchases,
+        recent_invoices,
+        last_used_date,
+        last_used_lote,
+        last_received_date,
+        last_received_doc,
+    };
+
+    (StatusCode::OK, Json(response)).into_response()
 }
 
 // GET /api/produtos/semelhantes/:code

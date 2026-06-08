@@ -315,4 +315,49 @@ pub struct RecalculationAdjustmentRequest {
     pub reason: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct InsumoDetalhesResponse {
+    pub code: String,
+    pub description: String,
+    pub unit: String,
+    pub notes: Option<String>,
+    pub category_id: Option<String>,
+    pub category_name: Option<String>,
+    pub current_stock: f64,
+    pub consumption_yoy: Vec<ConsumptionYoYItem>,
+    pub monthly_purchases: Vec<MonthlyPurchaseItem>,
+    pub recent_invoices: Vec<InsumoInvoiceItem>,
+    pub last_used_date: Option<String>,
+    pub last_used_lote: Option<String>,
+    pub last_received_date: Option<String>,
+    pub last_received_doc: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumptionYoYItem {
+    pub year: i32,
+    pub total_qty: f64,
+    pub monthly_avg: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MonthlyPurchaseItem {
+    pub month: String,
+    pub qty: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct InsumoInvoiceItem {
+    pub invoice_number: String,
+    pub quantity: f64,
+    pub unit_price: f64,
+    pub total_value: f64,
+    pub supplier_name: String,
+    pub invoice_date: String,
+}
+
 

@@ -665,24 +665,19 @@ WHERE dPedido >= DATEADD(month, -12, GETDATE()) OR (cStatus <> 'T' AND cStatus I
     // L. Query PedidoCpa2 (Purchase Orders Items)
     let query_pedido_cpa2 = "
 SELECT 
-    nRegistro as nPedido,
-    cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
-    CAST(nQtde AS FLOAT) as nQtde,
-    CAST(nPreco AS FLOAT) as nPreco,
-    CAST(nChegou AS FLOAT) as nChegou,
-    cDescricao COLLATE Latin1_General_CI_AS as cDescricao,
-    cUnidade COLLATE Latin1_General_CI_AS as cUnidade,
-    CAST(VALOR_TOTAL AS FLOAT) as VALOR_TOTAL,
-    nRegistro,
-    cChegada COLLATE Latin1_General_CI_AS as cChegada
-FROM PedidoCpa2 WITH (NOLOCK)
-WHERE EXISTS (
-    SELECT 1 
-    FROM PedidoCpa1 p1 WITH (NOLOCK) 
-    WHERE p1.nPedido = PedidoCpa2.nPedido 
-      AND p1.dPedido = PedidoCpa2.dPedido
-      AND (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1.cStatus IS NOT NULL))
-);
+    p1.nRegistro as nPedido,
+    c2.cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
+    CAST(c2.nQtde AS FLOAT) as nQtde,
+    CAST(c2.nPreco AS FLOAT) as nPreco,
+    CAST(c2.nChegou AS FLOAT) as nChegou,
+    c2.cDescricao COLLATE Latin1_General_CI_AS as cDescricao,
+    c2.cUnidade COLLATE Latin1_General_CI_AS as cUnidade,
+    CAST(c2.VALOR_TOTAL AS FLOAT) as VALOR_TOTAL,
+    c2.nRegistro,
+    c2.cChegada COLLATE Latin1_General_CI_AS as cChegada
+FROM PedidoCpa2 c2 WITH (NOLOCK)
+INNER JOIN PedidoCpa1 p1 WITH (NOLOCK) ON p1.nPedido = c2.nPedido AND p1.dPedido = c2.dPedido
+WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1.cStatus IS NOT NULL));
     ";
     println!("Step L: Querying PedidoCpa2");
     let stream = client.query(query_pedido_cpa2, &[]).await?;

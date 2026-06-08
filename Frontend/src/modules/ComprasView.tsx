@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { DemandTable } from '../components/compras/DemandTable';
+import { InsumosDetalhesTab } from '../components/compras/InsumosDetalhesTab';
 import { QuotationManager } from '../components/compras/QuotationManager';
 import { SupplierManager } from '../components/compras/SupplierManager';
 import { ReportDashboard } from '../components/compras/ReportDashboard';
@@ -17,8 +18,9 @@ export default function ComprasView({ onBackToHub }: ComprasViewProps) {
 
   const navItems = [
     { id: 'demands', label: 'Demandas', icon: Package },
+    { id: 'insumos_detalhes', label: 'Insumos & MP', icon: Boxes },
     { id: 'quotations', label: 'Cotações', icon: ShoppingCart },
-    { id: 'registry', label: 'Cadastro', icon: Boxes },
+    { id: 'registry', label: 'Cadastro', icon: Database },
     { id: 'suppliers', label: 'Fornecedores', icon: Users },
     { id: 'reports', label: 'Relatórios', icon: BarChart3 },
     { id: 'settings', label: 'Configurações', icon: Settings },
@@ -77,6 +79,7 @@ export default function ComprasView({ onBackToHub }: ComprasViewProps) {
         <main className="flex-1 overflow-y-auto p-2 lg:p-4">
           <div className="w-full max-w-none">
             {activeTab === 'demands' && <DemandTable />}
+            {activeTab === 'insumos_detalhes' && <InsumosDetalhesTab />}
             {activeTab === 'quotations' && <QuotationManager />}
             {activeTab === 'registry' && <ItemRegistry />}
             {activeTab === 'suppliers' && <SupplierManager />}
