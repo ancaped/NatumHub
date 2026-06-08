@@ -31,6 +31,15 @@ impl Db {
         // Run config_linhas migration BEFORE execute_batch to ensure schema.sql inserts succeed
         let _ = conn.execute("ALTER TABLE config_linhas ADD COLUMN visivel INTEGER NOT NULL DEFAULT 1", []);
 
+        // Migration: Drop old tables to apply new constraints (run once)
+        let _ = conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)", []);
+        if conn.query_row("SELECT 1 FROM settings WHERE key = 'migration_sync_fixes_v2'", [], |_| Ok(())).is_err() {
+            let _ = conn.execute("DROP TABLE IF EXISTS purchase_order_items", []);
+            let _ = conn.execute("DROP TABLE IF EXISTS purchase_orders", []);
+            let _ = conn.execute("DROP TABLE IF EXISTS invoices", []);
+            let _ = conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('migration_sync_fixes_v2', 'done')", []);
+        }
+
         let schema = include_str!("../schema.sql");
         conn.execute_batch(schema)?;
 

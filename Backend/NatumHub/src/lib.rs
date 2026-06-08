@@ -429,8 +429,7 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             invoice_date    TEXT,
             imported_at     TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (item_code) REFERENCES items(code),
-            FOREIGN KEY (supplier_id) REFERENCES suppliers(id),
-            UNIQUE(invoice_number, item_code)
+            FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
         );
 
         CREATE TABLE IF NOT EXISTS nf_import_control (

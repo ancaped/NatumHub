@@ -430,7 +430,7 @@ SELECT
     f.DATA_EMISSAO
 FROM COMPRAS2 c WITH (NOLOCK)
 LEFT JOIN COMPRAS1 f WITH (NOLOCK) ON c.nCodFornec = f.nCodFornec AND c.NOTA = f.NOTA
-WHERE f.DATA_EMISSAO >= DATEADD(month, -12, GETDATE())
+WHERE f.DATA_EMISSAO >= DATEADD(month, -48, GETDATE())
   AND c.CODIGO_PRODUTO IS NOT NULL AND c.CODIGO_PRODUTO <> '';
     ";
     println!("Step E: Querying Purchases");
@@ -624,7 +624,7 @@ WHERE v2.dVenda >= DATEADD(month, -12, GETDATE())
     // K. Query PedidoCpa1 (Purchase Orders Header)
     let query_pedido_cpa1 = "
 SELECT 
-    nPedido,
+    nRegistro as nPedido,
     CONVERT(varchar, dPedido, 120) COLLATE Latin1_General_CI_AS as dPedido,
     nCodFornec,
     cNomeF COLLATE Latin1_General_CI_AS as cNomeF,
@@ -665,7 +665,7 @@ WHERE dPedido >= DATEADD(month, -12, GETDATE()) OR (cStatus <> 'T' AND cStatus I
     // L. Query PedidoCpa2 (Purchase Orders Items)
     let query_pedido_cpa2 = "
 SELECT 
-    nPedido,
+    nRegistro as nPedido,
     cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
     CAST(nQtde AS FLOAT) as nQtde,
     CAST(nPreco AS FLOAT) as nPreco,
@@ -676,10 +676,12 @@ SELECT
     nRegistro,
     cChegada COLLATE Latin1_General_CI_AS as cChegada
 FROM PedidoCpa2 WITH (NOLOCK)
-WHERE nPedido IN (
-    SELECT nPedido 
-    FROM PedidoCpa1 WITH (NOLOCK) 
-    WHERE dPedido >= DATEADD(month, -12, GETDATE()) OR (cStatus <> 'T' AND cStatus IS NOT NULL)
+WHERE EXISTS (
+    SELECT 1 
+    FROM PedidoCpa1 p1 WITH (NOLOCK) 
+    WHERE p1.nPedido = PedidoCpa2.nPedido 
+      AND p1.dPedido = PedidoCpa2.dPedido
+      AND (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1.cStatus IS NOT NULL))
 );
     ";
     println!("Step L: Querying PedidoCpa2");
@@ -894,21 +896,13 @@ WHERE nPedido IN (
 
     // Write Invoices
     let mut count_invoices = 0;
+    tx.execute("DELETE FROM invoices", [])?;
     for inv in invoices_list.clone() {
         let nota_str = inv.nota.to_string();
         let invoice_id = Uuid::new_v4().to_string();
         tx.execute(
             "INSERT INTO invoices (id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-             ON CONFLICT(invoice_number, item_code) DO UPDATE SET
-                description = excluded.description,
-                unit = excluded.unit,
-                quantity = excluded.quantity,
-                unit_price = excluded.unit_price,
-                total_value = excluded.total_value,
-                supplier_name = excluded.supplier_name,
-                supplier_id = excluded.supplier_id,
-                invoice_date = excluded.invoice_date",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![invoice_id, nota_str, inv.code, inv.desc, inv.unit, inv.quantity, inv.unit_price, inv.total_value, inv.fornec_name, inv.supplier_id, inv.date_str],
         )?;
         count_invoices += 1;
@@ -1211,7 +1205,7 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
                 RAZAO_SOCIAL COLLATE Latin1_General_CI_AS,
                 nCodFornec 
             FROM COMPRAS1 WITH (NOLOCK)
-            WHERE DATA_EMISSAO >= DATEADD(month, -24, GETDATE())", 
+            WHERE DATA_EMISSAO >= DATEADD(month, -48, GETDATE())", 
             &[]
         ).await?;
         stream.into_first_result().await?
@@ -1232,7 +1226,7 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
             FROM COMPRAS2 c WITH (NOLOCK)
             WHERE c.nCodFornec IS NOT NULL 
               AND c.NOTA IN (
-                  SELECT NOTA FROM COMPRAS1 WITH (NOLOCK) WHERE DATA_EMISSAO >= DATEADD(month, -24, GETDATE())
+                  SELECT NOTA FROM COMPRAS1 WITH (NOLOCK) WHERE DATA_EMISSAO >= DATEADD(month, -48, GETDATE())
               )", 
             &[]
         ).await?;
