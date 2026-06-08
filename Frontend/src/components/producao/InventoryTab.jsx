@@ -82,6 +82,9 @@ export function InventoryTab({
             <option value="ordem">Abrir Ordem</option>
             <option value="saudavel">Estoque OK</option>
             <option value="abundante">Abundante</option>
+            <option value="ERR_NO_FORMULA">Erro: Sem Formulação</option>
+            <option value="ERR_MISSING_MATS">Erro: Falta Insumos</option>
+            <option value="ERR_ANY">Erro: Qualquer Erro</option>
           </select>
 
           <select 
@@ -215,6 +218,16 @@ export function InventoryTab({
                           {p.is_lancamento && (
                             <span className="lancamento-badge">
                               Lançamento
+                            </span>
+                          )}
+                          {!p.has_formulation && (
+                            <span className="hidden-badge" style={{ backgroundColor: 'rgb(244 63 94)', color: '#fff', fontWeight: 'bold' }} title="Produto sem receita cadastrada no sistema">
+                              Sem Fórmula
+                            </span>
+                          )}
+                          {p.missing_ingredients && p.missing_ingredients.length > 0 && (
+                            <span className="overrides-indicator" style={{ backgroundColor: 'rgb(245 158 11)', color: '#fff', fontWeight: 'bold' }} title={`Itens faltando para a sugestão de produção: ${p.missing_ingredients.join(', ')}`}>
+                              Falta Insumos ({p.missing_ingredients.length})
                             </span>
                           )}
                           {p.visivel === 0 && (

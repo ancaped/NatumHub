@@ -328,6 +328,79 @@ pub async fn list_products(
     // Calculate all items in real time
     let mut computed = calculate_products(&products, &stocks, &fat_map, &configs, &overrides);
 
+    // Connect to fetch formulation and latest stock levels for error decoration
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Erro ao conectar ao banco para buscar receitas: {}", e) }))
+        ).into_response(),
+    };
+
+    // Fetch formulations
+    let mut formulations_map: HashMap<String, Vec<(String, String, f64)>> = HashMap::new();
+    let stmt_form = conn.prepare("SELECT product_code, ingredient_code, description, quantity FROM formulations");
+    if let Ok(mut stmt) = stmt_form {
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                row.get::<_, f64>(3)?
+            ))
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok((p_code, ing_code, desc, qty)) = r {
+                    formulations_map.entry(p_code).or_default().push((ing_code, desc, qty));
+                }
+            }
+        }
+    }
+
+    // Fetch latest stock snapshots
+    let mut item_stock_map: HashMap<String, f64> = HashMap::new();
+    let stmt_snap = conn.prepare("
+        SELECT item_code, stock_qty 
+        FROM stock_snapshots ss
+        WHERE ss.id = (
+            SELECT id FROM stock_snapshots ss2 
+            WHERE ss2.item_code = ss.item_code 
+            ORDER BY ss2.snapshot_date DESC, ss2.id DESC LIMIT 1
+        )
+    ");
+    if let Ok(mut stmt) = stmt_snap {
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok((code, stock)) = r {
+                    item_stock_map.insert(code, stock);
+                }
+            }
+        }
+    }
+
+    // Decorate computed items with formulation and missing ingredients info
+    for p in &mut computed {
+        let has_form = formulations_map.contains_key(&p.codigo);
+        let mut missing = Vec::new();
+        if has_form && p.producao_recomendada > 0 {
+            if let Some(ingredients) = formulations_map.get(&p.codigo) {
+                for (ing_code, desc, qty) in ingredients {
+                    let req = p.producao_recomendada as f64 * qty;
+                    let stock = *item_stock_map.get(ing_code).unwrap_or(&0.0);
+                    if stock < req {
+                        missing.push(desc.clone());
+                    }
+                }
+            }
+        }
+        p.has_formulation = has_form;
+        p.missing_ingredients = missing;
+    }
+
     // Extract stats for metadata based on visible products (excluding hidden ones where visivel == 0)
     let visible_products: Vec<&crate::models::ProductCalculationResult> = computed
         .iter()
@@ -364,7 +437,20 @@ pub async fn list_products(
 
     if let Some(ref status) = params.status {
         if !status.is_empty() && status != "ALL" {
-            computed.retain(|p| p.status == *status);
+            match status.as_str() {
+                "ERR_NO_FORMULA" => {
+                    computed.retain(|p| !p.has_formulation);
+                }
+                "ERR_MISSING_MATS" => {
+                    computed.retain(|p| !p.missing_ingredients.is_empty());
+                }
+                "ERR_ANY" => {
+                    computed.retain(|p| !p.has_formulation || !p.missing_ingredients.is_empty());
+                }
+                _ => {
+                    computed.retain(|p| p.status == *status);
+                }
+            }
         }
     }
 
@@ -1612,5 +1698,289 @@ pub async fn get_item_extra_info(
             "lotes": lotes,
         }))
     ).into_response()
+}
+
+// GET /api/produtos/semelhantes/:code
+pub async fn get_similar_products(
+    State(state): State<Arc<AppState>>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+    
+    // Fetch target ingredients
+    let mut target_ingredients = Vec::new();
+    let mut stmt = match conn.prepare("SELECT ingredient_code FROM formulations WHERE product_code = ?1") {
+        Ok(s) => s,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+    let rows = stmt.query_map(params![code], |row| row.get::<_, String>(0));
+    if let Ok(iter) = rows {
+        for r in iter {
+            if let Ok(ing) = r {
+                target_ingredients.push(ing);
+            }
+        }
+    }
+    
+    if target_ingredients.is_empty() {
+        return (StatusCode::OK, Json(Vec::<crate::models::SimilarProductResult>::new())).into_response();
+    }
+    
+    // Fetch all formulations
+    let mut product_ingredients: HashMap<String, Vec<String>> = HashMap::new();
+    let mut stmt_all = match conn.prepare("SELECT product_code, ingredient_code FROM formulations WHERE product_code != ?1") {
+        Ok(s) => s,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+    let rows_all = stmt_all.query_map(params![code], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)));
+    if let Ok(iter) = rows_all {
+        for r in iter {
+            if let Ok((p_code, ing_code)) = r {
+                product_ingredients.entry(p_code).or_default().push(ing_code);
+            }
+        }
+    }
+    
+    let calculate_jaccard = |a: &[String], b: &[String]| -> f64 {
+        let set_a: std::collections::HashSet<&String> = a.iter().collect();
+        let set_b: std::collections::HashSet<&String> = b.iter().collect();
+        let intersection = set_a.intersection(&set_b).count();
+        let union = set_a.union(&set_b).count();
+        if union == 0 { 0.0 } else { intersection as f64 / union as f64 }
+    };
+    
+    let mut match_map = HashMap::new();
+    for (other_code, ingredients) in &product_ingredients {
+        let sim = calculate_jaccard(&target_ingredients, ingredients);
+        if sim >= 0.5 {
+            match_map.insert(other_code.clone(), sim);
+        }
+    }
+    
+    // Load calculated product details
+    let (products, stocks, fat_map, configs, overrides) = match fetch_calculation_data(&state.db) {
+        Ok(data) => data,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+    let computed = calculate_products(&products, &stocks, &fat_map, &configs, &overrides);
+    
+    // Fetch formulations and latest stock levels for decoration
+    let mut formulations_map: HashMap<String, Vec<(String, String, f64)>> = HashMap::new();
+    let stmt_form = conn.prepare("SELECT product_code, ingredient_code, description, quantity FROM formulations");
+    if let Ok(mut stmt) = stmt_form {
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                row.get::<_, f64>(3)?
+            ))
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok((p_code, ing_code, desc, qty)) = r {
+                    formulations_map.entry(p_code).or_default().push((ing_code, desc, qty));
+                }
+            }
+        }
+    }
+
+    let mut item_stock_map: HashMap<String, f64> = HashMap::new();
+    let stmt_snap = conn.prepare("
+        SELECT item_code, stock_qty 
+        FROM stock_snapshots ss
+        WHERE ss.id = (
+            SELECT id FROM stock_snapshots ss2 
+            WHERE ss2.item_code = ss.item_code 
+            ORDER BY ss2.snapshot_date DESC, ss2.id DESC LIMIT 1
+        )
+    ");
+    if let Ok(mut stmt) = stmt_snap {
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok((c, s)) = r {
+                    item_stock_map.insert(c, s);
+                }
+            }
+        }
+    }
+    
+    let mut similar_results = Vec::new();
+    for mut comp in computed {
+        if let Some(&sim) = match_map.get(&comp.codigo) {
+            let has_form = formulations_map.contains_key(&comp.codigo);
+            let mut missing = Vec::new();
+            if has_form && comp.producao_recomendada > 0 {
+                if let Some(ingredients) = formulations_map.get(&comp.codigo) {
+                    for (ing_code, desc, qty) in ingredients {
+                        let req = comp.producao_recomendada as f64 * qty;
+                        let stock = *item_stock_map.get(ing_code).unwrap_or(&0.0);
+                        if stock < req {
+                            missing.push(desc.clone());
+                        }
+                    }
+                }
+            }
+            comp.has_formulation = has_form;
+            comp.missing_ingredients = missing;
+
+            similar_results.push(crate::models::SimilarProductResult {
+                product: comp,
+                similarity: sim,
+            });
+        }
+    }
+    similar_results.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal));
+    
+    (StatusCode::OK, Json(similar_results)).into_response()
+}
+
+// GET /api/producao/recalcular/preview
+pub async fn preview_recalculation(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let product_code = match params.get("product_code") {
+        Some(code) => code,
+        None => return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Falta product_code" }))).into_response(),
+    };
+    let ingredient_code = match params.get("ingredient_code") {
+        Some(code) => code,
+        None => return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Falta ingredient_code" }))).into_response(),
+    };
+    
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+    
+    // 1. Get product description
+    let product_desc: String = match conn.query_row(
+        "SELECT descricao FROM produtos WHERE codigo = ?1",
+        params![product_code],
+        |row| row.get(0)
+    ) {
+        Ok(desc) => desc,
+        Err(_) => "Produto não encontrado".to_string(),
+    };
+    
+    // 2. Get ingredient description
+    let ingredient_desc: String = match conn.query_row(
+        "SELECT description FROM items WHERE code = ?1",
+        params![ingredient_code],
+        |row| row.get(0)
+    ) {
+        Ok(desc) => desc,
+        Err(_) => "Insumo não encontrado".to_string(),
+    };
+    
+    // 3. Get formulation quantity
+    let qty_per_unit: f64 = match conn.query_row(
+        "SELECT quantity FROM formulations WHERE product_code = ?1 AND ingredient_code = ?2",
+        params![product_code, ingredient_code],
+        |row| row.get(0)
+    ) {
+        Ok(qty) => qty,
+        Err(_) => 0.0,
+    };
+    
+    // 4. Calculate total produced
+    let total_produced: i64 = match conn.query_row(
+        "SELECT SUM(quantidade) FROM historico_producao WHERE codigo = ?1",
+        params![product_code],
+        |row| Ok(row.get::<_, Option<i64>>(0)?.unwrap_or(0))
+    ) {
+        Ok(sum) => sum,
+        Err(_) => 0,
+    };
+    
+    // 5. Get current stock
+    let current_stock: f64 = match conn.query_row(
+        "SELECT stock_qty FROM stock_snapshots ss 
+         WHERE ss.item_code = ?1 
+         ORDER BY ss.snapshot_date DESC, ss.id DESC LIMIT 1",
+        params![ingredient_code],
+        |row| row.get(0)
+    ) {
+        Ok(stock) => stock,
+        Err(_) => 0.0,
+    };
+    
+    let total_consumption = total_produced as f64 * qty_per_unit;
+    let expected_stock = current_stock - total_consumption;
+    
+    (
+        StatusCode::OK,
+        Json(crate::models::RecalculationPreviewResponse {
+            product_code: product_code.clone(),
+            product_description: product_desc,
+            ingredient_code: ingredient_code.clone(),
+            ingredient_description: ingredient_desc,
+            total_produced,
+            qty_per_unit,
+            total_consumption,
+            current_stock,
+            expected_stock,
+        })
+    ).into_response()
+}
+
+// POST /api/producao/recalcular/ajustar
+pub async fn apply_recalculation_adjustment(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<crate::models::RecalculationAdjustmentRequest>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+    
+    // 1. Fetch latest snapshot details for this ingredient
+    let latest_row_opt = conn.query_row(
+        "SELECT stock_qty, reserved_qty, in_production, in_orders FROM stock_snapshots ss 
+         WHERE ss.item_code = ?1 
+         ORDER BY ss.snapshot_date DESC, ss.id DESC LIMIT 1",
+        params![payload.ingredient_code],
+        |row| Ok((row.get::<_, f64>(0)?, row.get::<_, f64>(1)?, row.get::<_, f64>(2)?, row.get::<_, f64>(3)?))
+    );
+    
+    let (current_stock, reserved_qty, in_production, in_orders) = match latest_row_opt {
+        Ok(details) => details,
+        Err(_) => (0.0, 0.0, 0.0, 0.0), // fallback if no snapshots exist
+    };
+    
+    let new_stock = (current_stock - payload.adjustment_qty).max(0.0);
+    
+    // 2. Insert import record if MANUAL_ADJUST doesn't exist
+    let _ = conn.execute(
+        "INSERT OR IGNORE INTO stock_imports (id, filename, source, imported_at, item_count)
+         VALUES ('MANUAL_ADJUST', 'Ajuste Manual', 'AJUSTE', CURRENT_TIMESTAMP, 1)",
+        [],
+    );
+    
+    // 3. Insert new snapshot row
+    let new_uuid = uuid::Uuid::new_v4().to_string();
+    let now_date = chrono::Utc::now().to_rfc3339();
+    
+    match conn.execute(
+        "INSERT INTO stock_snapshots (id, import_id, item_code, stock_qty, reserved_qty, in_production, in_orders, snapshot_date)
+         VALUES (?1, 'MANUAL_ADJUST', ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![new_uuid, payload.ingredient_code, new_stock, reserved_qty, in_production, in_orders, now_date]
+    ) {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(json!({ 
+                "status": "success", 
+                "message": format!("Estoque da embalagem/insumo {} ajustado de {} para {} com sucesso!", payload.ingredient_code, current_stock, new_stock) 
+            }))
+        ).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("Erro ao inserir snapshot de ajuste: {}", e) }))).into_response(),
+    }
 }
 

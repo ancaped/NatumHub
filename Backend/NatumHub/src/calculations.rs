@@ -220,6 +220,8 @@ pub fn calculate_products(
             status: status.to_string(),
             status_label: status_label.to_string(),
             producao_recomendada,
+            has_formulation: true,
+            missing_ingredients: Vec::new(),
         });
     }
 

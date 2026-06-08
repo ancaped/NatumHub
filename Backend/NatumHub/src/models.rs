@@ -97,6 +97,9 @@ pub struct ProductCalculationResult {
     pub status: String,             // Alert levels: "critico", "ordem", "saudavel", "abundante"
     pub status_label: String,       // User friendly Portuguese text
     pub producao_recomendada: i64,  // Units to produce
+
+    pub has_formulation: bool,
+    pub missing_ingredients: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -168,6 +171,10 @@ pub struct NewProducaoEntry {
     pub snap_producao_recomendada: Option<i64>,
     pub snap_estoque_ideal_qtd: Option<f64>,
     pub snap_demanda_ajustada: Option<f64>,
+
+    // Base control fields
+    pub consume_base: Option<bool>,
+    pub base_code: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -193,6 +200,10 @@ pub struct ProducaoHistoryRecord {
     pub snap_producao_recomendada: Option<i64>,
     pub snap_estoque_ideal_qtd: Option<f64>,
     pub snap_demanda_ajustada: Option<f64>,
+
+    // Base control fields
+    pub consume_base: Option<bool>,
+    pub base_code: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -277,4 +288,31 @@ pub struct DbDumpResult {
     pub tables_copied: Vec<String>,
     pub elapsed_ms: u64,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SimilarProductResult {
+    pub product: ProductCalculationResult,
+    pub similarity: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RecalculationPreviewResponse {
+    pub product_code: String,
+    pub product_description: String,
+    pub ingredient_code: String,
+    pub ingredient_description: String,
+    pub total_produced: i64,
+    pub qty_per_unit: f64,
+    pub total_consumption: f64,
+    pub current_stock: f64,
+    pub expected_stock: f64,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RecalculationAdjustmentRequest {
+    pub ingredient_code: String,
+    pub adjustment_qty: f64,
+    pub reason: String,
+}
+
 

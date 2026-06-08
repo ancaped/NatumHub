@@ -124,6 +124,66 @@ export default function ProducaoView({ onBackToHub }) {
   const [launchQty, setLaunchQty] = useState(100);
   const [launchObs, setLaunchObs] = useState('');
 
+  // Base control & Similar items states
+  const [consumeBase, setConsumeBase] = useState(false);
+  const [baseProduct, setBaseProduct] = useState(null);
+  const [similarProducts, setSimilarProducts] = useState([]);
+  const [selectedSims, setSelectedSims] = useState({}); // code -> { checked: bool, qty: number }
+  const [similarLoading, setSimilarLoading] = useState(false);
+
+  useEffect(() => {
+    if (!launchingProduct) {
+      setConsumeBase(false);
+      setBaseProduct(null);
+      setSimilarProducts([]);
+      setSelectedSims({});
+      return;
+    }
+
+    // 1. Find the base product in the current products list
+    if (launchingProduct.base) {
+      const baseNameUpper = launchingProduct.base.trim().toUpperCase();
+      const baseExpanded = baseNameUpper
+        .replace("SH ", "SHAMPOO ")
+        .replace("COND ", "CONDICIONADOR ")
+        .replace("MASC ", "MASCARA ");
+      
+      // Find matching product in local products array
+      const match = products.find(p => {
+        const descUpper = p.descricao.trim().toUpperCase();
+        return descUpper === baseNameUpper ||
+               descUpper === baseExpanded ||
+               descUpper.startsWith(baseNameUpper) ||
+               descUpper.startsWith(baseExpanded);
+      });
+      setBaseProduct(match || null);
+    } else {
+      setBaseProduct(null);
+    }
+
+    // 2. Fetch similar products
+    setSimilarLoading(true);
+    fetch(`${API_BASE}/produtos/semelhantes/${launchingProduct.codigo}`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setSimilarProducts(data);
+          // Initialize selectedSims quantities
+          const initialSims = {};
+          data.forEach(item => {
+            initialSims[item.product.codigo] = {
+              checked: false,
+              qty: item.product.producao_recomendada > 0 ? item.product.producao_recomendada : 100
+            };
+          });
+          setSelectedSims(initialSims);
+        }
+      })
+      .catch(err => console.error("Error fetching similar products:", err))
+      .finally(() => setSimilarLoading(false));
+
+  }, [launchingProduct, products]);
+
   // New Line Creation States
   const [showAddLineForm, setShowAddLineForm] = useState(false);
   const [newLinePrefix, setNewLinePrefix] = useState('');
@@ -132,6 +192,74 @@ export default function ProducaoView({ onBackToHub }) {
   const [newLineOrdem, setNewLineOrdem] = useState('1.6');
   const [newLineProd, setNewLineProd] = useState('1.2');
   const [newLineZ, setNewLineZ] = useState('0.0');
+
+  // Retrospective Packaging Consumption Recalculation States
+  const [recalcProd, setRecalcProd] = useState('');
+  const [recalcIng, setRecalcIng] = useState('');
+  const [recalcIngredients, setRecalcIngredients] = useState([]);
+  const [recalcPreview, setRecalcPreview] = useState(null);
+  const [recalcLoading, setRecalcLoading] = useState(false);
+
+  useEffect(() => {
+    if (!recalcProd) {
+      setRecalcIngredients([]);
+      return;
+    }
+    // Fetch product formulation lines
+    fetch(`${API_BASE}/produtos/formulacao/${recalcProd}`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setRecalcIngredients(data);
+        }
+      })
+      .catch(err => console.error("Error loading formulation for recalc:", err));
+  }, [recalcProd]);
+
+  const handlePreviewRecalc = async () => {
+    if (!recalcProd || !recalcIng) return;
+    setRecalcLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/producao/recalcular/preview?product_code=${recalcProd}&ingredient_code=${recalcIng}`);
+      if (res.ok) {
+        const data = await res.json();
+        setRecalcPreview(data);
+      } else {
+        showToast("Erro ao carregar pré-visualização de recálculo", "error");
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRecalcLoading(false);
+    }
+  };
+
+  const handleApplyRecalc = async () => {
+    if (!recalcPreview) return;
+    try {
+      const res = await fetch(`${API_BASE}/producao/recalcular/ajustar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ingredient_code: recalcPreview.ingredient_code,
+          adjustment_qty: recalcPreview.total_consumption,
+          reason: `Recálculo retrospectivo de embalagem baseado na produção de ${recalcPreview.total_produced} un de ${recalcPreview.product_code}`
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        showToast(data.message || "Ajuste aplicado com sucesso!", "success");
+        setRecalcPreview(null);
+        setRecalcProd('');
+        setRecalcIng('');
+        fetchProducts(); // Refresh stocks list
+      } else {
+        showToast("Erro ao aplicar ajuste de estoque", "error");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   // === SORTING STATE ===
   const [sortField, setSortField] = useState(null); // estoque view
@@ -397,6 +525,35 @@ export default function ProducaoView({ onBackToHub }) {
     }
 
     try {
+      // Gather all selected similar products to produce in parallel
+      const simLaunches = [];
+      for (const [simCode, simInfo] of Object.entries(selectedSims)) {
+        if (simInfo.checked) {
+          const simProd = similarProducts.find(s => s.product.codigo === simCode);
+          if (simProd) {
+            simLaunches.push({
+              data_producao: launchDate,
+              codigo: simCode,
+              quantidade: parseInt(simInfo.qty, 10),
+              observacoes: `Lançado em conjunto com ${launchingProduct.codigo}. ${launchObs.trim() === '' ? '' : launchObs.trim()}`.trim(),
+              snap_estoque: simProd.product.estoque ?? null,
+              snap_producao: simProd.product.producao ?? null,
+              snap_pedidos: simProd.product.pedidos_aberto ?? null,
+              snap_efp: simProd.product.estoque_futuro_com_producao ?? null,
+              snap_media_vendas: simProd.product.media_vendas ?? null,
+              snap_duracao_meses: simProd.product.duracao_meses ?? null,
+              snap_status: simProd.product.status ?? null,
+              snap_status_label: simProd.product.status_label ?? null,
+              snap_producao_recomendada: simProd.product.producao_recomendada ?? null,
+              snap_estoque_ideal_qtd: simProd.product.estoque_ideal_qtd ?? null,
+              snap_demanda_ajustada: simProd.product.demanda_ajustada ?? null,
+              consume_base: false,
+              base_code: null
+            });
+          }
+        }
+      }
+
       const res = await fetch(`${API_BASE}/historico`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -416,12 +573,38 @@ export default function ProducaoView({ onBackToHub }) {
           snap_producao_recomendada: launchingProduct.producao_recomendada ?? null,
           snap_estoque_ideal_qtd: launchingProduct.estoque_ideal_qtd ?? null,
           snap_demanda_ajustada: launchingProduct.demanda_ajustada ?? null,
+          consume_base: consumeBase,
+          base_code: consumeBase && baseProduct ? baseProduct.codigo : null
         })
       });
+
       if (res.ok) {
-        showToast(`Produção de ${qty} un. lançada com sucesso para ${launchingProduct.codigo}!`, "success");
+        // Launch similar products in parallel
+        let launchedSimCount = 0;
+        for (const simPayload of simLaunches) {
+          try {
+            const simRes = await fetch(`${API_BASE}/historico`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(simPayload)
+            });
+            if (simRes.ok) launchedSimCount++;
+          } catch (err) {
+            console.error(`Error launching similar product ${simPayload.codigo}:`, err);
+          }
+        }
+
+        const successMsg = launchedSimCount > 0 
+          ? `Produção de ${qty} un. para ${launchingProduct.codigo} e ${launchedSimCount} itens semelhantes lançados com sucesso!`
+          : `Produção de ${qty} un. lançada com sucesso para ${launchingProduct.codigo}!`;
+
+        showToast(successMsg, "success");
         setLaunchingProduct(null);
         setLaunchObs('');
+        setConsumeBase(false);
+        setBaseProduct(null);
+        setSimilarProducts([]);
+        setSelectedSims({});
         fetchProducts();
         fetchKits();
         if (currentView === 'history') {
@@ -1175,6 +1358,16 @@ export default function ProducaoView({ onBackToHub }) {
               onDeleteKitComposicao={handleDeleteKitComposicao}
               onUploadKitsConfig={handleUploadKitsConfig}
               uploadingKitsConfig={uploadingKitsConfig}
+              recalcProd={recalcProd}
+              setRecalcProd={setRecalcProd}
+              recalcIng={recalcIng}
+              setRecalcIng={setRecalcIng}
+              recalcIngredients={recalcIngredients}
+              recalcPreview={recalcPreview}
+              setRecalcPreview={setRecalcPreview}
+              recalcLoading={recalcLoading}
+              onPreviewRecalc={handlePreviewRecalc}
+              onApplyRecalc={handleApplyRecalc}
             />
           )}
 
@@ -1303,7 +1496,7 @@ export default function ProducaoView({ onBackToHub }) {
       {/* Launch Production Modal */}
       {launchingProduct && (
         <div className="modal-backdrop">
-          <div className="modal-content text-left" style={{ maxWidth: '480px' }}>
+          <div className="modal-content text-left" style={{ maxWidth: '580px' }}>
             <div className="modal-header">
               <h3>Registrar Lote de Produção</h3>
               <button className="action-btn cursor-pointer" onClick={() => setLaunchingProduct(null)}>
@@ -1346,6 +1539,34 @@ export default function ProducaoView({ onBackToHub }) {
                 />
               </div>
 
+              {/* Base Control Section */}
+              {launchingProduct.base && (
+                <div className="form-group" style={{ marginTop: '0.75rem', padding: '0.75rem', backgroundColor: 'hsl(var(--muted-hsl) / 0.3)', borderRadius: '0.5rem', border: '1px solid hsl(var(--border-hsl))' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: '600' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={consumeBase} 
+                      onChange={(e) => setConsumeBase(e.target.checked)} 
+                      disabled={!baseProduct || baseProduct.estoque <= 0}
+                    />
+                    <span>Consumir base do estoque</span>
+                  </label>
+                  <div style={{ fontSize: '0.75rem', color: 'hsl(var(--text-secondary-hsl))', marginTop: '4px', marginLeft: '1.25rem' }}>
+                    {baseProduct ? (
+                      <>
+                        Utiliza a base: <strong>{baseProduct.descricao} ({baseProduct.codigo})</strong><br />
+                        Estoque atual da base: <strong style={{ color: baseProduct.estoque > 0 ? 'hsl(var(--success-hsl))' : 'hsl(var(--danger-hsl))' }}>{baseProduct.estoque} unidades</strong>
+                        {baseProduct.estoque <= 0 && <span style={{ color: 'rgb(244 63 94)', display: 'block', marginTop: '2px' }}>⚠️ Estoque de base insuficiente para consumo.</span>}
+                      </>
+                    ) : (
+                      <span style={{ color: 'rgb(245 158 11)' }}>
+                        ⚠️ Base "{launchingProduct.base}" não encontrada no cadastro de produtos ativos.
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="form-group" style={{ marginTop: '0.75rem' }}>
                 <label>Observações (Opcional)</label>
                 <textarea 
@@ -1357,6 +1578,67 @@ export default function ProducaoView({ onBackToHub }) {
                   style={{ resize: 'vertical', minHeight: '60px' }}
                 />
               </div>
+
+              {/* Similar Formulation Products Section */}
+              {similarLoading ? (
+                <div style={{ padding: '1rem', textAlign: 'center', fontSize: '0.75rem', color: 'hsl(var(--text-secondary-hsl))' }}>
+                  <RefreshCw className="animate-spin inline-block mr-1" size={12} />
+                  <span>Buscando produtos com formulação semelhante...</span>
+                </div>
+              ) : similarProducts.length > 0 ? (
+                <div className="form-group" style={{ marginTop: '1rem' }}>
+                  <label className="font-semibold" style={{ fontSize: '0.85rem' }}>Produtos com Formulação Semelhante (Setup Otimizado)</label>
+                  <p style={{ fontSize: '0.7rem', color: 'hsl(var(--text-secondary-hsl))', marginBottom: '0.5rem' }}>
+                    Estes produtos compartilham ingredientes e podem ser produzidos juntos. Selecione para abrir ordem em conjunto:
+                  </p>
+                  <div style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid hsl(var(--border-hsl))', borderRadius: '0.5rem', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', backgroundColor: '#fff' }}>
+                    {similarProducts.map(item => {
+                      const code = item.product.codigo;
+                      const desc = item.product.descricao;
+                      const simPct = (item.similarity * 100).toFixed(0);
+                      const isChecked = selectedSims[code]?.checked || false;
+                      const qty = selectedSims[code]?.qty || 100;
+                      
+                      return (
+                        <div key={code} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', padding: '0.35rem', borderRadius: '0.25rem', borderBottom: '1px solid hsl(var(--muted-hsl))', fontSize: '0.75rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
+                            <input 
+                              type="checkbox" 
+                              checked={isChecked}
+                              onChange={(e) => setSelectedSims(prev => ({
+                                ...prev,
+                                [code]: { ...prev[code], checked: e.target.checked }
+                              }))}
+                            />
+                            <div style={{ flex: 1 }}>
+                              <div className="font-bold text-zinc-950" style={{ fontSize: '0.75rem' }}>{code} — {desc}</div>
+                              <div style={{ color: 'hsl(var(--text-secondary-hsl))', fontSize: '0.65rem' }}>
+                                Semelhança: {simPct}% | EFP: {item.product.estoque_futuro_com_producao} | Sugestão: {item.product.producao_recomendada > 0 ? `${item.product.producao_recomendada} un` : 'Nenhuma'}
+                              </div>
+                            </div>
+                          </div>
+                          {isChecked && (
+                            <div style={{ width: '80px' }}>
+                              <input 
+                                type="number"
+                                className="form-control text-zinc-900" 
+                                style={{ fontSize: '0.7rem', padding: '0.25rem', textAlign: 'center' }}
+                                value={qty}
+                                onChange={(e) => setSelectedSims(prev => ({
+                                  ...prev,
+                                  [code]: { ...prev[code], qty: e.target.value }
+                                }))}
+                                min="1"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
             </div>
             <div className="modal-footer">
               <button className="btn-secondary cursor-pointer" onClick={() => setLaunchingProduct(null)}>Cancelar</button>

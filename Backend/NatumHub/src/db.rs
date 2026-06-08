@@ -60,6 +60,10 @@ impl Db {
             let _ = conn.execute(&format!("ALTER TABLE historico_producao ADD COLUMN {}", col), []);
         }
 
+        // Migrations: base control columns in historico_producao
+        let _ = conn.execute("ALTER TABLE historico_producao ADD COLUMN consume_base INTEGER DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE historico_producao ADD COLUMN base_code TEXT", []);
+
         // Initialize watch config defaults if not set
         let _ = conn.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES ('watch_pasta', 'c:\\Users\\Edson\\antigravity\\Natum\\PlanilhasBase')",
@@ -362,8 +366,8 @@ impl Db {
             "INSERT INTO historico_producao (data_producao, codigo, quantidade, observacoes,
              snap_estoque, snap_producao, snap_pedidos, snap_efp, snap_media_vendas,
              snap_duracao_meses, snap_status, snap_status_label, snap_producao_recomendada,
-             snap_estoque_ideal_qtd, snap_demanda_ajustada)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+             snap_estoque_ideal_qtd, snap_demanda_ajustada, consume_base, base_code)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 entry.data_producao,
                 entry.codigo,
@@ -379,7 +383,9 @@ impl Db {
                 entry.snap_status_label,
                 entry.snap_producao_recomendada,
                 entry.snap_estoque_ideal_qtd,
-                entry.snap_demanda_ajustada
+                entry.snap_demanda_ajustada,
+                if entry.consume_base.unwrap_or(false) { 1 } else { 0 },
+                entry.base_code
             ],
         )?;
         let insert_id = tx.last_insert_rowid();
@@ -397,6 +403,21 @@ impl Db {
             params![entry.quantidade, entry.codigo],
         )?;
 
+        // 4. Se consumir a base, dar baixa no estoque da base
+        if entry.consume_base.unwrap_or(false) {
+            if let Some(ref b_code) = entry.base_code {
+                tx.execute(
+                    "INSERT OR IGNORE INTO estoque_atual (codigo, estoque, producao, pedidos_aberto, fase)
+                     VALUES (?1, 0, 0, 0, NULL)",
+                    params![b_code],
+                )?;
+                tx.execute(
+                    "UPDATE estoque_atual SET estoque = MAX(0, estoque - ?1) WHERE codigo = ?2",
+                    params![entry.quantidade, b_code],
+                )?;
+            }
+        }
+
         tx.commit()?;
         Ok(insert_id)
     }
@@ -407,13 +428,18 @@ impl Db {
 
         // Obter os detalhes da entrada antes de deletar
         let record_opt = {
-            let mut stmt = tx.prepare("SELECT codigo, quantidade FROM historico_producao WHERE id = ?1")?;
+            let mut stmt = tx.prepare("SELECT codigo, quantidade, consume_base, base_code FROM historico_producao WHERE id = ?1")?;
             stmt.query_row(params![id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, Option<i32>>(2)?,
+                    row.get::<_, Option<String>>(3)?
+                ))
             })
         };
 
-        if let Ok((codigo, qty)) = record_opt {
+        if let Ok((codigo, qty, consume_base, base_code)) = record_opt {
             // Remover da tabela historico_producao
             tx.execute("DELETE FROM historico_producao WHERE id = ?1", params![id])?;
 
@@ -422,6 +448,21 @@ impl Db {
                 "UPDATE estoque_atual SET producao = MAX(0, producao - ?1) WHERE codigo = ?2",
                 params![qty, codigo],
             )?;
+
+            // Se consumiu a base, devolver a quantidade ao estoque da base
+            if consume_base.unwrap_or(0) == 1 {
+                if let Some(ref b_code) = base_code {
+                    tx.execute(
+                        "INSERT OR IGNORE INTO estoque_atual (codigo, estoque, producao, pedidos_aberto, fase)
+                         VALUES (?1, 0, 0, 0, NULL)",
+                        params![b_code],
+                    )?;
+                    tx.execute(
+                        "UPDATE estoque_atual SET estoque = estoque + ?1 WHERE codigo = ?2",
+                        params![qty, b_code],
+                    )?;
+                }
+            }
         }
 
         tx.commit()?;
@@ -438,7 +479,7 @@ impl Db {
                     h.snap_estoque, h.snap_producao, h.snap_pedidos, h.snap_efp,
                     h.snap_media_vendas, h.snap_duracao_meses, h.snap_status,
                     h.snap_status_label, h.snap_producao_recomendada, h.snap_estoque_ideal_qtd,
-                    h.snap_demanda_ajustada
+                    h.snap_demanda_ajustada, h.consume_base, h.base_code
              FROM historico_producao h
              JOIN produtos p ON h.codigo = p.codigo
              LEFT JOIN overrides_produtos o ON p.codigo = o.codigo
@@ -512,6 +553,8 @@ impl Db {
                 snap_producao_recomendada: row.get(17)?,
                 snap_estoque_ideal_qtd: row.get(18)?,
                 snap_demanda_ajustada: row.get(19)?,
+                consume_base: Some(row.get::<_, Option<i32>>(20)?.unwrap_or(0) == 1),
+                base_code: row.get(21)?,
             })
         })?;
         
