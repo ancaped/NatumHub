@@ -241,6 +241,18 @@ export interface OnlineOrder {
   receiptPath: string | null;
   notes: string | null;
   createdAt?: string;
+  isReturn?: boolean | null;
+  returnDeadline?: string | null;
+  returnStatus?: 'pending' | 'sent' | 'refunded' | 'resolved' | null;
+  returnNotes?: string | null;
+}
+
+export interface OnlineStore {
+  id: string;
+  name: string;
+  url?: string | null;
+  notes?: string | null;
+  createdAt?: string;
 }
 
 export interface FiscoQuimicaPattern {

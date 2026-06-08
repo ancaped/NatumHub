@@ -269,7 +269,7 @@ pub struct Report {
     pub created_at: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct OnlineOrder {
     pub id: String,
@@ -288,6 +288,20 @@ pub struct OnlineOrder {
     pub status: String,
     pub estimated_delivery: Option<String>,
     pub receipt_path: Option<String>,
+    pub notes: Option<String>,
+    pub created_at: Option<String>,
+    pub is_return: Option<bool>,
+    pub return_deadline: Option<String>,
+    pub return_status: Option<String>,
+    pub return_notes: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OnlineStore {
+    pub id: String,
+    pub name: String,
+    pub url: Option<String>,
     pub notes: Option<String>,
     pub created_at: Option<String>,
 }
@@ -526,6 +540,10 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             receipt_path        TEXT,
             notes               TEXT,
             created_at          TEXT DEFAULT CURRENT_TIMESTAMP,
+            is_return           INTEGER DEFAULT 0,
+            return_deadline     TEXT,
+            return_status       TEXT,
+            return_notes        TEXT,
             FOREIGN KEY (item_code) REFERENCES items(code)
         );
 
@@ -542,6 +560,24 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     let _ = conn.execute("ALTER TABLE online_orders ADD COLUMN item_code TEXT", []);
     let _ = conn.execute("ALTER TABLE online_orders ADD COLUMN payment_method TEXT", []);
     let _ = conn.execute("ALTER TABLE online_orders ADD COLUMN receipt_path TEXT", []);
+    let _ = conn.execute("ALTER TABLE online_orders ADD COLUMN is_return INTEGER DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE online_orders ADD COLUMN return_deadline TEXT", []);
+    let _ = conn.execute("ALTER TABLE online_orders ADD COLUMN return_status TEXT", []);
+    let _ = conn.execute("ALTER TABLE online_orders ADD COLUMN return_notes TEXT", []);
+
+    // Create online_stores table and prepopulate
+    conn.execute_batch("
+        CREATE TABLE IF NOT EXISTS online_stores (
+            id          TEXT PRIMARY KEY,
+            name        TEXT NOT NULL UNIQUE,
+            url         TEXT,
+            notes       TEXT,
+            created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+    ")?;
+    let _ = conn.execute("INSERT OR IGNORE INTO online_stores (id, name, url, notes) VALUES ('store_ml', 'Mercado Livre', 'https://www.mercadolivre.com.br', 'Mercado Livre Brasil')", []);
+    let _ = conn.execute("INSERT OR IGNORE INTO online_stores (id, name, url, notes) VALUES ('store_shopee', 'Shopee', 'https://shopee.com.br', 'Shopee Brasil')", []);
+    let _ = conn.execute("INSERT OR IGNORE INTO online_stores (id, name, url, notes) VALUES ('store_amazon', 'Amazon', 'https://www.amazon.com.br', 'Amazon Brasil')", []);
 
     // Microbiologia Tables
     conn.execute_batch("
@@ -1036,7 +1072,7 @@ fn resolve_feedback(state: State<DbState>, id: String) -> Result<(), String> {
 fn get_online_orders(state: State<DbState>) -> Result<Vec<OnlineOrder>, String> {
     let conn = state.0.lock().unwrap();
     let mut stmt = conn.prepare(
-        "SELECT id, description, item_code, store_name, purchase_url, purchase_date, unit_price, quantity, shipping_cost, total_price, payment_method, tracking_code, tracking_url, status, estimated_delivery, receipt_path, notes, created_at FROM online_orders ORDER BY purchase_date DESC"
+        "SELECT id, description, item_code, store_name, purchase_url, purchase_date, unit_price, quantity, shipping_cost, total_price, payment_method, tracking_code, tracking_url, status, estimated_delivery, receipt_path, notes, created_at, is_return, return_deadline, return_status, return_notes FROM online_orders ORDER BY purchase_date DESC"
     ).map_err(|e| e.to_string())?;
 
     let rows = stmt.query_map([], |row| {
@@ -1059,6 +1095,10 @@ fn get_online_orders(state: State<DbState>) -> Result<Vec<OnlineOrder>, String> 
             receipt_path: row.get(15)?,
             notes: row.get(16)?,
             created_at: row.get(17)?,
+            is_return: Some(row.get::<_, Option<i32>>(18)?.unwrap_or(0) != 0),
+            return_deadline: row.get(19)?,
+            return_status: row.get(20)?,
+            return_notes: row.get(21)?,
         })
     }).map_err(|e| e.to_string())?;
 
@@ -1073,7 +1113,7 @@ fn get_online_orders(state: State<DbState>) -> Result<Vec<OnlineOrder>, String> 
 fn save_online_order(state: State<DbState>, order: OnlineOrder) -> Result<(), String> {
     let conn = state.0.lock().unwrap();
     conn.execute(
-        "INSERT OR REPLACE INTO online_orders (id, description, item_code, store_name, purchase_url, purchase_date, unit_price, quantity, shipping_cost, total_price, payment_method, tracking_code, tracking_url, status, estimated_delivery, receipt_path, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+        "INSERT OR REPLACE INTO online_orders (id, description, item_code, store_name, purchase_url, purchase_date, unit_price, quantity, shipping_cost, total_price, payment_method, tracking_code, tracking_url, status, estimated_delivery, receipt_path, notes, is_return, return_deadline, return_status, return_notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
         params![
             order.id,
             order.description,
@@ -1092,6 +1132,10 @@ fn save_online_order(state: State<DbState>, order: OnlineOrder) -> Result<(), St
             order.estimated_delivery,
             order.receipt_path,
             order.notes,
+            order.is_return.unwrap_or(false) as i32,
+            order.return_deadline,
+            order.return_status,
+            order.return_notes,
         ],
     ).map_err(|e| e.to_string())?;
     Ok(())
@@ -1101,6 +1145,52 @@ fn save_online_order(state: State<DbState>, order: OnlineOrder) -> Result<(), St
 fn delete_online_order(state: State<DbState>, id: String) -> Result<(), String> {
     let conn = state.0.lock().unwrap();
     conn.execute("DELETE FROM online_orders WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn get_online_stores(state: State<DbState>) -> Result<Vec<OnlineStore>, String> {
+    let conn = state.0.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT id, name, url, notes, created_at FROM online_stores ORDER BY name ASC"
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok(OnlineStore {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            url: row.get(2)?,
+            notes: row.get(3)?,
+            created_at: row.get(4)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut stores = Vec::new();
+    for row in rows {
+        stores.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(stores)
+}
+
+#[tauri::command]
+fn save_online_store(state: State<DbState>, store: OnlineStore) -> Result<(), String> {
+    let conn = state.0.lock().unwrap();
+    conn.execute(
+        "INSERT OR REPLACE INTO online_stores (id, name, url, notes) VALUES (?1, ?2, ?3, ?4)",
+        params![
+            store.id,
+            store.name,
+            store.url,
+            store.notes,
+        ],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_online_store(state: State<DbState>, id: String) -> Result<(), String> {
+    let conn = state.0.lock().unwrap();
+    conn.execute("DELETE FROM online_stores WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -2459,6 +2549,8 @@ fn start_axum_server() {
             .route("/api/compras/pedidos/:id", get(handlers::get_purchase_order_detail))
             .route("/api/compras/notas", get(handlers::list_invoices))
             .route("/api/compras/notas/:number", get(handlers::get_invoice_detail))
+            .route("/api/compras/lojas", get(handlers::list_online_stores).post(handlers::save_online_store_handler))
+            .route("/api/compras/lojas/:id", delete(handlers::delete_online_store_handler))
             .route("/api/historico", get(handlers::list_producao).post(handlers::add_producao))
             .route("/api/historico/:id", delete(handlers::delete_producao))
             .route("/api/google/status", get(google_drive::get_google_status))
@@ -2507,6 +2599,7 @@ pub fn run() {
             get_feedbacks, save_feedback, resolve_feedback,
             reset_db,
             get_online_orders, save_online_order, delete_online_order,
+            get_online_stores, save_online_store, delete_online_store,
             upload_order_receipt, open_receipt_file,
             // Compras - Categories
             get_categories, save_category, delete_category,

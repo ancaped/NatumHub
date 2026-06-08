@@ -3,7 +3,7 @@ import type {
   Category, Supplier, Item, StockSnapshot, Consumption, Invoice, 
   DemandResult, Quotation, QuotationItem, QuotationPrice, 
   ImportResult, StockImport, PricePoint, SupplierSpend, CategorySpend, 
-  ComprasAppConfig, MicrobioAppConfig, Feedback, Product, Report, OnlineOrder,
+  ComprasAppConfig, MicrobioAppConfig, Feedback, Product, Report, OnlineOrder, OnlineStore,
   FiscoQuimicaPattern, FiscoQuimicaAgent, FiscoQuimicaAnalysis
 } from '../types';
 
@@ -182,6 +182,15 @@ export const api = {
   },
   openReceiptFile(path: string): Promise<void> {
     return invoke('open_receipt_file', { path });
+  },
+  getOnlineStores(): Promise<OnlineStore[]> {
+    return invoke('get_online_stores');
+  },
+  saveOnlineStore(store: OnlineStore): Promise<void> {
+    return invoke('save_online_store', { store });
+  },
+  deleteOnlineStore(id: string): Promise<void> {
+    return invoke('delete_online_store', { id });
   },
 
   // === PRODUÇÃO: ANÁLISE FÍSICO-QUÍMICA ===
