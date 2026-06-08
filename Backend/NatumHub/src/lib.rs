@@ -2453,6 +2453,8 @@ fn start_axum_server() {
             .route("/api/estoque/item-info/:code", get(handlers::get_item_extra_info))
             .route("/api/compras/pedidos", get(handlers::list_purchase_orders))
             .route("/api/compras/pedidos/:id", get(handlers::get_purchase_order_detail))
+            .route("/api/compras/notas", get(handlers::list_invoices))
+            .route("/api/compras/notas/:number", get(handlers::get_invoice_detail))
             .route("/api/historico", get(handlers::list_producao).post(handlers::add_producao))
             .route("/api/historico/:id", delete(handlers::delete_producao))
             .route("/api/google/status", get(google_drive::get_google_status))

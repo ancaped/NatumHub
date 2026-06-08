@@ -4,7 +4,7 @@ import {
   ArrowLeft, Search, Database, Layers, Boxes, Calendar, FileText, 
   RefreshCw, CheckCircle2, AlertTriangle, ArrowUpRight, ArrowDownRight, 
   Info, Shield, Package, ShoppingCart, User, HelpCircle, FileSpreadsheet, Lock,
-  Truck, Receipt, Clock
+  Truck, Receipt, Clock, X
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { StockMovement, FormulationLine, DbDumpResult } from '../types';
@@ -135,6 +135,27 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
   const [extraInfo, setExtraInfo] = useState<ItemExtraInfo | null>(null);
   const [drawerLoading, setDrawerLoading] = useState(false);
   const [drawerError, setDrawerError] = useState<string | null>(null);
+
+  // Invoice detail modal state
+  const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+
+  const handleOpenInvoiceDetail = async (invoiceNumber: string, supplierId: string | null) => {
+    setInvoiceLoading(true);
+    setSelectedInvoice(null);
+    try {
+      const params = new URLSearchParams();
+      if (supplierId) params.set('supplier_id', supplierId);
+      const res = await fetch(`${API_BASE}/compras/notas/${invoiceNumber}?${params.toString()}`);
+      if (res.ok) {
+        setSelectedInvoice(await res.json());
+      }
+    } catch (e) {
+      console.error("Erro ao carregar detalhes da nota fiscal:", e);
+    } finally {
+      setInvoiceLoading(false);
+    }
+  };
 
   // Load Main Data
   const loadData = async () => {
@@ -660,7 +681,12 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
                   ) : (
                     <div className="space-y-3">
                       {extraInfo.invoices.map((inv) => (
-                        <div key={inv.id} className="bg-white border border-zinc-150 p-4 rounded-xl shadow-sm space-y-2 hover:border-zinc-300 transition-colors">
+                        <button
+                          key={inv.id}
+                          onClick={() => handleOpenInvoiceDetail(inv.invoiceNumber, inv.supplierId)}
+                          className="w-full text-left bg-white border border-zinc-150 p-4 rounded-xl shadow-sm space-y-2 hover:border-zinc-300 hover:shadow-md transition-all cursor-pointer block focus:outline-none"
+                          title="Clique para ver detalhes desta nota fiscal"
+                        >
                           <div className="flex items-center justify-between">
                             <span className="px-2 py-0.5 bg-blue-50 text-blue-600 border border-blue-200 text-[9px] font-bold uppercase rounded">
                               NF #{inv.invoiceNumber}
@@ -682,7 +708,7 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
                             <span className="font-medium">{inv.supplierName || 'Fornecedor não informado'}</span>
                             <span className="font-semibold">P.U. {formatCurrency(inv.unitPrice)}</span>
                           </div>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   )}
@@ -814,6 +840,83 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
                 Fechar Painel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Invoice Detail Modal inside EstoqueView */}
+      {(selectedInvoice || invoiceLoading) && (
+        <div className="fixed inset-0 bg-black/45 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 cursor-pointer" onClick={() => { setSelectedInvoice(null); }} />
+
+          <div className="relative w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200 z-10 border border-zinc-200">
+            {invoiceLoading ? (
+              <div className="p-12 flex items-center justify-center text-zinc-400 font-semibold gap-2">
+                <RefreshCw className="h-5 w-5 animate-spin" />
+                Carregando detalhes da nota fiscal...
+              </div>
+            ) : selectedInvoice ? (
+              <>
+                <div className="px-6 py-5 border-b border-zinc-200 bg-zinc-50/50 flex justify-between items-start shrink-0">
+                  <div>
+                    <span className="px-2 py-0.5 bg-zinc-900 text-white rounded text-[9px] font-bold uppercase tracking-wider">
+                      Nota Fiscal de Compra
+                    </span>
+                    <h3 className="font-bold text-zinc-900 text-base mt-1">NF #{selectedInvoice.invoiceNumber}</h3>
+                    <p className="text-xs text-zinc-500 font-mono mt-0.5">
+                      {selectedInvoice.supplierName || 'Fornecedor não informado'} | {formatDate(selectedInvoice.invoiceDate)}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setSelectedInvoice(null)}
+                    className="p-1.5 hover:bg-zinc-150 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="px-6 py-3 bg-zinc-50/20 border-b border-zinc-100 flex justify-between text-xs shrink-0">
+                  <div>
+                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Cód. Fornecedor</span>
+                    <p className="font-semibold text-zinc-800">{selectedInvoice.supplierId || '-'}</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Valor Total</span>
+                    <p className="font-bold text-zinc-900">{formatCurrency(selectedInvoice.totalValue)}</p>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6 space-y-3">
+                  <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Itens Faturados nesta Nota</h4>
+                  <div className="space-y-2">
+                    {selectedInvoice.items.map((item: any, idx: number) => (
+                      <div key={item.id || idx} className="bg-zinc-50 border border-zinc-150 rounded-xl p-3 shadow-sm space-y-1 hover:border-zinc-350 transition-colors">
+                        <div className="flex justify-between items-start">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-zinc-800 text-xs truncate">{item.description || item.itemCode}</p>
+                            <p className="text-[9px] font-mono text-zinc-400">Cód: {item.itemCode}</p>
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-baseline text-xs pt-1">
+                          <span className="font-semibold text-zinc-750">{item.quantity.toLocaleString('pt-BR')} {item.unit || 'UN'}</span>
+                          <span className="text-zinc-500 text-[10px]">P.U. {formatCurrency(item.unitPrice)}</span>
+                          <span className="font-extrabold text-zinc-900">{formatCurrency(item.totalValue)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="px-6 py-4 border-t border-zinc-200 bg-zinc-50/50 flex justify-end shrink-0">
+                  <button
+                    onClick={() => setSelectedInvoice(null)}
+                    className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-xs font-bold shadow-md cursor-pointer transition-all"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </>
+            ) : null}
           </div>
         </div>
       )}

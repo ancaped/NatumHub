@@ -1321,6 +1321,179 @@ pub async fn get_purchase_order_detail(
     (StatusCode::OK, Json(PurchaseOrderDetailResponse { header, items })).into_response()
 }
 
+// ===== NOTAS FISCAIS HANDLERS =====
+
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct InvoicesQueryParams {
+    pub search: Option<String>,
+    pub supplier_id: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InvoiceHeaderResponse {
+    pub invoice_number: String,
+    pub invoice_date: Option<String>,
+    pub supplier_id: Option<String>,
+    pub supplier_name: Option<String>,
+    pub total_value: f64,
+    pub items_count: i32,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InvoiceDetailResponse {
+    pub invoice_number: String,
+    pub invoice_date: Option<String>,
+    pub supplier_id: Option<String>,
+    pub supplier_name: Option<String>,
+    pub total_value: f64,
+    pub items: Vec<crate::Invoice>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct InvoiceDetailQueryParams {
+    pub supplier_id: Option<String>,
+}
+
+// GET /api/compras/notas
+pub async fn list_invoices(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<InvoicesQueryParams>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let mut query = "
+        SELECT invoice_number, invoice_date, supplier_id, supplier_name, SUM(total_value) as total_val, COUNT(*) as items_count 
+        FROM invoices 
+        WHERE 1=1
+    ".to_string();
+
+    let mut args: Vec<String> = Vec::new();
+
+    if let Some(ref supplier_id) = params.supplier_id {
+        if !supplier_id.is_empty() {
+            query.push_str(" AND supplier_id = ?");
+            args.push(supplier_id.clone());
+        }
+    }
+
+    if let Some(ref search) = params.search {
+        if !search.trim().is_empty() {
+            query.push_str(" AND (supplier_name LIKE ? OR invoice_number LIKE ?)");
+            let like_arg = format!("%{}%", search.trim());
+            args.push(like_arg.clone());
+            args.push(like_arg);
+        }
+    }
+
+    query.push_str(" GROUP BY invoice_number, supplier_id, supplier_name, invoice_date ORDER BY invoice_date DESC, invoice_number DESC");
+
+    let mut stmt = match conn.prepare(&query) {
+        Ok(s) => s,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let params_converted = rusqlite::params_from_iter(args.iter());
+    let rows = stmt.query_map(params_converted, |row| {
+        Ok(InvoiceHeaderResponse {
+            invoice_number: row.get(0)?,
+            invoice_date: row.get(1)?,
+            supplier_id: row.get(2)?,
+            supplier_name: row.get(3)?,
+            total_value: row.get(4)?,
+            items_count: row.get(5)?,
+        })
+    });
+
+    match rows {
+        Ok(iter) => {
+            let mut list = Vec::new();
+            for r in iter {
+                if let Ok(m) = r { list.push(m); }
+            }
+            (StatusCode::OK, Json(list)).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+// GET /api/compras/notas/:number
+pub async fn get_invoice_detail(
+    State(state): State<Arc<AppState>>,
+    Path(number): Path<String>,
+    Query(params): Query<InvoiceDetailQueryParams>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let mut query = "
+        SELECT id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date 
+        FROM invoices 
+        WHERE invoice_number = ?1
+    ".to_string();
+
+    let mut args: Vec<String> = vec![number.clone()];
+    if let Some(ref supplier_id) = params.supplier_id {
+        if !supplier_id.is_empty() {
+            query.push_str(" AND supplier_id = ?2");
+            args.push(supplier_id.clone());
+        }
+    }
+
+    let mut stmt = match conn.prepare(&query) {
+        Ok(s) => s,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let params_converted = rusqlite::params_from_iter(args.iter());
+    let rows = stmt.query_map(params_converted, |row| {
+        Ok(crate::Invoice {
+            id: row.get(0)?,
+            invoice_number: row.get(1)?,
+            item_code: row.get(2)?,
+            description: row.get(3)?,
+            unit: row.get(4)?,
+            quantity: row.get(5)?,
+            unit_price: row.get(6)?,
+            total_value: row.get(7)?,
+            supplier_name: row.get(8)?,
+            supplier_id: row.get(9)?,
+            invoice_date: row.get(10)?,
+        })
+    });
+
+    let mut items = Vec::new();
+    if let Ok(iter) = rows {
+        for r in iter {
+            if let Ok(inv) = r { items.push(inv); }
+        }
+    }
+
+    if items.is_empty() {
+        return (StatusCode::NOT_FOUND, Json(json!({ "error": "Nota fiscal não encontrada" }))).into_response();
+    }
+
+    let first = &items[0];
+    let total_value: f64 = items.iter().map(|it| it.total_value).sum();
+
+    let detail = InvoiceDetailResponse {
+        invoice_number: first.invoice_number.clone(),
+        invoice_date: first.invoice_date.clone(),
+        supplier_id: first.supplier_id.clone(),
+        supplier_name: first.supplier_name.clone(),
+        total_value,
+        items,
+    };
+
+    (StatusCode::OK, Json(detail)).into_response()
+}
+
 // GET /api/estoque/item-info/:code
 pub async fn get_item_extra_info(
     State(state): State<Arc<AppState>>,
