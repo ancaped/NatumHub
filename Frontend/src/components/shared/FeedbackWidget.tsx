@@ -93,6 +93,15 @@ export function FeedbackWidget({ currentView }: FeedbackWidgetProps) {
       await new Promise(resolve => setTimeout(resolve, 150));
       
       const dataUrl = await htmlToImage.toPng(document.body, {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        style: {
+          width: window.innerWidth + 'px',
+          height: window.innerHeight + 'px',
+          transform: 'none',
+          left: '0',
+          top: '0',
+        },
         filter: (node: any) => {
           // Exclude the feedback modal trigger button and container from the capture
           if (node.classList && (
@@ -103,7 +112,8 @@ export function FeedbackWidget({ currentView }: FeedbackWidgetProps) {
           }
           return true;
         },
-        cacheBust: true,
+        pixelRatio: 1, // Standard resolution (1x) is much faster and more than enough for bug reports
+        cacheBust: false, // Disabling cache bust prevents reloading styles over local dev network
       });
       setScreenshot(dataUrl);
     } catch (err: any) {

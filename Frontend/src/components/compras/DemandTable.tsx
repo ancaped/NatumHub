@@ -172,8 +172,61 @@ export function DemandTable() {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden flex flex-col h-[calc(100vh-12rem)]">
-      {/* Category Tabs */}
+    <div className="flex flex-col gap-4 h-[calc(100vh-11rem)]">
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 shrink-0">
+        <div className="bg-white border border-zinc-200 p-4 rounded-xl shadow-sm text-left flex items-center justify-between">
+          <div>
+            <span className="text-[10px] text-zinc-400 font-bold uppercase block tracking-wider">Itens com Demanda</span>
+            <p className="text-2xl font-extrabold text-zinc-900 mt-1">
+              {demands.filter(d => d.recommendedQty > 0).length} <span className="text-xs font-semibold text-zinc-500">de {demands.length}</span>
+            </p>
+          </div>
+          <div className="p-2.5 bg-zinc-50 border border-zinc-100 rounded-lg text-zinc-650">
+            <Package size={20} />
+          </div>
+        </div>
+        
+        <div className="bg-red-50/40 border border-red-100 p-4 rounded-xl shadow-sm text-left flex items-center justify-between">
+          <div>
+            <span className="text-[10px] text-red-500 font-bold uppercase block tracking-wider">Demanda Crítica</span>
+            <p className="text-2xl font-extrabold text-red-700 mt-1">
+              {demands.filter(d => d.urgency === 'critical').length} <span className="text-xs font-semibold text-zinc-500">itens</span>
+            </p>
+          </div>
+          <div className="p-2.5 bg-red-100/50 border border-red-200/50 rounded-lg text-red-650">
+            <AlertCircle size={20} />
+          </div>
+        </div>
+
+        <div className="bg-amber-50/40 border border-amber-100 p-4 rounded-xl shadow-sm text-left flex items-center justify-between">
+          <div>
+            <span className="text-[10px] text-amber-600 font-bold uppercase block tracking-wider">Demanda em Atenção</span>
+            <p className="text-2xl font-extrabold text-amber-700 mt-1">
+              {demands.filter(d => d.urgency === 'warning').length} <span className="text-xs font-semibold text-zinc-500">itens</span>
+            </p>
+          </div>
+          <div className="p-2.5 bg-amber-100/50 border border-amber-200/50 rounded-lg text-zinc-650">
+            <AlertCircle size={20} />
+          </div>
+        </div>
+
+        <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-xl shadow-sm text-left flex items-center justify-between">
+          <div>
+            <span className="text-[10px] text-zinc-400 font-bold uppercase block tracking-wider">Cobertura Alvo</span>
+            <p className="text-2xl font-extrabold text-zinc-900 mt-1">
+              {targetDays} <span className="text-xs font-semibold text-zinc-500">dias</span>
+            </p>
+          </div>
+          <div className="p-2.5 bg-white border border-zinc-200 rounded-lg text-zinc-650">
+            <ArrowDownToLine size={20} />
+          </div>
+        </div>
+      </div>
+
+      {/* Main Table Card */}
+      <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden flex flex-col flex-1">
+        {/* Category Tabs */}
       <div className="flex border-b border-zinc-200 bg-zinc-50/50 px-4 pt-2 shrink-0 gap-2">
         {([
           { id: 'ALL', name: 'Todos', count: counts.all },
@@ -388,5 +441,6 @@ export function DemandTable() {
         )}
       </div>
     </div>
+  </div>
   );
 }

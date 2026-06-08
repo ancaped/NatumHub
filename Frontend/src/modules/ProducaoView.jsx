@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   AlertTriangle, CheckCircle2, X, RefreshCw, Database, Check, Play,
   ArrowUpDown, ArrowUp, ArrowDown, LayoutDashboard, Table, Layers, History,
-  Settings, ArrowLeft
+  Settings, ArrowLeft, ClipboardList, User, TrendingUp, BarChart3
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 const API_BASE = 'http://127.0.0.1:3001/api';
 
@@ -13,6 +14,7 @@ import { InventoryTab } from '../components/producao/InventoryTab';
 import { KitsTab } from '../components/producao/KitsTab';
 import { HistoryTab } from '../components/producao/HistoryTab';
 import { SettingsTab } from '../components/producao/SettingsTab';
+import { LotesTab } from '../components/producao/LotesTab';
 
 export default function ProducaoView({ onBackToHub }) {
   // Navigation State
@@ -130,6 +132,15 @@ export default function ProducaoView({ onBackToHub }) {
   const [similarProducts, setSimilarProducts] = useState([]);
   const [selectedSims, setSelectedSims] = useState({}); // code -> { checked: bool, qty: number }
   const [similarLoading, setSimilarLoading] = useState(false);
+
+  // Lotes State
+  const [lotes, setLotes] = useState([]);
+  const [lotesLoading, setLotesLoading] = useState(false);
+
+  // Product Details Drawer State
+  const [selectedProductDetails, setSelectedProductDetails] = useState(null);
+  const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
+  const [detailsDrawerLoading, setDetailsDrawerLoading] = useState(false);
 
   useEffect(() => {
     if (!launchingProduct) {
@@ -509,6 +520,51 @@ export default function ProducaoView({ onBackToHub }) {
       fetchHistory();
     }
   }, [currentView, fetchHistory]);
+
+  // Fetch industrial production lots (ERP) from API
+  const fetchLotes = useCallback(async () => {
+    setLotesLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/producao/lotes`);
+      if (res.ok) {
+        const data = await res.json();
+        setLotes(data || []);
+      } else {
+        showToast("Erro ao buscar lotes de produção (ERP)", "error");
+      }
+    } catch (e) {
+      console.error("Error fetching lotes:", e);
+      showToast("Falha de conexão com o servidor local", "error");
+    } finally {
+      setLotesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentView === 'lotes') {
+      fetchLotes();
+    }
+  }, [currentView, fetchLotes]);
+
+  const fetchProductDetails = async (code) => {
+    setDetailsDrawerLoading(true);
+    setSelectedProductDetails(null);
+    setDetailsDrawerOpen(true);
+    try {
+      const res = await fetch(`${API_BASE}/produtos/${code}/detalhes`);
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedProductDetails(data);
+      } else {
+        showToast("Erro ao buscar detalhes do produto", "error");
+      }
+    } catch (e) {
+      console.error("Error fetching product details:", e);
+      showToast("Falha ao carregar detalhes", "error");
+    } finally {
+      setDetailsDrawerLoading(false);
+    }
+  };
 
   const handleLaunchProduction = async (e) => {
     if (e) e.preventDefault();
@@ -1151,7 +1207,13 @@ export default function ProducaoView({ onBackToHub }) {
             <span>Histórico de Produção</span>
           </button>
           
-
+          <button 
+            className={`sidebar-link cursor-pointer ${currentView === 'lotes' ? 'active' : ''}`}
+            onClick={() => setCurrentView('lotes')}
+          >
+            <ClipboardList size={16} />
+            <span>Lotes de Produção</span>
+          </button>
           
           <button 
             className={`sidebar-link cursor-pointer ${currentView === 'settings' ? 'active' : ''}`}
@@ -1191,6 +1253,7 @@ export default function ProducaoView({ onBackToHub }) {
           {/* VIEW: STOCK & ALERTS */}
           {currentView === 'inventory' && (
             <InventoryTab
+              onShowDetails={fetchProductDetails}
               products={products}
               configs={configs}
               bases={bases}
@@ -1298,7 +1361,14 @@ export default function ProducaoView({ onBackToHub }) {
             />
           )}
 
-
+          {/* VIEW: PRODUCTION LOTS (ERP) */}
+          {currentView === 'lotes' && (
+            <LotesTab 
+              lotes={lotes} 
+              onRefresh={fetchLotes} 
+              loading={lotesLoading} 
+            />
+          )}
 
           {/* VIEW: SETTINGS */}
           {currentView === 'settings' && (
@@ -1650,6 +1720,230 @@ export default function ProducaoView({ onBackToHub }) {
           </div>
         </div>
       )}
+
+      {/* Product Details Drawer */}
+      <AnimatePresence>
+        {detailsDrawerOpen && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              className="modal-backdrop z-40"
+              onClick={() => setDetailsDrawerOpen(false)}
+            />
+            {/* Drawer container */}
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed right-0 top-0 h-screen w-full max-w-2xl bg-white shadow-2xl border-l border-zinc-200 z-50 flex flex-col text-left text-zinc-800"
+            >
+              {/* Header */}
+              <div className="p-6 border-b border-zinc-150 flex items-center justify-between bg-zinc-50 shrink-0">
+                <div className="min-w-0 flex-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Detalhes do Produto</span>
+                  <h3 className="font-extrabold text-zinc-900 text-lg mt-0.5 truncate">
+                    {detailsDrawerLoading ? 'Carregando...' : selectedProductDetails?.description}
+                  </h3>
+                  <p className="text-xs text-zinc-500 font-mono mt-0.5">
+                    Ref: {detailsDrawerLoading ? '...' : selectedProductDetails?.code}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setDetailsDrawerOpen(false)}
+                  className="p-1 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-650 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {detailsDrawerLoading ? (
+                  <div className="flex flex-col items-center justify-center h-64 gap-3 text-zinc-400">
+                    <RefreshCw className="h-8 w-8 animate-spin text-zinc-500" />
+                    <span className="font-medium">Carregando ficha e estatísticas...</span>
+                  </div>
+                ) : selectedProductDetails ? (
+                  <>
+                    {/* Top Stats Cards */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
+                        <span className="text-[10px] text-zinc-400 font-bold uppercase block">Estoque Atual</span>
+                        <p className="text-xl font-extrabold text-zinc-900 mt-1">
+                          {selectedProductDetails.currentStock.toLocaleString('pt-BR')}{' '}
+                          <span className="text-xs font-semibold text-zinc-500">{selectedProductDetails.unit}</span>
+                        </p>
+                      </div>
+                      <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
+                        <span className="text-[10px] text-zinc-400 font-bold uppercase block">Código ERP</span>
+                        <p className="text-xl font-extrabold text-zinc-900 mt-1 font-mono">
+                          {selectedProductDetails.code}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Section: Formulation / Ingredients */}
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
+                        <Layers className="h-4 w-4 text-zinc-650" />
+                        <h4 className="font-extrabold text-sm text-zinc-900">Fórmula & Ingredientes</h4>
+                      </div>
+                      {selectedProductDetails.formulation.length === 0 ? (
+                        <p className="text-xs text-zinc-400 py-3">Nenhuma fórmula registrada para este produto.</p>
+                      ) : (
+                        <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                          <table className="w-full text-left text-xs">
+                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                              <tr>
+                                <th className="px-4 py-3">Ingrediente</th>
+                                <th className="px-4 py-3 text-right">Qtd</th>
+                                <th className="px-4 py-3 text-right">Fórmula %</th>
+                                <th className="px-4 py-3 text-right">Estoque Insumo</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-zinc-100">
+                              {selectedProductDetails.formulation.map((line) => {
+                                const needsPercentage = line.percentage !== null && line.percentage !== undefined;
+                                const pctVal = needsPercentage ? line.percentage * 100 : 0;
+                                const isOutOfStock = line.current_stock <= 0;
+
+                                return (
+                                  <tr key={line.ingredient_code} className="hover:bg-zinc-50/50 transition-colors">
+                                    <td className="px-4 py-2.5">
+                                      <div className="font-bold text-zinc-800">{line.description}</div>
+                                      <div className="font-mono text-[9px] text-zinc-400">{line.ingredient_code}</div>
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right font-medium text-zinc-700">
+                                      {line.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right text-zinc-550">
+                                      {needsPercentage ? `${pctVal.toFixed(3)}%` : '-'}
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right">
+                                      <span
+                                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                          isOutOfStock
+                                            ? 'bg-red-100 text-red-700 border border-red-200'
+                                            : 'bg-green-100 text-green-700 border border-green-200'
+                                        }`}
+                                      >
+                                        {line.current_stock.toLocaleString('pt-BR')}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Section: YoY Sales */}
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
+                        <TrendingUp className="h-4 w-4 text-zinc-650" />
+                        <h4 className="font-extrabold text-sm text-zinc-900">Histórico de Vendas Ano a Ano</h4>
+                      </div>
+                      {selectedProductDetails.salesYoY.length === 0 ? (
+                        <p className="text-xs text-zinc-400 py-3">Sem histórico de vendas registrado.</p>
+                      ) : (
+                        <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                          <table className="w-full text-left text-xs">
+                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                              <tr>
+                                <th className="px-4 py-3">Ano</th>
+                                <th className="px-4 py-3 text-right">Total Vendido ({selectedProductDetails.unit})</th>
+                                <th className="px-4 py-3 text-right">Média Mensal</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-zinc-100">
+                              {selectedProductDetails.salesYoY.map((s) => (
+                                <tr key={s.year} className="hover:bg-zinc-50/50 transition-colors">
+                                  <td className="px-4 py-2.5 font-bold text-zinc-800">{s.year}</td>
+                                  <td className="px-4 py-2.5 text-right font-semibold text-zinc-950">
+                                    {s.totalQty.toLocaleString('pt-BR')}
+                                  </td>
+                                  <td className="px-4 py-2.5 text-right text-zinc-550">
+                                    {s.monthlyAvg.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Section: Monthly Sales Chart */}
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center border-b border-zinc-100 pb-2">
+                        <div className="flex items-center gap-2">
+                          <BarChart3 className="h-4 w-4 text-zinc-650" />
+                          <h4 className="font-extrabold text-sm text-zinc-900">Vendas Mensais Detalhadas</h4>
+                        </div>
+                      </div>
+
+                      {selectedProductDetails.monthlySales.length === 0 ? (
+                        <p className="text-xs text-zinc-400 py-3">Nenhum registro de venda mensal.</p>
+                      ) : (
+                        <div className="p-4 bg-zinc-50/50 border border-zinc-150 rounded-xl space-y-3">
+                          {/* Visual Bar chart representation of monthly sales */}
+                          <div className="grid grid-cols-12 gap-1.5 h-36 items-end pt-4 px-2">
+                            {(() => {
+                              // We can extract/format last 12 months with sales
+                              // Let's sort the monthly sales by month code ascending
+                              const sortedMonthlySales = [...selectedProductDetails.monthlySales]
+                                .sort((a, b) => a.month.localeCompare(b.month))
+                                .slice(-12); // Get last 12 months
+
+                              const maxQty = Math.max(...sortedMonthlySales.map((m) => m.qty), 1);
+
+                              return sortedMonthlySales.map((m) => {
+                                const percent = (m.qty / maxQty) * 100;
+                                // Convert YYYY-MM to Month/Yr or Month
+                                const [yr, mo] = m.month.split('-');
+                                const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+                                const label = `${monthNames[parseInt(mo) - 1]} ${yr.slice(-2)}`;
+
+                                return (
+                                  <div key={m.month} className="group relative flex flex-col items-center h-full justify-end">
+                                    {/* Tooltip */}
+                                    <div className="absolute bottom-full mb-1 bg-zinc-900 text-white text-[9px] font-bold py-1 px-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-md">
+                                      {m.qty.toLocaleString('pt-BR')} {selectedProductDetails.unit}
+                                    </div>
+                                    {/* Bar */}
+                                    <div
+                                      style={{ height: `${percent}%` }}
+                                      className="w-full bg-zinc-800 rounded-t-sm group-hover:bg-zinc-900 transition-colors cursor-pointer"
+                                    />
+                                    {/* Month Label */}
+                                    <span className="text-[8px] text-zinc-400 font-bold uppercase mt-1.5 scale-90 md:scale-100 whitespace-nowrap">
+                                      {label}
+                                    </span>
+                                  </div>
+                                );
+                              });
+                            })()}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex-1 flex items-center justify-center text-zinc-400">
+                    Ocorreu um erro ao carregar os dados.
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Action status notification Toast */}
       {toast && (

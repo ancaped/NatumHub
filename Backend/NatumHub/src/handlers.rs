@@ -1295,7 +1295,7 @@ pub async fn list_purchase_orders(
                     query.push_str(" AND (c_status = 'F' OR c_status = 'T' OR c_status = 'FECHADO' OR c_status = 'CONCLUIDO')");
                 }
                 "CANCELADO" => {
-                    query.push_str(" AND (c_status = 'C' OR c_status = 'CANCELADO')");
+                    query.push_str(" AND (c_status = 'C' OR c_status = 'CANCELADO' OR c_status = '!')");
                 }
                 _ => {
                     query.push_str(" AND c_status = ?");
@@ -1786,7 +1786,7 @@ pub async fn get_insumo_detalhes(
     if let Ok(mut stmt) = conn.prepare(
         "SELECT strftime('%Y-%m', invoice_date) as year_month, SUM(quantity) 
          FROM invoices 
-         WHERE item_code = ?1 
+         WHERE item_code = ?1 AND invoice_date <= datetime('now', 'localtime')
          GROUP BY year_month 
          ORDER BY year_month ASC"
     ) {
@@ -1805,12 +1805,36 @@ pub async fn get_insumo_detalhes(
         }
     }
 
+    // 4b. Fetch monthly consumption grouping by year/month from stock_movements
+    let mut monthly_consumption = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT strftime('%Y-%m', date) as year_month, SUM(quantity) 
+         FROM stock_movements 
+         WHERE item_code = ?1 AND movement_type = 'saida' AND item_type = 'insumo' AND date <= datetime('now', 'localtime')
+         GROUP BY year_month 
+         ORDER BY year_month ASC"
+    ) {
+        let rows = stmt.query_map(params![code], |row| {
+            Ok(crate::models::MonthlyConsumptionItem {
+                month: row.get::<_, String>(0)?,
+                qty: row.get::<_, f64>(1)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(item) = r {
+                    monthly_consumption.push(item);
+                }
+            }
+        }
+    }
+
     // 5. Fetch recent invoices
     let mut recent_invoices = Vec::new();
     if let Ok(mut stmt) = conn.prepare(
         "SELECT invoice_number, quantity, unit_price, total_value, supplier_name, invoice_date 
          FROM invoices 
-         WHERE item_code = ?1 
+         WHERE item_code = ?1 AND invoice_date <= datetime('now', 'localtime')
          ORDER BY invoice_date DESC LIMIT 15"
     ) {
         let rows = stmt.query_map(params![code], |row| {
@@ -1835,7 +1859,7 @@ pub async fn get_insumo_detalhes(
     // 6. Last time used (from stock_movements with type 'saida' and item_type 'insumo')
     let last_used: Option<(String, String)> = conn.query_row(
         "SELECT date, document_number FROM stock_movements 
-         WHERE item_code = ?1 AND item_type = 'insumo' AND movement_type = 'saida'
+         WHERE item_code = ?1 AND item_type = 'insumo' AND movement_type = 'saida' AND date <= datetime('now', 'localtime')
          ORDER BY date DESC LIMIT 1",
         params![code],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?.unwrap_or_default()))
@@ -1849,7 +1873,7 @@ pub async fn get_insumo_detalhes(
     // 7. Last received (from invoices)
     let last_received: Option<(String, String)> = conn.query_row(
         "SELECT invoice_date, invoice_number FROM invoices 
-         WHERE item_code = ?1 
+         WHERE item_code = ?1 AND invoice_date <= datetime('now', 'localtime')
          ORDER BY invoice_date DESC LIMIT 1",
         params![code],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -1859,6 +1883,31 @@ pub async fn get_insumo_detalhes(
         Some((date, doc)) => (Some(date), Some(doc)),
         None => (None, None),
     };
+
+    // 8. Fetch products where this insumo is used
+    let mut products_used_in = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT f.product_code, p.descricao, f.quantity 
+         FROM formulations f
+         LEFT JOIN produtos p ON f.product_code = p.codigo
+         WHERE f.ingredient_code = ?1
+         ORDER BY f.product_code ASC"
+    ) {
+        let rows = stmt.query_map(params![code], |row| {
+            Ok(crate::models::InsumoUsedInProductItem {
+                product_code: row.get(0)?,
+                description: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                quantity: row.get(2)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(item) = r {
+                    products_used_in.push(item);
+                }
+            }
+        }
+    }
 
     let response = crate::models::InsumoDetalhesResponse {
         code: item_code,
@@ -1870,11 +1919,13 @@ pub async fn get_insumo_detalhes(
         current_stock,
         consumption_yoy,
         monthly_purchases,
+        monthly_consumption,
         recent_invoices,
         last_used_date,
         last_used_lote,
         last_received_date,
         last_received_doc,
+        products_used_in,
     };
 
     (StatusCode::OK, Json(response)).into_response()
@@ -1890,53 +1941,61 @@ pub async fn get_similar_products(
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     };
     
-    // Fetch target ingredients
-    let mut target_ingredients = Vec::new();
-    let mut stmt = match conn.prepare("SELECT ingredient_code FROM formulations WHERE product_code = ?1") {
+    // Fetch target ingredients with their percentages
+    let mut target_map = HashMap::new();
+    let mut stmt = match conn.prepare("SELECT ingredient_code, IFNULL(percentage, 0.0) FROM formulations WHERE product_code = ?1") {
         Ok(s) => s,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     };
-    let rows = stmt.query_map(params![code], |row| row.get::<_, String>(0));
+    let rows = stmt.query_map(params![code], |row| Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?)));
     if let Ok(iter) = rows {
         for r in iter {
-            if let Ok(ing) = r {
-                target_ingredients.push(ing);
+            if let Ok((ing, pct)) = r {
+                target_map.insert(ing, pct);
             }
         }
     }
     
-    if target_ingredients.is_empty() {
+    if target_map.is_empty() {
         return (StatusCode::OK, Json(Vec::<crate::models::SimilarProductResult>::new())).into_response();
     }
     
-    // Fetch all formulations
-    let mut product_ingredients: HashMap<String, Vec<String>> = HashMap::new();
-    let mut stmt_all = match conn.prepare("SELECT product_code, ingredient_code FROM formulations WHERE product_code != ?1") {
+    // Fetch all other formulations
+    let mut product_ingredients: HashMap<String, HashMap<String, f64>> = HashMap::new();
+    let mut stmt_all = match conn.prepare("SELECT product_code, ingredient_code, IFNULL(percentage, 0.0) FROM formulations WHERE product_code != ?1") {
         Ok(s) => s,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     };
-    let rows_all = stmt_all.query_map(params![code], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)));
+    let rows_all = stmt_all.query_map(params![code], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, f64>(2)?)));
     if let Ok(iter) = rows_all {
         for r in iter {
-            if let Ok((p_code, ing_code)) = r {
-                product_ingredients.entry(p_code).or_default().push(ing_code);
+            if let Ok((p_code, ing_code, pct)) = r {
+                product_ingredients.entry(p_code).or_default().insert(ing_code, pct);
             }
         }
     }
     
-    let calculate_jaccard = |a: &[String], b: &[String]| -> f64 {
-        let set_a: std::collections::HashSet<&String> = a.iter().collect();
-        let set_b: std::collections::HashSet<&String> = b.iter().collect();
-        let intersection = set_a.intersection(&set_b).count();
-        let union = set_a.union(&set_b).count();
-        if union == 0 { 0.0 } else { intersection as f64 / union as f64 }
-    };
-    
     let mut match_map = HashMap::new();
     for (other_code, ingredients) in &product_ingredients {
-        let sim = calculate_jaccard(&target_ingredients, ingredients);
-        if sim >= 0.5 {
-            match_map.insert(other_code.clone(), sim);
+        // Must have the exact same number of ingredients
+        if ingredients.len() != target_map.len() {
+            continue;
+        }
+        // Check if all target ingredients exist in other and have matching percentages
+        let mut is_identical = true;
+        for (ing_code, target_pct) in &target_map {
+            if let Some(other_pct) = ingredients.get(ing_code) {
+                if (other_pct - target_pct).abs() > 1e-4 {
+                    is_identical = false;
+                    break;
+                }
+            } else {
+                is_identical = false;
+                break;
+            }
+        }
+        if is_identical {
+            match_map.insert(other_code.clone(), 1.0); // 1.0 similarity means 100% identical formula
         }
     }
     
@@ -2242,5 +2301,223 @@ pub async fn delete_online_store_handler(
         Ok(_) => (StatusCode::OK, Json(json!({ "status": "success" }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     }
+}
+
+// GET /api/produtos/:code/detalhes
+pub async fn get_product_detalhes(
+    State(state): State<Arc<AppState>>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    // 1. Fetch product metadata & current stock
+    let product_res = conn.query_row(
+        "SELECT p.codigo, p.descricao, IFNULL(p.unidade, 'UN') as unidade, IFNULL(s.stock_qty, 0.0)
+         FROM produtos p
+         LEFT JOIN (
+             SELECT ss.item_code, ss.stock_qty
+             FROM stock_snapshots ss
+             WHERE ss.id = (
+                 SELECT id FROM stock_snapshots ss2 
+                 WHERE ss2.item_code = ss.item_code 
+                 ORDER BY ss2.snapshot_date DESC, ss2.id DESC LIMIT 1
+             )
+         ) s ON p.codigo = s.item_code
+         WHERE p.codigo = ?1",
+        params![code],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, f64>(3)?,
+            ))
+        }
+    );
+
+    let (prod_code, description, unit, current_stock) = match product_res {
+        Ok(vals) => vals,
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            return (StatusCode::NOT_FOUND, Json(json!({ "error": "Produto não encontrado" }))).into_response();
+        }
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    // 2. Fetch formulation/composition left joined with latest ingredient stock snapshot
+    let mut formulation = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT 
+            f.product_code, 
+            f.ingredient_code, 
+            f.description, 
+            f.quantity, 
+            f.percentage,
+            IFNULL(s.stock_qty, 0.0) as ingredient_stock
+         FROM formulations f
+         LEFT JOIN (
+             SELECT ss.item_code, ss.stock_qty
+             FROM stock_snapshots ss
+             WHERE ss.id = (
+                 SELECT id FROM stock_snapshots ss2 
+                 WHERE ss2.item_code = ss.item_code 
+                 ORDER BY ss2.snapshot_date DESC, ss2.id DESC LIMIT 1
+             )
+         ) s ON f.ingredient_code = s.item_code
+         WHERE f.product_code = ?1
+         ORDER BY f.quantity DESC"
+    ) {
+        let rows = stmt.query_map(params![code], |row| {
+            Ok(crate::models::ProductFormulationLine {
+                product_code: row.get(0)?,
+                ingredient_code: row.get(1)?,
+                description: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                quantity: row.get(3)?,
+                percentage: row.get(4)?,
+                current_stock: row.get(5)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(line) = r {
+                    formulation.push(line);
+                }
+            }
+        }
+    }
+
+    // 3. Fetch sales YoY (from stock_movements where movement_type = 'saida' and item_type = 'produto')
+    let mut sales_yoy = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT 
+            CAST(strftime('%Y', date) AS INTEGER) as year, 
+            SUM(quantity) as total_qty,
+            SUM(quantity) / 12.0 as monthly_avg
+         FROM stock_movements 
+         WHERE item_code = ?1 AND item_type = 'produto' AND movement_type = 'saida' AND date <= datetime('now', 'localtime')
+         GROUP BY year 
+         ORDER BY year DESC"
+    ) {
+        let rows = stmt.query_map(params![code], |row| {
+            Ok(crate::models::SalesYoYItem {
+                year: row.get(0)?,
+                total_qty: row.get(1)?,
+                monthly_avg: row.get(2)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(item) = r {
+                    sales_yoy.push(item);
+                }
+            }
+        }
+    }
+
+    // 4. Fetch monthly sales (from stock_movements)
+    let mut monthly_sales = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT 
+            strftime('%Y-%m', date) as year_month, 
+            SUM(quantity) as qty
+         FROM stock_movements 
+         WHERE item_code = ?1 AND item_type = 'produto' AND movement_type = 'saida' AND date <= datetime('now', 'localtime')
+         GROUP BY year_month 
+         ORDER BY year_month ASC"
+    ) {
+        let rows = stmt.query_map(params![code], |row| {
+            Ok(crate::models::MonthlySalesItem {
+                month: row.get(0)?,
+                qty: row.get(1)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(item) = r {
+                    monthly_sales.push(item);
+                }
+            }
+        }
+    }
+
+    let response = crate::models::ProductDetalhesResponse {
+        code: prod_code,
+        description,
+        unit,
+        current_stock,
+        formulation,
+        sales_yoy,
+        monthly_sales,
+    };
+
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+// GET /api/producao/lotes
+pub async fn get_production_lotes(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let mut lotes = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT m.id, m.document_number, m.item_code, p.descricao, m.quantity, m.date, m.details 
+         FROM stock_movements m
+         LEFT JOIN produtos p ON m.item_code = p.codigo
+         WHERE m.item_type = 'produto' AND m.movement_type = 'entrada' AND m.date <= datetime('now', 'localtime')
+         ORDER BY m.date DESC LIMIT 500"
+    ) {
+        let rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let lote_number: String = row.get::<_, Option<String>>(1)?.unwrap_or_default();
+            let product_code: String = row.get(2)?;
+            let product_description: String = row.get::<_, Option<String>>(3)?.unwrap_or_default();
+            let quantity: f64 = row.get(4)?;
+            let date: String = row.get(5)?;
+            let details: String = row.get::<_, Option<String>>(6)?.unwrap_or_default();
+
+            // Parse details string: "Status: EA | Fab: RODRIGO | Aut: RAFAEL"
+            let mut status = String::new();
+            let mut fabricated_by = String::new();
+            let mut authorized_by = String::new();
+            for part in details.split('|') {
+                let part = part.trim();
+                if part.starts_with("Status:") {
+                    status = part.trim_start_matches("Status:").trim().to_string();
+                } else if part.starts_with("Fab:") {
+                    fabricated_by = part.trim_start_matches("Fab:").trim().to_string();
+                } else if part.starts_with("Aut:") {
+                    authorized_by = part.trim_start_matches("Aut:").trim().to_string();
+                }
+            }
+
+            Ok(crate::models::ProductionLote {
+                id,
+                lote_number,
+                product_code,
+                product_description,
+                quantity,
+                date,
+                status,
+                fabricated_by,
+                authorized_by,
+            })
+        });
+
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(l) = r {
+                    lotes.push(l);
+                }
+            }
+        }
+    }
+
+    (StatusCode::OK, Json(lotes)).into_response()
 }
 

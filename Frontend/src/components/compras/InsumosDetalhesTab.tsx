@@ -26,6 +26,10 @@ interface InsumoDetalhes {
     month: string; // YYYY-MM
     qty: number;
   }[];
+  monthlyConsumption: {
+    month: string; // YYYY-MM
+    qty: number;
+  }[];
   recentInvoices: {
     invoiceNumber: string;
     quantity: number;
@@ -38,6 +42,11 @@ interface InsumoDetalhes {
   lastUsedLote: string | null;
   lastReceivedDate: string | null;
   lastReceivedDoc: string | null;
+  productsUsedIn: {
+    productCode: string;
+    description: string;
+    quantity: number;
+  }[];
 }
 
 export function InsumosDetalhesTab() {
@@ -119,7 +128,7 @@ export function InsumosDetalhesTab() {
 
   // Compute monthly data for selected year
   const monthlyDataForYear = useMemo(() => {
-    if (!details || !details.monthlyPurchases) return [];
+    if (!details || !details.monthlyConsumption) return [];
     
     // Create array for 12 months
     const months = Array.from({ length: 12 }, (_, i) => {
@@ -132,7 +141,7 @@ export function InsumosDetalhesTab() {
     });
 
     // Populate with actual data
-    details.monthlyPurchases.forEach(p => {
+    details.monthlyConsumption.forEach(p => {
       const match = months.find(m => m.monthKey === p.month);
       if (match) {
         match.qty = p.qty;
@@ -305,6 +314,40 @@ export function InsumosDetalhesTab() {
                   </div>
                 </div>
               )}
+
+              {/* Section: Products Used In */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
+                  <Database className="h-4 w-4 text-zinc-650" />
+                  <h4 className="font-extrabold text-sm text-zinc-900">Produtos que Utilizam este Insumo</h4>
+                </div>
+                {!details.productsUsedIn || details.productsUsedIn.length === 0 ? (
+                  <p className="text-xs text-zinc-400 py-2">Este insumo não está cadastrado em nenhuma fórmula de produto ativo.</p>
+                ) : (
+                  <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm max-h-48 overflow-y-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150 sticky top-0">
+                        <tr>
+                          <th className="px-4 py-2.5">Código</th>
+                          <th className="px-4 py-2.5">Produto</th>
+                          <th className="px-4 py-2.5 text-right">Qtd na Fórmula</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100">
+                        {details.productsUsedIn.map((p) => (
+                          <tr key={p.productCode} className="hover:bg-zinc-50/50 transition-colors">
+                            <td className="px-4 py-2 font-bold text-zinc-500 font-mono">{p.productCode}</td>
+                            <td className="px-4 py-2 font-semibold text-zinc-800">{p.description}</td>
+                            <td className="px-4 py-2 text-right font-medium text-zinc-900">
+                              {p.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
 
               {/* Section 1: YoY Consumption */}
               <div className="space-y-3">

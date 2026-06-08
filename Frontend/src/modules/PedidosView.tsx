@@ -122,10 +122,10 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
     if (s === 'PARCIAL' || s === 'P' || s.includes('PARCI')) {
       return { label: 'Parcial', className: 'bg-amber-50 text-amber-700 border-amber-200', icon: AlertTriangle };
     }
-    if (s === 'FECHADO' || s === 'F' || s.includes('FECH') || s.includes('CONCLU')) {
+    if (s === 'FECHADO' || s === 'F' || s === 'T' || s.includes('FECH') || s.includes('CONCLU') || s.includes('TOTAL')) {
       return { label: 'Fechado', className: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: CheckCircle2 };
     }
-    if (s === 'CANCELADO' || s === 'C' || s.includes('CANCEL')) {
+    if (s === 'CANCELADO' || s === 'C' || s === '!' || s.includes('CANCEL')) {
       return { label: 'Cancelado', className: 'bg-rose-50 text-rose-700 border-rose-200', icon: X };
     }
     return { label: status || 'Indefinido', className: 'bg-zinc-50 text-zinc-600 border-zinc-200', icon: Info };

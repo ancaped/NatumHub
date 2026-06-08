@@ -2541,6 +2541,8 @@ fn start_axum_server() {
             .route("/api/estoque/movimentacoes/:code", get(handlers::get_stock_movements))
             .route("/api/produtos/formulacao/:code", get(handlers::get_product_formulation))
             .route("/api/produtos/semelhantes/:code", get(handlers::get_similar_products))
+            .route("/api/produtos/:code/detalhes", get(handlers::get_product_detalhes))
+            .route("/api/producao/lotes", get(handlers::get_production_lotes))
             .route("/api/producao/recalcular/preview", get(handlers::preview_recalculation))
             .route("/api/producao/recalcular/ajustar", post(handlers::apply_recalculation_adjustment))
             .route("/api/estoque/item-info/:code", get(handlers::get_item_extra_info))

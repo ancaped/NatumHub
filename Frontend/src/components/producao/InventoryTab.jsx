@@ -34,7 +34,8 @@ export function InventoryTab({
   loading,
   tabOptions,
   toggleSort,
-  SortIcon
+  SortIcon,
+  onShowDetails
 }) {
   return (
     <div className="view-container animate-in fade-in duration-200">
@@ -209,9 +210,25 @@ export function InventoryTab({
 
                   return (
                     <tr key={p.codigo}>
-                      <td className="product-code">{p.codigo}</td>
+                      <td className="product-code">
+                        <button 
+                          onClick={() => onShowDetails(p.codigo)} 
+                          className="hover:underline text-left font-bold text-zinc-800 cursor-pointer bg-transparent border-none p-0"
+                          style={{ textAlign: 'left', outline: 'none' }}
+                        >
+                          {p.codigo}
+                        </button>
+                      </td>
                       <td>
-                        <div className="product-desc">{p.descricao}</div>
+                        <div className="product-desc">
+                          <button 
+                            onClick={() => onShowDetails(p.codigo)} 
+                            className="hover:underline text-left font-bold text-zinc-900 cursor-pointer bg-transparent border-none p-0"
+                            style={{ textAlign: 'left', fontSize: 'inherit', fontWeight: 'inherit', outline: 'none' }}
+                          >
+                            {p.descricao}
+                          </button>
+                        </div>
                         <div className="product-subinfo">
                           <span>Linha: {p.nome_linha}</span>
                           {p.base && <span className="base-badge">Base: {p.base}</span>}

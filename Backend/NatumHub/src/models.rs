@@ -327,11 +327,21 @@ pub struct InsumoDetalhesResponse {
     pub current_stock: f64,
     pub consumption_yoy: Vec<ConsumptionYoYItem>,
     pub monthly_purchases: Vec<MonthlyPurchaseItem>,
+    pub monthly_consumption: Vec<MonthlyConsumptionItem>,
     pub recent_invoices: Vec<InsumoInvoiceItem>,
     pub last_used_date: Option<String>,
     pub last_used_lote: Option<String>,
     pub last_received_date: Option<String>,
     pub last_received_doc: Option<String>,
+    pub products_used_in: Vec<InsumoUsedInProductItem>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct InsumoUsedInProductItem {
+    pub product_code: String,
+    pub description: String,
+    pub quantity: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -351,6 +361,13 @@ pub struct MonthlyPurchaseItem {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct MonthlyConsumptionItem {
+    pub month: String,
+    pub qty: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct InsumoInvoiceItem {
     pub invoice_number: String,
     pub quantity: f64,
@@ -358,6 +375,58 @@ pub struct InsumoInvoiceItem {
     pub total_value: f64,
     pub supplier_name: String,
     pub invoice_date: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductDetalhesResponse {
+    pub code: String,
+    pub description: String,
+    pub unit: String,
+    pub current_stock: f64,
+    pub formulation: Vec<ProductFormulationLine>,
+    pub sales_yoy: Vec<SalesYoYItem>,
+    pub monthly_sales: Vec<MonthlySalesItem>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductFormulationLine {
+    pub product_code: String,
+    pub ingredient_code: String,
+    pub description: String,
+    pub quantity: f64,
+    pub percentage: Option<f64>,
+    pub current_stock: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SalesYoYItem {
+    pub year: i32,
+    pub total_qty: f64,
+    pub monthly_avg: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MonthlySalesItem {
+    pub month: String,
+    pub qty: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductionLote {
+    pub id: String,
+    pub lote_number: String,
+    pub product_code: String,
+    pub product_description: String,
+    pub quantity: f64,
+    pub date: String,
+    pub status: String,
+    pub fabricated_by: String,
+    pub authorized_by: String,
 }
 
 

@@ -459,18 +459,17 @@ WHERE f.DATA_EMISSAO >= DATEADD(month, -48, GETDATE())
         });
     }
 
-    // F. Query Consumption
+    // F. Query Consumption (Real consumption from Lotes_Baixas instead of COMPRAS)
     let query_consumption = "
 SELECT 
-    c.CODIGO_PRODUTO COLLATE Latin1_General_CI_AS as CODIGO_PRODUTO,
-    YEAR(f.DATA_EMISSAO) as Ano,
-    CAST(SUM(c.QUANTIDADE) AS FLOAT) as TotalQtd,
-    CAST(SUM(c.QUANTIDADE) / 12.0 AS FLOAT) as MediaMensal
-FROM COMPRAS2 c WITH (NOLOCK)
-LEFT JOIN COMPRAS1 f WITH (NOLOCK) ON c.nCodFornec = f.nCodFornec AND c.NOTA = f.NOTA
-WHERE YEAR(f.DATA_EMISSAO) IN (2024, 2025, 2026)
-  AND c.CODIGO_PRODUTO IS NOT NULL AND c.CODIGO_PRODUTO <> ''
-GROUP BY c.CODIGO_PRODUTO, YEAR(f.DATA_EMISSAO);
+    b.cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
+    YEAR(b.dLog) as Ano,
+    CAST(SUM(b.nQtde) AS FLOAT) as TotalQtd,
+    CAST(SUM(b.nQtde) / 12.0 AS FLOAT) as MediaMensal
+FROM Lotes_Baixas b WITH (NOLOCK)
+WHERE YEAR(b.dLog) IN (2024, 2025, 2026)
+  AND b.cReferencia IS NOT NULL AND b.cReferencia <> ''
+GROUP BY b.cReferencia, YEAR(b.dLog);
     ";
     println!("Step F: Querying Consumption");
     let stream = client.query(query_consumption, &[]).await?;
@@ -527,7 +526,7 @@ SELECT
     l.cFabricadopor COLLATE Latin1_General_CI_AS as cFabricadopor,
     l.cAutorizadopor COLLATE Latin1_General_CI_AS as cAutorizadopor
 FROM Lotes l WITH (NOLOCK)
-WHERE l.dLote >= DATEADD(month, -12, GETDATE())
+WHERE l.dLote >= '2024-01-01 00:00:00'
   AND l.cCodProd IS NOT NULL AND l.cCodProd <> '';
     ";
     println!("Step H: Querying Lotes");
@@ -562,7 +561,7 @@ SELECT
     b.cJustificativa COLLATE Latin1_General_CI_AS as cJustificativa,
     b.cCodProd COLLATE Latin1_General_CI_AS as cCodProd
 FROM Lotes_Baixas b WITH (NOLOCK)
-WHERE b.dLog >= DATEADD(month, -12, GETDATE())
+WHERE b.dLog >= '2024-01-01 00:00:00'
   AND b.cReferencia IS NOT NULL AND b.cReferencia <> '';
     ";
     println!("Step I: Querying Lotes Baixas");
@@ -598,7 +597,7 @@ SELECT
     v2.nNotaFiscal
 FROM VENDAS2 v2 WITH (NOLOCK)
 INNER JOIN VENDAS1 v1 WITH (NOLOCK) ON v2.nVenda = v1.nVenda AND CAST(v2.dVenda AS DATE) = CAST(v1.dVenda AS DATE)
-WHERE v2.dVenda >= DATEADD(month, -12, GETDATE())
+WHERE v2.dVenda >= '2024-01-01 00:00:00'
   AND v2.cCodProd IS NOT NULL AND v2.cCodProd <> '';
     ";
     println!("Step J: Querying Vendas");
