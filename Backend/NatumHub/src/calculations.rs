@@ -60,6 +60,18 @@ pub fn calculate_products(
             prod.linha_prefix.clone()
         };
 
+        let resolved_status_produto = if let Some(o) = ovr {
+            o.status_produto.clone().unwrap_or_else(|| "ativo".to_string())
+        } else {
+            "ativo".to_string()
+        };
+
+        let resolved_categoria_produto = if let Some(o) = ovr {
+            o.categoria_produto.clone()
+        } else {
+            None
+        };
+
         // Get config
         let config = config_map.get(&resolved_linha_prefix).copied().unwrap_or(&default_config);
 
@@ -165,25 +177,30 @@ pub fn calculate_products(
         let abrir_ordem_qtd = config_ordem * da_for_division;
         let abrir_prod_qtd = config_prod * da_for_division;
 
-        // 8. Status decision
-        let (status, status_label) = if duracao_meses <= config_prod {
-            ("critico", "Produzir Urgente")
-        } else if duracao_meses <= config_ordem {
-            ("ordem", "Abrir Ordem")
-        } else if duracao_meses <= config_ideal {
-            ("saudavel", "Estoque OK")
+        // 8. Status decision & Recommended Production Quantity
+        let (status, status_label, producao_recomendada) = if resolved_status_produto == "descontinuado" {
+            ("descontinuado".to_string(), "Sair de Linha".to_string(), 0)
+        } else if resolved_status_produto == "apoio" {
+            ("apoio".to_string(), "Material de Apoio".to_string(), 0)
+        } else if resolved_status_produto == "coloracao" {
+            ("coloracao".to_string(), "Coloração".to_string(), 0)
         } else {
-            ("abundante", "Abundante")
-        };
-
-        // 9. Recommended Production Quantity
-        // Recommended production is needed if we are in status "critico" or "ordem"
-        // and we want to refill up to the ideal stock quantity
-        let producao_recomendada = if status == "critico" || status == "ordem" {
-            let needed = (estoque_ideal_qtd - estoque_futuro_com_producao as f64).round() as i64;
-            if needed > 0 { needed } else { 0 }
-        } else {
-            0
+            let (st, lbl) = if duracao_meses <= config_prod {
+                ("critico", "Produzir Urgente")
+            } else if duracao_meses <= config_ordem {
+                ("ordem", "Abrir Ordem")
+            } else if duracao_meses <= config_ideal {
+                ("saudavel", "Estoque OK")
+            } else {
+                ("abundante", "Abundante")
+            };
+            let rec = if st == "critico" || st == "ordem" {
+                let needed = (estoque_ideal_qtd - estoque_futuro_com_producao as f64).round() as i64;
+                if needed > 0 { needed } else { 0 }
+            } else {
+                0
+            };
+            (st.to_string(), lbl.to_string(), rec)
         };
 
         results.push(ProductCalculationResult {
@@ -205,6 +222,8 @@ pub fn calculate_products(
             visivel: ovr.and_then(|o| o.visivel),
             observacao: ovr.and_then(|o| o.observacao.clone()),
             linha_prefix_manual: ovr.and_then(|o| o.linha_prefix_manual.clone()),
+            status_produto: Some(resolved_status_produto),
+            categoria_produto: resolved_categoria_produto,
             media_vendas: base_media,
             desvio_padrao,
             demanda_ajustada,
@@ -217,8 +236,8 @@ pub fn calculate_products(
             abrir_prod_qtd,
             duracao_meses,
             duracao_dias,
-            status: status.to_string(),
-            status_label: status_label.to_string(),
+            status,
+            status_label,
             producao_recomendada,
             has_formulation: true,
             missing_ingredients: Vec::new(),
@@ -278,4 +297,38 @@ mod tests {
         // 1.0 < 1.32 <= 1.5 -> status should be "ordem"
         assert_eq!(res.status, "ordem");
     }
+
+    #[test]
+    fn debug_db_query() {
+        let conn = rusqlite::Connection::open(r"c:\Users\thiag\antigravity\api\Backend\data.db").unwrap();
+        println!("--- DEBUG SQLITE DATABASE ---");
+        
+        let mut stmt = conn.prepare("SELECT code, description FROM items WHERE description LIKE '%citri%' OR description LIKE '%cítri%'").unwrap();
+        let items: Vec<(String, String)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap()
+            .map(|r| r.unwrap()).collect();
+        println!("Items matching 'citri': {:?}", items);
+
+        let mut stmt = conn.prepare("SELECT codigo, descricao FROM produtos WHERE descricao LIKE '%citri%' OR descricao LIKE '%cítri%'").unwrap();
+        let prods: Vec<(String, String)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap()
+            .map(|r| r.unwrap()).collect();
+        println!("Products matching 'citri': {:?}", prods);
+
+        for (code, desc) in &items {
+            let cons: Vec<(i64, f64, f64)> = conn.prepare(&format!("SELECT year, total_qty, monthly_avg FROM consumption WHERE item_code = '{}'", code)).unwrap()
+                .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?, r.get::<_, f64>(2)?))).unwrap()
+                .map(|r| r.unwrap()).collect();
+            println!("Consumption YoY for '{}' ({}): {:?}", code, desc, cons);
+
+            let monthly_cons: Vec<(String, f64)> = conn.prepare(&format!("SELECT strftime('%Y-%m', date) as ym, SUM(quantity) FROM stock_movements WHERE item_code = '{}' AND movement_type = 'saida' AND item_type = 'insumo' AND date <= datetime('now', 'localtime') GROUP BY ym ORDER BY ym ASC", code)).unwrap()
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap()
+                .map(|r| r.unwrap()).collect();
+            println!("Monthly consumption for '{}': {:?}", code, monthly_cons);
+
+            let invs: Vec<(String, f64, String)> = conn.prepare(&format!("SELECT invoice_date, quantity, invoice_number FROM invoices WHERE item_code = '{}' LIMIT 5", code)).unwrap()
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap()
+                .map(|r| r.unwrap()).collect();
+            println!("Invoices for '{}': {:?}", code, invs);
+        }
+    }
 }
+

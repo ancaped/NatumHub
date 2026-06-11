@@ -180,6 +180,7 @@ export interface Product {
   name: string;
   packaging: string;
   validity: string;
+  isEa?: boolean;
 }
 
 export interface Report {
@@ -288,16 +289,29 @@ export interface FiscoQuimicaAnalysis {
   envaseTargetWeight: number;
   envaseTargetUnit: 'g' | 'kg';
   hasAdjustment: boolean;
-  correctiveAgentId?: string | null;
-  initialViscosity?: number | null;
-  trialAgentQty?: number | null;
-  trialViscosity?: number | null;
-  agentQtyPerLiter?: number | null;
-  batchSize?: number | null;
+  correctiveAgentId: string | null;
+  initialViscosity: number | null;
+  trialAgentQty: number | null;
+  trialViscosity: number | null;
+  agentQtyPerLiter: number | null;
+  batchSize: number | null;
   totalAgentRequired?: number | null;
-  notes?: string | null;
+  notes: string | null;
   createdAt?: string;
 }
+
+export interface ProductionLote {
+  id: string;
+  loteNumber: string;
+  productCode: string;
+  productDescription: string;
+  quantity: number;
+  date: string;
+  status: string;
+  fabricatedBy: string;
+  authorizedBy: string;
+}
+
 
 // === ESTOQUE / DUMP TYPES ===
 export interface StockMovement {

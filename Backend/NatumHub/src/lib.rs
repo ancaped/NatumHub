@@ -656,12 +656,12 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
 
         -- Formulações de Produtos Acabados
         CREATE TABLE IF NOT EXISTS formulations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             product_code TEXT NOT NULL,
             ingredient_code TEXT NOT NULL,
             description TEXT,
             quantity REAL NOT NULL,
             percentage REAL,
-            PRIMARY KEY (product_code, ingredient_code),
             FOREIGN KEY (product_code) REFERENCES produtos(codigo) ON DELETE CASCADE,
             FOREIGN KEY (ingredient_code) REFERENCES items(code) ON DELETE CASCADE
         );
@@ -2543,6 +2543,7 @@ fn start_axum_server() {
             .route("/api/produtos/semelhantes/:code", get(handlers::get_similar_products))
             .route("/api/produtos/:code/detalhes", get(handlers::get_product_detalhes))
             .route("/api/producao/lotes", get(handlers::get_production_lotes))
+            .route("/api/producao/lotes/:number/detalhes", get(handlers::get_lote_detalhes))
             .route("/api/producao/recalcular/preview", get(handlers::preview_recalculation))
             .route("/api/producao/recalcular/ajustar", post(handlers::apply_recalculation_adjustment))
             .route("/api/estoque/item-info/:code", get(handlers::get_item_extra_info))
@@ -2680,6 +2681,21 @@ mod tests {
                 println!("Dump failed with error: {:?}", e);
                 panic!("Dump execution failed");
             }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_inspect_lote_11931() {
+        let conn = Connection::open("../data.db").unwrap();
+        println!("--- FORMULATION FOR PRODUCT 70.12.010 ---");
+        let mut stmt = conn.prepare("SELECT ingredient_code, description, quantity, percentage FROM formulations WHERE product_code = '70.12.010'").unwrap();
+        let mut rows = stmt.query([]).unwrap();
+        while let Some(row) = rows.next().unwrap() {
+            let ing_code: String = row.get(0).unwrap();
+            let desc: Option<String> = row.get(1).unwrap();
+            let qty: f64 = row.get(2).unwrap();
+            let percentage: Option<f64> = row.get(3).unwrap();
+            println!("Ing: {}, Desc: {:?}, Qty: {}, Pct: {:?}", ing_code, desc, qty, percentage);
         }
     }
 }

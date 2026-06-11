@@ -117,12 +117,12 @@ CREATE TABLE IF NOT EXISTS historico_importacoes (
 
 -- Formulações de Produtos Acabados
 CREATE TABLE IF NOT EXISTS formulations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     product_code TEXT NOT NULL,
     ingredient_code TEXT NOT NULL,
     description TEXT,
     quantity REAL NOT NULL,
     percentage REAL,
-    PRIMARY KEY (product_code, ingredient_code),
     FOREIGN KEY (product_code) REFERENCES produtos(codigo) ON DELETE CASCADE,
     FOREIGN KEY (ingredient_code) REFERENCES items(code) ON DELETE CASCADE
 );
@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS stock_movements (
 );
 CREATE INDEX IF NOT EXISTS idx_movements_item ON stock_movements(item_code);
 CREATE INDEX IF NOT EXISTS idx_movements_date ON stock_movements(date);
+CREATE INDEX IF NOT EXISTS idx_movements_doc ON stock_movements(document_number);
 
 -- Pedidos de Compra (Header e Itens)
 CREATE TABLE IF NOT EXISTS purchase_orders (

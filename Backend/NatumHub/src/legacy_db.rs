@@ -623,7 +623,7 @@ WHERE v2.dVenda >= '2024-01-01 00:00:00'
     // K. Query PedidoCpa1 (Purchase Orders Header)
     let query_pedido_cpa1 = "
 SELECT 
-    nRegistro as nPedido,
+    nPedido,
     CONVERT(varchar, dPedido, 120) COLLATE Latin1_General_CI_AS as dPedido,
     nCodFornec,
     cNomeF COLLATE Latin1_General_CI_AS as cNomeF,
@@ -664,7 +664,7 @@ WHERE dPedido >= DATEADD(month, -12, GETDATE()) OR (cStatus <> 'T' AND cStatus I
     // L. Query PedidoCpa2 (Purchase Orders Items)
     let query_pedido_cpa2 = "
 SELECT 
-    p1.nRegistro as nPedido,
+    c2.nPedido,
     c2.cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
     CAST(c2.nQtde AS FLOAT) as nQtde,
     CAST(c2.nPreco AS FLOAT) as nPreco,
@@ -924,11 +924,7 @@ WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1
     for f in formulations_list {
         tx.execute(
             "INSERT INTO formulations (product_code, ingredient_code, description, quantity, percentage)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(product_code, ingredient_code) DO UPDATE SET
-                description = excluded.description,
-                quantity = excluded.quantity,
-                percentage = excluded.percentage",
+             VALUES (?1, ?2, ?3, ?4, ?5)",
             params![f.product_code, f.ingredient_code, f.description, f.quantity, f.percentage],
         )?;
         count_formulations += 1;

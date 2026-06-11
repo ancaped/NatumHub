@@ -6,7 +6,7 @@ import {
 import { 
   ArrowLeft, FlaskConical, Plus, Search, Calendar, User, Info, 
   Trash2, Edit3, CheckCircle, AlertTriangle, Eye, ShieldAlert, 
-  HelpCircle, Settings, Calculator, Activity, Trash, X
+  HelpCircle, Settings, Calculator, Activity, Trash, X, Loader2
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -35,8 +35,10 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
   // New Analysis Form States
   const [formProductCode, setFormProductCode] = useState('');
   const [formBatch, setFormBatch] = useState('');
+  const [formBatchLoading, setFormBatchLoading] = useState(false);
   const [formDate, setFormDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [formTechnician, setFormTechnician] = useState('');
+
   const [formPh, setFormPh] = useState<string>('');
   const [formFractionWeight, setFormFractionWeight] = useState<string>('');
   const [formViscosity, setFormViscosity] = useState<string>('');
@@ -62,7 +64,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
   const [patDensityTarget, setPatDensityTarget] = useState<string>('1.000');
   const [patDensityTolerance, setPatDensityTolerance] = useState<string>('0.020');
   const [patVol, setPatVol] = useState<string>('1000');
-  const [patUnit, setPatUnit] = useState<'mL' | 'L'>('mL');
+  const [patUnit, setPatUnit] = useState<'mL' | 'L' | 'g' | 'kg'>('mL');
   const [patAllowedAgents, setPatAllowedAgents] = useState<string[]>([]);
 
   // Agent Form States (linking raw materials)
@@ -116,7 +118,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
 
   const handleProductCodeChange = (val: string) => {
     const normalizedInput = normalizeCode(val);
-    if (normalizedInput.length >= 4) {
+    if (normalizedInput.length >= 2) {
       const foundProduct = products.find((p) => normalizeCode(p.code) === normalizedInput);
       if (foundProduct) {
         setFormProductCode(foundProduct.code);
@@ -126,7 +128,37 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
     setFormProductCode(val);
   };
 
+  const handleBatchChange = async (val: string) => {
+    setFormBatch(val);
+    if (val.length >= 3) {
+      setFormBatchLoading(true);
+      try {
+        const lote = await api.getLoteByNumber(val);
+        if (lote) {
+          // Find matching product code with normalization fallback
+          const normalizedLoteCode = normalizeCode(lote.productCode);
+          const matchedProduct = products.find(p => normalizeCode(p.code) === normalizedLoteCode);
+          
+          if (matchedProduct) {
+            setFormProductCode(matchedProduct.code);
+          } else {
+            setFormProductCode(lote.productCode);
+          }
+
+          if (lote.quantity > 0) {
+            setAdjBatchSize(lote.quantity.toString());
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching lote:", err);
+      } finally {
+        setFormBatchLoading(false);
+      }
+    }
+  };
+
   const handlePhBlur = () => {
+
     if (!formPh) return;
     let valStr = formPh.toString().replace(',', '.').trim();
     if (/^\d+$/.test(valStr)) {
@@ -824,15 +856,23 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
 
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider block">Lote de Produção *</label>
-                    <input 
-                      type="text" 
-                      required
-                      placeholder="Ex: L2026-A"
-                      value={formBatch}
-                      onChange={e => setFormBatch(e.target.value)}
-                      className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-850 bg-white"
-                    />
+                    <div className="relative">
+                      <input 
+                        type="text" 
+                        required
+                        placeholder="Ex: L2026-A"
+                        value={formBatch}
+                        onChange={e => handleBatchChange(e.target.value)}
+                        className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-850 bg-white"
+                      />
+                      {formBatchLoading && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
+                        </div>
+                      )}
+                    </div>
                   </div>
+
 
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider block">Data da Medição *</label>

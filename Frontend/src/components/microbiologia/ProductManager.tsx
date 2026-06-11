@@ -12,7 +12,7 @@ export function ProductManager({ products, onRefresh }: ProductManagerProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState('');
-  const [newP, setNewP] = useState<Product>({ code: '', name: '', packaging: 'Pote', validity: '3 anos' });
+  const [newP, setNewP] = useState<Product>({ code: '', name: '', packaging: 'Pote', validity: '3 anos', isEa: false });
   const [showConfirmDeleteAll, setShowConfirmDeleteAll] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -21,13 +21,14 @@ export function ProductManager({ products, onRefresh }: ProductManagerProps) {
       const lines = importText.split('\n').filter((l) => l.trim());
       const productsToSave: Product[] = [];
       lines.forEach((line) => {
-        const [code, name, packaging, validity] = line.split('\t').map((s) => s.trim());
+        const [code, name, packaging, validity, isEaStr] = line.split('\t').map((s) => s.trim());
         if (code && name) {
           productsToSave.push({
             code,
             name,
             packaging: packaging || 'Pote',
             validity: validity || '3 anos',
+            isEa: isEaStr ? isEaStr.toLowerCase() === 'ea' || isEaStr.toLowerCase() === 'true' || isEaStr === '1' : false
           });
         }
       });
@@ -47,7 +48,7 @@ export function ProductManager({ products, onRefresh }: ProductManagerProps) {
     if (!newP.code || !newP.name) return;
     try {
       await api.saveProduct(newP);
-      setNewP({ code: '', name: '', packaging: 'Pote', validity: '3 anos' });
+      setNewP({ code: '', name: '', packaging: 'Pote', validity: '3 anos', isEa: false });
       setShowAdd(false);
       if (onRefresh) onRefresh();
     } catch (e) {
@@ -173,7 +174,10 @@ export function ProductManager({ products, onRefresh }: ProductManagerProps) {
     ];
     try {
       for (const p of data) {
-        await api.saveProduct(p);
+        await api.saveProduct({
+          ...p,
+          isEa: p.code.startsWith('5.') || p.code.startsWith('20.')
+        });
       }
       if (onRefresh) onRefresh();
     } catch (e) {
@@ -303,6 +307,18 @@ export function ProductManager({ products, onRefresh }: ProductManagerProps) {
                 className="bg-white border border-zinc-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-800 focus:border-zinc-800 outline-none text-zinc-900"
               />
             </div>
+            <div className="col-span-12 flex items-center gap-2 pt-2">
+              <input
+                type="checkbox"
+                id="new-product-is-ea"
+                checked={newP.isEa || false}
+                onChange={(e) => setNewP({ ...newP, isEa: e.target.checked })}
+                className="rounded border-zinc-300 text-zinc-950 focus:ring-zinc-950 w-4 h-4 cursor-pointer"
+              />
+              <label htmlFor="new-product-is-ea" className="text-xs font-bold uppercase text-zinc-650 select-none cursor-pointer">
+                Classificar como EA (Estética Animal - Requer Teste Microbiológico)
+              </label>
+            </div>
           </div>
           <div className="flex gap-2 pt-2">
             <button
@@ -329,6 +345,7 @@ export function ProductManager({ products, onRefresh }: ProductManagerProps) {
               <th className="px-4 py-3 text-left">Descrição</th>
               <th className="px-4 py-3 text-center">Embalagem</th>
               <th className="px-4 py-3 text-center">Validade</th>
+              <th className="px-4 py-3 text-center w-28">Tipo (EA)</th>
               <th className="px-4 py-3 w-16"></th>
             </tr>
           </thead>
@@ -339,6 +356,17 @@ export function ProductManager({ products, onRefresh }: ProductManagerProps) {
                 <td className="px-4 py-2 text-zinc-900 font-medium truncate max-w-xs">{p.name}</td>
                 <td className="px-4 py-2 text-zinc-500 text-xs text-center">{p.packaging}</td>
                 <td className="px-4 py-2 text-zinc-500 text-xs text-center">{p.validity}</td>
+                <td className="px-4 py-2 text-center">
+                  {p.isEa ? (
+                    <span className="bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                      EA
+                    </span>
+                  ) : (
+                    <span className="bg-zinc-100 text-zinc-400 border border-zinc-200 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                      Não EA
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-2 text-right opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={() => handleDeleteProduct(p.code)}

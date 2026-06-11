@@ -648,6 +648,24 @@ tr:hover td {
   border-color: hsl(var(--info-border-hsl));
 }
 
+.status-badge.descontinuado {
+  background-color: hsl(var(--background-hsl));
+  color: hsl(var(--text-secondary-hsl));
+  border-color: hsl(var(--card-border-hsl));
+}
+
+.status-badge.apoio {
+  background-color: #f3e8ff;
+  color: #6b21a8;
+  border-color: #e9d5ff;
+}
+
+.status-badge.coloracao {
+  background-color: #ffe4e6;
+  color: #9f1239;
+  border-color: #fecdd3;
+}
+
 /* Duration Bar Graph */
 .duration-container {
   display: flex;
@@ -681,6 +699,9 @@ tr:hover td {
 .duration-bar-fill.ordem { background-color: hsl(var(--warning-hsl)); }
 .duration-bar-fill.saudavel { background-color: hsl(var(--success-hsl)); }
 .duration-bar-fill.abundante { background-color: hsl(var(--info-hsl)); }
+.duration-bar-fill.descontinuado { background-color: hsl(var(--text-secondary-hsl)); }
+.duration-bar-fill.apoio { background-color: #8b5cf6; }
+.duration-bar-fill.coloracao { background-color: #ec4899; }
 
 /* Numeric and actions */
 .numeric-col {

@@ -28,6 +28,9 @@ impl Db {
     pub fn init(&self) -> Result<()> {
         let conn = self.connect()?;
         
+        // Ensure index exists on stock_movements(document_number) for performance
+        let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_movements_doc ON stock_movements(document_number)", []);
+        
         // Run config_linhas migration BEFORE execute_batch to ensure schema.sql inserts succeed
         let _ = conn.execute("ALTER TABLE config_linhas ADD COLUMN visivel INTEGER NOT NULL DEFAULT 1", []);
 
@@ -40,6 +43,17 @@ impl Db {
             let _ = conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('migration_sync_fixes_v2', 'done')", []);
         }
 
+        // Migration: formulations table schema update to support multiple entries of the same ingredient (e.g. water split in phases)
+        let has_id_col = conn.query_row(
+            "SELECT 1 FROM pragma_table_info('formulations') WHERE name = 'id'",
+            [],
+            |_| Ok(true)
+        ).unwrap_or(false);
+
+        if !has_id_col {
+            let _ = conn.execute("DROP TABLE IF EXISTS formulations", []);
+        }
+
         let schema = include_str!("../schema.sql");
         conn.execute_batch(schema)?;
 
@@ -48,6 +62,8 @@ impl Db {
         let _ = conn.execute("ALTER TABLE overrides_produtos ADD COLUMN visivel INTEGER DEFAULT 1", []);
         let _ = conn.execute("ALTER TABLE overrides_produtos ADD COLUMN observacao TEXT", []);
         let _ = conn.execute("ALTER TABLE overrides_produtos ADD COLUMN linha_prefix_manual TEXT", []);
+        let _ = conn.execute("ALTER TABLE overrides_produtos ADD COLUMN status_produto TEXT DEFAULT 'ativo'", []);
+        let _ = conn.execute("ALTER TABLE overrides_produtos ADD COLUMN categoria_produto TEXT", []);
 
         // Migrations: snapshot columns in historico_producao
         let snap_cols = [
@@ -154,7 +170,7 @@ impl Db {
     pub fn get_override(&self, codigo: &str) -> Result<Option<ProductOverride>> {
         let conn = self.connect()?;
         let mut stmt = conn.prepare(
-            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual 
+            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto 
              FROM overrides_produtos WHERE codigo = ?1"
         )?;
         let mut rows = stmt.query_map(params![codigo], |row| {
@@ -167,6 +183,8 @@ impl Db {
                 visivel: row.get(5)?,
                 observacao: row.get(6)?,
                 linha_prefix_manual: row.get(7)?,
+                status_produto: row.get(8)?,
+                categoria_produto: row.get(9)?,
             })
         })?;
 
@@ -180,7 +198,7 @@ impl Db {
     pub fn get_all_overrides(&self) -> Result<Vec<ProductOverride>> {
         let conn = self.connect()?;
         let mut stmt = conn.prepare(
-            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual 
+            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto 
              FROM overrides_produtos"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -193,6 +211,8 @@ impl Db {
                 visivel: row.get(5)?,
                 observacao: row.get(6)?,
                 linha_prefix_manual: row.get(7)?,
+                status_produto: row.get(8)?,
+                categoria_produto: row.get(9)?,
             })
         })?;
 
@@ -213,12 +233,14 @@ impl Db {
             && ovr.visivel.is_none()
             && ovr.observacao.is_none()
             && ovr.linha_prefix_manual.is_none()
+            && (ovr.status_produto.is_none() || ovr.status_produto.as_deref() == Some("ativo"))
+            && ovr.categoria_produto.is_none()
         {
             conn.execute("DELETE FROM overrides_produtos WHERE codigo = ?1", params![ovr.codigo])?;
         } else {
             conn.execute(
-                "INSERT INTO overrides_produtos (codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                "INSERT INTO overrides_produtos (codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
                  ON CONFLICT(codigo) DO UPDATE SET
                     estoque_ideal_manual = excluded.estoque_ideal_manual,
                     pedidos_manual = excluded.pedidos_manual,
@@ -226,7 +248,9 @@ impl Db {
                     is_lancamento_manual = excluded.is_lancamento_manual,
                     visivel = excluded.visivel,
                     observacao = excluded.observacao,
-                    linha_prefix_manual = excluded.linha_prefix_manual",
+                    linha_prefix_manual = excluded.linha_prefix_manual,
+                    status_produto = excluded.status_produto,
+                    categoria_produto = excluded.categoria_produto",
                 params![
                     ovr.codigo, 
                     ovr.estoque_ideal_manual, 
@@ -235,7 +259,9 @@ impl Db {
                     ovr.is_lancamento_manual,
                     ovr.visivel,
                     ovr.observacao,
-                    ovr.linha_prefix_manual
+                    ovr.linha_prefix_manual,
+                    ovr.status_produto,
+                    ovr.categoria_produto
                 ],
             )?;
         }
@@ -299,6 +325,20 @@ impl Db {
                         params![codigo, line],
                     )?;
                 }
+                "set_status" => {
+                    let status = req.value_str.as_ref().filter(|s| !s.trim().is_empty());
+                    tx.execute(
+                        "UPDATE overrides_produtos SET status_produto = ?2 WHERE codigo = ?1",
+                        params![codigo, status],
+                    )?;
+                }
+                "set_category" => {
+                    let cat = req.value_str.as_ref().filter(|s| !s.trim().is_empty() && s.as_str() != "AUTO");
+                    tx.execute(
+                        "UPDATE overrides_produtos SET categoria_produto = ?2 WHERE codigo = ?1",
+                        params![codigo, cat],
+                    )?;
+                }
                 _ => {}
             }
 
@@ -312,7 +352,9 @@ impl Db {
                    AND is_lancamento_manual IS NULL 
                    AND (visivel IS NULL OR visivel = 1) 
                    AND observacao IS NULL 
-                   AND linha_prefix_manual IS NULL",
+                   AND linha_prefix_manual IS NULL
+                   AND (status_produto IS NULL OR status_produto = 'ativo')
+                   AND categoria_produto IS NULL",
                 params![codigo],
             )?;
         }
@@ -481,9 +523,9 @@ impl Db {
                     h.snap_status_label, h.snap_producao_recomendada, h.snap_estoque_ideal_qtd,
                     h.snap_demanda_ajustada, h.consume_base, h.base_code
              FROM historico_producao h
-             JOIN produtos p ON h.codigo = p.codigo
-             LEFT JOIN overrides_produtos o ON p.codigo = o.codigo
-             JOIN config_linhas cl ON COALESCE(o.linha_prefix_manual, p.linha_prefix) = cl.linha_prefix
+             LEFT JOIN produtos p ON h.codigo = p.codigo
+             LEFT JOIN overrides_produtos o ON h.codigo = o.codigo
+             LEFT JOIN config_linhas cl ON COALESCE(o.linha_prefix_manual, p.linha_prefix) = cl.linha_prefix
              WHERE 1=1"
         );
         

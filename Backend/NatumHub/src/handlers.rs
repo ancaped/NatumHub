@@ -352,7 +352,12 @@ pub async fn list_products(
         if let Ok(iter) = rows {
             for r in iter {
                 if let Ok((p_code, ing_code, desc, qty)) = r {
-                    formulations_map.entry(p_code).or_default().push((ing_code, desc, qty));
+                    let ingredients = formulations_map.entry(p_code).or_default();
+                    if let Some(existing) = ingredients.iter_mut().find(|(code, _, _)| code == &ing_code) {
+                        existing.2 += qty;
+                    } else {
+                        ingredients.push((ing_code, desc, qty));
+                    }
                 }
             }
         }
@@ -1606,6 +1611,8 @@ pub async fn get_item_extra_info(
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     };
 
+    let code_clean = code.replace(".", "");
+
     let mut invoices = Vec::new();
     let mut pending_orders = Vec::new();
     let mut formulation = Vec::new();
@@ -1613,9 +1620,9 @@ pub async fn get_item_extra_info(
 
     // 1. Fetch recent purchase invoices (from invoices table)
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date FROM invoices WHERE item_code = ?1 ORDER BY invoice_date DESC LIMIT 10"
+        "SELECT id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date FROM invoices WHERE item_code = ?1 OR item_code = ?2 ORDER BY invoice_date DESC LIMIT 10"
     ) {
-        let rows = stmt.query_map(params![code], |row| {
+        let rows = stmt.query_map(params![code, code_clean], |row| {
             Ok(crate::Invoice {
                 id: row.get(0)?,
                 invoice_number: row.get(1)?,
@@ -1642,10 +1649,10 @@ pub async fn get_item_extra_info(
         "SELECT po.n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, poi.n_preco 
          FROM purchase_order_items poi
          INNER JOIN purchase_orders po ON poi.n_pedido = po.n_pedido
-         WHERE poi.c_referencia = ?1 AND poi.n_chegou < poi.n_qtde
+         WHERE (poi.c_referencia = ?1 OR poi.c_referencia = ?2) AND poi.n_chegou < poi.n_qtde
          ORDER BY po.d_pedido DESC"
     ) {
-        let rows = stmt.query_map(params![code], |row| {
+        let rows = stmt.query_map(params![code, code_clean], |row| {
             Ok(PendingPurchaseOrderInfo {
                 n_pedido: row.get(0)?,
                 d_pedido: row.get(1)?,
@@ -1664,9 +1671,9 @@ pub async fn get_item_extra_info(
 
     // 3. Fetch formulation composition (if it's a finished product)
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT product_code, ingredient_code, description, quantity, percentage FROM formulations WHERE product_code = ?1 ORDER BY quantity DESC"
+        "SELECT product_code, ingredient_code, description, quantity, percentage FROM formulations WHERE product_code = ?1 OR product_code = ?2 ORDER BY quantity DESC"
     ) {
-        let rows = stmt.query_map(params![code], |row| {
+        let rows = stmt.query_map(params![code, code_clean], |row| {
             Ok(crate::models::FormulationLine {
                 product_code: row.get(0)?,
                 ingredient_code: row.get(1)?,
@@ -1682,14 +1689,40 @@ pub async fn get_item_extra_info(
         }
     }
 
+    // 3.5. If no formulation found (maybe it's an insumo), check in which products it is used
+    if formulation.is_empty() {
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT f.product_code, f.ingredient_code, p.name, f.quantity, f.percentage 
+             FROM formulations f 
+             LEFT JOIN products p ON f.product_code = p.code 
+             WHERE f.ingredient_code = ?1 OR f.ingredient_code = ?2
+             ORDER BY p.name ASC"
+        ) {
+            let rows = stmt.query_map(params![code, code_clean], |row| {
+                Ok(crate::models::FormulationLine {
+                    product_code: row.get(0)?,
+                    ingredient_code: row.get(1)?,
+                    description: row.get(2)?,
+                    quantity: row.get(3)?,
+                    percentage: row.get(4)?,
+                })
+            });
+            if let Ok(iter) = rows {
+                for r in iter {
+                    if let Ok(line) = r { formulation.push(line); }
+                }
+            }
+        }
+    }
+
     // 4. Fetch production batches / lotes (from stock_movements with type 'entrada' and item_type 'produto')
     if let Ok(mut stmt) = conn.prepare(
         "SELECT id, quantity, date, document_number, details 
          FROM stock_movements 
-         WHERE item_code = ?1 AND item_type = 'produto' AND movement_type = 'entrada'
+         WHERE (item_code = ?1 OR item_code = ?2) AND item_type = 'produto' AND movement_type = 'entrada'
          ORDER BY date DESC LIMIT 15"
     ) {
-        let rows = stmt.query_map(params![code], |row| {
+        let rows = stmt.query_map(params![code, code_clean], |row| {
             Ok(ProductLoteInfo {
                 id: row.get(0)?,
                 quantity: row.get(1)?,
@@ -1762,10 +1795,11 @@ pub async fn get_insumo_detalhes(
 
     // 3. Fetch consumption YoY
     let mut consumption_yoy = Vec::new();
+    let code_clean = code.replace(".", "");
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT year, total_qty, monthly_avg FROM consumption WHERE item_code = ?1 ORDER BY year DESC"
+        "SELECT year, SUM(total_qty), SUM(total_qty) / 12.0 FROM consumption WHERE item_code = ?1 OR item_code = ?2 GROUP BY year ORDER BY year DESC"
     ) {
-        let rows = stmt.query_map(params![code], |row| {
+        let rows = stmt.query_map(params![code, code_clean], |row| {
             Ok(crate::models::ConsumptionYoYItem {
                 year: row.get(0)?,
                 total_qty: row.get(1)?,
@@ -1786,11 +1820,11 @@ pub async fn get_insumo_detalhes(
     if let Ok(mut stmt) = conn.prepare(
         "SELECT strftime('%Y-%m', invoice_date) as year_month, SUM(quantity) 
          FROM invoices 
-         WHERE item_code = ?1 AND invoice_date <= datetime('now', 'localtime')
+         WHERE (item_code = ?1 OR item_code = ?2) AND invoice_date <= datetime('now', 'localtime')
          GROUP BY year_month 
          ORDER BY year_month ASC"
     ) {
-        let rows = stmt.query_map(params![code], |row| {
+        let rows = stmt.query_map(params![code, code_clean], |row| {
             Ok(crate::models::MonthlyPurchaseItem {
                 month: row.get::<_, String>(0)?,
                 qty: row.get::<_, f64>(1)?,
@@ -1810,11 +1844,11 @@ pub async fn get_insumo_detalhes(
     if let Ok(mut stmt) = conn.prepare(
         "SELECT strftime('%Y-%m', date) as year_month, SUM(quantity) 
          FROM stock_movements 
-         WHERE item_code = ?1 AND movement_type = 'saida' AND item_type = 'insumo' AND date <= datetime('now', 'localtime')
+         WHERE (item_code = ?1 OR item_code = ?2) AND movement_type = 'saida' AND item_type = 'insumo' AND date <= datetime('now', 'localtime')
          GROUP BY year_month 
          ORDER BY year_month ASC"
     ) {
-        let rows = stmt.query_map(params![code], |row| {
+        let rows = stmt.query_map(params![code, code_clean], |row| {
             Ok(crate::models::MonthlyConsumptionItem {
                 month: row.get::<_, String>(0)?,
                 qty: row.get::<_, f64>(1)?,
@@ -1834,10 +1868,10 @@ pub async fn get_insumo_detalhes(
     if let Ok(mut stmt) = conn.prepare(
         "SELECT invoice_number, quantity, unit_price, total_value, supplier_name, invoice_date 
          FROM invoices 
-         WHERE item_code = ?1 AND invoice_date <= datetime('now', 'localtime')
+         WHERE (item_code = ?1 OR item_code = ?2) AND invoice_date <= datetime('now', 'localtime')
          ORDER BY invoice_date DESC LIMIT 15"
     ) {
-        let rows = stmt.query_map(params![code], |row| {
+        let rows = stmt.query_map(params![code, code_clean], |row| {
             Ok(crate::models::InsumoInvoiceItem {
                 invoice_number: row.get(0)?,
                 quantity: row.get(1)?,
@@ -1859,9 +1893,9 @@ pub async fn get_insumo_detalhes(
     // 6. Last time used (from stock_movements with type 'saida' and item_type 'insumo')
     let last_used: Option<(String, String)> = conn.query_row(
         "SELECT date, document_number FROM stock_movements 
-         WHERE item_code = ?1 AND item_type = 'insumo' AND movement_type = 'saida' AND date <= datetime('now', 'localtime')
+         WHERE (item_code = ?1 OR item_code = ?2) AND item_type = 'insumo' AND movement_type = 'saida' AND date <= datetime('now', 'localtime')
          ORDER BY date DESC LIMIT 1",
-        params![code],
+        params![code, code_clean],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?.unwrap_or_default()))
     ).ok();
 
@@ -1873,9 +1907,9 @@ pub async fn get_insumo_detalhes(
     // 7. Last received (from invoices)
     let last_received: Option<(String, String)> = conn.query_row(
         "SELECT invoice_date, invoice_number FROM invoices 
-         WHERE item_code = ?1 AND invoice_date <= datetime('now', 'localtime')
+         WHERE (item_code = ?1 OR item_code = ?2) AND invoice_date <= datetime('now', 'localtime')
          ORDER BY invoice_date DESC LIMIT 1",
-        params![code],
+        params![code, code_clean],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     ).ok();
 
@@ -1903,7 +1937,11 @@ pub async fn get_insumo_detalhes(
         if let Ok(iter) = rows {
             for r in iter {
                 if let Ok(item) = r {
-                    products_used_in.push(item);
+                    if let Some(existing) = products_used_in.iter_mut().find(|x: &&mut crate::models::InsumoUsedInProductItem| x.product_code == item.product_code) {
+                        existing.quantity += item.quantity;
+                    } else {
+                        products_used_in.push(item);
+                    }
                 }
             }
         }
@@ -1941,17 +1979,17 @@ pub async fn get_similar_products(
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     };
     
-    // Fetch target ingredients with their percentages
+    // Fetch target ingredients with their quantities
     let mut target_map = HashMap::new();
-    let mut stmt = match conn.prepare("SELECT ingredient_code, IFNULL(percentage, 0.0) FROM formulations WHERE product_code = ?1") {
+    let mut stmt = match conn.prepare("SELECT ingredient_code, quantity FROM formulations WHERE product_code = ?1") {
         Ok(s) => s,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     };
     let rows = stmt.query_map(params![code], |row| Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?)));
     if let Ok(iter) = rows {
         for r in iter {
-            if let Ok((ing, pct)) = r {
-                target_map.insert(ing, pct);
+            if let Ok((ing, qty)) = r {
+                *target_map.entry(ing).or_insert(0.0) += qty;
             }
         }
     }
@@ -1962,40 +2000,50 @@ pub async fn get_similar_products(
     
     // Fetch all other formulations
     let mut product_ingredients: HashMap<String, HashMap<String, f64>> = HashMap::new();
-    let mut stmt_all = match conn.prepare("SELECT product_code, ingredient_code, IFNULL(percentage, 0.0) FROM formulations WHERE product_code != ?1") {
+    let mut stmt_all = match conn.prepare("SELECT product_code, ingredient_code, quantity FROM formulations WHERE product_code != ?1") {
         Ok(s) => s,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     };
     let rows_all = stmt_all.query_map(params![code], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, f64>(2)?)));
     if let Ok(iter) = rows_all {
         for r in iter {
-            if let Ok((p_code, ing_code, pct)) = r {
-                product_ingredients.entry(p_code).or_default().insert(ing_code, pct);
+            if let Ok((p_code, ing_code, qty)) = r {
+                *product_ingredients.entry(p_code).or_default().entry(ing_code).or_insert(0.0) += qty;
             }
         }
     }
     
+    let total_target_qty: f64 = target_map.values().sum();
     let mut match_map = HashMap::new();
-    for (other_code, ingredients) in &product_ingredients {
-        // Must have the exact same number of ingredients
-        if ingredients.len() != target_map.len() {
-            continue;
-        }
-        // Check if all target ingredients exist in other and have matching percentages
-        let mut is_identical = true;
-        for (ing_code, target_pct) in &target_map {
-            if let Some(other_pct) = ingredients.get(ing_code) {
-                if (other_pct - target_pct).abs() > 1e-4 {
+    
+    if total_target_qty > 0.0 {
+        for (other_code, ingredients) in &product_ingredients {
+            // Must have the exact same number of ingredients
+            if ingredients.len() != target_map.len() {
+                continue;
+            }
+            let total_other_qty: f64 = ingredients.values().sum();
+            if total_other_qty <= 0.0 {
+                continue;
+            }
+            // Check if all target ingredients exist in other and have matching relative proportions
+            let mut is_identical = true;
+            for (ing_code, target_qty) in &target_map {
+                if let Some(other_qty) = ingredients.get(ing_code) {
+                    let target_prop = target_qty / total_target_qty;
+                    let other_prop = other_qty / total_other_qty;
+                    if (other_prop - target_prop).abs() > 1e-4 {
+                        is_identical = false;
+                        break;
+                    }
+                } else {
                     is_identical = false;
                     break;
                 }
-            } else {
-                is_identical = false;
-                break;
             }
-        }
-        if is_identical {
-            match_map.insert(other_code.clone(), 1.0); // 1.0 similarity means 100% identical formula
+            if is_identical {
+                match_map.insert(other_code.clone(), 1.0); // 1.0 similarity means 100% identical formula proportions
+            }
         }
     }
     
@@ -2021,7 +2069,12 @@ pub async fn get_similar_products(
         if let Ok(iter) = rows {
             for r in iter {
                 if let Ok((p_code, ing_code, desc, qty)) = r {
-                    formulations_map.entry(p_code).or_default().push((ing_code, desc, qty));
+                    let ingredients = formulations_map.entry(p_code).or_default();
+                    if let Some(existing) = ingredients.iter_mut().find(|(code, _, _)| code == &ing_code) {
+                        existing.2 += qty;
+                    } else {
+                        ingredients.push((ing_code, desc, qty));
+                    }
                 }
             }
         }
@@ -2121,9 +2174,9 @@ pub async fn preview_recalculation(
     
     // 3. Get formulation quantity
     let qty_per_unit: f64 = match conn.query_row(
-        "SELECT quantity FROM formulations WHERE product_code = ?1 AND ingredient_code = ?2",
+        "SELECT SUM(quantity) FROM formulations WHERE product_code = ?1 AND ingredient_code = ?2",
         params![product_code, ingredient_code],
-        |row| row.get(0)
+        |row| Ok(row.get::<_, Option<f64>>(0)?.unwrap_or(0.0))
     ) {
         Ok(qty) => qty,
         Err(_) => 0.0,
@@ -2442,6 +2495,34 @@ pub async fn get_product_detalhes(
         }
     }
 
+    // 5. Fetch recent invoices (if any)
+    let mut recent_invoices = Vec::new();
+    let code_clean = code.replace(".", "");
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT invoice_number, quantity, unit_price, total_value, supplier_name, invoice_date 
+         FROM invoices 
+         WHERE (item_code = ?1 OR item_code = ?2) AND invoice_date <= datetime('now', 'localtime')
+         ORDER BY invoice_date DESC LIMIT 15"
+    ) {
+        let rows = stmt.query_map(params![code, code_clean], |row| {
+            Ok(crate::models::InsumoInvoiceItem {
+                invoice_number: row.get(0)?,
+                quantity: row.get(1)?,
+                unit_price: row.get(2)?,
+                total_value: row.get(3)?,
+                supplier_name: row.get(4)?,
+                invoice_date: row.get(5)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(item) = r {
+                    recent_invoices.push(item);
+                }
+            }
+        }
+    }
+
     let response = crate::models::ProductDetalhesResponse {
         code: prod_code,
         description,
@@ -2450,6 +2531,7 @@ pub async fn get_product_detalhes(
         formulation,
         sales_yoy,
         monthly_sales,
+        recent_invoices,
     };
 
     (StatusCode::OK, Json(response)).into_response()
@@ -2458,66 +2540,671 @@ pub async fn get_product_detalhes(
 // GET /api/producao/lotes
 pub async fn get_production_lotes(
     State(state): State<Arc<AppState>>,
+    Query(params): Query<QueryParams>,
 ) -> impl IntoResponse {
     let conn = match state.db.connect() {
         Ok(c) => c,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     };
 
-    let mut lotes = Vec::new();
-    if let Ok(mut stmt) = conn.prepare(
-        "SELECT m.id, m.document_number, m.item_code, p.descricao, m.quantity, m.date, m.details 
-         FROM stock_movements m
-         LEFT JOIN produtos p ON m.item_code = p.codigo
-         WHERE m.item_type = 'produto' AND m.movement_type = 'entrada' AND m.date <= datetime('now', 'localtime')
-         ORDER BY m.date DESC LIMIT 500"
-    ) {
-        let rows = stmt.query_map([], |row| {
-            let id: String = row.get(0)?;
-            let lote_number: String = row.get::<_, Option<String>>(1)?.unwrap_or_default();
-            let product_code: String = row.get(2)?;
-            let product_description: String = row.get::<_, Option<String>>(3)?.unwrap_or_default();
-            let quantity: f64 = row.get(4)?;
-            let date: String = row.get(5)?;
-            let details: String = row.get::<_, Option<String>>(6)?.unwrap_or_default();
+    let mut query = "
+        SELECT m.id, m.document_number, m.item_code, p.descricao, m.quantity, m.date, m.details 
+        FROM stock_movements m
+        LEFT JOIN produtos p ON m.item_code = p.codigo
+        WHERE m.item_type = 'produto' AND m.movement_type = 'entrada' AND m.date <= datetime('now', 'localtime')
+    ".to_string();
 
-            // Parse details string: "Status: EA | Fab: RODRIGO | Aut: RAFAEL"
-            let mut status = String::new();
-            let mut fabricated_by = String::new();
-            let mut authorized_by = String::new();
-            for part in details.split('|') {
-                let part = part.trim();
-                if part.starts_with("Status:") {
-                    status = part.trim_start_matches("Status:").trim().to_string();
-                } else if part.starts_with("Fab:") {
-                    fabricated_by = part.trim_start_matches("Fab:").trim().to_string();
-                } else if part.starts_with("Aut:") {
-                    authorized_by = part.trim_start_matches("Aut:").trim().to_string();
-                }
-            }
+    let mut args: Vec<String> = Vec::new();
 
-            Ok(crate::models::ProductionLote {
-                id,
-                lote_number,
-                product_code,
-                product_description,
-                quantity,
-                date,
-                status,
-                fabricated_by,
-                authorized_by,
+    if let Some(ref status) = params.status {
+        if !status.is_empty() && status != "ALL" {
+            query.push_str(" AND m.details LIKE ?");
+            args.push(format!("%Status: {}%", status));
+        }
+    }
+
+    if let Some(ref search) = params.search {
+        if !search.trim().is_empty() {
+            query.push_str(" AND (m.document_number LIKE ? OR m.item_code LIKE ? OR p.descricao LIKE ? OR m.details LIKE ?)");
+            let like_arg = format!("%{}%", search.trim());
+            args.push(like_arg.clone());
+            args.push(like_arg.clone());
+            args.push(like_arg.clone());
+            args.push(like_arg);
+        }
+    }
+
+    query.push_str(" ORDER BY m.date DESC");
+
+    let limit_val = params.limit.unwrap_or(10000);
+    query.push_str(&format!(" LIMIT {}", limit_val));
+
+    let raw_lotes = {
+        let mut stmt = match conn.prepare(&query) {
+            Ok(s) => s,
+            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+        };
+
+        let params_converted = rusqlite::params_from_iter(args.iter());
+
+        struct RawLote {
+            id: String,
+            lote_number: String,
+            product_code: String,
+            product_description: String,
+            quantity: f64,
+            date: String,
+            details: String,
+        }
+
+        let rows_res = stmt.query_map(params_converted, |row| {
+            Ok(RawLote {
+                id: row.get(0)?,
+                lote_number: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                product_code: row.get(2)?,
+                product_description: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                quantity: row.get(4)?,
+                date: row.get(5)?,
+                details: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
             })
         });
 
-        if let Ok(iter) = rows {
-            for r in iter {
-                if let Ok(l) = r {
-                    lotes.push(l);
+        match rows_res {
+            Ok(iter) => {
+                let mut list = Vec::new();
+                for r in iter {
+                    if let Ok(l) = r {
+                        list.push(l);
+                    }
+                }
+                list
+            }
+            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+        }
+    };
+
+    let mut lotes = Vec::new();
+    for rl in raw_lotes {
+        let mut status = String::new();
+        let mut fabricated_by = String::new();
+        let mut authorized_by = String::new();
+        for part in rl.details.split('|') {
+            let part = part.trim();
+            if part.starts_with("Status:") {
+                status = part.trim_start_matches("Status:").trim().to_string();
+            } else if part.starts_with("Fab:") {
+                fabricated_by = part.trim_start_matches("Fab:").trim().to_string();
+            } else if part.starts_with("Aut:") {
+                authorized_by = part.trim_start_matches("Aut:").trim().to_string();
+            }
+        }
+
+        let mut yield_error = None;
+        if status == "EA" || status == "FP" || status == "CF" {
+            // Get total ingredient weight exited for this OP
+            let ing_exit_sum: f64 = match conn.query_row(
+                "SELECT SUM(quantity) FROM stock_movements 
+                 WHERE document_number = ?1 AND item_type = 'insumo' AND movement_type = 'saida'",
+                params![&rl.lote_number],
+                |r| Ok(r.get::<_, Option<f64>>(0)?.unwrap_or(0.0))
+            ) {
+                Ok(val) => val,
+                Err(_) => 0.0,
+            };
+
+            if ing_exit_sum > 0.0 {
+                // Get formulation total for 1 unit (approximate weight sum)
+                let form_sum: f64 = match conn.query_row(
+                    "SELECT SUM(quantity) FROM formulations WHERE product_code = ?1",
+                    params![&rl.product_code],
+                    |r| Ok(r.get::<_, Option<f64>>(0)?.unwrap_or(1.0))
+                ) {
+                    Ok(val) => val,
+                    Err(_) => 1.0,
+                };
+
+                let expected_ing_weight = rl.quantity * form_sum;
+                
+                // If difference > 10%, flag as error
+                if expected_ing_weight > 0.0 {
+                    let diff = (ing_exit_sum - expected_ing_weight).abs() / expected_ing_weight;
+                    yield_error = Some(diff > 0.10);
+                }
+            }
+        }
+
+        lotes.push(crate::models::ProductionLote {
+            id: rl.id,
+            lote_number: rl.lote_number,
+            product_code: rl.product_code,
+            product_description: rl.product_description,
+            quantity: rl.quantity,
+            date: rl.date,
+            status,
+            fabricated_by,
+            authorized_by,
+            yield_error,
+        });
+    }
+
+    (StatusCode::OK, Json(lotes)).into_response()
+}
+
+fn is_primary_container(desc: &str) -> bool {
+    let d = desc.to_uppercase();
+    d.contains("FRASCO") || 
+    d.starts_with("FR ") || d.contains(" FR ") ||
+    d.starts_with("FR.") || d.contains(" FR.") ||
+    d.contains("POTE") || 
+    d.starts_with("PT ") || d.contains(" PT ") ||
+    d.starts_with("PT.") || d.contains(" PT.") ||
+    d.contains("VIDRO") || 
+    d.contains("BISNAGA") || 
+    d.contains("SACHE") || d.contains("SACHÊ") || 
+    d.contains("AMPOLA") || 
+    d.contains("BALDE") || 
+    d.contains("GALÃO") || d.contains("GALAO") || 
+    d.contains("PET") ||
+    d.contains("TAMPA") ||
+    d.starts_with("TP ") || d.contains(" TP ") ||
+    d.starts_with("TP.") || d.contains(" TP.") ||
+    d.contains("VALVULA") || d.contains("VÁLVULA") ||
+    d.contains("GARGALO") || d.contains("BORRIFADOR") ||
+    d.contains("SPRAY") || d.contains("DISPENCER") ||
+    d.contains("BICO")
+}
+
+// Helpers for parsing product sizes from descriptions
+fn parse_unit_weight_from_desc(desc: &str) -> f64 {
+    let desc_upper = desc.to_uppercase();
+    let chars: Vec<char> = desc_upper.chars().collect();
+    let n = chars.len();
+    
+    let mut i = 0;
+    while i < n {
+        if chars[i].is_ascii_digit() {
+            let start = i;
+            while i < n && (chars[i].is_ascii_digit() || chars[i] == '.' || chars[i] == ',') {
+                i += 1;
+            }
+            let num_str: String = chars[start..i].iter().collect();
+            let num_str_clean = num_str.replace(',', ".");
+            if let Ok(num) = num_str_clean.parse::<f64>() {
+                while i < n && (chars[i] == ' ' || chars[i] == '\t') {
+                    i += 1;
+                }
+                if i < n {
+                    let remaining: String = chars[i..].iter().collect();
+                    if remaining.starts_with("ML") {
+                        return num / 1000.0;
+                    } else if remaining.starts_with("KG") {
+                        return num;
+                    } else if remaining.starts_with("GR") {
+                        return num / 1000.0;
+                    } else if remaining.starts_with("G") {
+                        let next_char = chars.get(i + 1);
+                        if next_char.is_none() || !next_char.unwrap().is_ascii_alphabetic() {
+                            return num / 1000.0;
+                        }
+                    } else if remaining.starts_with("L") {
+                        let next_char = chars.get(i + 1);
+                        if next_char.is_none() || !next_char.unwrap().is_ascii_alphabetic() {
+                            return num;
+                        }
+                    }
+                }
+            }
+        } else {
+            i += 1;
+        }
+    }
+    0.25 // default
+}
+
+// Data structures for detailed lote view
+#[derive(serde::Serialize)]
+pub struct LoteDetalhes {
+    pub lote_number: String,
+    pub product_code: String,
+    pub product_description: String,
+    pub quantity: f64,
+    pub date: String,
+    pub status: String,
+    pub status_label: String,
+    pub fabricated_by: String,
+    pub authorized_by: String,
+    pub pesagem_items: Vec<PesagemItemDetail>,
+    pub pesagem_total_expected: f64,
+    pub pesagem_total_actual: f64,
+    pub envase_products: Vec<EnvaseProductDetail>,
+    pub conferencia_items: Vec<ConferenciaItemDetail>,
+    pub total_packaged_weight_kg: f64,
+    pub bulk_loss_kg: f64,
+    pub bulk_yield_percentage: f64,
+}
+
+#[derive(serde::Serialize)]
+pub struct PesagemItemDetail {
+    pub ingredient_code: String,
+    pub description: String,
+    pub expected_qty: f64,
+    pub actual_qty: f64,
+    pub difference: f64,
+    pub percentage_diff: f64,
+    pub status: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct EnvaseProductDetail {
+    pub product_code: String,
+    pub description: String,
+    pub unit_weight_kg: f64,
+    pub actual_units_envasadas: f64,
+    pub packaging_items: Vec<EnvaseItemDetail>,
+}
+
+#[derive(serde::Serialize)]
+pub struct EnvaseItemDetail {
+    pub packaging_code: String,
+    pub description: String,
+    pub expected_qty: f64,
+    pub actual_qty: f64,
+    pub difference: f64,
+    pub percentage_diff: f64,
+    pub status: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct ConferenciaItemDetail {
+    pub product_code: String,
+    pub description: String,
+    pub actual_units_envasadas: f64,
+    pub expected_finalized_units: f64,
+    pub registered_units_stock: f64,
+    pub discrepancy: f64,
+    pub status: String,
+}
+
+// GET /api/producao/lotes/:number/detalhes
+pub async fn get_lote_detalhes(
+    State(state): State<Arc<AppState>>,
+    Path(lote_number): Path<String>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let header_res = conn.query_row(
+        "SELECT m.item_code, p.descricao, m.quantity, m.date, m.details
+         FROM stock_movements m
+         LEFT JOIN produtos p ON m.item_code = p.codigo
+         WHERE m.document_number = ?1 AND m.item_type = 'produto' AND m.movement_type = 'entrada'
+         LIMIT 1",
+        params![&lote_number],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                row.get::<_, f64>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+            ))
+        }
+    );
+
+    let (product_code, product_description, quantity, date, details) = match header_res {
+        Ok(vals) => vals,
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            return (StatusCode::NOT_FOUND, Json(json!({ "error": "Lote não encontrado no banco de dados" }))).into_response();
+        }
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let mut status = String::new();
+    let mut fabricated_by = String::new();
+    let mut authorized_by = String::new();
+    for part in details.split('|') {
+        let part = part.trim();
+        if part.starts_with("Status:") {
+            status = part.trim_start_matches("Status:").trim().to_string();
+        } else if part.starts_with("Fab:") {
+            fabricated_by = part.trim_start_matches("Fab:").trim().to_string();
+        } else if part.starts_with("Aut:") {
+            authorized_by = part.trim_start_matches("Aut:").trim().to_string();
+        }
+    }
+
+    let status_label = match status.to_uppercase().as_str() {
+        "EA" => "Estoque Atualizado",
+        "PG" => "Em Pesagem",
+        "PP" => "Pré-Produção",
+        "PR" => "Em Produção",
+        "EN" => "Em Envase",
+        "CF" => "Conferido",
+        "CA" => "Cancelado",
+        "FP" => "Finalizado",
+        _ => &status,
+    }.to_string();
+
+    let mut exits_map = std::collections::HashMap::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT item_code, quantity FROM stock_movements
+         WHERE document_number = ?1 AND item_type = 'insumo' AND movement_type = 'saida'"
+    ) {
+        if let Ok(mut rows) = stmt.query(params![&lote_number]) {
+            while let Ok(Some(row)) = rows.next() {
+                if let (Ok(code), Ok(qty)) = (row.get::<_, String>(0), row.get::<_, f64>(1)) {
+                    *exits_map.entry(code).or_insert(0.0) += qty;
                 }
             }
         }
     }
 
-    (StatusCode::OK, Json(lotes)).into_response()
+    let mut recipe_items = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT ingredient_code, description, quantity, percentage FROM formulations WHERE product_code = ?1"
+    ) {
+        if let Ok(rows) = stmt.query_map(params![&product_code], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                row.get::<_, f64>(2)?,
+                row.get::<_, Option<f64>>(3)?,
+            ))
+        }) {
+            for r in rows {
+                if let Ok(val) = r {
+                    recipe_items.push(val);
+                }
+            }
+        }
+    }
+
+    // Group duplicate recipe_items by ingredient_code, summing their standard quantities and percentages
+    let mut consolidated_recipe_items: Vec<(String, String, f64, Option<f64>)> = Vec::new();
+    for (ing_code, ing_desc, qty, pct) in recipe_items {
+        if let Some(existing) = consolidated_recipe_items.iter_mut().find(|(code, _, _, _)| code == &ing_code) {
+            existing.2 += qty;
+            if let Some(p) = pct {
+                existing.3 = Some(existing.3.unwrap_or(0.0) + p);
+            }
+        } else {
+            consolidated_recipe_items.push((ing_code, ing_desc, qty, pct));
+        }
+    }
+    let recipe_items = consolidated_recipe_items;
+
+    let mut pesagem_total_actual = 0.0;
+    for (code, qty) in &exits_map {
+        if code.starts_with("9.15.") {
+            if *qty > 0.00001 {
+                pesagem_total_actual += qty;
+            }
+        }
+    }
+
+    let basis_weight = if pesagem_total_actual > 0.0 {
+        pesagem_total_actual
+    } else {
+        quantity
+    };
+
+    let mut pesagem_items = Vec::new();
+    let mut pesagem_total_expected = 0.0;
+    let mut processed_insumos = std::collections::HashSet::new();
+
+    for (ing_code, ing_desc, std_qty, percentage) in &recipe_items {
+        if ing_code.starts_with("9.15.") {
+            processed_insumos.insert(ing_code.clone());
+            
+            let pct = percentage.unwrap_or(0.0);
+            let expected_qty = if pct > 0.0 {
+                basis_weight * (pct / 100.0)
+            } else {
+                let prod_unit_weight = parse_unit_weight_from_desc(&product_description);
+                let estimated_pct = (std_qty / prod_unit_weight) * 100.0;
+                basis_weight * (estimated_pct / 100.0)
+            };
+
+            pesagem_total_expected += expected_qty;
+
+            let mut actual_qty = *exits_map.get(ing_code).unwrap_or(&0.0);
+            if actual_qty < 0.0001 {
+                actual_qty = 0.0;
+            }
+
+            let difference = actual_qty - expected_qty;
+            let percentage_diff = if expected_qty > 0.0 {
+                (difference / expected_qty) * 100.0
+            } else {
+                0.0
+            };
+
+            let item_status = if actual_qty == 0.0 && expected_qty > 0.0 {
+                "MISSING"
+            } else if percentage_diff.abs() > 10.0 {
+                "DISCREPANCY"
+            } else {
+                "OK"
+            };
+
+            pesagem_items.push(PesagemItemDetail {
+                ingredient_code: ing_code.clone(),
+                description: ing_desc.clone(),
+                expected_qty,
+                actual_qty,
+                difference,
+                percentage_diff,
+                status: item_status.to_string(),
+            });
+        }
+    }
+
+    for (code, qty) in &exits_map {
+        if code.starts_with("9.15.") && !processed_insumos.contains(code) && *qty > 0.00001 {
+            let desc = conn.query_row(
+                "SELECT descricao FROM insumos_materiais WHERE codigo = ?1 LIMIT 1",
+                params![code],
+                |r| r.get::<_, String>(0)
+            ).unwrap_or_else(|_| "Insumo Não Sincronizado".to_string());
+
+            pesagem_items.push(PesagemItemDetail {
+                ingredient_code: code.clone(),
+                description: desc,
+                expected_qty: 0.0,
+                actual_qty: *qty,
+                difference: *qty,
+                percentage_diff: 100.0,
+                status: "EXTRA".to_string(),
+            });
+        }
+    }
+
+    // Extract packaging exits
+    let mut packaging_exits = std::collections::HashMap::new();
+    for (code, qty) in &exits_map {
+        if !code.starts_with("9.15.") {
+            packaging_exits.insert(code.clone(), *qty);
+        }
+    }
+
+    let main_unit_weight = parse_unit_weight_from_desc(&product_description);
+
+    let mut packaging_recipe_items = Vec::new();
+    for (code, desc, std_qty, _) in &recipe_items {
+        if !code.starts_with("9.15.") {
+            packaging_recipe_items.push((code.clone(), desc.clone(), *std_qty));
+        }
+    }
+
+    // Determine actual units envasadas using packaging exits scaled to standard recipe quantities.
+    // We prioritize primary containers and closures (bottles, caps, etc.) over boxes to avoid 
+    // overestimating units if too many boxes are exited.
+    let mut actual_units_envasadas = 0.0;
+    let mut primary_units = 0.0;
+    let mut has_primary = false;
+
+    for (code, desc, std_qty) in &packaging_recipe_items {
+        if *std_qty > 0.0 {
+            let exit_qty = *exits_map.get(code).unwrap_or(&0.0);
+            let units = exit_qty / std_qty;
+            
+            if is_primary_container(desc) && exit_qty > 0.0 {
+                has_primary = true;
+                if units > primary_units {
+                    primary_units = units;
+                }
+            }
+            
+            if units > actual_units_envasadas {
+                actual_units_envasadas = units;
+            }
+        }
+    }
+
+    let actual_units_envasadas = if has_primary {
+        primary_units.round()
+    } else {
+        actual_units_envasadas.round()
+    };
+
+    // Basis units for expected calculation when in progress or zero exits recorded
+    let basis_units = if actual_units_envasadas > 0.0 {
+        actual_units_envasadas
+    } else {
+        (quantity / main_unit_weight).round()
+    };
+
+    let mut envase_items = Vec::new();
+    let mut processed_packaging = std::collections::HashSet::new();
+
+    for (item_code, item_desc, std_qty) in &packaging_recipe_items {
+        processed_packaging.insert(item_code.clone());
+
+        let expected_qty = basis_units * std_qty;
+        let actual_qty = *packaging_exits.get(item_code).unwrap_or(&0.0);
+        let difference = actual_qty - expected_qty;
+        let percentage_diff = if expected_qty > 0.0 {
+            (difference / expected_qty) * 100.0
+        } else {
+            0.0
+        };
+
+        let item_status = if actual_qty == 0.0 && expected_qty > 0.0 {
+            "MISSING"
+        } else if percentage_diff.abs() > 10.0 {
+            "DISCREPANCY"
+        } else {
+            "OK"
+        };
+
+        envase_items.push(EnvaseItemDetail {
+            packaging_code: item_code.clone(),
+            description: item_desc.clone(),
+            expected_qty,
+            actual_qty,
+            difference,
+            percentage_diff,
+            status: item_status.to_string(),
+        });
+    }
+
+    // Capture extra/unplanned packaging items exited for this batch
+    for (code, qty) in &packaging_exits {
+        if !processed_packaging.contains(code) && *qty > 0.00001 {
+            let desc = conn.query_row(
+                "SELECT descricao FROM insumos_materiais WHERE codigo = ?1 LIMIT 1",
+                params![code],
+                |r| r.get::<_, String>(0)
+            ).unwrap_or_else(|_| "Insumo Não Sincronizado".to_string());
+
+            envase_items.push(EnvaseItemDetail {
+                packaging_code: code.clone(),
+                description: desc,
+                expected_qty: 0.0,
+                actual_qty: *qty,
+                difference: *qty,
+                percentage_diff: 100.0,
+                status: "EXTRA".to_string(),
+            });
+        }
+    }
+
+    let envase_products = vec![EnvaseProductDetail {
+        product_code: product_code.clone(),
+        description: product_description.clone(),
+        unit_weight_kg: main_unit_weight,
+        actual_units_envasadas,
+        packaging_items: envase_items,
+    }];
+
+    // Conference validation: registered stock quantity vs envasado - 1 (retain sample)
+    let expected_finalized = if actual_units_envasadas > 0.0 {
+        actual_units_envasadas - 1.0
+    } else {
+        (quantity / main_unit_weight).round() - 1.0
+    };
+
+    let registered_units = if main_unit_weight > 0.0 {
+        (quantity / main_unit_weight).round()
+    } else {
+        quantity
+    };
+    let discrepancy = registered_units - expected_finalized;
+    let conf_status = if discrepancy.abs() > 0.5 {
+        "DISCREPANCY"
+    } else {
+        "OK"
+    };
+
+    let conferencia_items = vec![ConferenciaItemDetail {
+        product_code: product_code.clone(),
+        description: product_description.clone(),
+        actual_units_envasadas,
+        expected_finalized_units: expected_finalized,
+        registered_units_stock: registered_units,
+        discrepancy,
+        status: conf_status.to_string(),
+    }];
+
+    let total_packaged_weight_kg = actual_units_envasadas * main_unit_weight;
+    
+    // Fallback: If actual raw material exits sum is less than 10% of planned quantity, 
+    // it's likely raw material exits weren't fully recorded (e.g. dummy/empty), so we fallback to planned quantity.
+    let basis_weight = if pesagem_total_actual >= 0.1 * quantity {
+        pesagem_total_actual
+    } else {
+        quantity
+    };
+
+    let bulk_loss_kg = (basis_weight - total_packaged_weight_kg).max(0.0);
+    let bulk_yield_percentage = if basis_weight > 0.0 {
+        (total_packaged_weight_kg / basis_weight) * 100.0
+    } else {
+        0.0
+    };
+
+    let details = LoteDetalhes {
+        lote_number,
+        product_code,
+        product_description,
+        quantity,
+        date,
+        status,
+        status_label,
+        fabricated_by,
+        authorized_by,
+        pesagem_items,
+        pesagem_total_expected,
+        pesagem_total_actual,
+        envase_products,
+        conferencia_items,
+        total_packaged_weight_kg,
+        bulk_loss_kg,
+        bulk_yield_percentage,
+    };
+
+    (StatusCode::OK, Json(details)).into_response()
 }
 

@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../lib/api';
-import { Category, AppConfig, Item } from '../../types';
+import { Category, ComprasAppConfig, Item } from '../../types';
 import { Settings, FolderTree, Plus, Trash2, X, Save, Package, Search, CheckSquare, Square, Link, Unlink } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import obsData from '../../lib/obs_data.json';
 
 export function SettingsPanel() {
-  const [config, setConfig] = useState<AppConfig>({ targetDays: 90, itemOverrides: {} });
+  const [config, setConfig] = useState<ComprasAppConfig>({ targetDays: 90, itemOverrides: {} });
   const [categories, setCategories] = useState<Category[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [selectedSubcategory, setSelectedSubcategory] = useState<Category | null>(null);

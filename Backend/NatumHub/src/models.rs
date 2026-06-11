@@ -46,6 +46,8 @@ pub struct ProductOverride {
     pub visivel: Option<i32>,
     pub observacao: Option<String>,
     pub linha_prefix_manual: Option<String>,
+    pub status_produto: Option<String>,
+    pub categoria_produto: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -73,6 +75,8 @@ pub struct ProductCalculationResult {
     pub visivel: Option<i32>,
     pub observacao: Option<String>,
     pub linha_prefix_manual: Option<String>,
+    pub status_produto: Option<String>,
+    pub categoria_produto: Option<String>,
 
     // Sales Statistics
     pub media_vendas: f64,          // Mean of sales
@@ -387,6 +391,7 @@ pub struct ProductDetalhesResponse {
     pub formulation: Vec<ProductFormulationLine>,
     pub sales_yoy: Vec<SalesYoYItem>,
     pub monthly_sales: Vec<MonthlySalesItem>,
+    pub recent_invoices: Vec<InsumoInvoiceItem>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -427,6 +432,7 @@ pub struct ProductionLote {
     pub status: String,
     pub fabricated_by: String,
     pub authorized_by: String,
+    pub yield_error: Option<bool>,
 }
 
 

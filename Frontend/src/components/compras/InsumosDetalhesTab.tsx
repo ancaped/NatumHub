@@ -49,7 +49,11 @@ interface InsumoDetalhes {
   }[];
 }
 
-export function InsumosDetalhesTab() {
+interface InsumosDetalhesTabProps {
+  parentCategoryFilter?: 'cat_mp' | 'cat_emb';
+}
+
+export function InsumosDetalhesTab({ parentCategoryFilter }: InsumosDetalhesTabProps) {
   const [items, setItems] = useState<Item[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,6 +65,12 @@ export function InsumosDetalhesTab() {
   const [details, setDetails] = useState<InsumoDetalhes | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+
+  // Reset selected category when filter changes
+  useEffect(() => {
+    setSelectedCategory('ALL');
+    setSelectedItemCode(null);
+  }, [parentCategoryFilter]);
 
   useEffect(() => {
     loadData();
@@ -112,19 +122,55 @@ export function InsumosDetalhesTab() {
     }
   }, [selectedItemCode]);
 
+  const displayedCategories = useMemo(() => {
+    if (!parentCategoryFilter) return categories;
+    return categories.filter(c => c.parentId === parentCategoryFilter);
+  }, [categories, parentCategoryFilter]);
+
   const filteredItems = useMemo(() => {
+    const allowedCategoryIds = new Set<string>();
+    if (parentCategoryFilter) {
+      categories.forEach(c => {
+        if (c.parentId === parentCategoryFilter) {
+          allowedCategoryIds.add(c.id);
+        }
+      });
+    }
+
     return items.filter(i => {
       const matchesSearch = 
         (i.description || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (i.code || '').toLowerCase().includes(searchTerm.toLowerCase());
       
       const matchesCategory = 
-        selectedCategory === 'ALL' || 
-        i.categoryId === selectedCategory;
+        selectedCategory === 'ALL'
+          ? (!parentCategoryFilter || (i.categoryId && allowedCategoryIds.has(i.categoryId)))
+          : i.categoryId === selectedCategory;
 
       return matchesSearch && matchesCategory;
     });
-  }, [items, searchTerm, selectedCategory]);
+  }, [items, searchTerm, selectedCategory, parentCategoryFilter, categories]);
+
+  // Compute available years dynamically from all historical data
+  const availableYears = useMemo(() => {
+    if (!details) return [new Date().getFullYear()];
+    const years = new Set<number>();
+    if (details.consumptionYoy) {
+      details.consumptionYoy.forEach(c => years.add(c.year));
+    }
+    if (details.monthlyConsumption) {
+      details.monthlyConsumption.forEach(c => {
+        if (c.month) years.add(parseInt(c.month.split('-')[0], 10));
+      });
+    }
+    if (details.monthlyPurchases) {
+      details.monthlyPurchases.forEach(c => {
+        if (c.month) years.add(parseInt(c.month.split('-')[0], 10));
+      });
+    }
+    if (years.size === 0) years.add(new Date().getFullYear());
+    return Array.from(years).sort((a, b) => b - a);
+  }, [details]);
 
   // Compute monthly data for selected year
   const monthlyDataForYear = useMemo(() => {
@@ -196,7 +242,7 @@ export function InsumosDetalhesTab() {
               className="px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 text-sm w-full md:w-56"
             >
               <option value="ALL">Todas as Categorias</option>
-              {categories.map(c => (
+              {displayedCategories.map(c => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
@@ -398,13 +444,9 @@ export function InsumosDetalhesTab() {
                     onChange={(e) => setSelectedYear(Number(e.target.value))}
                     className="px-2.5 py-1 bg-white border border-zinc-200 rounded-lg text-xs font-bold"
                   >
-                    {details.consumptionYoy.length > 0 ? (
-                      details.consumptionYoy.map(c => (
-                        <option key={c.year} value={c.year}>{c.year}</option>
-                      ))
-                    ) : (
-                      <option value={new Date().getFullYear()}>{new Date().getFullYear()}</option>
-                    )}
+                    {availableYears.map(year => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
                   </select>
                 </div>
 

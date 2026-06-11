@@ -1,16 +1,46 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Search, RefreshCw, HelpCircle, ChevronLeft, ChevronRight, 
-  Layers, User, Calendar, ClipboardList
+  Layers, User, Calendar, ClipboardList, AlertTriangle
 } from 'lucide-react';
+
+const getStatusBadgeClass = (status) => {
+  switch ((status || '').toUpperCase()) {
+    case 'EA': return 'saudavel'; // Closed/Finished
+    case 'CF': return 'abundante'; // Checked
+    case 'PG':
+    case 'PP':
+    case 'PR':
+    case 'EN': return 'ordem';   // In progress
+    case 'CA': return 'critico'; // Cancelled
+    case 'FP': return 'saudavel'; // Finalized
+    default: return 'abundante';
+  }
+};
+
+const getStatusLabel = (status) => {
+  switch ((status || '').toUpperCase()) {
+    case 'EA': return 'Estoque Atualizado';
+    case 'PG': return 'Em Pesagem';
+    case 'PP': return 'Pré-Produção';
+    case 'PR': return 'Em Produção';
+    case 'EN': return 'Em Envase';
+    case 'CF': return 'Conferido';
+    case 'CA': return 'Cancelado';
+    case 'FP': return 'Finalizado';
+    default: return status;
+  }
+};
 
 export function LotesTab({
   lotes,
   onRefresh,
-  loading
+  loading,
+  onOpenDetails,
+  selectedStatus = 'ALL',
+  setSelectedStatus
 }) {
   const [search, setSearch] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState('ALL');
   const [page, setPage] = useState(1);
   const limitPerPage = 15;
 
@@ -24,7 +54,7 @@ export function LotesTab({
       
       const matchesStatus = 
         selectedStatus === 'ALL' || 
-        l.status === selectedStatus;
+        (selectedStatus === 'ERR_YIELD' ? l.yieldError === true : l.status === selectedStatus);
 
       return matchesSearch && matchesStatus;
     });
@@ -44,7 +74,9 @@ export function LotesTab({
     lotes.forEach(l => {
       if (l.status) statuses.add(l.status);
     });
-    return Array.from(statuses);
+    const options = Array.from(statuses).map(s => ({ value: s, label: getStatusLabel(s) }));
+    options.push({ value: 'ERR_YIELD', label: '⚠️ Erro de Rendimento (>10%)' });
+    return options;
   }, [lotes]);
 
   const handleStatusChange = (e) => {
@@ -55,24 +87,6 @@ export function LotesTab({
   const handleSearchChange = (e) => {
     setSearch(e.target.value);
     setPage(1);
-  };
-
-  const getStatusBadgeClass = (status) => {
-    switch (status.toUpperCase()) {
-      case 'EA': return 'saudavel';
-      case 'CA': return 'critico';
-      case 'FP': return 'ordem';
-      default: return 'abundante';
-    }
-  };
-
-  const getStatusLabel = (status) => {
-    switch (status.toUpperCase()) {
-      case 'EA': return 'Em Aberto';
-      case 'CA': return 'Cancelado';
-      case 'FP': return 'Finalizado';
-      default: return status;
-    }
   };
 
   return (
@@ -95,24 +109,26 @@ export function LotesTab({
           <div className="card-subtitle">Lotes carregados no banco local</div>
         </div>
 
-        <div className="summary-card saudavel">
+        <div className="summary-card ordem">
           <div className="card-header">
-            <span className="card-title">Lotes Em Aberto</span>
+            <span className="card-title">Lotes em Produção</span>
             <div className="card-icon"><Layers size={20} /></div>
           </div>
-          <div className="card-value">{lotes.filter(l => l.status === 'EA').length}</div>
+          <div className="card-value">
+            {lotes.filter(l => ['PG', 'PP', 'PR', 'EN', 'CF'].includes(l.status.toUpperCase())).length}
+          </div>
           <div className="card-subtitle">Lotes em andamento na fábrica</div>
         </div>
 
-        <div className="summary-card ordem">
+        <div className="summary-card saudavel">
           <div className="card-header">
             <span className="card-title">Total Produzido (Lotes)</span>
             <div className="card-icon"><Calendar size={20} /></div>
           </div>
           <div className="card-value">
-            {lotes.reduce((sum, l) => sum + (l.status === 'FP' || l.status === 'EA' ? l.quantity : 0), 0).toLocaleString()} un
+            {lotes.reduce((sum, l) => sum + (['EA', 'FP'].includes(l.status.toUpperCase()) ? l.quantity : 0), 0).toLocaleString()} un
           </div>
-          <div className="card-subtitle">Volume físico total dos lotes ativos/concluídos</div>
+          <div className="card-subtitle">Volume físico total dos lotes concluídos</div>
         </div>
       </section>
 
@@ -136,8 +152,8 @@ export function LotesTab({
             onChange={handleStatusChange}
           >
             <option value="ALL">Todos os Status</option>
-            {statusOptions.map(st => (
-              <option key={st} value={st}>{getStatusLabel(st)}</option>
+            {statusOptions.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
 
@@ -179,7 +195,12 @@ export function LotesTab({
                   const formattedDate = isNaN(dateObj.getTime()) ? l.date : dateObj.toLocaleDateString('pt-BR');
 
                   return (
-                    <tr key={l.id}>
+                    <tr 
+                      key={l.id} 
+                      onClick={() => onOpenDetails && onOpenDetails(l.loteNumber)}
+                      style={{ cursor: onOpenDetails ? 'pointer' : 'default' }}
+                      className="hover:bg-zinc-50/50 transition-colors"
+                    >
                       <td className="product-code" style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>
                         #{l.loteNumber}
                       </td>
@@ -194,9 +215,27 @@ export function LotesTab({
                         {l.quantity.toLocaleString()} un
                       </td>
                       <td>
-                        <span className={`status-badge ${getStatusBadgeClass(l.status)}`}>
-                          {getStatusLabel(l.status)}
-                        </span>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                          <span className={`status-badge ${getStatusBadgeClass(l.status)}`}>
+                            {getStatusLabel(l.status)}
+                          </span>
+                          {l.yieldError === true && (
+                            <span style={{ 
+                              backgroundColor: 'hsl(var(--warning-background-hsl))', 
+                              color: 'hsl(var(--warning-foreground-hsl))',
+                              fontSize: '10px',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontWeight: 'bold',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                            }}>
+                              <AlertTriangle size={10} /> ERRO RENDIMENTO
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td>
                         <div style={{ fontSize: '0.75rem', color: 'hsl(var(--text-primary-hsl))', fontWeight: '600' }}>

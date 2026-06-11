@@ -300,6 +300,7 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
       tabs.push({ id: 'lotes', label: 'Lotes Produzidos', icon: Package });
       tabs.push({ id: 'movimentacoes', label: 'Movimentações', icon: ArrowUpRight });
     } else {
+      tabs.push({ id: 'formulacao', label: 'Usado em Produtos', icon: Layers });
       tabs.push({ id: 'movimentacoes', label: 'Movimentações', icon: ArrowUpRight });
       tabs.push({ id: 'notas', label: 'Notas Fiscais', icon: Receipt });
       tabs.push({ id: 'pedidos', label: 'Pedidos Pendentes', icon: Truck });
@@ -451,7 +452,10 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
                                   p.status === 'critico' && "bg-red-50 text-red-700 border border-red-200",
                                   p.status === 'ordem' && "bg-amber-50 text-amber-700 border border-amber-200",
                                   p.status === 'saudavel' && "bg-emerald-50 text-emerald-700 border border-emerald-200",
-                                  p.status === 'abundante' && "bg-blue-50 text-blue-700 border border-blue-200"
+                                  p.status === 'abundante' && "bg-blue-50 text-blue-700 border border-blue-200",
+                                  p.status === 'descontinuado' && "bg-zinc-100 text-zinc-750 border border-zinc-200",
+                                  p.status === 'apoio' && "bg-purple-50 text-purple-700 border border-purple-200",
+                                  p.status === 'coloracao' && "bg-rose-50 text-rose-700 border border-rose-200"
                                 )}>
                                   {p.status_label}
                                 </span>
@@ -592,29 +596,39 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
                   <span>{drawerError}</span>
                 </div>
               ) : drawerTab === 'formulacao' ? (
-                /* Product Recipe Formulation Table */
+                /* Product Recipe Formulation Table OR Insumo Usage */
                 <div className="space-y-4">
                   <div className="flex items-center gap-1.5 text-xs text-zinc-500 font-medium">
                     <Info className="h-3.5 w-3.5 text-zinc-400" />
-                    Ingredientes necessários para fabricar um lote deste produto.
+                    {selectedItem.type === 'produto' 
+                      ? 'Ingredientes necessários para fabricar um lote deste produto.'
+                      : 'Produtos que utilizam este insumo em suas formulações.'}
                   </div>
                   {formulation.length === 0 ? (
-                    <div className="text-center py-12 text-zinc-400">Nenhuma fórmula registrada para este produto.</div>
+                    <div className="text-center py-12 text-zinc-400">
+                      {selectedItem.type === 'produto'
+                        ? 'Nenhuma fórmula registrada para este produto.'
+                        : 'Este item não faz parte da fórmula de nenhum produto registrado.'}
+                    </div>
                   ) : (
                     <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
                       <table className="w-full text-left text-xs whitespace-nowrap">
                         <thead className="bg-zinc-50 text-zinc-500 font-semibold border-b border-zinc-200">
                           <tr>
                             <th className="px-4 py-3">Código</th>
-                            <th className="px-4 py-3">Descrição Ingrediente</th>
+                            <th className="px-4 py-3">
+                              {selectedItem.type === 'produto' ? 'Descrição Ingrediente' : 'Nome do Produto'}
+                            </th>
                             <th className="px-4 py-3 text-right">Qtd</th>
                             <th className="px-4 py-3 text-right">Percentual</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100">
-                          {formulation.map((line) => (
-                            <tr key={line.ingredientCode} className="hover:bg-zinc-50/50 transition-colors">
-                              <td className="px-4 py-3 font-mono text-[10px] text-zinc-500">{line.ingredientCode}</td>
+                          {formulation.map((line, idx) => (
+                            <tr key={`${line.productCode}-${line.ingredientCode}-${idx}`} className="hover:bg-zinc-50/50 transition-colors">
+                              <td className="px-4 py-3 font-mono text-[10px] text-zinc-500">
+                                {selectedItem.type === 'produto' ? line.ingredientCode : line.productCode}
+                              </td>
                               <td className="px-4 py-3 font-bold text-zinc-800">{line.description || 'Não especificado'}</td>
                               <td className="px-4 py-3 text-right font-semibold">{line.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}</td>
                               <td className="px-4 py-3 text-right font-medium text-zinc-650">

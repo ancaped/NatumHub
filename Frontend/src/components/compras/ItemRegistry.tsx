@@ -133,7 +133,7 @@ export default function ItemRegistry() {
                   <td className="px-6 py-4 font-semibold text-zinc-800">
                     <div className="flex items-center gap-2">
                       {item.description}
-                      {item.isIgnored && <EyeOff className="w-3 h-3 text-zinc-400" title="Ignorado nas demandas" />}
+                      {item.isIgnored && <span title="Ignorado nas demandas"><EyeOff className="w-3 h-3 text-zinc-400" /></span>}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-zinc-500">{item.unit}</td>

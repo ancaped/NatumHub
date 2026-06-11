@@ -6,7 +6,8 @@ import { SupplierManager } from '../components/compras/SupplierManager';
 import { ReportDashboard } from '../components/compras/ReportDashboard';
 import { SettingsPanel } from '../components/compras/SettingsPanel';
 import ItemRegistry from '../components/compras/ItemRegistry';
-import { Package, ShoppingCart, Users, BarChart3, Settings, Database, Boxes, ArrowLeft } from 'lucide-react';
+import { ProdutosCompraTab } from '../components/compras/ProdutosCompraTab';
+import { Package, ShoppingCart, Users, BarChart3, Settings, Database, Boxes, ArrowLeft, Palette, Tag, Layers } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface ComprasViewProps {
@@ -18,7 +19,10 @@ export default function ComprasView({ onBackToHub }: ComprasViewProps) {
 
   const navItems = [
     { id: 'demands', label: 'Demandas', icon: Package },
-    { id: 'insumos_detalhes', label: 'Insumos & MP', icon: Boxes },
+    { id: 'materia_prima', label: 'Matéria-Prima', icon: Boxes },
+    { id: 'embalagens', label: 'Embalagens', icon: Layers },
+    { id: 'coloracao', label: 'Coloração', icon: Palette },
+    { id: 'apoio', label: 'Material de Apoio', icon: Tag },
     { id: 'quotations', label: 'Cotações', icon: ShoppingCart },
     { id: 'registry', label: 'Cadastro', icon: Database },
     { id: 'suppliers', label: 'Fornecedores', icon: Users },
@@ -79,7 +83,10 @@ export default function ComprasView({ onBackToHub }: ComprasViewProps) {
         <main className="flex-1 overflow-y-auto p-2 lg:p-4">
           <div className="w-full max-w-none">
             {activeTab === 'demands' && <DemandTable />}
-            {activeTab === 'insumos_detalhes' && <InsumosDetalhesTab />}
+            {activeTab === 'materia_prima' && <InsumosDetalhesTab parentCategoryFilter="cat_mp" />}
+            {activeTab === 'embalagens' && <InsumosDetalhesTab parentCategoryFilter="cat_emb" />}
+            {activeTab === 'coloracao' && <ProdutosCompraTab statusFilter="coloracao" title="Coloração" />}
+            {activeTab === 'apoio' && <ProdutosCompraTab statusFilter="apoio" title="Material de Apoio" />}
             {activeTab === 'quotations' && <QuotationManager />}
             {activeTab === 'registry' && <ItemRegistry />}
             {activeTab === 'suppliers' && <SupplierManager />}

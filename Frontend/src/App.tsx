@@ -7,17 +7,18 @@ import ComprasOnlineView from './modules/ComprasOnlineView';
 import EstoqueView from './modules/EstoqueView';
 import PedidosView from './modules/PedidosView';
 import NotasFiscaisView from './modules/NotasFiscaisView';
+import ActiveProductsView from './modules/ActiveProductsView';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { FeedbackWidget } from './components/shared/FeedbackWidget';
 import { 
   Boxes, ShoppingCart, Activity, FlaskConical, ArrowRight, ArrowLeft,
   Settings, Database, RefreshCw, Upload, Download, Loader2, Check, X, Globe,
-  FileText, ClipboardList
+  FileText, ClipboardList, CheckCircle2
 } from 'lucide-react';
 import { APP_NAME } from './lib/utils';
 import { api } from './lib/api';
 
-type HubView = 'hub' | 'producao_hub' | 'producao' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'estoque_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materiais';
+type HubView = 'hub' | 'producao_hub' | 'producao' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'estoque_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materiais' | 'estoque_ativos';
 
 export default function App() {
   const [view, setView] = useState<HubView>('hub');
@@ -332,7 +333,7 @@ export default function App() {
               <p className="text-sm text-zinc-500">Selecione o inventário específico para consulta e movimentações.</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 w-full">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-4 w-full">
               {/* Insumos & Matérias-Primas */}
               <button 
                 onClick={() => setView('estoque_insumos')}
@@ -389,6 +390,25 @@ export default function App() {
                   Acessar Materiais <ArrowRight className="h-4 w-4" />
                 </div>
               </button>
+
+              {/* Linhas & Produtos Ativos */}
+              <button 
+                onClick={() => setView('estoque_ativos')}
+                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <CheckCircle2 className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-zinc-900">Linhas & Produtos</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Configure o status de linha dos produtos (ativos, lançamentos, descontinuados, materiais de apoio ou itens terceirizados).</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Acessar Linhas <ArrowRight className="h-4 w-4" />
+                </div>
+              </button>
             </div>
           </main>
 
@@ -419,6 +439,14 @@ export default function App() {
       return (
         <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro no módulo de Estoque de Materiais">
           <EstoqueView mode="materiais" onBackToHub={() => setView('estoque_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'estoque_ativos') {
+      return (
+        <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro no módulo de Linhas & Produtos Ativos">
+          <ActiveProductsView onBackToHub={() => setView('estoque_hub')} />
         </ErrorBoundary>
       );
     }

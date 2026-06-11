@@ -4,7 +4,7 @@ import type {
   DemandResult, Quotation, QuotationItem, QuotationPrice, 
   ImportResult, StockImport, PricePoint, SupplierSpend, CategorySpend, 
   ComprasAppConfig, MicrobioAppConfig, Feedback, Product, Report, OnlineOrder, OnlineStore,
-  FiscoQuimicaPattern, FiscoQuimicaAgent, FiscoQuimicaAnalysis
+  FiscoQuimicaPattern, FiscoQuimicaAgent, FiscoQuimicaAnalysis, ProductionLote
 } from '../types';
 
 export const api = {
@@ -221,7 +221,13 @@ export const api = {
   deleteFiscoQuimicaAnalysis(id: string): Promise<void> {
     return invoke('delete_fisco_quimica_analysis', { id });
   },
-};
+
+  // === GENERIC LOTE FETCHING ===
+  getLoteByNumber(loteNumber: string): Promise<ProductionLote | null> {
+    return invoke<ProductionLote | null>('get_lote_by_number', { loteNumber });
+  }
+  };
+
 
 // Simple local auth
 export const localAuth = {

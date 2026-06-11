@@ -125,7 +125,10 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
     if (s === 'FECHADO' || s === 'F' || s === 'T' || s.includes('FECH') || s.includes('CONCLU') || s.includes('TOTAL')) {
       return { label: 'Fechado', className: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: CheckCircle2 };
     }
-    if (s === 'CANCELADO' || s === 'C' || s === '!' || s.includes('CANCEL')) {
+    if (s === '!' || s.includes('ATRAS')) {
+      return { label: 'Atrasado', className: 'bg-orange-50 text-orange-700 border-orange-200', icon: Clock };
+    }
+    if (s === 'CANCELADO' || s === 'C' || s.includes('CANCEL')) {
       return { label: 'Cancelado', className: 'bg-rose-50 text-rose-700 border-rose-200', icon: X };
     }
     return { label: status || 'Indefinido', className: 'bg-zinc-50 text-zinc-600 border-zinc-200', icon: Info };
