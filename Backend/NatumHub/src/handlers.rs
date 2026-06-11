@@ -2864,6 +2864,7 @@ pub async fn get_lote_detalhes(
     let mut status = String::new();
     let mut fabricated_by = String::new();
     let mut authorized_by = String::new();
+    let mut unidades_conferidas = None;
     for part in details.split('|') {
         let part = part.trim();
         if part.starts_with("Status:") {
@@ -2872,6 +2873,12 @@ pub async fn get_lote_detalhes(
             fabricated_by = part.trim_start_matches("Fab:").trim().to_string();
         } else if part.starts_with("Aut:") {
             authorized_by = part.trim_start_matches("Aut:").trim().to_string();
+        } else if part.starts_with("Unidades:") {
+            if let Ok(u) = part.trim_start_matches("Unidades:").trim().parse::<f64>() {
+                if u > 0.0 {
+                    unidades_conferidas = Some(u);
+                }
+            }
         }
     }
 
@@ -3143,10 +3150,19 @@ pub async fn get_lote_detalhes(
     let expected_finalized = if actual_units_envasadas > 0.0 {
         actual_units_envasadas - 1.0
     } else {
-        (quantity / main_unit_weight).round() - 1.0
+        let fallback_units = if let Some(u) = unidades_conferidas {
+            u + 1.0
+        } else if main_unit_weight > 0.0 {
+            (quantity / main_unit_weight).round()
+        } else {
+            quantity
+        };
+        fallback_units - 1.0
     };
 
-    let registered_units = if main_unit_weight > 0.0 {
+    let registered_units = if let Some(u) = unidades_conferidas {
+        u
+    } else if main_unit_weight > 0.0 {
         (quantity / main_unit_weight).round()
     } else {
         quantity

@@ -102,6 +102,7 @@ struct LoteRow {
     status: Option<String>,
     fab: Option<String>,
     aut: Option<String>,
+    unidades: Option<f64>,
 }
 
 struct LoteBaixaRow {
@@ -524,7 +525,8 @@ SELECT
     CONVERT(varchar, l.dLote, 120) COLLATE Latin1_General_CI_AS as dLote,
     l.cStatus COLLATE Latin1_General_CI_AS as cStatus,
     l.cFabricadopor COLLATE Latin1_General_CI_AS as cFabricadopor,
-    l.cAutorizadopor COLLATE Latin1_General_CI_AS as cAutorizadopor
+    l.cAutorizadopor COLLATE Latin1_General_CI_AS as cAutorizadopor,
+    CAST(l.nUnidades AS FLOAT) as nUnidades
 FROM Lotes l WITH (NOLOCK)
 WHERE l.dLote >= '2024-01-01 00:00:00'
   AND l.cCodProd IS NOT NULL AND l.cCodProd <> '';
@@ -546,6 +548,7 @@ WHERE l.dLote >= '2024-01-01 00:00:00'
             status: row.get(4).map(|s: &str| s.trim().to_string()),
             fab: row.get(5).map(|s: &str| s.trim().to_string()),
             aut: row.get(6).map(|s: &str| s.trim().to_string()),
+            unidades: row.get(7),
         });
     }
 
@@ -962,7 +965,13 @@ WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1
     // 3. Product entries (Lotes / Production runs)
     for l in lotes_list {
         let mov_id = Uuid::new_v4().to_string();
-        let details = format!("Status: {} | Fab: {} | Aut: {}", l.status.as_deref().unwrap_or(""), l.fab.as_deref().unwrap_or(""), l.aut.as_deref().unwrap_or(""));
+        let details = format!(
+            "Status: {} | Fab: {} | Aut: {} | Unidades: {}",
+            l.status.as_deref().unwrap_or(""),
+            l.fab.as_deref().unwrap_or(""),
+            l.aut.as_deref().unwrap_or(""),
+            l.unidades.unwrap_or(0.0)
+        );
         tx.execute(
             "INSERT INTO stock_movements (id, item_code, item_type, movement_type, quantity, date, document_number, details)
              VALUES (?1, ?2, 'produto', 'entrada', ?3, ?4, ?5, ?6)",
@@ -1159,7 +1168,8 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
                 CONVERT(varchar, dLote, 120) COLLATE Latin1_General_CI_AS,
                 cStatus COLLATE Latin1_General_CI_AS,
                 cFabricadopor COLLATE Latin1_General_CI_AS,
-                cAutorizadopor COLLATE Latin1_General_CI_AS
+                cAutorizadopor COLLATE Latin1_General_CI_AS,
+                CAST(nUnidades AS FLOAT)
             FROM Lotes WITH (NOLOCK)
             WHERE dLote >= DATEADD(month, -24, GETDATE())", 
             &[]
@@ -1493,7 +1503,8 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
                 dLote TEXT,
                 cStatus TEXT,
                 cFabricadopor TEXT,
-                cAutorizadopor TEXT
+                cAutorizadopor TEXT,
+                nUnidades REAL
             )",
             [],
         )?;
@@ -1501,7 +1512,7 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
             let id: i32 = row.get(0).unwrap_or(0);
             if id == 0 { continue; }
             tx.execute(
-                "INSERT INTO lotes VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO lotes VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     id,
                     row.get::<&str, _>(1).map(|s| s.trim()),
@@ -1509,7 +1520,8 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
                     row.get::<&str, _>(3),
                     row.get::<&str, _>(4).map(|s| s.trim()),
                     row.get::<&str, _>(5).map(|s| s.trim()),
-                    row.get::<&str, _>(6).map(|s| s.trim())
+                    row.get::<&str, _>(6).map(|s| s.trim()),
+                    row.get::<f64, _>(7)
                 ]
             )?;
         }
