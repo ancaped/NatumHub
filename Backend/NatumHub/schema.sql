@@ -147,7 +147,8 @@ CREATE INDEX IF NOT EXISTS idx_movements_doc ON stock_movements(document_number)
 
 -- Pedidos de Compra (Header e Itens)
 CREATE TABLE IF NOT EXISTS purchase_orders (
-    n_pedido        INTEGER PRIMARY KEY,
+    n_registro      INTEGER PRIMARY KEY, -- Unique identity from ERP
+    n_pedido        INTEGER NOT NULL,    -- Order number (not unique)
     d_pedido        TEXT,
     n_cod_fornec    INTEGER,
     c_nome_f        TEXT,
@@ -163,7 +164,8 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
 
 CREATE TABLE IF NOT EXISTS purchase_order_items (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    n_pedido        INTEGER,
+    n_pedido_registro INTEGER,           -- References purchase_orders.n_registro
+    n_pedido        INTEGER,             -- Order number
     c_referencia    TEXT,
     n_qtde          REAL,
     n_preco         REAL,
@@ -173,8 +175,9 @@ CREATE TABLE IF NOT EXISTS purchase_order_items (
     n_valor_total   REAL,
     n_registro      INTEGER,
     c_chegada       TEXT,
-    FOREIGN KEY (n_pedido) REFERENCES purchase_orders(n_pedido) ON DELETE CASCADE
+    FOREIGN KEY (n_pedido_registro) REFERENCES purchase_orders(n_registro) ON DELETE CASCADE
 );
+CREATE INDEX IF NOT EXISTS idx_poi_pedido_reg ON purchase_order_items(n_pedido_registro);
 CREATE INDEX IF NOT EXISTS idx_poi_pedido ON purchase_order_items(n_pedido);
 CREATE INDEX IF NOT EXISTS idx_poi_ref ON purchase_order_items(c_referencia);
 

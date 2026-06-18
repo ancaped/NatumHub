@@ -127,6 +127,7 @@ struct VendaRow {
 }
 
 struct PedidoCpa1Row {
+    n_registro: i32,
     n_pedido: i32,
     d_pedido: Option<String>,
     n_cod_fornec: Option<i32>,
@@ -142,6 +143,7 @@ struct PedidoCpa1Row {
 }
 
 struct PedidoCpa2Row {
+    n_pedido_registro: i32,
     n_pedido: i32,
     c_referencia: String,
     n_qtde: f64,
@@ -521,15 +523,35 @@ WHERE c.cCodProd IS NOT NULL AND c.cReferencia IS NOT NULL;
 SELECT 
     l.nLote,
     l.cCodProd COLLATE Latin1_General_CI_AS as cCodProd,
+    l.cCodProd2 COLLATE Latin1_General_CI_AS as cCodProd2,
+    l.cCodProd3 COLLATE Latin1_General_CI_AS as cCodProd3,
+    l.cCodProd4 COLLATE Latin1_General_CI_AS as cCodProd4,
     CAST(l.nQtde AS FLOAT) as nQtde,
+    CAST(l.nQtde1 AS FLOAT) as nQtde1,
+    CAST(l.nQtde2 AS FLOAT) as nQtde2,
+    CAST(l.nQtde3 AS FLOAT) as nQtde3,
+    CAST(l.nQtde4 AS FLOAT) as nQtde4,
     CONVERT(varchar, l.dLote, 120) COLLATE Latin1_General_CI_AS as dLote,
     l.cStatus COLLATE Latin1_General_CI_AS as cStatus,
     l.cFabricadopor COLLATE Latin1_General_CI_AS as cFabricadopor,
     l.cAutorizadopor COLLATE Latin1_General_CI_AS as cAutorizadopor,
-    CAST(l.nUnidades AS FLOAT) as nUnidades
+    CAST(l.nUnidades AS FLOAT) as nUnidades,
+    CAST(l.nUnidades1 AS FLOAT) as nUnidades1,
+    CAST(l.nUnidades2 AS FLOAT) as nUnidades2,
+    CAST(l.nUnidades3 AS FLOAT) as nUnidades3,
+    CAST(l.nUnidades4 AS FLOAT) as nUnidades4,
+    CAST(l.nUnidadesReais1 AS FLOAT) as nUnidadesReais1,
+    CAST(l.nUnidadesReais2 AS FLOAT) as nUnidadesReais2,
+    CAST(l.nUnidadesReais3 AS FLOAT) as nUnidadesReais3,
+    CAST(l.nUnidadesReais4 AS FLOAT) as nUnidadesReais4
 FROM Lotes l WITH (NOLOCK)
 WHERE l.dLote >= '2024-01-01 00:00:00'
-  AND l.cCodProd IS NOT NULL AND l.cCodProd <> '';
+  AND (
+    (l.cCodProd IS NOT NULL AND l.cCodProd <> '') OR
+    (l.cCodProd2 IS NOT NULL AND l.cCodProd2 <> '') OR
+    (l.cCodProd3 IS NOT NULL AND l.cCodProd3 <> '') OR
+    (l.cCodProd4 IS NOT NULL AND l.cCodProd4 <> '')
+  );
     ";
     println!("Step H: Querying Lotes");
     let stream = client.query(query_lotes, &[]).await?;
@@ -537,20 +559,69 @@ WHERE l.dLote >= '2024-01-01 00:00:00'
     let mut lotes_list = Vec::new();
     for row in db_rows_lotes {
         let lote: i32 = row.get(0).unwrap_or(0);
-        let product_code: &str = row.get(1).unwrap_or("");
-        let d_lote: Option<&str> = row.get(3);
-        if lote == 0 || product_code.is_empty() || d_lote.is_none() { continue; }
-        lotes_list.push(LoteRow {
-            lote,
-            product_code: product_code.trim().to_string(),
-            qty: row.get(2).unwrap_or(0.0),
-            date_str: d_lote.unwrap().to_string(),
-            status: row.get(4).map(|s: &str| s.trim().to_string()),
-            fab: row.get(5).map(|s: &str| s.trim().to_string()),
-            aut: row.get(6).map(|s: &str| s.trim().to_string()),
-            unidades: row.get(7),
-        });
+        let d_lote: Option<&str> = row.get(10);
+        if lote == 0 || d_lote.is_none() { continue; }
+        let date_str = d_lote.unwrap().to_string();
+
+        let status = row.get::<&str, _>(11).map(|s| s.trim().to_string());
+        let fab = row.get::<&str, _>(12).map(|s| s.trim().to_string());
+        let aut = row.get::<&str, _>(13).map(|s| s.trim().to_string());
+
+        let prods = [
+            (row.get::<&str, _>(1), row.get::<f64, _>(6), row.get::<f64, _>(15), row.get::<f64, _>(19)),
+            (row.get::<&str, _>(2), row.get::<f64, _>(7), row.get::<f64, _>(16), row.get::<f64, _>(20)),
+            (row.get::<&str, _>(3), row.get::<f64, _>(8), row.get::<f64, _>(17), row.get::<f64, _>(21)),
+            (row.get::<&str, _>(4), row.get::<f64, _>(9), row.get::<f64, _>(18), row.get::<f64, _>(22)),
+        ];
+
+        let total_bulk_qty = row.get::<f64, _>(5).unwrap_or(0.0);
+        let total_units_field = row.get::<f64, _>(14).unwrap_or(0.0);
+
+        let mut present_count = 0;
+        for (code_opt, _, _, _) in &prods {
+            if let Some(code) = code_opt {
+                if !code.trim().is_empty() {
+                    present_count += 1;
+                }
+            }
+        }
+
+        for (idx, (code_opt, planned_kg_opt, planned_units_opt, real_units_opt)) in prods.iter().enumerate() {
+            if let Some(code) = code_opt {
+                let code_trimmed = code.trim().to_string();
+                if code_trimmed.is_empty() { continue; }
+
+                let mut qty = planned_kg_opt.unwrap_or(0.0);
+                if qty <= 0.0 {
+                    if present_count <= 1 || idx == 0 {
+                        qty = total_bulk_qty;
+                    }
+                }
+
+                let mut unidades = real_units_opt.unwrap_or(0.0);
+                if unidades <= 0.0 {
+                    unidades = planned_units_opt.unwrap_or(0.0);
+                }
+                if unidades <= 0.0 {
+                    if present_count <= 1 || idx == 0 {
+                        unidades = total_units_field;
+                    }
+                }
+
+                lotes_list.push(LoteRow {
+                    lote,
+                    product_code: code_trimmed,
+                    qty,
+                    date_str: date_str.clone(),
+                    status: status.clone(),
+                    fab: fab.clone(),
+                    aut: aut.clone(),
+                    unidades: Some(unidades),
+                });
+            }
+        }
     }
+
 
     // I. Query Lotes_Baixas (Insumo exits logs)
     let query_lotes_baixas = "
@@ -589,7 +660,11 @@ WHERE b.dLog >= '2024-01-01 00:00:00'
     }
 
     // J. Query Vendas (Product sales logs)
-    let query_vendas = "
+    let start_date = {
+        let temp_conn = Connection::open(sqlite_path).ok();
+        get_setting_from_db_or_file(temp_conn.as_ref(), "sales_sync_start_date", "2020-01-01")
+    };
+    let query_vendas = format!("
 SELECT 
     v2.nRegistro,
     v2.nVenda,
@@ -600,11 +675,11 @@ SELECT
     v2.nNotaFiscal
 FROM VENDAS2 v2 WITH (NOLOCK)
 INNER JOIN VENDAS1 v1 WITH (NOLOCK) ON v2.nVenda = v1.nVenda AND CAST(v2.dVenda AS DATE) = CAST(v1.dVenda AS DATE)
-WHERE v2.dVenda >= '2024-01-01 00:00:00'
+WHERE v2.dVenda >= '{} 00:00:00'
   AND v2.cCodProd IS NOT NULL AND v2.cCodProd <> '';
-    ";
-    println!("Step J: Querying Vendas");
-    let stream = client.query(query_vendas, &[]).await?;
+    ", start_date);
+    println!("Step J: Querying Vendas (starting from {})", start_date);
+    let stream = client.query(&query_vendas, &[]).await?;
     let db_rows_vendas = stream.into_first_result().await?;
     let mut vendas_list = Vec::new();
     for row in db_rows_vendas {
@@ -626,6 +701,7 @@ WHERE v2.dVenda >= '2024-01-01 00:00:00'
     // K. Query PedidoCpa1 (Purchase Orders Header)
     let query_pedido_cpa1 = "
 SELECT 
+    nRegistro,
     nPedido,
     CONVERT(varchar, dPedido, 120) COLLATE Latin1_General_CI_AS as dPedido,
     nCodFornec,
@@ -646,27 +722,29 @@ WHERE dPedido >= DATEADD(month, -12, GETDATE()) OR (cStatus <> 'T' AND cStatus I
     let db_rows_pedido_cpa1 = stream.into_first_result().await?;
     let mut pedido_cpa1_list = Vec::new();
     for row in db_rows_pedido_cpa1 {
-        let n_pedido: i32 = row.get(0).unwrap_or(0);
-        if n_pedido == 0 { continue; }
+        let n_registro: i32 = row.get(0).unwrap_or(0);
+        let n_pedido: i32 = row.get(1).unwrap_or(0);
+        if n_registro == 0 || n_pedido == 0 { continue; }
         pedido_cpa1_list.push(PedidoCpa1Row {
+            n_registro,
             n_pedido,
-            d_pedido: row.get(1).map(|s: &str| s.trim().to_string()),
-            n_cod_fornec: row.get(2),
-            c_nome_f: row.get(3).map(|s: &str| s.trim().to_string()),
-            c_usuario: row.get(4).map(|s: &str| s.trim().to_string()),
-            c_status: row.get(5).map(|s: &str| s.trim().to_string()),
-            c_prazo_pgto: row.get(6).map(|s: &str| s.trim().to_string()),
-            c_prev_entrega: row.get(7).map(|s: &str| s.trim().to_string()),
-            n_valor: row.get(8).unwrap_or(0.0),
-            d_previsao: row.get(9).map(|s: &str| s.trim().to_string()),
-            c_email: row.get(10).map(|s: &str| s.trim().to_string()),
-            m_observac: row.get(11).map(|s: &str| s.trim().to_string()),
+            d_pedido: row.get(2).map(|s: &str| s.trim().to_string()),
+            n_cod_fornec: row.get(3),
+            c_nome_f: row.get(4).map(|s: &str| s.trim().to_string()),
+            c_usuario: row.get(5).map(|s: &str| s.trim().to_string()),
+            c_status: row.get(6).map(|s: &str| s.trim().to_string()),
+            c_prazo_pgto: row.get(7).map(|s: &str| s.trim().to_string()),
+            c_prev_entrega: row.get(8).map(|s: &str| s.trim().to_string()),
+            n_valor: row.get(9).unwrap_or(0.0),
+            d_previsao: row.get(10).map(|s: &str| s.trim().to_string()),
+            c_email: row.get(11).map(|s: &str| s.trim().to_string()),
+            m_observac: row.get(12).map(|s: &str| s.trim().to_string()),
         });
     }
 
-    // L. Query PedidoCpa2 (Purchase Orders Items)
     let query_pedido_cpa2 = "
 SELECT 
+    p1.nRegistro as nPedidoRegistro,
     c2.nPedido,
     c2.cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
     CAST(c2.nQtde AS FLOAT) as nQtde,
@@ -686,21 +764,23 @@ WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1
     let db_rows_pedido_cpa2 = stream.into_first_result().await?;
     let mut pedido_cpa2_list = Vec::new();
     for row in db_rows_pedido_cpa2 {
-        let n_pedido: i32 = row.get(0).unwrap_or(0);
-        let c_referencia: &str = row.get(1).unwrap_or("");
-        let n_registro: i32 = row.get(8).unwrap_or(0);
-        if n_pedido == 0 || c_referencia.is_empty() || n_registro == 0 { continue; }
+        let n_pedido_registro: i32 = row.get(0).unwrap_or(0);
+        let n_pedido: i32 = row.get(1).unwrap_or(0);
+        let c_referencia: &str = row.get(2).unwrap_or("");
+        let n_registro: i32 = row.get(9).unwrap_or(0);
+        if n_pedido_registro == 0 || n_pedido == 0 || c_referencia.is_empty() || n_registro == 0 { continue; }
         pedido_cpa2_list.push(PedidoCpa2Row {
+            n_pedido_registro,
             n_pedido,
             c_referencia: c_referencia.trim().to_string(),
-            n_qtde: row.get(2).unwrap_or(0.0),
-            n_preco: row.get(3).unwrap_or(0.0),
-            n_chegou: row.get(4).unwrap_or(0.0),
-            c_descricao: row.get(5).map(|s: &str| s.trim().to_string()),
-            c_unidade: row.get(6).map(|s: &str| s.trim().to_string()),
-            n_valor_total: row.get(7).unwrap_or(0.0),
+            n_qtde: row.get(3).unwrap_or(0.0),
+            n_preco: row.get(4).unwrap_or(0.0),
+            n_chegou: row.get(5).unwrap_or(0.0),
+            c_descricao: row.get(6).map(|s: &str| s.trim().to_string()),
+            c_unidade: row.get(7).map(|s: &str| s.trim().to_string()),
+            n_valor_total: row.get(8).unwrap_or(0.0),
             n_registro,
-            c_chegada: row.get(9).map(|s: &str| s.trim().to_string()),
+            c_chegada: row.get(10).map(|s: &str| s.trim().to_string()),
         });
     }
 
@@ -999,9 +1079,10 @@ WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1
 
     for po in pedido_cpa1_list {
         tx.execute(
-            "INSERT OR REPLACE INTO purchase_orders (n_pedido, d_pedido, n_cod_fornec, c_nome_f, c_usuario, c_status, c_prazo_pgto, c_prev_entrega, n_valor, d_previsao, c_email, m_observac)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            "INSERT OR REPLACE INTO purchase_orders (n_registro, n_pedido, d_pedido, n_cod_fornec, c_nome_f, c_usuario, c_status, c_prazo_pgto, c_prev_entrega, n_valor, d_previsao, c_email, m_observac)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
+                po.n_registro,
                 po.n_pedido,
                 po.d_pedido,
                 po.n_cod_fornec,
@@ -1021,9 +1102,10 @@ WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1
 
     for poi in pedido_cpa2_list {
         tx.execute(
-            "INSERT INTO purchase_order_items (n_pedido, c_referencia, n_qtde, n_preco, n_chegou, c_descricao, c_unidade, n_valor_total, n_registro, c_chegada)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO purchase_order_items (n_pedido_registro, n_pedido, c_referencia, n_qtde, n_preco, n_chegou, c_descricao, c_unidade, n_valor_total, n_registro, c_chegada)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
+                poi.n_pedido_registro,
                 poi.n_pedido,
                 poi.c_referencia,
                 poi.n_qtde,
@@ -1164,12 +1246,27 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
             SELECT 
                 nLote,
                 cCodProd COLLATE Latin1_General_CI_AS,
+                cCodProd2 COLLATE Latin1_General_CI_AS,
+                cCodProd3 COLLATE Latin1_General_CI_AS,
+                cCodProd4 COLLATE Latin1_General_CI_AS,
                 CAST(nQtde AS FLOAT),
+                CAST(nQtde1 AS FLOAT),
+                CAST(nQtde2 AS FLOAT),
+                CAST(nQtde3 AS FLOAT),
+                CAST(nQtde4 AS FLOAT),
                 CONVERT(varchar, dLote, 120) COLLATE Latin1_General_CI_AS,
                 cStatus COLLATE Latin1_General_CI_AS,
                 cFabricadopor COLLATE Latin1_General_CI_AS,
                 cAutorizadopor COLLATE Latin1_General_CI_AS,
-                CAST(nUnidades AS FLOAT)
+                CAST(nUnidades AS FLOAT),
+                CAST(nUnidades1 AS FLOAT),
+                CAST(nUnidades2 AS FLOAT),
+                CAST(nUnidades3 AS FLOAT),
+                CAST(nUnidades4 AS FLOAT),
+                CAST(nUnidadesReais1 AS FLOAT),
+                CAST(nUnidadesReais2 AS FLOAT),
+                CAST(nUnidadesReais3 AS FLOAT),
+                CAST(nUnidadesReais4 AS FLOAT)
             FROM Lotes WITH (NOLOCK)
             WHERE dLote >= DATEADD(month, -24, GETDATE())", 
             &[]
@@ -1497,33 +1594,82 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
         tx.execute("DROP TABLE IF EXISTS lotes", [])?;
         tx.execute(
             "CREATE TABLE lotes (
-                nLote INTEGER PRIMARY KEY,
+                nLote INTEGER,
                 cCodProd TEXT,
                 nQtde REAL,
                 dLote TEXT,
                 cStatus TEXT,
                 cFabricadopor TEXT,
                 cAutorizadopor TEXT,
-                nUnidades REAL
+                nUnidades REAL,
+                PRIMARY KEY (nLote, cCodProd)
             )",
             [],
         )?;
         for row in lotes_rows {
             let id: i32 = row.get(0).unwrap_or(0);
             if id == 0 { continue; }
-            tx.execute(
-                "INSERT INTO lotes VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![
-                    id,
-                    row.get::<&str, _>(1).map(|s| s.trim()),
-                    row.get::<f64, _>(2),
-                    row.get::<&str, _>(3),
-                    row.get::<&str, _>(4).map(|s| s.trim()),
-                    row.get::<&str, _>(5).map(|s| s.trim()),
-                    row.get::<&str, _>(6).map(|s| s.trim()),
-                    row.get::<f64, _>(7)
-                ]
-            )?;
+            let d_lote = row.get::<&str, _>(10);
+            let status = row.get::<&str, _>(11).map(|s| s.trim());
+            let fab = row.get::<&str, _>(12).map(|s| s.trim());
+            let aut = row.get::<&str, _>(13).map(|s| s.trim());
+
+            let prods = [
+                (row.get::<&str, _>(1), row.get::<f64, _>(6), row.get::<f64, _>(15), row.get::<f64, _>(19)),
+                (row.get::<&str, _>(2), row.get::<f64, _>(7), row.get::<f64, _>(16), row.get::<f64, _>(20)),
+                (row.get::<&str, _>(3), row.get::<f64, _>(8), row.get::<f64, _>(17), row.get::<f64, _>(21)),
+                (row.get::<&str, _>(4), row.get::<f64, _>(9), row.get::<f64, _>(18), row.get::<f64, _>(22)),
+            ];
+
+            let total_bulk_qty = row.get::<f64, _>(5).unwrap_or(0.0);
+            let total_units_field = row.get::<f64, _>(14).unwrap_or(0.0);
+
+            let mut present_count = 0;
+            for (code_opt, _, _, _) in &prods {
+                if let Some(code) = code_opt {
+                    if !code.trim().is_empty() {
+                        present_count += 1;
+                    }
+                }
+            }
+
+            for (idx, (code_opt, planned_kg_opt, planned_units_opt, real_units_opt)) in prods.iter().enumerate() {
+                if let Some(code) = code_opt {
+                    let code_trimmed = code.trim();
+                    if code_trimmed.is_empty() { continue; }
+
+                    let mut qty = planned_kg_opt.unwrap_or(0.0);
+                    if qty <= 0.0 {
+                        if present_count <= 1 || idx == 0 {
+                            qty = total_bulk_qty;
+                        }
+                    }
+
+                    let mut unidades = real_units_opt.unwrap_or(0.0);
+                    if unidades <= 0.0 {
+                        unidades = planned_units_opt.unwrap_or(0.0);
+                    }
+                    if unidades <= 0.0 {
+                        if present_count <= 1 || idx == 0 {
+                            unidades = total_units_field;
+                        }
+                    }
+
+                    tx.execute(
+                        "INSERT OR REPLACE INTO lotes VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                        params![
+                            id,
+                            code_trimmed,
+                            qty,
+                            d_lote,
+                            status,
+                            fab,
+                            aut,
+                            unidades
+                        ]
+                    )?;
+                }
+            }
         }
         tx.commit()?;
     }

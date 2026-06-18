@@ -310,6 +310,10 @@ export interface ProductionLote {
   status: string;
   fabricatedBy: string;
   authorizedBy: string;
+  yieldError?: boolean;
+  pesagemError?: boolean;
+  envaseError?: boolean;
+  conferenciaError?: boolean;
 }
 
 

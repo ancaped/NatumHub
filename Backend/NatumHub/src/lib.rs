@@ -685,7 +685,8 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
 
         -- Pedidos de Compra (Header e Itens)
         CREATE TABLE IF NOT EXISTS purchase_orders (
-            n_pedido        INTEGER PRIMARY KEY,
+            n_registro      INTEGER PRIMARY KEY, -- Unique identity from ERP
+            n_pedido        INTEGER NOT NULL,    -- Order number (not unique)
             d_pedido        TEXT,
             n_cod_fornec    INTEGER,
             c_nome_f        TEXT,
@@ -701,7 +702,8 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
 
         CREATE TABLE IF NOT EXISTS purchase_order_items (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            n_pedido        INTEGER,
+            n_pedido_registro INTEGER,           -- References purchase_orders.n_registro
+            n_pedido        INTEGER,             -- Order number
             c_referencia    TEXT,
             n_qtde          REAL,
             n_preco         REAL,
@@ -711,8 +713,9 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             n_valor_total   REAL,
             n_registro      INTEGER,
             c_chegada       TEXT,
-            FOREIGN KEY (n_pedido) REFERENCES purchase_orders(n_pedido) ON DELETE CASCADE
+            FOREIGN KEY (n_pedido_registro) REFERENCES purchase_orders(n_registro) ON DELETE CASCADE
         );
+        CREATE INDEX IF NOT EXISTS idx_poi_pedido_reg ON purchase_order_items(n_pedido_registro);
         CREATE INDEX IF NOT EXISTS idx_poi_pedido ON purchase_order_items(n_pedido);
         CREATE INDEX IF NOT EXISTS idx_poi_ref ON purchase_order_items(c_referencia);
     ")?;
@@ -914,6 +917,17 @@ fn get_feedbacks(state: State<DbState>) -> Result<Vec<Feedback>, String> {
     Ok(feedbacks)
 }
 
+fn get_root_feedback_md_path() -> std::path::PathBuf {
+    if let Ok(mut path) = std::env::current_exe() {
+        while path.pop() {
+            if path.join("Backend").is_dir() && path.join("Frontend").is_dir() {
+                return path.join("feedback.md");
+            }
+        }
+    }
+    std::path::PathBuf::from("../../feedback.md")
+}
+
 fn sync_feedback_md(conn: &Connection) -> std::result::Result<(), String> {
     let mut stmt = conn.prepare(
         "SELECT id, type, description, page, logs, status, createdAt, resolvedAt FROM feedbacks ORDER BY createdAt DESC"
@@ -942,11 +956,11 @@ fn sync_feedback_md(conn: &Connection) -> std::result::Result<(), String> {
         
         let desc_clean = desc.replace('\n', " ").replace('|', "\\|");
         let page_clean = page.replace('\n', " ").replace('|', "\\|");
-        let date_clean = created.split('T').next().unwrap_or("-").to_string();
+        let date_clean = created.split('T').next().unwrap_or("-").split(' ').next().unwrap_or("-").to_string();
         let short_id = id.get(0..8).unwrap_or(&id);
 
         if status == "resolved" {
-            let res_date = resolved_at.as_deref().unwrap_or("-").split('T').next().unwrap_or("-").to_string();
+            let res_date = resolved_at.as_deref().unwrap_or("-").split('T').next().unwrap_or("-").split(' ').next().unwrap_or("-").to_string();
             resolved.push(format!(
                 "| `{}` | {} | {} | `{}` | {} | {} |",
                 short_id,
@@ -1036,8 +1050,9 @@ fn sync_feedback_md(conn: &Connection) -> std::result::Result<(), String> {
         md.push_str(&logs_section);
     }
 
-    // Write to root folder
-    let _ = std::fs::write("../../feedback.md", &md);
+    // Write to root folder (absolute resolution)
+    let path = get_root_feedback_md_path();
+    let _ = std::fs::write(&path, &md);
 
     Ok(())
 }

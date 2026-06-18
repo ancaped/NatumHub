@@ -43,6 +43,18 @@ impl Db {
             let _ = conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('migration_sync_fixes_v2', 'done')", []);
         }
 
+        if conn.query_row("SELECT 1 FROM settings WHERE key = 'migration_sync_fixes_v3'", [], |_| Ok(())).is_err() {
+            let _ = conn.execute("DROP TABLE IF EXISTS purchase_order_items", []);
+            let _ = conn.execute("DROP TABLE IF EXISTS purchase_orders", []);
+            let _ = conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('migration_sync_fixes_v3', 'done')", []);
+        }
+
+        if conn.query_row("SELECT 1 FROM settings WHERE key = 'migration_sync_fixes_v4'", [], |_| Ok(())).is_err() {
+            let _ = conn.execute("DROP TABLE IF EXISTS purchase_order_items", []);
+            let _ = conn.execute("DROP TABLE IF EXISTS purchase_orders", []);
+            let _ = conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('migration_sync_fixes_v4', 'done')", []);
+        }
+
         // Migration: formulations table schema update to support multiple entries of the same ingredient (e.g. water split in phases)
         let has_id_col = conn.query_row(
             "SELECT 1 FROM pragma_table_info('formulations') WHERE name = 'id'",

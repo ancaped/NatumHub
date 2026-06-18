@@ -52,9 +52,22 @@ export function LotesTab({
         (l.productDescription || '').toLowerCase().includes(search.toLowerCase()) ||
         (l.fabricatedBy || '').toLowerCase().includes(search.toLowerCase());
       
-      const matchesStatus = 
-        selectedStatus === 'ALL' || 
-        (selectedStatus === 'ERR_YIELD' ? l.yieldError === true : l.status === selectedStatus);
+      let matchesStatus = false;
+      if (selectedStatus === 'ALL') {
+        matchesStatus = true;
+      } else if (selectedStatus === 'ERR_YIELD') {
+        matchesStatus = l.yieldError === true;
+      } else if (selectedStatus === 'ERR_PESAGEM') {
+        matchesStatus = l.pesagemError === true;
+      } else if (selectedStatus === 'ERR_ENVASE') {
+        matchesStatus = l.envaseError === true;
+      } else if (selectedStatus === 'ERR_CONFERENCIA') {
+        matchesStatus = l.conferenciaError === true;
+      } else if (selectedStatus === 'ERR_ANY_ERROR') {
+        matchesStatus = l.yieldError === true || l.pesagemError === true || l.envaseError === true || l.conferenciaError === true;
+      } else {
+        matchesStatus = l.status === selectedStatus;
+      }
 
       return matchesSearch && matchesStatus;
     });
@@ -76,6 +89,10 @@ export function LotesTab({
     });
     const options = Array.from(statuses).map(s => ({ value: s, label: getStatusLabel(s) }));
     options.push({ value: 'ERR_YIELD', label: '⚠️ Erro de Rendimento (>10%)' });
+    options.push({ value: 'ERR_PESAGEM', label: '⚠️ Erro de Pesagem' });
+    options.push({ value: 'ERR_ENVASE', label: '⚠️ Erro de Envase' });
+    options.push({ value: 'ERR_CONFERENCIA', label: '⚠️ Erro de Conferência' });
+    options.push({ value: 'ERR_ANY_ERROR', label: '⚠️ Qualquer Erro de Lote' });
     return options;
   }, [lotes]);
 
@@ -126,7 +143,7 @@ export function LotesTab({
             <div className="card-icon"><Calendar size={20} /></div>
           </div>
           <div className="card-value">
-            {lotes.reduce((sum, l) => sum + (['EA', 'FP'].includes(l.status.toUpperCase()) ? l.quantity : 0), 0).toLocaleString()} un
+            {lotes.reduce((sum, l) => sum + (['EA', 'FP'].includes(l.status.toUpperCase()) ? l.quantity : 0), 0).toLocaleString()} kg
           </div>
           <div className="card-subtitle">Volume físico total dos lotes concluídos</div>
         </div>
@@ -212,7 +229,7 @@ export function LotesTab({
                         <div className="product-desc" style={{ fontWeight: '500' }}>{l.productDescription || 'Item Não Sincronizado'}</div>
                       </td>
                       <td className="numeric-col" style={{ fontWeight: '700', fontSize: '0.85rem' }}>
-                        {l.quantity.toLocaleString()} un
+                        {l.quantity.toLocaleString()} kg
                       </td>
                       <td>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
@@ -233,6 +250,54 @@ export function LotesTab({
                               animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
                             }}>
                               <AlertTriangle size={10} /> ERRO RENDIMENTO
+                            </span>
+                          )}
+                          {l.pesagemError === true && (
+                            <span style={{ 
+                              backgroundColor: '#fee2e2', 
+                              color: '#b91c1c',
+                              fontSize: '10px',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontWeight: 'bold',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                            }}>
+                              <AlertTriangle size={10} /> ERRO PESAGEM
+                            </span>
+                          )}
+                          {l.envaseError === true && (
+                            <span style={{ 
+                              backgroundColor: '#ffedd5', 
+                              color: '#c2410c',
+                              fontSize: '10px',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontWeight: 'bold',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                            }}>
+                              <AlertTriangle size={10} /> ERRO ENVASE
+                            </span>
+                          )}
+                          {l.conferenciaError === true && (
+                            <span style={{ 
+                              backgroundColor: '#f3e8ff', 
+                              color: '#6b21a8',
+                              fontSize: '10px',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontWeight: 'bold',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                            }}>
+                              <AlertTriangle size={10} /> ERRO CONFERÊNCIA
                             </span>
                           )}
                         </div>

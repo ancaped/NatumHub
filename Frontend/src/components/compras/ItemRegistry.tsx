@@ -3,7 +3,11 @@ import { Search, Trash2, Edit2, Plus, Package, EyeOff, Save, X, ArrowUpDown, Arr
 import { api } from '../../lib/api';
 import { Item, Category } from '../../types';
 
-export default function ItemRegistry() {
+interface ItemRegistryProps {
+  mode?: 'materia_prima' | 'embalagens' | 'all';
+}
+
+export default function ItemRegistry({ mode = 'all' }: ItemRegistryProps) {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -65,7 +69,20 @@ export default function ItemRegistry() {
   };
 
   const filteredAndSortedItems = useMemo(() => {
-    const filtered = items.filter(i => 
+    let result = items;
+    if (mode === 'materia_prima') {
+      result = result.filter(i => {
+        const cat = categories.find(c => c.id === i.categoryId);
+        return i.categoryId === 'cat_mp' || (cat && cat.parentId === 'cat_mp');
+      });
+    } else if (mode === 'embalagens') {
+      result = result.filter(i => {
+        const cat = categories.find(c => c.id === i.categoryId);
+        return i.categoryId === 'cat_emb' || (cat && cat.parentId === 'cat_emb');
+      });
+    }
+
+    const filtered = result.filter(i => 
       (i.description || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (i.code || '').toLowerCase().includes(searchTerm.toLowerCase())
     );
@@ -80,7 +97,7 @@ export default function ItemRegistry() {
       const bVal = b[sortKey] || '';
       return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
     });
-  }, [items, searchTerm, sortKey, sortDir]);
+  }, [items, categories, searchTerm, sortKey, sortDir, mode]);
 
   if (loading) return <div className="p-8 text-center text-zinc-500 font-medium">Carregando cadastro...</div>;
 
@@ -89,7 +106,7 @@ export default function ItemRegistry() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-zinc-900 tracking-tight">Cadastro de Insumos</h2>
-          <p className="text-sm text-zinc-500 font-medium">{items.length} itens cadastrados</p>
+          <p className="text-sm text-zinc-500 font-medium">{filteredAndSortedItems.length} itens cadastrados</p>
         </div>
         <div className="flex gap-3 w-full md:w-auto">
           <div className="relative flex-1 md:w-80">

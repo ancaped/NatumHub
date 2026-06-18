@@ -433,6 +433,9 @@ pub struct ProductionLote {
     pub fabricated_by: String,
     pub authorized_by: String,
     pub yield_error: Option<bool>,
+    pub pesagem_error: Option<bool>,
+    pub envase_error: Option<bool>,
+    pub conferencia_error: Option<bool>,
 }
 
 

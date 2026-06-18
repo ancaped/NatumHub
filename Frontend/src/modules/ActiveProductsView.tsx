@@ -51,9 +51,10 @@ interface LineConfig {
 
 interface ActiveProductsViewProps {
   onBackToHub: () => void;
+  standalone?: boolean;
 }
 
-export default function ActiveProductsView({ onBackToHub }: ActiveProductsViewProps) {
+export default function ActiveProductsView({ onBackToHub, standalone = false }: ActiveProductsViewProps) {
   const [products, setProducts] = useState<ProductResult[]>([]);
   const [configs, setConfigs] = useState<LineConfig[]>([]);
   const [loading, setLoading] = useState(true);
@@ -328,13 +329,15 @@ export default function ActiveProductsView({ onBackToHub }: ActiveProductsViewPr
       {/* Top Header */}
       <header className="h-14 bg-white border-b border-zinc-200 flex items-center justify-between px-6 shrink-0 shadow-sm z-10">
         <div className="flex items-center gap-3">
-          <button 
-            onClick={onBackToHub}
-            className="bg-white border border-zinc-200 hover:bg-zinc-100 p-2 rounded-xl text-zinc-650 hover:text-zinc-900 transition-colors cursor-pointer"
-            title="Voltar ao Estoque Hub"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
+          {!standalone && (
+            <button 
+              onClick={onBackToHub}
+              className="bg-white border border-zinc-200 hover:bg-zinc-100 p-2 rounded-xl text-zinc-650 hover:text-zinc-900 transition-colors cursor-pointer"
+              title="Voltar ao Estoque Hub"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+          )}
           <div>
             <h1 className="font-bold text-base tracking-tight text-zinc-800">Linhas & Produtos Ativos</h1>
             <p className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">Configure status, categorias e overrides de produtos</p>

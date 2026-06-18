@@ -13,6 +13,7 @@ interface PedidosViewProps {
 }
 
 interface PurchaseOrder {
+  nRegistro: number;
   nPedido: number;
   dPedido: string | null;
   nCodFornec: number | null;
@@ -29,6 +30,7 @@ interface PurchaseOrder {
 
 interface PurchaseOrderItem {
   id: number;
+  nPedidoRegistro: number;
   nPedido: number;
   cReferencia: string;
   nQtde: number;
@@ -85,11 +87,11 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
     return () => clearTimeout(timer);
   }, [search]);
 
-  const handleOpenDetail = async (nPedido: number) => {
+  const handleOpenDetail = async (nRegistro: number) => {
     setDrawerLoading(true);
     setSelectedOrder(null);
     try {
-      const res = await fetch(`${API_BASE}/compras/pedidos/${nPedido}`);
+      const res = await fetch(`${API_BASE}/compras/pedidos/${nRegistro}`);
       if (res.ok) {
         const data = await res.json();
         setSelectedOrder(data);
@@ -307,7 +309,7 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
                             </td>
                             <td className="px-6 py-4 text-right">
                               <button
-                                onClick={() => handleOpenDetail(order.nPedido)}
+                                onClick={() => handleOpenDetail(order.nRegistro)}
                                 className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-900 hover:text-white rounded-lg text-xs font-bold text-zinc-700 transition-all cursor-pointer shadow-sm border border-zinc-200"
                               >
                                 Ver Itens

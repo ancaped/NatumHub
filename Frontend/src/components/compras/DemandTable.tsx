@@ -7,11 +7,16 @@ import { cn } from '../../lib/utils';
 type SortKey = 'itemCode' | 'description' | 'currentStock' | 'overallAvg' | 'futureStockForecast' | 'estimatedDurationDays' | 'recommendedQty';
 type SortDir = 'asc' | 'desc';
 
-export function DemandTable() {
+interface DemandTableProps {
+  mode?: 'materia_prima' | 'embalagens' | 'all';
+}
+
+export function DemandTable({ mode = 'all' }: DemandTableProps) {
+  const defaultTab = mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : 'ALL';
   const [demands, setDemands] = useState<DemandResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [targetDays, setTargetDays] = useState(90);
-  const [activeMainTab, setActiveMainTab] = useState<'ALL' | 'cat_mp' | 'cat_emb'>('ALL');
+  const [activeMainTab, setActiveMainTab] = useState<'ALL' | 'cat_mp' | 'cat_emb'>(defaultTab);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
@@ -19,6 +24,11 @@ export function DemandTable() {
   const [sortKey, setSortKey] = useState<SortKey>('estimatedDurationDays');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [urgencyFilter, setUrgencyFilter] = useState<string>('');
+
+  useEffect(() => {
+    setActiveMainTab(defaultTab);
+    setSelectedCategory(null);
+  }, [mode, defaultTab]);
 
   useEffect(() => {
     loadCategories();
@@ -79,6 +89,19 @@ export function DemandTable() {
       emb
     };
   }, [demands, categories]);
+
+  // Main Category filtered demands for KPI counts
+  const mainFilteredDemands = useMemo(() => {
+    if (activeMainTab === 'ALL') return demands;
+    const allowedCategoryIds = new Set<string>();
+    allowedCategoryIds.add(activeMainTab);
+    categories.forEach(c => {
+      if (c.parentId === activeMainTab) {
+        allowedCategoryIds.add(c.id);
+      }
+    });
+    return demands.filter(d => d.categoryId && allowedCategoryIds.has(d.categoryId));
+  }, [demands, activeMainTab, categories]);
 
   // Filtered + sorted
   const filteredDemands = useMemo(() => {
@@ -175,11 +198,11 @@ export function DemandTable() {
     <div className="flex flex-col gap-4 h-[calc(100vh-11rem)]">
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 shrink-0">
-        <div className="bg-white border border-zinc-200 p-4 rounded-xl shadow-sm text-left flex items-center justify-between">
+        <div className="bg-white p-4 rounded-xl border border-zinc-200 shadow-sm text-left flex items-center justify-between">
           <div>
             <span className="text-[10px] text-zinc-400 font-bold uppercase block tracking-wider">Itens com Demanda</span>
             <p className="text-2xl font-extrabold text-zinc-900 mt-1">
-              {demands.filter(d => d.recommendedQty > 0).length} <span className="text-xs font-semibold text-zinc-500">de {demands.length}</span>
+              {mainFilteredDemands.filter(d => d.recommendedQty > 0).length} <span className="text-xs font-semibold text-zinc-500">de {mainFilteredDemands.length}</span>
             </p>
           </div>
           <div className="p-2.5 bg-zinc-50 border border-zinc-100 rounded-lg text-zinc-650">
@@ -191,7 +214,7 @@ export function DemandTable() {
           <div>
             <span className="text-[10px] text-red-500 font-bold uppercase block tracking-wider">Demanda Crítica</span>
             <p className="text-2xl font-extrabold text-red-700 mt-1">
-              {demands.filter(d => d.urgency === 'critical').length} <span className="text-xs font-semibold text-zinc-500">itens</span>
+              {mainFilteredDemands.filter(d => d.urgency === 'critical').length} <span className="text-xs font-semibold text-zinc-500">itens</span>
             </p>
           </div>
           <div className="p-2.5 bg-red-100/50 border border-red-200/50 rounded-lg text-red-650">
@@ -203,7 +226,7 @@ export function DemandTable() {
           <div>
             <span className="text-[10px] text-amber-600 font-bold uppercase block tracking-wider">Demanda em Atenção</span>
             <p className="text-2xl font-extrabold text-amber-700 mt-1">
-              {demands.filter(d => d.urgency === 'warning').length} <span className="text-xs font-semibold text-zinc-500">itens</span>
+              {mainFilteredDemands.filter(d => d.urgency === 'warning').length} <span className="text-xs font-semibold text-zinc-500">itens</span>
             </p>
           </div>
           <div className="p-2.5 bg-amber-100/50 border border-amber-200/50 rounded-lg text-zinc-650">
@@ -227,35 +250,37 @@ export function DemandTable() {
       {/* Main Table Card */}
       <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden flex flex-col flex-1">
         {/* Category Tabs */}
-      <div className="flex border-b border-zinc-200 bg-zinc-50/50 px-4 pt-2 shrink-0 gap-2">
-        {([
-          { id: 'ALL', name: 'Todos', count: counts.all },
-          { id: 'cat_mp', name: 'Matéria-prima', count: counts.mp },
-          { id: 'cat_emb', name: 'Embalagens', count: counts.emb }
-        ] as const).map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => {
-              setActiveMainTab(tab.id);
-              setSelectedCategory(null);
-            }}
-            className={cn(
-              "px-4 py-2 text-xs font-bold border-b-2 -mb-px transition-colors cursor-pointer flex items-center gap-2",
-              activeMainTab === tab.id
-                ? "border-zinc-900 text-zinc-900 font-extrabold"
-                : "border-transparent text-zinc-500 hover:text-zinc-800"
-            )}
-          >
-            {tab.name}
-            <span className={cn(
-              "px-1.5 py-0.5 rounded-full text-[9px] font-bold font-mono",
-              activeMainTab === tab.id ? "bg-zinc-900 text-white" : "bg-zinc-200 text-zinc-600"
-            )}>
-              {tab.count}
-            </span>
-          </button>
-        ))}
-      </div>
+        {mode === 'all' && (
+          <div className="flex border-b border-zinc-200 bg-zinc-50/50 px-4 pt-2 shrink-0 gap-2">
+            {([
+              { id: 'ALL', name: 'Todos', count: counts.all },
+              { id: 'cat_mp', name: 'Matéria-prima', count: counts.mp },
+              { id: 'cat_emb', name: 'Embalagens', count: counts.emb }
+            ] as const).map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveMainTab(tab.id);
+                  setSelectedCategory(null);
+                }}
+                className={cn(
+                  "px-4 py-2 text-xs font-bold border-b-2 -mb-px transition-colors cursor-pointer flex items-center gap-2",
+                  activeMainTab === tab.id
+                    ? "border-zinc-900 text-zinc-900 font-extrabold"
+                    : "border-transparent text-zinc-500 hover:text-zinc-800"
+                )}
+              >
+                {tab.name}
+                <span className={cn(
+                  "px-1.5 py-0.5 rounded-full text-[9px] font-bold font-mono",
+                  activeMainTab === tab.id ? "bg-zinc-900 text-white" : "bg-zinc-200 text-zinc-600"
+                )}>
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
 
       {/* Header & Filters */}
       <div className="px-4 py-2 border-b border-zinc-200 bg-zinc-50 flex items-center justify-between shrink-0 gap-4 flex-wrap">

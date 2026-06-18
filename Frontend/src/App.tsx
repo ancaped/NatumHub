@@ -8,17 +8,18 @@ import EstoqueView from './modules/EstoqueView';
 import PedidosView from './modules/PedidosView';
 import NotasFiscaisView from './modules/NotasFiscaisView';
 import ActiveProductsView from './modules/ActiveProductsView';
+import VendasView from './modules/VendasView';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { FeedbackWidget } from './components/shared/FeedbackWidget';
 import { 
   Boxes, ShoppingCart, Activity, FlaskConical, ArrowRight, ArrowLeft,
   Settings, Database, RefreshCw, Upload, Download, Loader2, Check, X, Globe,
-  FileText, ClipboardList, CheckCircle2
+  FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp
 } from 'lucide-react';
 import { APP_NAME } from './lib/utils';
 import { api } from './lib/api';
 
-type HubView = 'hub' | 'producao_hub' | 'producao' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'estoque_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materiais' | 'estoque_ativos';
+type HubView = 'hub' | 'producao_hub' | 'producao' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'estoque_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materiais' | 'estoque_ativos' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'vendas';
 
 export default function App() {
   const [view, setView] = useState<HubView>('hub');
@@ -44,6 +45,7 @@ export default function App() {
   const [sqlUser, setSqlUser] = useState('sa');
   const [sqlPassword, setSqlPassword] = useState('byteonDS2015');
   const [sqlDatabase, setSqlDatabase] = useState('NATUM');
+  const [salesSyncStartDate, setSalesSyncStartDate] = useState('2020-01-01');
   const [savingSql, setSavingSql] = useState(false);
   const [syncingSql, setSyncingSql] = useState(false);
 
@@ -62,7 +64,7 @@ export default function App() {
 
   const fetchSqlConfig = async () => {
     try {
-      const keys = ['sql_host', 'sql_port', 'sql_user', 'sql_password', 'sql_database'];
+      const keys = ['sql_host', 'sql_port', 'sql_user', 'sql_password', 'sql_database', 'sales_sync_start_date'];
       const vals = await Promise.all(
         keys.map(async (key) => {
           const res = await fetch(`http://127.0.0.1:3001/api/settings/${key}`);
@@ -78,6 +80,7 @@ export default function App() {
       if (vals[2]) setSqlUser(vals[2]);
       if (vals[3]) setSqlPassword(vals[3]);
       if (vals[4]) setSqlDatabase(vals[4]);
+      if (vals[5]) setSalesSyncStartDate(vals[5]);
     } catch (e) {
       console.error("Error fetching SQL config:", e);
     }
@@ -92,6 +95,7 @@ export default function App() {
         { key: 'sql_user', value: sqlUser },
         { key: 'sql_password', value: sqlPassword },
         { key: 'sql_database', value: sqlDatabase },
+        { key: 'sales_sync_start_date', value: salesSyncStartDate },
       ];
       await Promise.all(
         configs.map(async (cfg) => {
@@ -279,7 +283,47 @@ export default function App() {
     if (view === 'compras') {
       return (
         <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Compras">
-          <ComprasView onBackToHub={() => setView('compras_hub')} />
+          <ComprasView mode="all" onBackToHub={() => setView('compras_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'compras_materia_prima') {
+      return (
+        <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Matéria-Prima">
+          <ComprasView mode="materia_prima" onBackToHub={() => setView('compras_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'compras_embalagens') {
+      return (
+        <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Embalagens">
+          <ComprasView mode="embalagens" onBackToHub={() => setView('compras_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'compras_coloracao') {
+      return (
+        <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Coloração">
+          <ComprasView mode="coloracao" onBackToHub={() => setView('compras_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'compras_apoio') {
+      return (
+        <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Material de Apoio">
+          <ComprasView mode="apoio" onBackToHub={() => setView('compras_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'compras_quotations') {
+      return (
+        <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Cotações">
+          <ComprasView mode="quotations" onBackToHub={() => setView('compras_hub')} />
         </ErrorBoundary>
       );
     }
@@ -446,7 +490,15 @@ export default function App() {
     if (view === 'estoque_ativos') {
       return (
         <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro no módulo de Linhas & Produtos Ativos">
-          <ActiveProductsView onBackToHub={() => setView('estoque_hub')} />
+          <EstoqueView mode="ativos" onBackToHub={() => setView('estoque_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'vendas') {
+      return (
+        <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo de Vendas">
+          <VendasView onBackToHub={() => setView('hub')} />
         </ErrorBoundary>
       );
     }
@@ -685,6 +737,17 @@ export default function App() {
                       />
                     </div>
 
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-zinc-600 block">Início da Importação de Vendas (AAAA-MM-DD)</label>
+                      <input 
+                        type="text" 
+                        className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
+                        placeholder="Ex: 2020-01-01"
+                        value={salesSyncStartDate}
+                        onChange={(e) => setSalesSyncStartDate(e.target.value)}
+                      />
+                    </div>
+
                     <button 
                       onClick={handleSaveSqlConfig} 
                       disabled={savingSql}
@@ -759,7 +822,7 @@ export default function App() {
                 <p className="text-sm text-zinc-500">Escolha a área do ecossistema Natum que deseja acessar.</p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-4">
                 {/* Card Estoque */}
                 <button 
                   onClick={() => setView('estoque_hub')}
@@ -810,6 +873,25 @@ export default function App() {
                     <div>
                       <h3 className="text-xl font-bold text-zinc-900">Compras</h3>
                       <p className="text-sm text-zinc-500 mt-1">Planejamento de demandas, cotações de fornecedores e controle de notas fiscais.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                    Entrar no Módulo <ArrowRight className="h-4 w-4" />
+                  </div>
+                </button>
+
+                {/* Card Vendas */}
+                <button 
+                  onClick={() => setView('vendas')}
+                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
+                >
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                      <TrendingUp className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-zinc-900">Vendas</h3>
+                      <p className="text-sm text-zinc-500 mt-1">Estatísticas de vendas, desempenho ano a ano (YoY), histórico por produto e análise de demandas.</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
@@ -910,9 +992,9 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-2">
-                {/* Gestão de Insumos & Matérias-Primas */}
+                {/* Matéria-Prima */}
                 <button 
-                  onClick={() => setView('compras')}
+                  onClick={() => setView('compras_materia_prima')}
                   className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
                 >
                   <div className="space-y-4">
@@ -920,12 +1002,88 @@ export default function App() {
                       <Boxes className="h-5 w-5" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold text-zinc-900">Insumos & Matéria-Prima</h3>
-                      <p className="text-xs text-zinc-500 mt-1">Planeje o estoque de matérias-primas e embalagens, calcule demandas automáticas, gerencie fornecedores e cotações.</p>
+                      <h3 className="text-lg font-bold text-zinc-900">Matéria-Prima</h3>
+                      <p className="text-xs text-zinc-500 mt-1">Planeje o estoque de matérias-primas químicas, calcule demandas automáticas e gerencie especificações de compras.</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Acessar Insumos <ArrowRight className="h-3 w-3" />
+                    Acessar Matéria-Prima <ArrowRight className="h-3 w-3" />
+                  </div>
+                </button>
+
+                {/* Embalagens */}
+                <button 
+                  onClick={() => setView('compras_embalagens')}
+                  className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
+                >
+                  <div className="space-y-4">
+                    <div className="bg-zinc-150 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors bg-zinc-100 text-zinc-900">
+                      <Layers className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-zinc-900">Embalagens</h3>
+                      <p className="text-xs text-zinc-500 mt-1">Monitore o estoque e planeje a compra de frascos, potes, tampas, caixas e materiais gráficos.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                    Acessar Embalagens <ArrowRight className="h-3 w-3" />
+                  </div>
+                </button>
+
+                {/* Coloração */}
+                <button 
+                  onClick={() => setView('compras_coloracao')}
+                  className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
+                >
+                  <div className="space-y-4">
+                    <div className="bg-zinc-150 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors bg-zinc-100 text-zinc-900">
+                      <Palette className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-zinc-900">Coloração</h3>
+                      <p className="text-xs text-zinc-500 mt-1">Gerencie a aquisição de colorações, tonalizantes e gloss terceirizados por unidade.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                    Acessar Coloração <ArrowRight className="h-3 w-3" />
+                  </div>
+                </button>
+
+                {/* Material de Apoio */}
+                <button 
+                  onClick={() => setView('compras_apoio')}
+                  className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
+                >
+                  <div className="space-y-4">
+                    <div className="bg-zinc-150 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors bg-zinc-100 text-zinc-900">
+                      <Tag className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-zinc-900">Material de Apoio</h3>
+                      <p className="text-xs text-zinc-500 mt-1">Controle e planeje compras de materiais auxiliares de vendas como camisas, aventais e escovas.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                    Acessar Material de Apoio <ArrowRight className="h-3 w-3" />
+                  </div>
+                </button>
+
+                {/* Cotações */}
+                <button 
+                  onClick={() => setView('compras_quotations')}
+                  className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
+                >
+                  <div className="space-y-4">
+                    <div className="bg-zinc-150 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors bg-zinc-100 text-zinc-900">
+                      <ShoppingCart className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-zinc-900">Cotações Gerais</h3>
+                      <p className="text-xs text-zinc-500 mt-1">Módulo unificado de cotações para integrar demandas de insumos, embalagens e compras online.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                    Acessar Cotações <ArrowRight className="h-3 w-3" />
                   </div>
                 </button>
 

@@ -1225,10 +1225,10 @@ export default function ProducaoView({ onBackToHub }) {
           </button>
 
           <button 
-            className={`sidebar-link cursor-pointer ${currentView === 'lotes' && selectedLoteStatus === 'ERR_YIELD' ? 'active' : ''}`}
+            className={`sidebar-link cursor-pointer ${currentView === 'lotes' && selectedLoteStatus === 'ERR_ANY_ERROR' ? 'active' : ''}`}
             onClick={() => {
               setCurrentView('lotes');
-              setSelectedLoteStatus('ERR_YIELD');
+              setSelectedLoteStatus('ERR_ANY_ERROR');
             }}
           >
             <AlertTriangle size={16} className="text-amber-500" />
@@ -1861,16 +1861,16 @@ export default function ProducaoView({ onBackToHub }) {
                               {selectedProductDetails.formulation.map((line) => {
                                 const needsPercentage = line.percentage !== null && line.percentage !== undefined;
                                 const pctVal = needsPercentage ? line.percentage * 100 : 0;
-                                const isOutOfStock = line.current_stock <= 0;
+                                const isOutOfStock = (line.currentStock ?? 0) <= 0;
 
                                 return (
-                                  <tr key={line.ingredient_code} className="hover:bg-zinc-50/50 transition-colors">
+                                  <tr key={line.ingredientCode} className="hover:bg-zinc-50/50 transition-colors">
                                     <td className="px-4 py-2.5">
                                       <div className="font-bold text-zinc-800">{line.description}</div>
-                                      <div className="font-mono text-[9px] text-zinc-400">{line.ingredient_code}</div>
+                                      <div className="font-mono text-[9px] text-zinc-400">{line.ingredientCode}</div>
                                     </td>
                                     <td className="px-4 py-2.5 text-right font-medium text-zinc-700">
-                                      {line.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
+                                      {(line.quantity ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
                                     </td>
                                     <td className="px-4 py-2.5 text-right text-zinc-550">
                                       {needsPercentage ? `${pctVal.toFixed(3)}%` : '-'}
@@ -1883,7 +1883,7 @@ export default function ProducaoView({ onBackToHub }) {
                                             : 'bg-green-100 text-green-700 border border-green-200'
                                         }`}
                                       >
-                                        {line.current_stock.toLocaleString('pt-BR')}
+                                        {(line.currentStock ?? 0).toLocaleString('pt-BR')}
                                       </span>
                                     </td>
                                   </tr>
@@ -1901,7 +1901,7 @@ export default function ProducaoView({ onBackToHub }) {
                         <TrendingUp className="h-4 w-4 text-zinc-650" />
                         <h4 className="font-extrabold text-sm text-zinc-900">Histórico de Vendas Ano a Ano</h4>
                       </div>
-                      {selectedProductDetails.salesYoY.length === 0 ? (
+                      {selectedProductDetails.salesYoy.length === 0 ? (
                         <p className="text-xs text-zinc-400 py-3">Sem histórico de vendas registrado.</p>
                       ) : (
                         <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
@@ -1914,7 +1914,7 @@ export default function ProducaoView({ onBackToHub }) {
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-100">
-                              {selectedProductDetails.salesYoY.map((s) => (
+                              {selectedProductDetails.salesYoy.map((s) => (
                                 <tr key={s.year} className="hover:bg-zinc-50/50 transition-colors">
                                   <td className="px-4 py-2.5 font-bold text-zinc-800">{s.year}</td>
                                   <td className="px-4 py-2.5 text-right font-semibold text-zinc-950">
@@ -2127,11 +2127,11 @@ export default function ProducaoView({ onBackToHub }) {
                           <div className="grid grid-cols-3 gap-4">
                             <div className="text-left">
                               <span className="text-[10px] text-zinc-400 font-bold uppercase block">Massa Teórica (Pesada)</span>
-                              <p className="text-lg font-extrabold text-zinc-900 mt-0.5">{selectedLoteDetails.pesagem_total_actual.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} Kg</p>
+                              <p className="text-lg font-extrabold text-zinc-900 mt-0.5">{(selectedLoteDetails.pesagem_total_actual ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} Kg</p>
                             </div>
                             <div className="text-left">
                               <span className="text-[10px] text-zinc-400 font-bold uppercase block">Massa Envasada (SKUs)</span>
-                              <p className="text-lg font-extrabold text-zinc-900 mt-0.5">{selectedLoteDetails.total_packaged_weight_kg.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} Kg</p>
+                              <p className="text-lg font-extrabold text-zinc-900 mt-0.5">{(selectedLoteDetails.total_packaged_weight_kg ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} Kg</p>
                             </div>
                             <div className="text-left">
                               <span className="text-[10px] text-zinc-400 font-bold uppercase block">Aproveitamento de Massa</span>
@@ -2160,7 +2160,7 @@ export default function ProducaoView({ onBackToHub }) {
                           </div>
                           <div className="text-right">
                             <span className="text-[10px] text-zinc-400 font-bold uppercase">Total Pesado</span>
-                            <p className="text-sm font-extrabold text-zinc-900">{selectedLoteDetails.pesagem_total_actual.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} Kg</p>
+                            <p className="text-sm font-extrabold text-zinc-900">{(selectedLoteDetails.pesagem_total_actual ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} Kg</p>
                           </div>
                         </div>
 
@@ -2183,16 +2183,16 @@ export default function ProducaoView({ onBackToHub }) {
                                     <div className="text-[9px] text-zinc-400 font-mono mt-0.5">{item.ingredient_code}</div>
                                   </td>
                                   <td className="px-4 py-3 text-right font-medium text-zinc-500 font-mono">
-                                    {item.expected_qty.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} Kg
+                                    {(item.expected_qty ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} Kg
                                   </td>
                                   <td className="px-4 py-3 text-right font-bold text-zinc-900 font-mono">
-                                    {item.actual_qty.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} Kg
+                                    {(item.actual_qty ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} Kg
                                   </td>
                                   <td className={`px-4 py-3 text-right font-bold font-mono ${
-                                    Math.abs(item.difference) < 0.0001 ? 'text-zinc-500' :
-                                    item.difference > 0.0 ? 'text-emerald-600' : 'text-rose-600'
+                                    Math.abs(item.difference ?? 0) < 0.0001 ? 'text-zinc-500' :
+                                    (item.difference ?? 0) > 0.0 ? 'text-emerald-600' : 'text-rose-600'
                                   }`}>
-                                    {item.difference > 0.0 ? '+' : ''}{item.difference.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} Kg
+                                    {(item.difference ?? 0) > 0.0 ? '+' : ''}{(item.difference ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} Kg
                                     {item.expected_qty > 0.0 && (
                                       <span className="text-[9px] font-normal block opacity-80 mt-0.5">
                                         ({item.percentage_diff > 0.0 ? '+' : ''}{item.percentage_diff.toFixed(1)}%)
@@ -2231,10 +2231,31 @@ export default function ProducaoView({ onBackToHub }) {
                               </div>
                               <div className="text-right">
                                 <span className="text-[10px] text-zinc-400 font-bold uppercase">Unidades Envasadas</span>
-                                <p className="text-sm font-extrabold text-zinc-900">{prod.actual_units_envasadas.toLocaleString('pt-BR')} un</p>
+                                <p className="text-sm font-extrabold text-zinc-900">{(prod.actual_units_envasadas ?? 0).toLocaleString('pt-BR')} un</p>
                               </div>
                             </div>
 
+                            {!prod.has_packaging_formula ? (
+                              <div className="flex items-center gap-3 bg-blue-50/80 border border-blue-200/60 rounded-xl px-4 py-3.5">
+                                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-100/80 text-blue-600 flex-shrink-0">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-bold text-blue-800">Nenhuma embalagem cadastrada</p>
+                                  <p className="text-[10px] text-blue-600 mt-0.5">Este produto não possui embalagens registradas na formulação. Não foi feita baixa de embalagens.</p>
+                                </div>
+                              </div>
+                            ) : prod.packaging_items.length === 0 ? (
+                              <div className="flex items-center gap-3 bg-amber-50/80 border border-amber-200/60 rounded-xl px-4 py-3.5">
+                                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-100/80 text-amber-600 flex-shrink-0">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-bold text-amber-800">Sem movimentação de embalagens</p>
+                                  <p className="text-[10px] text-amber-600 mt-0.5">Embalagens estão cadastradas na formulação, mas nenhuma saída foi registrada neste lote.</p>
+                                </div>
+                              </div>
+                            ) : (
                             <div className="overflow-hidden rounded-lg border border-zinc-150 bg-white shadow-sm">
                               <table className="w-full text-left text-xs">
                                 <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
@@ -2254,16 +2275,16 @@ export default function ProducaoView({ onBackToHub }) {
                                         <div className="text-[9px] text-zinc-400 font-mono mt-0.5">{item.packaging_code}</div>
                                       </td>
                                       <td className="px-4 py-2.5 text-right font-semibold text-zinc-500 font-mono">
-                                        {item.expected_qty.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+                                        {(item.expected_qty ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
                                       </td>
                                       <td className="px-4 py-2.5 text-right font-bold text-zinc-900 font-mono">
-                                        {item.actual_qty.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+                                        {(item.actual_qty ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
                                       </td>
                                       <td className={`px-4 py-2.5 text-right font-bold font-mono ${
-                                        Math.abs(item.difference) < 0.01 ? 'text-zinc-500' :
-                                        item.difference > 0.0 ? 'text-emerald-600' : 'text-rose-600'
+                                        Math.abs(item.difference ?? 0) < 0.01 ? 'text-zinc-500' :
+                                        (item.difference ?? 0) > 0.0 ? 'text-emerald-600' : 'text-rose-600'
                                       }`}>
-                                        {item.difference > 0.0 ? '+' : ''}{item.difference.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+                                        {(item.difference ?? 0) > 0.0 ? '+' : ''}{(item.difference ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
                                       </td>
                                       <td className="px-4 py-2.5 text-center">
                                         <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border ${
@@ -2279,6 +2300,7 @@ export default function ProducaoView({ onBackToHub }) {
                                 </tbody>
                               </table>
                             </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -2292,6 +2314,18 @@ export default function ProducaoView({ onBackToHub }) {
                           <p className="text-[10px] text-zinc-500 mt-0.5">Validação das unidades envasadas (menos 1 para retém) versus o saldo lançado em Estoque Atualizado (EA).</p>
                         </div>
 
+                        {selectedLoteDetails.status.toUpperCase() !== 'EA' && (
+                          <div className="flex items-center gap-3 bg-blue-50/80 border border-blue-200/60 rounded-xl px-4 py-3.5">
+                            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-100/80 text-blue-600 flex-shrink-0">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-blue-800">Lote em aberto — Status: {selectedLoteDetails.status_label}</p>
+                              <p className="text-[10px] text-blue-600 mt-0.5">A conferência de estoque só é possível após a finalização do lote (status EA — Estoque Atualizado). As colunas de lançamento no estoque e discrepância não se aplicam neste momento.</p>
+                            </div>
+                          </div>
+                        )}
+
                         <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
                           <table className="w-full text-left text-xs">
                             <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
@@ -2299,40 +2333,48 @@ export default function ProducaoView({ onBackToHub }) {
                                 <th className="px-4 py-3">Produto</th>
                                 <th className="px-4 py-3 text-right">Envasados (Frascos)</th>
                                 <th className="px-4 py-3 text-right">Previsto Final (F-1)</th>
-                                <th className="px-4 py-3 text-right">Lançado no Estoque</th>
-                                <th className="px-4 py-3 text-right">Discrepância</th>
-                                <th className="px-4 py-3 text-center">Status</th>
+                                {selectedLoteDetails.status.toUpperCase() === 'EA' && (
+                                  <>
+                                    <th className="px-4 py-3 text-right">Lançado no Estoque</th>
+                                    <th className="px-4 py-3 text-right">Discrepância</th>
+                                    <th className="px-4 py-3 text-center">Status</th>
+                                  </>
+                                )}
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-100">
-                              {selectedLoteDetails.conferencia_items.map((item) => (
+                              {selectedLoteDetails?.conferencia_items.map((item) => (
                                 <tr key={item.product_code} className="hover:bg-zinc-50/50 transition-colors">
                                   <td className="px-4 py-3">
                                     <div className="font-bold text-zinc-800">{item.description}</div>
                                     <div className="text-[9px] text-zinc-400 font-mono mt-0.5">{item.product_code}</div>
                                   </td>
                                   <td className="px-4 py-3 text-right font-semibold text-zinc-550 font-mono">
-                                    {item.actual_units_envasadas.toLocaleString('pt-BR')} un
+                                    {(item.actual_units_envasadas ?? 0).toLocaleString('pt-BR')} un
                                   </td>
                                   <td className="px-4 py-3 text-right font-bold text-zinc-900 font-mono">
-                                    {item.expected_finalized_units.toLocaleString('pt-BR')} un
+                                    {(item.expected_finalized_units ?? 0).toLocaleString('pt-BR')} un
                                   </td>
-                                  <td className="px-4 py-3 text-right font-bold text-zinc-900 font-mono">
-                                    {item.registered_units_stock.toLocaleString('pt-BR')} un
-                                  </td>
-                                  <td className={`px-4 py-3 text-right font-bold font-mono ${
-                                    item.discrepancy == 0.0 ? 'text-zinc-500' : 'text-rose-600'
-                                  }`}>
-                                    {item.discrepancy > 0.0 ? '+' : ''}{item.discrepancy.toLocaleString('pt-BR')} un
-                                  </td>
-                                  <td className="px-4 py-3 text-center">
-                                    <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border ${
-                                      item.status === 'OK' ? 'bg-emerald-50 text-emerald-700 border-emerald-250/50' :
-                                      'bg-rose-50 text-rose-700 border-rose-250/50'
-                                    }`}>
-                                      {item.status === 'OK' ? 'Aprovado' : 'Discrepante'}
-                                    </span>
-                                  </td>
+                                  {selectedLoteDetails?.status.toUpperCase() === 'EA' && (
+                                    <>
+                                      <td className="px-4 py-3 text-right font-bold text-zinc-900 font-mono">
+                                        {(item.registered_units_stock ?? 0).toLocaleString('pt-BR')} un
+                                      </td>
+                                      <td className={`px-4 py-3 text-right font-bold font-mono ${
+                                        (item.discrepancy ?? 0) == 0.0 ? 'text-zinc-500' : 'text-rose-600'
+                                      }`}>
+                                        {(item.discrepancy ?? 0) > 0.0 ? '+' : ''}{(item.discrepancy ?? 0).toLocaleString('pt-BR')} un
+                                      </td>
+                                      <td className="px-4 py-3 text-center">
+                                        <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border ${
+                                          item.status === 'OK' ? 'bg-emerald-50 text-emerald-700 border-emerald-250/50' :
+                                          'bg-rose-50 text-rose-700 border-rose-250/50'
+                                        }`}>
+                                          {item.status === 'OK' ? 'Aprovado' : 'Discrepante'}
+                                        </span>
+                                      </td>
+                                    </>
+                                  )}
                                 </tr>
                               ))}
                             </tbody>

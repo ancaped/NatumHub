@@ -8,10 +8,11 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { StockMovement, FormulationLine, DbDumpResult } from '../types';
+import ActiveProductsView from './ActiveProductsView';
 
 const API_BASE = 'http://127.0.0.1:3001/api';
 
-type EstoqueMode = 'insumos' | 'produtos' | 'materiais';
+type EstoqueMode = 'insumos' | 'produtos' | 'materiais' | 'ativos';
 
 interface EstoqueViewProps {
   mode: EstoqueMode;
@@ -109,10 +110,23 @@ const MODE_CONFIGS = {
     icon: Boxes,
     pageName: 'Módulo de Estoque > Materiais',
   },
+  ativos: {
+    title: 'Produtos e Linhas Ativas',
+    subtitle: 'Gerencie quais linhas e produtos estão ativos no sistema para o cálculo de demandas.',
+    icon: CheckCircle2,
+    pageName: 'Módulo de Estoque > Linhas Ativas',
+  },
 };
 
-export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
-  const config = MODE_CONFIGS[mode];
+export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueViewProps) {
+  const [activeTab, setActiveTab] = useState<'insumos' | 'produtos' | 'materiais' | 'ativos'>(mode);
+
+  // Sync active tab if mode changes
+  useEffect(() => {
+    setActiveTab(mode);
+  }, [mode]);
+
+  const config = MODE_CONFIGS[activeTab];
   const ModeIcon = config.icon;
   
   // Data States
@@ -161,14 +175,14 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
   const loadData = async () => {
     setLoading(true);
     try {
-      if (mode === 'produtos') {
+      if (activeTab === 'produtos') {
         // Get calculated products with stocks via REST API
         const res = await fetch(`${API_BASE}/products?limit=5000`);
         if (res.ok) {
           const data = await res.json();
           setProducts(data.items || []);
         }
-      } else {
+      } else if (activeTab === 'insumos' || activeTab === 'materiais') {
         // Get raw items/demands via Tauri API (for stock snapshots of Insumos/Materiais)
         const demandsData = await api.getDemands();
         setDemands(demandsData as any);
@@ -181,9 +195,11 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
   };
 
   useEffect(() => {
-    loadData();
+    if (activeTab !== 'ativos') {
+      loadData();
+    }
     (window as any).__current_page__ = config.pageName;
-  }, [mode]);
+  }, [activeTab]);
 
   // Click handler to open detail drawer
   const handleOpenDrawer = async (
@@ -242,12 +258,12 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
     }
   };
 
-  // Filter demands based on mode and search
+  // Filter demands based on activeTab and search
   const filteredDemands = useMemo(() => {
     let list = demands;
-    if (mode === 'insumos') {
+    if (activeTab === 'insumos') {
       list = list.filter(d => d.categoryId === 'cat_mp' || d.categoryId === 'cat_emb');
-    } else if (mode === 'materiais') {
+    } else if (activeTab === 'materiais') {
       list = list.filter(d => d.categoryId === 'cat_mat');
     } else {
       return [];
@@ -261,11 +277,11 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
       );
     }
     return list;
-  }, [demands, mode, search]);
+  }, [demands, activeTab, search]);
 
   // Filter products based on search
   const filteredProducts = useMemo(() => {
-    if (mode !== 'produtos') return [];
+    if (activeTab !== 'produtos') return [];
     let list = products;
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -275,7 +291,7 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
       );
     }
     return list;
-  }, [products, mode, search]);
+  }, [products, activeTab, search]);
 
   const formatCurrency = (val: number) =>
     val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -315,10 +331,10 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
         <div className="h-16 flex items-center px-6 border-b border-zinc-200 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="bg-zinc-900 text-white p-2 rounded-xl shadow-sm">
-              <ModeIcon className="h-5 w-5" />
+              <Database className="h-5 w-5" />
             </div>
             <h1 className="font-bold text-base tracking-tight text-zinc-800 uppercase">
-              {mode === 'insumos' ? 'Insumos' : mode === 'produtos' ? 'Produtos' : 'Materiais'}
+              Estoque Hub
             </h1>
           </div>
         </div>
@@ -330,71 +346,119 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-all cursor-pointer border border-zinc-250/50"
           >
             <ArrowLeft className="h-4 w-4 text-zinc-400" />
-            Voltar ao Estoque Hub
+            Voltar ao Menu
           </button>
         </div>
 
-        {/* Module Description in sidebar */}
-        <div className="flex-1 overflow-y-auto p-4">
+        {/* Navigation Tabs */}
+        <div className="p-2 border-b border-zinc-100 space-y-1">
+          <button
+            onClick={() => setActiveTab('insumos')}
+            className={cn(
+              "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
+              activeTab === 'insumos' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+            )}
+          >
+            <Layers className="h-4 w-4" />
+            Insumos & MP
+          </button>
+          <button
+            onClick={() => setActiveTab('produtos')}
+            className={cn(
+              "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
+              activeTab === 'produtos' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+            )}
+          >
+            <Package className="h-4 w-4" />
+            Produtos Acabados
+          </button>
+          <button
+            onClick={() => setActiveTab('materiais')}
+            className={cn(
+              "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
+              activeTab === 'materiais' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+            )}
+          >
+            <Boxes className="h-4 w-4" />
+            Materiais
+          </button>
+          <button
+            onClick={() => setActiveTab('ativos')}
+            className={cn(
+              "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
+              activeTab === 'ativos' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+            )}
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            Produtos Ativos
+          </button>
+        </div>
+
+        {/* Module Description and Stats in sidebar */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
           <div className="bg-zinc-50 rounded-xl p-4 space-y-3 border border-zinc-100">
             <h3 className="text-xs font-bold text-zinc-700 uppercase tracking-wider">{config.title}</h3>
             <p className="text-xs text-zinc-500 leading-relaxed">{config.subtitle}</p>
           </div>
           
-          {/* Quick stats */}
-          <div className="mt-4 space-y-2">
-            <div className="flex justify-between items-center px-1">
-              <span className="text-[10px] text-zinc-400 font-bold uppercase">Total Itens</span>
-              <span className="text-sm font-extrabold text-zinc-900">
-                {mode === 'produtos' ? filteredProducts.length : filteredDemands.length}
-              </span>
+          {activeTab !== 'ativos' && (
+            <div className="space-y-2">
+              <div className="flex justify-between items-center px-1">
+                <span className="text-[10px] text-zinc-400 font-bold uppercase">Total Itens</span>
+                <span className="text-sm font-extrabold text-zinc-900">
+                  {activeTab === 'produtos' ? filteredProducts.length : filteredDemands.length}
+                </span>
+              </div>
+              {activeTab === 'produtos' ? (
+                <>
+                  <div className="flex justify-between items-center px-1">
+                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Críticos</span>
+                    <span className="text-sm font-extrabold text-red-600">
+                      {filteredProducts.filter(p => p.status === 'critico').length}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center px-1">
+                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Requer Ordem</span>
+                    <span className="text-sm font-extrabold text-amber-600">
+                      {filteredProducts.filter(p => p.status === 'ordem').length}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex justify-between items-center px-1">
+                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Críticos</span>
+                    <span className="text-sm font-extrabold text-red-600">
+                      {filteredDemands.filter(d => d.urgency === 'critical').length}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center px-1">
+                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Atenção</span>
+                    <span className="text-sm font-extrabold text-amber-600">
+                      {filteredDemands.filter(d => d.urgency === 'warning').length}
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
-            {mode !== 'produtos' && (
-              <>
-                <div className="flex justify-between items-center px-1">
-                  <span className="text-[10px] text-zinc-400 font-bold uppercase">Críticos</span>
-                  <span className="text-sm font-extrabold text-red-600">
-                    {filteredDemands.filter(d => d.urgency === 'critical').length}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center px-1">
-                  <span className="text-[10px] text-zinc-400 font-bold uppercase">Atenção</span>
-                  <span className="text-sm font-extrabold text-amber-600">
-                    {filteredDemands.filter(d => d.urgency === 'warning').length}
-                  </span>
-                </div>
-              </>
-            )}
-            {mode === 'produtos' && (
-              <>
-                <div className="flex justify-between items-center px-1">
-                  <span className="text-[10px] text-zinc-400 font-bold uppercase">Críticos</span>
-                  <span className="text-sm font-extrabold text-red-600">
-                    {filteredProducts.filter(p => p.status === 'critico').length}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center px-1">
-                  <span className="text-[10px] text-zinc-400 font-bold uppercase">Requer Ordem</span>
-                  <span className="text-sm font-extrabold text-amber-600">
-                    {filteredProducts.filter(p => p.status === 'ordem').length}
-                  </span>
-                </div>
-              </>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
-        <header className="h-16 bg-white border-b border-zinc-200 flex items-center justify-between px-8 shrink-0">
-          <div>
-            <h2 className="text-xl font-bold tracking-tight text-zinc-900">{config.title}</h2>
-            <p className="text-xs text-zinc-500 mt-0.5">{config.subtitle}</p>
-          </div>
-        </header>
+        {activeTab === 'ativos' ? (
+          <ActiveProductsView standalone={true} onBackToHub={onBackToHub} />
+        ) : (
+          <>
+            <header className="h-16 bg-white border-b border-zinc-200 flex items-center justify-between px-8 shrink-0">
+              <div>
+                <h2 className="text-xl font-bold tracking-tight text-zinc-900">{config.title}</h2>
+                <p className="text-xs text-zinc-500 mt-0.5">{config.subtitle}</p>
+              </div>
+            </header>
 
-        <main className="flex-1 overflow-y-auto p-6">
+            <main className="flex-1 overflow-y-auto p-6">
 
             <div className="space-y-6">
               {/* Controls bar */}
@@ -410,7 +474,7 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
                   />
                 </div>
                 <div className="text-xs font-semibold text-zinc-500 bg-zinc-100 px-3 py-1.5 rounded-lg">
-                  {mode === 'produtos' ? `${filteredProducts.length} itens` : `${filteredDemands.length} itens`}
+                  {activeTab === 'produtos' ? `${filteredProducts.length} itens` : `${filteredDemands.length} itens`}
                 </div>
               </div>
 
@@ -422,7 +486,7 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
                       <RefreshCw className="h-5 w-5 animate-spin text-zinc-500" />
                       Carregando dados de estoque...
                     </div>
-                  ) : mode === 'produtos' ? (
+                  ) : activeTab === 'produtos' ? (
                     filteredProducts.length === 0 ? (
                       <div className="p-12 text-center text-zinc-400">Nenhum produto encontrado.</div>
                     ) : (
@@ -519,7 +583,7 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
                                     d.itemCode,
                                     d.description,
                                     d.unit,
-                                    mode === 'insumos' ? 'insumo' : 'material',
+                                    activeTab === 'insumos' ? 'insumo' : 'material',
                                     d.currentStock
                                   )}
                                   className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-900 hover:text-white rounded-lg text-xs font-bold text-zinc-700 transition-all cursor-pointer shadow-sm border border-zinc-200"
@@ -536,9 +600,10 @@ export default function EstoqueView({ mode, onBackToHub }: EstoqueViewProps) {
                 </div>
               </div>
             </div>
-
         </main>
-      </div>
+      </>
+    )}
+  </div>
 
       {/* Side Detail Drawer (Movimentações, Fórmula, Notas, Pedidos, Lotes) */}
       {selectedItem && (
