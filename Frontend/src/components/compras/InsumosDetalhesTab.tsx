@@ -453,13 +453,13 @@ export function InsumosDetalhesTab({ parentCategoryFilter }: InsumosDetalhesTabP
                 {monthlyDataForYear.length === 0 ? (
                   <p className="text-xs text-zinc-400 py-3">Nenhum consumo mensal registrado neste ano.</p>
                 ) : (
-                  <div className="p-4 bg-zinc-50/50 border border-zinc-150 rounded-xl space-y-3">
+                  <div className="p-4 bg-zinc-50/50 border border-zinc-150 rounded-xl space-y-2">
                     {/* Visual Bar representation */}
-                    <div className="grid grid-cols-12 gap-1.5 h-36 items-end pt-4 px-2">
+                    <div className="grid grid-cols-12 gap-1.5 h-28 px-2">
                       {monthlyDataForYear.map((m) => (
-                        <div key={m.monthKey} className="group relative flex flex-col items-center h-full justify-end">
+                        <div key={m.monthKey} className="group relative flex flex-col justify-end h-full">
                           {/* Tooltip */}
-                          <div className="absolute bottom-full mb-1 bg-zinc-900 text-white text-[9px] font-bold py-1 px-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-md">
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-zinc-900 text-white text-[9px] font-bold py-1 px-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-md">
                             {m.qty.toLocaleString('pt-BR')} {details.unit}
                           </div>
                           {/* Bar */}
@@ -467,8 +467,14 @@ export function InsumosDetalhesTab({ parentCategoryFilter }: InsumosDetalhesTabP
                             style={{ height: `${m.percent}%` }}
                             className="w-full bg-zinc-800 rounded-t-sm group-hover:bg-zinc-900 transition-colors cursor-pointer"
                           />
-                          {/* Month Label */}
-                          <span className="text-[8px] text-zinc-400 font-bold uppercase mt-1.5 scale-90 md:scale-100">
+                        </div>
+                      ))}
+                    </div>
+                    {/* Labels */}
+                    <div className="grid grid-cols-12 gap-1.5 px-2">
+                      {monthlyDataForYear.map((m) => (
+                        <div key={m.monthKey} className="text-center">
+                          <span className="text-[8px] text-zinc-400 font-bold uppercase block truncate">
                             {m.label}
                           </span>
                         </div>
