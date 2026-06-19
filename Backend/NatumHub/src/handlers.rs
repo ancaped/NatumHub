@@ -2143,8 +2143,10 @@ pub async fn get_insumo_detalhes(
                     };
 
                     // Filter: only show open orders (exclude EA, CF, FP, CA, FI)
-                    let is_closed = status == "EA" || status == "CF" || status == "FP" || status == "CA" || status == "FI";
-                    if !is_closed {
+                    // Also exclude if pesagem is effectively completed for this insumo
+                    let is_closed_status = status == "EA" || status == "CF" || status == "FP" || status == "CA" || status == "FI";
+                    
+                    if !is_closed_status && !pesagem_completed {
                         open_production_orders.push(crate::models::OpenProductionOrderItem {
                             product_code: raw_op.product_code,
                             product_description: raw_op.product_description,
