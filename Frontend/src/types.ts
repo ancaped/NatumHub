@@ -171,6 +171,10 @@ export interface CategorySpend {
 export interface ComprasAppConfig {
   targetDays: number;
   itemOverrides: Record<string, number>;
+  autoSubcategories?: {
+    subcategoryId: string;
+    prefix: string;
+  }[];
 }
 
 // === MICROBIOLOGIA TYPES ===

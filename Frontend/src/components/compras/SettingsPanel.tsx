@@ -21,6 +21,45 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
   // Pinned subcategories state
   const [pinnedSubs, setPinnedSubs] = useState<string[]>([]);
 
+  // Automatic subcategories rules state
+  const [newRuleSubcategoryId, setNewRuleSubcategoryId] = useState('');
+  const [newRulePrefix, setNewRulePrefix] = useState('');
+
+  const handleAddAutoRule = () => {
+    if (!newRuleSubcategoryId || !newRulePrefix.trim()) return;
+    const rules = config.autoSubcategories || [];
+    const prefixClean = newRulePrefix.trim();
+    if (rules.some(r => r.prefix.toLowerCase() === prefixClean.toLowerCase())) {
+      alert('Já existe uma regra para este prefixo!');
+      return;
+    }
+    const updatedRules = [...rules, { subcategoryId: newRuleSubcategoryId, prefix: prefixClean }];
+    setConfig({ ...config, autoSubcategories: updatedRules });
+    setNewRulePrefix('');
+  };
+
+  const handleRemoveAutoRule = (index: number) => {
+    const rules = config.autoSubcategories || [];
+    const updatedRules = rules.filter((_, i) => i !== index);
+    setConfig({ ...config, autoSubcategories: updatedRules });
+  };
+
+  const handleApplyAutoRules = async () => {
+    setSaving(true);
+    try {
+      await api.saveComprasConfig(config);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      await loadItems();
+      alert('Regras de subcategorias automáticas salvas e aplicadas com sucesso!');
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao aplicar regras');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   useEffect(() => {
     if (mode === 'materia_prima') {
       setNewCatParent('cat_mp');
@@ -237,6 +276,99 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
               })}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Subcategorias Automáticas */}
+      <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50 flex items-center justify-between">
+          <h3 className="font-semibold flex items-center gap-2">
+            <Link className="h-5 w-5 text-zinc-500" />
+            Regras de Subcategoria Automática (Por Prefixo)
+          </h3>
+          {config.autoSubcategories && config.autoSubcategories.length > 0 && (
+            <button
+              onClick={handleApplyAutoRules}
+              disabled={saving}
+              className="text-xs bg-zinc-900 text-white px-3.5 py-1.5 rounded-lg font-bold hover:bg-zinc-800 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+            >
+              <Save className="h-3.5 w-3.5" />
+              {saving ? 'Salvando e Aplicando...' : 'Salvar e Aplicar Regras'}
+            </button>
+          )}
+        </div>
+        <div className="p-6 space-y-6">
+          <p className="text-xs text-zinc-500">
+            Crie regras para classificar insumos automaticamente nas subcategorias. Por exemplo: todos os insumos cuja descrição inicia com "Bouquet" serão movidos para a subcategoria "Fragrâncias".
+          </p>
+
+          {/* Form to add a rule */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end bg-zinc-50/50 p-4 rounded-xl border border-zinc-150">
+            <div className="flex flex-col gap-1.5 text-left">
+              <label className="text-xs font-bold text-zinc-700">Subcategoria Destino</label>
+              <select
+                value={newRuleSubcategoryId}
+                onChange={e => setNewRuleSubcategoryId(e.target.value)}
+                className="text-sm border border-zinc-300 rounded-lg px-3 py-2 bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+              >
+                <option value="">Selecione uma subcategoria...</option>
+                {subcategoriesOnly.map(sub => (
+                  <option key={sub.id} value={sub.id}>{sub.name} ({sub.parentId === 'cat_mp' ? 'Matéria Prima' : 'Embalagem'})</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1.5 text-left">
+              <label className="text-xs font-bold text-zinc-700">Prefixo do Insumo (Inicia com)</label>
+              <input
+                type="text"
+                value={newRulePrefix}
+                onChange={e => setNewRulePrefix(e.target.value)}
+                placeholder="Ex: Bouquet, Essência, Frasco..."
+                className="text-sm border border-zinc-300 rounded-lg px-3 py-2 bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+              />
+            </div>
+            <button
+              onClick={handleAddAutoRule}
+              disabled={!newRuleSubcategoryId || !newRulePrefix.trim()}
+              className="bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-sm px-4 py-2 rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 h-[38px]"
+            >
+              <Plus className="h-4 w-4" />
+              Adicionar Regra
+            </button>
+          </div>
+
+          {/* List of rules */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-extrabold text-zinc-900 uppercase tracking-wider text-left">Regras Ativas</h4>
+            {!config.autoSubcategories || config.autoSubcategories.length === 0 ? (
+              <p className="text-xs text-zinc-400 italic py-2 text-left">Nenhuma regra de categorização automática criada. Crie e depois clique em "Salvar e Aplicar".</p>
+            ) : (
+              <div className="border border-zinc-150 rounded-xl overflow-hidden divide-y divide-zinc-150">
+                {config.autoSubcategories.map((rule, idx) => {
+                  const sub = categories.find(c => c.id === rule.subcategoryId);
+                  return (
+                    <div key={idx} className="flex items-center justify-between p-3 bg-white hover:bg-zinc-50/50 transition-colors">
+                      <div className="text-left">
+                        <span className="text-xs font-bold text-zinc-900">
+                          Itens iniciando com <strong className="text-zinc-950 font-extrabold px-1.5 py-0.5 bg-zinc-100 border border-zinc-200 rounded text-[11px] font-mono">"{rule.prefix}"</strong>
+                        </span>
+                        <span className="text-xs text-zinc-500 ml-2">
+                          → mover para a subcategoria: <strong className="text-zinc-800">{sub ? sub.name : rule.subcategoryId}</strong>
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => handleRemoveAutoRule(idx)}
+                        className="p-1 text-zinc-400 hover:text-red-500 rounded-lg hover:bg-red-50/50 transition-colors cursor-pointer"
+                        title="Remover regra"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

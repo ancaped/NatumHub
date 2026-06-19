@@ -856,6 +856,21 @@ fn save_compras_config(state: State<DbState>, config: serde_json::Value) -> Resu
         "INSERT OR REPLACE INTO config (key, value) VALUES ('compras_main', ?1)",
         params![val],
     ).map_err(|e| e.to_string())?;
+
+    // Apply automatic subcategory rules if configured
+    if let Some(rules) = config.get("autoSubcategories").and_then(|r| r.as_array()) {
+        for rule in rules {
+            if let (Some(sub_id), Some(prefix)) = (
+                rule.get("subcategoryId").and_then(|s| s.as_str()),
+                rule.get("prefix").and_then(|p| p.as_str())
+            ) {
+                let query = "UPDATE items SET category_id = ?1 WHERE description LIKE ?2";
+                let like_pattern = format!("{}%", prefix);
+                let _ = conn.execute(query, params![sub_id, like_pattern]);
+            }
+        }
+    }
+
     Ok(())
 }
 

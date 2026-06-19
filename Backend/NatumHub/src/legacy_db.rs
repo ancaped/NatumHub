@@ -1164,6 +1164,29 @@ WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1
     }
 
     tx.commit()?;
+
+    // Apply automatic subcategory rules if configured
+    if let Ok(config_str) = sqlite_conn.query_row::<String, _, _>(
+        "SELECT value FROM config WHERE key = 'compras_main'",
+        [],
+        |row| row.get(0)
+    ) {
+        if let Ok(config_json) = serde_json::from_str::<serde_json::Value>(&config_str) {
+            if let Some(rules) = config_json.get("autoSubcategories").and_then(|r| r.as_array()) {
+                for rule in rules {
+                    if let (Some(sub_id), Some(prefix)) = (
+                        rule.get("subcategoryId").and_then(|s| s.as_str()),
+                        rule.get("prefix").and_then(|p| p.as_str())
+                    ) {
+                        let query = "UPDATE items SET category_id = ?1 WHERE description LIKE ?2";
+                        let like_pattern = format!("{}%", prefix);
+                        let _ = sqlite_conn.execute(query, params![sub_id, like_pattern]);
+                    }
+                }
+            }
+        }
+    }
+
     let _ = sqlite_conn.execute("PRAGMA foreign_keys = ON", []);
 
     Ok(SyncResult {
