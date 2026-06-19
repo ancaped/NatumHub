@@ -5,7 +5,7 @@ import { Settings, FolderTree, Plus, Trash2, X, Save, Package, Search, CheckSqua
 import { cn } from '../../lib/utils';
 import obsData from '../../lib/obs_data.json';
 
-export function SettingsPanel() {
+export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
   const [config, setConfig] = useState<ComprasAppConfig>({ targetDays: 90, itemOverrides: {} });
   const [categories, setCategories] = useState<Category[]>([]);
   const [items, setItems] = useState<Item[]>([]);
@@ -16,7 +16,15 @@ export function SettingsPanel() {
   const [subSelectedItems, setSubSelectedItems] = useState<Set<string>>(new Set());
 
   const [newCatName, setNewCatName] = useState('');
-  const [newCatParent, setNewCatParent] = useState<string | null>(null);
+  const [newCatParent, setNewCatParent] = useState<string | null>(mode === 'materia_prima' ? 'cat_mp' : null);
+
+  useEffect(() => {
+    if (mode === 'materia_prima') {
+      setNewCatParent('cat_mp');
+    } else {
+      setNewCatParent(null);
+    }
+  }, [mode]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -56,9 +64,9 @@ export function SettingsPanel() {
   const handleAddCategory = async () => {
     if (!newCatName.trim()) return;
     try {
-      await api.saveCategory({ id: crypto.randomUUID(), name: newCatName.trim(), parentId: newCatParent });
+      await api.saveCategory({ id: crypto.randomUUID(), name: newCatName.trim(), parentId: mode === 'materia_prima' ? 'cat_mp' : newCatParent });
       setNewCatName('');
-      setNewCatParent(null);
+      setNewCatParent(mode === 'materia_prima' ? 'cat_mp' : null);
       loadCategories();
     } catch (e) { console.error(e); alert('Erro ao criar categoria'); }
   };
@@ -107,8 +115,26 @@ export function SettingsPanel() {
     }
   };
 
-  const rootCats = categories.filter(c => !c.parentId);
+  const rootCats = categories.filter(c => !c.parentId && (mode !== 'materia_prima' || c.id === 'cat_mp'));
   const getChildren = (parentId: string) => categories.filter(c => c.parentId === parentId);
+
+  const isExcludedItem = (item: Item) => {
+    if (mode !== 'materia_prima') return false;
+    if (!item.categoryId) return false;
+    let currentId = item.categoryId;
+    let visited = new Set<string>();
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId);
+      const cat = categories.find(c => c.id === currentId);
+      if (!cat) break;
+      if (cat.id === 'cat_emb' || cat.id === 'cat_mat') {
+        return true;
+      }
+      if (!cat.parentId) break;
+      currentId = cat.parentId;
+    }
+    return false;
+  };
 
   return (
     <div className="space-y-6 w-full pb-10">
@@ -198,14 +224,16 @@ export function SettingsPanel() {
                   placeholder="Ex: Fragrâncias, Corantes..."
                   className="w-full border border-zinc-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white" />
               </div>
-              <div>
-                <label className="text-xs font-medium text-zinc-600 mb-1 block">Pai (opcional)</label>
-                <select value={newCatParent || ''} onChange={e => setNewCatParent(e.target.value || null)}
-                  className="border border-zinc-300 rounded-md px-2 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white min-w-[120px]">
-                  <option value="">Raiz</option>
-                  {rootCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
+              {mode !== 'materia_prima' && (
+                <div>
+                  <label className="text-xs font-medium text-zinc-600 mb-1 block">Pai (opcional)</label>
+                  <select value={newCatParent || ''} onChange={e => setNewCatParent(e.target.value || null)}
+                    className="border border-zinc-300 rounded-md px-2 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white min-w-[120px]">
+                    <option value="">Raiz</option>
+                    {rootCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              )}
               <button onClick={handleAddCategory} disabled={!newCatName.trim()}
                 className="text-sm bg-zinc-900 text-white px-4 py-2 rounded-md font-medium hover:bg-zinc-800 disabled:opacity-50 flex items-center gap-2 cursor-pointer shrink-0">
                 <Plus className="h-4 w-4" /> Adicionar
@@ -393,6 +421,7 @@ export function SettingsPanel() {
                 onClick={() => {
                   const filtered = items.filter(item => {
                     if (item.categoryId === selectedSubcategory.id) return false;
+                    if (isExcludedItem(item)) return false;
                     const matchesSearch = !modalSearch.trim() || 
                       (item.code || '').toLowerCase().includes(modalSearch.toLowerCase()) ||
                       (item.description || '').toLowerCase().includes(modalSearch.toLowerCase());
@@ -408,6 +437,7 @@ export function SettingsPanel() {
               >
                 {modalSelectedItems.size === items.filter(item => {
                   if (item.categoryId === selectedSubcategory.id) return false;
+                  if (isExcludedItem(item)) return false;
                   return !modalSearch.trim() || 
                     (item.code || '').toLowerCase().includes(modalSearch.toLowerCase()) ||
                     (item.description || '').toLowerCase().includes(modalSearch.toLowerCase());
@@ -421,6 +451,7 @@ export function SettingsPanel() {
                 const filtered = items.filter(item => {
                   // Don't show items already in this subcategory
                   if (item.categoryId === selectedSubcategory.id) return false;
+                  if (isExcludedItem(item)) return false;
                   
                   const matchesSearch = !modalSearch.trim() || 
                     (item.code || '').toLowerCase().includes(modalSearch.toLowerCase()) ||

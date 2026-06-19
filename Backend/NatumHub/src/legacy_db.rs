@@ -114,6 +114,7 @@ struct LoteBaixaRow {
     user: Option<String>,
     just: Option<String>,
     prod_code: Option<String>,
+    n_qtde_ref: f64,
 }
 
 struct VendaRow {
@@ -633,7 +634,8 @@ SELECT
     CONVERT(varchar, b.dLog, 120) COLLATE Latin1_General_CI_AS as dLog,
     b.cUsuario COLLATE Latin1_General_CI_AS as cUsuario,
     b.cJustificativa COLLATE Latin1_General_CI_AS as cJustificativa,
-    b.cCodProd COLLATE Latin1_General_CI_AS as cCodProd
+    b.cCodProd COLLATE Latin1_General_CI_AS as cCodProd,
+    CAST(b.nQtdeRef AS FLOAT) as nQtdeRef
 FROM Lotes_Baixas b WITH (NOLOCK)
 WHERE b.dLog >= '2024-01-01 00:00:00'
   AND b.cReferencia IS NOT NULL AND b.cReferencia <> '';
@@ -656,6 +658,7 @@ WHERE b.dLog >= '2024-01-01 00:00:00'
             user: row.get(5).map(|s: &str| s.trim().to_string()),
             just: row.get(6).map(|s: &str| s.trim().to_string()),
             prod_code: row.get(7).map(|s: &str| s.trim().to_string()),
+            n_qtde_ref: row.get(8).unwrap_or(0.0),
         });
     }
 
@@ -1031,6 +1034,21 @@ WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1
     }
 
     // 2. Insumo exits (Lotes_Baixas)
+    tx.execute("DROP TABLE IF EXISTS lotes_baixas", [])?;
+    tx.execute(
+        "CREATE TABLE lotes_baixas (
+            Registro INTEGER PRIMARY KEY,
+            nLote INTEGER,
+            cReferencia TEXT,
+            nQtde REAL,
+            dLog TEXT,
+            cUsuario TEXT,
+            cJustificativa TEXT,
+            cCodProd TEXT,
+            nQtdeRef REAL
+        )",
+        [],
+    )?;
     for b in lotes_baixas_list {
         let mov_id = Uuid::new_v4().to_string();
         let details = format!("OP: {} | Usuário: {} | Justificativa: {}", b.lote, b.user.as_deref().unwrap_or(""), b.just.as_deref().unwrap_or(""));
@@ -1040,6 +1058,21 @@ WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1
             params![mov_id, b.ref_code, b.qty, b.date_str, b.lote.to_string(), details],
         )?;
         count_movements += 1;
+
+        tx.execute(
+            "INSERT INTO lotes_baixas VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                b.registro,
+                b.lote,
+                b.ref_code,
+                b.qty,
+                b.date_str,
+                b.user,
+                b.just,
+                b.prod_code,
+                b.n_qtde_ref,
+            ],
+        )?;
     }
 
     // 3. Product entries (Lotes / Production runs)
@@ -1285,7 +1318,8 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
                 CONVERT(varchar, dLog, 120) COLLATE Latin1_General_CI_AS,
                 cUsuario COLLATE Latin1_General_CI_AS,
                 cJustificativa COLLATE Latin1_General_CI_AS,
-                cCodProd COLLATE Latin1_General_CI_AS
+                cCodProd COLLATE Latin1_General_CI_AS,
+                CAST(nQtdeRef AS FLOAT)
             FROM Lotes_Baixas WITH (NOLOCK)
             WHERE dLog >= DATEADD(month, -24, GETDATE())", 
             &[]
@@ -1688,7 +1722,8 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
                 dLog TEXT,
                 cUsuario TEXT,
                 cJustificativa TEXT,
-                cCodProd TEXT
+                cCodProd TEXT,
+                nQtdeRef REAL
             )",
             [],
         )?;
@@ -1696,17 +1731,18 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
             let reg: i32 = row.get(0).unwrap_or(0);
             if reg == 0 { continue; }
             tx.execute(
-                "INSERT INTO lotes_baixas VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                "INSERT INTO lotes_baixas VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     reg,
-                    row.get::<i32, _>(1),
-                    row.get::<&str, _>(2).map(|s| s.trim()),
-                    row.get::<f64, _>(3),
-                    row.get::<&str, _>(4),
-                    row.get::<&str, _>(5).map(|s| s.trim()),
-                    row.get::<&str, _>(6).map(|s| s.trim()),
-                    row.get::<&str, _>(7).map(|s| s.trim())
-                ]
+                    row.get::<i32, _>(1).unwrap_or(0),
+                    row.get::<&str, _>(2).unwrap_or(""),
+                    row.get::<f64, _>(3).unwrap_or(0.0),
+                    row.get::<&str, _>(4).unwrap_or(""),
+                    row.get::<&str, _>(5).unwrap_or(""),
+                    row.get::<&str, _>(6).unwrap_or(""),
+                    row.get::<&str, _>(7).unwrap_or(""),
+                    row.get::<f64, _>(8).unwrap_or(0.0),
+                ],
             )?;
         }
         tx.commit()?;

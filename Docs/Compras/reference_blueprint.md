@@ -365,55 +365,43 @@ createRoot(document.getElementById('root')!).render(
 
 Colunas: Código Produto | Nº NF | Descrição | Unidade | Data Emissão | Quantidade | Valor Unitário | Valor Total | Fornecedor
 
-### Motor de Cálculos — Replicação em TypeScript
+### Motor de Cálculos — Implementação no Backend (Rust)
 
-```typescript
-// calculations.ts
+Os cálculos de demanda foram migrados para o backend em Rust (função `get_demands` em `lib.rs`) para maior eficiência. O cálculo da **Média Mês** (`overall_avg`) e demais variáveis segue a lógica descrita abaixo:
 
-interface DemandInput {
-  itemCode: string;
-  description: string;
-  unit: string;
-  categoryId: string | null;
-  // Último snapshot de estoque
-  currentStock: number;
-  reservedQty: number;
-  inProduction: number;
-  inOrders: number;
-  // Médias anuais
-  avg2024: number;
-  avg2025: number;
-  avg2026: number;
-}
+#### 1. Média Mensal (Média Mês / `overallAvg`)
+Calculada preferencialmente com base nas saídas reais de estoque dos últimos 12 meses. Caso não existam movimentações, utiliza-se a mediana das médias de consumo anuais.
 
-interface DemandResult extends DemandInput {
-  overallAvg: number;           // Média das médias anuais
-  futureStockForecast: number;  // currentStock - reservedQty + inOrders
-  estimatedDurationDays: number; // forecast / (overallAvg / 30)
-  recommendedQty: number;       // MAX(0, (targetDays/30 * overallAvg) - MAX(0, forecast))
-  urgency: 'critical' | 'warning' | 'ok'; // <30d, 30-60d, >60d
-}
+$$overall\_avg = \begin{cases} 
+\frac{\sum \text{saidas\_12m}}{12}, & \text{se } \sum \text{saidas\_12m} > 0 \\
+\text{mediana}(avg_{2024}, avg_{2025}, avg_{2026}), & \text{caso contrário}
+\end{cases}$$
 
-export function calculateDemand(input: DemandInput, targetDays: number): DemandResult {
-  const avgs = [input.avg2024, input.avg2025, input.avg2026].filter(v => v > 0);
-  const overallAvg = avgs.length > 0 ? avgs.reduce((a, b) => a + b, 0) / avgs.length : 0;
-  
-  const futureStockForecast = input.currentStock - input.reservedQty + input.inOrders;
-  
-  const estimatedDurationDays = overallAvg > 0 
-    ? Math.round((Math.max(0, futureStockForecast) / overallAvg) * 30) 
-    : 9999;
-  
-  const recommendedQty = overallAvg > 0
-    ? Math.max(0, Math.round(((targetDays / 30) * overallAvg) - Math.max(0, futureStockForecast)))
-    : 0;
-  
-  const urgency = estimatedDurationDays < 30 ? 'critical' 
-    : estimatedDurationDays < 60 ? 'warning' : 'ok';
+> [!NOTE]
+> As médias anuais ($avg_{year}$) para o ano corrente são corrigidas proporcionalmente de acordo com a quantidade de meses transcorridos no ano.
 
-  return { ...input, overallAvg, futureStockForecast, estimatedDurationDays, recommendedQty, urgency };
-}
-```
+#### 2. Previsão de Estoque Futuro (`futureStockForecast`)
+Calcula o estoque projetado considerando estoque atual, reservas e pedidos em trânsito (ordens de compra pendentes e ordens em produção):
+$$future\_stock\_forecast = current\_stock - reserved\_qty + in\_orders + in\_production$$
+$$max\_forecast = \max(0, future\_stock\_forecast)$$
+
+#### 3. Duração Estimada do Estoque (`estimatedDurationDays`)
+Calcula em quantos dias o estoque atual/futuro vai durar com base na média diária de consumo ($daily\_avg = \frac{overall\_avg}{30}$):
+$$estimated\_duration\_days = \begin{cases} 
+\text{round}\left(\frac{max\_forecast}{daily\_avg}\right), & \text{se } daily\_avg > 0 \\
+9999, & \text{se } daily\_avg = 0
+\end{cases}$$
+
+#### 4. Quantidade Recomendada de Compra (`recommendedQty`)
+Quantidade sugerida para atingir a meta de dias de cobertura configurada ($target\_days$):
+$$target\_stock = target\_days \times daily\_avg$$
+$$recommended\_qty = \max(0, \text{round}(target\_stock - max\_forecast))$$
+
+#### 5. Nível de Urgência (`urgency`)
+- **Crítico** (`critical`): $\text{duração} < 30 \text{ dias}$
+- **Atenção** (`warning`): $30 \le \text{duração} < 60 \text{ dias}$
+- **Normal** (`ok`): $\text{duração} \ge 60 \text{ dias}$
+
 
 ## 6. Categorização Automática
 

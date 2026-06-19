@@ -1602,6 +1602,132 @@ fn import_item_observations(state: State<DbState>, observations: Vec<ObsInput>) 
 #[tauri::command]
 fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: i32) -> Result<Vec<DemandResult>, String> {
     let conn = state.0.lock().unwrap();
+
+    // A. Query all open production lotes (entradas of products)
+    let mut open_lotes = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT document_number, item_code, quantity, details 
+         FROM stock_movements 
+         WHERE item_type = 'produto' AND movement_type = 'entrada'"
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                row.get::<_, String>(1)?,
+                row.get::<_, f64>(2)?,
+                row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+            ))
+        }) {
+            for r in rows {
+                if let Ok((doc_num, item_code, qty, details)) = r {
+                    if !doc_num.is_empty() {
+                        let mut status = String::new();
+                        for part in details.split('|') {
+                            let part = part.trim();
+                            if part.starts_with("Status:") {
+                                status = part.trim_start_matches("Status:").trim().to_string();
+                            }
+                        }
+                        let is_closed = status == "EA" || status == "CF" || status == "FP" || status == "CA" || status == "FI";
+                        if !is_closed {
+                            open_lotes.push((doc_num, item_code, qty));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // B. Query all formulations
+    struct FormEntry {
+        ingredient_code: String,
+        quantity: f64,
+        percentage: f64,
+    }
+    let mut formulations_map: std::collections::HashMap<String, Vec<FormEntry>> = std::collections::HashMap::new();
+    let mut formulation_sums: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+
+    if let Ok(mut stmt) = conn.prepare("SELECT product_code, ingredient_code, quantity, IFNULL(percentage, 0.0) FROM formulations") {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, f64>(2)?,
+                row.get::<_, f64>(3)?,
+            ))
+        }) {
+            for r in rows {
+                if let Ok((prod_code, ing_code, qty, pct)) = r {
+                    let norm_prod = prod_code.strip_prefix('0').unwrap_or(&prod_code).to_string();
+                    formulations_map.entry(norm_prod.clone()).or_default().push(FormEntry {
+                        ingredient_code: ing_code,
+                        quantity: qty,
+                        percentage: pct,
+                    });
+                    *formulation_sums.entry(norm_prod).or_insert(0.0) += qty;
+                }
+            }
+        }
+    }
+
+    // C. Query all exits (weighed quantities) for these open lotes
+    let mut exits_map: std::collections::HashMap<(String, String), f64> = std::collections::HashMap::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT document_number, item_code, SUM(quantity) 
+         FROM stock_movements 
+         WHERE item_type = 'insumo' AND movement_type = 'saida'
+         GROUP BY document_number, item_code"
+    ) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                row.get::<_, String>(1)?,
+                row.get::<_, f64>(2)?
+            ))
+        }) {
+            for r in rows {
+                if let Ok((doc_num, item_code, qty)) = r {
+                    exits_map.insert((doc_num, item_code), qty);
+                }
+            }
+        }
+    }
+
+    // D. Compute dynamic reserved quantity per insumo
+    let mut dynamic_reserved_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    for (lote_number, product_code, quantity) in open_lotes {
+        let norm_prod = product_code.strip_prefix('0').unwrap_or(&product_code).to_string();
+        if let Some(ingredients) = formulations_map.get(&norm_prod) {
+            let sum_qty = formulation_sums.get(&norm_prod).copied().unwrap_or(0.0);
+            for ing in ingredients {
+                let factor = if ing.percentage > 0.0 {
+                    ing.percentage / 100.0
+                } else if sum_qty > 0.0 {
+                    ing.quantity / sum_qty
+                } else {
+                    0.0
+                };
+                let fallback_expected = quantity * factor;
+
+                // Try to get expected quantity from lotes_baixas
+                let expected: f64 = match conn.query_row(
+                    "SELECT nQtdeRef FROM lotes_baixas WHERE nLote = ?1 AND cReferencia = ?2",
+                    params![lote_number, ing.ingredient_code],
+                    |row| row.get(0)
+                ) {
+                    Ok(val) => val,
+                    Err(_) => fallback_expected,
+                };
+
+                let weighed = exits_map.get(&(lote_number.clone(), ing.ingredient_code.clone())).copied().unwrap_or(0.0);
+                let remaining = (expected - weighed).max(0.0);
+                if remaining > 0.0 {
+                    *dynamic_reserved_map.entry(ing.ingredient_code.clone()).or_insert(0.0) += remaining;
+                }
+            }
+        }
+    }
+
     let mut sql = String::from(
         "SELECT 
             i.code, i.description, i.unit, i.category_id, IFNULL(c.name, 'Sem Categoria') as category_name,
@@ -1632,6 +1758,28 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
     }
     sql.push_str(" ORDER BY i.description");
 
+    let mut movements_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    if let Ok(mut mv_stmt) = conn.prepare(
+        "SELECT item_code, SUM(quantity) 
+         FROM stock_movements 
+         WHERE movement_type = 'saida' 
+           AND item_type = 'insumo' 
+           AND date >= date('now', '-12 months', 'localtime')
+         GROUP BY item_code"
+    ) {
+        let mv_rows = mv_stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+        });
+        if let Ok(iter) = mv_rows {
+            for r in iter {
+                if let Ok((code, qty)) = r {
+                    let clean = code.replace(".", "");
+                    *movements_map.entry(clean).or_insert(0.0) += qty;
+                }
+            }
+        }
+    }
+
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let param_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| &**p).collect();
 
@@ -1642,13 +1790,15 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
         let cat_id: Option<String> = row.get(3)?;
         let cat_name: String = row.get(4)?;
         let current_stock: f64 = row.get(5)?;
-        let reserved_qty: f64 = row.get(6)?;
+        let _reserved_qty_imported: f64 = row.get(6)?;
         let in_production: f64 = row.get(7)?;
         let in_orders: f64 = row.get(8)?;
         let avg24: f64 = row.get(9)?;
         let avg25: f64 = row.get(10)?;
         let avg26: f64 = row.get(11)?;
         let notes: Option<String> = row.get(12)?;
+
+        let reserved_qty = dynamic_reserved_map.get(&code).copied().unwrap_or(0.0);
 
         use chrono::Datelike;
         let now = chrono::Local::now();
@@ -1693,8 +1843,15 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
             }
         };
         
-        let daily_avg = median_monthly / 30.0;
-        let overall_avg = median_monthly;
+        let clean_code = code.replace(".", "");
+        let sum_12_months = movements_map.get(&clean_code).copied().unwrap_or(0.0);
+
+        let overall_avg = if sum_12_months > 0.0 {
+            sum_12_months / 12.0
+        } else {
+            median_monthly
+        };
+        let daily_avg = overall_avg / 30.0;
 
         let future_stock_forecast = current_stock - reserved_qty + in_orders + in_production;
         let max_forecast = if future_stock_forecast > 0.0 { future_stock_forecast } else { 0.0 };
@@ -2026,10 +2183,31 @@ fn update_quotation_item_qty(state: State<DbState>, id: String, field: String, q
 }
 
 #[tauri::command]
-fn get_suppliers(state: State<DbState>) -> Result<Vec<Supplier>, String> {
+fn get_suppliers(state: State<DbState>, parent_category_id: Option<String>) -> Result<Vec<Supplier>, String> {
     let conn = state.0.lock().unwrap();
-    let mut stmt = conn.prepare("SELECT id, name, contact, email, notes FROM suppliers ORDER BY name")
-        .map_err(|e| e.to_string())?;
+    let sql = if let Some(ref parent_cat) = parent_category_id {
+        format!(
+            "SELECT DISTINCT s.id, s.name, s.contact, s.email, s.notes 
+             FROM suppliers s
+             WHERE s.id IN (
+                 SELECT DISTINCT inv.supplier_id FROM invoices inv
+                 INNER JOIN items i ON inv.item_code = i.code OR replace(inv.item_code, '.', '') = replace(i.code, '.', '')
+                 INNER JOIN categories c ON i.category_id = c.id
+                 WHERE c.parent_id = '{parent}' OR c.id = '{parent}'
+             ) OR s.id IN (
+                 SELECT DISTINCT qp.supplier_id FROM quotation_prices qp
+                 INNER JOIN quotation_items qi ON qp.quotation_item_id = qi.id
+                 INNER JOIN items i ON qi.item_code = i.code
+                 INNER JOIN categories c ON i.category_id = c.id
+                 WHERE c.parent_id = '{parent}' OR c.id = '{parent}'
+             ) ORDER BY s.name",
+            parent = parent_cat
+        )
+    } else {
+        "SELECT id, name, contact, email, notes FROM suppliers ORDER BY name".to_string()
+    };
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], |row| {
         Ok(Supplier {
             id: row.get(0)?,
@@ -2132,17 +2310,38 @@ fn get_price_evolution(state: State<DbState>, item_code: String) -> Result<Vec<P
 }
 
 #[tauri::command]
-fn get_spending_by_supplier(state: State<DbState>, start: String, end: String) -> Result<Vec<SupplierSpend>, String> {
+fn get_spending_by_supplier(
+    state: State<DbState>,
+    start: String,
+    end: String,
+    parent_category_id: Option<String>,
+) -> Result<Vec<SupplierSpend>, String> {
     let conn = state.0.lock().unwrap();
-    let mut stmt = conn.prepare(
+    let sql = if let Some(ref parent_cat) = parent_category_id {
+        format!(
+            "SELECT IFNULL(inv.supplier_id,'unknown'), IFNULL(inv.supplier_name,'Desconhecido'),
+                    SUM(inv.total_value), COUNT(DISTINCT inv.invoice_number)
+             FROM invoices inv
+             JOIN items i ON i.code = inv.item_code
+             LEFT JOIN categories c ON c.id = i.category_id
+             WHERE inv.invoice_date >= ?1 AND inv.invoice_date <= ?2 
+               AND IFNULL(i.is_ignored, 0) = 0
+               AND (c.parent_id = '{parent}' OR c.id = '{parent}')
+             GROUP BY inv.supplier_id, inv.supplier_name
+             ORDER BY SUM(inv.total_value) DESC",
+            parent = parent_cat
+        )
+    } else {
         "SELECT IFNULL(inv.supplier_id,'unknown'), IFNULL(inv.supplier_name,'Desconhecido'),
                 SUM(inv.total_value), COUNT(DISTINCT inv.invoice_number)
          FROM invoices inv
          JOIN items i ON i.code = inv.item_code
          WHERE inv.invoice_date >= ?1 AND inv.invoice_date <= ?2 AND IFNULL(i.is_ignored, 0) = 0
          GROUP BY inv.supplier_id, inv.supplier_name
-         ORDER BY SUM(inv.total_value) DESC"
-    ).map_err(|e| e.to_string())?;
+         ORDER BY SUM(inv.total_value) DESC".to_string()
+    };
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = stmt.query_map(params![start, end], |row| {
         Ok(SupplierSpend {
             supplier_id: row.get(0)?,
@@ -2159,9 +2358,28 @@ fn get_spending_by_supplier(state: State<DbState>, start: String, end: String) -
 }
 
 #[tauri::command]
-fn get_spending_by_category(state: State<DbState>, start: String, end: String) -> Result<Vec<CategorySpend>, String> {
+fn get_spending_by_category(
+    state: State<DbState>,
+    start: String,
+    end: String,
+    parent_category_id: Option<String>,
+) -> Result<Vec<CategorySpend>, String> {
     let conn = state.0.lock().unwrap();
-    let mut stmt = conn.prepare(
+    let sql = if let Some(ref parent_cat) = parent_category_id {
+        format!(
+            "SELECT IFNULL(i.category_id,'uncategorized'), IFNULL(c.name,'Sem Categoria'),
+                    SUM(inv.total_value), COUNT(DISTINCT inv.item_code)
+             FROM invoices inv
+             JOIN items i ON i.code = inv.item_code
+             LEFT JOIN categories c ON c.id = i.category_id
+             WHERE inv.invoice_date >= ?1 AND inv.invoice_date <= ?2 
+               AND IFNULL(i.is_ignored, 0) = 0
+               AND (c.parent_id = '{parent}' OR c.id = '{parent}')
+             GROUP BY i.category_id, c.name
+             ORDER BY SUM(inv.total_value) DESC",
+            parent = parent_cat
+        )
+    } else {
         "SELECT IFNULL(i.category_id,'uncategorized'), IFNULL(c.name,'Sem Categoria'),
                 SUM(inv.total_value), COUNT(DISTINCT inv.item_code)
          FROM invoices inv
@@ -2169,8 +2387,10 @@ fn get_spending_by_category(state: State<DbState>, start: String, end: String) -
          LEFT JOIN categories c ON c.id = i.category_id
          WHERE inv.invoice_date >= ?1 AND inv.invoice_date <= ?2 AND IFNULL(i.is_ignored, 0) = 0
          GROUP BY i.category_id, c.name
-         ORDER BY SUM(inv.total_value) DESC"
-    ).map_err(|e| e.to_string())?;
+         ORDER BY SUM(inv.total_value) DESC".to_string()
+    };
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = stmt.query_map(params![start, end], |row| {
         Ok(CategorySpend {
             category_id: row.get(0)?,

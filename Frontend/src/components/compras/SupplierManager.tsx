@@ -4,7 +4,7 @@ import { Supplier, Invoice, PricePoint } from '../../types';
 import { Users, Plus, Search, ArrowLeft, Phone, Mail, FileText, TrendingUp, X, ArrowUp, ArrowDown } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
-export function SupplierManager() {
+export function SupplierManager({ mode = 'all' }: { mode?: 'materia_prima' | 'embalagens' | 'all' }) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -14,12 +14,12 @@ export function SupplierManager() {
   const [sortKey, setSortKey] = useState<'name' | 'email'>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
-  useEffect(() => { loadSuppliers(); }, []);
+  useEffect(() => { loadSuppliers(); }, [mode]);
 
   const loadSuppliers = async () => {
     setLoading(true);
     try {
-      const data = await api.getSuppliers();
+      const data = await api.getSuppliers(mode);
       setSuppliers(data);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
@@ -84,10 +84,12 @@ export function SupplierManager() {
                 {supplier.email && <span className="flex items-center gap-1"><Mail className="h-3.5 w-3.5" />{supplier.email}</span>}
               </div>
             </div>
-            <button onClick={() => setEditing(supplier)}
-              className="text-sm px-3 py-1.5 border border-zinc-300 rounded-md hover:bg-zinc-50">
-              Editar
-            </button>
+            {mode === 'all' && (
+              <button onClick={() => setEditing(supplier)}
+                className="text-sm px-3 py-1.5 border border-zinc-300 rounded-md hover:bg-zinc-50">
+                Editar
+              </button>
+            )}
           </div>
 
           {supplier.notes && (
@@ -171,10 +173,12 @@ export function SupplierManager() {
             {sortDir === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
           </button>
         </div>
-        <button onClick={() => setEditing({ id: crypto.randomUUID(), name: '', contact: '', email: '', notes: '' })}
-          className="text-sm bg-zinc-900 text-white px-4 py-2 rounded-md font-medium hover:bg-zinc-800 flex items-center gap-2 ml-auto">
-          <Plus className="h-4 w-4" /> Novo Fornecedor
-        </button>
+        {mode === 'all' && (
+          <button onClick={() => setEditing({ id: crypto.randomUUID(), name: '', contact: '', email: '', notes: '' })}
+            className="text-sm bg-zinc-900 text-white px-4 py-2 rounded-md font-medium hover:bg-zinc-800 flex items-center gap-2 ml-auto">
+            <Plus className="h-4 w-4" /> Novo Fornecedor
+          </button>
+        )}
       </div>
 
       {/* Grid */}

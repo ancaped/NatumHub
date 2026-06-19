@@ -6,7 +6,7 @@ import { cn } from '../../lib/utils';
 
 type ReportView = 'spending_supplier' | 'spending_category' | 'price_evolution';
 
-export function ReportDashboard() {
+export function ReportDashboard({ mode = 'all' }: { mode?: 'materia_prima' | 'embalagens' | 'all' }) {
   const [view, setView] = useState<ReportView>('spending_supplier');
   const [startDate, setStartDate] = useState(() => {
     const d = new Date(); d.setFullYear(d.getFullYear() - 1);
@@ -14,6 +14,7 @@ export function ReportDashboard() {
   });
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [items, setItems] = useState<Item[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [selectedItem, setSelectedItem] = useState('');
   const [pricePoints, setPricePoints] = useState<PricePoint[]>([]);
   const [itemSearch, setItemSearch] = useState('');
@@ -21,7 +22,14 @@ export function ReportDashboard() {
   const [categorySpend, setCategorySpend] = useState<CategorySpend[]>([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => { api.getItems().then(setItems).catch(console.error); }, []);
+  useEffect(() => {
+    Promise.all([api.getItems(), api.getCategories()])
+      .then(([itemsData, catsData]) => {
+        setItems(itemsData);
+        setCategories(catsData);
+      })
+      .catch(console.error);
+  }, []);
 
   const loadPriceEvolution = async (code: string) => {
     setSelectedItem(code);
@@ -34,19 +42,27 @@ export function ReportDashboard() {
   useEffect(() => {
     setLoading(true);
     if (view === 'spending_supplier') {
-      api.getSpendingBySupplier(startDate, endDate).then(setSupplierSpend).catch(console.error).finally(() => setLoading(false));
+      api.getSpendingBySupplier(startDate, endDate, mode).then(setSupplierSpend).catch(console.error).finally(() => setLoading(false));
     } else if (view === 'spending_category') {
-      api.getSpendingByCategory(startDate, endDate).then(setCategorySpend).catch(console.error).finally(() => setLoading(false));
+      api.getSpendingByCategory(startDate, endDate, mode).then(setCategorySpend).catch(console.error).finally(() => setLoading(false));
     } else { setLoading(false); }
-  }, [view, startDate, endDate]);
+  }, [view, startDate, endDate, mode]);
 
   const fmt = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
-  const filteredItems = items.filter(i => 
-    !i.isIgnored && (
+  const filteredItems = items.filter(i => {
+    if (i.isIgnored) return false;
+    if (mode === 'materia_prima') {
+      const cat = categories.find(c => c.id === i.categoryId);
+      if (!(i.categoryId === 'cat_mp' || (cat && cat.parentId === 'cat_mp'))) return false;
+    } else if (mode === 'embalagens') {
+      const cat = categories.find(c => c.id === i.categoryId);
+      if (!(i.categoryId === 'cat_emb' || (cat && cat.parentId === 'cat_emb'))) return false;
+    }
+    return (
       (i.code || '').toLowerCase().includes(itemSearch.toLowerCase()) || 
       (i.description || '').toLowerCase().includes(itemSearch.toLowerCase())
-    )
-  ).slice(0, 30);
+    );
+  }).slice(0, 30);
 
   return (
     <div className="space-y-4">

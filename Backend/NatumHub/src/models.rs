@@ -321,6 +321,29 @@ pub struct RecalculationAdjustmentRequest {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct PendingPurchaseOrderInfo {
+    pub n_pedido: i32,
+    pub d_pedido: Option<String>,
+    pub c_nome_f: Option<String>,
+    pub n_qtde: f64,
+    pub n_chegou: f64,
+    pub n_preco: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct InsumoQuotationItem {
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    pub recommended_qty: f64,
+    pub approved_qty: Option<f64>,
+    pub final_qty: Option<f64>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct InsumoDetalhesResponse {
     pub code: String,
     pub description: String,
@@ -338,6 +361,9 @@ pub struct InsumoDetalhesResponse {
     pub last_received_date: Option<String>,
     pub last_received_doc: Option<String>,
     pub products_used_in: Vec<InsumoUsedInProductItem>,
+    pub pending_orders: Vec<PendingPurchaseOrderInfo>,
+    pub quotations: Vec<InsumoQuotationItem>,
+    pub open_production_orders: Vec<OpenProductionOrderItem>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -346,6 +372,23 @@ pub struct InsumoUsedInProductItem {
     pub product_code: String,
     pub description: String,
     pub quantity: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenProductionOrderItem {
+    pub product_code: String,
+    pub product_description: String,
+    pub production_date: String,
+    pub quantity_produced: f64,
+    pub insumo_qty_per_unit: f64,
+    pub insumo_qty_needed: f64,
+    pub observations: Option<String>,
+    pub lote_number: String,
+    pub status: String,
+    pub status_label: String,
+    pub insumo_qty_weighed: f64,
+    pub pesagem_completed: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

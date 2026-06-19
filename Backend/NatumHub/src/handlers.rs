@@ -1966,6 +1966,205 @@ pub async fn get_insumo_detalhes(
         }
     }
 
+    let mut pending_orders = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT po.n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, poi.n_preco 
+         FROM purchase_order_items poi
+         INNER JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
+         WHERE (poi.c_referencia = ?1 OR poi.c_referencia = ?2) AND poi.n_chegou < poi.n_qtde
+         ORDER BY po.d_pedido DESC"
+    ) {
+        let rows = stmt.query_map(params![code, code_clean], |row| {
+            Ok(crate::models::PendingPurchaseOrderInfo {
+                n_pedido: row.get(0)?,
+                d_pedido: row.get(1)?,
+                c_nome_f: row.get(2)?,
+                n_qtde: row.get(3)?,
+                n_chegou: row.get(4)?,
+                n_preco: row.get(5)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(po) = r { pending_orders.push(po); }
+            }
+        }
+    }
+
+    let mut quotations = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT q.id, q.title, q.status, qi.recommended_qty, qi.approved_qty, qi.final_qty, q.created_at
+         FROM quotation_items qi
+         INNER JOIN quotations q ON qi.quotation_id = q.id
+         WHERE qi.item_code = ?1 OR qi.item_code = ?2
+         ORDER BY q.created_at DESC"
+    ) {
+        let rows = stmt.query_map(params![code, code_clean], |row| {
+            Ok(crate::models::InsumoQuotationItem {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                status: row.get(2)?,
+                recommended_qty: row.get(3)?,
+                approved_qty: row.get(4)?,
+                final_qty: row.get(5)?,
+                created_at: row.get(6)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(q) = r { quotations.push(q); }
+            }
+        }
+    }
+
+    // 10. Fetch open production orders (lotes) for products that use this insumo
+    let mut open_production_orders = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT m.document_number, m.item_code, p.descricao, m.quantity, m.date, m.details
+         FROM stock_movements m
+         LEFT JOIN produtos p ON p.codigo = m.item_code
+         WHERE m.item_type = 'produto' AND m.movement_type = 'entrada'
+         AND EXISTS (
+             SELECT 1 FROM formulations f
+             WHERE (f.product_code = m.item_code 
+                OR (f.product_code LIKE '0%' AND SUBSTR(f.product_code, 2) = m.item_code) 
+                OR (m.item_code LIKE '0%' AND f.product_code = SUBSTR(m.item_code, 2)))
+             AND f.ingredient_code = ?1
+         )
+         ORDER BY m.date DESC
+         LIMIT 200"
+    ) {
+        struct RawOpenOP {
+            lote_number: String,
+            product_code: String,
+            product_description: String,
+            quantity_produced: f64,
+            production_date: String,
+            details: String,
+        }
+        let rows = stmt.query_map(params![code], |row| {
+            Ok(RawOpenOP {
+                lote_number: row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                product_code: row.get(1)?,
+                product_description: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                quantity_produced: row.get(3)?,
+                production_date: row.get(4)?,
+                details: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
+            })
+        });
+
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(raw_op) = r {
+                    // Parse status
+                    let mut status = String::new();
+                    for part in raw_op.details.split('|') {
+                        let part = part.trim();
+                        if part.starts_with("Status:") {
+                            status = part.trim_start_matches("Status:").trim().to_string();
+                        }
+                    }
+                    let status_label = match status.to_uppercase().as_str() {
+                        "EA" => "Estoque Atualizado",
+                        "PG" => "Em Pesagem",
+                        "PP" => "Pré-Produção",
+                        "PR" => "Em Produção",
+                        "EN" => "Em Envase",
+                        "CF" => "Conferido",
+                        "CA" => "Cancelado",
+                        "FP" => "Finalizado",
+                        _ => &status,
+                    }.to_string();
+
+                    // Calculate true insumo_qty_per_unit (factor)
+                    let mut insumo_qty_per_unit = 0.0;
+                    if let Ok(mut stmt_form) = conn.prepare(
+                        "SELECT quantity, IFNULL(percentage, 0.0) FROM formulations 
+                         WHERE (product_code = ?1 
+                            OR (product_code LIKE '0%' AND SUBSTR(product_code, 2) = ?1) 
+                            OR (?1 LIKE '0%' AND product_code = SUBSTR(?1, 2)))
+                         AND ingredient_code = ?2"
+                    ) {
+                        if let Ok(mut rows_form) = stmt_form.query(params![raw_op.product_code, code]) {
+                            if let Ok(Some(row_form)) = rows_form.next() {
+                                let qty: f64 = row_form.get(0).unwrap_or(0.0);
+                                let pct: f64 = row_form.get(1).unwrap_or(0.0);
+                                if pct > 0.0 {
+                                    insumo_qty_per_unit = pct / 100.0;
+                                } else {
+                                    // Fallback: get the sum of quantities for this product
+                                    let sum: f64 = match conn.query_row(
+                                        "SELECT SUM(quantity) FROM formulations 
+                                         WHERE (product_code = ?1 
+                                            OR (product_code LIKE '0%' AND SUBSTR(product_code, 2) = ?1) 
+                                            OR (?1 LIKE '0%' AND product_code = SUBSTR(?1, 2)))",
+                                        params![raw_op.product_code],
+                                        |r| r.get(0)
+                                    ) {
+                                        Ok(s) => s,
+                                        Err(_) => 0.0,
+                                    };
+                                    if sum > 0.0 {
+                                        insumo_qty_per_unit = qty / sum;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Calculate insumo quantities needed (Fallback to our calculation if not found in lotes_baixas)
+                    let fallback_qty_needed = raw_op.quantity_produced * insumo_qty_per_unit;
+                    
+                    let insumo_qty_needed: f64 = match conn.query_row(
+                        "SELECT nQtdeRef FROM lotes_baixas WHERE nLote = ?1 AND cReferencia = ?2",
+                        params![raw_op.lote_number, code],
+                        |row| row.get(0)
+                    ) {
+                        Ok(q) => q,
+                        Err(_) => fallback_qty_needed,
+                    };
+
+                    // Query actual weighed quantity of this insumo in this lote
+                    let insumo_qty_weighed: f64 = match conn.query_row(
+                        "SELECT COALESCE(SUM(quantity), 0.0) FROM stock_movements
+                         WHERE document_number = ?1 AND item_code = ?2 AND movement_type = 'saida'",
+                        params![raw_op.lote_number, code],
+                        |row| row.get(0)
+                    ) {
+                        Ok(q) => q,
+                        Err(_) => 0.0,
+                    };
+
+                    // Check if pesagem is completed
+                    let pesagem_completed = if insumo_qty_needed > 0.0 {
+                        insumo_qty_weighed > 0.0 && (insumo_qty_weighed - insumo_qty_needed).abs() / insumo_qty_needed <= 0.10
+                    } else {
+                        true
+                    };
+
+                    // Filter: only show open orders (exclude EA, CF, FP, CA, FI)
+                    let is_closed = status == "EA" || status == "CF" || status == "FP" || status == "CA" || status == "FI";
+                    if !is_closed {
+                        open_production_orders.push(crate::models::OpenProductionOrderItem {
+                            product_code: raw_op.product_code,
+                            product_description: raw_op.product_description,
+                            production_date: raw_op.production_date,
+                            quantity_produced: raw_op.quantity_produced,
+                            insumo_qty_per_unit,
+                            insumo_qty_needed,
+                            observations: Some(raw_op.details),
+                            lote_number: raw_op.lote_number,
+                            status,
+                            status_label,
+                            insumo_qty_weighed,
+                            pesagem_completed,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     let response = crate::models::InsumoDetalhesResponse {
         code: item_code,
         description,
@@ -1983,6 +2182,9 @@ pub async fn get_insumo_detalhes(
         last_received_date,
         last_received_doc,
         products_used_in,
+        pending_orders,
+        quotations,
+        open_production_orders,
     };
 
     (StatusCode::OK, Json(response)).into_response()

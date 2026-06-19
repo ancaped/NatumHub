@@ -21,7 +21,6 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
     switch (mode) {
       case 'materia_prima':
         return [
-          { id: 'demands', label: 'Demandas', icon: Package },
           { id: 'materia_prima', label: 'Matéria-Prima', icon: Boxes },
           { id: 'registry', label: 'Cadastro', icon: Database },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
@@ -76,6 +75,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
   }, [mode]);
 
   const initialTab = React.useMemo(() => {
+    if (mode === 'materia_prima') return 'materia_prima';
     if (mode === 'coloracao') return 'coloracao';
     if (mode === 'apoio') return 'apoio';
     if (mode === 'quotations') return 'quotations';
@@ -153,15 +153,21 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         <main className="flex-1 overflow-y-auto p-2 lg:p-4 bg-zinc-50/50">
           <div className="w-full max-w-none">
             {activeTab === 'demands' && <DemandTable mode={mode === 'materia_prima' ? 'materia_prima' : mode === 'embalagens' ? 'embalagens' : 'all'} />}
-            {activeTab === 'materia_prima' && <InsumosDetalhesTab parentCategoryFilter="cat_mp" />}
+            {activeTab === 'materia_prima' && (
+              mode === 'materia_prima' ? (
+                <DemandTable mode="materia_prima" />
+              ) : (
+                <InsumosDetalhesTab parentCategoryFilter="cat_mp" />
+              )
+            )}
             {activeTab === 'embalagens' && <InsumosDetalhesTab parentCategoryFilter="cat_emb" />}
             {activeTab === 'coloracao' && <ProdutosCompraTab statusFilter="coloracao" title="Coloração" />}
             {activeTab === 'apoio' && <ProdutosCompraTab statusFilter="apoio" title="Material de Apoio" />}
             {activeTab === 'quotations' && <QuotationManager />}
             {activeTab === 'registry' && <ItemRegistry mode={mode === 'materia_prima' ? 'materia_prima' : mode === 'embalagens' ? 'embalagens' : 'all'} />}
-            {activeTab === 'suppliers' && <SupplierManager />}
-            {activeTab === 'reports' && <ReportDashboard />}
-            {activeTab === 'settings' && <SettingsPanel />}
+            {activeTab === 'suppliers' && <SupplierManager mode={mode} />}
+            {activeTab === 'reports' && <ReportDashboard mode={mode} />}
+            {activeTab === 'settings' && <SettingsPanel mode={mode} />}
           </div>
         </main>
       </div>

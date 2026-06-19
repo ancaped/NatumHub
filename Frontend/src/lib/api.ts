@@ -71,8 +71,9 @@ export const api = {
   },
 
   // === COMPRAS: FORNECEDORES ===
-  getSuppliers(): Promise<Supplier[]> {
-    return invoke('get_suppliers');
+  getSuppliers(mode?: 'materia_prima' | 'embalagens' | 'all'): Promise<Supplier[]> {
+    const parentCategoryId = mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : null;
+    return invoke('get_suppliers', { parentCategoryId });
   },
   saveSupplier(supplier: Supplier): Promise<void> {
     return invoke('save_supplier', { supplier });
@@ -85,11 +86,13 @@ export const api = {
   getPriceEvolution(itemCode: string): Promise<PricePoint[]> {
     return invoke('get_price_evolution', { itemCode });
   },
-  getSpendingBySupplier(start: string, end: string): Promise<SupplierSpend[]> {
-    return invoke('get_spending_by_supplier', { start, end });
+  getSpendingBySupplier(start: string, end: string, mode?: 'materia_prima' | 'embalagens' | 'all'): Promise<SupplierSpend[]> {
+    const parentCategoryId = mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : null;
+    return invoke('get_spending_by_supplier', { start, end, parentCategoryId });
   },
-  getSpendingByCategory(start: string, end: string): Promise<CategorySpend[]> {
-    return invoke('get_spending_by_category', { start, end });
+  getSpendingByCategory(start: string, end: string, mode?: 'materia_prima' | 'embalagens' | 'all'): Promise<CategorySpend[]> {
+    const parentCategoryId = mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : null;
+    return invoke('get_spending_by_category', { start, end, parentCategoryId });
   },
 
   // === COMPRAS: CATEGORIAS ===
