@@ -8,7 +8,8 @@ import { SettingsPanel } from '../components/compras/SettingsPanel';
 import ItemRegistry from '../components/compras/ItemRegistry';
 import { ProdutosCompraTab } from '../components/compras/ProdutosCompraTab';
 import { PrintListTab } from '../components/compras/PrintListTab';
-import { Package, ShoppingCart, Users, BarChart3, Settings, Database, Boxes, ArrowLeft, Palette, Tag, Layers, Printer } from 'lucide-react';
+import { SolicitationTab } from '../components/compras/SolicitationTab';
+import { Package, ShoppingCart, Users, BarChart3, Settings, Database, Boxes, ArrowLeft, Palette, Tag, Layers, Printer, ClipboardList } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface ComprasViewProps {
@@ -23,55 +24,63 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
       case 'materia_prima':
         return [
           { id: 'materia_prima', label: 'Matéria-Prima', icon: Boxes },
-          { id: 'print_list', label: 'Lista de Impressão', icon: Printer },
+          { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
+          { id: 'print_list', label: 'Lista', icon: Printer },
           { id: 'settings', label: 'Configurações', icon: Settings },
         ];
       case 'embalagens':
         return [
           { id: 'demands', label: 'Demandas', icon: Package },
-          { id: 'print_list', label: 'Lista de Impressão', icon: Printer },
           { id: 'embalagens', label: 'Embalagens', icon: Layers },
+          { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'registry', label: 'Cadastro', icon: Database },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
+          { id: 'print_list', label: 'Lista', icon: Printer },
           { id: 'settings', label: 'Configurações', icon: Settings },
         ];
       case 'coloracao':
         return [
           { id: 'coloracao', label: 'Coloração', icon: Palette },
+          { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'registry', label: 'Cadastro', icon: Database },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
+          { id: 'print_list', label: 'Lista', icon: Printer },
           { id: 'settings', label: 'Configurações', icon: Settings },
         ];
       case 'apoio':
         return [
           { id: 'apoio', label: 'Material de Apoio', icon: Tag },
+          { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'registry', label: 'Cadastro', icon: Database },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
+          { id: 'print_list', label: 'Lista', icon: Printer },
           { id: 'settings', label: 'Configurações', icon: Settings },
         ];
       case 'quotations':
         return [
           { id: 'quotations', label: 'Cotações', icon: ShoppingCart },
+          { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
         ];
       default:
         return [
           { id: 'demands', label: 'Demandas', icon: Package },
-          { id: 'print_list', label: 'Lista de Impressão', icon: Printer },
           { id: 'materia_prima', label: 'Matéria-Prima', icon: Boxes },
           { id: 'embalagens', label: 'Embalagens', icon: Layers },
           { id: 'coloracao', label: 'Coloração', icon: Palette },
           { id: 'apoio', label: 'Material de Apoio', icon: Tag },
           { id: 'quotations', label: 'Cotações', icon: ShoppingCart },
+          { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'registry', label: 'Cadastro', icon: Database },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
+          { id: 'print_list', label: 'Lista', icon: Printer },
           { id: 'settings', label: 'Configurações', icon: Settings },
         ];
     }
@@ -164,6 +173,12 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
             {navItems.some(i => i.id === 'print_list') && (
               <div className={activeTab !== 'print_list' ? 'hidden' : ''}>
                 <PrintListTab />
+              </div>
+            )}
+
+            {navItems.some(i => i.id === 'solicitation') && (
+              <div className={activeTab !== 'solicitation' ? 'hidden' : ''}>
+                <SolicitationTab />
               </div>
             )}
 
