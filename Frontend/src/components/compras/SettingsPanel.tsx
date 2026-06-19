@@ -16,7 +16,7 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
   const [subSelectedItems, setSubSelectedItems] = useState<Set<string>>(new Set());
 
   const [newCatName, setNewCatName] = useState('');
-  const [newCatParent, setNewCatParent] = useState<string | null>(mode === 'materia_prima' ? 'cat_mp' : null);
+  const [newCatParent, setNewCatParent] = useState<string | null>(mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : null);
 
   // Pinned subcategories state
   const [pinnedSubs, setPinnedSubs] = useState<string[]>([]);
@@ -63,6 +63,8 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
   useEffect(() => {
     if (mode === 'materia_prima') {
       setNewCatParent('cat_mp');
+    } else if (mode === 'embalagens') {
+      setNewCatParent('cat_emb');
     } else {
       setNewCatParent(null);
     }
@@ -94,7 +96,12 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
   };
 
   const subcategoriesOnly = useMemo(() => {
-    return categories.filter(c => c.parentId !== null && (mode !== 'materia_prima' || c.parentId === 'cat_mp'));
+    return categories.filter(c => {
+      if (c.parentId === null) return false;
+      if (mode === 'materia_prima') return c.parentId === 'cat_mp';
+      if (mode === 'embalagens') return c.parentId === 'cat_emb';
+      return true;
+    });
   }, [categories, mode]);
 
   const loadConfig = async () => {
@@ -127,9 +134,9 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
   const handleAddCategory = async () => {
     if (!newCatName.trim()) return;
     try {
-      await api.saveCategory({ id: crypto.randomUUID(), name: newCatName.trim(), parentId: mode === 'materia_prima' ? 'cat_mp' : newCatParent });
+      await api.saveCategory({ id: crypto.randomUUID(), name: newCatName.trim(), parentId: mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : newCatParent });
       setNewCatName('');
-      setNewCatParent(mode === 'materia_prima' ? 'cat_mp' : null);
+      setNewCatParent(mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : null);
       loadCategories();
     } catch (e) { console.error(e); alert('Erro ao criar categoria'); }
   };
@@ -178,11 +185,10 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
     }
   };
 
-  const rootCats = categories.filter(c => !c.parentId && (mode !== 'materia_prima' || c.id === 'cat_mp'));
+  const rootCats = categories.filter(c => !c.parentId && (mode === 'materia_prima' ? c.id === 'cat_mp' : mode === 'embalagens' ? c.id === 'cat_emb' : true));
   const getChildren = (parentId: string) => categories.filter(c => c.parentId === parentId);
 
   const isExcludedItem = (item: Item) => {
-    if (mode !== 'materia_prima') return false;
     if (!item.categoryId) return false;
     let currentId = item.categoryId;
     let visited = new Set<string>();
@@ -190,8 +196,14 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
       visited.add(currentId);
       const cat = categories.find(c => c.id === currentId);
       if (!cat) break;
-      if (cat.id === 'cat_emb' || cat.id === 'cat_mat') {
-        return true;
+      if (mode === 'materia_prima') {
+        if (cat.id === 'cat_emb' || cat.id === 'cat_mat') {
+          return true;
+        }
+      } else if (mode === 'embalagens') {
+        if (cat.id === 'cat_mp' || cat.id === 'cat_mat') {
+          return true;
+        }
       }
       if (!cat.parentId) break;
       currentId = cat.parentId;
@@ -429,7 +441,7 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
                   placeholder="Ex: Fragrâncias, Corantes..."
                   className="w-full border border-zinc-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white" />
               </div>
-              {mode !== 'materia_prima' && (
+              {mode !== 'materia_prima' && mode !== 'embalagens' && (
                 <div>
                   <label className="text-xs font-medium text-zinc-600 mb-1 block">Pai (opcional)</label>
                   <select value={newCatParent || ''} onChange={e => setNewCatParent(e.target.value || null)}
