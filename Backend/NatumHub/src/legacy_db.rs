@@ -916,7 +916,10 @@ WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1
              ON CONFLICT(code) DO UPDATE SET
                 description = excluded.description,
                 unit = excluded.unit,
-                category_id = excluded.category_id,
+                category_id = CASE 
+                    WHEN items.category_id IS NOT NULL AND items.category_id NOT IN ('cat_mp', 'cat_emb', 'cat_mat') THEN items.category_id
+                    ELSE excluded.category_id
+                END,
                 line = excluded.line,
                 type = excluded.type,
                 is_ignored = excluded.is_ignored,
@@ -934,7 +937,10 @@ WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1
              ON CONFLICT(code) DO UPDATE SET
                 description = excluded.description,
                 unit = excluded.unit,
-                category_id = excluded.category_id,
+                category_id = CASE 
+                    WHEN items.category_id IS NOT NULL AND items.category_id NOT IN ('cat_mp', 'cat_emb', 'cat_mat') THEN items.category_id
+                    ELSE excluded.category_id
+                END,
                 line = excluded.line,
                 type = excluded.type,
                 is_ignored = excluded.is_ignored,

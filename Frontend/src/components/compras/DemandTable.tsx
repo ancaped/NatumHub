@@ -248,41 +248,33 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null }: Dema
   const counts = useMemo(() => {
     let mp = 0;
     let emb = 0;
-    const mpIds = new Set<string>();
-    mpIds.add('cat_mp');
-    const embIds = new Set<string>();
-    embIds.add('cat_emb');
-    categories.forEach(c => {
-      if (c.parentId === 'cat_mp') mpIds.add(c.id);
-      if (c.parentId === 'cat_emb') embIds.add(c.id);
-    });
     demands.forEach(d => {
-      if (d.categoryId) {
-        if (mpIds.has(d.categoryId)) mp++;
-        if (embIds.has(d.categoryId)) emb++;
-      }
+      if (d.categoryId === 'cat_mp') mp++;
+      if (d.categoryId === 'cat_emb') emb++;
     });
     return { all: demands.length, mp, emb };
-  }, [demands, categories]);
+  }, [demands]);
 
   const mainFilteredDemands = useMemo(() => {
     if (activeMainTab === 'ALL') return demands;
     const allowedCategoryIds = new Set<string>();
-    allowedCategoryIds.add(activeMainTab);
-    categories.forEach(c => {
-      if (c.parentId === activeMainTab) allowedCategoryIds.add(c.id);
-    });
+    if (selectedCategory) {
+      allowedCategoryIds.add(selectedCategory);
+    } else {
+      allowedCategoryIds.add(activeMainTab);
+    }
     return demands.filter(d => d.categoryId && allowedCategoryIds.has(d.categoryId));
-  }, [demands, activeMainTab, categories]);
+  }, [demands, activeMainTab, selectedCategory]);
 
   const filteredDemands = useMemo(() => {
     let result = demands;
     if (activeMainTab !== 'ALL') {
       const allowedCategoryIds = new Set<string>();
-      allowedCategoryIds.add(activeMainTab);
-      categories.forEach(c => {
-        if (c.parentId === activeMainTab) allowedCategoryIds.add(c.id);
-      });
+      if (selectedCategory) {
+        allowedCategoryIds.add(selectedCategory);
+      } else {
+        allowedCategoryIds.add(activeMainTab);
+      }
       result = result.filter(d => d.categoryId && allowedCategoryIds.has(d.categoryId));
     }
     if (selectedCategory) result = result.filter(d => d.categoryId === selectedCategory);
@@ -298,7 +290,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null }: Dema
       return sortDir === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
     });
     return result;
-  }, [demands, activeMainTab, selectedCategory, categories, search, urgencyFilter, sortKey, sortDir]);
+  }, [demands, activeMainTab, selectedCategory, search, urgencyFilter, sortKey, sortDir]);
 
   const paginatedDemands = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;

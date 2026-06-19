@@ -68,7 +68,6 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         ];
       case 'embalagens':
         return [
-          { id: 'demands', label: 'Demandas', icon: Package },
           { id: 'embalagens', label: 'Embalagens', icon: Layers },
           ...getSubcategoryNavItems('cat_emb'),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
@@ -127,6 +126,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
 
   const initialTab = React.useMemo(() => {
     if (mode === 'materia_prima') return 'materia_prima';
+    if (mode === 'embalagens') return 'embalagens';
     if (mode === 'coloracao') return 'coloracao';
     if (mode === 'apoio') return 'apoio';
     if (mode === 'quotations') return 'quotations';
@@ -233,7 +233,11 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
 
             {navItems.some(i => i.id === 'embalagens') && (
               <div className={activeTab !== 'embalagens' ? 'hidden' : ''}>
-                <InsumosDetalhesTab parentCategoryFilter="cat_emb" />
+                {mode === 'embalagens' ? (
+                  <DemandTable mode="embalagens" />
+                ) : (
+                  <InsumosDetalhesTab parentCategoryFilter="cat_emb" />
+                )}
               </div>
             )}
 
