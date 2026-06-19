@@ -354,10 +354,22 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
       return;
     }
     
-    // Open print window
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert("Não foi possível abrir a janela de impressão. Por favor, verifique se os pop-ups estão bloqueados.");
+    // Create hidden iframe
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.left = '0';
+    iframe.style.top = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
+    iframe.style.opacity = '0';
+    iframe.style.pointerEvents = 'none';
+    document.body.appendChild(iframe);
+    
+    const doc = iframe.contentWindow?.document;
+    if (!doc) {
+      alert("Não foi possível iniciar a impressão.");
+      document.body.removeChild(iframe);
       return;
     }
     
@@ -550,23 +562,26 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
           <div>NatumHub — Sistema de Gestão Unificado</div>
           <div>Impressão Direta</div>
         </footer>
-
-        <script>
-          window.onload = function() {
-            setTimeout(function() {
-              window.print();
-              window.close();
-            }, 300);
-          }
-        </script>
       </body>
       </html>
     `;
     
-    printWindow.document.open();
-    printWindow.document.write(printHtml);
-    printWindow.document.close();
+    doc.open();
+    doc.write(printHtml);
+    doc.close();
+    
+    // Trigger print in the iframe
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      
+      // Clean up DOM after printing
+      setTimeout(() => {
+        document.body.removeChild(iframe);
+      }, 1000);
+    }, 500);
   };
+
 
   return (
     <div className="flex flex-col gap-4 h-[calc(100vh-11rem)]">
