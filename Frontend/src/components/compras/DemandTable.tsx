@@ -422,10 +422,10 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
           <td style="text-align: right;">${item.currentStock.toLocaleString('pt-BR')} ${item.unit || ''}</td>
           <td style="text-align: right;">${item.overallAvg.toLocaleString('pt-BR')} ${item.unit || ''}</td>
           <td style="text-align: right;">${item.futureStockForecast.toLocaleString('pt-BR')} ${item.unit || ''}</td>
-          <td style="text-align: right; color: ${item.estimatedDurationDays < 30 ? '#b91c1c' : 'inherit'}; font-weight: ${item.estimatedDurationDays < 60 ? 'bold' : 'normal'};">
+          <td style="text-align: right; font-weight: ${item.estimatedDurationDays < 60 ? 'bold' : 'normal'};">
             ${item.estimatedDurationDays === 9999 ? '9999+' : `${item.estimatedDurationDays} dias`}
           </td>
-          <td style="text-align: right; font-weight: bold; background-color: ${item.recommendedQty > 0 ? '#fef2f2' : 'transparent'}; color: ${item.recommendedQty > 0 ? '#b91c1c' : 'inherit'};">
+          <td style="text-align: right; font-weight: bold; background-color: ${item.recommendedQty > 0 ? '#f4f4f5' : 'transparent'};">
             ${item.recommendedQty > 0 ? `${item.recommendedQty.toLocaleString('pt-BR')} ${item.unit || ''}` : '-'}
           </td>
         </tr>
@@ -569,13 +569,22 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
               <th style="width: 70px; text-align: right;">Consumo Mês</th>
               <th style="width: 70px; text-align: right;">Prev. Futura</th>
               <th style="width: 70px; text-align: right;">Duração Est.</th>
-              <th style="width: 85px; text-align: right; background-color: #fef2f2; border-bottom: 2px solid #b91c1c;">Recomendado</th>
+              <th style="width: 85px; text-align: right; background-color: #f4f4f5; border-bottom: 2px solid #27272a;">Recomendado</th>
             </tr>
           </thead>
           <tbody>
             ${rowsHtml}
           </tbody>
         </table>
+
+        <div style="margin-top: 25px; padding: 10px; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 8px; color: #4b5563; page-break-inside: avoid;">
+          <strong style="color: #111827; display: block; margin-bottom: 4px; font-size: 9px; text-transform: uppercase;">Nota Explicativa (Metodologia de Cálculo):</strong>
+          <ul style="margin: 0; padding-left: 12px; line-height: 1.4;">
+            <li style="margin-bottom: 3px;"><strong>Consumo Mês (Média):</strong> Calculado prioritariamente a partir da média de saídas reais de estoque (baixas por ordens de produção ou avarias) ocorridas nos últimos 12 meses. Na ausência de saídas, utiliza-se a mediana das médias de consumo anuais (2024, 2025 e 2026), ajustando-se proporcionalmente o ano corrente aos meses decorridos.</li>
+            <li style="margin-bottom: 3px;"><strong>Duração de Estoque:</strong> Calculada como <code style="font-family: monospace;">Estoque Projetado Futuro / Consumo Diário</code>. O Estoque Futuro projeta a quantidade somando estoque físico atual, ordens em produção e ordens de compra em trânsito, e subtraindo a quantidade reservada para produção imediata.</li>
+            <li><strong>Recomendado:</strong> Sugestão para suprir a meta de dias desejada, expressa por: <code style="font-family: monospace;">(Meta de Dias / 30 * Consumo Mês) - Estoque Futuro</code>.</li>
+          </ul>
+        </div>
 
         <div class="signatures">
           <div class="signature-box">
