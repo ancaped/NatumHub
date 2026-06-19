@@ -11,6 +11,8 @@ import { PrintListTab } from '../components/compras/PrintListTab';
 import { SolicitationTab } from '../components/compras/SolicitationTab';
 import { Package, ShoppingCart, Users, BarChart3, Settings, Database, Boxes, ArrowLeft, Palette, Tag, Layers, Printer, ClipboardList } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { api } from '../lib/api';
+import { Category } from '../types';
 
 interface ComprasViewProps {
   onBackToHub: () => void;
@@ -18,12 +20,46 @@ interface ComprasViewProps {
 }
 
 export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewProps) {
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [pinnedSubs, setPinnedSubs] = useState<string[]>([]);
+
+  const loadPinnedAndCategories = () => {
+    api.getCategories().then(setCategories).catch(console.error);
+    const stored = localStorage.getItem('natum_hub_pinned_subcategories');
+    if (stored) {
+      try {
+        setPinnedSubs(JSON.parse(stored));
+      } catch (e) {
+        console.error(e);
+      }
+    } else {
+      setPinnedSubs([]);
+    }
+  };
+
+  useEffect(() => {
+    loadPinnedAndCategories();
+    window.addEventListener('storage', loadPinnedAndCategories);
+    return () => window.removeEventListener('storage', loadPinnedAndCategories);
+  }, []);
+
   // Dynamically resolve nav items and initial active tab based on mode
   const navItems = React.useMemo(() => {
+    const getSubcategoryNavItems = (parentCatId: string | null) => {
+      return categories
+        .filter(c => pinnedSubs.includes(c.id) && (parentCatId === null || c.parentId === parentCatId))
+        .map(c => ({
+          id: `sub_${c.id}`,
+          label: c.name,
+          icon: Tag,
+        }));
+    };
+
     switch (mode) {
       case 'materia_prima':
         return [
           { id: 'materia_prima', label: 'Matéria-Prima', icon: Boxes },
+          ...getSubcategoryNavItems('cat_mp'),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
@@ -34,6 +70,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         return [
           { id: 'demands', label: 'Demandas', icon: Package },
           { id: 'embalagens', label: 'Embalagens', icon: Layers },
+          ...getSubcategoryNavItems('cat_emb'),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'registry', label: 'Cadastro', icon: Database },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
@@ -44,6 +81,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
       case 'coloracao':
         return [
           { id: 'coloracao', label: 'Coloração', icon: Palette },
+          ...getSubcategoryNavItems('cat_mp'),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'registry', label: 'Cadastro', icon: Database },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
@@ -76,6 +114,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'coloracao', label: 'Coloração', icon: Palette },
           { id: 'apoio', label: 'Material de Apoio', icon: Tag },
           { id: 'quotations', label: 'Cotações', icon: ShoppingCart },
+          ...getSubcategoryNavItems(null),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'registry', label: 'Cadastro', icon: Database },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
@@ -84,7 +123,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'settings', label: 'Configurações', icon: Settings },
         ];
     }
-  }, [mode]);
+  }, [mode, categories, pinnedSubs]);
 
   const initialTab = React.useMemo(() => {
     if (mode === 'materia_prima') return 'materia_prima';
@@ -239,10 +278,18 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
                 <SettingsPanel mode={mode} />
               </div>
             )}
+
+            {categories.filter(c => pinnedSubs.includes(c.id)).map(c => (
+              <div key={`sub_${c.id}`} className={activeTab !== `sub_${c.id}` ? 'hidden' : ''}>
+                <DemandTable 
+                  mode={c.parentId === 'cat_emb' ? 'embalagens' : c.parentId === 'cat_mp' ? 'materia_prima' : 'all'} 
+                  initialCategoryFilter={c.id} 
+                />
+              </div>
+            ))}
           </div>
         </main>
       </div>
     </div>
   );
 }
-

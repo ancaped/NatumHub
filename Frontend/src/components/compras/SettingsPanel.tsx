@@ -18,6 +18,9 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
   const [newCatName, setNewCatName] = useState('');
   const [newCatParent, setNewCatParent] = useState<string | null>(mode === 'materia_prima' ? 'cat_mp' : null);
 
+  // Pinned subcategories state
+  const [pinnedSubs, setPinnedSubs] = useState<string[]>([]);
+
   useEffect(() => {
     if (mode === 'materia_prima') {
       setNewCatParent('cat_mp');
@@ -32,7 +35,28 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
     loadConfig();
     loadCategories();
     loadItems();
+
+    const stored = localStorage.getItem('natum_hub_pinned_subcategories');
+    if (stored) {
+      try { setPinnedSubs(JSON.parse(stored)); } catch (e) { console.error(e); }
+    }
   }, []);
+
+  const togglePinSubcategory = (catId: string) => {
+    let updated: string[];
+    if (pinnedSubs.includes(catId)) {
+      updated = pinnedSubs.filter(id => id !== catId);
+    } else {
+      updated = [...pinnedSubs, catId];
+    }
+    setPinnedSubs(updated);
+    localStorage.setItem('natum_hub_pinned_subcategories', JSON.stringify(updated));
+    window.dispatchEvent(new Event('storage'));
+  };
+
+  const subcategoriesOnly = useMemo(() => {
+    return categories.filter(c => c.parentId !== null && (mode !== 'materia_prima' || c.parentId === 'cat_mp'));
+  }, [categories, mode]);
 
   const loadConfig = async () => {
     try {
@@ -164,6 +188,55 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
             </button>
             {saved && <span className="text-sm text-emerald-600 font-medium">✓ Salvo!</span>}
           </div>
+        </div>
+      </div>
+
+      {/* Abas no Menu Lateral */}
+      <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50">
+          <h3 className="font-semibold flex items-center gap-2">
+            <FolderTree className="h-5 w-5 text-zinc-500" />
+            Atalhos no Menu Lateral (Abas de Subcategoria)
+          </h3>
+        </div>
+        <div className="p-6 space-y-4">
+          <p className="text-xs text-zinc-500">
+            Selecione quais subcategorias de insumos você deseja fixar como atalhos diretos no menu lateral de Compras para acesso rápido:
+          </p>
+          {subcategoriesOnly.length === 0 ? (
+            <div className="text-xs text-zinc-400 italic">Nenhuma subcategoria criada ainda. Crie abaixo primeiro.</div>
+          ) : ( 
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {subcategoriesOnly.map(sub => {
+                const isPinned = pinnedSubs.includes(sub.id);
+                return (
+                  <button
+                    key={sub.id}
+                    onClick={() => togglePinSubcategory(sub.id)}
+                    className={cn(
+                      "flex items-center gap-2.5 p-3 rounded-xl border text-left cursor-pointer transition-all text-xs font-bold shadow-xs",
+                      isPinned 
+                        ? "bg-zinc-900 border-zinc-900 text-white font-extrabold" 
+                        : "bg-white border-zinc-200 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
+                    )}
+                  >
+                    <div className={cn(
+                      "w-4 h-4 rounded flex items-center justify-center border",
+                      isPinned ? "border-white bg-white text-zinc-900" : "border-zinc-300"
+                    )}>
+                      {isPinned && <span className="text-[10px] leading-none">✓</span>}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate">{sub.name}</p>
+                      <span className={cn("text-[9px] block font-mono font-medium", isPinned ? "text-zinc-300" : "text-zinc-400")}>
+                        Pai: {sub.parentId === 'cat_mp' ? 'Matéria Prima' : sub.parentId === 'cat_emb' ? 'Embalagem' : 'Outro'}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 

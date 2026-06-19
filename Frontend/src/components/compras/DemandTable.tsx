@@ -80,15 +80,16 @@ type SortDir = 'asc' | 'desc';
 
 interface DemandTableProps {
   mode?: 'materia_prima' | 'embalagens' | 'all';
+  initialCategoryFilter?: string | null;
 }
 
-export function DemandTable({ mode = 'all' }: DemandTableProps) {
+export function DemandTable({ mode = 'all', initialCategoryFilter = null }: DemandTableProps) {
   const defaultTab = mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : 'ALL';
   const [demands, setDemands] = useState<DemandResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [targetDays, setTargetDays] = useState(90);
   const [activeMainTab, setActiveMainTab] = useState<'ALL' | 'cat_mp' | 'cat_emb'>(defaultTab);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(initialCategoryFilter);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
@@ -148,8 +149,8 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
 
   useEffect(() => {
     setActiveMainTab(defaultTab);
-    setSelectedCategory(null);
-  }, [mode, defaultTab]);
+    setSelectedCategory(initialCategoryFilter);
+  }, [mode, defaultTab, initialCategoryFilter]);
 
   useEffect(() => {
     loadCategories();
@@ -659,7 +660,7 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
 
       <div className="flex-1 flex gap-4 overflow-hidden relative">
         <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden flex flex-col w-full">
-          {mode === 'all' && (
+          {mode === 'all' && !initialCategoryFilter && (
             <div className="flex border-b border-zinc-200 bg-zinc-50/50 px-4 pt-2 shrink-0 gap-2">
               {([
                 { id: 'ALL', name: 'Todos', count: counts.all },
@@ -668,7 +669,7 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
               ] as const).map(tab => (
                 <button key={tab.id} onClick={() => { setActiveMainTab(tab.id); setSelectedCategory(null); }} className={cn("px-4 py-2 text-xs font-bold border-b-2 -mb-px transition-colors cursor-pointer flex items-center gap-2", activeMainTab === tab.id ? "border-zinc-900 text-zinc-900 font-extrabold" : "border-transparent text-zinc-500 hover:text-zinc-800")}>
                   {tab.name}
-                  <span className={cn("px-1.5 py-0.5 rounded-full text-[9px] font-bold font-mono", activeMainTab === tab.id ? "bg-zinc-900 text-white" : "bg-zinc-200 text-zinc-600")}>{tab.count}</span>
+                  <span className={cn("px-1.5 py-0.5 rounded-full text-[9px] font-bold font-mono", activeMainTab === tab.id ? "bg-zinc-900 text-white" : "bg-zinc-200 text-zinc-650")}>{tab.count}</span>
                 </button>
               ))}
             </div>
@@ -680,13 +681,15 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
                 <Search className="h-4 w-4 text-zinc-400" />
                 <input type="text" placeholder="Buscar código ou descrição..." value={search} onChange={e => setSearch(e.target.value)} className="text-sm bg-transparent border-none focus:outline-none w-48" />
               </div>
-              <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-zinc-500" />
-                <select value={selectedCategory || ''} onChange={e => setSelectedCategory(e.target.value || null)} className="text-sm border border-zinc-300 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none">
-                  <option value="">{activeMainTab === 'ALL' ? 'Todas as Categorias' : 'Todas as Subcategorias'}</option>
-                  {filteredSubcategories.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
-                </select>
-              </div>
+              {!initialCategoryFilter && (
+                <div className="flex items-center gap-2">
+                  <Filter className="h-4 w-4 text-zinc-500" />
+                  <select value={selectedCategory || ''} onChange={e => setSelectedCategory(e.target.value || null)} className="text-sm border border-zinc-300 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none">
+                    <option value="">{activeMainTab === 'ALL' ? 'Todas as Categorias' : 'Todas as Subcategorias'}</option>
+                    {filteredSubcategories.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
+                  </select>
+                </div>
+              )}
               <select value={urgencyFilter} onChange={e => setUrgencyFilter(e.target.value)} className="text-sm border border-zinc-300 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none">
                 <option value="">Todos os Status</option>
                 <option value="critical">🔴 Crítico (&lt;30 dias)</option>
