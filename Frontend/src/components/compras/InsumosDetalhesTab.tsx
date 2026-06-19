@@ -215,7 +215,7 @@ export function InsumosDetalhesTab({ parentCategoryFilter }: InsumosDetalhesTabP
   };
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] gap-6 text-left" style={{ minHeight: '500px' }}>
+    <div className="flex h-[calc(100vh-6.25rem)] gap-6 text-left" style={{ minHeight: '500px' }}>
       {/* Left List Pane */}
       <div className={cn(
         "flex flex-col bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden transition-all duration-350",

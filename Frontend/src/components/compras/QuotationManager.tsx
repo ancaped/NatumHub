@@ -66,7 +66,7 @@ export function QuotationManager() {
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden flex flex-col h-[calc(100vh-12rem)]">
+    <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden flex flex-col h-[calc(100vh-6.25rem)]">
       {/* Header & Filters */}
       <div className="p-4 border-b border-zinc-200 bg-zinc-50 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">

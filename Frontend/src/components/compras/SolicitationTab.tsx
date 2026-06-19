@@ -367,7 +367,7 @@ export function SolicitationTab() {
   };
 
   return (
-    <div className="flex flex-col gap-4 h-[calc(100vh-11rem)]">
+    <div className="flex flex-col gap-4 h-[calc(100vh-12.25rem)]">
       {/* Top Header Card */}
       <div className="bg-white p-4 rounded-xl border border-zinc-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
         <div className="text-left">

@@ -169,7 +169,7 @@ export function QuotationDetail({ id, onBack }: QuotationDetailProps) {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden flex flex-col h-[calc(100vh-12rem)] relative">
+    <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden flex flex-col h-[calc(100vh-6.25rem)] relative">
       {/* Header */}
       <div className="p-4 border-b border-zinc-200 bg-white flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">

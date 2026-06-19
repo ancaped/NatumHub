@@ -624,7 +624,10 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null }: Dema
 
 
   return (
-    <div className="flex flex-col gap-4 h-[calc(100vh-11rem)]">
+    <div className={cn(
+      "flex flex-col gap-4 w-full",
+      mode === 'materia_prima' ? "h-[calc(100vh-6.25rem)]" : "h-[calc(100vh-12.25rem)]"
+    )}>
       {mode !== 'materia_prima' && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 shrink-0">
           <div className="bg-white p-4 rounded-xl border border-zinc-200 shadow-sm text-left flex items-center justify-between">
