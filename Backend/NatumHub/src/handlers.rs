@@ -2056,12 +2056,15 @@ pub async fn get_insumo_detalhes(
         if let Ok(iter) = rows {
             for r in iter {
                 if let Ok(raw_op) = r {
-                    // Parse status
+                    // Parse status and dPesado
                     let mut status = String::new();
+                    let mut d_pesado = String::new();
                     for part in raw_op.details.split('|') {
                         let part = part.trim();
                         if part.starts_with("Status:") {
                             status = part.trim_start_matches("Status:").trim().to_string();
+                        } else if part.starts_with("dPesado:") {
+                            d_pesado = part.trim_start_matches("dPesado:").trim().to_string();
                         }
                     }
                     let status_label = match status.to_uppercase().as_str() {
@@ -2128,19 +2131,15 @@ pub async fn get_insumo_detalhes(
                     let insumo_qty_weighed: f64 = match conn.query_row(
                         "SELECT COALESCE(SUM(quantity), 0.0) FROM stock_movements
                          WHERE document_number = ?1 AND item_code = ?2 AND movement_type = 'saida'",
-                        params![raw_op.lote_number, code],
-                        |row| row.get(0)
+                         params![raw_op.lote_number, code],
+                         |row| row.get(0)
                     ) {
                         Ok(q) => q,
                         Err(_) => 0.0,
                     };
 
                     // Check if pesagem is completed
-                    let pesagem_completed = if insumo_qty_needed > 0.0 {
-                        insumo_qty_weighed > 0.0 && (insumo_qty_weighed - insumo_qty_needed).abs() / insumo_qty_needed <= 0.10
-                    } else {
-                        true
-                    };
+                    let pesagem_completed = !d_pesado.is_empty();
 
                     // Filter: only show open orders (exclude EA, CF, FP, CA, FI)
                     // Also exclude if pesagem is effectively completed for this insumo

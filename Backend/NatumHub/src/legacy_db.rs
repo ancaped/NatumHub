@@ -103,6 +103,7 @@ struct LoteRow {
     fab: Option<String>,
     aut: Option<String>,
     unidades: Option<f64>,
+    d_pesado: Option<String>,
 }
 
 struct LoteBaixaRow {
@@ -544,7 +545,8 @@ SELECT
     CAST(l.nUnidadesReais1 AS FLOAT) as nUnidadesReais1,
     CAST(l.nUnidadesReais2 AS FLOAT) as nUnidadesReais2,
     CAST(l.nUnidadesReais3 AS FLOAT) as nUnidadesReais3,
-    CAST(l.nUnidadesReais4 AS FLOAT) as nUnidadesReais4
+    CAST(l.nUnidadesReais4 AS FLOAT) as nUnidadesReais4,
+    CONVERT(varchar, l.dPesado, 120) COLLATE Latin1_General_CI_AS as dPesado
 FROM Lotes l WITH (NOLOCK)
 WHERE l.dLote >= '2024-01-01 00:00:00'
   AND (
@@ -567,6 +569,7 @@ WHERE l.dLote >= '2024-01-01 00:00:00'
         let status = row.get::<&str, _>(11).map(|s| s.trim().to_string());
         let fab = row.get::<&str, _>(12).map(|s| s.trim().to_string());
         let aut = row.get::<&str, _>(13).map(|s| s.trim().to_string());
+        let d_pesado = row.get::<&str, _>(23).map(|s| s.trim().to_string());
 
         let prods = [
             (row.get::<&str, _>(1), row.get::<f64, _>(6), row.get::<f64, _>(15), row.get::<f64, _>(19)),
@@ -618,6 +621,7 @@ WHERE l.dLote >= '2024-01-01 00:00:00'
                     fab: fab.clone(),
                     aut: aut.clone(),
                     unidades: Some(unidades),
+                    d_pesado: d_pesado.clone(),
                 });
             }
         }
@@ -1079,11 +1083,12 @@ WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1
     for l in lotes_list {
         let mov_id = Uuid::new_v4().to_string();
         let details = format!(
-            "Status: {} | Fab: {} | Aut: {} | Unidades: {}",
+            "Status: {} | Fab: {} | Aut: {} | Unidades: {} | dPesado: {}",
             l.status.as_deref().unwrap_or(""),
             l.fab.as_deref().unwrap_or(""),
             l.aut.as_deref().unwrap_or(""),
-            l.unidades.unwrap_or(0.0)
+            l.unidades.unwrap_or(0.0),
+            l.d_pesado.as_deref().unwrap_or("")
         );
         tx.execute(
             "INSERT INTO stock_movements (id, item_code, item_type, movement_type, quantity, date, document_number, details)

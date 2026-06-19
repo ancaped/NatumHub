@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../lib/api';
-import { DemandResult, Category } from '../../types';
+import { DemandResult, Category, Item } from '../../types';
 import { AlertCircle, ArrowDownToLine, Package, Filter, CheckCircle2, ShoppingCart, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, TrendingUp, BarChart3, FileText, ChevronRight, X, Info, RefreshCw, Database, Factory } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -100,7 +100,15 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
   const [details, setDetails] = useState<InsumoDetalhes | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
-  const [drawerTab, setDrawerTab] = useState<'visao_geral' | 'consumo' | 'pedidos' | 'producao' | 'cotacoes'>('visao_geral');
+  const [drawerTab, setDrawerTab] = useState<'visao_geral' | 'consumo' | 'pedidos' | 'producao' | 'cotacoes' | 'semelhantes'>('visao_geral');
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [tempNotes, setTempNotes] = useState('');
+  
+  // Similar items state
+  const [similarItems, setSimilarItems] = useState<Item[]>([]);
+  const [similarLoading, setSimilarLoading] = useState(false);
+  const [allItems, setAllItems] = useState<Item[]>([]);
+  const [similarSearch, setSimilarSearch] = useState('');
 
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 30;
@@ -156,14 +164,41 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
     }
   };
 
+  const loadSimilarItems = async () => {
+    if (!selectedItemCode) return;
+    setSimilarLoading(true);
+    try {
+      const data = await api.getSimilarItems(selectedItemCode);
+      setSimilarItems(data);
+      if (allItems.length === 0) {
+        const items = await api.getItems();
+        setAllItems(items.filter(i => !i.isIgnored && i.code !== selectedItemCode));
+      }
+    } catch (e) {
+      console.error("Erro ao carregar itens semelhantes:", e);
+    } finally {
+      setSimilarLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (selectedItemCode) {
       loadDetails(selectedItemCode);
       setDrawerTab('visao_geral');
+      setIsEditingNotes(false);
+      setTempNotes('');
+      setSimilarItems([]);
+      setSimilarSearch('');
     } else {
       setDetails(null);
     }
   }, [selectedItemCode]);
+
+  useEffect(() => {
+    if (selectedItemCode && drawerTab === 'semelhantes') {
+      loadSimilarItems();
+    }
+  }, [selectedItemCode, drawerTab]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -498,6 +533,7 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
                 { id: 'pedidos' as const, label: 'Pedidos', icon: Clock },
                 { id: 'producao' as const, label: 'Produção', icon: Factory },
                 { id: 'cotacoes' as const, label: 'Cotações', icon: ShoppingCart },
+                { id: 'semelhantes' as const, label: 'Semelhantes', icon: Database },
               ]).map(tab => (
                 <button
                   key={tab.id}
@@ -553,16 +589,65 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
                       </div>
                     </div>
 
-                    {/* Notes Panel */}
-                    {details.notes && (
-                      <div className="p-3.5 bg-amber-50/50 border border-amber-100 rounded-xl flex items-start gap-3">
-                        <Info className="h-4.5 w-4.5 text-amber-500 mt-0.5 shrink-0" />
-                        <div>
-                          <h5 className="text-xs font-bold text-amber-805">Observações de Cadastro</h5>
-                          <p className="text-xs text-amber-700/95 mt-0.5">{details.notes}</p>
-                        </div>
+                    {/* Notes Panel (Editable) */}
+                    <div className="p-3.5 bg-zinc-50 border border-zinc-200 rounded-xl space-y-2 text-left">
+                      <div className="flex items-center justify-between">
+                        <h5 className="text-xs font-bold text-zinc-700 flex items-center gap-1.5">
+                          <Info className="h-4 w-4 text-zinc-400 shrink-0" /> Observações do Insumo
+                        </h5>
+                        {isEditingNotes ? (
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await api.updateItemDetails(details.code, tempNotes.trim() || null, false);
+                                  setIsEditingNotes(false);
+                                  loadDetails(details.code);
+                                } catch (e) {
+                                  console.error(e);
+                                  alert("Erro ao salvar observações");
+                                }
+                              }}
+                              className="text-[10px] font-bold text-emerald-600 hover:text-emerald-800 transition-colors cursor-pointer"
+                            >
+                              Salvar
+                            </button>
+                            <button
+                              onClick={() => {
+                                setTempNotes(details.notes || '');
+                                setIsEditingNotes(false);
+                              }}
+                              className="text-[10px] font-bold text-zinc-400 hover:text-zinc-650 transition-colors cursor-pointer"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setTempNotes(details.notes || '');
+                              setIsEditingNotes(true);
+                            }}
+                            className="text-[10px] font-bold text-zinc-500 hover:text-zinc-800 transition-colors cursor-pointer"
+                          >
+                            Editar
+                          </button>
+                        )}
                       </div>
-                    )}
+                      {isEditingNotes ? (
+                        <textarea
+                          value={tempNotes}
+                          onChange={(e) => setTempNotes(e.target.value)}
+                          className="w-full text-xs border border-zinc-300 rounded-md p-2 focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white"
+                          rows={3}
+                          placeholder="Digite observações sobre este insumo..."
+                        />
+                      ) : (
+                        <p className={cn("text-xs mt-0.5 whitespace-pre-wrap", details.notes ? "text-zinc-750" : "text-zinc-400 italic")}>
+                          {details.notes || "Nenhuma observação registrada."}
+                        </p>
+                      )}
+                    </div>
 
                     {/* Products Used In */}
                     <div className="space-y-3">
@@ -876,7 +961,7 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
                         </div>
                       ) : (
                         <>
-                          <div className="grid grid-cols-3 gap-2.5 mb-3">
+                          <div className="grid grid-cols-2 gap-2.5 mb-3">
                             <div className="bg-indigo-50/40 border border-indigo-100 p-2.5 rounded-xl text-left">
                               <span className="text-[9px] text-indigo-500 font-bold uppercase tracking-wider block">Ordens</span>
                               <p className="text-lg font-extrabold text-indigo-700 mt-0.5">{details.openProductionOrders.length}</p>
@@ -885,13 +970,6 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
                               <span className="text-[9px] text-amber-600 font-bold uppercase tracking-wider block">Total Esperado</span>
                               <p className="text-lg font-extrabold text-amber-700 mt-0.5">
                                 {details.openProductionOrders.reduce((sum, op) => sum + op.insumoQtyNeeded, 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}
-                                <span className="text-[10px] font-semibold text-zinc-500 ml-1">{details.unit}</span>
-                              </p>
-                            </div>
-                            <div className="bg-emerald-50/40 border border-emerald-100 p-2.5 rounded-xl text-left">
-                              <span className="text-[9px] text-emerald-600 font-bold uppercase tracking-wider block">Total Pesado</span>
-                              <p className="text-lg font-extrabold text-emerald-700 mt-0.5">
-                                {details.openProductionOrders.reduce((sum, op) => sum + op.insumoQtyWeighed, 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}
                                 <span className="text-[10px] font-semibold text-zinc-500 ml-1">{details.unit}</span>
                               </p>
                             </div>
@@ -904,10 +982,8 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
                                   <th className="px-3 py-2.5">Produto</th>
                                   <th className="px-3 py-2.5">Data</th>
                                   <th className="px-3 py-2.5 text-center">Status</th>
-                                  <th className="px-3 py-2.5 text-center">Pesagem</th>
                                   <th className="px-3 py-2.5 text-right">Qtd Lote</th>
                                   <th className="px-3 py-2.5 text-right">Esperado</th>
-                                  <th className="px-3 py-2.5 text-right">Pesado</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-zinc-100 text-[11px]">
@@ -940,25 +1016,11 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
                                       <td className="px-3 py-2 text-center">
                                         {getStatusBadge(op.status, op.statusLabel)}
                                       </td>
-                                      <td className="px-3 py-2 text-center">
-                                        {op.pesagemCompleted ? (
-                                          <span className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">
-                                            <CheckCircle2 className="h-2 w-2" /> Concluída
-                                          </span>
-                                        ) : (
-                                          <span className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-100">
-                                            <Clock className="h-2 w-2 animate-pulse" /> Pendente
-                                          </span>
-                                        )}
-                                      </td>
                                       <td className="px-3 py-2 text-right font-medium text-zinc-700">
                                         {op.quantityProduced.toLocaleString('pt-BR')}
                                       </td>
                                       <td className="px-3 py-2 text-right font-bold text-indigo-700">
                                         {op.insumoQtyNeeded.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
-                                      </td>
-                                      <td className="px-3 py-2 text-right font-bold text-emerald-700">
-                                        {op.insumoQtyWeighed.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
                                       </td>
                                     </tr>
                                   );
@@ -970,6 +1032,125 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
                       )}
                     </div>
                   </>
+                )}
+
+                {/* ===== TAB: Semelhantes ===== */}
+                {drawerTab === 'semelhantes' && (
+                  <div className="space-y-4 text-left">
+                    <div className="flex items-center gap-2 border-b border-zinc-200 pb-2">
+                      <Database className="h-4 w-4 text-zinc-650" />
+                      <h4 className="font-extrabold text-sm text-zinc-900">Insumos Semelhantes / Contratipos</h4>
+                    </div>
+
+                    {/* Add Similar Item Section */}
+                    <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-3.5 space-y-3">
+                      <h5 className="text-xs font-bold text-zinc-700">Associar Novo Insumo Semelhante</h5>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-400" />
+                          <input
+                            type="text"
+                            placeholder="Buscar insumo por código ou descrição..."
+                            value={similarSearch}
+                            onChange={(e) => setSimilarSearch(e.target.value)}
+                            className="w-full text-xs border border-zinc-300 rounded-md pl-8 pr-3 py-2 focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white"
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* Search Results */}
+                      {similarSearch.trim().length >= 2 && (
+                        <div className="bg-white border border-zinc-200 rounded-lg max-h-40 overflow-y-auto divide-y divide-zinc-100 shadow-sm">
+                          {allItems
+                            .filter(i => 
+                              (i.code.toLowerCase().includes(similarSearch.toLowerCase()) || 
+                               i.description.toLowerCase().includes(similarSearch.toLowerCase())) &&
+                              !similarItems.some(s => s.code === i.code)
+                            )
+                            .slice(0, 10)
+                            .map(item => (
+                              <div key={item.code} className="p-2 flex items-center justify-between text-xs hover:bg-zinc-50 transition-colors">
+                                <div className="truncate pr-2">
+                                  <span className="font-mono font-bold text-zinc-500 mr-2">{item.code}</span>
+                                  <span className="font-medium text-zinc-800">{item.description}</span>
+                                </div>
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      await api.addSimilarItem(details.code, item.code);
+                                      setSimilarSearch('');
+                                      loadSimilarItems();
+                                    } catch (e) {
+                                      console.error(e);
+                                      alert("Erro ao associar insumo");
+                                    }
+                                  }}
+                                  className="text-[10px] font-bold bg-zinc-900 text-white px-2 py-1 rounded hover:bg-zinc-800 transition-colors cursor-pointer"
+                                >
+                                  Adicionar
+                                </button>
+                              </div>
+                            ))}
+                          {allItems.filter(i => 
+                            (i.code.toLowerCase().includes(similarSearch.toLowerCase()) || 
+                             i.description.toLowerCase().includes(similarSearch.toLowerCase())) &&
+                            !similarItems.some(s => s.code === i.code)
+                          ).length === 0 && (
+                            <p className="text-xs text-zinc-400 p-3 text-center">Nenhum insumo disponível encontrado.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Associated Items List */}
+                    {similarLoading ? (
+                      <div className="flex items-center justify-center py-8 text-zinc-400 text-xs gap-1.5">
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Carregando semelhantes...
+                      </div>
+                    ) : similarItems.length === 0 ? (
+                      <div className="text-center py-12 border border-dashed border-zinc-200 rounded-xl text-zinc-400">
+                        <Database className="h-8 w-8 text-zinc-300 mx-auto mb-2" />
+                        <p className="text-xs font-semibold text-zinc-500">Nenhum insumo contratipo/semelhante associado.</p>
+                        <p className="text-[10px] mt-0.5">Use o campo de busca acima para associar insumos semelhantes.</p>
+                      </div>
+                    ) : (
+                      <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
+                        <div className="divide-y divide-zinc-150">
+                          {similarItems.map(item => (
+                            <div key={item.code} className="p-3 flex items-center justify-between hover:bg-zinc-50/50 transition-colors">
+                              <div className="flex-1 min-w-0 pr-4">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] font-bold font-mono text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded">
+                                    {item.code}
+                                  </span>
+                                  <span className="text-xs font-semibold text-zinc-800 truncate" title={item.description}>
+                                    {item.description}
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                onClick={async () => {
+                                  if (confirm(`Remover a associação de semelhança com "${item.description}"?`)) {
+                                    try {
+                                      await api.removeSimilarItem(details.code, item.code);
+                                      loadSimilarItems();
+                                    } catch (e) {
+                                      console.error(e);
+                                      alert("Erro ao remover associação");
+                                    }
+                                  }
+                                }}
+                                className="text-zinc-400 hover:text-red-650 p-1 rounded hover:bg-red-50 transition-colors cursor-pointer"
+                                title="Remover associação"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
 
               </div>

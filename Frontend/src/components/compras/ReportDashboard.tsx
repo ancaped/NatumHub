@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../lib/api';
-import { PricePoint, SupplierSpend, CategorySpend, Item } from '../../types';
+import { PricePoint, SupplierSpend, CategorySpend, Item, Category } from '../../types';
 import { TrendingUp, DollarSign, Package, Search, Calendar } from 'lucide-react';
 import { cn } from '../../lib/utils';
 

@@ -718,6 +718,14 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         CREATE INDEX IF NOT EXISTS idx_poi_pedido_reg ON purchase_order_items(n_pedido_registro);
         CREATE INDEX IF NOT EXISTS idx_poi_pedido ON purchase_order_items(n_pedido);
         CREATE INDEX IF NOT EXISTS idx_poi_ref ON purchase_order_items(c_referencia);
+
+        CREATE TABLE IF NOT EXISTS similar_items (
+            item_code_a TEXT NOT NULL,
+            item_code_b TEXT NOT NULL,
+            PRIMARY KEY (item_code_a, item_code_b),
+            FOREIGN KEY (item_code_a) REFERENCES items(code) ON DELETE CASCADE,
+            FOREIGN KEY (item_code_b) REFERENCES items(code) ON DELETE CASCADE
+        );
     ")?;
 
     Ok(())
@@ -1562,6 +1570,62 @@ fn get_items(state: State<DbState>, category_id: Option<String>) -> Result<Vec<I
 }
 
 #[tauri::command]
+fn get_similar_items(state: State<DbState>, code: String) -> Result<Vec<Item>, String> {
+    let conn = state.0.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT code, description, unit, category_id, line, type, notes, is_ignored 
+         FROM items 
+         WHERE code IN (
+             SELECT item_code_b FROM similar_items WHERE item_code_a = ?1
+             UNION
+             SELECT item_code_a FROM similar_items WHERE item_code_b = ?1
+         )
+         ORDER BY description"
+    ).map_err(|e| e.to_string())?;
+    
+    let rows = stmt.query_map(params![code], |row| {
+        Ok(Item {
+            code: row.get(0)?,
+            description: row.get(1)?,
+            unit: row.get(2)?,
+            category_id: row.get(3)?,
+            line: row.get(4)?,
+            type_code: row.get(5)?,
+            notes: row.get(6)?,
+            is_ignored: row.get::<_, i32>(7)? == 1,
+        })
+    }).map_err(|e| e.to_string())?;
+    
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(items)
+}
+
+#[tauri::command]
+fn add_similar_item(state: State<DbState>, code_a: String, code_b: String) -> Result<(), String> {
+    let conn = state.0.lock().unwrap();
+    let (first, second) = if code_a < code_b { (&code_a, &code_b) } else { (&code_b, &code_a) };
+    conn.execute(
+        "INSERT OR IGNORE INTO similar_items (item_code_a, item_code_b) VALUES (?1, ?2)",
+        params![first, second],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn remove_similar_item(state: State<DbState>, code_a: String, code_b: String) -> Result<(), String> {
+    let conn = state.0.lock().unwrap();
+    let (first, second) = if code_a < code_b { (&code_a, &code_b) } else { (&code_b, &code_a) };
+    conn.execute(
+        "DELETE FROM similar_items WHERE item_code_a = ?1 AND item_code_b = ?2",
+        params![first, second],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn update_item_details(state: State<DbState>, code: String, notes: Option<String>, is_ignored: bool) -> Result<(), String> {
     let conn = state.0.lock().unwrap();
     conn.execute(
@@ -1622,15 +1686,18 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
                 if let Ok((doc_num, item_code, qty, details)) = r {
                     if !doc_num.is_empty() {
                         let mut status = String::new();
+                        let mut d_pesado = String::new();
                         for part in details.split('|') {
                             let part = part.trim();
                             if part.starts_with("Status:") {
                                 status = part.trim_start_matches("Status:").trim().to_string();
+                            } else if part.starts_with("dPesado:") {
+                                d_pesado = part.trim_start_matches("dPesado:").trim().to_string();
                             }
                         }
                         let is_closed = status == "EA" || status == "CF" || status == "FP" || status == "CA" || status == "FI";
                         if !is_closed {
-                            open_lotes.push((doc_num, item_code, qty));
+                            open_lotes.push((doc_num, item_code, qty, d_pesado));
                         }
                     }
                 }
@@ -1695,7 +1762,7 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
 
     // D. Compute dynamic reserved quantity per insumo
     let mut dynamic_reserved_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
-    for (lote_number, product_code, quantity) in open_lotes {
+    for (lote_number, product_code, quantity, d_pesado) in open_lotes {
         let norm_prod = product_code.strip_prefix('0').unwrap_or(&product_code).to_string();
         if let Some(ingredients) = formulations_map.get(&norm_prod) {
             let sum_qty = formulation_sums.get(&norm_prod).copied().unwrap_or(0.0);
@@ -1719,8 +1786,12 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
                     Err(_) => fallback_expected,
                 };
 
-                let weighed = exits_map.get(&(lote_number.clone(), ing.ingredient_code.clone())).copied().unwrap_or(0.0);
-                let remaining = (expected - weighed).max(0.0);
+                let remaining = if !d_pesado.is_empty() {
+                    0.0
+                } else {
+                    expected
+                };
+
                 if remaining > 0.0 {
                     *dynamic_reserved_map.entry(ing.ingredient_code.clone()).or_insert(0.0) += remaining;
                 }
@@ -2843,6 +2914,7 @@ pub fn run() {
             get_categories, save_category, delete_category,
             // Compras - Items
             get_items, update_item_details, import_item_observations, update_items_category,
+            get_similar_items, add_similar_item, remove_similar_item,
             // Compras - Demands
             get_demands,
             // Compras - Import

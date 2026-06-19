@@ -22,7 +22,6 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
       case 'materia_prima':
         return [
           { id: 'materia_prima', label: 'Matéria-Prima', icon: Boxes },
-          { id: 'registry', label: 'Cadastro', icon: Database },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'settings', label: 'Configurações', icon: Settings },
@@ -165,8 +164,8 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
             {activeTab === 'apoio' && <ProdutosCompraTab statusFilter="apoio" title="Material de Apoio" />}
             {activeTab === 'quotations' && <QuotationManager />}
             {activeTab === 'registry' && <ItemRegistry mode={mode === 'materia_prima' ? 'materia_prima' : mode === 'embalagens' ? 'embalagens' : 'all'} />}
-            {activeTab === 'suppliers' && <SupplierManager mode={mode} />}
-            {activeTab === 'reports' && <ReportDashboard mode={mode} />}
+            {activeTab === 'suppliers' && <SupplierManager mode={mode === 'embalagens' ? 'embalagens' : mode === 'materia_prima' ? 'materia_prima' : 'all'} />}
+            {activeTab === 'reports' && <ReportDashboard mode={mode === 'embalagens' ? 'embalagens' : mode === 'materia_prima' ? 'materia_prima' : 'all'} />}
             {activeTab === 'settings' && <SettingsPanel mode={mode} />}
           </div>
         </main>

@@ -32,6 +32,15 @@ export const api = {
   updateItemDetails(code: string, notes: string | null, isIgnored: boolean): Promise<void> {
     return invoke('update_item_details', { code, notes, isIgnored });
   },
+  getSimilarItems(code: string): Promise<Item[]> {
+    return invoke('get_similar_items', { code });
+  },
+  addSimilarItem(codeA: string, codeB: string): Promise<void> {
+    return invoke('add_similar_item', { codeA, codeB });
+  },
+  removeSimilarItem(codeA: string, codeB: string): Promise<void> {
+    return invoke('remove_similar_item', { codeA, codeB });
+  },
   updateItemsCategory(codes: string[], categoryId: string | null): Promise<void> {
     return invoke('update_items_category', { codes, categoryId: categoryId || null });
   },
@@ -71,8 +80,8 @@ export const api = {
   },
 
   // === COMPRAS: FORNECEDORES ===
-  getSuppliers(mode?: 'materia_prima' | 'embalagens' | 'all'): Promise<Supplier[]> {
-    const parentCategoryId = mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : null;
+  getSuppliers(mode?: string): Promise<Supplier[]> {
+    const parentCategoryId = mode === 'embalagens' ? 'cat_emb' : 'cat_mp';
     return invoke('get_suppliers', { parentCategoryId });
   },
   saveSupplier(supplier: Supplier): Promise<void> {
@@ -86,12 +95,12 @@ export const api = {
   getPriceEvolution(itemCode: string): Promise<PricePoint[]> {
     return invoke('get_price_evolution', { itemCode });
   },
-  getSpendingBySupplier(start: string, end: string, mode?: 'materia_prima' | 'embalagens' | 'all'): Promise<SupplierSpend[]> {
-    const parentCategoryId = mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : null;
+  getSpendingBySupplier(start: string, end: string, mode?: string): Promise<SupplierSpend[]> {
+    const parentCategoryId = mode === 'embalagens' ? 'cat_emb' : 'cat_mp';
     return invoke('get_spending_by_supplier', { start, end, parentCategoryId });
   },
-  getSpendingByCategory(start: string, end: string, mode?: 'materia_prima' | 'embalagens' | 'all'): Promise<CategorySpend[]> {
-    const parentCategoryId = mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : null;
+  getSpendingByCategory(start: string, end: string, mode?: string): Promise<CategorySpend[]> {
+    const parentCategoryId = mode === 'embalagens' ? 'cat_emb' : 'cat_mp';
     return invoke('get_spending_by_category', { start, end, parentCategoryId });
   },
 
