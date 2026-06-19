@@ -71,7 +71,6 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'embalagens', label: 'Embalagens', icon: Layers },
           ...getSubcategoryNavItems('cat_emb'),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
-          { id: 'registry', label: 'Cadastro', icon: Database },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },

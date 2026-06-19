@@ -618,9 +618,9 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null }: Dema
   return (
     <div className={cn(
       "flex flex-col gap-4 w-full",
-      mode === 'materia_prima' ? "h-[calc(100vh-6.25rem)]" : "h-[calc(100vh-12.25rem)]"
+      (mode === 'materia_prima' || mode === 'embalagens') ? "h-[calc(100vh-6.25rem)]" : "h-[calc(100vh-12.25rem)]"
     )}>
-      {mode !== 'materia_prima' && (
+      {mode !== 'materia_prima' && mode !== 'embalagens' && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 shrink-0">
           <div className="bg-white p-4 rounded-xl border border-zinc-200 shadow-sm text-left flex items-center justify-between">
             <div>
@@ -710,7 +710,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null }: Dema
                 <Printer className="h-3.5 w-3.5" />
                 Imprimir Relatório
               </button>
-              {mode !== 'materia_prima' && (
+              {mode !== 'materia_prima' && mode !== 'embalagens' && (
                 <button onClick={handleCreateQuotation} disabled={selectedItems.size === 0} className="text-sm bg-zinc-900 text-white px-4 py-2 rounded-md font-medium hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
                   <ShoppingCart className="h-4 w-4" />
                   Criar Cotação ({selectedItems.size})
@@ -731,7 +731,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null }: Dema
               <table className="w-full text-left text-sm whitespace-nowrap">
                 <thead className="bg-zinc-100 sticky top-0 z-10 shadow-sm">
                   <tr>
-                    {mode !== 'materia_prima' && (
+                    {mode !== 'materia_prima' && mode !== 'embalagens' && (
                       <th className="px-4 py-3 border-b border-zinc-200 w-10">
                         <input type="checkbox" checked={selectedItems.size === filteredDemands.length && filteredDemands.length > 0} onChange={selectAll} className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900" />
                       </th>
@@ -749,7 +749,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null }: Dema
                 <tbody className="divide-y divide-zinc-100">
                   {paginatedDemands.map(demand => (
                     <tr key={demand.itemCode} onClick={() => setSelectedItemCode(demand.itemCode)} className={cn("hover:bg-zinc-50 transition-colors cursor-pointer", selectedItemCode === demand.itemCode && "bg-zinc-100", selectedItems.has(demand.itemCode) && "bg-blue-50/50")}>
-                      {mode !== 'materia_prima' && (
+                      {mode !== 'materia_prima' && mode !== 'embalagens' && (
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                           <input type="checkbox" checked={selectedItems.has(demand.itemCode)} onChange={() => toggleSelection(demand.itemCode)} className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900" />
                         </td>
