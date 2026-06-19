@@ -172,8 +172,8 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
   };
 
   // Load Main Data
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       if (activeTab === 'produtos') {
         // Get calculated products with stocks via REST API
@@ -190,13 +190,18 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
     } catch (e) {
       console.error("Erro ao carregar dados de estoque:", e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     if (activeTab !== 'ativos') {
-      loadData();
+      const hasProducts = products.length > 0;
+      const hasDemands = demands.length > 0;
+      const alreadyLoaded = (activeTab === 'produtos' && hasProducts) || 
+                            ((activeTab === 'insumos' || activeTab === 'materiais') && hasDemands);
+      
+      loadData(alreadyLoaded);
     }
     (window as any).__current_page__ = config.pageName;
   }, [activeTab]);

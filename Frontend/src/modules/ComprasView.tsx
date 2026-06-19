@@ -155,23 +155,75 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         </header>
         <main className="flex-1 overflow-y-auto p-2 lg:p-4 bg-zinc-50/50">
           <div className="w-full max-w-none">
-            {activeTab === 'demands' && <DemandTable mode={mode === 'materia_prima' ? 'materia_prima' : mode === 'embalagens' ? 'embalagens' : 'all'} />}
-            {activeTab === 'print_list' && <PrintListTab />}
-            {activeTab === 'materia_prima' && (
-              mode === 'materia_prima' ? (
-                <DemandTable mode="materia_prima" />
-              ) : (
-                <InsumosDetalhesTab parentCategoryFilter="cat_mp" />
-              )
+            {navItems.some(i => i.id === 'demands') && (
+              <div className={activeTab !== 'demands' ? 'hidden' : ''}>
+                <DemandTable mode={mode === 'materia_prima' ? 'materia_prima' : mode === 'embalagens' ? 'embalagens' : 'all'} />
+              </div>
             )}
-            {activeTab === 'embalagens' && <InsumosDetalhesTab parentCategoryFilter="cat_emb" />}
-            {activeTab === 'coloracao' && <ProdutosCompraTab statusFilter="coloracao" title="Coloração" />}
-            {activeTab === 'apoio' && <ProdutosCompraTab statusFilter="apoio" title="Material de Apoio" />}
-            {activeTab === 'quotations' && <QuotationManager />}
-            {activeTab === 'registry' && <ItemRegistry mode={mode === 'materia_prima' ? 'materia_prima' : mode === 'embalagens' ? 'embalagens' : 'all'} />}
-            {activeTab === 'suppliers' && <SupplierManager mode={mode === 'embalagens' ? 'embalagens' : mode === 'materia_prima' ? 'materia_prima' : 'all'} />}
-            {activeTab === 'reports' && <ReportDashboard mode={mode === 'embalagens' ? 'embalagens' : mode === 'materia_prima' ? 'materia_prima' : 'all'} />}
-            {activeTab === 'settings' && <SettingsPanel mode={mode} />}
+            
+            {navItems.some(i => i.id === 'print_list') && (
+              <div className={activeTab !== 'print_list' ? 'hidden' : ''}>
+                <PrintListTab />
+              </div>
+            )}
+
+            {navItems.some(i => i.id === 'materia_prima') && (
+              <div className={activeTab !== 'materia_prima' ? 'hidden' : ''}>
+                {mode === 'materia_prima' ? (
+                  <DemandTable mode="materia_prima" />
+                ) : (
+                  <InsumosDetalhesTab parentCategoryFilter="cat_mp" />
+                )}
+              </div>
+            )}
+
+            {navItems.some(i => i.id === 'embalagens') && (
+              <div className={activeTab !== 'embalagens' ? 'hidden' : ''}>
+                <InsumosDetalhesTab parentCategoryFilter="cat_emb" />
+              </div>
+            )}
+
+            {navItems.some(i => i.id === 'coloracao') && (
+              <div className={activeTab !== 'coloracao' ? 'hidden' : ''}>
+                <ProdutosCompraTab statusFilter="coloracao" title="Coloração" />
+              </div>
+            )}
+
+            {navItems.some(i => i.id === 'apoio') && (
+              <div className={activeTab !== 'apoio' ? 'hidden' : ''}>
+                <ProdutosCompraTab statusFilter="apoio" title="Material de Apoio" />
+              </div>
+            )}
+
+            {navItems.some(i => i.id === 'quotations') && (
+              <div className={activeTab !== 'quotations' ? 'hidden' : ''}>
+                <QuotationManager />
+              </div>
+            )}
+
+            {navItems.some(i => i.id === 'registry') && (
+              <div className={activeTab !== 'registry' ? 'hidden' : ''}>
+                <ItemRegistry mode={mode === 'materia_prima' ? 'materia_prima' : mode === 'embalagens' ? 'embalagens' : 'all'} />
+              </div>
+            )}
+
+            {navItems.some(i => i.id === 'suppliers') && (
+              <div className={activeTab !== 'suppliers' ? 'hidden' : ''}>
+                <SupplierManager mode={mode === 'embalagens' ? 'embalagens' : mode === 'materia_prima' ? 'materia_prima' : 'all'} />
+              </div>
+            )}
+
+            {navItems.some(i => i.id === 'reports') && (
+              <div className={activeTab !== 'reports' ? 'hidden' : ''}>
+                <ReportDashboard mode={mode === 'embalagens' ? 'embalagens' : mode === 'materia_prima' ? 'materia_prima' : 'all'} />
+              </div>
+            )}
+
+            {navItems.some(i => i.id === 'settings') && (
+              <div className={activeTab !== 'settings' ? 'hidden' : ''}>
+                <SettingsPanel mode={mode} />
+              </div>
+            )}
           </div>
         </main>
       </div>
