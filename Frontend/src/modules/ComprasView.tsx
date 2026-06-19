@@ -7,7 +7,8 @@ import { ReportDashboard } from '../components/compras/ReportDashboard';
 import { SettingsPanel } from '../components/compras/SettingsPanel';
 import ItemRegistry from '../components/compras/ItemRegistry';
 import { ProdutosCompraTab } from '../components/compras/ProdutosCompraTab';
-import { Package, ShoppingCart, Users, BarChart3, Settings, Database, Boxes, ArrowLeft, Palette, Tag, Layers } from 'lucide-react';
+import { PrintListTab } from '../components/compras/PrintListTab';
+import { Package, ShoppingCart, Users, BarChart3, Settings, Database, Boxes, ArrowLeft, Palette, Tag, Layers, Printer } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface ComprasViewProps {
@@ -22,6 +23,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
       case 'materia_prima':
         return [
           { id: 'materia_prima', label: 'Matéria-Prima', icon: Boxes },
+          { id: 'print_list', label: 'Lista de Impressão', icon: Printer },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'settings', label: 'Configurações', icon: Settings },
@@ -29,6 +31,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
       case 'embalagens':
         return [
           { id: 'demands', label: 'Demandas', icon: Package },
+          { id: 'print_list', label: 'Lista de Impressão', icon: Printer },
           { id: 'embalagens', label: 'Embalagens', icon: Layers },
           { id: 'registry', label: 'Cadastro', icon: Database },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
@@ -60,6 +63,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
       default:
         return [
           { id: 'demands', label: 'Demandas', icon: Package },
+          { id: 'print_list', label: 'Lista de Impressão', icon: Printer },
           { id: 'materia_prima', label: 'Matéria-Prima', icon: Boxes },
           { id: 'embalagens', label: 'Embalagens', icon: Layers },
           { id: 'coloracao', label: 'Coloração', icon: Palette },
@@ -152,6 +156,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         <main className="flex-1 overflow-y-auto p-2 lg:p-4 bg-zinc-50/50">
           <div className="w-full max-w-none">
             {activeTab === 'demands' && <DemandTable mode={mode === 'materia_prima' ? 'materia_prima' : mode === 'embalagens' ? 'embalagens' : 'all'} />}
+            {activeTab === 'print_list' && <PrintListTab />}
             {activeTab === 'materia_prima' && (
               mode === 'materia_prima' ? (
                 <DemandTable mode="materia_prima" />

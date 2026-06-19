@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../lib/api';
 import { DemandResult, Category, Item } from '../../types';
-import { AlertCircle, ArrowDownToLine, Package, Filter, CheckCircle2, ShoppingCart, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, TrendingUp, BarChart3, FileText, ChevronRight, X, Info, RefreshCw, Database, Factory, Printer } from 'lucide-react';
+import { AlertCircle, ArrowDownToLine, Package, Filter, CheckCircle2, ShoppingCart, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, TrendingUp, BarChart3, FileText, ChevronRight, X, Info, RefreshCw, Database, Factory, Printer, PlusCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 interface InsumoDetalhes {
@@ -115,6 +115,36 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
 
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printFilterType, setPrintFilterType] = useState<'needed' | 'all'>('needed');
+
+  const [printList, setPrintList] = useState<string[]>([]);
+
+  useEffect(() => {
+    const loadPrintList = () => {
+      const stored = localStorage.getItem('natum_hub_print_list');
+      if (stored) {
+        try { setPrintList(JSON.parse(stored)); } catch (e) { console.error(e); }
+      } else {
+        setPrintList([]);
+      }
+    };
+    loadPrintList();
+    window.addEventListener('storage', loadPrintList);
+    return () => window.removeEventListener('storage', loadPrintList);
+  }, []);
+
+  const isInPrintList = (code: string) => printList.includes(code);
+
+  const handleTogglePrintList = (code: string) => {
+    let newList: string[];
+    if (printList.includes(code)) {
+      newList = printList.filter(c => c !== code);
+    } else {
+      newList = [...printList, code];
+    }
+    setPrintList(newList);
+    localStorage.setItem('natum_hub_print_list', JSON.stringify(newList));
+    window.dispatchEvent(new Event('storage'));
+  };
 
   useEffect(() => {
     setActiveMainTab(defaultTab);
@@ -706,6 +736,7 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
                     <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-right cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('futureStockForecast')}><span className="flex items-center justify-end gap-1">Prev. Futura <SortIcon col="futureStockForecast" /></span></th>
                     <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-center cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('estimatedDurationDays')}><span className="flex items-center justify-center gap-1">Duração Est. <SortIcon col="estimatedDurationDays" /></span></th>
                     <th className="px-4 py-3 font-semibold text-zinc-900 border-b border-zinc-200 text-right cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('recommendedQty')}><span className="flex items-center justify-end gap-1">Qtd Recom. <SortIcon col="recommendedQty" /></span></th>
+                    <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-center w-12">Lista</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
@@ -738,6 +769,24 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
                       <td className="px-4 py-3 text-right">
                         <span className="font-bold text-zinc-900 text-base">{demand.recommendedQty.toLocaleString('pt-BR')}</span>
                         <span className="text-xs text-zinc-500 ml-1">{demand.unit}</span>
+                      </td>
+                      <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => handleTogglePrintList(demand.itemCode)}
+                          className={cn(
+                            "p-1.5 rounded-lg transition-colors cursor-pointer",
+                            isInPrintList(demand.itemCode) 
+                              ? "text-emerald-600 hover:bg-emerald-50" 
+                              : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-650"
+                          )}
+                          title={isInPrintList(demand.itemCode) ? "Remover da Lista de Impressão" : "Adicionar à Lista de Impressão"}
+                        >
+                          {isInPrintList(demand.itemCode) ? (
+                            <CheckCircle2 className="h-4.5 w-4.5" />
+                          ) : (
+                            <PlusCircle className="h-4.5 w-4.5" />
+                          )}
+                        </button>
                       </td>
                     </tr>
                   ))}
