@@ -1761,11 +1761,43 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
     }
 
     // D. Compute dynamic reserved quantity per insumo
+    let mut lotes_baixas_map: std::collections::HashMap<(i64, String), Vec<f64>> = std::collections::HashMap::new();
+    
+    // Extract valid integer lote numbers for the IN clause
+    let lote_ids: Vec<i64> = open_lotes.iter()
+        .filter_map(|(doc_num, _, _, _)| doc_num.parse::<i64>().ok())
+        .collect();
+
+    if !lote_ids.is_empty() {
+        let ids_str = lote_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
+        let query = format!(
+            "SELECT nLote, cReferencia, nQtdeRef FROM lotes_baixas WHERE nLote IN ({}) ORDER BY Registro ASC",
+            ids_str
+        );
+        if let Ok(mut stmt) = conn.prepare(&query) {
+            if let Ok(rows) = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, f64>(2)?
+                ))
+            }) {
+                for r in rows {
+                    if let Ok((n_lote, c_ref, n_qtde_ref)) = r {
+                        lotes_baixas_map.entry((n_lote, c_ref)).or_default().push(n_qtde_ref);
+                    }
+                }
+            }
+        }
+    }
+
     let mut dynamic_reserved_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
     for (lote_number, product_code, quantity, d_pesado) in open_lotes {
         let norm_prod = product_code.strip_prefix('0').unwrap_or(&product_code).to_string();
         if let Some(ingredients) = formulations_map.get(&norm_prod) {
             let sum_qty = formulation_sums.get(&norm_prod).copied().unwrap_or(0.0);
+            let lote_int = lote_number.parse::<i64>().unwrap_or(-1);
+
             for ing in ingredients {
                 let factor = if ing.percentage > 0.0 {
                     ing.percentage / 100.0
@@ -1776,15 +1808,14 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
                 };
                 let fallback_expected = quantity * factor;
 
-                // Try to get expected quantity from lotes_baixas
-                let expected: f64 = match conn.query_row(
-                    "SELECT nQtdeRef FROM lotes_baixas WHERE nLote = ?1 AND cReferencia = ?2",
-                    params![lote_number, ing.ingredient_code],
-                    |row| row.get(0)
-                ) {
-                    Ok(val) => val,
-                    Err(_) => fallback_expected,
-                };
+                let mut expected = fallback_expected;
+                if lote_int != -1 {
+                    if let Some(queue) = lotes_baixas_map.get_mut(&(lote_int, ing.ingredient_code.clone())) {
+                        if !queue.is_empty() {
+                            expected = queue.remove(0);
+                        }
+                    }
+                }
 
                 let remaining = if !d_pesado.is_empty() {
                     0.0

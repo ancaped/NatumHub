@@ -1079,6 +1079,11 @@ WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1
         )?;
     }
 
+    tx.execute(
+        "CREATE INDEX IF NOT EXISTS idx_lotes_baixas_lote_ref ON lotes_baixas(nLote, cReferencia)",
+        [],
+    )?;
+
     // 3. Product entries (Lotes / Production runs)
     for l in lotes_list {
         let mov_id = Uuid::new_v4().to_string();
@@ -1750,6 +1755,10 @@ pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::mo
                 ],
             )?;
         }
+        tx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_lotes_baixas_lote_ref ON lotes_baixas(nLote, cReferencia)",
+            [],
+        )?;
         tx.commit()?;
     }
     tables_copied.push("Lotes_Baixas".to_string());

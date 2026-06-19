@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../lib/api';
 import { DemandResult, Category, Item } from '../../types';
-import { AlertCircle, ArrowDownToLine, Package, Filter, CheckCircle2, ShoppingCart, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, TrendingUp, BarChart3, FileText, ChevronRight, X, Info, RefreshCw, Database, Factory } from 'lucide-react';
+import { AlertCircle, ArrowDownToLine, Package, Filter, CheckCircle2, ShoppingCart, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, TrendingUp, BarChart3, FileText, ChevronRight, X, Info, RefreshCw, Database, Factory, Printer } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 interface InsumoDetalhes {
@@ -112,6 +112,9 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
 
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 30;
+
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [printFilterType, setPrintFilterType] = useState<'needed' | 'all'>('needed');
 
   useEffect(() => {
     setActiveMainTab(defaultTab);
@@ -338,6 +341,233 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
     } catch (e) { console.error(e); alert('Erro ao criar cotação'); }
   };
 
+  const handlePrint = () => {
+    setShowPrintModal(false);
+    
+    // Get the items to print
+    const itemsToPrint = printFilterType === 'needed' 
+      ? filteredDemands.filter(d => d.recommendedQty > 0)
+      : filteredDemands;
+      
+    if (itemsToPrint.length === 0) {
+      alert("Não há itens para imprimir com o filtro selecionado.");
+      return;
+    }
+    
+    // Open print window
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert("Não foi possível abrir a janela de impressão. Por favor, verifique se os pop-ups estão bloqueados.");
+      return;
+    }
+    
+    // Format Date
+    const today = new Date().toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    
+    // Generate HTML table rows
+    const rowsHtml = itemsToPrint.map(item => {
+      return `
+        <tr>
+          <td style="font-family: monospace; font-size: 10px;">${item.itemCode || '-'}</td>
+          <td style="text-align: left; font-weight: 500; font-size: 10px;">${item.description || '-'}</td>
+          <td>${item.categoryName || 'Sem Categoria'}</td>
+          <td style="text-align: right;">${item.currentStock.toLocaleString('pt-BR')} ${item.unit || ''}</td>
+          <td style="text-align: right;">${item.overallAvg.toLocaleString('pt-BR')} ${item.unit || ''}</td>
+          <td style="text-align: right;">${item.futureStockForecast.toLocaleString('pt-BR')} ${item.unit || ''}</td>
+          <td style="text-align: right; color: ${item.estimatedDurationDays < 30 ? '#b91c1c' : 'inherit'}; font-weight: ${item.estimatedDurationDays < 60 ? 'bold' : 'normal'};">
+            ${item.estimatedDurationDays === 9999 ? '9999+' : `${item.estimatedDurationDays} dias`}
+          </td>
+          <td style="text-align: right; font-weight: bold; background-color: ${item.recommendedQty > 0 ? '#fef2f2' : 'transparent'}; color: ${item.recommendedQty > 0 ? '#b91c1c' : 'inherit'};">
+            ${item.recommendedQty > 0 ? `${item.recommendedQty.toLocaleString('pt-BR')} ${item.unit || ''}` : '-'}
+          </td>
+        </tr>
+      `;
+    }).join('');
+    
+    // Build print layout HTML
+    const printHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Relatório de Necessidade de Compras — NatumHub</title>
+        <meta charset="utf-8">
+        <style>
+          @page {
+            size: A4 portrait;
+            margin: 15mm 10mm 15mm 10mm;
+          }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #1f2937;
+            background-color: #ffffff;
+            margin: 0;
+            padding: 0;
+            font-size: 10px;
+            line-height: 1.4;
+          }
+          header {
+            margin-bottom: 20px;
+            border-bottom: 2px solid #111827;
+            padding-bottom: 10px;
+          }
+          .header-title {
+            font-size: 18px;
+            font-weight: 800;
+            color: #111827;
+            margin: 0 0 5px 0;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+          .header-meta {
+            display: flex;
+            justify-content: space-between;
+            color: #4b5563;
+            font-size: 9px;
+          }
+          .meta-group {
+            display: flex;
+            gap: 15px;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+            page-break-inside: auto;
+          }
+          tr {
+            page-break-inside: avoid;
+            page-break-after: auto;
+          }
+          thead {
+            display: table-header-group;
+          }
+          th {
+            background-color: #f9fafb;
+            border-bottom: 2px solid #d1d5db;
+            color: #374151;
+            font-weight: 700;
+            padding: 6px 4px;
+            text-align: center;
+            font-size: 9px;
+            text-transform: uppercase;
+          }
+          td {
+            border-bottom: 1px solid #e5e7eb;
+            padding: 6px 4px;
+            text-align: center;
+            vertical-align: middle;
+          }
+          .signatures {
+            margin-top: 50px;
+            display: flex;
+            justify-content: space-between;
+            page-break-inside: avoid;
+          }
+          .signature-box {
+            width: 45%;
+            text-align: center;
+          }
+          .signature-line {
+            border-top: 1px solid #9ca3af;
+            margin-top: 35px;
+            margin-bottom: 5px;
+          }
+          .signature-title {
+            font-size: 9px;
+            color: #6b7280;
+            font-weight: 600;
+            text-transform: uppercase;
+          }
+          footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-between;
+            font-size: 8px;
+            color: #9ca3af;
+            border-top: 1px solid #f3f4f6;
+            padding-top: 5px;
+          }
+          @media print {
+            body {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <header>
+          <h1 class="header-title">Relatório de Necessidade de Compras</h1>
+          <div class="header-meta">
+            <div>Gerado em: <strong>${today}</strong></div>
+            <div class="meta-group">
+              <div>Meta de Estoque: <strong>${targetDays} dias</strong></div>
+              <div>Itens: <strong>${itemsToPrint.length}</strong></div>
+              <div>Filtro: <strong>${printFilterType === 'needed' ? 'Necessidades de Compra' : 'Lista Geral'}</strong></div>
+            </div>
+          </div>
+        </header>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 80px;">Código</th>
+              <th>Descrição</th>
+              <th style="width: 100px;">Subcategoria</th>
+              <th style="width: 70px; text-align: right;">Estoque</th>
+              <th style="width: 70px; text-align: right;">Consumo Mês</th>
+              <th style="width: 70px; text-align: right;">Prev. Futura</th>
+              <th style="width: 70px; text-align: right;">Duração Est.</th>
+              <th style="width: 85px; text-align: right; background-color: #fef2f2; border-bottom: 2px solid #b91c1c;">Recomendado</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+
+        <div class="signatures">
+          <div class="signature-box">
+            <div class="signature-line"></div>
+            <div class="signature-title">Responsável pelo Planejamento (PCP)</div>
+          </div>
+          <div class="signature-box">
+            <div class="signature-line"></div>
+            <div class="signature-title">Autorização de Compras / Direção</div>
+          </div>
+        </div>
+
+        <footer>
+          <div>NatumHub — Sistema de Gestão Unificado</div>
+          <div>Impressão Direta</div>
+        </footer>
+
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+              window.close();
+            }, 300);
+          }
+        </script>
+      </body>
+      </html>
+    `;
+    
+    printWindow.document.open();
+    printWindow.document.write(printHtml);
+    printWindow.document.close();
+  };
+
   return (
     <div className="flex flex-col gap-4 h-[calc(100vh-11rem)]">
       {mode !== 'materia_prima' && (
@@ -417,6 +647,17 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
             </div>
             <div className="flex items-center gap-3">
               <span className="text-xs text-zinc-500">{filteredDemands.length} itens</span>
+              <button 
+                onClick={() => {
+                  const neededCount = filteredDemands.filter(d => d.recommendedQty > 0).length;
+                  setPrintFilterType(neededCount > 0 ? 'needed' : 'all');
+                  setShowPrintModal(true);
+                }} 
+                className="text-xs bg-zinc-900 hover:bg-zinc-800 text-white px-3 py-1.5 rounded-md font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Printer className="h-3.5 w-3.5" />
+                Imprimir Relatório
+              </button>
               {mode !== 'materia_prima' && (
                 <button onClick={handleCreateQuotation} disabled={selectedItems.size === 0} className="text-sm bg-zinc-900 text-white px-4 py-2 rounded-md font-medium hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
                   <ShoppingCart className="h-4 w-4" />
@@ -1155,6 +1396,92 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
 
               </div>
             ) : null}
+          </div>
+        </div>
+      )}
+      {showPrintModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl border border-zinc-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-6 py-4 border-b border-zinc-100 flex justify-between items-center bg-zinc-50">
+              <h3 className="font-bold text-zinc-900 text-sm flex items-center gap-2">
+                <FileText className="h-4 w-4 text-zinc-700" />
+                Imprimir Relatório de Necessidade de Compras
+              </h3>
+              <button onClick={() => setShowPrintModal(false)} className="text-zinc-400 hover:text-zinc-650 rounded-lg p-1 hover:bg-zinc-100 transition-colors cursor-pointer">
+                <X className="h-4.5 w-4.5" />
+              </button>
+            </div>
+            <div className="p-6 flex flex-col gap-4">
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                Selecione quais itens deseja incluir no relatório. Ele será gerado em um layout limpo e otimizado para impressão (A4) ou salvamento em PDF.
+              </p>
+              
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-3 p-3 rounded-lg border border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50/50 transition-colors cursor-pointer">
+                  <input 
+                    type="radio" 
+                    name="printFilter" 
+                    checked={printFilterType === 'needed'} 
+                    onChange={() => setPrintFilterType('needed')}
+                    className="h-4 w-4 text-zinc-900 focus:ring-zinc-900" 
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-zinc-800 block">Itens com recomendação de compra</span>
+                    <span className="text-[10px] text-zinc-500">Insumos com quantidade recomendada &gt; 0 ({filteredDemands.filter(d => d.recommendedQty > 0).length} itens)</span>
+                  </div>
+                </label>
+                <label className="flex items-center gap-3 p-3 rounded-lg border border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50/50 transition-colors cursor-pointer">
+                  <input 
+                    type="radio" 
+                    name="printFilter" 
+                    checked={printFilterType === 'all'} 
+                    onChange={() => setPrintFilterType('all')}
+                    className="h-4 w-4 text-zinc-900 focus:ring-zinc-900" 
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-zinc-800 block">Todos os itens filtrados</span>
+                    <span className="text-[10px] text-zinc-500">Exibe todos os itens da tabela atual ({filteredDemands.length} itens)</span>
+                  </div>
+                </label>
+              </div>
+
+              <div className="bg-zinc-50 border border-zinc-150 rounded-lg p-3 flex flex-col gap-1 text-[11px] text-zinc-600">
+                <div className="flex justify-between">
+                  <span>Meta de Estoque:</span>
+                  <span className="font-bold text-zinc-850">{targetDays} dias</span>
+                </div>
+                {activeMainTab !== 'ALL' && (
+                  <div className="flex justify-between">
+                    <span>Módulo/Tipo:</span>
+                    <span className="font-bold text-zinc-850">{activeMainTab === 'cat_mp' ? 'Matéria-prima' : 'Embalagens'}</span>
+                  </div>
+                )}
+                {selectedCategory && (
+                  <div className="flex justify-between">
+                    <span>Subcategoria:</span>
+                    <span className="font-bold text-zinc-850">
+                      {categories.find(c => c.id === selectedCategory)?.name || 'Selecionada'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="px-6 py-3.5 border-t border-zinc-100 bg-zinc-50 flex justify-end gap-2 shrink-0">
+              <button 
+                onClick={() => setShowPrintModal(false)}
+                className="px-3.5 py-1.5 border border-zinc-200 bg-white rounded-lg text-xs text-zinc-650 hover:bg-zinc-100 font-bold transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={handlePrint}
+                className="px-3.5 py-1.5 bg-zinc-900 text-white rounded-lg text-xs hover:bg-zinc-800 font-bold transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm"
+              >
+                <Printer className="h-3.5 w-3.5" />
+                Imprimir / PDF
+              </button>
+            </div>
           </div>
         </div>
       )}
