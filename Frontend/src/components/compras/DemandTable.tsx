@@ -593,7 +593,7 @@ export function DemandTable({ mode = 'all' }: DemandTableProps) {
           </div>
           <div class="signature-box">
             <div class="signature-line"></div>
-            <div class="signature-title">Autorização de Compras / Direção</div>
+            <div class="signature-title">Autorização para Realização de Cotação</div>
           </div>
         </div>
 
