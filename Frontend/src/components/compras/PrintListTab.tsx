@@ -4,7 +4,7 @@ import { DemandResult } from '../../types';
 import { Trash2, Printer, Search, Plus, FileText, RefreshCw, X, Package } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
-export function PrintListTab() {
+export function PrintListTab({ active = true }: { active?: boolean }) {
   const [printList, setPrintList] = useState<string[]>([]);
   const [demands, setDemands] = useState<DemandResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,8 +50,9 @@ export function PrintListTab() {
   };
 
   useEffect(() => {
+    if (!active) return;
     loadDemands();
-  }, [targetDays]);
+  }, [targetDays, active]);
 
   // Sync with external localStorage updates (e.g. from DemandTable)
   useEffect(() => {

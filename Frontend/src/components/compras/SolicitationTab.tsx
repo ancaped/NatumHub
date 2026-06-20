@@ -15,7 +15,7 @@ interface ManualRequest {
   isNewItem: boolean;
 }
 
-export function SolicitationTab() {
+export function SolicitationTab({ active = true }: { active?: boolean }) {
   const [requests, setRequests] = useState<ManualRequest[]>([]);
   const [demands, setDemands] = useState<DemandResult[]>([]);
   const [loadingDemands, setLoadingDemands] = useState(false);
@@ -47,8 +47,13 @@ export function SolicitationTab() {
         console.error("Error parsing manual requests:", e);
       }
     }
-    loadDemands();
   }, []);
+
+  // Load demands for autocomplete when tab becomes active
+  useEffect(() => {
+    if (!active) return;
+    loadDemands();
+  }, [active]);
 
   // Save manual requests
   const saveRequests = (newRequests: ManualRequest[]) => {

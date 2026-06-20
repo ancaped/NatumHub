@@ -30,6 +30,7 @@ impl Db {
         
         // Ensure index exists on stock_movements(document_number) for performance
         let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_movements_doc ON stock_movements(document_number)", []);
+        let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_movements_saida_insumo_date ON stock_movements(movement_type, item_type, date, item_code, quantity)", []);
         
         // Run config_linhas migration BEFORE execute_batch to ensure schema.sql inserts succeed
         let _ = conn.execute("ALTER TABLE config_linhas ADD COLUMN visivel INTEGER NOT NULL DEFAULT 1", []);

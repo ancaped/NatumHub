@@ -204,26 +204,26 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           <div className="w-full max-w-none">
             {navItems.some(i => i.id === 'demands') && (
               <div className={activeTab !== 'demands' ? 'hidden' : ''}>
-                <DemandTable mode={mode === 'materia_prima' ? 'materia_prima' : mode === 'embalagens' ? 'embalagens' : 'all'} />
+                <DemandTable active={activeTab === 'demands'} mode={mode === 'materia_prima' ? 'materia_prima' : mode === 'embalagens' ? 'embalagens' : 'all'} />
               </div>
             )}
             
             {navItems.some(i => i.id === 'print_list') && (
               <div className={activeTab !== 'print_list' ? 'hidden' : ''}>
-                <PrintListTab />
+                <PrintListTab active={activeTab === 'print_list'} />
               </div>
             )}
 
             {navItems.some(i => i.id === 'solicitation') && (
               <div className={activeTab !== 'solicitation' ? 'hidden' : ''}>
-                <SolicitationTab />
+                <SolicitationTab active={activeTab === 'solicitation'} />
               </div>
             )}
 
             {navItems.some(i => i.id === 'materia_prima') && (
               <div className={activeTab !== 'materia_prima' ? 'hidden' : ''}>
                 {mode === 'materia_prima' ? (
-                  <DemandTable mode="materia_prima" />
+                  <DemandTable active={activeTab === 'materia_prima'} mode="materia_prima" />
                 ) : (
                   <InsumosDetalhesTab parentCategoryFilter="cat_mp" />
                 )}
@@ -233,7 +233,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
             {navItems.some(i => i.id === 'embalagens') && (
               <div className={activeTab !== 'embalagens' ? 'hidden' : ''}>
                 {mode === 'embalagens' ? (
-                  <DemandTable mode="embalagens" />
+                  <DemandTable active={activeTab === 'embalagens'} mode="embalagens" />
                 ) : (
                   <InsumosDetalhesTab parentCategoryFilter="cat_emb" />
                 )}
@@ -285,6 +285,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
             {categories.filter(c => pinnedSubs.includes(c.id)).map(c => (
               <div key={`sub_${c.id}`} className={activeTab !== `sub_${c.id}` ? 'hidden' : ''}>
                 <DemandTable 
+                  active={activeTab === `sub_${c.id}`}
                   mode={c.parentId === 'cat_emb' ? 'embalagens' : c.parentId === 'cat_mp' ? 'materia_prima' : 'all'} 
                   initialCategoryFilter={c.id} 
                 />

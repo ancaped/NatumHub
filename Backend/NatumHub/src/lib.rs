@@ -682,6 +682,7 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         );
         CREATE INDEX IF NOT EXISTS idx_movements_item ON stock_movements(item_code);
         CREATE INDEX IF NOT EXISTS idx_movements_date ON stock_movements(date);
+        CREATE INDEX IF NOT EXISTS idx_movements_saida_insumo_date ON stock_movements(movement_type, item_type, date, item_code, quantity);
 
         -- Pedidos de Compra (Header e Itens)
         CREATE TABLE IF NOT EXISTS purchase_orders (

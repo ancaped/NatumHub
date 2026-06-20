@@ -81,9 +81,10 @@ type SortDir = 'asc' | 'desc';
 interface DemandTableProps {
   mode?: 'materia_prima' | 'embalagens' | 'all';
   initialCategoryFilter?: string | null;
+  active?: boolean;
 }
 
-export function DemandTable({ mode = 'all', initialCategoryFilter = null }: DemandTableProps) {
+export function DemandTable({ mode = 'all', initialCategoryFilter = null, active = true }: DemandTableProps) {
   const defaultTab = mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : 'ALL';
   const [demands, setDemands] = useState<DemandResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -153,9 +154,10 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null }: Dema
   }, [mode, defaultTab, initialCategoryFilter]);
 
   useEffect(() => {
+    if (!active) return;
     loadCategories();
     loadDemands();
-  }, [targetDays]);
+  }, [targetDays, active]);
 
   const loadCategories = async () => {
     try { setCategories(await api.getCategories()); }
