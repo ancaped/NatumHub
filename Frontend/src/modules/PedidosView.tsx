@@ -47,7 +47,7 @@ interface PurchaseOrderDetail extends PurchaseOrder {
   items: PurchaseOrderItem[];
 }
 
-type StatusFilter = 'ALL' | 'ABERTO' | 'PARCIAL' | 'FECHADO' | 'CANCELADO';
+type StatusFilter = 'ALL' | 'ABERTO' | 'PARCIAL' | 'FECHADO' | 'CANCELADO' | 'ATRASADO';
 
 export default function PedidosView({ onBackToHub }: PedidosViewProps) {
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
@@ -182,6 +182,7 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
             { id: 'ALL' as StatusFilter, label: 'Todos os Pedidos', icon: ClipboardList },
             { id: 'ABERTO' as StatusFilter, label: 'Em Aberto', icon: Clock },
             { id: 'PARCIAL' as StatusFilter, label: 'Parcial', icon: AlertTriangle },
+            { id: 'ATRASADO' as StatusFilter, label: 'Atrasados', icon: AlertTriangle },
             { id: 'FECHADO' as StatusFilter, label: 'Concluídos', icon: CheckCircle2 },
             { id: 'CANCELADO' as StatusFilter, label: 'Cancelados', icon: X },
           ]).map(tab => (

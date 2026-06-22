@@ -17,6 +17,7 @@ pub struct SyncResult {
     pub formulations: usize,
     pub movements: usize,
     pub purchase_orders: usize,
+    pub sales_orders: usize,
 }
 
 // Intermediate thread-safe structs to hold SQL Server data
@@ -156,6 +157,30 @@ struct PedidoCpa2Row {
     n_valor_total: f64,
     n_registro: i32,
     c_chegada: Option<String>,
+}
+
+struct SalesOrderRow {
+    n_pedido: i32,
+    d_pedido: String,
+    n_codigo: Option<i32>,
+    c_nome: Option<String>,
+    n_valor_tot: f64,
+    c_status: Option<String>,
+    n_nota_fiscal: i32,
+    d_previsao: Option<String>,
+    d_entrega: Option<String>,
+    m_observac: Option<String>,
+}
+
+struct SalesOrderItemRow {
+    n_pedido: i32,
+    d_pedido: String,
+    n_registro: Option<i32>,
+    c_cod_prod: String,
+    n_qtde: i32,
+    n_qtde_fat: i32,
+    n_preco: f64,
+    c_lote: Option<String>,
 }
 
 fn get_setting_from_db_or_file(conn: Option<&Connection>, key: &str, default: &str) -> String {
@@ -791,6 +816,80 @@ WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1
         });
     }
 
+    // M. Query Sales Orders Header (Pedidos1)
+    let query_sales_order1 = "
+SELECT 
+    nPedido,
+    CONVERT(varchar, dPedido, 120) COLLATE Latin1_General_CI_AS as dPedido,
+    nCodigo,
+    cNome COLLATE Latin1_General_CI_AS as cNome,
+    CAST(nValorTot AS FLOAT) as nValorTot,
+    CSTATUS COLLATE Latin1_General_CI_AS as CSTATUS,
+    NNOTAFISCAL,
+    CONVERT(varchar, dPrevisaoDespacho, 120) COLLATE Latin1_General_CI_AS as dPrevisao,
+    CONVERT(varchar, dEntrega, 120) COLLATE Latin1_General_CI_AS as dEntrega,
+    CAST(mObservac AS NVARCHAR(MAX)) COLLATE Latin1_General_CI_AS as mObservac
+FROM Pedidos1 WITH (NOLOCK)
+WHERE dPedido >= DATEADD(month, -6, GETDATE()) OR (CSTATUS NOT IN ('FT', 'CA') AND CSTATUS IS NOT NULL);
+    ";
+    println!("Step M: Querying Pedidos1");
+    let stream = client.query(query_sales_order1, &[]).await?;
+    let db_rows_pedidos1 = stream.into_first_result().await?;
+    let mut sales_orders_list = Vec::new();
+    for row in db_rows_pedidos1 {
+        let n_pedido: i32 = row.get(0).unwrap_or(0);
+        let d_pedido: &str = row.get(1).unwrap_or("");
+        if n_pedido == 0 || d_pedido.is_empty() { continue; }
+        sales_orders_list.push(SalesOrderRow {
+            n_pedido,
+            d_pedido: d_pedido.trim().to_string(),
+            n_codigo: row.get(2),
+            c_nome: row.get(3).map(|s: &str| s.trim().to_string()),
+            n_valor_tot: row.get(4).unwrap_or(0.0),
+            c_status: row.get(5).map(|s: &str| s.trim().to_string()),
+            n_nota_fiscal: row.get(6).unwrap_or(0),
+            d_previsao: row.get(7).map(|s: &str| s.trim().to_string()),
+            d_entrega: row.get(8).map(|s: &str| s.trim().to_string()),
+            m_observac: row.get(9).map(|s: &str| s.trim().to_string()),
+        });
+    }
+
+    // N. Query Sales Order Items (Pedidos2)
+    let query_sales_order2 = "
+SELECT 
+    p2.nPedido,
+    CONVERT(varchar, p2.dPedido, 120) COLLATE Latin1_General_CI_AS as dPedido,
+    p2.nRegistro,
+    p2.cCodProd COLLATE Latin1_General_CI_AS as cCodProd,
+    CAST(p2.nQtde AS INT) as nQtde,
+    CAST(p2.nQtdeFat AS INT) as nQtdeFat,
+    CAST(p2.nPreco AS FLOAT) as nPreco,
+    p2.cLote COLLATE Latin1_General_CI_AS as cLote
+FROM Pedidos2 p2 WITH (NOLOCK)
+INNER JOIN Pedidos1 p1 WITH (NOLOCK) ON p1.nPedido = p2.nPedido AND p1.dPedido = p2.dPedido
+WHERE p1.dPedido >= DATEADD(month, -6, GETDATE()) OR (p1.CSTATUS NOT IN ('FT', 'CA') AND p1.CSTATUS IS NOT NULL);
+    ";
+    println!("Step N: Querying Pedidos2");
+    let stream = client.query(query_sales_order2, &[]).await?;
+    let db_rows_pedidos2 = stream.into_first_result().await?;
+    let mut sales_order_items_list = Vec::new();
+    for row in db_rows_pedidos2 {
+        let n_pedido: i32 = row.get(0).unwrap_or(0);
+        let d_pedido: &str = row.get(1).unwrap_or("");
+        let c_cod_prod: &str = row.get(3).unwrap_or("");
+        if n_pedido == 0 || d_pedido.is_empty() || c_cod_prod.is_empty() { continue; }
+        sales_order_items_list.push(SalesOrderItemRow {
+            n_pedido,
+            d_pedido: d_pedido.trim().to_string(),
+            n_registro: row.get(2),
+            c_cod_prod: c_cod_prod.trim().to_string(),
+            n_qtde: row.get(4).unwrap_or(0),
+            n_qtde_fat: row.get(5).unwrap_or(0),
+            n_preco: row.get(6).unwrap_or(0.0),
+            c_lote: row.get(7).map(|s: &str| s.trim().to_string()),
+        });
+    }
+
     // ==========================================
     // 2. OPEN TRANSACTION AND WRITE TO SQLITE (NO AWAIT POINTS)
     // ==========================================
@@ -1169,6 +1268,48 @@ WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1
         )?;
     }
 
+    // Write Sales Orders
+    let mut count_sales_orders = 0;
+    tx.execute("DELETE FROM sales_order_items", [])?;
+    tx.execute("DELETE FROM sales_orders", [])?;
+
+    for so in sales_orders_list {
+        tx.execute(
+            "INSERT OR REPLACE INTO sales_orders (n_pedido, d_pedido, n_codigo, c_nome, n_valor_tot, c_status, n_nota_fiscal, d_previsao, d_entrega, m_observac)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                so.n_pedido,
+                so.d_pedido,
+                so.n_codigo,
+                so.c_nome,
+                so.n_valor_tot,
+                so.c_status,
+                so.n_nota_fiscal,
+                so.d_previsao,
+                so.d_entrega,
+                so.m_observac,
+            ],
+        )?;
+        count_sales_orders += 1;
+    }
+
+    for soi in sales_order_items_list {
+        tx.execute(
+            "INSERT INTO sales_order_items (n_pedido, d_pedido, n_registro, c_cod_prod, n_qtde, n_qtde_fat, n_preco, c_lote)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                soi.n_pedido,
+                soi.d_pedido,
+                soi.n_registro,
+                soi.c_cod_prod,
+                soi.n_qtde,
+                soi.n_qtde_fat,
+                soi.n_preco,
+                soi.c_lote,
+            ],
+        )?;
+    }
+
     tx.commit()?;
 
     // Apply automatic subcategory rules if configured
@@ -1178,15 +1319,39 @@ WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1
         |row| row.get(0)
     ) {
         if let Ok(config_json) = serde_json::from_str::<serde_json::Value>(&config_str) {
+            // Reset non-manual items to their default master category
+            let _ = sqlite_conn.execute(
+                "UPDATE items 
+                 SET category_id = CASE 
+                     WHEN code LIKE '9.15.%' THEN 'cat_mp' 
+                     WHEN code LIKE '08.%' THEN 'cat_mat'
+                     ELSE 'cat_emb' 
+                 END 
+                 WHERE (manual_category IS NULL OR manual_category = 0)",
+                [],
+            );
+
             if let Some(rules) = config_json.get("autoSubcategories").and_then(|r| r.as_array()) {
                 for rule in rules {
                     if let (Some(sub_id), Some(prefix)) = (
                         rule.get("subcategoryId").and_then(|s| s.as_str()),
                         rule.get("prefix").and_then(|p| p.as_str())
                     ) {
-                        let query = "UPDATE items SET category_id = ?1 WHERE description LIKE ?2";
-                        let like_pattern = format!("{}%", prefix);
-                        let _ = sqlite_conn.execute(query, params![sub_id, like_pattern]);
+                        // Find parent_id of the target subcategory to restrict scope
+                        let parent_id: Option<String> = sqlite_conn.query_row(
+                            "SELECT parent_id FROM categories WHERE id = ?1",
+                            params![sub_id],
+                            |row| row.get(0)
+                        ).ok();
+
+                        if let Some(parent) = parent_id {
+                            let query = "UPDATE items SET category_id = ?1 
+                                         WHERE description LIKE ?2 
+                                           AND category_id = ?3 
+                                           AND (manual_category IS NULL OR manual_category = 0)";
+                            let like_pattern = format!("{}%", prefix);
+                            let _ = sqlite_conn.execute(query, params![sub_id, like_pattern, parent]);
+                        }
                     }
                 }
             }
@@ -1205,6 +1370,7 @@ WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1
         formulations: count_formulations,
         movements: count_movements,
         purchase_orders: count_pos,
+        sales_orders: count_sales_orders,
     })
 }
 

@@ -5,7 +5,7 @@ import { Settings, FolderTree, Plus, Trash2, X, Save, Package, Search, CheckSqua
 import { cn } from '../../lib/utils';
 import obsData from '../../lib/obs_data.json';
 
-export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
+export function SettingsPanel({ mode = 'all', active = false }: { mode?: string; active?: boolean }) {
   const [config, setConfig] = useState<ComprasAppConfig>({ targetDays: 90, itemOverrides: {} });
   const [activeSettingTab, setActiveSettingTab] = useState<'geral' | 'categorias' | 'regras' | 'blacklist'>('geral');
   const [categories, setCategories] = useState<Category[]>([]);
@@ -17,7 +17,12 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
   const [subSelectedItems, setSubSelectedItems] = useState<Set<string>>(new Set());
 
   const [newCatName, setNewCatName] = useState('');
-  const [newCatParent, setNewCatParent] = useState<string | null>(mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : null);
+  const [newCatParent, setNewCatParent] = useState<string | null>(
+    mode === 'materia_prima' ? 'cat_mp' : 
+    mode === 'coloracao' ? 'cat_coloracao' : 
+    mode === 'embalagens' ? 'cat_emb' : 
+    mode === 'apoio' ? 'cat_apoio' : null
+  );
 
   // Pinned subcategories state
   const [pinnedSubs, setPinnedSubs] = useState<string[]>([]);
@@ -48,7 +53,8 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
   const handleApplyAutoRules = async () => {
     setSaving(true);
     try {
-      await api.saveComprasConfig(config);
+      const configKey = mode === 'coloracao' ? 'compras_coloracao' : mode === 'apoio' ? 'compras_apoio' : 'compras_main';
+      await api.saveComprasConfig(config, configKey);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       await loadItems();
@@ -64,8 +70,12 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
   useEffect(() => {
     if (mode === 'materia_prima') {
       setNewCatParent('cat_mp');
+    } else if (mode === 'coloracao') {
+      setNewCatParent('cat_coloracao');
     } else if (mode === 'embalagens') {
       setNewCatParent('cat_emb');
+    } else if (mode === 'apoio') {
+      setNewCatParent('cat_apoio');
     } else {
       setNewCatParent(null);
     }
@@ -74,6 +84,7 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
+    if (!active) return;
     loadConfig();
     loadCategories();
     loadItems();
@@ -82,7 +93,7 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
     if (stored) {
       try { setPinnedSubs(JSON.parse(stored)); } catch (e) { console.error(e); }
     }
-  }, []);
+  }, [active]);
 
   const togglePinSubcategory = (catId: string) => {
     let updated: string[];
@@ -100,14 +111,17 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
     return categories.filter(c => {
       if (c.parentId === null) return false;
       if (mode === 'materia_prima') return c.parentId === 'cat_mp';
+      if (mode === 'coloracao') return c.parentId === 'cat_coloracao';
       if (mode === 'embalagens') return c.parentId === 'cat_emb';
+      if (mode === 'apoio') return c.parentId === 'cat_apoio';
       return true;
     });
   }, [categories, mode]);
 
   const loadConfig = async () => {
     try {
-      const c = await api.getComprasConfig();
+      const configKey = mode === 'coloracao' ? 'compras_coloracao' : mode === 'apoio' ? 'compras_apoio' : 'compras_main';
+      const c = await api.getComprasConfig(configKey);
       if (c) setConfig(c);
     } catch (e) { console.error(e); }
   };
@@ -118,14 +132,31 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
   };
 
   const loadItems = async () => {
-    try { setItems(await api.getItems()); }
-    catch (e) { console.error(e); }
+    try {
+      if (mode === 'coloracao' || mode === 'apoio') {
+        const res = await fetch(`http://127.0.0.1:3001/api/products?limit=5000&status=${mode}&show_hidden=true`);
+        if (res.ok) {
+          const data = await res.json();
+          const mapped = (data.items || []).map((p: any) => ({
+            code: p.codigo,
+            description: p.descricao,
+            unit: 'UN',
+            categoryId: p.categoria_produto || null,
+            isIgnored: p.visivel === 0
+          }));
+          setItems(mapped);
+        }
+      } else {
+        setItems(await api.getItems());
+      }
+    } catch (e) { console.error(e); }
   };
 
   const saveConfig = async () => {
     setSaving(true);
     try {
-      await api.saveComprasConfig(config);
+      const configKey = mode === 'coloracao' ? 'compras_coloracao' : mode === 'apoio' ? 'compras_apoio' : 'compras_main';
+      await api.saveComprasConfig(config, configKey);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) { console.error(e); alert('Erro ao salvar configurações'); }
@@ -135,9 +166,21 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
   const handleAddCategory = async () => {
     if (!newCatName.trim()) return;
     try {
-      await api.saveCategory({ id: crypto.randomUUID(), name: newCatName.trim(), parentId: mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : newCatParent });
+      const parentId = 
+        mode === 'materia_prima' ? 'cat_mp' :
+        mode === 'coloracao' ? 'cat_coloracao' :
+        mode === 'embalagens' ? 'cat_emb' :
+        mode === 'apoio' ? 'cat_apoio' :
+        newCatParent;
+      await api.saveCategory({ id: crypto.randomUUID(), name: newCatName.trim(), parentId });
       setNewCatName('');
-      setNewCatParent(mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : null);
+      const nextParent = 
+        mode === 'materia_prima' ? 'cat_mp' :
+        mode === 'coloracao' ? 'cat_coloracao' :
+        mode === 'embalagens' ? 'cat_emb' :
+        mode === 'apoio' ? 'cat_apoio' :
+        null;
+      setNewCatParent(nextParent);
       loadCategories();
     } catch (e) { console.error(e); alert('Erro ao criar categoria'); }
   };
@@ -186,29 +229,59 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
     }
   };
 
-  const rootCats = categories.filter(c => !c.parentId && (mode === 'materia_prima' ? c.id === 'cat_mp' : mode === 'embalagens' ? c.id === 'cat_emb' : true));
+  const rootCats = categories.filter(c => !c.parentId && (
+    mode === 'materia_prima' ? c.id === 'cat_mp' : 
+    mode === 'coloracao' ? c.id === 'cat_coloracao' : 
+    mode === 'embalagens' ? c.id === 'cat_emb' : 
+    mode === 'apoio' ? c.id === 'cat_apoio' : true
+  ));
   const getChildren = (parentId: string) => categories.filter(c => c.parentId === parentId);
 
   const isExcludedItem = (item: Item) => {
-    if (!item.categoryId) return false;
-    let currentId = item.categoryId;
-    let visited = new Set<string>();
-    while (currentId && !visited.has(currentId)) {
-      visited.add(currentId);
-      const cat = categories.find(c => c.id === currentId);
-      if (!cat) break;
-      if (mode === 'materia_prima') {
-        if (cat.id === 'cat_emb' || cat.id === 'cat_mat') {
-          return true;
+    if (item.categoryId) {
+      let currentId = item.categoryId;
+      let visited = new Set<string>();
+      while (currentId && !visited.has(currentId)) {
+        visited.add(currentId);
+        const cat = categories.find(c => c.id === currentId);
+        if (!cat) break;
+        if (mode === 'materia_prima') {
+          if (cat.id === 'cat_emb' || cat.id === 'cat_mat' || cat.id === 'cat_coloracao' || cat.id === 'cat_apoio') {
+            return true;
+          }
+        } else if (mode === 'coloracao') {
+          if (cat.id === 'cat_mp' || cat.id === 'cat_emb' || cat.id === 'cat_mat' || cat.id === 'cat_apoio') {
+            return true;
+          }
+        } else if (mode === 'embalagens') {
+          if (cat.id === 'cat_mp' || cat.id === 'cat_mat' || cat.id === 'cat_coloracao' || cat.id === 'cat_apoio') {
+            return true;
+          }
+        } else if (mode === 'apoio') {
+          if (cat.id === 'cat_mp' || cat.id === 'cat_emb' || cat.id === 'cat_coloracao' || cat.id === 'cat_mat') {
+            return true;
+          }
         }
-      } else if (mode === 'embalagens') {
-        if (cat.id === 'cat_mp' || cat.id === 'cat_mat') {
-          return true;
-        }
+        if (!cat.parentId) break;
+        currentId = cat.parentId;
       }
-      if (!cat.parentId) break;
-      currentId = cat.parentId;
     }
+
+    const code = item.code || '';
+    if (mode === 'materia_prima') {
+      if (!code.startsWith('9.15.')) {
+        return true;
+      }
+    } else if (mode === 'coloracao') {
+      return false;
+    } else if (mode === 'embalagens') {
+      if (code.startsWith('9.15.') || code.startsWith('08.') || code.startsWith('1.34.') || code.startsWith('1.33.') || code.startsWith('1.30.')) {
+        return true;
+      }
+    } else if (mode === 'apoio') {
+      return false;
+    }
+
     return false;
   };
 
@@ -271,7 +344,7 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
 
           {/* Abas no Menu Lateral */}
           <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50">
+              <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50">
               <h3 className="font-semibold flex items-center gap-2">
                 <FolderTree className="h-5 w-5 text-zinc-500" />
                 Atalhos no Menu Lateral (Abas de Subcategoria)
@@ -307,7 +380,7 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
                         <div className="min-w-0 flex-1">
                           <p className="truncate">{sub.name}</p>
                           <span className={cn("text-[9px] block font-mono font-medium", isPinned ? "text-zinc-300" : "text-zinc-400")}>
-                            Pai: {sub.parentId === 'cat_mp' ? 'Matéria Prima' : sub.parentId === 'cat_emb' ? 'Embalagem' : 'Outro'}
+                            Pai: {sub.parentId === 'cat_mp' ? 'Matéria Prima' : sub.parentId === 'cat_emb' ? 'Embalagem' : sub.parentId === 'cat_mat' ? 'Materiais' : sub.parentId === 'cat_coloracao' ? 'Coloração' : sub.parentId === 'cat_apoio' ? 'Material de Apoio' : 'Outro'}
                           </span>
                         </div>
                       </button>
@@ -355,7 +428,9 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
                 >
                   <option value="">Selecione uma subcategoria...</option>
                   {subcategoriesOnly.map(sub => (
-                    <option key={sub.id} value={sub.id}>{sub.name} ({sub.parentId === 'cat_mp' ? 'Matéria Prima' : 'Embalagem'})</option>
+                    <option key={sub.id} value={sub.id}>
+                      {sub.name} ({sub.parentId === 'cat_mp' ? 'Matéria Prima' : sub.parentId === 'cat_emb' ? 'Embalagem' : sub.parentId === 'cat_mat' ? 'Materiais' : sub.parentId === 'cat_coloracao' ? 'Coloração' : sub.parentId === 'cat_apoio' ? 'Material de Apoio' : 'Outro'})
+                    </option>
                   ))}
                 </select>
               </div>
@@ -432,7 +507,7 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
                   <div key={cat.id} className="border border-zinc-100 rounded-lg p-2 bg-zinc-50/30 space-y-1">
                     <div className="flex items-center justify-between py-1.5 px-3 bg-zinc-100/50 rounded-md">
                       <span className="font-bold text-sm text-zinc-800">{cat.name}</span>
-                      {cat.id !== 'cat_mp' && cat.id !== 'cat_emb' && (
+                      {cat.id !== 'cat_mp' && cat.id !== 'cat_emb' && cat.id !== 'cat_coloracao' && cat.id !== 'cat_apoio' && cat.id !== 'cat_mat' && (
                         <button onClick={() => handleDeleteCategory(cat.id)}
                           className="text-zinc-400 hover:text-red-500 transition-colors cursor-pointer">
                           <Trash2 className="h-4 w-4" />
@@ -473,9 +548,9 @@ export function SettingsPanel({ mode = 'all' }: { mode?: string }) {
                     placeholder="Ex: Fragrâncias, Corantes..."
                     className="w-full border border-zinc-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white" />
                 </div>
-                {mode !== 'materia_prima' && mode !== 'embalagens' && (
+                {mode === 'all' && (
                   <div>
-                    <label className="text-xs font-medium text-zinc-600 mb-1 block">Pai (opcional)</label>
+                    <label className="text-xs font-medium text-zinc-650 mb-1 block">Pai (opcional)</label>
                     <select value={newCatParent || ''} onChange={e => setNewCatParent(e.target.value || null)}
                       className="border border-zinc-300 rounded-md px-2 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white min-w-[120px]">
                       <option value="">Raiz</option>

@@ -15,17 +15,17 @@ const STATUS_MAP: Record<string, { label: string, color: string }> = {
   ordered: { label: 'Pedido Feito', color: 'bg-zinc-800 text-zinc-100 border-zinc-900' },
 };
 
-export function QuotationManager() {
+export function QuotationManager({ active = false }: { active?: boolean }) {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('');
 
   useEffect(() => {
-    if (!selectedId) {
+    if (!selectedId && active) {
       loadQuotations();
     }
-  }, [selectedId, statusFilter]);
+  }, [selectedId, statusFilter, active]);
 
   const loadQuotations = async () => {
     setLoading(true);

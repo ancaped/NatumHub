@@ -181,3 +181,32 @@ CREATE INDEX IF NOT EXISTS idx_poi_pedido_reg ON purchase_order_items(n_pedido_r
 CREATE INDEX IF NOT EXISTS idx_poi_pedido ON purchase_order_items(n_pedido);
 CREATE INDEX IF NOT EXISTS idx_poi_ref ON purchase_order_items(c_referencia);
 
+-- Tabelas de Pedidos de Venda Legados (Sincronizados do ERP)
+CREATE TABLE IF NOT EXISTS sales_orders (
+    n_pedido        INTEGER NOT NULL,
+    d_pedido        TEXT NOT NULL,       -- YYYY-MM-DD
+    n_codigo        INTEGER,             -- Código do Cliente
+    c_nome          TEXT,                -- Nome do Cliente
+    n_valor_tot     REAL,                -- Valor Total
+    c_status        TEXT,                -- Status (FT, FP, EX, PP, CF, LB, AL, CA)
+    n_nota_fiscal   INTEGER,             -- Nota Fiscal (0 se nenhuma)
+    d_previsao      TEXT,                -- Data de previsão de despacho
+    d_entrega       TEXT,                -- Data de entrega
+    m_observac      TEXT,                -- Observações
+    PRIMARY KEY (n_pedido, d_pedido)
+);
+
+CREATE TABLE IF NOT EXISTS sales_order_items (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    n_pedido        INTEGER NOT NULL,
+    d_pedido        TEXT NOT NULL,
+    n_registro      INTEGER,             -- Posição do item no pedido (Pedidos2.nRegistro)
+    c_cod_prod      TEXT NOT NULL,       -- Código do Produto
+    n_qtde          INTEGER NOT NULL,    -- Quantidade Pedida
+    n_qtde_fat      INTEGER NOT NULL,    -- Quantidade Faturada
+    n_preco         REAL,                -- Preço Unitário
+    c_lote          TEXT,                -- Lote designado
+    FOREIGN KEY (n_pedido, d_pedido) REFERENCES sales_orders(n_pedido, d_pedido) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_soi_pedido ON sales_order_items(n_pedido, d_pedido);
+CREATE INDEX IF NOT EXISTS idx_soi_prod ON sales_order_items(c_cod_prod);

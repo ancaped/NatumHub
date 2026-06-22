@@ -69,6 +69,17 @@ pub async fn delete_config(
     }
 }
 
+// 2c. GET /api/overrides
+pub async fn get_overrides(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match state.db.get_all_overrides() {
+        Ok(overrides) => (StatusCode::OK, Json(overrides)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Erro ao buscar overrides: {}", e) })),
+        ).into_response(),
+    }
+}
+
 // 3. POST /api/overrides
 pub async fn save_override(
     State(state): State<Arc<AppState>>,
@@ -273,15 +284,62 @@ fn fetch_calculation_data(state: &Db) -> anyhow::Result<(
         products.push(p?);
     }
 
-    // 2. Stock
+    // 2. Stock (overwritten using date-limited sales orders query to filter out 2024 orders)
+    let sales_faltas_days: i32 = {
+        let query = "SELECT value FROM settings WHERE key = 'sales_faltas_days_limit'";
+        if let Ok(val) = conn.query_row(query, [], |row| row.get::<_, String>(0)) {
+            val.parse::<i32>().unwrap_or(180)
+        } else {
+            180
+        }
+    };
+
+    let mut sales_faltas_map: HashMap<String, i64> = HashMap::new();
+    let sales_faltas_query = if sales_faltas_days > 0 {
+        format!("
+            SELECT soi.c_cod_prod, SUM(soi.n_qtde - soi.n_qtde_fat) 
+            FROM sales_order_items soi
+            JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
+            WHERE so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
+              AND so.d_pedido >= date('now', '-{} days')
+            GROUP BY soi.c_cod_prod
+        ", sales_faltas_days)
+    } else {
+        "
+            SELECT soi.c_cod_prod, SUM(soi.n_qtde - soi.n_qtde_fat) 
+            FROM sales_order_items soi
+            JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
+            WHERE so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
+            GROUP BY soi.c_cod_prod
+        ".to_string()
+    };
+
+    if let Ok(mut stmt_faltas) = conn.prepare(&sales_faltas_query) {
+        let rows_faltas = stmt_faltas.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        });
+        if let Ok(iter) = rows_faltas {
+            for r in iter {
+                if let Ok((code, qty)) = r {
+                    sales_faltas_map.insert(code, qty);
+                }
+            }
+        }
+    }
+
     let mut stmt = conn.prepare("SELECT codigo, estoque, producao, pedidos_aberto, fase FROM estoque_atual")?;
     let stock_iter = stmt.query_map([], |row| {
+        let codigo: String = row.get(0)?;
+        let estoque: i64 = row.get(1)?;
+        let producao: i64 = row.get(2)?;
+        let fase: Option<String> = row.get(4)?;
+        let pedidos_aberto = *sales_faltas_map.get(&codigo).unwrap_or(&0);
         Ok(Stock {
-            codigo: row.get(0)?,
-            estoque: row.get(1)?,
-            producao: row.get(2)?,
-            pedidos_aberto: row.get(3)?,
-            fase: row.get(4)?,
+            codigo,
+            estoque,
+            producao,
+            pedidos_aberto,
+            fase,
         })
     })?;
     let mut stocks = Vec::new();
@@ -337,6 +395,66 @@ pub async fn list_products(
         ).into_response(),
     };
 
+    // Load config targetDays for coloracao and apoio
+    let target_days_coloracao = {
+        let mut target = 90.0;
+        if let Ok(mut stmt) = conn.prepare("SELECT value FROM config WHERE key = 'compras_coloracao'") {
+            if let Ok(val) = stmt.query_row([], |row| row.get::<_, String>(0)) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&val) {
+                    if let Some(days) = json.get("targetDays").and_then(|d| d.as_f64()) {
+                        target = days;
+                    }
+                }
+            }
+        }
+        target
+    };
+
+    let target_days_apoio = {
+        let mut target = 90.0;
+        if let Ok(mut stmt) = conn.prepare("SELECT value FROM config WHERE key = 'compras_apoio'") {
+            if let Ok(val) = stmt.query_row([], |row| row.get::<_, String>(0)) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&val) {
+                    if let Some(days) = json.get("targetDays").and_then(|d| d.as_f64()) {
+                        target = days;
+                    }
+                }
+            }
+        }
+        target
+    };
+
+    // Fetch category parent mapping to resolve subcategories to roots
+    let mut category_parent_map: HashMap<String, String> = HashMap::new();
+    if let Ok(mut stmt) = conn.prepare("SELECT id, parent_id FROM categories") {
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok((id, parent_id)) = r {
+                    if let Some(p_id) = parent_id {
+                        category_parent_map.insert(id, p_id);
+                    }
+                }
+            }
+        }
+    }
+
+    let resolve_root_category = |cat_id: &str, parent_map: &HashMap<String, String>| -> String {
+        let mut current = cat_id.to_string();
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(current.clone());
+        while let Some(parent) = parent_map.get(&current) {
+            if visited.contains(parent) {
+                break;
+            }
+            current = parent.clone();
+            visited.insert(current.clone());
+        }
+        current
+    };
+
     // Fetch formulations
     let mut formulations_map: HashMap<String, Vec<(String, String, f64)>> = HashMap::new();
     let stmt_form = conn.prepare("SELECT product_code, ingredient_code, description, quantity FROM formulations");
@@ -387,6 +505,72 @@ pub async fn list_products(
         }
     }
 
+    // Fetch active sales orders faltas per product
+    let mut sales_faltas_map: HashMap<String, i64> = HashMap::new();
+    let sales_faltas_days: i32 = {
+        let query = "SELECT value FROM settings WHERE key = 'sales_faltas_days_limit'";
+        if let Ok(val) = conn.query_row(query, [], |row| row.get::<_, String>(0)) {
+            val.parse::<i32>().unwrap_or(180)
+        } else {
+            180
+        }
+    };
+
+    let sales_faltas_query = if sales_faltas_days > 0 {
+        format!("
+            SELECT soi.c_cod_prod, SUM(soi.n_qtde - soi.n_qtde_fat) 
+            FROM sales_order_items soi
+            JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
+            WHERE so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
+              AND so.d_pedido >= date('now', '-{} days')
+            GROUP BY soi.c_cod_prod
+        ", sales_faltas_days)
+    } else {
+        "
+            SELECT soi.c_cod_prod, SUM(soi.n_qtde - soi.n_qtde_fat) 
+            FROM sales_order_items soi
+            JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
+            WHERE so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
+            GROUP BY soi.c_cod_prod
+        ".to_string()
+    };
+
+    let stmt_sales_faltas = conn.prepare(&sales_faltas_query);
+    if let Ok(mut stmt) = stmt_sales_faltas {
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok((code, qty)) = r {
+                    sales_faltas_map.insert(code, qty);
+                }
+            }
+        }
+    }
+
+    // Fetch active purchase orders in transit per product
+    let mut purchase_transit_map: HashMap<String, i64> = HashMap::new();
+    let stmt_purchase_transit = conn.prepare("
+        SELECT poi.c_referencia, SUM(poi.n_qtde - poi.n_chegou) 
+        FROM purchase_order_items poi
+        JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
+        WHERE po.c_status <> 'T' AND (poi.n_qtde > poi.n_chegou)
+        GROUP BY poi.c_referencia
+    ");
+    if let Ok(mut stmt) = stmt_purchase_transit {
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok((code, qty)) = r {
+                    purchase_transit_map.insert(code, qty.round() as i64);
+                }
+            }
+        }
+    }
+
     // Decorate computed items with formulation and missing ingredients info
     for p in &mut computed {
         let has_form = formulations_map.contains_key(&p.codigo);
@@ -404,6 +588,40 @@ pub async fn list_products(
         }
         p.has_formulation = has_form;
         p.missing_ingredients = missing;
+
+        // Populate sales order faltas and purchase transit
+        let active_faltas = *sales_faltas_map.get(&p.codigo).unwrap_or(&0);
+        let transit_purchase = *purchase_transit_map.get(&p.codigo).unwrap_or(&0);
+        p.faltas_ativas = Some(active_faltas);
+        p.pedidos_compra_aberto = Some(transit_purchase);
+
+        // Calculate sugestao_compra if the category resolves to coloracao or apoio
+        let cat_p = p.categoria_produto.as_deref().unwrap_or("");
+        let root_cat = if !cat_p.is_empty() {
+            resolve_root_category(cat_p, &category_parent_map)
+        } else {
+            "".to_string()
+        };
+        let is_coloracao = root_cat == "cat_coloracao";
+        let is_apoio = root_cat == "cat_apoio";
+
+        if is_coloracao || is_apoio {
+            let target_days = if is_coloracao { target_days_coloracao } else { target_days_apoio };
+            let media_vendas = p.media_vendas;
+            // Recalculate ideal quantity: (target_days / 30) * media_vendas (respect manual override if present)
+            let ideal_qty = if let Some(manual_ideal) = p.estoque_ideal_manual {
+                manual_ideal as f64
+            } else {
+                (target_days / 30.0) * media_vendas
+            };
+            p.estoque_ideal_qtd = ideal_qty;
+
+            let current_stock = p.estoque as f64;
+            let faltas = active_faltas as f64;
+            let in_transit = transit_purchase as f64;
+            let suggestion = ideal_qty + faltas - current_stock - in_transit;
+            p.sugestao_compra = Some(if suggestion > 0.0 { suggestion.round() as i64 } else { 0 });
+        }
     }
 
     // Extract stats for metadata based on visible products (excluding hidden ones where visivel == 0)
@@ -420,8 +638,17 @@ pub async fn list_products(
 
     // Apply visibility filter
     let show_hidden = params.show_hidden.unwrap_or(false);
-    if !show_hidden {
+    if !show_hidden && !params.suspended_only.unwrap_or(false) {
         computed.retain(|p| p.visivel.unwrap_or(1) != 0);
+    }
+
+    // Apply suspended filter if requested
+    if params.suspended_only.unwrap_or(false) {
+        let ignored_statuses = crate::get_ignored_product_statuses(&conn);
+        computed.retain(|p| {
+            let status = p.status_produto.as_deref().unwrap_or("ativo");
+            ignored_statuses.contains(&status.to_string())
+        });
     }
 
     // Apply filtering
@@ -451,6 +678,28 @@ pub async fn list_products(
                 }
                 "ERR_ANY" => {
                     computed.retain(|p| !p.has_formulation || !p.missing_ingredients.is_empty());
+                }
+                "coloracao" => {
+                    computed.retain(|p| {
+                        let cat_p = p.categoria_produto.as_deref().unwrap_or("");
+                        let root_cat = if !cat_p.is_empty() {
+                            resolve_root_category(cat_p, &category_parent_map)
+                        } else {
+                            "".to_string()
+                        };
+                        root_cat == "cat_coloracao"
+                    });
+                }
+                "apoio" => {
+                    computed.retain(|p| {
+                        let cat_p = p.categoria_produto.as_deref().unwrap_or("");
+                        let root_cat = if !cat_p.is_empty() {
+                            resolve_root_category(cat_p, &category_parent_map)
+                        } else {
+                            "".to_string()
+                        };
+                        root_cat == "cat_apoio"
+                    });
                 }
                 _ => {
                     computed.retain(|p| p.status == *status);
@@ -640,10 +889,10 @@ pub async fn trigger_db_sync(
 
     match crate::legacy_db::sync_from_sql_server(&db_path).await {
         Ok(res) => {
-            let total_records = (res.products + res.items + res.suppliers + res.invoices + res.formulations + res.movements + res.purchase_orders) as i64;
+            let total_records = (res.products + res.items + res.suppliers + res.invoices + res.formulations + res.movements + res.purchase_orders + res.sales_orders) as i64;
             let detail_msg = format!(
-                "Sincronizados: {} produtos, {} insumos/materiais, {} fornecedores, {} compras, {} consumos, {} receitas, {} movimentações, {} pedidos de compra",
-                res.products, res.items, res.suppliers, res.invoices, res.consumption, res.formulations, res.movements, res.purchase_orders
+                "Sincronizados: {} produtos, {} insumos/materiais, {} fornecedores, {} compras, {} consumos, {} receitas, {} movimentações, {} pedidos de compra, {} pedidos de venda",
+                res.products, res.items, res.suppliers, res.invoices, res.consumption, res.formulations, res.movements, res.purchase_orders, res.sales_orders
             );
             let _ = state.db.record_import(
                 "sync",
@@ -1306,7 +1555,10 @@ pub async fn list_purchase_orders(
                     query.push_str(" AND (c_status = 'F' OR c_status = 'T' OR c_status = 'FECHADO' OR c_status = 'CONCLUIDO')");
                 }
                 "CANCELADO" => {
-                    query.push_str(" AND (c_status = 'C' OR c_status = 'CANCELADO' OR c_status = '!')");
+                    query.push_str(" AND (c_status = 'C' OR c_status = 'CANCELADO')");
+                }
+                "ATRASADO" | "ATRASADOS" => {
+                    query.push_str(" AND (c_status = '!' OR c_status = 'ATRASADO')");
                 }
                 _ => {
                     query.push_str(" AND c_status = ?");
@@ -1700,34 +1952,38 @@ pub async fn get_item_extra_info(
         }
     }
 
-    // 3.5. If no formulation found (maybe it's an insumo), check in which products it is used
-    if formulation.is_empty() {
-        if let Ok(mut stmt) = conn.prepare(
-            "SELECT f.product_code, f.ingredient_code, p.descricao, f.quantity, f.percentage 
-             FROM formulations f 
-             LEFT JOIN produtos p ON (
-                 f.product_code = p.codigo OR
-                 (f.product_code LIKE '0%' AND SUBSTR(f.product_code, 2) = p.codigo) OR
-                 (p.codigo LIKE '0%' AND f.product_code = SUBSTR(p.codigo, 2))
-             )
-             WHERE f.ingredient_code = ?1 OR f.ingredient_code = ?2
-             ORDER BY p.descricao ASC"
-        ) {
-            let rows = stmt.query_map(params![code, code_clean], |row| {
-                Ok(crate::models::FormulationLine {
-                    product_code: row.get(0)?,
-                    ingredient_code: row.get(1)?,
-                    description: row.get(2)?,
-                    quantity: row.get(3)?,
-                    percentage: row.get(4)?,
-                })
-            });
-            if let Ok(iter) = rows {
-                for r in iter {
-                    if let Ok(line) = r { formulation.push(line); }
-                }
+    // 3.5. Always fetch in which products it is used (for usedIn info)
+    let mut used_in = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT f.product_code, f.ingredient_code, p.descricao, f.quantity, f.percentage 
+         FROM formulations f 
+         LEFT JOIN produtos p ON (
+             f.product_code = p.codigo OR
+             (f.product_code LIKE '0%' AND SUBSTR(f.product_code, 2) = p.codigo) OR
+             (p.codigo LIKE '0%' AND f.product_code = SUBSTR(p.codigo, 2))
+         )
+         WHERE f.ingredient_code = ?1 OR f.ingredient_code = ?2
+         ORDER BY p.descricao ASC"
+    ) {
+        let rows = stmt.query_map(params![code, code_clean], |row| {
+            Ok(crate::models::FormulationLine {
+                product_code: row.get(0)?,
+                ingredient_code: row.get(1)?,
+                description: row.get(2)?,
+                quantity: row.get(3)?,
+                percentage: row.get(4)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(line) = r { used_in.push(line); }
             }
         }
+    }
+
+    // Fallback: If no formulation found (maybe it's an insumo), check in which products it is used
+    if formulation.is_empty() {
+        formulation = used_in.clone();
     }
 
     // 4. Fetch production batches / lotes (from stock_movements with type 'entrada' and item_type 'produto')
@@ -1759,6 +2015,7 @@ pub async fn get_item_extra_info(
             "invoices": invoices,
             "pendingOrders": pending_orders,
             "formulation": formulation,
+            "usedIn": used_in,
             "lotes": lotes,
         }))
     ).into_response()
@@ -2737,6 +2994,106 @@ pub async fn get_product_detalhes(
         }
     }
 
+    // 6. Fetch recent production lots (up to 15) and calculate last production stats
+    let mut last_production_date: Option<String> = None;
+    let mut last_production_qty: Option<f64> = None;
+    let mut last_lots: Vec<crate::models::ProductionLote> = Vec::new();
+
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT m.id, m.document_number, m.item_code, p.descricao, m.quantity, m.date, m.details 
+         FROM stock_movements m
+         LEFT JOIN produtos p ON m.item_code = p.codigo
+         WHERE m.item_code = ?1 AND m.item_type = 'produto' AND m.movement_type = 'entrada' AND m.date <= datetime('now', 'localtime')
+         ORDER BY m.date DESC LIMIT 15"
+    ) {
+        let rows = stmt.query_map(params![code], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                row.get::<_, f64>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?.unwrap_or_default(),
+            ))
+        });
+        if let Ok(iter) = rows {
+            for (index, r) in iter.enumerate() {
+                if let Ok((id, lote_number, product_code, product_description, quantity, date, details)) = r {
+                    if index == 0 {
+                        last_production_date = Some(date.clone());
+                        last_production_qty = Some(quantity);
+                    }
+                    
+                    let mut status = String::new();
+                    let mut fabricated_by = String::new();
+                    let mut authorized_by = String::new();
+                    for part in details.split('|') {
+                        let part = part.trim();
+                        if part.starts_with("Status:") {
+                            status = part.trim_start_matches("Status:").trim().to_string();
+                        } else if part.starts_with("Fab:") {
+                            fabricated_by = part.trim_start_matches("Fab:").trim().to_string();
+                        } else if part.starts_with("Aut:") {
+                            authorized_by = part.trim_start_matches("Aut:").trim().to_string();
+                        }
+                    }
+
+                    let mut new_lote = crate::models::ProductionLote {
+                        id,
+                        lote_number: lote_number.clone(),
+                        product_code: product_code.clone(),
+                        product_description: product_description.clone(),
+                        quantity,
+                        date: date.clone(),
+                        status: status.clone(),
+                        fabricated_by,
+                        authorized_by,
+                        yield_error: None,
+                        pesagem_error: None,
+                        envase_error: None,
+                        conferencia_error: None,
+                    };
+
+                    if status == "EA" || status == "FP" || status == "CF" {
+                        // Get total ingredient weight exited for this OP
+                        let ing_exit_sum: f64 = match conn.query_row(
+                            "SELECT SUM(quantity) FROM stock_movements 
+                             WHERE document_number = ?1 AND item_type = 'insumo' AND movement_type = 'saida'",
+                            params![&new_lote.lote_number],
+                            |r| Ok(r.get::<_, Option<f64>>(0)?.unwrap_or(0.0))
+                        ) {
+                            Ok(val) => val,
+                            Err(_) => 0.0,
+                        };
+
+                        let form_sum: f64 = match conn.query_row(
+                            "SELECT SUM(quantity) FROM formulations WHERE product_code = ?1",
+                            params![&new_lote.product_code],
+                            |r| Ok(r.get::<_, Option<f64>>(0)?.unwrap_or(1.0))
+                        ) {
+                            Ok(val) => val,
+                            Err(_) => 1.0,
+                        };
+                        let total_expected_weight = new_lote.quantity * form_sum;
+
+                        if ing_exit_sum > 0.0 && total_expected_weight > 0.0 {
+                            let diff = (ing_exit_sum - total_expected_weight).abs() / total_expected_weight;
+                            new_lote.yield_error = Some(diff > 0.10);
+                        }
+
+                        let (pe, ee, ce) = check_lote_errors(&conn, &new_lote.lote_number, &new_lote.product_code, new_lote.quantity, &details, &new_lote.product_description);
+                        new_lote.pesagem_error = Some(pe);
+                        new_lote.envase_error = Some(ee);
+                        new_lote.conferencia_error = Some(ce);
+                    }
+
+                    last_lots.push(new_lote);
+                }
+            }
+        }
+    }
+
     let response = crate::models::ProductDetalhesResponse {
         code: prod_code,
         description,
@@ -2746,6 +3103,9 @@ pub async fn get_product_detalhes(
         sales_yoy,
         monthly_sales,
         recent_invoices,
+        last_production_date,
+        last_production_qty,
+        last_lots,
     };
 
     (StatusCode::OK, Json(response)).into_response()
@@ -3826,4 +4186,544 @@ pub async fn get_lote_detalhes(
     };
 
     (StatusCode::OK, Json(details)).into_response()
+}
+
+// === VENDAS: PEDIDOS DE VENDA & FALTAS ===
+
+#[derive(Debug, serde::Deserialize)]
+pub struct SalesOrdersQueryParams {
+    pub search: Option<String>,
+    pub status: Option<String>,
+    pub days: Option<i32>,
+}
+
+// GET /api/vendas/pedidos
+pub async fn list_sales_orders(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<SalesOrdersQueryParams>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let mut sql = String::from(
+        "SELECT n_pedido, d_pedido, n_codigo, c_nome, n_valor_tot, c_status, n_nota_fiscal, d_previsao, d_entrega, m_observac 
+         FROM sales_orders WHERE 1=1"
+    );
+
+    let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+    let mut param_idx = 1;
+
+    if let Some(ref search) = params.search {
+        if !search.trim().is_empty() {
+            sql.push_str(&format!(" AND (c_nome LIKE ?{} OR CAST(n_pedido AS TEXT) LIKE ?{})", param_idx, param_idx + 1));
+            let like_pattern = format!("%{}%", search.trim());
+            params_vec.push(Box::new(like_pattern.clone()));
+            params_vec.push(Box::new(like_pattern));
+            param_idx += 2;
+        }
+    }
+
+    if let Some(ref status) = params.status {
+        if !status.trim().is_empty() && status != "ALL" {
+            if status == "ativos" {
+                sql.push_str(" AND c_status NOT IN ('FT', 'CA')");
+            } else if status == "concluidos" {
+                sql.push_str(" AND c_status IN ('FT', 'CA')");
+            } else {
+                sql.push_str(&format!(" AND c_status = ?{}", param_idx));
+                params_vec.push(Box::new(status.clone()));
+                param_idx += 1;
+            }
+        }
+    }
+
+    if let Some(days) = params.days {
+        if days > 0 {
+            sql.push_str(&format!(" AND d_pedido >= date('now', '-{} days')", days));
+        }
+    }
+
+    sql.push_str(" ORDER BY d_pedido DESC, n_pedido DESC");
+
+    let params_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|b| b.as_ref()).collect();
+    let mut stmt = match conn.prepare(&sql) {
+        Ok(s) => s,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let orders_iter = stmt.query_map(&*params_refs, |row| {
+        Ok((
+            row.get::<_, i32>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<i32>>(2)?,
+            row.get::<_, Option<String>>(3)?,
+            row.get::<_, f64>(4)?,
+            row.get::<_, Option<String>>(5)?,
+            row.get::<_, i32>(6)?,
+            row.get::<_, Option<String>>(7)?,
+            row.get::<_, Option<String>>(8)?,
+            row.get::<_, Option<String>>(9)?,
+        ))
+    });
+
+    let mut sales_orders = Vec::new();
+
+    if let Ok(rows) = orders_iter {
+        for r in rows {
+            if let Ok((n_pedido, d_pedido, n_codigo, c_nome, n_valor_tot, c_status, n_nota_fiscal, d_previsao, d_entrega, m_observac)) = r {
+                let mut items = Vec::new();
+                let mut stmt_items = match conn.prepare(
+                    "SELECT id, n_pedido, d_pedido, n_registro, c_cod_prod, n_qtde, n_qtde_fat, n_preco, c_lote 
+                     FROM sales_order_items 
+                     WHERE n_pedido = ?1 AND d_pedido = ?2"
+                ) {
+                    Ok(s) => s,
+                    Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+                };
+
+                let items_iter = stmt_items.query_map(params![n_pedido, d_pedido], |row_item| {
+                    Ok(crate::models::SalesOrderItem {
+                        id: row_item.get(0)?,
+                        n_pedido: row_item.get(1)?,
+                        d_pedido: row_item.get(2)?,
+                        n_registro: row_item.get(3)?,
+                        c_cod_prod: row_item.get(4)?,
+                        n_qtde: row_item.get(5)?,
+                        n_qtde_fat: row_item.get(6)?,
+                        n_preco: row_item.get(7)?,
+                        c_lote: row_item.get(8)?,
+                    })
+                });
+
+                if let Ok(item_rows) = items_iter {
+                    for ir in item_rows {
+                        if let Ok(item) = ir {
+                            items.push(item);
+                        }
+                    }
+                }
+
+                sales_orders.push(crate::models::SalesOrder {
+                    n_pedido,
+                    d_pedido,
+                    n_codigo,
+                    c_nome,
+                    n_valor_tot,
+                    c_status,
+                    n_nota_fiscal,
+                    d_previsao,
+                    d_entrega,
+                    m_observac,
+                    items,
+                });
+            }
+        }
+    }
+
+    (StatusCode::OK, Json(sales_orders)).into_response()
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct FaltasParams {
+    pub days: Option<i32>,
+}
+
+// GET /api/vendas/faltas
+pub async fn list_sales_faltas(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<FaltasParams>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let days = params.days.unwrap_or(180); // Default to 180 days (6 months)
+
+    // Load estoque and producao from estoque_atual
+    let mut stock_map: HashMap<String, (i64, i64)> = HashMap::new();
+    let stock_stmt_res = conn.prepare("SELECT codigo, estoque, producao FROM estoque_atual");
+    if let Ok(mut stmt) = stock_stmt_res {
+        let stock_rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+        });
+        if let Ok(iter) = stock_rows {
+            for r in iter {
+                if let Ok((code, estoque, producao)) = r {
+                    stock_map.insert(code, (estoque, producao));
+                }
+            }
+        }
+    }
+
+    // Load transit purchase orders
+    let mut purchase_transit_map: HashMap<String, i64> = HashMap::new();
+    let purchase_stmt_res = conn.prepare("
+        SELECT poi.c_referencia, SUM(poi.n_qtde - poi.n_chegou) 
+        FROM purchase_order_items poi
+        JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
+        WHERE po.c_status <> 'T' AND (poi.n_qtde > poi.n_chegou)
+        GROUP BY poi.c_referencia
+    ");
+    if let Ok(mut stmt) = purchase_stmt_res {
+        let purchase_rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+        });
+        if let Ok(iter) = purchase_rows {
+            for r in iter {
+                if let Ok((code, qty)) = r {
+                    purchase_transit_map.insert(code, qty.round() as i64);
+                }
+            }
+        }
+    }
+
+    let active_query = if days > 0 {
+        format!("
+            SELECT 
+                soi.c_cod_prod,
+                p.descricao,
+                IFNULL(cl.nome_linha, 'Outros/Geral') as nome_linha,
+                soi.n_pedido,
+                soi.d_pedido,
+                so.c_nome,
+                so.c_status,
+                soi.n_qtde,
+                soi.n_qtde_fat,
+                (soi.n_qtde - soi.n_qtde_fat) as falta_qty,
+                so.d_previsao
+            FROM sales_order_items soi
+            JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
+            LEFT JOIN produtos p ON soi.c_cod_prod = p.codigo
+            LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
+            WHERE so.c_status NOT IN ('FT', 'CA') 
+              AND (soi.n_qtde > soi.n_qtde_fat)
+              AND so.d_pedido >= date('now', '-{} days')
+            ORDER BY soi.c_cod_prod, soi.d_pedido DESC
+        ", days)
+    } else {
+        "
+            SELECT 
+                soi.c_cod_prod,
+                p.descricao,
+                IFNULL(cl.nome_linha, 'Outros/Geral') as nome_linha,
+                soi.n_pedido,
+                soi.d_pedido,
+                so.c_nome,
+                so.c_status,
+                soi.n_qtde,
+                soi.n_qtde_fat,
+                (soi.n_qtde - soi.n_qtde_fat) as falta_qty,
+                so.d_previsao
+            FROM sales_order_items soi
+            JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
+            LEFT JOIN produtos p ON soi.c_cod_prod = p.codigo
+            LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
+            WHERE so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
+            ORDER BY soi.c_cod_prod, soi.d_pedido DESC
+        ".to_string()
+    };
+
+    let mut active_stmt = match conn.prepare(&active_query) {
+        Ok(s) => s,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let active_rows = active_stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?.unwrap_or_else(|| "Produto Legado".to_string()),
+            row.get::<_, String>(2)?,
+            row.get::<_, i32>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, Option<String>>(5)?,
+            row.get::<_, Option<String>>(6)?,
+            row.get::<_, i32>(7)?,
+            row.get::<_, i32>(8)?,
+            row.get::<_, i32>(9)?,
+            row.get::<_, Option<String>>(10)?,
+        ))
+    });
+
+    let mut active_map: HashMap<String, (String, String, i32, Vec<crate::models::ProductFaltaItem>)> = HashMap::new();
+
+    if let Ok(rows) = active_rows {
+        for r in rows {
+            if let Ok((code, desc, linha, n_pedido, d_pedido, c_nome, c_status, n_qtde, n_qtde_fat, falta_qty, d_previsao)) = r {
+                let entry = active_map.entry(code.clone()).or_insert_with(|| (desc, linha, 0, Vec::new()));
+                entry.2 += falta_qty;
+                entry.3.push(crate::models::ProductFaltaItem {
+                    n_pedido,
+                    d_pedido,
+                    c_nome,
+                    c_status,
+                    n_qtde,
+                    n_qtde_fat,
+                    falta: falta_qty,
+                    d_previsao,
+                });
+            }
+        }
+    }
+
+    let mut active_groups: Vec<crate::models::ProductFaltaGroup> = active_map
+        .into_iter()
+        .map(|(code, (desc, linha, total, items))| {
+            let (estoque, producao) = stock_map.get(&code).cloned().unwrap_or((0, 0));
+            let transit = purchase_transit_map.get(&code).cloned().unwrap_or(0);
+            
+            // net shortage = max(0, total - (estoque + producao + transit))
+            let available = estoque + producao + transit;
+            let net = if (total as i64) > available {
+                (total as i64) - available
+            } else {
+                0
+            };
+
+            crate::models::ProductFaltaGroup {
+                c_cod_prod: code,
+                c_nome_prod: desc,
+                c_nome_linha: linha,
+                total_falta: total,
+                pedidos_afetados: items,
+                estoque,
+                producao,
+                transit_purchase: transit,
+                falta_net: net,
+            }
+        })
+        .collect();
+    active_groups.sort_by(|a, b| b.total_falta.cmp(&a.total_falta));
+
+    let hist_query = if days > 0 {
+        format!("
+            SELECT 
+                soi.c_cod_prod,
+                p.descricao,
+                IFNULL(cl.nome_linha, 'Outros/Geral') as nome_linha,
+                soi.n_pedido,
+                soi.d_pedido,
+                so.c_nome,
+                so.c_status,
+                soi.n_qtde,
+                soi.n_qtde_fat,
+                (soi.n_qtde - soi.n_qtde_fat) as falta_qty,
+                so.d_previsao
+            FROM sales_order_items soi
+            JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
+            LEFT JOIN produtos p ON soi.c_cod_prod = p.codigo
+            LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
+            WHERE so.c_status IN ('FT', 'CA') 
+              AND (soi.n_qtde > soi.n_qtde_fat)
+              AND so.d_pedido >= date('now', '-{} days')
+            ORDER BY soi.c_cod_prod, soi.d_pedido DESC
+        ", days)
+    } else {
+        "
+            SELECT 
+                soi.c_cod_prod,
+                p.descricao,
+                IFNULL(cl.nome_linha, 'Outros/Geral') as nome_linha,
+                soi.n_pedido,
+                soi.d_pedido,
+                so.c_nome,
+                so.c_status,
+                soi.n_qtde,
+                soi.n_qtde_fat,
+                (soi.n_qtde - soi.n_qtde_fat) as falta_qty,
+                so.d_previsao
+            FROM sales_order_items soi
+            JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
+            LEFT JOIN produtos p ON soi.c_cod_prod = p.codigo
+            LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
+            WHERE so.c_status IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
+            ORDER BY soi.c_cod_prod, soi.d_pedido DESC
+        ".to_string()
+    };
+
+    let mut hist_stmt = match conn.prepare(&hist_query) {
+        Ok(s) => s,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let hist_rows = hist_stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?.unwrap_or_else(|| "Produto Legado".to_string()),
+            row.get::<_, String>(2)?,
+            row.get::<_, i32>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, Option<String>>(5)?,
+            row.get::<_, Option<String>>(6)?,
+            row.get::<_, i32>(7)?,
+            row.get::<_, i32>(8)?,
+            row.get::<_, i32>(9)?,
+            row.get::<_, Option<String>>(10)?,
+        ))
+    });
+
+    let mut hist_map: HashMap<String, (String, String, i32, Vec<crate::models::ProductFaltaItem>)> = HashMap::new();
+
+    if let Ok(rows) = hist_rows {
+        for r in rows {
+            if let Ok((code, desc, linha, n_pedido, d_pedido, c_nome, c_status, n_qtde, n_qtde_fat, falta_qty, d_previsao)) = r {
+                let entry = hist_map.entry(code.clone()).or_insert_with(|| (desc, linha, 0, Vec::new()));
+                entry.2 += falta_qty;
+                entry.3.push(crate::models::ProductFaltaItem {
+                    n_pedido,
+                    d_pedido,
+                    c_nome,
+                    c_status,
+                    n_qtde,
+                    n_qtde_fat,
+                    falta: falta_qty,
+                    d_previsao,
+                });
+            }
+        }
+    }
+
+    let mut hist_groups: Vec<crate::models::ProductFaltaGroup> = hist_map
+        .into_iter()
+        .map(|(code, (desc, linha, total, items))| crate::models::ProductFaltaGroup {
+            c_cod_prod: code,
+            c_nome_prod: desc,
+            c_nome_linha: linha,
+            total_falta: total,
+            pedidos_afetados: items,
+            estoque: 0,
+            producao: 0,
+            transit_purchase: 0,
+            falta_net: 0,
+        })
+        .collect();
+    hist_groups.sort_by(|a, b| b.total_falta.cmp(&a.total_falta));
+
+    (StatusCode::OK, Json(json!({
+        "ativas": active_groups,
+        "historicas": hist_groups,
+    }))).into_response()
+}
+
+// GET /api/produtos/:code/pedidos-pendentes
+pub async fn get_product_pending_orders(
+    State(state): State<Arc<AppState>>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let mut pending_sales_orders = Vec::new();
+    let sales_faltas_days: i32 = {
+        let query = "SELECT value FROM settings WHERE key = 'sales_faltas_days_limit'";
+        if let Ok(val) = conn.query_row(query, [], |row| row.get::<_, String>(0)) {
+            val.parse::<i32>().unwrap_or(180)
+        } else {
+            180
+        }
+    };
+
+    let query_sales = if sales_faltas_days > 0 {
+        format!("
+            SELECT 
+                soi.n_pedido,
+                soi.d_pedido,
+                so.c_nome,
+                so.c_status,
+                soi.n_qtde,
+                soi.n_qtde_fat,
+                (soi.n_qtde - soi.n_qtde_fat) as falta,
+                so.d_previsao
+            FROM sales_order_items soi
+            JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
+            WHERE soi.c_cod_prod = ?1 
+              AND so.c_status NOT IN ('FT', 'CA') 
+              AND (soi.n_qtde > soi.n_qtde_fat)
+              AND so.d_pedido >= date('now', '-{} days')
+            ORDER BY soi.d_pedido DESC
+        ", sales_faltas_days)
+    } else {
+        "
+            SELECT 
+                soi.n_pedido,
+                soi.d_pedido,
+                so.c_nome,
+                so.c_status,
+                soi.n_qtde,
+                soi.n_qtde_fat,
+                (soi.n_qtde - soi.n_qtde_fat) as falta,
+                so.d_previsao
+            FROM sales_order_items soi
+            JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
+            WHERE soi.c_cod_prod = ?1 AND so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
+            ORDER BY soi.d_pedido DESC
+        ".to_string()
+    };
+
+    if let Ok(mut stmt) = conn.prepare(&query_sales) {
+        let rows = stmt.query_map(params![code], |row| {
+            Ok(crate::models::ProductFaltaItem {
+                n_pedido: row.get(0)?,
+                d_pedido: row.get(1)?,
+                c_nome: row.get(2)?,
+                c_status: row.get(3)?,
+                n_qtde: row.get(4)?,
+                n_qtde_fat: row.get(5)?,
+                falta: row.get(6)?,
+                d_previsao: row.get(7)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(item) = r {
+                    pending_sales_orders.push(item);
+                }
+            }
+        }
+    }
+
+    let mut in_transit_purchase_orders = Vec::new();
+    let query_purchases = "
+        SELECT 
+            po.n_pedido,
+            po.c_nome_f,
+            po.d_previsao,
+            poi.n_qtde,
+            poi.n_chegou,
+            (poi.n_qtde - poi.n_chegou) as n_pendente
+        FROM purchase_order_items poi
+        JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
+        WHERE poi.c_referencia = ?1 AND po.c_status <> 'T' AND (poi.n_qtde > poi.n_chegou)
+        ORDER BY po.d_pedido DESC
+    ";
+    if let Ok(mut stmt) = conn.prepare(query_purchases) {
+        let rows = stmt.query_map(params![code], |row| {
+            Ok(crate::models::PendingPurchaseOrderItem {
+                n_pedido: row.get(0)?,
+                c_nome_f: row.get(1)?,
+                d_previsao: row.get(2)?,
+                n_qtde: row.get(3)?,
+                n_chegou: row.get(4)?,
+                n_pendente: row.get(5)?,
+            })
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok(item) = r {
+                    in_transit_purchase_orders.push(item);
+                }
+            }
+        }
+    }
+
+    let resp = crate::models::PendingOrdersResponse {
+        pending_sales_orders,
+        in_transit_purchase_orders,
+    };
+
+    (StatusCode::OK, Json(resp)).into_response()
 }

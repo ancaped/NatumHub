@@ -3,7 +3,7 @@ import {
   AlertTriangle, CheckCircle2, X, RefreshCw, Database, Check, Play,
   ArrowUpDown, ArrowUp, ArrowDown, LayoutDashboard, Table, Layers, History,
   Settings, ArrowLeft, ClipboardList, User, TrendingUp, BarChart3,
-  Scale, Package, FileText
+  Scale, Package, FileText, EyeOff, HelpCircle, Info, Search
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -13,6 +13,8 @@ const API_BASE = 'http://127.0.0.1:3001/api';
 import { DashboardTab } from '../components/producao/DashboardTab';
 import { InventoryTab } from '../components/producao/InventoryTab';
 import { KitsTab } from '../components/producao/KitsTab';
+import { BasesTab } from '../components/producao/BasesTab';
+import ItemRegistry from '../components/compras/ItemRegistry';
 import { HistoryTab } from '../components/producao/HistoryTab';
 import { SettingsTab } from '../components/producao/SettingsTab';
 import { LotesTab } from '../components/producao/LotesTab';
@@ -26,6 +28,7 @@ export default function ProducaoView({ onBackToHub }) {
       dashboard: 'Dashboard',
       inventory: 'Gerenciamento de Produção',
       kits: 'Gestão de Kits',
+      bases: 'Gestão de Bases',
       history: 'Histórico de Produção',
       imports: 'Importações ERP',
       settings: 'Configurações'
@@ -38,6 +41,7 @@ export default function ProducaoView({ onBackToHub }) {
   const [stats, setStats] = useState({ critico: 0, ordem: 0, saudavel: 0, abundante: 0, lancamentos: 0 });
   const [bases, setBases] = useState([]);
   const [configs, setConfigs] = useState([]);
+  const [ignoredStatuses, setIgnoredStatuses] = useState(['descontinuado', 'terceirizado']);
   
   // Filtering & Pagination State
   const [activeTab, setActiveTab] = useState('ALL');
@@ -143,6 +147,12 @@ export default function ProducaoView({ onBackToHub }) {
   const [selectedProductDetails, setSelectedProductDetails] = useState(null);
   const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
   const [detailsDrawerLoading, setDetailsDrawerLoading] = useState(false);
+  const [detailsDrawerActiveTab, setDetailsDrawerActiveTab] = useState('geral');
+
+  // Suspended Products States
+  const [suspendedProducts, setSuspendedProducts] = useState([]);
+  const [suspendedLoading, setSuspendedLoading] = useState(false);
+  const [suspendedSearch, setSuspendedSearch] = useState('');
 
   // Lote Details Drawer State
   const [selectedLoteDetails, setSelectedLoteDetails] = useState(null);
@@ -409,6 +419,44 @@ export default function ProducaoView({ onBackToHub }) {
     }).length;
   }, [importStatus, watchConfig]);
 
+  // Fetch ignored product statuses for items
+  const fetchIgnoredStatuses = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/settings/ignored_product_statuses`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.value) {
+          try {
+            setIgnoredStatuses(JSON.parse(data.value));
+          } catch (e) {
+            console.error("Error parsing ignored product statuses:", e);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Error fetching ignored statuses:", e);
+    }
+  };
+
+  const handleSaveIgnoredStatuses = async (newStatuses) => {
+    try {
+      const res = await fetch(`${API_BASE}/settings/ignored_product_statuses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: JSON.stringify(newStatuses) })
+      });
+      if (res.ok) {
+        setIgnoredStatuses(newStatuses);
+        showToast("Status ignorados atualizados com sucesso!", "success");
+      } else {
+        showToast("Erro ao salvar status ignorados", "error");
+      }
+    } catch (e) {
+      console.error("Error saving ignored statuses:", e);
+      showToast("Falha de conexão ao salvar status", "error");
+    }
+  };
+
   // Fetch configs from API
   const fetchConfigs = async () => {
     try {
@@ -554,7 +602,38 @@ export default function ProducaoView({ onBackToHub }) {
     }
   }, [currentView, fetchLotes]);
 
+  const fetchSuspendedProducts = useCallback(async () => {
+    setSuspendedLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.append('suspended_only', 'true');
+      if (suspendedSearch.trim()) {
+        params.append('search', suspendedSearch.trim());
+      }
+      params.append('limit', '10000');
+      
+      const res = await fetch(`${API_BASE}/products?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSuspendedProducts(data.items || []);
+      } else {
+        showToast("Erro ao buscar produtos suspensos", "error");
+      }
+    } catch (e) {
+      console.error("Error fetching suspended products:", e);
+    } finally {
+      setSuspendedLoading(false);
+    }
+  }, [suspendedSearch]);
+
+  useEffect(() => {
+    if (currentView === 'ignored_items') {
+      fetchSuspendedProducts();
+    }
+  }, [currentView, fetchSuspendedProducts]);
+
   const fetchProductDetails = async (code) => {
+    setDetailsDrawerActiveTab('geral');
     setDetailsDrawerLoading(true);
     setSelectedProductDetails(null);
     setDetailsDrawerOpen(true);
@@ -1137,6 +1216,7 @@ export default function ProducaoView({ onBackToHub }) {
     fetchImportHistory();
     fetchWatchConfig();
     fetchKitComposicao();
+    fetchIgnoredStatuses();
   }, []);
 
   useEffect(() => {
@@ -1244,6 +1324,14 @@ export default function ProducaoView({ onBackToHub }) {
           </button>
           
           <button 
+            className={`sidebar-link cursor-pointer ${currentView === 'bases' ? 'active' : ''}`}
+            onClick={() => setCurrentView('bases')}
+          >
+            <Database size={16} />
+            <span>Gestão de Bases</span>
+          </button>
+          
+          <button 
             className={`sidebar-link cursor-pointer ${currentView === 'history' ? 'active' : ''}`}
             onClick={() => setCurrentView('history')}
           >
@@ -1262,6 +1350,14 @@ export default function ProducaoView({ onBackToHub }) {
             <span>Lotes de Produção</span>
           </button>
           
+          <button 
+            className={`sidebar-link cursor-pointer ${currentView === 'ignored_items' ? 'active' : ''}`}
+            onClick={() => setCurrentView('ignored_items')}
+          >
+            <EyeOff size={16} />
+            <span>Produtos Suspensos</span>
+          </button>
+
           <button 
             className={`sidebar-link cursor-pointer ${currentView === 'settings' ? 'active' : ''}`}
             onClick={() => {
@@ -1383,6 +1479,25 @@ export default function ProducaoView({ onBackToHub }) {
             />
           )}
 
+          {/* VIEW: BASES MANAGEMENT */}
+          {currentView === 'bases' && (
+            <BasesTab
+              configs={configs}
+              tabOptions={tabOptions}
+              onLaunchProduct={(p) => {
+                setLaunchingProduct(p);
+                setLaunchQty(p.producao_recomendada > 0 ? p.producao_recomendada : 100);
+                const today = new Date();
+                const yyyy = today.getFullYear();
+                const mm = String(today.getMonth() + 1).padStart(2, '0');
+                const dd = String(today.getDate()).padStart(2, '0');
+                setLaunchDate(`${yyyy}-${mm}-${dd}`);
+              }}
+              onEditOverrides={openEditModal}
+              onRefresh={fetchProducts}
+            />
+          )}
+
           {/* VIEW: PRODUCTION HISTORY */}
           {currentView === 'history' && (
             <HistoryTab
@@ -1418,6 +1533,94 @@ export default function ProducaoView({ onBackToHub }) {
               selectedStatus={selectedLoteStatus}
               setSelectedStatus={setSelectedLoteStatus}
             />
+          )}
+
+          {/* VIEW: IGNORED ITEMS (PRODUTOS SUSPENSOS) */}
+          {currentView === 'ignored_items' && (
+            <div className="view-container animate-in fade-in duration-200">
+              <div className="view-header text-left">
+                <h2 className="view-title">Produtos Suspensos</h2>
+                <p className="view-subtitle">
+                  Produtos acabados (linhas de produtos) suspensos nas demandas e no painel de gerenciamento devido aos seus status configurados (ex: descontinuado, terceirizado).
+                </p>
+              </div>
+
+              {/* Search Toolbar */}
+              <div className="toolbar-section flex justify-between items-center gap-4 mt-6">
+                <div className="search-input-wrapper flex-1 max-w-md">
+                  <Search size={18} />
+                  <input 
+                    type="text" 
+                    placeholder="Buscar por código ou descrição..." 
+                    className="search-input"
+                    value={suspendedSearch}
+                    onChange={(e) => setSuspendedSearch(e.target.value)}
+                  />
+                </div>
+                <button className="btn-secondary cursor-pointer" onClick={fetchSuspendedProducts} title="Recarregar dados">
+                  <RefreshCw size={16} />
+                </button>
+              </div>
+
+              <div className="table-card text-left" style={{ marginTop: '1.5rem', padding: '1.5rem' }}>
+                {suspendedLoading ? (
+                  <div style={{ padding: '4rem', textAlign: 'center', color: 'hsl(var(--text-secondary-hsl))', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+                    <RefreshCw className="animate-spin" size={32} />
+                    <span>Carregando produtos suspensos...</span>
+                  </div>
+                ) : suspendedProducts.length === 0 ? (
+                  <div style={{ padding: '4rem', textAlign: 'center', color: 'hsl(var(--text-secondary-hsl))', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+                    <HelpCircle size={48} style={{ opacity: 0.3 }} />
+                    <span>Nenhum produto suspenso encontrado.</span>
+                  </div>
+                ) : (
+                  <div className="table-wrapper">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th style={{ width: '15%' }}>REF</th>
+                          <th style={{ width: '50%' }}>Descrição</th>
+                          <th style={{ width: '20%' }}>Linha</th>
+                          <th style={{ width: '15%' }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {suspendedProducts.map((p) => (
+                          <tr 
+                            key={p.codigo} 
+                            className="hover:bg-zinc-50/50 transition-colors cursor-pointer"
+                          >
+                            <td 
+                              onClick={() => fetchProductDetails(p.codigo)} 
+                              className="font-mono text-zinc-650 font-bold hover:underline"
+                            >
+                              {p.codigo}
+                            </td>
+                            <td 
+                              onClick={() => fetchProductDetails(p.codigo)} 
+                              className="font-semibold text-zinc-800 hover:underline"
+                            >
+                              {p.descricao}
+                            </td>
+                            <td 
+                              onClick={() => fetchProductDetails(p.codigo)} 
+                              className="text-zinc-550 font-medium"
+                            >
+                              {p.nome_linha}
+                            </td>
+                            <td onClick={() => fetchProductDetails(p.codigo)}>
+                              <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[10px] font-bold uppercase">
+                                {p.status_produto || 'suspenso'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
           )}
 
           {/* VIEW: SETTINGS */}
@@ -1488,6 +1691,8 @@ export default function ProducaoView({ onBackToHub }) {
               recalcLoading={recalcLoading}
               onPreviewRecalc={handlePreviewRecalc}
               onApplyRecalc={handleApplyRecalc}
+              ignoredStatuses={ignoredStatuses}
+              onSaveIgnoredStatuses={handleSaveIgnoredStatuses}
             />
           )}
 
@@ -1812,6 +2017,42 @@ export default function ProducaoView({ onBackToHub }) {
                 </button>
               </div>
 
+              {/* Tab Navigation */}
+              {!detailsDrawerLoading && selectedProductDetails && (
+                <div className="flex border-b border-zinc-150 bg-zinc-50 px-6 shrink-0">
+                  <button
+                    onClick={() => setDetailsDrawerActiveTab('geral')}
+                    className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer focus:outline-none ${
+                      detailsDrawerActiveTab === 'geral' 
+                        ? 'border-zinc-900 text-zinc-900 font-extrabold' 
+                        : 'border-transparent text-zinc-450 hover:text-zinc-650'
+                    }`}
+                  >
+                    Geral
+                  </button>
+                  <button
+                    onClick={() => setDetailsDrawerActiveTab('formula')}
+                    className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer focus:outline-none ${
+                      detailsDrawerActiveTab === 'formula' 
+                        ? 'border-zinc-900 text-zinc-900 font-extrabold' 
+                        : 'border-transparent text-zinc-450 hover:text-zinc-650'
+                    }`}
+                  >
+                    Fórmula & Ingredientes
+                  </button>
+                  <button
+                    onClick={() => setDetailsDrawerActiveTab('lotes')}
+                    className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer focus:outline-none ${
+                  detailsDrawerActiveTab === 'lotes' 
+                        ? 'border-zinc-900 text-zinc-900 font-extrabold' 
+                        : 'border-transparent text-zinc-450 hover:text-zinc-650'
+                    }`}
+                  >
+                    Lotes de Produção
+                  </button>
+                </div>
+              )}
+
               {/* Body */}
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
                 {detailsDrawerLoading ? (
@@ -1821,170 +2062,255 @@ export default function ProducaoView({ onBackToHub }) {
                   </div>
                 ) : selectedProductDetails ? (
                   <>
-                    {/* Top Stats Cards */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
-                        <span className="text-[10px] text-zinc-400 font-bold uppercase block">Estoque Atual</span>
-                        <p className="text-xl font-extrabold text-zinc-900 mt-1">
-                          {selectedProductDetails.currentStock.toLocaleString('pt-BR')}{' '}
-                          <span className="text-xs font-semibold text-zinc-500">{selectedProductDetails.unit}</span>
-                        </p>
-                      </div>
-                      <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
-                        <span className="text-[10px] text-zinc-400 font-bold uppercase block">Código ERP</span>
-                        <p className="text-xl font-extrabold text-zinc-900 mt-1 font-mono">
-                          {selectedProductDetails.code}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Section: Formulation / Ingredients */}
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
-                        <Layers className="h-4 w-4 text-zinc-650" />
-                        <h4 className="font-extrabold text-sm text-zinc-900">Fórmula & Ingredientes</h4>
-                      </div>
-                      {selectedProductDetails.formulation.length === 0 ? (
-                        <p className="text-xs text-zinc-400 py-3">Nenhuma fórmula registrada para este produto.</p>
-                      ) : (
-                        <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
-                          <table className="w-full text-left text-xs">
-                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
-                              <tr>
-                                <th className="px-4 py-3">Ingrediente</th>
-                                <th className="px-4 py-3 text-right">Qtd</th>
-                                <th className="px-4 py-3 text-right">Fórmula %</th>
-                                <th className="px-4 py-3 text-right">Estoque Insumo</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-zinc-100">
-                              {selectedProductDetails.formulation.map((line) => {
-                                const needsPercentage = line.percentage !== null && line.percentage !== undefined;
-                                const pctVal = needsPercentage ? line.percentage * 100 : 0;
-                                const isOutOfStock = (line.currentStock ?? 0) <= 0;
-
-                                return (
-                                  <tr key={line.ingredientCode} className="hover:bg-zinc-50/50 transition-colors">
-                                    <td className="px-4 py-2.5">
-                                      <div className="font-bold text-zinc-800">{line.description}</div>
-                                      <div className="font-mono text-[9px] text-zinc-400">{line.ingredientCode}</div>
-                                    </td>
-                                    <td className="px-4 py-2.5 text-right font-medium text-zinc-700">
-                                      {(line.quantity ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
-                                    </td>
-                                    <td className="px-4 py-2.5 text-right text-zinc-550">
-                                      {needsPercentage ? `${pctVal.toFixed(3)}%` : '-'}
-                                    </td>
-                                    <td className="px-4 py-2.5 text-right">
-                                      <span
-                                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                          isOutOfStock
-                                            ? 'bg-red-100 text-red-700 border border-red-200'
-                                            : 'bg-green-100 text-green-700 border border-green-200'
-                                        }`}
-                                      >
-                                        {(line.currentStock ?? 0).toLocaleString('pt-BR')}
-                                      </span>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Section: YoY Sales */}
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
-                        <TrendingUp className="h-4 w-4 text-zinc-650" />
-                        <h4 className="font-extrabold text-sm text-zinc-900">Histórico de Vendas Ano a Ano</h4>
-                      </div>
-                      {selectedProductDetails.salesYoy.length === 0 ? (
-                        <p className="text-xs text-zinc-400 py-3">Sem histórico de vendas registrado.</p>
-                      ) : (
-                        <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
-                          <table className="w-full text-left text-xs">
-                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
-                              <tr>
-                                <th className="px-4 py-3">Ano</th>
-                                <th className="px-4 py-3 text-right">Total Vendido ({selectedProductDetails.unit})</th>
-                                <th className="px-4 py-3 text-right">Média Mensal</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-zinc-100">
-                              {selectedProductDetails.salesYoy.map((s) => (
-                                <tr key={s.year} className="hover:bg-zinc-50/50 transition-colors">
-                                  <td className="px-4 py-2.5 font-bold text-zinc-800">{s.year}</td>
-                                  <td className="px-4 py-2.5 text-right font-semibold text-zinc-950">
-                                    {s.totalQty.toLocaleString('pt-BR')}
-                                  </td>
-                                  <td className="px-4 py-2.5 text-right text-zinc-550">
-                                    {s.monthlyAvg.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Section: Monthly Sales Chart */}
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-center border-b border-zinc-100 pb-2">
-                        <div className="flex items-center gap-2">
-                          <BarChart3 className="h-4 w-4 text-zinc-650" />
-                          <h4 className="font-extrabold text-sm text-zinc-900">Vendas Mensais Detalhadas</h4>
-                        </div>
-                      </div>
-
-                      {selectedProductDetails.monthlySales.length === 0 ? (
-                        <p className="text-xs text-zinc-400 py-3">Nenhum registro de venda mensal.</p>
-                      ) : (
-                        <div className="p-4 bg-zinc-50/50 border border-zinc-150 rounded-xl space-y-3">
-                          {/* Visual Bar chart representation of monthly sales */}
-                          <div className="grid grid-cols-12 gap-1.5 h-36 items-end pt-4 px-2">
-                            {(() => {
-                              // We can extract/format last 12 months with sales
-                              // Let's sort the monthly sales by month code ascending
-                              const sortedMonthlySales = [...selectedProductDetails.monthlySales]
-                                .sort((a, b) => a.month.localeCompare(b.month))
-                                .slice(-12); // Get last 12 months
-
-                              const maxQty = Math.max(...sortedMonthlySales.map((m) => m.qty), 1);
-
-                              return sortedMonthlySales.map((m) => {
-                                const percent = (m.qty / maxQty) * 100;
-                                // Convert YYYY-MM to Month/Yr or Month
-                                const [yr, mo] = m.month.split('-');
-                                const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-                                const label = `${monthNames[parseInt(mo) - 1]} ${yr.slice(-2)}`;
-
-                                return (
-                                  <div key={m.month} className="group relative flex flex-col items-center h-full justify-end">
-                                    {/* Tooltip */}
-                                    <div className="absolute bottom-full mb-1 bg-zinc-900 text-white text-[9px] font-bold py-1 px-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-md">
-                                      {m.qty.toLocaleString('pt-BR')} {selectedProductDetails.unit}
-                                    </div>
-                                    {/* Bar */}
-                                    <div
-                                      style={{ height: `${percent}%` }}
-                                      className="w-full bg-zinc-800 rounded-t-sm group-hover:bg-zinc-900 transition-colors cursor-pointer"
-                                    />
-                                    {/* Month Label */}
-                                    <span className="text-[8px] text-zinc-400 font-bold uppercase mt-1.5 scale-90 md:scale-100 whitespace-nowrap">
-                                      {label}
-                                    </span>
-                                  </div>
-                                );
-                              });
-                            })()}
+                    {/* TAB: GERAL */}
+                    {detailsDrawerActiveTab === 'geral' && (
+                      <div className="space-y-6 animate-in fade-in duration-150 text-left">
+                        {/* Top Stats Cards */}
+                        <div className="grid grid-cols-3 gap-4">
+                          <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
+                            <span className="text-[10px] text-zinc-400 font-bold uppercase block">Estoque Atual</span>
+                            <p className="text-lg font-extrabold text-zinc-900 mt-1.5">
+                              {selectedProductDetails.currentStock.toLocaleString('pt-BR')}{' '}
+                              <span className="text-xs font-semibold text-zinc-550">{selectedProductDetails.unit}</span>
+                            </p>
+                          </div>
+                          <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left flex flex-col justify-between">
+                            <div>
+                              <span className="text-[10px] text-zinc-400 font-bold uppercase block">Última Produção</span>
+                              <p className="text-xs font-extrabold text-zinc-900 mt-1">
+                                {selectedProductDetails.lastProductionDate 
+                                  ? new Date(selectedProductDetails.lastProductionDate).toLocaleDateString('pt-BR') 
+                                  : 'Nunca produzido'}
+                              </p>
+                            </div>
+                            {selectedProductDetails.lastProductionQty !== null && selectedProductDetails.lastProductionQty !== undefined && (
+                              <div className="text-[10px] text-zinc-500 font-bold mt-1">
+                                Qtd: {selectedProductDetails.lastProductionQty.toLocaleString('pt-BR')} {selectedProductDetails.unit}
+                              </div>
+                            )}
+                          </div>
+                          <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
+                            <span className="text-[10px] text-zinc-400 font-bold uppercase block">Código ERP</span>
+                            <p className="text-lg font-extrabold text-zinc-900 mt-1.5 font-mono">
+                              {selectedProductDetails.code}
+                            </p>
                           </div>
                         </div>
-                      )}
-                    </div>
+
+                        {/* Section: YoY Sales */}
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
+                            <TrendingUp className="h-4 w-4 text-zinc-650" />
+                            <h4 className="font-extrabold text-sm text-zinc-900">Histórico de Vendas Ano a Ano</h4>
+                          </div>
+                          {selectedProductDetails.salesYoy.length === 0 ? (
+                            <p className="text-xs text-zinc-400 py-3">Sem histórico de vendas registrado.</p>
+                          ) : (
+                            <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                              <table className="w-full text-left text-xs">
+                                <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                                  <tr>
+                                    <th className="px-4 py-3">Ano</th>
+                                    <th className="px-4 py-3 text-right">Total Vendido ({selectedProductDetails.unit})</th>
+                                    <th className="px-4 py-3 text-right">Média Mensal</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-zinc-100">
+                                  {selectedProductDetails.salesYoy.map((s) => (
+                                    <tr key={s.year} className="hover:bg-zinc-50/50 transition-colors">
+                                      <td className="px-4 py-2.5 font-bold text-zinc-800">{s.year}</td>
+                                      <td className="px-4 py-2.5 text-right font-semibold text-zinc-950">
+                                        {s.totalQty.toLocaleString('pt-BR')}
+                                      </td>
+                                      <td className="px-4 py-2.5 text-right text-zinc-550">
+                                        {s.monthlyAvg.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Section: Monthly Sales Chart */}
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center border-b border-zinc-100 pb-2">
+                            <div className="flex items-center gap-2">
+                              <BarChart3 className="h-4 w-4 text-zinc-650" />
+                              <h4 className="font-extrabold text-sm text-zinc-900">Vendas Mensais Detalhadas</h4>
+                            </div>
+                          </div>
+
+                          {selectedProductDetails.monthlySales.length === 0 ? (
+                            <p className="text-xs text-zinc-400 py-3">Nenhum registro de venda mensal.</p>
+                          ) : (
+                            <div className="p-4 bg-zinc-50/50 border border-zinc-150 rounded-xl space-y-3">
+                              {/* Visual Bar chart representation of monthly sales */}
+                              <div className="grid grid-cols-12 gap-1.5 h-36 items-end pt-4 px-2">
+                                {(() => {
+                                  const sortedMonthlySales = [...selectedProductDetails.monthlySales]
+                                    .sort((a, b) => a.month.localeCompare(b.month))
+                                    .slice(-12);
+
+                                  const maxQty = Math.max(...sortedMonthlySales.map((m) => m.qty), 1);
+
+                                  return sortedMonthlySales.map((m) => {
+                                    const percent = (m.qty / maxQty) * 100;
+                                    const [yr, mo] = m.month.split('-');
+                                    const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+                                    const label = `${monthNames[parseInt(mo) - 1]} ${yr.slice(-2)}`;
+
+                                    return (
+                                      <div key={m.month} className="group relative flex flex-col items-center h-full justify-end">
+                                        <div className="absolute bottom-full mb-1 bg-zinc-900 text-white text-[9px] font-bold py-1 px-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-md">
+                                          {m.qty.toLocaleString('pt-BR')} {selectedProductDetails.unit}
+                                        </div>
+                                        <div
+                                          style={{ height: `${percent}%` }}
+                                          className="w-full bg-zinc-800 rounded-t-sm group-hover:bg-zinc-900 transition-colors cursor-pointer"
+                                        />
+                                        <span className="text-[8px] text-zinc-400 font-bold uppercase mt-1.5 scale-90 md:scale-100 whitespace-nowrap">
+                                          {label}
+                                        </span>
+                                      </div>
+                                    );
+                                  });
+                                })()}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* TAB: FÓRMULA & INGREDIENTES */}
+                    {detailsDrawerActiveTab === 'formula' && (
+                      <div className="space-y-3 animate-in fade-in duration-150 text-left">
+                        <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
+                          <Layers className="h-4 w-4 text-zinc-650" />
+                          <h4 className="font-extrabold text-sm text-zinc-900">Fórmula & Ingredientes</h4>
+                        </div>
+                        {selectedProductDetails.formulation.length === 0 ? (
+                          <p className="text-xs text-zinc-400 py-3">Nenhuma fórmula registrada para este produto.</p>
+                        ) : (
+                          <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                            <table className="w-full text-left text-xs">
+                              <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                                <tr>
+                                  <th className="px-4 py-3">Ingrediente</th>
+                                  <th className="px-4 py-3 text-right">Qtd</th>
+                                  <th className="px-4 py-3 text-right">Fórmula %</th>
+                                  <th className="px-4 py-3 text-right">Estoque Insumo</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-zinc-100">
+                                {selectedProductDetails.formulation.map((line) => {
+                                  const needsPercentage = line.percentage !== null && line.percentage !== undefined;
+                                  const pctVal = needsPercentage ? line.percentage * 100 : 0;
+                                  const isOutOfStock = (line.currentStock ?? 0) <= 0;
+
+                                  return (
+                                    <tr key={line.ingredientCode} className="hover:bg-zinc-50/50 transition-colors">
+                                      <td className="px-4 py-2.5">
+                                        <div className="font-bold text-zinc-800">{line.description}</div>
+                                        <div className="font-mono text-[9px] text-zinc-400">{line.ingredientCode}</div>
+                                      </td>
+                                      <td className="px-4 py-2.5 text-right font-medium text-zinc-700">
+                                        {(line.quantity ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
+                                      </td>
+                                      <td className="px-4 py-2.5 text-right text-zinc-550">
+                                        {needsPercentage ? `${pctVal.toFixed(3)}%` : '-'}
+                                      </td>
+                                      <td className="px-4 py-2.5 text-right">
+                                        <span
+                                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                            isOutOfStock
+                                              ? 'bg-red-100 text-red-700 border border-red-200'
+                                              : 'bg-green-100 text-green-700 border border-green-200'
+                                          }`}
+                                        >
+                                          {(line.currentStock ?? 0).toLocaleString('pt-BR')}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* TAB: LOTES DE PRODUÇÃO */}
+                    {detailsDrawerActiveTab === 'lotes' && (
+                      <div className="space-y-3 animate-in fade-in duration-150 text-left">
+                        <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
+                          <ClipboardList className="h-4 w-4 text-zinc-650" />
+                          <h4 className="font-extrabold text-sm text-zinc-900">Lotes de Produção Recentes</h4>
+                        </div>
+                        {!selectedProductDetails.lastLots || selectedProductDetails.lastLots.length === 0 ? (
+                          <p className="text-xs text-zinc-400 py-3">Nenhum lote de produção registrado para este produto.</p>
+                        ) : (
+                          <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                            <table className="w-full text-left text-xs">
+                              <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                                <tr>
+                                  <th className="px-4 py-3">Lote</th>
+                                  <th className="px-4 py-3">Data</th>
+                                  <th className="px-4 py-3 text-right">Quantidade</th>
+                                  <th className="px-4 py-3 text-center">Status</th>
+                                  <th className="px-4 py-3 text-right">Inconformidades</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-zinc-100 font-medium">
+                                {selectedProductDetails.lastLots.map((lote) => {
+                                  const hasErrors = lote.yieldError || lote.pesagemError || lote.envaseError || lote.conferenciaError;
+                                  
+                                  return (
+                                    <tr 
+                                      key={lote.id} 
+                                      className="hover:bg-zinc-50/50 transition-colors cursor-pointer"
+                                      onClick={() => fetchLoteDetails(lote.loteNumber)}
+                                    >
+                                      <td className="px-4 py-2.5 font-mono font-bold text-zinc-800">{lote.loteNumber}</td>
+                                      <td className="px-4 py-2.5 text-zinc-600">
+                                        {new Date(lote.date).toLocaleDateString('pt-BR')}
+                                      </td>
+                                      <td className="px-4 py-2.5 text-right font-semibold text-zinc-950">
+                                        {lote.quantity.toLocaleString('pt-BR')}
+                                      </td>
+                                      <td className="px-4 py-2.5 text-center">
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                          lote.status === 'FP' || lote.status === 'Finalizado' 
+                                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' 
+                                            : 'bg-blue-50 text-blue-700 border border-blue-100'
+                                        }`}>
+                                          {lote.status || 'Pendente'}
+                                        </span>
+                                      </td>
+                                      <td className="px-4 py-2.5 text-right">
+                                        {hasErrors ? (
+                                          <div className="flex justify-end gap-1 flex-wrap">
+                                            {lote.pesagemError && <span className="px-1.5 py-0.5 bg-red-50 text-red-650 border border-red-100 rounded text-[9px] font-bold">Pesagem</span>}
+                                            {lote.envaseError && <span className="px-1.5 py-0.5 bg-red-50 text-red-650 border border-red-100 rounded text-[9px] font-bold">Envase</span>}
+                                            {lote.yieldError && <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[9px] font-bold">Rendimento</span>}
+                                            {lote.conferenciaError && <span className="px-1.5 py-0.5 bg-red-50 text-red-650 border border-red-100 rounded text-[9px] font-bold">Conf.</span>}
+                                          </div>
+                                        ) : (
+                                          <span className="text-zinc-400 text-[10px] font-semibold">Nenhuma</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div className="flex-1 flex items-center justify-center text-zinc-400">

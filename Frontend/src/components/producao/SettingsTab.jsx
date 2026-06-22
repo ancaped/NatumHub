@@ -9,6 +9,8 @@ export function SettingsTab({
   setTempDiasComerciais,
   tempLimitPerPage,
   setTempLimitPerPage,
+  ignoredStatuses = [],
+  onSaveIgnoredStatuses = () => {},
   onSaveGlobalSettings,
   onConfigChange,
   onConfigToggleVisivel,
@@ -234,6 +236,49 @@ export function SettingsTab({
                 Pré-visualizar Impacto no Estoque
               </button>
             )}
+          </div>
+        </div>
+
+        {/* 4. Integração de Insumos Suspensos Card */}
+        <div className="panel-card text-left">
+          <h3 style={{ fontSize: '0.95rem', fontWeight: '700', marginBottom: '0.25rem', color: 'hsl(var(--text-primary-hsl))' }}>
+            Integração Insumos Suspensos
+          </h3>
+          <p style={{ fontSize: '0.7rem', color: 'hsl(var(--text-secondary-hsl))', marginBottom: '1rem' }}>
+            Selecione quais status de produto devem fazer com que seus insumos exclusivos sejam ignorados automaticamente nas demandas de compras.
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.8rem' }}>
+            {[
+              { id: 'descontinuado', name: 'Sair de Linha / Descontinuado' },
+              { id: 'terceirizado', name: 'Terceirizado' },
+              { id: 'bases', name: 'Bases' },
+              { id: 'coloracao', name: 'Coloração' },
+              { id: 'apoio', name: 'Material de Apoio' },
+              { id: 'lancamento', name: 'Lançamento' },
+              { id: 'ativo', name: 'Ativo / Em Linha' },
+            ].map(status => {
+              const isChecked = ignoredStatuses.includes(status.id);
+              return (
+                <label key={status.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }} className="text-zinc-700 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={(e) => {
+                      let updated;
+                      if (e.target.checked) {
+                        updated = [...ignoredStatuses, status.id];
+                      } else {
+                        updated = ignoredStatuses.filter(s => s !== status.id);
+                      }
+                      onSaveIgnoredStatuses(updated);
+                    }}
+                    className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 w-4 h-4 cursor-pointer"
+                  />
+                  <span>{status.name}</span>
+                </label>
+              );
+            })}
           </div>
         </div>
 

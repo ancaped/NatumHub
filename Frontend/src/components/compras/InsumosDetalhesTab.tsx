@@ -49,11 +49,7 @@ interface InsumoDetalhes {
   }[];
 }
 
-interface InsumosDetalhesTabProps {
-  parentCategoryFilter?: 'cat_mp' | 'cat_emb';
-}
-
-export function InsumosDetalhesTab({ parentCategoryFilter }: InsumosDetalhesTabProps) {
+export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false }: { parentCategoryFilter?: 'cat_mp' | 'cat_emb' | null; active?: boolean }) {
   const [items, setItems] = useState<Item[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,8 +69,10 @@ export function InsumosDetalhesTab({ parentCategoryFilter }: InsumosDetalhesTabP
   }, [parentCategoryFilter]);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (active) {
+      loadData();
+    }
+  }, [active]);
 
   const loadData = async () => {
     setLoading(true);

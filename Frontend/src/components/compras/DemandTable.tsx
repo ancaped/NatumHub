@@ -155,6 +155,21 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
 
   useEffect(() => {
     if (!active) return;
+    const loadConfig = async () => {
+      try {
+        const c = await api.getComprasConfig('compras_main');
+        if (c && c.targetDays) {
+          setTargetDays(c.targetDays);
+        }
+      } catch (e) {
+        console.error("Erro ao carregar targetDays em DemandTable:", e);
+      }
+    };
+    loadConfig();
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
     loadCategories();
     loadDemands();
   }, [targetDays, active]);

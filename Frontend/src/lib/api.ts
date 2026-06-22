@@ -81,7 +81,11 @@ export const api = {
 
   // === COMPRAS: FORNECEDORES ===
   getSuppliers(mode?: string): Promise<Supplier[]> {
-    const parentCategoryId = mode === 'embalagens' ? 'cat_emb' : 'cat_mp';
+    let parentCategoryId: string | null = null;
+    if (mode === 'embalagens') parentCategoryId = 'cat_emb';
+    else if (mode === 'materia_prima') parentCategoryId = 'cat_mp';
+    else if (mode === 'coloracao') parentCategoryId = 'coloracao';
+    else if (mode === 'apoio') parentCategoryId = 'apoio';
     return invoke('get_suppliers', { parentCategoryId });
   },
   saveSupplier(supplier: Supplier): Promise<void> {
@@ -96,11 +100,19 @@ export const api = {
     return invoke('get_price_evolution', { itemCode });
   },
   getSpendingBySupplier(start: string, end: string, mode?: string): Promise<SupplierSpend[]> {
-    const parentCategoryId = mode === 'embalagens' ? 'cat_emb' : 'cat_mp';
+    let parentCategoryId: string | null = null;
+    if (mode === 'embalagens') parentCategoryId = 'cat_emb';
+    else if (mode === 'materia_prima') parentCategoryId = 'cat_mp';
+    else if (mode === 'coloracao') parentCategoryId = 'coloracao';
+    else if (mode === 'apoio') parentCategoryId = 'apoio';
     return invoke('get_spending_by_supplier', { start, end, parentCategoryId });
   },
   getSpendingByCategory(start: string, end: string, mode?: string): Promise<CategorySpend[]> {
-    const parentCategoryId = mode === 'embalagens' ? 'cat_emb' : 'cat_mp';
+    let parentCategoryId: string | null = null;
+    if (mode === 'embalagens') parentCategoryId = 'cat_emb';
+    else if (mode === 'materia_prima') parentCategoryId = 'cat_mp';
+    else if (mode === 'coloracao') parentCategoryId = 'coloracao';
+    else if (mode === 'apoio') parentCategoryId = 'apoio';
     return invoke('get_spending_by_category', { start, end, parentCategoryId });
   },
 
@@ -116,11 +128,11 @@ export const api = {
   },
 
   // === COMPRAS: CONFIG ===
-  getComprasConfig(): Promise<ComprasAppConfig | null> {
-    return invoke('get_compras_config');
+  getComprasConfig(key?: string): Promise<ComprasAppConfig | null> {
+    return invoke('get_compras_config', { key });
   },
-  saveComprasConfig(config: ComprasAppConfig): Promise<void> {
-    return invoke('save_compras_config', { config });
+  saveComprasConfig(config: ComprasAppConfig, key?: string): Promise<void> {
+    return invoke('save_compras_config', { config, key });
   },
 
   // === MICROBIOLOGIA: PRODUTOS ===

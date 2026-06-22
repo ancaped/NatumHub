@@ -104,6 +104,10 @@ pub struct ProductCalculationResult {
 
     pub has_formulation: bool,
     pub missing_ingredients: Vec<String>,
+
+    pub faltas_ativas: Option<i64>,
+    pub pedidos_compra_aberto: Option<i64>,
+    pub sugestao_compra: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,6 +121,76 @@ pub struct QueryParams {
     pub show_hidden: Option<bool>,
     pub sort: Option<String>,
     pub order: Option<String>,
+    pub suspended_only: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SalesOrderItem {
+    pub id: i64,
+    pub n_pedido: i32,
+    pub d_pedido: String,
+    pub n_registro: Option<i32>,
+    pub c_cod_prod: String,
+    pub n_qtde: i32,
+    pub n_qtde_fat: i32,
+    pub n_preco: f64,
+    pub c_lote: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SalesOrder {
+    pub n_pedido: i32,
+    pub d_pedido: String,
+    pub n_codigo: Option<i32>,
+    pub c_nome: Option<String>,
+    pub n_valor_tot: f64,
+    pub c_status: Option<String>,
+    pub n_nota_fiscal: i32,
+    pub d_previsao: Option<String>,
+    pub d_entrega: Option<String>,
+    pub m_observac: Option<String>,
+    pub items: Vec<SalesOrderItem>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ProductFaltaItem {
+    pub n_pedido: i32,
+    pub d_pedido: String,
+    pub c_nome: Option<String>,
+    pub c_status: Option<String>,
+    pub n_qtde: i32,
+    pub n_qtde_fat: i32,
+    pub falta: i32,
+    pub d_previsao: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ProductFaltaGroup {
+    pub c_cod_prod: String,
+    pub c_nome_prod: String,
+    pub c_nome_linha: String,
+    pub total_falta: i32,
+    pub pedidos_afetados: Vec<ProductFaltaItem>,
+    pub estoque: i64,
+    pub producao: i64,
+    pub transit_purchase: i64,
+    pub falta_net: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PendingOrdersResponse {
+    pub pending_sales_orders: Vec<ProductFaltaItem>,
+    pub in_transit_purchase_orders: Vec<PendingPurchaseOrderItem>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PendingPurchaseOrderItem {
+    pub n_pedido: i32,
+    pub c_nome_f: Option<String>,
+    pub d_previsao: Option<String>,
+    pub n_qtde: f64,
+    pub n_chegou: f64,
+    pub n_pendente: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -435,6 +509,9 @@ pub struct ProductDetalhesResponse {
     pub sales_yoy: Vec<SalesYoYItem>,
     pub monthly_sales: Vec<MonthlySalesItem>,
     pub recent_invoices: Vec<InsumoInvoiceItem>,
+    pub last_production_date: Option<String>,
+    pub last_production_qty: Option<f64>,
+    pub last_lots: Vec<ProductionLote>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

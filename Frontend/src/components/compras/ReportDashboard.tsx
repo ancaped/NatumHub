@@ -4,9 +4,11 @@ import { PricePoint, SupplierSpend, CategorySpend, Item, Category } from '../../
 import { TrendingUp, DollarSign, Package, Search, Calendar } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
+const API_BASE = 'http://127.0.0.1:3001/api';
+
 type ReportView = 'spending_supplier' | 'spending_category' | 'price_evolution';
 
-export function ReportDashboard({ mode = 'all' }: { mode?: 'materia_prima' | 'embalagens' | 'all' }) {
+export function ReportDashboard({ mode = 'all', active = false }: { mode?: string; active?: boolean }) {
   const [view, setView] = useState<ReportView>('spending_supplier');
   const [startDate, setStartDate] = useState(() => {
     const d = new Date(); d.setFullYear(d.getFullYear() - 1);
@@ -23,13 +25,31 @@ export function ReportDashboard({ mode = 'all' }: { mode?: 'materia_prima' | 'em
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    Promise.all([api.getItems(), api.getCategories()])
-      .then(([itemsData, catsData]) => {
-        setItems(itemsData);
-        setCategories(catsData);
-      })
-      .catch(console.error);
-  }, []);
+    if (!active) return;
+    if (mode === 'coloracao' || mode === 'apoio') {
+      fetch(`${API_BASE}/products?limit=5000&status=${mode}`)
+        .then(res => res.json())
+        .then(data => {
+          const itemsData = (data.items || []).map((p: any) => ({
+            code: p.codigo,
+            description: p.descricao,
+            unit: 'un',
+            categoryId: p.linha_prefix,
+            isIgnored: false,
+          }));
+          setItems(itemsData);
+          setCategories([]);
+        })
+        .catch(console.error);
+    } else {
+      Promise.all([api.getItems(), api.getCategories()])
+        .then(([itemsData, catsData]) => {
+          setItems(itemsData);
+          setCategories(catsData);
+        })
+        .catch(console.error);
+    }
+  }, [active, mode]);
 
   const loadPriceEvolution = async (code: string) => {
     setSelectedItem(code);
@@ -40,13 +60,14 @@ export function ReportDashboard({ mode = 'all' }: { mode?: 'materia_prima' | 'em
   };
 
   useEffect(() => {
+    if (!active) return;
     setLoading(true);
     if (view === 'spending_supplier') {
       api.getSpendingBySupplier(startDate, endDate, mode).then(setSupplierSpend).catch(console.error).finally(() => setLoading(false));
     } else if (view === 'spending_category') {
       api.getSpendingByCategory(startDate, endDate, mode).then(setCategorySpend).catch(console.error).finally(() => setLoading(false));
     } else { setLoading(false); }
-  }, [view, startDate, endDate, mode]);
+  }, [view, startDate, endDate, mode, active]);
 
   const fmt = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
   const filteredItems = items.filter(i => {

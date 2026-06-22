@@ -42,3 +42,6 @@ PlanilhasBase/
 
 # Cursor/AI
 .cursorignore
+
+# Legacy ERP Antigo folder
+ERP Antigo/

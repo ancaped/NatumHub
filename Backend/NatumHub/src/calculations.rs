@@ -61,15 +61,38 @@ pub fn calculate_products(
         };
 
         let resolved_status_produto = if let Some(o) = ovr {
-            o.status_produto.clone().unwrap_or_else(|| "ativo".to_string())
+            let status = o.status_produto.clone().unwrap_or_else(|| "ativo".to_string());
+            if status == "coloracao" || status == "apoio" {
+                "ativo".to_string()
+            } else {
+                status
+            }
         } else {
             "ativo".to_string()
         };
 
         let resolved_categoria_produto = if let Some(o) = ovr {
-            o.categoria_produto.clone()
+            o.categoria_produto.clone().or_else(|| {
+                if o.status_produto.as_deref() == Some("coloracao") {
+                    Some("cat_coloracao".to_string())
+                } else if o.status_produto.as_deref() == Some("apoio") {
+                    Some("cat_apoio".to_string())
+                } else if prod.codigo.starts_with("1.34.") {
+                    Some("cat_coloracao".to_string())
+                } else if prod.codigo.starts_with("1.30.") {
+                    Some("cat_apoio".to_string())
+                } else {
+                    None
+                }
+            })
         } else {
-            None
+            if prod.codigo.starts_with("1.34.") {
+                Some("cat_coloracao".to_string())
+            } else if prod.codigo.starts_with("1.30.") {
+                Some("cat_apoio".to_string())
+            } else {
+                None
+            }
         };
 
         // Get config
@@ -180,10 +203,8 @@ pub fn calculate_products(
         // 8. Status decision & Recommended Production Quantity
         let (status, status_label, producao_recomendada) = if resolved_status_produto == "descontinuado" {
             ("descontinuado".to_string(), "Sair de Linha".to_string(), 0)
-        } else if resolved_status_produto == "apoio" {
-            ("apoio".to_string(), "Material de Apoio".to_string(), 0)
-        } else if resolved_status_produto == "coloracao" {
-            ("coloracao".to_string(), "Coloração".to_string(), 0)
+        } else if resolved_status_produto == "bases" {
+            ("bases".to_string(), "Bases".to_string(), 0)
         } else {
             let (st, lbl) = if duracao_meses <= config_prod {
                 ("critico", "Produzir Urgente")
@@ -241,6 +262,9 @@ pub fn calculate_products(
             producao_recomendada,
             has_formulation: true,
             missing_ingredients: Vec::new(),
+            faltas_ativas: None,
+            pedidos_compra_aberto: None,
+            sugestao_compra: None,
         });
     }
 
@@ -300,7 +324,7 @@ mod tests {
 
     #[test]
     fn debug_db_query() {
-        let conn = rusqlite::Connection::open(r"c:\Users\thiag\antigravity\api\Backend\data.db").unwrap();
+        let conn = rusqlite::Connection::open("../data.db").unwrap();
         println!("--- DEBUG SQLITE DATABASE ---");
         
         let mut stmt = conn.prepare("SELECT code, description FROM items WHERE description LIKE '%citri%' OR description LIKE '%cítri%'").unwrap();

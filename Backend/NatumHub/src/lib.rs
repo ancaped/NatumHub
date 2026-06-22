@@ -51,6 +51,8 @@ pub struct Item {
     pub type_code: Option<String>,
     pub notes: Option<String>,
     pub is_ignored: bool,
+    pub is_auto_ignored: Option<bool>,
+    pub ignored_reason: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -373,6 +375,8 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         INSERT OR IGNORE INTO categories (id, name, parent_id) VALUES ('cat_mp', 'Matéria Prima', NULL);
         INSERT OR IGNORE INTO categories (id, name, parent_id) VALUES ('cat_emb', 'Embalagem', NULL);
         INSERT OR IGNORE INTO categories (id, name, parent_id) VALUES ('cat_mat', 'Materiais', NULL);
+        INSERT OR IGNORE INTO categories (id, name, parent_id) VALUES ('cat_coloracao', 'Coloração', NULL);
+        INSERT OR IGNORE INTO categories (id, name, parent_id) VALUES ('cat_apoio', 'Material de Apoio', NULL);
 
         CREATE TABLE IF NOT EXISTS suppliers (
             id          TEXT PRIMARY KEY,
@@ -392,6 +396,7 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             type        TEXT,
             notes       TEXT,
             is_ignored  INTEGER DEFAULT 0,
+            manual_category INTEGER DEFAULT 0,
             created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at  TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (category_id) REFERENCES categories(id)
@@ -557,6 +562,7 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
     ")?;
 
     // Safety migrations for online_orders table columns (if schema was created in a previous version)
+    let _ = conn.execute("ALTER TABLE items ADD COLUMN manual_category INTEGER DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE online_orders ADD COLUMN item_code TEXT", []);
     let _ = conn.execute("ALTER TABLE online_orders ADD COLUMN payment_method TEXT", []);
     let _ = conn.execute("ALTER TABLE online_orders ADD COLUMN receipt_path TEXT", []);
@@ -831,10 +837,11 @@ fn run_migration_if_needed() {
 // --- COMMON & FEEDBACK & CONFIG ---
 
 #[tauri::command]
-fn get_compras_config(state: State<DbState>) -> Result<Option<serde_json::Value>, String> {
+fn get_compras_config(state: State<DbState>, key: Option<String>) -> Result<Option<serde_json::Value>, String> {
     let conn = state.0.lock().unwrap();
-    let mut stmt = conn.prepare("SELECT value FROM config WHERE key = 'compras_main'").map_err(|e| e.to_string())?;
-    let res = stmt.query_row([], |row| {
+    let config_key = key.unwrap_or_else(|| "compras_main".to_string());
+    let mut stmt = conn.prepare("SELECT value FROM config WHERE key = ?1").map_err(|e| e.to_string())?;
+    let res = stmt.query_row(params![config_key], |row| {
         let val: String = row.get(0)?;
         Ok(val)
     });
@@ -850,24 +857,93 @@ fn get_compras_config(state: State<DbState>) -> Result<Option<serde_json::Value>
 }
 
 #[tauri::command]
-fn save_compras_config(state: State<DbState>, config: serde_json::Value) -> Result<(), String> {
+fn save_compras_config(state: State<DbState>, config: serde_json::Value, key: Option<String>) -> Result<(), String> {
     let conn = state.0.lock().unwrap();
+    let config_key = key.unwrap_or_else(|| "compras_main".to_string());
     let val = serde_json::to_string(&config).map_err(|e| e.to_string())?;
     conn.execute(
-        "INSERT OR REPLACE INTO config (key, value) VALUES ('compras_main', ?1)",
-        params![val],
+        "INSERT OR REPLACE INTO config (key, value) VALUES (?1, ?2)",
+        params![config_key, val],
     ).map_err(|e| e.to_string())?;
 
-    // Apply automatic subcategory rules if configured
-    if let Some(rules) = config.get("autoSubcategories").and_then(|r| r.as_array()) {
-        for rule in rules {
-            if let (Some(sub_id), Some(prefix)) = (
-                rule.get("subcategoryId").and_then(|s| s.as_str()),
-                rule.get("prefix").and_then(|p| p.as_str())
-            ) {
-                let query = "UPDATE items SET category_id = ?1 WHERE description LIKE ?2";
-                let like_pattern = format!("{}%", prefix);
-                let _ = conn.execute(query, params![sub_id, like_pattern]);
+    if config_key == "compras_main" {
+        // Reset non-manual items to their default master category
+        let _ = conn.execute(
+            "UPDATE items 
+             SET category_id = CASE 
+                 WHEN code LIKE '9.15.%' THEN 'cat_mp' 
+                 WHEN code LIKE '08.%' THEN 'cat_mat'
+                 ELSE 'cat_emb' 
+             END 
+             WHERE (manual_category IS NULL OR manual_category = 0)",
+            [],
+        );
+    } else if config_key == "compras_coloracao" {
+        // Reset only raw materials
+        let _ = conn.execute(
+            "UPDATE items 
+             SET category_id = 'cat_mp'
+             WHERE code LIKE '9.15.%' AND (manual_category IS NULL OR manual_category = 0)",
+            [],
+        );
+    } else if config_key == "compras_apoio" {
+        // Reset only support materials
+        let _ = conn.execute(
+            "UPDATE items 
+             SET category_id = 'cat_mat'
+             WHERE code LIKE '08.%' AND (manual_category IS NULL OR manual_category = 0)",
+            [],
+        );
+    }
+
+    if config_key == "compras_main" || config_key == "compras_coloracao" || config_key == "compras_apoio" {
+        // Apply automatic subcategory rules if configured
+        if let Some(rules) = config.get("autoSubcategories").and_then(|r| r.as_array()) {
+            for rule in rules {
+                if let (Some(sub_id), Some(prefix)) = (
+                    rule.get("subcategoryId").and_then(|s| s.as_str()),
+                    rule.get("prefix").and_then(|p| p.as_str())
+                ) {
+                    // Find parent_id of the target subcategory to restrict scope
+                    let parent_id: Option<String> = conn.query_row(
+                        "SELECT parent_id FROM categories WHERE id = ?1",
+                        params![sub_id],
+                        |row| row.get(0)
+                    ).ok();
+
+                    if let Some(parent) = parent_id {
+                        if parent == "cat_coloracao" || parent == "cat_apoio" {
+                            let query = if parent == "cat_coloracao" {
+                                "
+                                INSERT INTO overrides_produtos (codigo, categoria_produto)
+                                SELECT p.codigo, ?1 FROM produtos p
+                                LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
+                                WHERE (p.descricao LIKE ?2 OR p.codigo LIKE ?2)
+                                  AND (op.categoria_produto IS NULL OR op.categoria_produto = 'cat_coloracao' OR op.categoria_produto = 'cat_apoio')
+                                  AND p.codigo LIKE '1.34.%'
+                                ON CONFLICT(codigo) DO UPDATE SET categoria_produto = excluded.categoria_produto"
+                            } else {
+                                "
+                                INSERT INTO overrides_produtos (codigo, categoria_produto)
+                                SELECT p.codigo, ?1 FROM produtos p
+                                LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
+                                WHERE (p.descricao LIKE ?2 OR p.codigo LIKE ?2)
+                                  AND (op.categoria_produto IS NULL OR op.categoria_produto = 'cat_coloracao' OR op.categoria_produto = 'cat_apoio')
+                                  AND p.codigo LIKE '1.30.%'
+                                ON CONFLICT(codigo) DO UPDATE SET categoria_produto = excluded.categoria_produto"
+                            };
+                            let like_pattern = format!("{}%", prefix);
+                            let _ = conn.execute(query, params![sub_id, like_pattern]);
+                        } else {
+                            let query = "UPDATE items SET category_id = ?1 
+                                         WHERE description LIKE ?2 
+                                           AND category_id = ?3 
+                                           AND (manual_category IS NULL OR manual_category = 0)";
+                            let like_pattern = format!("{}%", prefix);
+                            let _ = conn.execute(query, params![sub_id, like_pattern, parent]);
+                        }
+                    }
+                }
             }
         }
     }
@@ -1551,9 +1627,86 @@ fn get_nf_import_control(state: State<DbState>) -> Result<Option<serde_json::Val
     }
 }
 
+pub fn get_ignored_product_statuses(conn: &Connection) -> Vec<String> {
+    let query = "SELECT value FROM settings WHERE key = 'ignored_product_statuses'";
+    let res = conn.query_row(query, [], |row| {
+        let val: String = row.get(0)?;
+        Ok(val)
+    });
+    match res {
+        Ok(val) => {
+            serde_json::from_str(&val).unwrap_or_else(|_| vec!["descontinuado".to_string(), "terceirizado".to_string()])
+        }
+        Err(_) => vec!["descontinuado".to_string(), "terceirizado".to_string()]
+    }
+}
+
+fn get_auto_ignored_ingredients(conn: &Connection) -> std::collections::HashMap<String, String> {
+    let ignored_statuses = get_ignored_product_statuses(conn);
+    if ignored_statuses.is_empty() {
+        return std::collections::HashMap::new();
+    }
+
+    let mut item_products_map: std::collections::HashMap<String, Vec<(String, String, String)>> = std::collections::HashMap::new();
+    let query = "
+        SELECT f.ingredient_code, f.product_code, p.descricao, IFNULL(op.status_produto, 'ativo')
+        FROM formulations f
+        JOIN produtos p ON f.product_code = p.codigo
+        LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
+    ";
+    if let Ok(mut stmt) = conn.prepare(query) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        }) {
+            for r in rows {
+                if let Ok((ing_code, prod_code, prod_desc, prod_status)) = r {
+                    item_products_map.entry(ing_code).or_default().push((prod_code, prod_desc, prod_status));
+                }
+            }
+        }
+    }
+
+    let mut auto_ignored_map = std::collections::HashMap::new();
+    for (ing_code, products_info) in item_products_map {
+        if products_info.is_empty() {
+            continue;
+        }
+
+        let all_ignored = products_info.iter().all(|(_, _, status)| ignored_statuses.contains(status));
+        if all_ignored {
+            let mut list_parts = Vec::new();
+            for (_code, desc, status) in &products_info {
+                let status_label = match status.as_str() {
+                    "descontinuado" => "Sair de Linha",
+                    "terceirizado" => "Terceirizado",
+                    "coloracao" => "Coloração",
+                    "apoio" => "Material de Apoio",
+                    "bases" => "Bases",
+                    s => s,
+                };
+                list_parts.push(format!("{} ({})", desc, status_label));
+            }
+            let reason = format!(
+                "Suspenso por Linha/Produto ({})",
+                list_parts.join(", ")
+            );
+            auto_ignored_map.insert(ing_code, reason);
+        }
+    }
+
+    auto_ignored_map
+}
+
 #[tauri::command]
 fn get_items(state: State<DbState>, category_id: Option<String>) -> Result<Vec<Item>, String> {
     let conn = state.0.lock().unwrap();
+    let auto_ignored = get_auto_ignored_ingredients(&conn);
+
     let mut sql = String::from(
         "SELECT code, description, unit, category_id, line, type, notes, is_ignored FROM items WHERE 1=1"
     );
@@ -1567,15 +1720,30 @@ fn get_items(state: State<DbState>, category_id: Option<String>) -> Result<Vec<I
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let param_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| &**p).collect();
     let rows = stmt.query_map(param_refs.as_slice(), |row| {
+        let code: String = row.get(0)?;
+        let desc: String = row.get(1)?;
+        let unit: String = row.get(2)?;
+        let cat_id: Option<String> = row.get(3)?;
+        let line: Option<String> = row.get(4)?;
+        let type_code: Option<String> = row.get(5)?;
+        let notes: Option<String> = row.get(6)?;
+        let is_manually_ignored = row.get::<_, i32>(7)? == 1;
+
+        let is_auto_ignored = auto_ignored.contains_key(&code);
+        let ignored_reason = auto_ignored.get(&code).cloned();
+        let is_ignored = is_manually_ignored || is_auto_ignored;
+
         Ok(Item {
-            code: row.get(0)?,
-            description: row.get(1)?,
-            unit: row.get(2)?,
-            category_id: row.get(3)?,
-            line: row.get(4)?,
-            type_code: row.get(5)?,
-            notes: row.get(6)?,
-            is_ignored: row.get::<_, i32>(7)? == 1,
+            code,
+            description: desc,
+            unit,
+            category_id: cat_id,
+            line,
+            type_code,
+            notes,
+            is_ignored,
+            is_auto_ignored: Some(is_auto_ignored),
+            ignored_reason,
         })
     }).map_err(|e| e.to_string())?;
     let mut items = Vec::new();
@@ -1588,6 +1756,8 @@ fn get_items(state: State<DbState>, category_id: Option<String>) -> Result<Vec<I
 #[tauri::command]
 fn get_similar_items(state: State<DbState>, code: String) -> Result<Vec<Item>, String> {
     let conn = state.0.lock().unwrap();
+    let auto_ignored = get_auto_ignored_ingredients(&conn);
+
     let mut stmt = conn.prepare(
         "SELECT code, description, unit, category_id, line, type, notes, is_ignored 
          FROM items 
@@ -1600,15 +1770,30 @@ fn get_similar_items(state: State<DbState>, code: String) -> Result<Vec<Item>, S
     ).map_err(|e| e.to_string())?;
     
     let rows = stmt.query_map(params![code], |row| {
+        let code: String = row.get(0)?;
+        let desc: String = row.get(1)?;
+        let unit: String = row.get(2)?;
+        let cat_id: Option<String> = row.get(3)?;
+        let line: Option<String> = row.get(4)?;
+        let type_code: Option<String> = row.get(5)?;
+        let notes: Option<String> = row.get(6)?;
+        let is_manually_ignored = row.get::<_, i32>(7)? == 1;
+
+        let is_auto_ignored = auto_ignored.contains_key(&code);
+        let ignored_reason = auto_ignored.get(&code).cloned();
+        let is_ignored = is_manually_ignored || is_auto_ignored;
+
         Ok(Item {
-            code: row.get(0)?,
-            description: row.get(1)?,
-            unit: row.get(2)?,
-            category_id: row.get(3)?,
-            line: row.get(4)?,
-            type_code: row.get(5)?,
-            notes: row.get(6)?,
-            is_ignored: row.get::<_, i32>(7)? == 1,
+            code,
+            description: desc,
+            unit,
+            category_id: cat_id,
+            line,
+            type_code,
+            notes,
+            is_ignored,
+            is_auto_ignored: Some(is_auto_ignored),
+            ignored_reason,
         })
     }).map_err(|e| e.to_string())?;
     
@@ -1644,10 +1829,27 @@ fn remove_similar_item(state: State<DbState>, code_a: String, code_b: String) ->
 #[tauri::command]
 fn update_item_details(state: State<DbState>, code: String, notes: Option<String>, is_ignored: bool) -> Result<(), String> {
     let conn = state.0.lock().unwrap();
-    conn.execute(
-        "UPDATE items SET notes = ?2, is_ignored = ?3, updated_at = CURRENT_TIMESTAMP WHERE code = ?1",
-        params![code, notes, if is_ignored { 1 } else { 0 }],
-    ).map_err(|e| e.to_string())?;
+    let is_product: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM produtos WHERE codigo = ?1)",
+        params![code],
+        |r| r.get(0)
+    ).unwrap_or(false);
+
+    if is_product {
+        conn.execute(
+            "INSERT INTO overrides_produtos (codigo, observacao, visivel)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(codigo) DO UPDATE SET 
+                observacao = excluded.observacao,
+                visivel = excluded.visivel",
+            params![code, notes, if is_ignored { 0 } else { 1 }],
+        ).map_err(|e| e.to_string())?;
+    } else {
+        conn.execute(
+            "UPDATE items SET notes = ?2, is_ignored = ?3, updated_at = CURRENT_TIMESTAMP WHERE code = ?1",
+            params![code, notes, if is_ignored { 1 } else { 0 }],
+        ).map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -1656,10 +1858,38 @@ fn update_items_category(state: State<DbState>, codes: Vec<String>, category_id:
     let mut conn = state.0.lock().unwrap();
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     for code in codes {
-        tx.execute(
-            "UPDATE items SET category_id = ?2, updated_at = CURRENT_TIMESTAMP WHERE code = ?1",
-            params![code, category_id],
-        ).map_err(|e| e.to_string())?;
+        let is_product: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM produtos WHERE codigo = ?1)",
+            params![code],
+            |r| r.get(0)
+        ).unwrap_or(false);
+
+        if is_product {
+            tx.execute(
+                "INSERT INTO overrides_produtos (codigo, categoria_produto)
+                 VALUES (?1, ?2)
+                 ON CONFLICT(codigo) DO UPDATE SET categoria_produto = excluded.categoria_produto",
+                params![code, category_id],
+            ).map_err(|e| e.to_string())?;
+        } else {
+            let target_cat = match &category_id {
+                Some(cat) => Some(cat.clone()),
+                None => {
+                    let default_cat = if code.starts_with("9.15.") {
+                        "cat_mp"
+                    } else if code.starts_with("08.") {
+                        "cat_mat"
+                    } else {
+                        "cat_emb"
+                    };
+                    Some(default_cat.to_string())
+                }
+            };
+            tx.execute(
+                "UPDATE items SET category_id = ?2, manual_category = 1, updated_at = CURRENT_TIMESTAMP WHERE code = ?1",
+                params![code, target_cat],
+            ).map_err(|e| e.to_string())?;
+        }
     }
     tx.commit().map_err(|e| e.to_string())?;
     Ok(())
@@ -1866,7 +2096,7 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
         LEFT JOIN consumption c2024 ON i.code = c2024.item_code AND c2024.year = 2024
         LEFT JOIN consumption c2025 ON i.code = c2025.item_code AND c2025.year = 2025
         LEFT JOIN consumption c2026 ON i.code = c2026.item_code AND c2026.year = 2026
-        WHERE i.is_ignored = 0"
+        WHERE i.is_ignored = 0 AND i.code NOT IN (SELECT codigo FROM produtos) AND (i.code LIKE '9.%' OR i.code LIKE '08.%')"
     );
 
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
@@ -2014,9 +2244,14 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
         })
     }).map_err(|e| e.to_string())?;
 
+    let auto_ignored = get_auto_ignored_ingredients(&conn);
+
     let mut results = Vec::new();
     for row in rows {
-        results.push(row.map_err(|e| e.to_string())?);
+        let item = row.map_err(|e| e.to_string())?;
+        if !auto_ignored.contains_key(&item.item_code) {
+            results.push(item);
+        }
     }
     Ok(results)
 }
@@ -2304,23 +2539,47 @@ fn update_quotation_item_qty(state: State<DbState>, id: String, field: String, q
 fn get_suppliers(state: State<DbState>, parent_category_id: Option<String>) -> Result<Vec<Supplier>, String> {
     let conn = state.0.lock().unwrap();
     let sql = if let Some(ref parent_cat) = parent_category_id {
-        format!(
-            "SELECT DISTINCT s.id, s.name, s.contact, s.email, s.notes 
-             FROM suppliers s
-             WHERE s.id IN (
-                 SELECT DISTINCT inv.supplier_id FROM invoices inv
-                 INNER JOIN items i ON inv.item_code = i.code OR replace(inv.item_code, '.', '') = replace(i.code, '.', '')
-                 INNER JOIN categories c ON i.category_id = c.id
-                 WHERE c.parent_id = '{parent}' OR c.id = '{parent}'
-             ) OR s.id IN (
-                 SELECT DISTINCT qp.supplier_id FROM quotation_prices qp
-                 INNER JOIN quotation_items qi ON qp.quotation_item_id = qi.id
-                 INNER JOIN items i ON qi.item_code = i.code
-                 INNER JOIN categories c ON i.category_id = c.id
-                 WHERE c.parent_id = '{parent}' OR c.id = '{parent}'
-             ) ORDER BY s.name",
-            parent = parent_cat
-        )
+        if parent_cat == "coloracao" || parent_cat == "apoio" {
+            let prefix_cond = if parent_cat == "coloracao" {
+                "inv.item_code LIKE '1.34.%'"
+            } else {
+                "inv.item_code LIKE '1.30.%'"
+            };
+            let parent_id = if parent_cat == "coloracao" { "cat_coloracao" } else { "cat_apoio" };
+            format!(
+                "SELECT DISTINCT s.id, s.name, s.contact, s.email, s.notes 
+                 FROM suppliers s
+                 WHERE s.id IN (
+                     SELECT DISTINCT inv.supplier_id FROM invoices inv
+                     LEFT JOIN overrides_produtos op ON op.codigo = inv.item_code
+                     WHERE (
+                         op.categoria_produto = '{parent_id}'
+                         OR op.categoria_produto IN (SELECT id FROM categories WHERE parent_id = '{parent_id}')
+                         OR (op.categoria_produto IS NULL AND {prefix_cond})
+                     )
+                 ) ORDER BY s.name",
+                parent_id = parent_id,
+                prefix_cond = prefix_cond
+            )
+        } else {
+            format!(
+                "SELECT DISTINCT s.id, s.name, s.contact, s.email, s.notes 
+                 FROM suppliers s
+                 WHERE s.id IN (
+                     SELECT DISTINCT inv.supplier_id FROM invoices inv
+                     INNER JOIN items i ON inv.item_code = i.code OR replace(inv.item_code, '.', '') = replace(i.code, '.', '')
+                     INNER JOIN categories c ON i.category_id = c.id
+                     WHERE c.parent_id = '{parent}' OR c.id = '{parent}'
+                 ) OR s.id IN (
+                     SELECT DISTINCT qp.supplier_id FROM quotation_prices qp
+                     INNER JOIN quotation_items qi ON qp.quotation_item_id = qi.id
+                     INNER JOIN items i ON qi.item_code = i.code
+                     INNER JOIN categories c ON i.category_id = c.id
+                     WHERE c.parent_id = '{parent}' OR c.id = '{parent}'
+                 ) ORDER BY s.name",
+                parent = parent_cat
+            )
+        }
     } else {
         "SELECT id, name, contact, email, notes FROM suppliers ORDER BY name".to_string()
     };
@@ -2335,11 +2594,11 @@ fn get_suppliers(state: State<DbState>, parent_category_id: Option<String>) -> R
             notes: row.get(4)?,
         })
     }).map_err(|e| e.to_string())?;
-    let mut suppliers = Vec::new();
+    let mut results = Vec::new();
     for row in rows {
-        suppliers.push(row.map_err(|e| e.to_string())?);
+        results.push(row.map_err(|e| e.to_string())?);
     }
-    Ok(suppliers)
+    Ok(results)
 }
 
 #[tauri::command]
@@ -2436,19 +2695,44 @@ fn get_spending_by_supplier(
 ) -> Result<Vec<SupplierSpend>, String> {
     let conn = state.0.lock().unwrap();
     let sql = if let Some(ref parent_cat) = parent_category_id {
-        format!(
-            "SELECT IFNULL(inv.supplier_id,'unknown'), IFNULL(inv.supplier_name,'Desconhecido'),
-                    SUM(inv.total_value), COUNT(DISTINCT inv.invoice_number)
-             FROM invoices inv
-             JOIN items i ON i.code = inv.item_code
-             LEFT JOIN categories c ON c.id = i.category_id
-             WHERE inv.invoice_date >= ?1 AND inv.invoice_date <= ?2 
-               AND IFNULL(i.is_ignored, 0) = 0
-               AND (c.parent_id = '{parent}' OR c.id = '{parent}')
-             GROUP BY inv.supplier_id, inv.supplier_name
-             ORDER BY SUM(inv.total_value) DESC",
-            parent = parent_cat
-        )
+        if parent_cat == "coloracao" || parent_cat == "apoio" {
+            let prefix_cond = if parent_cat == "coloracao" {
+                "inv.item_code LIKE '1.34.%'"
+            } else {
+                "inv.item_code LIKE '1.30.%'"
+            };
+            let parent_id = if parent_cat == "coloracao" { "cat_coloracao" } else { "cat_apoio" };
+            format!(
+                "SELECT IFNULL(inv.supplier_id,'unknown'), IFNULL(inv.supplier_name,'Desconhecido'),
+                        SUM(inv.total_value), COUNT(DISTINCT inv.invoice_number)
+                 FROM invoices inv
+                 LEFT JOIN overrides_produtos op ON op.codigo = inv.item_code
+                 WHERE inv.invoice_date >= ?1 AND inv.invoice_date <= ?2 
+                   AND (
+                       op.categoria_produto = '{parent_id}'
+                       OR op.categoria_produto IN (SELECT id FROM categories WHERE parent_id = '{parent_id}')
+                       OR (op.categoria_produto IS NULL AND {prefix_cond})
+                   )
+                 GROUP BY inv.supplier_id, inv.supplier_name
+                 ORDER BY SUM(inv.total_value) DESC",
+                parent_id = parent_id,
+                prefix_cond = prefix_cond
+            )
+        } else {
+            format!(
+                "SELECT IFNULL(inv.supplier_id,'unknown'), IFNULL(inv.supplier_name,'Desconhecido'),
+                        SUM(inv.total_value), COUNT(DISTINCT inv.invoice_number)
+                 FROM invoices inv
+                 JOIN items i ON i.code = inv.item_code
+                 LEFT JOIN categories c ON c.id = i.category_id
+                 WHERE inv.invoice_date >= ?1 AND inv.invoice_date <= ?2 
+                   AND IFNULL(i.is_ignored, 0) = 0
+                   AND (c.parent_id = '{parent}' OR c.id = '{parent}')
+                 GROUP BY inv.supplier_id, inv.supplier_name
+                 ORDER BY SUM(inv.total_value) DESC",
+                parent = parent_cat
+            )
+        }
     } else {
         "SELECT IFNULL(inv.supplier_id,'unknown'), IFNULL(inv.supplier_name,'Desconhecido'),
                 SUM(inv.total_value), COUNT(DISTINCT inv.invoice_number)
@@ -2484,19 +2768,46 @@ fn get_spending_by_category(
 ) -> Result<Vec<CategorySpend>, String> {
     let conn = state.0.lock().unwrap();
     let sql = if let Some(ref parent_cat) = parent_category_id {
-        format!(
-            "SELECT IFNULL(i.category_id,'uncategorized'), IFNULL(c.name,'Sem Categoria'),
-                    SUM(inv.total_value), COUNT(DISTINCT inv.item_code)
-             FROM invoices inv
-             JOIN items i ON i.code = inv.item_code
-             LEFT JOIN categories c ON c.id = i.category_id
-             WHERE inv.invoice_date >= ?1 AND inv.invoice_date <= ?2 
-               AND IFNULL(i.is_ignored, 0) = 0
-               AND (c.parent_id = '{parent}' OR c.id = '{parent}')
-             GROUP BY i.category_id, c.name
-             ORDER BY SUM(inv.total_value) DESC",
-            parent = parent_cat
-        )
+        if parent_cat == "coloracao" || parent_cat == "apoio" {
+            let prefix_cond = if parent_cat == "coloracao" {
+                "p.codigo LIKE '1.34.%'"
+            } else {
+                "p.codigo LIKE '1.30.%'"
+            };
+            let parent_id = if parent_cat == "coloracao" { "cat_coloracao" } else { "cat_apoio" };
+            format!(
+                "SELECT IFNULL(p.linha_prefix,'unknown'), IFNULL(cl.nome_linha,'Sem Linha'),
+                        SUM(inv.total_value), COUNT(DISTINCT inv.item_code)
+                 FROM invoices inv
+                 JOIN produtos p ON inv.item_code = p.codigo
+                 LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
+                 LEFT JOIN overrides_produtos op ON op.codigo = p.codigo
+                 WHERE inv.invoice_date >= ?1 AND inv.invoice_date <= ?2 
+                   AND (
+                       op.categoria_produto = '{parent_id}'
+                       OR op.categoria_produto IN (SELECT id FROM categories WHERE parent_id = '{parent_id}')
+                       OR (op.categoria_produto IS NULL AND {prefix_cond})
+                   )
+                 GROUP BY p.linha_prefix, cl.nome_linha
+                 ORDER BY SUM(inv.total_value) DESC",
+                parent_id = parent_id,
+                prefix_cond = prefix_cond
+            )
+        } else {
+            format!(
+                "SELECT IFNULL(i.category_id,'uncategorized'), IFNULL(c.name,'Sem Categoria'),
+                        SUM(inv.total_value), COUNT(DISTINCT inv.item_code)
+                 FROM invoices inv
+                 JOIN items i ON i.code = inv.item_code
+                 LEFT JOIN categories c ON c.id = i.category_id
+                 WHERE inv.invoice_date >= ?1 AND inv.invoice_date <= ?2 
+                   AND IFNULL(i.is_ignored, 0) = 0
+                   AND (c.parent_id = '{parent}' OR c.id = '{parent}')
+                 GROUP BY i.category_id, c.name
+                 ORDER BY SUM(inv.total_value) DESC",
+                parent = parent_cat
+            )
+        }
     } else {
         "SELECT IFNULL(i.category_id,'uncategorized'), IFNULL(c.name,'Sem Categoria'),
                 SUM(inv.total_value), COUNT(DISTINCT inv.item_code)
@@ -2556,8 +2867,25 @@ fn save_category(state: State<DbState>, category: Category) -> Result<(), String
 #[tauri::command]
 fn delete_category(state: State<DbState>, id: String) -> Result<(), String> {
     let conn = state.0.lock().unwrap();
-    conn.execute("UPDATE items SET category_id = NULL WHERE category_id = ?1", params![id])
-        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE items 
+         SET category_id = CASE 
+             WHEN code LIKE '9.15.%' THEN 'cat_mp' 
+             WHEN code LIKE '08.%' THEN 'cat_mat'
+             ELSE 'cat_emb' 
+         END,
+         manual_category = 0
+         WHERE category_id = ?1",
+        params![id]
+    ).map_err(|e| e.to_string())?;
+    
+    conn.execute(
+        "UPDATE overrides_produtos 
+         SET categoria_produto = NULL
+         WHERE categoria_produto = ?1",
+        params![id]
+    ).map_err(|e| e.to_string())?;
+
     conn.execute("DELETE FROM categories WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -2880,7 +3208,7 @@ fn start_axum_server() {
             .route("/api/kits/composicao/:kit/:comp", delete(handlers::delete_kit_composicao_handler))
             .route("/api/configs", get(handlers::get_configs).put(handlers::update_config))
             .route("/api/configs/:prefix", delete(handlers::delete_config))
-            .route("/api/overrides", post(handlers::save_override))
+            .route("/api/overrides", get(handlers::get_overrides).post(handlers::save_override))
             .route("/api/overrides/bulk", post(handlers::save_override_bulk))
             .route("/api/import/faturamento", post(handlers::import_faturamento))
             .route("/api/import/levantamento", post(handlers::import_levantamento))
@@ -2909,6 +3237,9 @@ fn start_axum_server() {
             .route("/api/compras/lojas/:id", delete(handlers::delete_online_store_handler))
             .route("/api/historico", get(handlers::list_producao).post(handlers::add_producao))
             .route("/api/historico/:id", delete(handlers::delete_producao))
+            .route("/api/vendas/pedidos", get(handlers::list_sales_orders))
+            .route("/api/vendas/faltas", get(handlers::list_sales_faltas))
+            .route("/api/produtos/:code/pedidos-pendentes", get(handlers::get_product_pending_orders))
             .route("/api/google/status", get(google_drive::get_google_status))
             .route("/api/google/config", post(google_drive::save_google_config))
             .route("/api/google/auth-url", get(google_drive::google_auth_url))
@@ -3009,6 +3340,7 @@ mod tests {
                 println!("  Invoices: {}", res.invoices);
                 println!("  Consumption: {}", res.consumption);
                 println!("  Purchase Orders: {}", res.purchase_orders);
+                println!("  Sales Orders: {}", res.sales_orders);
             }
             Err(e) => {
                 println!("Sync failed with error: {:?}", e);

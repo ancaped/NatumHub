@@ -35,6 +35,8 @@ export interface Item {
   typeCode: string;
   notes: string | null;
   isIgnored: boolean;
+  isAutoIgnored?: boolean;
+  ignoredReason?: string | null;
 }
 
 export interface StockSnapshot {

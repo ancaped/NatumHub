@@ -9,7 +9,7 @@ import ItemRegistry from '../components/compras/ItemRegistry';
 import { ProdutosCompraTab } from '../components/compras/ProdutosCompraTab';
 import { PrintListTab } from '../components/compras/PrintListTab';
 import { SolicitationTab } from '../components/compras/SolicitationTab';
-import { Package, ShoppingCart, Users, BarChart3, Settings, Database, Boxes, ArrowLeft, Palette, Tag, Layers, Printer, ClipboardList } from 'lucide-react';
+import { Package, ShoppingCart, Users, BarChart3, Settings, Database, Boxes, ArrowLeft, Palette, Tag, Layers, Printer, ClipboardList, EyeOff } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { api } from '../lib/api';
 import { Category } from '../types';
@@ -61,6 +61,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'materia_prima', label: 'Matéria-Prima', icon: Boxes },
           ...getSubcategoryNavItems('cat_mp'),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
+          { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
@@ -71,6 +72,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'embalagens', label: 'Embalagens', icon: Layers },
           ...getSubcategoryNavItems('cat_emb'),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
+          { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
@@ -79,7 +81,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
       case 'coloracao':
         return [
           { id: 'coloracao', label: 'Coloração', icon: Palette },
-          ...getSubcategoryNavItems('cat_mp'),
+          ...getSubcategoryNavItems('cat_coloracao'),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'registry', label: 'Cadastro', icon: Database },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
@@ -90,6 +92,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
       case 'apoio':
         return [
           { id: 'apoio', label: 'Material de Apoio', icon: Tag },
+          ...getSubcategoryNavItems('cat_apoio'),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'registry', label: 'Cadastro', icon: Database },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
@@ -225,7 +228,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
                 {mode === 'materia_prima' ? (
                   <DemandTable active={activeTab === 'materia_prima'} mode="materia_prima" />
                 ) : (
-                  <InsumosDetalhesTab parentCategoryFilter="cat_mp" />
+                  <InsumosDetalhesTab active={activeTab === 'materia_prima'} parentCategoryFilter="cat_mp" />
                 )}
               </div>
             )}
@@ -235,62 +238,86 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
                 {mode === 'embalagens' ? (
                   <DemandTable active={activeTab === 'embalagens'} mode="embalagens" />
                 ) : (
-                  <InsumosDetalhesTab parentCategoryFilter="cat_emb" />
+                  <InsumosDetalhesTab active={activeTab === 'embalagens'} parentCategoryFilter="cat_emb" />
                 )}
               </div>
             )}
 
             {navItems.some(i => i.id === 'coloracao') && (
               <div className={activeTab !== 'coloracao' ? 'hidden' : ''}>
-                <ProdutosCompraTab statusFilter="coloracao" title="Coloração" />
+                <ProdutosCompraTab active={activeTab === 'coloracao'} statusFilter="coloracao" title="Coloração" />
               </div>
             )}
 
             {navItems.some(i => i.id === 'apoio') && (
               <div className={activeTab !== 'apoio' ? 'hidden' : ''}>
-                <ProdutosCompraTab statusFilter="apoio" title="Material de Apoio" />
+                <ProdutosCompraTab active={activeTab === 'apoio'} statusFilter="apoio" title="Material de Apoio" />
               </div>
             )}
 
             {navItems.some(i => i.id === 'quotations') && (
               <div className={activeTab !== 'quotations' ? 'hidden' : ''}>
-                <QuotationManager />
+                <QuotationManager active={activeTab === 'quotations'} />
               </div>
             )}
 
             {navItems.some(i => i.id === 'registry') && (
               <div className={activeTab !== 'registry' ? 'hidden' : ''}>
-                <ItemRegistry mode={mode === 'materia_prima' ? 'materia_prima' : mode === 'embalagens' ? 'embalagens' : 'all'} />
+                <ItemRegistry active={activeTab === 'registry'} mode={mode} />
+              </div>
+            )}
+
+            {navItems.some(i => i.id === 'ignored_items') && (
+              <div className={activeTab !== 'ignored_items' ? 'hidden' : ''}>
+                <ItemRegistry active={activeTab === 'ignored_items'} mode={mode} showIgnoredOnly={true} />
               </div>
             )}
 
             {navItems.some(i => i.id === 'suppliers') && (
               <div className={activeTab !== 'suppliers' ? 'hidden' : ''}>
-                <SupplierManager mode={mode === 'embalagens' ? 'embalagens' : mode === 'materia_prima' ? 'materia_prima' : 'all'} />
+                <SupplierManager active={activeTab === 'suppliers'} mode={mode} />
               </div>
             )}
 
             {navItems.some(i => i.id === 'reports') && (
               <div className={activeTab !== 'reports' ? 'hidden' : ''}>
-                <ReportDashboard mode={mode === 'embalagens' ? 'embalagens' : mode === 'materia_prima' ? 'materia_prima' : 'all'} />
+                <ReportDashboard active={activeTab === 'reports'} mode={mode} />
               </div>
             )}
 
             {navItems.some(i => i.id === 'settings') && (
               <div className={activeTab !== 'settings' ? 'hidden' : ''}>
-                <SettingsPanel mode={mode} />
+                <SettingsPanel active={activeTab === 'settings'} mode={mode} />
               </div>
             )}
 
-            {categories.filter(c => pinnedSubs.includes(c.id)).map(c => (
-              <div key={`sub_${c.id}`} className={activeTab !== `sub_${c.id}` ? 'hidden' : ''}>
-                <DemandTable 
-                  active={activeTab === `sub_${c.id}`}
-                  mode={c.parentId === 'cat_emb' ? 'embalagens' : c.parentId === 'cat_mp' ? 'materia_prima' : 'all'} 
-                  initialCategoryFilter={c.id} 
-                />
-              </div>
-            ))}
+            {categories.filter(c => pinnedSubs.includes(c.id)).map(c => {
+              const isColoracao = c.parentId === 'cat_coloracao';
+              const isApoio = c.parentId === 'cat_apoio';
+              
+              if (isColoracao || isApoio) {
+                return (
+                  <div key={`sub_${c.id}`} className={activeTab !== `sub_${c.id}` ? 'hidden' : ''}>
+                    <ProdutosCompraTab 
+                      active={activeTab === `sub_${c.id}`}
+                      statusFilter={isColoracao ? 'coloracao' : 'apoio'}
+                      title={c.name}
+                      initialCategoryFilter={c.id}
+                    />
+                  </div>
+                );
+              }
+              
+              return (
+                <div key={`sub_${c.id}`} className={activeTab !== `sub_${c.id}` ? 'hidden' : ''}>
+                  <DemandTable 
+                    active={activeTab === `sub_${c.id}`}
+                    mode={c.parentId === 'cat_emb' ? 'embalagens' : c.parentId === 'cat_mp' ? 'materia_prima' : 'all'} 
+                    initialCategoryFilter={c.id} 
+                  />
+                </div>
+              );
+            })}
           </div>
         </main>
       </div>

@@ -352,6 +352,12 @@ impl Db {
                         params![codigo, cat],
                     )?;
                 }
+                "clear" => {
+                    tx.execute(
+                        "DELETE FROM overrides_produtos WHERE codigo = ?1",
+                        params![codigo],
+                    )?;
+                }
                 _ => {}
             }
 

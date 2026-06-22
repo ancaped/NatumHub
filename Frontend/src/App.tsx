@@ -19,7 +19,7 @@ import {
 import { APP_NAME } from './lib/utils';
 import { api } from './lib/api';
 
-type HubView = 'hub' | 'producao_hub' | 'producao' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'estoque_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materiais' | 'estoque_ativos' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'vendas';
+type HubView = 'hub' | 'producao_hub' | 'producao' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'estoque_hub' | 'estoque_insumos' | 'estoque_produtos' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'vendas' | 'linha_produtos' | 'estoque_ativos';
 
 export default function App() {
   const [view, setView] = useState<HubView>('hub');
@@ -377,8 +377,8 @@ export default function App() {
               <p className="text-sm text-zinc-500">Selecione o inventário específico para consulta e movimentações.</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-4 w-full">
-              {/* Insumos & Matérias-Primas */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 w-full max-w-5xl">
+              {/* Insumos */}
               <button 
                 onClick={() => setView('estoque_insumos')}
                 className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
@@ -388,8 +388,8 @@ export default function App() {
                     <Boxes className="h-6 w-6" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-zinc-900">Insumos & MP</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Níveis de estoque de matérias-primas químicas, essências e embalagens com histórico de recebimentos e ordens pendentes.</p>
+                    <h3 className="text-xl font-bold text-zinc-900">Insumos</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Níveis de estoque de matérias-primas químicas, essências, embalagens e materiais de consumo com histórico de movimentações.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
@@ -397,7 +397,7 @@ export default function App() {
                 </div>
               </button>
 
-              {/* Produtos Acabados */}
+              {/* Produtos */}
               <button 
                 onClick={() => setView('estoque_produtos')}
                 className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
@@ -407,8 +407,8 @@ export default function App() {
                     <Boxes className="h-6 w-6" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-zinc-900">Produtos Acabados</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Catálogo de produtos acabados prontos para comercialização, fórmulas de fabricação e histórico de lotes e vendas.</p>
+                    <h3 className="text-xl font-bold text-zinc-900">Produtos</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Catálogo de produtos, fórmulas de fabricação, estoque atual, previsões de demanda e histórico de lotes.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
@@ -416,26 +416,7 @@ export default function App() {
                 </div>
               </button>
 
-              {/* Materiais & Consumíveis */}
-              <button 
-                onClick={() => setView('estoque_materiais')}
-                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
-              >
-                <div className="space-y-4">
-                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                    <Boxes className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-zinc-900">Materiais & Consumo</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Materiais de escritório, laboratório, limpeza e itens auxiliares de consumo geral.</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                  Acessar Materiais <ArrowRight className="h-4 w-4" />
-                </div>
-              </button>
-
-              {/* Linhas & Produtos Ativos */}
+              {/* Linha de Produtos */}
               <button 
                 onClick={() => setView('estoque_ativos')}
                 className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
@@ -445,8 +426,8 @@ export default function App() {
                     <CheckCircle2 className="h-6 w-6" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-zinc-900">Linhas & Produtos</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Configure o status de linha dos produtos (ativos, lançamentos, descontinuados, materiais de apoio ou itens terceirizados).</p>
+                    <h3 className="text-xl font-bold text-zinc-900">Linha de Produtos</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Defina quais produtos vão ser de quais linhas, quais vão ficar ativos/em lançamento e ajuste overrides de estoque.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
@@ -479,17 +460,9 @@ export default function App() {
       );
     }
 
-    if (view === 'estoque_materiais') {
-      return (
-        <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro no módulo de Estoque de Materiais">
-          <EstoqueView mode="materiais" onBackToHub={() => setView('estoque_hub')} />
-        </ErrorBoundary>
-      );
-    }
-
     if (view === 'estoque_ativos') {
       return (
-        <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro no módulo de Linhas & Produtos Ativos">
+        <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro no módulo de Linha de Produtos">
           <EstoqueView mode="ativos" onBackToHub={() => setView('estoque_hub')} />
         </ErrorBoundary>
       );
@@ -499,6 +472,14 @@ export default function App() {
       return (
         <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo de Vendas">
           <VendasView onBackToHub={() => setView('hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'linha_produtos') {
+      return (
+        <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo de Linha de Produtos">
+          <ActiveProductsView onBackToHub={() => setView('hub')} standalone={true} />
         </ErrorBoundary>
       );
     }
@@ -822,7 +803,7 @@ export default function App() {
                 <p className="text-sm text-zinc-500">Escolha a área do ecossistema Natum que deseja acessar.</p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-4 w-full">
                 {/* Card Estoque */}
                 <button 
                   onClick={() => setView('estoque_hub')}

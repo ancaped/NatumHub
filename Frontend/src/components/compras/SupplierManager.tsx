@@ -4,7 +4,7 @@ import { Supplier, Invoice, PricePoint } from '../../types';
 import { Users, Plus, Search, ArrowLeft, Phone, Mail, FileText, TrendingUp, X, ArrowUp, ArrowDown } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
-export function SupplierManager({ mode = 'all' }: { mode?: 'materia_prima' | 'embalagens' | 'all' }) {
+export function SupplierManager({ mode = 'all', active = false }: { mode?: string; active?: boolean }) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -14,7 +14,11 @@ export function SupplierManager({ mode = 'all' }: { mode?: 'materia_prima' | 'em
   const [sortKey, setSortKey] = useState<'name' | 'email'>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
-  useEffect(() => { loadSuppliers(); }, [mode]);
+  useEffect(() => {
+    if (active) {
+      loadSuppliers();
+    }
+  }, [mode, active]);
 
   const loadSuppliers = async () => {
     setLoading(true);
