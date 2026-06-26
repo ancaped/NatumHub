@@ -1021,7 +1021,10 @@ WHERE p1.dPedido >= DATEADD(month, -6, GETDATE()) OR (p1.CSTATUS NOT IN ('FT', '
                 END,
                 line = excluded.line,
                 type = excluded.type,
-                is_ignored = excluded.is_ignored,
+                is_ignored = CASE 
+                    WHEN excluded.is_ignored = 1 THEN 1
+                    ELSE items.is_ignored
+                END,
                 updated_at = CURRENT_TIMESTAMP",
             params![item.code, item.desc, item.unit, category_id, item.line, item.type_code, item.is_ignored],
         )?;
@@ -1042,7 +1045,10 @@ WHERE p1.dPedido >= DATEADD(month, -6, GETDATE()) OR (p1.CSTATUS NOT IN ('FT', '
                 END,
                 line = excluded.line,
                 type = excluded.type,
-                is_ignored = excluded.is_ignored,
+                is_ignored = CASE 
+                    WHEN excluded.is_ignored = 1 THEN 1
+                    ELSE items.is_ignored
+                END,
                 updated_at = CURRENT_TIMESTAMP",
             params![item.code, item.desc, item.unit, item.line, item.type_code, item.is_ignored],
         )?;

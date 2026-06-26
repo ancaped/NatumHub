@@ -553,6 +553,7 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         );
 
         CREATE INDEX IF NOT EXISTS idx_stock_item ON stock_snapshots(item_code);
+        CREATE INDEX IF NOT EXISTS idx_stock_item_date ON stock_snapshots(item_code, snapshot_date DESC, id DESC);
         CREATE INDEX IF NOT EXISTS idx_consumption_item ON consumption(item_code);
         CREATE INDEX IF NOT EXISTS idx_invoices_item ON invoices(item_code);
         CREATE INDEX IF NOT EXISTS idx_invoices_number ON invoices(invoice_number);

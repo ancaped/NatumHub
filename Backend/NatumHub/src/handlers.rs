@@ -2737,12 +2737,11 @@ pub async fn apply_recalculation_adjustment(
     
     // 3. Insert new snapshot row
     let new_uuid = uuid::Uuid::new_v4().to_string();
-    let now_date = chrono::Utc::now().to_rfc3339();
     
     match conn.execute(
         "INSERT INTO stock_snapshots (id, import_id, item_code, stock_qty, reserved_qty, in_production, in_orders, snapshot_date)
-         VALUES (?1, 'MANUAL_ADJUST', ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![new_uuid, payload.ingredient_code, new_stock, reserved_qty, in_production, in_orders, now_date]
+         VALUES (?1, 'MANUAL_ADJUST', ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP)",
+        params![new_uuid, payload.ingredient_code, new_stock, reserved_qty, in_production, in_orders]
     ) {
         Ok(_) => (
             StatusCode::OK,

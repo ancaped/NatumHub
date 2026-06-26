@@ -56,6 +56,23 @@ impl Db {
             let _ = conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('migration_sync_fixes_v4', 'done')", []);
         }
 
+        if conn.query_row("SELECT 1 FROM settings WHERE key = 'migration_sync_fixes_v5'", [], |_| Ok(())).is_err() {
+            let _ = conn.execute(
+                "UPDATE stock_snapshots 
+                 SET snapshot_date = strftime('%Y-%m-%d %H:%M:%S', snapshot_date) 
+                 WHERE snapshot_date LIKE '%T%'", 
+                []
+            );
+            let _ = conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_stock_item_date ON stock_snapshots(item_code, snapshot_date DESC, id DESC)", 
+                []
+            );
+            let _ = conn.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES ('migration_sync_fixes_v5', 'done')", 
+                []
+            );
+        }
+
         // Migration: formulations table schema update to support multiple entries of the same ingredient (e.g. water split in phases)
         let has_id_col = conn.query_row(
             "SELECT 1 FROM pragma_table_info('formulations') WHERE name = 'id'",
