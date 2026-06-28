@@ -82,6 +82,7 @@ export default function ProducaoView({ onBackToHub }) {
   const [overrideVisible, setOverrideVisible] = useState('VISIBLE'); // 'VISIBLE', 'HIDDEN'
   const [overrideLine, setOverrideLine] = useState('AUTO'); // 'AUTO' ou prefixo da linha
   const [overrideObs, setOverrideObs] = useState('');
+  const [overrideApenasKit, setOverrideApenasKit] = useState(0);
   const [showHidden, setShowHidden] = useState(false);
 
   // Bulk Edit States
@@ -1055,6 +1056,7 @@ export default function ProducaoView({ onBackToHub }) {
 
     setOverrideLine(prod.linha_prefix_manual !== null ? prod.linha_prefix_manual : 'AUTO');
     setOverrideObs(prod.observacao !== null ? prod.observacao : '');
+    setOverrideApenasKit(prod.produzir_apenas_kit !== null ? prod.produzir_apenas_kit : 0);
   };
 
   const handleSaveOverrides = async () => {
@@ -1069,6 +1071,7 @@ export default function ProducaoView({ onBackToHub }) {
       visivel: overrideVisible === 'HIDDEN' ? 0 : 1,
       linha_prefix_manual: overrideLine === 'AUTO' ? null : overrideLine,
       observacao: overrideObs.trim() === '' ? null : overrideObs,
+      produzir_apenas_kit: overrideApenasKit,
     };
 
     try {
@@ -1626,7 +1629,6 @@ export default function ProducaoView({ onBackToHub }) {
           {/* VIEW: SETTINGS */}
           {currentView === 'settings' && (
             <SettingsTab
-              configs={configs}
               diasComerciais={diasComerciais}
               limitPerPage={limitPerPage}
               tempDiasComerciais={tempDiasComerciais}
@@ -1634,53 +1636,7 @@ export default function ProducaoView({ onBackToHub }) {
               tempLimitPerPage={tempLimitPerPage}
               setTempLimitPerPage={setTempLimitPerPage}
               onSaveGlobalSettings={handleSaveGlobalSettings}
-              onConfigChange={handleConfigChange}
-              onConfigToggleVisivel={handleConfigToggleVisivel}
-              onConfigDelete={handleConfigDelete}
-              onConfigCreate={handleConfigCreate}
-              showAddLineForm={showAddLineForm}
-              setShowAddLineForm={setShowAddLineForm}
-              newLinePrefix={newLinePrefix}
-              setNewLinePrefix={setNewLinePrefix}
-              newLineName={newLineName}
-              setNewLineName={setNewLineName}
-              newLineIdeal={newLineIdeal}
-              setNewLineIdeal={setNewLineIdeal}
-              newLineOrdem={newLineOrdem}
-              setNewLineOrdem={setNewLineOrdem}
-              newLineProd={newLineProd}
-              setNewLineProd={setNewLineProd}
-              newLineZ={newLineZ}
-              setNewLineZ={setNewLineZ}
               allProducts={allProducts}
-              bulkSearch={bulkSearch}
-              setBulkSearch={setBulkSearch}
-              bulkSelected={bulkSelected}
-              setBulkSelected={setBulkSelected}
-              bulkAction={bulkAction}
-              setBulkAction={setBulkAction}
-              bulkValueStr={bulkValueStr}
-              setBulkValueStr={setBulkValueStr}
-              bulkFilterLine={bulkFilterLine}
-              setBulkFilterLine={setBulkFilterLine}
-              bulkFilterStatus={bulkFilterStatus}
-              setBulkFilterStatus={setBulkFilterStatus}
-              bulkFilterVisibility={bulkFilterVisibility}
-              setBulkFilterVisibility={setBulkFilterVisibility}
-              bulkFilterLaunch={bulkFilterLaunch}
-              setBulkFilterLaunch={setBulkFilterLaunch}
-              onBulkApply={handleBulkApply}
-              kitComposicao={kitComposicao}
-              kitCompNewKit={kitCompNewKit}
-              setKitCompNewKit={setKitCompNewKit}
-              kitCompNewComp={kitCompNewComp}
-              setKitCompNewComp={setKitCompNewComp}
-              kitCompSearch={kitCompSearch}
-              setKitCompSearch={setKitCompSearch}
-              onAddKitComposicao={handleAddKitComposicao}
-              onDeleteKitComposicao={handleDeleteKitComposicao}
-              onUploadKitsConfig={handleUploadKitsConfig}
-              uploadingKitsConfig={uploadingKitsConfig}
               recalcProd={recalcProd}
               setRecalcProd={setRecalcProd}
               recalcIng={recalcIng}
@@ -1691,8 +1647,6 @@ export default function ProducaoView({ onBackToHub }) {
               recalcLoading={recalcLoading}
               onPreviewRecalc={handlePreviewRecalc}
               onApplyRecalc={handleApplyRecalc}
-              ignoredStatuses={ignoredStatuses}
-              onSaveIgnoredStatuses={handleSaveIgnoredStatuses}
             />
           )}
 
@@ -1796,6 +1750,19 @@ export default function ProducaoView({ onBackToHub }) {
                   <option value="VISIBLE">Visível (Aparecer nas listagens normais)</option>
                   <option value="HIDDEN">Oculto (Ocultar de listagens e alertas)</option>
                 </select>
+              </div>
+
+              <div className="form-group" style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <input 
+                  type="checkbox"
+                  id="produzir_apenas_kit"
+                  checked={overrideApenasKit === 1}
+                  onChange={(e) => setOverrideApenasKit(e.target.checked ? 1 : 0)}
+                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                />
+                <label htmlFor="produzir_apenas_kit" style={{ cursor: 'pointer', margin: 0, fontWeight: '500' }}>
+                  Produzir apenas se houver demanda no Kit (Zera recomendação se kits estão OK)
+                </label>
               </div>
 
               <div className="form-group" style={{ marginTop: '0.75rem' }}>
@@ -2193,53 +2160,71 @@ export default function ProducaoView({ onBackToHub }) {
                         </div>
                         {selectedProductDetails.formulation.length === 0 ? (
                           <p className="text-xs text-zinc-400 py-3">Nenhuma fórmula registrada para este produto.</p>
-                        ) : (
-                          <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
-                            <table className="w-full text-left text-xs">
-                              <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
-                                <tr>
-                                  <th className="px-4 py-3">Ingrediente</th>
-                                  <th className="px-4 py-3 text-right">Qtd</th>
-                                  <th className="px-4 py-3 text-right">Fórmula %</th>
-                                  <th className="px-4 py-3 text-right">Estoque Insumo</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-zinc-100">
-                                {selectedProductDetails.formulation.map((line) => {
-                                  const needsPercentage = line.percentage !== null && line.percentage !== undefined;
-                                  const pctVal = needsPercentage ? line.percentage * 100 : 0;
-                                  const isOutOfStock = (line.currentStock ?? 0) <= 0;
+                        ) : (() => {
+                          const rawMaterials = selectedProductDetails.formulation.filter(line => line.categoryId !== 'cat_emb');
+                          const packaging = selectedProductDetails.formulation.filter(line => line.categoryId === 'cat_emb');
 
-                                  return (
-                                    <tr key={line.ingredientCode} className="hover:bg-zinc-50/50 transition-colors">
-                                      <td className="px-4 py-2.5">
-                                        <div className="font-bold text-zinc-800">{line.description}</div>
-                                        <div className="font-mono text-[9px] text-zinc-400">{line.ingredientCode}</div>
-                                      </td>
-                                      <td className="px-4 py-2.5 text-right font-medium text-zinc-700">
-                                        {(line.quantity ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
-                                      </td>
-                                      <td className="px-4 py-2.5 text-right text-zinc-550">
-                                        {needsPercentage ? `${pctVal.toFixed(3)}%` : '-'}
-                                      </td>
-                                      <td className="px-4 py-2.5 text-right">
-                                        <span
-                                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                            isOutOfStock
-                                              ? 'bg-red-100 text-red-700 border border-red-200'
-                                              : 'bg-green-100 text-green-700 border border-green-200'
-                                          }`}
-                                        >
-                                          {(line.currentStock ?? 0).toLocaleString('pt-BR')}
-                                        </span>
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
+                          const renderTable = (list, title) => {
+                            if (list.length === 0) return null;
+                            return (
+                              <div className="space-y-2">
+                                <h5 className="font-extrabold text-[10px] text-zinc-450 uppercase tracking-wider">{title}</h5>
+                                <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                                  <table className="w-full text-left text-xs">
+                                    <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                                      <tr>
+                                        <th className="px-4 py-3">Ingrediente</th>
+                                        <th className="px-4 py-3 text-right">Qtd</th>
+                                        <th className="px-4 py-3 text-right">Fórmula %</th>
+                                        <th className="px-4 py-3 text-right">Estoque Insumo</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-zinc-100">
+                                      {list.map((line) => {
+                                        const needsPercentage = line.percentage !== null && line.percentage !== undefined;
+                                        const pctVal = needsPercentage ? line.percentage * 100 : 0;
+                                        const isOutOfStock = (line.currentStock ?? 0) <= 0;
+
+                                        return (
+                                          <tr key={line.ingredientCode} className="hover:bg-zinc-50/50 transition-colors">
+                                            <td className="px-4 py-2.5">
+                                              <div className="font-bold text-zinc-800">{line.description}</div>
+                                              <div className="font-mono text-[9px] text-zinc-400">{line.ingredientCode}</div>
+                                            </td>
+                                            <td className="px-4 py-2.5 text-right font-medium text-zinc-700">
+                                              {(line.quantity ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
+                                            </td>
+                                            <td className="px-4 py-2.5 text-right text-zinc-550">
+                                              {needsPercentage ? `${pctVal.toFixed(3)}%` : '-'}
+                                            </td>
+                                            <td className="px-4 py-2.5 text-right">
+                                              <span
+                                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                  isOutOfStock
+                                                    ? 'bg-red-100 text-red-700 border border-red-200'
+                                                    : 'bg-green-100 text-green-700 border border-green-200'
+                                                }`}
+                                              >
+                                                {(line.currentStock ?? 0).toLocaleString('pt-BR')}
+                                              </span>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            );
+                          };
+
+                          return (
+                            <div className="space-y-6">
+                              {renderTable(rawMaterials, "Matérias-Primas")}
+                              {renderTable(packaging, "Embalagens")}
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
 

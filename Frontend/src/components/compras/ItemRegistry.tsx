@@ -68,7 +68,17 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
             unit: 'UN',
             categoryId: p.categoria_produto || null,
             isIgnored: p.visivel === 0,
-            notes: p.observacao || ''
+            notes: p.observacao || '',
+            // Additional product override fields
+            estoque_ideal_manual: p.estoque_ideal_manual,
+            pedidos_manual: p.pedidos_manual,
+            media_manual: p.media_manual,
+            is_lancamento_manual: p.is_lancamento_manual,
+            linha_prefix_manual: p.linha_prefix_manual,
+            status_produto: p.status_produto,
+            categoria_produto: p.categoria_produto,
+            produzir_apenas_kit: p.produzir_apenas_kit,
+            isProduct: true
           }));
         } else {
           itemsData = [];
@@ -90,7 +100,33 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
     if (!editingItem) return;
     setIsSaving(true);
     try {
-      await api.updateItemDetails(editingItem.code, editingItem.notes, editingItem.isIgnored);
+      if ((editingItem as any).isProduct) {
+        const p = editingItem as any;
+        const res = await fetch(`${API_BASE}/overrides`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            codigo: p.code,
+            estoque_ideal_manual: p.estoque_ideal_manual ?? null,
+            pedidos_manual: p.pedidos_manual ?? null,
+            media_manual: p.media_manual ?? null,
+            is_lancamento_manual: p.is_lancamento_manual ?? null,
+            visivel: p.isIgnored ? 0 : 1,
+            observacao: p.notes?.trim() || null,
+            linha_prefix_manual: p.linha_prefix_manual ?? null,
+            status_produto: p.status_produto ?? null,
+            categoria_produto: p.categoria_produto ?? null,
+            produzir_apenas_kit: p.produzir_apenas_kit ?? null
+          })
+        });
+        if (!res.ok) {
+          throw new Error("Erro ao salvar overrides do produto");
+        }
+      } else {
+        await api.updateItemDetails(editingItem.code, editingItem.notes, editingItem.isIgnored);
+      }
       await loadData();
       setEditingItem(null);
     } catch (e) {
@@ -333,10 +369,11 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
         </div>
       )}
 
-      {/* Details Modal */}
+      {/* Details Drawer */}
       {detailsOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[85vh] text-left">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-end">
+          <div className="absolute inset-0 cursor-pointer" onClick={() => setDetailsOpen(false)} />
+          <div className="relative w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300 z-10 text-left">
             <div className="px-6 py-4 border-b border-zinc-100 flex justify-between items-center bg-zinc-50/50 shrink-0">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Ficha de Insumo Suspenso</span>

@@ -4,7 +4,11 @@ Este arquivo é gerado automaticamente pelo aplicativo NatumHub a partir dos fee
 
 ## 🔴 Bugs Pendentes
 
-Nenhum bug pendente! 🎉
+| ID | Data | Página | Descrição | Logs |
+| --- | --- | --- | --- | --- |
+| `d3d58e04` | 2026-06-27 | `Produção > programacao de producao` | gostaria que esse modulo de programacao de producao se parecesse mais visualmente com os modulos de compra (materia prima, embalagens, coloracao...)  | - |
+| `41f4c39d` | 2026-06-27 | `Geral > Embalagens/lista` | permitir em lista, escolher quais informacoes vao ser parte do relatorio, exemplo, no lugar de fornecedor, poderia ter a opcoao de ultimos pedidos de compra recebidos por exemplo, pois nem todos fornecedores enviam nota fiscal  | - |
+| `66560c63` | 2026-06-26 | `Geral > Embalagens` | abas de itens suspensos ao clicar em um produto ele mostra um pop no centro da dela, e nao uma aba com informacoes iguais quando clica num produto tipo em embalagens, corrigir para todos os modulos de compra | - |
 
 ## 🔵 Sugestões / Feedbacks Pendentes
 

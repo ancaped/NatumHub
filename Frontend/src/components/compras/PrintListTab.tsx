@@ -1,15 +1,125 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../lib/api';
 import { DemandResult } from '../../types';
-import { Trash2, Printer, Search, Plus, FileText, RefreshCw, X, Package } from 'lucide-react';
+import { Trash2, Printer, Search, Plus, FileText, RefreshCw, X, Package, Settings, ShoppingCart } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
-export function PrintListTab({ active = true }: { active?: boolean }) {
+const COLUMN_METADATA: Record<string, { label: string; align: 'left' | 'center' | 'right' }> = {
+  itemCode: { label: 'Ref / Item', align: 'left' },
+  lastSupplierInvoice: { label: 'Últ. Fornecedor (NF)', align: 'left' },
+  lastSupplierOrder: { label: 'Últ. Fornecedor (Pedido)', align: 'left' },
+  currentStock: { label: 'Estoque', align: 'right' },
+  overallAvg: { label: 'Média Mês', align: 'right' },
+  futureStockForecast: { label: 'Prev. Futura', align: 'right' },
+  estimatedDurationDays: { label: 'Duração Est.', align: 'center' },
+  recommendedQty: { label: 'Qtd Recomendada', align: 'right' }
+};
+
+export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean; mode?: string }) {
   const [printList, setPrintList] = useState<string[]>([]);
   const [demands, setDemands] = useState<DemandResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [targetDays, setTargetDays] = useState(90);
   const [search, setSearch] = useState('');
+  const [categories, setCategories] = useState<any[]>([]);
+  const [manualQtys, setManualQtys] = useState<Record<string, number>>(() => {
+    const stored = localStorage.getItem('natum_hub_print_list_manual_qtys');
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch (e) {
+        return {};
+      }
+    }
+    return {};
+  });
+
+  const [columns, setColumns] = useState<Record<string, boolean>>({
+    itemCode: true,
+    lastSupplierInvoice: false,
+    lastSupplierOrder: false,
+    currentStock: true,
+    overallAvg: true,
+    futureStockForecast: true,
+    estimatedDurationDays: true,
+    recommendedQty: true
+  });
+  
+  const [columnOrder, setColumnOrder] = useState<string[]>([
+    'itemCode',
+    'lastSupplierInvoice',
+    'lastSupplierOrder',
+    'currentStock',
+    'overallAvg',
+    'futureStockForecast',
+    'estimatedDurationDays',
+    'recommendedQty'
+  ]);
+
+  // Load columnConfig & order from localStorage on mount
+  useEffect(() => {
+    const storedOrder = localStorage.getItem('natum_hub_print_list_column_order');
+    if (storedOrder) {
+      try { setColumnOrder(JSON.parse(storedOrder)); } catch (e) { console.error(e); }
+    }
+    const storedConfig = localStorage.getItem('natum_hub_print_list_column_config');
+    if (storedConfig) {
+      try { setColumns(JSON.parse(storedConfig)); } catch (e) { console.error(e); }
+    }
+  }, []);
+
+  const saveColumnOrder = (newOrder: string[]) => {
+    setColumnOrder(newOrder);
+    localStorage.setItem('natum_hub_print_list_column_order', JSON.stringify(newOrder));
+  };
+
+  const saveColumnConfig = (newConfig: Record<string, boolean>) => {
+    setColumns(newConfig);
+    localStorage.setItem('natum_hub_print_list_column_config', JSON.stringify(newConfig));
+  };
+
+  const handleMoveColumn = (index: number, direction: 'up' | 'down') => {
+    const newOrder = [...columnOrder];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newOrder.length) return;
+    const temp = newOrder[index];
+    newOrder[index] = newOrder[targetIndex];
+    newOrder[targetIndex] = temp;
+    saveColumnOrder(newOrder);
+  };
+
+  // Load categories on mount
+  useEffect(() => {
+    api.getCategories().then(setCategories).catch(console.error);
+  }, []);
+
+  const handleUpdateManualQty = (code: string, qty: number | '') => {
+    const newQtys = { ...manualQtys };
+    if (qty === '') {
+      delete newQtys[code];
+    } else {
+      newQtys[code] = qty;
+    }
+    setManualQtys(newQtys);
+    localStorage.setItem('natum_hub_print_list_manual_qtys', JSON.stringify(newQtys));
+  };
+
+  const resolveRootCategory = (catId: string | null) => {
+    if (!catId) return null;
+    let current = catId;
+    let visited = new Set<string>();
+    visited.add(current);
+    while (true) {
+      const cat = categories.find(c => c.id === current);
+      if (cat && cat.parentId && !visited.has(cat.parentId)) {
+        current = cat.parentId;
+        visited.add(current);
+      } else {
+        break;
+      }
+    }
+    return current;
+  };
   
   // Manual adding search states
   const [showAddMenu, setShowAddMenu] = useState(false);
@@ -74,9 +184,20 @@ export function PrintListTab({ active = true }: { active?: boolean }) {
 
   // Filter print list items currently listed
   const selectedDemands = useMemo(() => {
-    const lookup = new Set(printList);
-    let result = demands.filter(d => lookup.has(d.itemCode));
+    const lookup = new Set(printList.map(c => c.replace(/\./g, '')));
+    let result = demands.filter(d => lookup.has((d.itemCode || '').replace(/\./g, '')));
     
+    // Mode-specific category isolation
+    if (mode === 'materia_prima') {
+      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_mp');
+    } else if (mode === 'embalagens') {
+      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_emb');
+    } else if (mode === 'coloracao') {
+      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_coloracao' || (d.itemCode && d.itemCode.replace(/\./g, '').startsWith('134')));
+    } else if (mode === 'apoio') {
+      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_apoio' || (d.itemCode && d.itemCode.replace(/\./g, '').startsWith('130')));
+    }
+
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter(d => 
@@ -86,24 +207,37 @@ export function PrintListTab({ active = true }: { active?: boolean }) {
     }
     
     return result;
-  }, [demands, printList, search]);
+  }, [demands, printList, search, mode, categories]);
 
   // Items available to add manually (not already in list)
   const availableItemsToAdd = useMemo(() => {
-    const lookup = new Set(printList);
+    const lookup = new Set(printList.map(c => c.replace(/\./g, '')));
     const q = addItemSearch.toLowerCase();
     
-    return demands
-      .filter(d => !lookup.has(d.itemCode))
+    let result = demands.filter(d => !lookup.has((d.itemCode || '').replace(/\./g, '')));
+
+    // Mode-specific category isolation
+    if (mode === 'materia_prima') {
+      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_mp');
+    } else if (mode === 'embalagens') {
+      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_emb');
+    } else if (mode === 'coloracao') {
+      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_coloracao' || (d.itemCode && d.itemCode.replace(/\./g, '').startsWith('134')));
+    } else if (mode === 'apoio') {
+      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_apoio' || (d.itemCode && d.itemCode.replace(/\./g, '').startsWith('130')));
+    }
+
+    return result
       .filter(d => 
         (d.itemCode || '').toLowerCase().includes(q) || 
         (d.description || '').toLowerCase().includes(q)
       )
       .slice(0, 15); // limit preview
-  }, [demands, printList, addItemSearch]);
+  }, [demands, printList, addItemSearch, mode, categories]);
 
   const handleAddItem = (code: string) => {
-    if (printList.includes(code)) return;
+    const cleanCode = code.replace(/\./g, '');
+    if (printList.some(c => c.replace(/\./g, '') === cleanCode)) return;
     const newList = [...printList, code];
     savePrintList(newList);
     setAddItemSearch('');
@@ -111,13 +245,38 @@ export function PrintListTab({ active = true }: { active?: boolean }) {
   };
 
   const handleRemoveItem = (code: string) => {
-    const newList = printList.filter(c => c !== code);
+    const cleanCode = code.replace(/\./g, '');
+    const newList = printList.filter(c => c.replace(/\./g, '') !== cleanCode);
     savePrintList(newList);
   };
 
   const handleClearList = () => {
     if (confirm("Tem certeza que deseja limpar toda a lista de impressão?")) {
       savePrintList([]);
+    }
+  };
+
+  const handleCreateQuotationFromList = async () => {
+    if (selectedDemands.length === 0) {
+      alert("A lista está vazia.");
+      return;
+    }
+    const title = prompt('Título para a nova cotação:');
+    if (!title) return;
+    try {
+      const itemCodes = selectedDemands.map(d => d.itemCode);
+      const recommendedQtys = selectedDemands.map(d => {
+        const manual = manualQtys[d.itemCode];
+        return manual !== undefined ? manual : Math.max(0, Math.round(d.recommendedQty));
+      });
+      await api.createQuotation(title, itemCodes, recommendedQtys);
+      alert('Cotação criada a partir da lista com sucesso!');
+      if (confirm('Deseja limpar os itens adicionados da lista?')) {
+        savePrintList(printList.filter(code => !itemCodes.includes(code)));
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao criar cotação a partir da lista.');
     }
   };
 
@@ -155,22 +314,56 @@ export function PrintListTab({ active = true }: { active?: boolean }) {
     });
     
     const rowsHtml = selectedDemands.map(item => {
-      return `
-        <tr>
-          <td style="font-family: monospace; font-size: 10px;">${item.itemCode || '-'}</td>
-          <td style="text-align: left; font-weight: 500; font-size: 10px;">${item.description || '-'}</td>
-          <td>${item.categoryName || 'Sem Categoria'}</td>
-          <td style="text-align: right;">${item.currentStock.toLocaleString('pt-BR')} ${item.unit || ''}</td>
-          <td style="text-align: right;">${item.overallAvg.toLocaleString('pt-BR')} ${item.unit || ''}</td>
-          <td style="text-align: right;">${item.futureStockForecast.toLocaleString('pt-BR')} ${item.unit || ''}</td>
-          <td style="text-align: right; font-weight: ${item.estimatedDurationDays < 60 ? 'bold' : 'normal'};">
-            ${item.estimatedDurationDays === 9999 ? '9999+' : `${item.estimatedDurationDays} dias`}
-          </td>
-          <td style="text-align: right; font-weight: bold; background-color: ${item.recommendedQty > 0 ? '#f4f4f5' : 'transparent'};">
-            ${item.recommendedQty > 0 ? `${item.recommendedQty.toLocaleString('pt-BR')} ${item.unit || ''}` : '-'}
-          </td>
-        </tr>
-      `;
+      const cellsHtml = columnOrder.map(colKey => {
+        if (!columns[colKey]) return '';
+        const qty = manualQtys[item.itemCode] !== undefined ? manualQtys[item.itemCode] : Math.max(0, Math.round(item.recommendedQty));
+        const daily = item.overallAvg / 30.0;
+        const futureStock = item.futureStockForecast || 0;
+        const postStock = Math.max(0, futureStock + qty);
+        const postDuration = daily > 0 ? Math.round(postStock / daily) : 9999;
+        
+        if (colKey === 'itemCode') {
+          return `
+            <td style="font-family: monospace; font-size: 10px;">${item.itemCode || '-'}</td>
+            <td style="text-align: left; font-weight: 500; font-size: 10px;">${item.description || '-'}</td>
+          `;
+        }
+        if (colKey === 'lastSupplierInvoice') {
+          return `<td style="text-align: left; font-size: 9px; max-width: 120px; white-space: normal;">${item.lastSupplierInvoice || '-'}</td>`;
+        }
+        if (colKey === 'lastSupplierOrder') {
+          return `<td style="text-align: left; font-size: 9px; max-width: 120px; white-space: normal;">${item.lastSupplierOrder || '-'}</td>`;
+        }
+        if (colKey === 'currentStock') {
+          return `<td style="text-align: right;">${item.currentStock.toLocaleString('pt-BR')} ${item.unit || ''}</td>`;
+        }
+        if (colKey === 'overallAvg') {
+          return `<td style="text-align: right;">${item.overallAvg.toLocaleString('pt-BR')} ${item.unit || ''}</td>`;
+        }
+        if (colKey === 'futureStockForecast') {
+          return `<td style="text-align: right;">${item.futureStockForecast.toLocaleString('pt-BR')} ${item.unit || ''}</td>`;
+        }
+        if (colKey === 'estimatedDurationDays') {
+          return `
+            <td style="text-align: center; font-weight: ${item.estimatedDurationDays < 60 ? 'bold' : 'normal'};">
+              ${item.estimatedDurationDays === 9999 ? '9999+' : `${item.estimatedDurationDays} dias`}
+            </td>
+          `;
+        }
+        if (colKey === 'recommendedQty') {
+          return `
+            <td style="text-align: right; font-weight: bold; background-color: #f4f4f5;">
+              <div>${qty > 0 ? `${qty.toLocaleString('pt-BR')} ${item.unit || ''}` : '-'}</div>
+              <div style="font-size: 8px; color: ${postDuration < 60 ? '#b91c1c' : postDuration < 90 ? '#b45309' : '#047857'}; font-weight: normal; margin-top: 2px; text-align: right;">
+                Pós: ${postDuration === 9999 ? '∞' : `${postDuration}d (${Math.round(postDuration / 30)}m)`}
+              </div>
+            </td>
+          `;
+        }
+        return '';
+      }).join('');
+      
+      return `<tr>${cellsHtml}</tr>`;
     }).join('');
     
     const printHtml = `
@@ -302,14 +495,14 @@ export function PrintListTab({ active = true }: { active?: boolean }) {
         <table>
           <thead>
             <tr>
-              <th style="width: 80px;">Código</th>
-              <th>Descrição</th>
-              <th style="width: 100px;">Subcategoria</th>
-              <th style="width: 70px; text-align: right;">Estoque</th>
-              <th style="width: 70px; text-align: right;">Consumo Mês</th>
-              <th style="width: 70px; text-align: right;">Prev. Futura</th>
-              <th style="width: 70px; text-align: right;">Duração Est.</th>
-              <th style="width: 85px; text-align: right; background-color: #f4f4f5; border-bottom: 2px solid #27272a;">Recomendado</th>
+              ${columnOrder.map(colKey => {
+                if (!columns[colKey]) return '';
+                if (colKey === 'itemCode') {
+                  return '<th style="width: 80px; text-align: left;">Código</th><th style="text-align: left;">Descrição</th>';
+                }
+                const meta = COLUMN_METADATA[colKey];
+                return `<th style="text-align: ${meta.align === 'right' ? 'right' : meta.align === 'center' ? 'center' : 'left'};">${meta.label}</th>`;
+              }).join('')}
             </tr>
           </thead>
           <tbody>
@@ -365,7 +558,7 @@ export function PrintListTab({ active = true }: { active?: boolean }) {
         <div className="text-left">
           <h3 className="font-extrabold text-zinc-900 text-lg flex items-center gap-2">
             <FileText className="h-5 w-5 text-zinc-700" />
-            Lista de Impressão de Matéria-Prima
+            Lista de Impressão — {mode === 'materia_prima' ? 'Matéria-Prima' : mode === 'embalagens' ? 'Embalagens' : mode === 'coloracao' ? 'Coloração' : mode === 'apoio' ? 'Material de Apoio' : 'Geral'}
           </h3>
           <p className="text-xs text-zinc-500 mt-0.5">
             Adicione insumos à lista a partir da aba principal ou pesquise abaixo para montar seu rascunho de compras.
@@ -390,6 +583,14 @@ export function PrintListTab({ active = true }: { active?: boolean }) {
             Limpar Lista
           </button>
           <button 
+            onClick={handleCreateQuotationFromList} 
+            disabled={selectedDemands.length === 0} 
+            className="text-xs bg-blue-600 text-white px-3.5 py-2 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 cursor-pointer shadow-sm transition-colors"
+          >
+            <ShoppingCart className="h-3.5 w-3.5" />
+            Enviar p/ Cotação ({selectedDemands.length})
+          </button>
+          <button 
             onClick={handlePrint} 
             disabled={selectedDemands.length === 0} 
             className="text-xs bg-zinc-900 text-white px-3.5 py-2 rounded-lg font-bold hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 cursor-pointer shadow-sm transition-colors"
@@ -397,6 +598,47 @@ export function PrintListTab({ active = true }: { active?: boolean }) {
             <Printer className="h-3.5 w-3.5" />
             Imprimir Relatório ({selectedDemands.length})
           </button>
+        </div>
+      </div>
+
+      {/* Column Customization & Reordering Panel */}
+      <div className="bg-white px-4 py-3 rounded-xl border border-zinc-200 shadow-sm flex flex-col gap-3 shrink-0">
+        <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
+          <Settings className="h-4 w-4 text-zinc-400" /> Ordenar & Habilitar Colunas do Relatório:
+        </span>
+        <div className="flex flex-wrap items-center gap-3">
+          {columnOrder.map((colKey, idx) => {
+            const meta = COLUMN_METADATA[colKey];
+            return (
+              <div key={colKey} className="bg-zinc-50 px-2.5 py-1.5 border border-zinc-200 rounded flex items-center gap-2 shadow-sm text-xs">
+                <input 
+                  type="checkbox" 
+                  checked={columns[colKey]} 
+                  onChange={e => saveColumnConfig({ ...columns, [colKey]: e.target.checked })} 
+                  className="rounded border-zinc-300 text-zinc-950 focus:ring-zinc-950 h-3.5 w-3.5 cursor-pointer"
+                />
+                <span className="font-semibold text-zinc-700">{meta.label}</span>
+                <div className="flex items-center gap-1 border-l border-zinc-200 pl-2 ml-1">
+                  <button
+                    onClick={() => handleMoveColumn(idx, 'up')}
+                    disabled={idx === 0}
+                    className="p-0.5 hover:bg-zinc-200 rounded disabled:opacity-30 text-[10px]"
+                    title="Mover para esquerda"
+                  >
+                    ◀
+                  </button>
+                  <button
+                    onClick={() => handleMoveColumn(idx, 'down')}
+                    disabled={idx === columnOrder.length - 1}
+                    className="p-0.5 hover:bg-zinc-200 rounded disabled:opacity-30 text-[10px]"
+                    title="Mover para direita"
+                  >
+                    ▶
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -485,55 +727,131 @@ export function PrintListTab({ active = true }: { active?: boolean }) {
               <div className="flex items-center justify-center h-full text-zinc-400 flex-col gap-2.5">
                 <Package className="h-10 w-10 text-zinc-300 animate-pulse" />
                 <p className="text-xs font-semibold text-zinc-500">Nenhum item na sua lista de impressão.</p>
-                <p className="text-[11px] text-zinc-400 max-w-xs leading-normal">
-                  Adicione insumos à lista clicando no ícone "+" ao lado de qualquer item na aba Matéria-Prima, ou use o botão "Adicionar Insumo..." acima.
+                <p className="text-[11px] text-zinc-400 max-w-xs leading-normal text-center">
+                  Adicione itens à lista clicando no ícone "+" ao lado de qualquer item nas abas de demanda.
                 </p>
               </div>
             ) : (
               <table className="w-full text-left text-xs whitespace-nowrap">
                 <thead className="bg-zinc-100 sticky top-0 z-10 shadow-sm">
                   <tr>
-                    <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200">Ref / Item</th>
-                    <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-right">Estoque</th>
-                    <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-right">Média Mês</th>
-                    <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-right">Prev. Futura</th>
-                    <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-center">Duração Est.</th>
-                    <th className="px-4 py-3 font-semibold text-zinc-900 border-b border-zinc-200 text-right">Qtd Recom.</th>
+                    {columnOrder.map(colKey => {
+                      if (!columns[colKey]) return null;
+                      const meta = COLUMN_METADATA[colKey];
+                      return (
+                        <th 
+                          key={colKey} 
+                          className={cn(
+                            "px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200",
+                            meta.align === 'right' && "text-right",
+                            meta.align === 'center' && "text-center"
+                          )}
+                        >
+                          {meta.label}
+                        </th>
+                      );
+                    })}
                     <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-center w-12">Remover</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
                   {selectedDemands.map(demand => (
                     <tr key={demand.itemCode} className="hover:bg-zinc-50/50 transition-colors">
-                      <td className="px-4 py-2.5">
-                        <div className="font-mono text-[10px] text-zinc-400">{demand.itemCode}</div>
-                        <div className="font-bold text-zinc-800 truncate max-w-sm" title={demand.description}>
-                          {demand.description}
-                        </div>
-                      </td>
-                      <td className="px-4 py-2.5 text-right">
-                        <div className="font-semibold text-zinc-800">{demand.currentStock.toLocaleString('pt-BR')} {demand.unit}</div>
-                      </td>
-                      <td className="px-4 py-2.5 text-right font-semibold text-zinc-700">
-                        {demand.overallAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {demand.unit}
-                      </td>
-                      <td className="px-4 py-2.5 text-right font-semibold text-zinc-850">
-                        {demand.futureStockForecast.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {demand.unit}
-                      </td>
-                      <td className="px-4 py-2.5 text-center">
-                        <span className={cn(
-                          "inline-flex items-center px-2 py-0.2 rounded-full text-[10px] font-bold", 
-                          demand.urgency === 'critical' && "bg-red-50 text-red-700", 
-                          demand.urgency === 'warning' && "bg-amber-50 text-amber-700", 
-                          demand.urgency === 'ok' && "bg-emerald-50 text-emerald-700"
-                        )}>
-                          {demand.estimatedDurationDays === 9999 ? '∞' : `${demand.estimatedDurationDays} dias`}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5 text-right">
-                        <span className="font-extrabold text-zinc-900 text-sm">{demand.recommendedQty.toLocaleString('pt-BR')}</span>
-                        <span className="text-[10px] text-zinc-500 ml-1">{demand.unit}</span>
-                      </td>
+                      {columnOrder.map(colKey => {
+                        if (!columns[colKey]) return null;
+                        
+                        if (colKey === 'itemCode') {
+                          return (
+                            <td key={colKey} className="px-4 py-2.5">
+                              <div className="font-mono text-[10px] text-zinc-400">{demand.itemCode}</div>
+                              <div className="font-bold text-zinc-800 truncate max-w-sm" title={demand.description}>
+                                {demand.description}
+                              </div>
+                            </td>
+                          );
+                        }
+                        if (colKey === 'lastSupplierInvoice') {
+                          return (
+                            <td key={colKey} className="px-4 py-2.5 text-left text-xs text-zinc-700 max-w-xs truncate" title={demand.lastSupplierInvoice}>
+                              {demand.lastSupplierInvoice || '-'}
+                            </td>
+                          );
+                        }
+                        if (colKey === 'lastSupplierOrder') {
+                          return (
+                            <td key={colKey} className="px-4 py-2.5 text-left text-xs text-zinc-700 max-w-xs truncate" title={demand.lastSupplierOrder}>
+                              {demand.lastSupplierOrder || '-'}
+                            </td>
+                          );
+                        }
+                        if (colKey === 'currentStock') {
+                          return (
+                            <td key={colKey} className="px-4 py-2.5 text-right font-semibold text-zinc-800">
+                              {demand.currentStock.toLocaleString('pt-BR')} {demand.unit}
+                            </td>
+                          );
+                        }
+                        if (colKey === 'overallAvg') {
+                          return (
+                            <td key={colKey} className="px-4 py-2.5 text-right font-semibold text-zinc-700">
+                              {demand.overallAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {demand.unit}
+                            </td>
+                          );
+                        }
+                        if (colKey === 'futureStockForecast') {
+                          return (
+                            <td key={colKey} className="px-4 py-2.5 text-right font-semibold text-zinc-750">
+                              {demand.futureStockForecast.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {demand.unit}
+                            </td>
+                          );
+                        }
+                        if (colKey === 'estimatedDurationDays') {
+                          return (
+                            <td key={colKey} className="px-4 py-2.5 text-center">
+                              <span className={cn(
+                                "inline-flex items-center px-2 py-0.2 rounded-full text-[10px] font-bold", 
+                                demand.urgency === 'critical' && "bg-red-50 text-red-700", 
+                                demand.urgency === 'warning' && "bg-amber-50 text-amber-700", 
+                                demand.urgency === 'ok' && "bg-emerald-50 text-emerald-700"
+                              )}>
+                                {demand.estimatedDurationDays === 9999 ? '∞' : `${demand.estimatedDurationDays} dias`}
+                              </span>
+                            </td>
+                          );
+                        }
+                        if (colKey === 'recommendedQty') {
+                          const qty = manualQtys[demand.itemCode] !== undefined ? manualQtys[demand.itemCode] : Math.max(0, Math.round(demand.recommendedQty));
+                          const daily = demand.overallAvg / 30.0;
+                          const futureStock = demand.futureStockForecast || 0;
+                          const postStock = Math.max(0, futureStock + qty);
+                          const postDuration = daily > 0 ? Math.round(postStock / daily) : 9999;
+                          
+                          return (
+                            <td key={colKey} className="px-4 py-2.5 text-right">
+                              <div className="flex flex-col items-end gap-1">
+                                <input
+                                  type="number"
+                                  value={qty}
+                                  onChange={(e) => {
+                                    const val = e.target.value === '' ? '' : Number(e.target.value);
+                                    handleUpdateManualQty(demand.itemCode, val);
+                                  }}
+                                  className="w-24 text-right text-xs border border-zinc-200 focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 rounded px-2 py-1 font-bold text-zinc-800 bg-white"
+                                />
+                                <span className="text-[10px] text-zinc-550">{demand.unit}</span>
+                                <span className={cn(
+                                  "text-[9px] font-bold px-1.5 py-0.5 rounded mt-0.5 whitespace-nowrap",
+                                  postDuration < 60 ? "bg-red-50 text-red-700" :
+                                  postDuration < 90 ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"
+                                )}>
+                                  Pós-compra: {postDuration === 9999 ? '∞' : `${postDuration}d (${Math.round(postDuration / 30)}m)`}
+                                </span>
+                              </div>
+                            </td>
+                          );
+                        }
+                        return null;
+                      })}
                       <td className="px-4 py-2.5 text-center">
                         <button 
                           onClick={() => handleRemoveItem(demand.itemCode)}

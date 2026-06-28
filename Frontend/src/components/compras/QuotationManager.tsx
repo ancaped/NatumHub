@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../lib/api';
 import { Quotation } from '../../types';
 import { QuotationDetail } from './QuotationDetail';
@@ -20,6 +20,7 @@ export function QuotationManager({ active = false }: { active?: boolean }) {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [activeQuotationTab, setActiveQuotationTab] = useState<'materia_prima' | 'embalagens' | 'coloracao' | 'apoio'>('materia_prima');
 
   useEffect(() => {
     if (!selectedId && active) {
@@ -38,6 +39,13 @@ export function QuotationManager({ active = false }: { active?: boolean }) {
       setLoading(false);
     }
   };
+
+  const filteredQuotations = useMemo(() => {
+    return quotations.filter(q => {
+      const qType = q.quotationType || 'materia_prima';
+      return qType === activeQuotationTab;
+    });
+  }, [quotations, activeQuotationTab]);
 
   const formatDate = (isoString?: string | null) => {
     if (!isoString) return '-';
@@ -67,6 +75,29 @@ export function QuotationManager({ active = false }: { active?: boolean }) {
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden flex flex-col h-[calc(100vh-6.25rem)]">
+      {/* Tab Navigation */}
+      <div className="flex border-b border-zinc-200 bg-zinc-50/50 shrink-0 px-4 pt-2 gap-1">
+        {[
+          { id: 'materia_prima', label: 'Matéria-Prima' },
+          { id: 'embalagens', label: 'Embalagens' },
+          { id: 'coloracao', label: 'Coloração' },
+          { id: 'apoio', label: 'Material de Apoio' },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveQuotationTab(tab.id as any)}
+            className={cn(
+              "px-4 py-2 text-xs font-bold border-t border-x rounded-t-lg transition-all focus:outline-none",
+              activeQuotationTab === tab.id
+                ? "bg-white border-zinc-200 text-zinc-950 -mb-[1px] relative z-10 font-extrabold"
+                : "border-transparent text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100/50"
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
       {/* Header & Filters */}
       <div className="p-4 border-b border-zinc-200 bg-zinc-50 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">
@@ -75,7 +106,7 @@ export function QuotationManager({ active = false }: { active?: boolean }) {
             <select 
               value={statusFilter} 
               onChange={e => setStatusFilter(e.target.value)}
-              className="text-sm border border-zinc-300 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+              className="text-sm border border-zinc-300 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-zinc-950 focus:outline-none"
             >
               <option value="">Todos os Status</option>
               {Object.entries(STATUS_MAP).map(([key, info]) => (
@@ -93,14 +124,14 @@ export function QuotationManager({ active = false }: { active?: boolean }) {
             <Loader2 className="h-5 w-5 animate-spin" />
             <span>Carregando cotações...</span>
           </div>
-        ) : quotations.length === 0 ? (
+        ) : filteredQuotations.length === 0 ? (
           <div className="flex items-center justify-center h-full text-zinc-500 flex-col gap-3">
             <ShoppingCart className="h-10 w-10 text-zinc-300" />
-            <p>Nenhuma cotação encontrada.</p>
+            <p>Nenhuma cotação encontrada nesta categoria.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {quotations.map(q => {
+            {filteredQuotations.map(q => {
               const statusInfo = STATUS_MAP[q.status] || { label: q.status, color: 'bg-zinc-100 text-zinc-800' };
               
               return (

@@ -83,7 +83,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'coloracao', label: 'Coloração', icon: Palette },
           ...getSubcategoryNavItems('cat_coloracao'),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
-          { id: 'registry', label: 'Cadastro', icon: Database },
+          { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
@@ -94,7 +94,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'apoio', label: 'Material de Apoio', icon: Tag },
           ...getSubcategoryNavItems('cat_apoio'),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
-          { id: 'registry', label: 'Cadastro', icon: Database },
+          { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
@@ -213,7 +213,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
             
             {navItems.some(i => i.id === 'print_list') && (
               <div className={activeTab !== 'print_list' ? 'hidden' : ''}>
-                <PrintListTab active={activeTab === 'print_list'} />
+                <PrintListTab active={activeTab === 'print_list'} mode={mode} />
               </div>
             )}
 

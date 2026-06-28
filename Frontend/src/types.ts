@@ -39,6 +39,36 @@ export interface Item {
   ignoredReason?: string | null;
 }
 
+// === LINHA DE PRODUTOS TYPES ===
+export type ProductLineStatus = 'ativo' | 'lancamento' | 'saindo_de_linha' | 'descontinuado' | 'terceirizado';
+
+export interface ProductLineStatusConfig {
+  value: ProductLineStatus;
+  label: string;
+  description: string;
+  color: string;
+  bgColor: string;
+  borderColor: string;
+  icon: string;
+}
+
+export const PRODUCT_LINE_STATUSES: ProductLineStatusConfig[] = [
+  { value: 'ativo', label: 'Ativa', description: 'Produção e compras normais com cálculos automáticos', color: 'text-emerald-700', bgColor: 'bg-emerald-50', borderColor: 'border-emerald-200', icon: '✅' },
+  { value: 'lancamento', label: 'Lançamento', description: 'Estoque definido manualmente até criar histórico de giro', color: 'text-blue-700', bgColor: 'bg-blue-50', borderColor: 'border-blue-200', icon: '🚀' },
+  { value: 'saindo_de_linha', label: 'Saindo de Linha', description: 'Produção usa insumos restantes, compras exclusivas bloqueadas', color: 'text-amber-700', bgColor: 'bg-amber-50', borderColor: 'border-amber-200', icon: '⚠️' },
+  { value: 'descontinuado', label: 'Saiu de Linha', description: 'Produção e compras completamente paralisadas', color: 'text-red-700', bgColor: 'bg-red-50', borderColor: 'border-red-200', icon: '🚫' },
+  { value: 'terceirizado', label: 'Terceirizado', description: 'Produção terceirizada, sem compras ou produção automática', color: 'text-purple-700', bgColor: 'bg-purple-50', borderColor: 'border-purple-200', icon: '🏭' },
+];
+
+export interface GraduationCandidate {
+  codigo: string;
+  descricao: string;
+  nome_linha: string;
+  meses_com_historico: number;
+  meta_meses: number;
+  lancamento_data_inicio: string | null;
+}
+
 export interface StockSnapshot {
   itemCode: string;
   stockQty: number;
@@ -87,6 +117,8 @@ export interface DemandResult {
   recommendedQty: number;
   urgency: 'critical' | 'warning' | 'ok';
   notes: string | null;
+  lastSupplierInvoice?: string;
+  lastSupplierOrder?: string;
 }
 
 export type QuotationStatus = 'draft' | 'pending_demand_approval' | 'quoting' | 'quoted' | 'pending_final_approval' | 'approved' | 'ordered';
@@ -105,6 +137,7 @@ export interface Quotation {
   orderedAt: string | null;
   itemCount?: number;
   totalValue?: number;
+  quotationType?: string | null;
 }
 
 export interface QuotationItem {

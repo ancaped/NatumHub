@@ -2,10 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ArrowLeft, Search, CheckCircle2, RefreshCw, X, ShieldAlert,
   Edit, Info, Check, Filter, Layers, ListFilter, AlertTriangle, HelpCircle,
-  Database, Trash2, Plus, Loader2, Settings
+  Database, Trash2, Plus, Loader2, Settings, Rocket, GraduationCap, UploadCloud
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { Category } from '../types';
+import { Category, PRODUCT_LINE_STATUSES, GraduationCandidate } from '../types';
 import { api } from '../lib/api';
 
 const API_BASE = 'http://127.0.0.1:3001/api';
@@ -88,6 +88,9 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const [obsForm, setObsForm] = useState('');
   const [isLaunchOverride, setIsLaunchOverride] = useState('AUTO'); // 'AUTO' | 'YES' | 'NO'
   const [visibleOverride, setVisibleOverride] = useState('1'); // '1' = visível, '0' = oculto
+  const [lancamentoMetaForm, setLancamentoMetaForm] = useState('6');
+  const [lancamentoDataInicioForm, setLancamentoDataInicioForm] = useState('');
+  const [graduationCandidates, setGraduationCandidates] = useState<GraduationCandidate[]>([]);
 
   // Bulk actions state
   const [bulkStatus, setBulkStatus] = useState('');
@@ -95,7 +98,14 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const [bulkLine, setBulkLine] = useState('');
   const [bulkObs, setBulkObs] = useState('');
 
-  const [activeAtivosTab, setActiveAtivosTab] = useState<'status' | 'linhas' | 'overrides' | 'configuracoes'>('status');
+  const [activeAtivosTab, setActiveAtivosTab] = useState<'status' | 'linhas' | 'kits' | 'overrides' | 'configuracoes'>('status');
+
+  // Kits Composition state
+  const [kitComposicao, setKitComposicao] = useState<any[]>([]);
+  const [kitCompNewKit, setKitCompNewKit] = useState('');
+  const [kitCompNewComp, setKitCompNewComp] = useState('');
+  const [kitCompSearch, setKitCompSearch] = useState('');
+  const [uploadingKitsConfig, setUploadingKitsConfig] = useState(false);
 
   // Reset selections when active tab changes
   useEffect(() => {
@@ -124,19 +134,29 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const [configNewCatName, setConfigNewCatName] = useState('');
   const [configNewCatParent, setConfigNewCatParent] = useState('');
   const [configIgnoredStatuses, setConfigIgnoredStatuses] = useState<string[]>([]);
+  const [globalDiasComerciais, setGlobalDiasComerciais] = useState('22');
+  const [globalLimitPerPage, setGlobalLimitPerPage] = useState('30');
+  const [globalLancamentoMeta, setGlobalLancamentoMeta] = useState('6');
+  const [globalSettingsSaving, setGlobalSettingsSaving] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [editCatName, setEditCatName] = useState('');
   const [editCatParent, setEditCatParent] = useState('');
+  const [configSubTab, setConfigSubTab] = useState<'parametros' | 'status' | 'categorias'>('parametros');
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [prodsRes, confRes, ovrRes, catsData, ignoredRes] = await Promise.all([
+      const [prodsRes, confRes, ovrRes, catsData, ignoredRes, gradRes, kitsRes, diasRes, limitRes, metaGlobalRes] = await Promise.all([
         fetch(`${API_BASE}/products?limit=5000&show_hidden=true`),
         fetch(`${API_BASE}/configs`),
         fetch(`${API_BASE}/overrides`),
         api.getCategories(),
-        fetch(`${API_BASE}/settings/ignored_product_statuses`)
+        fetch(`${API_BASE}/settings/ignored_product_statuses`),
+        fetch(`${API_BASE}/lancamento/graduation-check`),
+        fetch(`${API_BASE}/kits/composicao`),
+        fetch(`${API_BASE}/settings/dias_comerciais`),
+        fetch(`${API_BASE}/settings/limit_per_page`),
+        fetch(`${API_BASE}/settings/lancamento_meta_meses_global`)
       ]);
       
       if (prodsRes.ok && confRes.ok && ovrRes.ok) {
@@ -148,6 +168,29 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         setAllOverrides(overridesData || []);
         setCategories(catsData || []);
         
+        if (gradRes.ok) {
+          const gradData = await gradRes.json();
+          setGraduationCandidates(gradData || []);
+        }
+
+        if (kitsRes.ok) {
+          const kitsData = await kitsRes.json();
+          setKitComposicao(kitsData || []);
+        }
+
+        if (diasRes.ok) {
+          const d = await diasRes.json();
+          if (d && d.value) setGlobalDiasComerciais(d.value);
+        }
+        if (limitRes.ok) {
+          const l = await limitRes.json();
+          if (l && l.value) setGlobalLimitPerPage(l.value);
+        }
+        if (metaGlobalRes.ok) {
+          const m = await metaGlobalRes.json();
+          if (m && m.value) setGlobalLancamentoMeta(m.value);
+        }
+
         let ignoredList = ['descontinuado', 'terceirizado'];
         if (ignoredRes.ok) {
           try {
@@ -168,11 +211,159 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     }
   };
 
+  const handleSaveGlobalSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setGlobalSettingsSaving(true);
+    try {
+      const responses = await Promise.all([
+        fetch(`${API_BASE}/settings/dias_comerciais`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: globalDiasComerciais })
+        }),
+        fetch(`${API_BASE}/settings/limit_per_page`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: globalLimitPerPage })
+        }),
+        fetch(`${API_BASE}/settings/lancamento_meta_meses_global`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: globalLancamentoMeta })
+        })
+      ]);
+      if (responses.every(r => r.ok)) {
+        alert("Configurações globais salvas com sucesso!");
+        await loadData();
+      } else {
+        alert("Erro ao salvar algumas configurações.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Erro de conexão ao salvar.");
+    } finally {
+      setGlobalSettingsSaving(false);
+    }
+  };
+
+  const fetchKitComposicao = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/kits/composicao`);
+      if (res.ok) setKitComposicao(await res.json());
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleAddKitComposicao = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!kitCompNewKit.trim() || !kitCompNewComp.trim()) return;
+    try {
+      const res = await fetch(`${API_BASE}/kits/composicao`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kit_codigo: kitCompNewKit.trim(), componente_codigo: kitCompNewComp.trim() })
+      });
+      if (res.ok) {
+        setKitCompNewKit('');
+        setKitCompNewComp('');
+        await fetchKitComposicao();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Erro ao adicionar kit.');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Erro de conexão.');
+    }
+  };
+
+  const handleDeleteKitComposicao = async (kit: string, comp: string) => {
+    if (!window.confirm(`Remover componente ${comp} do kit ${kit}?`)) return;
+    try {
+      const res = await fetch(`${API_BASE}/kits/composicao/${kit}/${comp}`, { method: 'DELETE' });
+      if (res.ok) {
+        await fetchKitComposicao();
+      } else {
+        alert('Erro ao excluir relação.');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Erro de conexão.');
+    }
+  };
+
+  const handleUploadKitsConfig = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingKitsConfig(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await fetch(`${API_BASE}/kits/composicao/upload`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (res.ok) {
+        await fetchKitComposicao();
+        await loadData();
+      } else {
+        alert(data.error || 'Erro ao importar.');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Erro de conexão.');
+    } finally {
+      setUploadingKitsConfig(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleGraduateAll = async () => {
+    if (graduationCandidates.length === 0) return;
+    if (!confirm(`Graduar todos os ${graduationCandidates.length} candidatos para o status "Ativa"?`)) return;
+    setLoading(true);
+    try {
+      const codes = graduationCandidates.map(c => c.codigo);
+      const res = await fetch(`${API_BASE}/overrides/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          codigos: codes,
+          action: 'set_status',
+          value_str: 'ativo'
+        }),
+      });
+
+      if (res.ok) {
+        await loadData();
+      } else {
+        alert("Erro ao graduar produtos em lote.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao graduar produtos em lote.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadData();
   }, []);
 
   // Filtered Products
+  const isCategoryMatch = (prodCat: string | null, filterCat: string) => {
+    if (filterCat === 'ALL') return true;
+    if (filterCat === 'Sem Categoria') return !prodCat;
+    if (!prodCat) return false;
+    if (prodCat === filterCat) return true;
+    
+    // Check if parent category matches
+    const cat = categories.find(c => c.id === prodCat);
+    if (cat && cat.parentId === filterCat) return true;
+    
+    return false;
+  };
+
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
       const matchesSearch = 
@@ -185,23 +376,11 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
       const resolvedLine = p.linha_prefix_manual || p.linha_prefix;
       const matchesLine = lineFilter === 'ALL' || resolvedLine === lineFilter;
 
-      const resolvedCategory = p.categoria_produto || 'Sem Categoria';
-      const matchesCategory = categoryFilter === 'ALL' || resolvedCategory === categoryFilter;
+      const matchesCategory = isCategoryMatch(p.categoria_produto, categoryFilter);
 
       return matchesSearch && matchesStatus && matchesLine && matchesCategory;
     });
-  }, [products, search, statusFilter, lineFilter, categoryFilter]);
-
-  // Unique Categories for Filter
-  const uniqueCategories = useMemo(() => {
-    const cats = new Set<string>();
-    products.forEach(p => {
-      if (p.categoria_produto) {
-        cats.add(p.categoria_produto);
-      }
-    });
-    return Array.from(cats).sort();
-  }, [products]);
+  }, [products, search, statusFilter, lineFilter, categoryFilter, categories]);
 
   // Group categories by parent category
   const groupedCategories = useMemo(() => {
@@ -281,6 +460,8 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
           else if (override.is_lancamento_manual === 0) setIsLaunchOverride('NO');
           else setIsLaunchOverride('AUTO');
 
+          setLancamentoMetaForm(override.lancamento_meta_meses?.toString() || '6');
+          setLancamentoDataInicioForm(override.lancamento_data_inicio || '');
           if (override.visivel === 0) setVisibleOverride('0');
           else setVisibleOverride('1');
         } else {
@@ -289,6 +470,8 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
           setSalesOverride('');
           setOrdersOverride('');
           setIsLaunchOverride('AUTO');
+          setLancamentoMetaForm('6');
+          setLancamentoDataInicioForm('');
           setVisibleOverride('1');
         }
       }
@@ -305,7 +488,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
     setDrawerLoading(true);
     try {
-      const ovr: ProductOverride = {
+      const ovr = {
         codigo: selectedProduct.codigo,
         estoque_ideal_manual: idealStockOverride ? parseInt(idealStockOverride, 10) : null,
         pedidos_manual: ordersOverride ? parseInt(ordersOverride, 10) : null,
@@ -316,6 +499,8 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         linha_prefix_manual: lineOverride === 'AUTO' ? null : lineOverride,
         status_produto: statusForm || 'ativo',
         categoria_produto: categoryForm.trim() || null,
+        lancamento_meta_meses: statusForm === 'lancamento' ? parseInt(lancamentoMetaForm, 10) || 6 : null,
+        lancamento_data_inicio: statusForm === 'lancamento' ? (lancamentoDataInicioForm.trim() || new Date().toISOString().split('T')[0]) : null,
       };
 
       const res = await fetch(`${API_BASE}/overrides`, {
@@ -581,26 +766,33 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     const styles: Record<string, string> = {
       ativo: 'bg-emerald-50 text-emerald-700 border-emerald-100',
       lancamento: 'bg-sky-50 text-sky-700 border-sky-100',
+      saindo_de_linha: 'bg-amber-50 text-amber-700 border-amber-100',
       descontinuado: 'bg-rose-50 text-rose-700 border-rose-100',
-      apoio: 'bg-amber-50 text-amber-700 border-amber-100',
-      coloracao: 'bg-purple-50 text-purple-700 border-purple-100',
       terceirizado: 'bg-zinc-100 text-zinc-700 border-zinc-200',
       bases: 'bg-indigo-50 text-indigo-700 border-indigo-100',
     };
 
     const labels: Record<string, string> = {
-      ativo: 'Ativo / Em Linha',
+      ativo: 'Ativa',
       lancamento: 'Lançamento',
-      descontinuado: 'Sair de Linha',
-      apoio: 'Material de Apoio',
-      coloracao: 'Coloração',
+      saindo_de_linha: 'Saindo de Linha',
+      descontinuado: 'Saiu de Linha',
       terceirizado: 'Terceirizado',
       bases: 'Bases',
     };
 
+    const icons: Record<string, string> = {
+      ativo: '✅',
+      lancamento: '🚀',
+      saindo_de_linha: '⚠️',
+      descontinuado: '🚫',
+      terceirizado: '🏭',
+      bases: '🧪',
+    };
+
     return (
       <span className={cn("px-2 py-0.5 border text-[11px] font-bold rounded-full", styles[statusVal] || styles.ativo)}>
-        {labels[statusVal] || labels.ativo}
+        {icons[statusVal] || ''} {labels[statusVal] || labels.ativo}
       </span>
     );
   };
@@ -664,6 +856,16 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
             Definição de Linhas
           </button>
           <button
+            onClick={() => setActiveAtivosTab('kits')}
+            className={cn(
+              "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
+              activeAtivosTab === 'kits' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+            )}
+          >
+            <Database className="h-4 w-4" />
+            Composição de Kits
+          </button>
+          <button
             onClick={() => setActiveAtivosTab('overrides')}
             className={cn(
               "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
@@ -718,12 +920,14 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
             <h2 className="text-xl font-bold tracking-tight text-zinc-900">
               {activeAtivosTab === 'status' && 'Status dos Produtos'}
               {activeAtivosTab === 'linhas' && 'Definição de Linhas'}
+              {activeAtivosTab === 'kits' && 'Composição de Kits Comerciais'}
               {activeAtivosTab === 'overrides' && 'Audit de Overrides'}
               {activeAtivosTab === 'configuracoes' && 'Configurações'}
             </h2>
             <p className="text-xs text-zinc-500 mt-0.5">
               {activeAtivosTab === 'status' && 'Configure status, categorias e regras individuais por produto acabado.'}
               {activeAtivosTab === 'linhas' && 'Gerencie multiplicadores de estoque ideal e segurança para cada linha.'}
+              {activeAtivosTab === 'kits' && 'Gerencie a relação entre os kits comerciais e seus componentes individuais.'}
               {activeAtivosTab === 'overrides' && 'Visualize todos os overrides manuais ativos e limpe-os de forma centralizada.'}
               {activeAtivosTab === 'configuracoes' && 'Gerencie categorias, subcategorias e status ignorados.'}
             </p>
@@ -740,6 +944,30 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         <main className="flex-1 overflow-y-auto p-6 flex flex-col">
           {activeAtivosTab === 'status' && (
             <div className="flex-1 flex flex-col space-y-4 overflow-hidden">
+              {/* Graduation Candidates Banner */}
+              {graduationCandidates.length > 0 && (
+                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-white flex flex-col md:flex-row items-center justify-between gap-4 shrink-0 shadow-lg animate-in slide-in-from-top-4 duration-350">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-zinc-800 rounded-xl">
+                      <GraduationCap className="h-6 w-6 text-amber-400" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white">Graduação de Lançamentos</h4>
+                      <p className="text-xs text-zinc-400 mt-0.5">
+                        {graduationCandidates.length} produto{graduationCandidates.length > 1 ? 's lançados já atingiram' : ' lançado já atingiu'} a meta de meses de giro histórico e pode{graduationCandidates.length > 1 ? 'm' : ''} ser graduado{graduationCandidates.length > 1 ? 's' : ''} para Ativa.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={handleGraduateAll}
+                      className="px-3.5 py-2 bg-white text-zinc-900 rounded-xl text-xs font-bold hover:bg-zinc-200 transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      Graduar Todos em Lote
+                    </button>
+                  </div>
+                </div>
+              )}
               {/* Filtering and Search Header */}
               <div className="bg-white p-4 border border-zinc-200 rounded-2xl shadow-sm space-y-3 shrink-0">
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -763,13 +991,12 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                       className="w-full pl-3 pr-8 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 text-sm appearance-none cursor-pointer"
                     >
                       <option value="ALL">Todos os Status</option>
-                      <option value="ativo">Ativos / Em Linha</option>
-                      <option value="lancamento">Lançamentos</option>
-                      <option value="descontinuado">Sair de Linha / Descontinuado</option>
-                      <option value="apoio">Material de Apoio</option>
-                      <option value="coloracao">Coloração</option>
-                      <option value="terceirizado">Terceirizado</option>
-                      <option value="bases">Bases</option>
+                      <option value="ativo">✅ Ativa</option>
+                      <option value="lancamento">🚀 Lançamento</option>
+                      <option value="saindo_de_linha">⚠️ Saindo de Linha</option>
+                      <option value="descontinuado">🚫 Saiu de Linha</option>
+                      <option value="terceirizado">🏭 Terceirizado</option>
+                      <option value="bases">🧪 Bases</option>
                     </select>
                     <Filter className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400 pointer-events-none" />
                   </div>
@@ -801,8 +1028,13 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     >
                       <option value="ALL">Todas</option>
                       <option value="Sem Categoria">Sem Categoria</option>
-                      {uniqueCategories.map(cat => (
-                        <option key={cat} value={cat}>{cat}</option>
+                      {groupedCategories.map(group => (
+                        <optgroup key={group.root.id} label={group.root.name}>
+                          <option value={group.root.id}>{group.root.name} (Geral)</option>
+                          {group.subs.map(sub => (
+                            <option key={sub.id} value={sub.id}>{sub.name}</option>
+                          ))}
+                        </optgroup>
                       ))}
                     </select>
                   </div>
@@ -928,13 +1160,12 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                           className="bg-zinc-800 text-white border border-zinc-700 rounded-lg text-xs font-semibold py-1.5 px-2.5 focus:outline-none"
                         >
                           <option value="">Alterar para...</option>
-                          <option value="ativo">Ativo / Em Linha</option>
-                          <option value="lancamento">Lançamento</option>
-                          <option value="descontinuado">Sair de Linha / Descontinuado</option>
-                          <option value="apoio">Material de Apoio</option>
-                          <option value="coloracao">Coloração</option>
-                          <option value="terceirizado">Terceirizado</option>
-                          <option value="bases">Bases</option>
+                          <option value="ativo">✅ Ativa</option>
+                          <option value="lancamento">🚀 Lançamento</option>
+                          <option value="saindo_de_linha">⚠️ Saindo de Linha</option>
+                          <option value="descontinuado">🚫 Saiu de Linha</option>
+                          <option value="terceirizado">🏭 Terceirizado</option>
+                          <option value="bases">🧪 Bases</option>
                         </select>
                       </div>
 
@@ -1069,6 +1300,128 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     )}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {activeAtivosTab === 'kits' && (
+            <div className="flex-1 flex flex-col space-y-4 overflow-hidden">
+              <span className="text-xs font-bold text-zinc-450 shrink-0">
+                Gerencie a relação de componentes que compõem cada Kit comercial da Natum.
+              </span>
+
+              {/* Form to add a new relation & spreadsheet import */}
+              <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-5 space-y-4 shrink-0">
+                <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+                  
+                  {/* Add relation Form */}
+                  <form onSubmit={handleAddKitComposicao} className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-zinc-400 uppercase">Código do Kit</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: KIT001"
+                        value={kitCompNewKit}
+                        onChange={(e) => setKitCompNewKit(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-zinc-400 uppercase">Código do Componente</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: COMP001"
+                        value={kitCompNewComp}
+                        onChange={(e) => setKitCompNewComp(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold"
+                        required
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="w-full bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-colors cursor-pointer h-[36px]"
+                    >
+                      Vincular Componente
+                    </button>
+                  </form>
+
+                  {/* Excel import */}
+                  <div className="shrink-0 flex items-center">
+                    <label className="bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5 h-[36px]">
+                      <UploadCloud className="w-4 h-4 text-zinc-500" />
+                      {uploadingKitsConfig ? 'Enviando...' : 'Importar Excel (.xlsx)'}
+                      <input
+                        type="file"
+                        accept=".xlsx"
+                        className="hidden"
+                        onChange={handleUploadKitsConfig}
+                        disabled={uploadingKitsConfig}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              {/* Table of Composition */}
+              <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col flex-1">
+                {/* Search Bar inside Table Panel */}
+                <div className="p-4 border-b border-zinc-100 flex items-center shrink-0">
+                  <div className="relative w-72">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                    <input
+                      type="text"
+                      placeholder="Buscar por Kit ou Componente..."
+                      value={kitCompSearch}
+                      onChange={(e) => setKitCompSearch(e.target.value)}
+                      className="w-full pl-9 pr-4 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-medium"
+                    />
+                  </div>
+                </div>
+
+                {/* Scrollable Table Wrapper */}
+                <div className="overflow-y-auto flex-1">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500 sticky top-0 z-10">
+                      <tr>
+                        <th className="px-6 py-3">Código do Kit</th>
+                        <th className="px-6 py-3">Código do Componente</th>
+                        <th className="px-6 py-3 text-center w-28">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-100">
+                      {kitComposicao.filter(row => 
+                        (row.kit_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase()) || 
+                        (row.componente_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase())
+                      ).length === 0 ? (
+                        <tr>
+                          <td colSpan={3} className="p-8 text-center text-zinc-400">
+                            Nenhuma relação de composição de kits encontrada.
+                          </td>
+                        </tr>
+                      ) : (
+                        kitComposicao.filter(row => 
+                          (row.kit_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase()) || 
+                          (row.componente_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase())
+                        ).map((row) => (
+                          <tr key={`${row.kit_codigo}-${row.componente_codigo}`} className="hover:bg-zinc-50/50 transition-colors">
+                            <td className="px-6 py-3 font-mono font-bold text-zinc-800">{row.kit_codigo}</td>
+                            <td className="px-6 py-3 font-mono text-zinc-650">{row.componente_codigo}</td>
+                            <td className="px-6 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                onClick={() => handleDeleteKitComposicao(row.kit_codigo, row.componente_codigo)}
+                                className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-150 transition-colors cursor-pointer inline-flex items-center justify-center"
+                                title="Desvincular componente do kit"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
@@ -1216,135 +1569,295 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
           {activeAtivosTab === 'configuracoes' && (
             <div className="flex-1 flex flex-col space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Column 1: Gestão de Categorias */}
-                <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col p-6 space-y-4">
-                  <h3 className="text-sm font-bold text-zinc-900 border-b border-zinc-100 pb-2">
-                    Gestão de Categorias e Subcategorias
-                  </h3>
-                  
-                  {/* Form to add subcategory */}
-                  <form onSubmit={handleAddCategory} className="space-y-3">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-zinc-400 uppercase">Nome da Subcategoria</label>
-                      <input
-                        type="text"
-                        placeholder="Ex: Tonalizantes, Fragrâncias Florais, etc."
-                        value={configNewCatName}
-                        onChange={(e) => setConfigNewCatName(e.target.value)}
-                        className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-medium"
-                        required
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-zinc-400 uppercase">Categoria Pai (Root)</label>
-                      <select
-                        value={configNewCatParent}
-                        onChange={(e) => setConfigNewCatParent(e.target.value)}
-                        className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-medium"
-                        required
-                      >
-                        <option value="">Selecione uma categoria pai...</option>
-                        <option value="cat_mp">Matéria Prima</option>
-                        <option value="cat_emb">Embalagem</option>
-                        <option value="cat_mat">Materiais</option>
-                        <option value="cat_coloracao">Coloração</option>
-                        <option value="cat_apoio">Material de Apoio</option>
-                      </select>
-                    </div>
-                    <button
-                      type="submit"
-                      className="w-full bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold py-2 rounded-xl shadow-sm transition-all cursor-pointer"
-                    >
-                      Adicionar Subcategoria
-                    </button>
-                  </form>
+              {/* Secondary Sub-Tabs Nav */}
+              <div className="flex border-b border-zinc-200 shrink-0">
+                <button
+                  onClick={() => setConfigSubTab('parametros')}
+                  className={cn(
+                    "px-6 py-3 text-xs font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer flex items-center gap-2 focus:outline-none",
+                    configSubTab === 'parametros'
+                      ? "border-zinc-900 text-zinc-900"
+                      : "border-transparent text-zinc-450 hover:text-zinc-700 hover:border-zinc-200"
+                  )}
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  Parâmetros Gerais
+                </button>
+                <button
+                  onClick={() => setConfigSubTab('status')}
+                  className={cn(
+                    "px-6 py-3 text-xs font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer flex items-center gap-2 focus:outline-none",
+                    configSubTab === 'status'
+                      ? "border-zinc-900 text-zinc-900"
+                      : "border-transparent text-zinc-450 hover:text-zinc-700 hover:border-zinc-200"
+                  )}
+                >
+                  <Filter className="w-3.5 h-3.5" />
+                  Status de Planejamento
+                </button>
+                <button
+                  onClick={() => setConfigSubTab('categorias')}
+                  className={cn(
+                    "px-6 py-3 text-xs font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer flex items-center gap-2 focus:outline-none",
+                    configSubTab === 'categorias'
+                      ? "border-zinc-900 text-zinc-900"
+                      : "border-transparent text-zinc-450 hover:text-zinc-700 hover:border-zinc-200"
+                  )}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  Categorias e Subcategorias
+                </button>
+              </div>
 
-                  {/* List of subcategories */}
-                  <div className="flex-1 overflow-y-auto max-h-[300px] border border-zinc-100 rounded-xl divide-y divide-zinc-50">
-                    {categories.filter(c => c.parentId !== null).length === 0 ? (
-                      <div className="p-4 text-center text-zinc-400 text-xs italic">
-                        Nenhuma subcategoria personalizada cadastrada.
+              {/* Sub-Tab Contents */}
+              <div className="flex-1 overflow-y-auto pr-1">
+                {configSubTab === 'parametros' && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+                    <div className="md:col-span-1 bg-white border border-zinc-200 rounded-2xl shadow-sm p-6 space-y-4">
+                      <h3 className="text-sm font-bold text-zinc-900 border-b border-zinc-100 pb-2">
+                        Parâmetros Globais do Sistema
+                      </h3>
+                      <form onSubmit={handleSaveGlobalSettings} className="space-y-3.5 text-left">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-zinc-400 uppercase">Dias Comerciais por Mês</label>
+                          <input
+                            type="number"
+                            className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold text-zinc-800"
+                            value={globalDiasComerciais}
+                            onChange={(e) => setGlobalDiasComerciais(e.target.value)}
+                            required
+                          />
+                          <span className="text-[9px] text-zinc-450 block leading-tight">
+                            Usado para converter os meses ideais e prazos em dias na tabela.
+                          </span>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-zinc-400 uppercase">Itens por Página (Tabelas)</label>
+                          <input
+                            type="number"
+                            className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold text-zinc-800"
+                            value={globalLimitPerPage}
+                            onChange={(e) => setGlobalLimitPerPage(e.target.value)}
+                            required
+                          />
+                          <span className="text-[9px] text-zinc-450 block leading-tight">
+                            Define a paginação padrão das listagens de estoque e produção.
+                          </span>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-zinc-400 uppercase">Meta de Giro Global (Meses para Lançamentos)</label>
+                          <input
+                            type="number"
+                            className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold text-zinc-800"
+                            value={globalLancamentoMeta}
+                            onChange={(e) => setGlobalLancamentoMeta(e.target.value)}
+                            required
+                          />
+                          <span className="text-[9px] text-zinc-450 block leading-tight">
+                            Duração padrão para a formatura do Lançamento para Ativo se não houver ajuste individual.
+                          </span>
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={globalSettingsSaving}
+                          className="w-full bg-zinc-900 hover:bg-zinc-850 disabled:bg-zinc-300 text-white text-xs font-bold py-2 rounded-xl shadow-sm transition-all cursor-pointer flex justify-center items-center"
+                        >
+                          {globalSettingsSaving ? 'Salvando...' : 'Salvar Parâmetros Globais'}
+                        </button>
+                      </form>
+                    </div>
+
+                    <div className="md:col-span-2 bg-white border border-zinc-200 rounded-2xl shadow-sm p-6 space-y-4">
+                      <h3 className="text-sm font-bold text-zinc-900 border-b border-zinc-100 pb-2">
+                        Diretrizes de Roteamento e Regras de Negócio
+                      </h3>
+                      
+                      <div className="space-y-4 text-xs text-zinc-650 leading-relaxed text-left">
+                        <div>
+                          <h4 className="font-extrabold text-zinc-850 flex items-center gap-1.5 mb-1">
+                            <span className="p-1 bg-zinc-100 rounded text-[9px] font-bold text-zinc-600">FG</span>
+                            Comportamento por Status do Produto
+                          </h4>
+                          <ul className="list-disc pl-4 space-y-1 text-zinc-500 text-[11px]">
+                            <li><strong>Ativa:</strong> Estoque ideal calculado via Dias-Estoque da Linha x Média Móvel de Vendas.</li>
+                            <li><strong>Lançamento:</strong> Estoque ideal fixo manual (`meta_meses`). Gradua automaticamente para Ativa após atingir o histórico de giro configurado.</li>
+                            <li><strong>Saindo de Linha:</strong> Produção ativa apenas para consumir materiais remanescentes. Compras de insumos exclusivos são paralisadas gradativamente (embalagens primeiro).</li>
+                          </ul>
+                        </div>
+
+                        <div>
+                          <h4 className="font-extrabold text-zinc-850 flex items-center gap-1.5 mb-1">
+                            <span className="p-1 bg-zinc-100 rounded text-[9px] font-bold text-zinc-600">CAT</span>
+                            Roteamento de Compras por Categoria
+                          </h4>
+                          <p className="text-[11px] text-zinc-500">
+                            A categoria principal do produto acabado ou de seus insumos determina em qual painel do módulo de Compras o planejamento será realizado:
+                          </p>
+                          <ul className="list-disc pl-4 mt-1 space-y-1 text-zinc-500 text-[11px]">
+                            <li><strong>Matéria-Prima / Embalagem Geral:</strong> Direcionado ao painel geral de Compras.</li>
+                            <li><strong>Coloração (`cat_coloracao`):</strong> Direcionado ao painel exclusivo **Compras &gt; Coloração**, operando com dias de cobertura parametrizados independentemente.</li>
+                            <li><strong>Material de Apoio (`cat_apoio`):</strong> Direcionado ao painel exclusivo **Compras &gt; Material de Apoio**.</li>
+                          </ul>
+                        </div>
+
+                        <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-3 space-y-1.5">
+                          <h5 className="font-bold text-amber-800 text-[11px] flex items-center gap-1">
+                            ⚠️ Regra de Auto-Suspensão Inteligente (Fim de Linha)
+                          </h5>
+                          <p className="text-[10px] text-amber-700">
+                            Para evitar perdas de matéria-prima, insumos de produtos <strong>Saindo de Linha</strong> não são suspensos todos de uma vez:
+                            Embalagens exclusivas são suspensas imediatamente, mas matérias-primas continuam sendo compradas enquanto houver estoque remanescente de embalagens exclusivas do produto acabado, otimizando o escoamento total do produto.
+                          </p>
+                        </div>
                       </div>
-                    ) : (
-                      categories.filter(c => c.parentId !== null).map(cat => {
-                        const parentName = categories.find(p => p.id === cat.parentId)?.name || cat.parentId;
-                        return (
-                          <div key={cat.id} className="flex justify-between items-center p-3 text-xs hover:bg-zinc-50 transition-colors">
-                            <div>
-                              <div className="font-bold text-zinc-800">{cat.name}</div>
-                              <div className="text-[10px] text-zinc-400 uppercase font-semibold">Pai: {parentName}</div>
-                            </div>
-                            <button
-                              onClick={() => handleDeleteCategory(cat.id)}
-                              className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[10px] font-bold border border-rose-100 transition-colors cursor-pointer"
-                            >
-                              Excluir
-                            </button>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-
-                {/* Column 2: Status Suspensos & Explicações */}
-                <div className="flex flex-col space-y-6">
-                  {/* Card: Status Ignorados */}
-                  <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-6 space-y-4">
-                    <h3 className="text-sm font-bold text-zinc-900 border-b border-zinc-100 pb-2">
-                      Ignorar Status no Planejamento
-                    </h3>
-                    <p className="text-xs text-zinc-500 leading-relaxed">
-                      Selecione quais status de produtos devem ser ignorados para as estimativas de durabilidade,
-                      cálculos de consumo mensal médio e solicitações de compra de insumos.
-                    </p>
-                    
-                    <div className="space-y-2 pt-2">
-                      {['ativo', 'lancamento', 'descontinuado', 'terceirizado', 'bases'].map(statusVal => {
-                        const labelMap: Record<string, string> = {
-                          ativo: 'Ativo / Em Linha',
-                          lancamento: 'Lançamento',
-                          descontinuado: 'Descontinuado / Sair de Linha',
-                          terceirizado: 'Terceirizado',
-                          bases: 'Bases'
-                        };
-                        const isChecked = configIgnoredStatuses.includes(statusVal);
-                        return (
-                          <label key={statusVal} className="flex items-center gap-3 p-2 hover:bg-zinc-50 rounded-xl transition-colors cursor-pointer border border-zinc-100">
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => handleToggleIgnoredStatus(statusVal)}
-                              className="rounded border-zinc-350 text-zinc-900 focus:ring-zinc-900 h-4 w-4"
-                            />
-                            <div>
-                              <div className="text-xs font-bold text-zinc-800">{labelMap[statusVal]}</div>
-                              <span className="text-[10px] text-zinc-400 font-semibold leading-none">
-                                {statusVal === 'descontinuado' && 'Recomendado. Ignora compras de matéria-prima, produz apenas até zerar.'}
-                                {statusVal === 'terceirizado' && 'Recomendado. Produto produzido fora, não planeja compras de embalagem/MP.'}
-                                {statusVal === 'bases' && 'Evita duplicar insumos já cobertos no módulo de Produção.'}
-                                {statusVal === 'ativo' && 'Geralmente planejado normalmente.'}
-                                {statusVal === 'lancamento' && 'Geralmente planejado com estoque regulador fixo.'}
-                              </span>
-                            </div>
-                          </label>
-                        );
-                      })}
                     </div>
                   </div>
+                )}
 
-                  {/* Card: Explicações */}
-                  <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-6 space-y-3 leading-relaxed">
-                    <h4 className="text-xs font-bold text-zinc-700 uppercase tracking-wider">Status vs Categorias</h4>
-                    <p className="text-xs text-zinc-650">
-                      <strong>Status do Produto:</strong> Determina o comportamento de produção e as ordens no painel de Gerenciamento. Produtos com status "Descontinuado" não abrem novas ordens se não houver matéria-prima. Produtos "Lançamento" usam um estoque regulador fixo em vez de média móvel de 12 meses.
-                    </p>
-                    <p className="text-xs text-zinc-650 mt-1">
-                      <strong>Categorias do Produto:</strong> Determinam em qual módulo de compras o produto será exibido. Por exemplo, produtos com categoria de Coloração (ou suas subcategorias) vão para o módulo de <strong>Compras &gt; Coloração</strong>, enquanto Material de Apoio vai para <strong>Compras &gt; Apoio</strong>.
-                    </p>
+                {configSubTab === 'status' && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+                    <div className="md:col-span-1 bg-white border border-zinc-200 rounded-2xl shadow-sm p-6 space-y-4">
+                      <h3 className="text-sm font-bold text-zinc-900 border-b border-zinc-100 pb-2">
+                        Filtros Globais de Planejamento (Status Ignorados)
+                      </h3>
+                      <p className="text-xs text-zinc-500 leading-relaxed">
+                        Selecione quais status de produtos acabados devem ser <strong>desconsiderados</strong> na consolidação automática de demanda de insumos. Insumos exclusivos de produtos com os status marcados serão auto-suspensos no painel de Compras.
+                      </p>
+                      
+                      <div className="space-y-2 pt-2">
+                        {['ativo', 'lancamento', 'saindo_de_linha', 'descontinuado', 'terceirizado', 'bases'].map(statusVal => {
+                          const labelMap: Record<string, string> = {
+                            ativo: '✅ Ativa',
+                            lancamento: '🚀 Lançamento',
+                            saindo_de_linha: '⚠️ Saindo de Linha',
+                            descontinuado: '🚫 Saiu de Linha',
+                            terceirizado: '🏭 Terceirizado',
+                            bases: '🧪 Bases'
+                          };
+                          const descMap: Record<string, string> = {
+                            ativo: 'Planejamento normal de produção e compras.',
+                            lancamento: 'Produção utiliza meta manual e cálculo de faturamento progressivo.',
+                            saindo_de_linha: 'Recomendado ignorar parcialmente (compra bloqueada, consome estoque).',
+                            descontinuado: 'Recomendado ignorar. Produção suspensa e compras zeradas.',
+                            terceirizado: 'Recomendado ignorar. Sem requisição de insumos pelo sistema.',
+                            bases: 'Evita duplicar estoque de insumos que já fazem parte de formulações internas.',
+                          };
+                          const isChecked = configIgnoredStatuses.includes(statusVal);
+                          return (
+                            <label key={statusVal} className="flex items-center gap-3 p-2.5 hover:bg-zinc-50 rounded-xl transition-colors cursor-pointer border border-zinc-100">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => handleToggleIgnoredStatus(statusVal)}
+                                className="rounded border-zinc-350 text-zinc-900 focus:ring-zinc-900 h-4 w-4"
+                              />
+                              <div>
+                                <div className="text-xs font-bold text-zinc-800">{labelMap[statusVal]}</div>
+                                <span className="text-[10px] text-zinc-400 font-semibold leading-none">
+                                  {descMap[statusVal]}
+                                </span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="md:col-span-2 bg-zinc-50 border border-zinc-200 rounded-2xl p-6 space-y-4 text-xs text-zinc-650 leading-relaxed text-left">
+                      <h4 className="font-bold text-zinc-700 uppercase tracking-wider">Como funciona o bloqueio de Status?</h4>
+                      <p>
+                        Marcar um status como <strong>Ignorado</strong> impede que o motor de planejamento do NatumHub inclua os produtos suspensos nas planilhas de demanda de compras e estimativas de dias de estoque.
+                      </p>
+                      <p>
+                        Isso é crucial para evitar alertas falsos de compras para insumos de itens que saíram de catálogo ou cuja produção é terceirizada e não consome estoque local de matérias-primas.
+                      </p>
+                      <p>
+                        Note que o status <strong>Saindo de Linha</strong> tem comportamento dinâmico e inteligente para matérias-primas mesmo se marcado como suspenso, pois visa consumir os saldos remanescentes das embalagens associadas.
+                      </p>
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {configSubTab === 'categorias' && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+                    <div className="md:col-span-1 bg-white border border-zinc-200 rounded-2xl shadow-sm p-6 space-y-4">
+                      <h3 className="text-sm font-bold text-zinc-900 border-b border-zinc-100 pb-2">
+                        Nova Subcategoria
+                      </h3>
+                      
+                      <form onSubmit={handleAddCategory} className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-zinc-400 uppercase">Nome da Subcategoria</label>
+                          <input
+                            type="text"
+                            placeholder="Ex: Tonalizantes, Fragrâncias Florais, etc."
+                            value={configNewCatName}
+                            onChange={(e) => setConfigNewCatName(e.target.value)}
+                            className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-medium"
+                            required
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-zinc-400 uppercase">Categoria Pai (Root)</label>
+                          <select
+                            value={configNewCatParent}
+                            onChange={(e) => setConfigNewCatParent(e.target.value)}
+                            className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-medium"
+                            required
+                          >
+                            <option value="">Selecione uma categoria pai...</option>
+                            <option value="cat_mp">Matéria Prima</option>
+                            <option value="cat_emb">Embalagem</option>
+                            <option value="cat_mat">Materiais</option>
+                            <option value="cat_coloracao">Coloração</option>
+                            <option value="cat_apoio">Material de Apoio</option>
+                          </select>
+                        </div>
+                        <button
+                          type="submit"
+                          className="w-full bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold py-2 rounded-xl shadow-sm transition-all cursor-pointer"
+                        >
+                          Adicionar Subcategoria
+                        </button>
+                      </form>
+                    </div>
+
+                    <div className="md:col-span-2 bg-white border border-zinc-200 rounded-2xl shadow-sm p-6 space-y-4">
+                      <h3 className="text-sm font-bold text-zinc-900 border-b border-zinc-100 pb-2">
+                        Subcategorias Personalizadas Cadastradas
+                      </h3>
+                      
+                      <div className="overflow-y-auto max-h-[350px] border border-zinc-100 rounded-xl divide-y divide-zinc-50">
+                        {categories.filter(c => c.parentId !== null).length === 0 ? (
+                          <div className="p-4 text-center text-zinc-400 text-xs italic">
+                            Nenhuma subcategoria personalizada cadastrada.
+                          </div>
+                        ) : (
+                          categories.filter(c => c.parentId !== null).map(cat => {
+                            const parentName = categories.find(p => p.id === cat.parentId)?.name || cat.parentId;
+                            return (
+                              <div key={cat.id} className="flex justify-between items-center p-3 text-xs hover:bg-zinc-50 transition-colors">
+                                <div>
+                                  <div className="font-bold text-zinc-800">{cat.name}</div>
+                                  <div className="text-[10px] text-zinc-400 uppercase font-semibold">Pai: {parentName}</div>
+                                </div>
+                                <button
+                                  onClick={() => handleDeleteCategory(cat.id)}
+                                  className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[10px] font-bold border border-rose-100 transition-colors cursor-pointer"
+                                >
+                                  Excluir
+                                </button>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1545,16 +2058,43 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                 onChange={(e) => setStatusForm(e.target.value)}
                 className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
               >
-                <option value="ativo">Ativo / Em Linha (Padrão)</option>
-                <option value="lancamento">Lançamento</option>
-                <option value="descontinuado">Sair de Linha / Descontinuado</option>
-                <option value="terceirizado">Terceirizado</option>
-                <option value="bases">Bases</option>
+                {PRODUCT_LINE_STATUSES.map(s => (
+                  <option key={s.value} value={s.value}>{s.icon} {s.label}</option>
+                ))}
+                <option value="bases">🧪 Bases</option>
               </select>
               <span className="text-[10px] text-zinc-400 font-semibold block leading-tight">
-                Status alteram o comportamento de demandas de compras e recomendações de produção.
+                {PRODUCT_LINE_STATUSES.find(s => s.value === statusForm)?.description || 'Status alteram o comportamento de demandas de compras e recomendações de produção.'}
               </span>
             </div>
+
+            {/* Launch Parameters (conditional) */}
+            {statusForm === 'lancamento' && (
+              <div className="bg-zinc-50 border border-zinc-150 rounded-xl p-3.5 space-y-3 animate-in fade-in duration-200">
+                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">Configurações de Lançamento</span>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-zinc-650 block">Meta de Giro (Meses)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={lancamentoMetaForm}
+                      onChange={(e) => setLancamentoMetaForm(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-zinc-650 block">Data de Início</label>
+                    <input
+                      type="date"
+                      value={lancamentoDataInicioForm}
+                      onChange={(e) => setLancamentoDataInicioForm(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-semibold"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Grouped Category Select */}
             <div className="space-y-1.5">

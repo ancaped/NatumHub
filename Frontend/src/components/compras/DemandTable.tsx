@@ -428,7 +428,6 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
         <tr>
           <td style="font-family: monospace; font-size: 10px;">${item.itemCode || '-'}</td>
           <td style="text-align: left; font-weight: 500; font-size: 10px;">${item.description || '-'}</td>
-          <td>${item.categoryName || 'Sem Categoria'}</td>
           <td style="text-align: right;">${item.currentStock.toLocaleString('pt-BR')} ${item.unit || ''}</td>
           <td style="text-align: right;">${item.overallAvg.toLocaleString('pt-BR')} ${item.unit || ''}</td>
           <td style="text-align: right;">${item.futureStockForecast.toLocaleString('pt-BR')} ${item.unit || ''}</td>
@@ -574,7 +573,6 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
             <tr>
               <th style="width: 80px;">Código</th>
               <th>Descrição</th>
-              <th style="width: 100px;">Subcategoria</th>
               <th style="width: 70px; text-align: right;">Estoque</th>
               <th style="width: 70px; text-align: right;">Consumo Mês</th>
               <th style="width: 70px; text-align: right;">Prev. Futura</th>

@@ -48,6 +48,9 @@ pub struct ProductOverride {
     pub linha_prefix_manual: Option<String>,
     pub status_produto: Option<String>,
     pub categoria_produto: Option<String>,
+    pub produzir_apenas_kit: Option<i32>,
+    pub lancamento_meta_meses: Option<i64>,
+    pub lancamento_data_inicio: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -77,6 +80,10 @@ pub struct ProductCalculationResult {
     pub linha_prefix_manual: Option<String>,
     pub status_produto: Option<String>,
     pub categoria_produto: Option<String>,
+    pub produzir_apenas_kit: Option<i32>,
+    pub lancamento_meta_meses: Option<i64>,
+    pub lancamento_data_inicio: Option<String>,
+    pub is_kit_component: Option<bool>,
 
     // Sales Statistics
     pub media_vendas: f64,          // Mean of sales
@@ -523,6 +530,7 @@ pub struct ProductFormulationLine {
     pub quantity: f64,
     pub percentage: Option<f64>,
     pub current_stock: f64,
+    pub category_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

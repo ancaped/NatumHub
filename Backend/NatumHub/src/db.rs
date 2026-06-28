@@ -94,6 +94,55 @@ impl Db {
         let _ = conn.execute("ALTER TABLE overrides_produtos ADD COLUMN linha_prefix_manual TEXT", []);
         let _ = conn.execute("ALTER TABLE overrides_produtos ADD COLUMN status_produto TEXT DEFAULT 'ativo'", []);
         let _ = conn.execute("ALTER TABLE overrides_produtos ADD COLUMN categoria_produto TEXT", []);
+        let _ = conn.execute("ALTER TABLE overrides_produtos ADD COLUMN produzir_apenas_kit INTEGER DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE overrides_produtos ADD COLUMN lancamento_meta_meses INTEGER DEFAULT 6", []);
+        let _ = conn.execute("ALTER TABLE overrides_produtos ADD COLUMN lancamento_data_inicio TEXT", []);
+
+        // Migration: Move coloracao/apoio from status_produto to categoria_produto
+        if conn.query_row("SELECT 1 FROM settings WHERE key = 'migration_status_to_category_v2'", [], |_| Ok(())).is_err() {
+            let _ = conn.execute(
+                "UPDATE overrides_produtos SET categoria_produto = 'cat_coloracao' WHERE status_produto = 'coloracao' AND (categoria_produto IS NULL OR categoria_produto = '')",
+                [],
+            );
+            let _ = conn.execute(
+                "UPDATE overrides_produtos SET categoria_produto = 'cat_apoio' WHERE status_produto = 'apoio' AND (categoria_produto IS NULL OR categoria_produto = '')",
+                [],
+            );
+            let _ = conn.execute(
+                "UPDATE overrides_produtos SET status_produto = 'ativo' WHERE status_produto = 'coloracao' OR status_produto = 'apoio'",
+                [],
+            );
+
+            // Clean up settings: remove 'coloracao' and 'apoio' from ignored_product_statuses JSON list
+            if let Ok(val_opt) = conn.query_row(
+                "SELECT value FROM settings WHERE key = 'ignored_product_statuses'",
+                [],
+                |row| row.get::<_, String>(0),
+            ) {
+                if let Ok(mut list) = serde_json::from_str::<Vec<String>>(&val_opt) {
+                    let orig_len = list.len();
+                    list.retain(|s| s != "coloracao" && s != "apoio");
+                    if list.len() != orig_len {
+                        if let Ok(new_val) = serde_json::to_string(&list) {
+                            let _ = conn.execute(
+                                "UPDATE settings SET value = ?1 WHERE key = 'ignored_product_statuses'",
+                                [new_val],
+                            );
+                        }
+                    }
+                }
+            }
+
+            let _ = conn.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES ('migration_status_to_category_v2', 'done')",
+                [],
+            );
+        }
+
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES ('lancamento_meta_meses_global', '6')",
+            [],
+        );
 
         // Migrations: snapshot columns in historico_producao
         let snap_cols = [
@@ -192,15 +241,28 @@ impl Db {
     }
 
     pub fn delete_line_config(&self, prefix: &str) -> Result<()> {
-        let conn = self.connect()?;
-        conn.execute("DELETE FROM config_linhas WHERE linha_prefix = ?1", params![prefix])?;
+        let mut conn = self.connect()?;
+        let tx = conn.transaction()?;
+        tx.execute(
+            "UPDATE produtos SET linha_prefix = 'DEFAULT' WHERE linha_prefix = ?1",
+            params![prefix],
+        )?;
+        tx.execute(
+            "UPDATE overrides_produtos SET linha_prefix_manual = 'DEFAULT' WHERE linha_prefix_manual = ?1",
+            params![prefix],
+        )?;
+        tx.execute(
+            "DELETE FROM config_linhas WHERE linha_prefix = ?1",
+            params![prefix],
+        )?;
+        tx.commit()?;
         Ok(())
     }
 
     pub fn get_override(&self, codigo: &str) -> Result<Option<ProductOverride>> {
         let conn = self.connect()?;
         let mut stmt = conn.prepare(
-            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto 
+            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio 
              FROM overrides_produtos WHERE codigo = ?1"
         )?;
         let mut rows = stmt.query_map(params![codigo], |row| {
@@ -215,6 +277,9 @@ impl Db {
                 linha_prefix_manual: row.get(7)?,
                 status_produto: row.get(8)?,
                 categoria_produto: row.get(9)?,
+                produzir_apenas_kit: row.get(10)?,
+                lancamento_meta_meses: row.get(11)?,
+                lancamento_data_inicio: row.get(12)?,
             })
         })?;
 
@@ -228,7 +293,7 @@ impl Db {
     pub fn get_all_overrides(&self) -> Result<Vec<ProductOverride>> {
         let conn = self.connect()?;
         let mut stmt = conn.prepare(
-            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto 
+            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio 
              FROM overrides_produtos"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -243,6 +308,9 @@ impl Db {
                 linha_prefix_manual: row.get(7)?,
                 status_produto: row.get(8)?,
                 categoria_produto: row.get(9)?,
+                produzir_apenas_kit: row.get(10)?,
+                lancamento_meta_meses: row.get(11)?,
+                lancamento_data_inicio: row.get(12)?,
             })
         })?;
 
@@ -265,12 +333,15 @@ impl Db {
             && ovr.linha_prefix_manual.is_none()
             && (ovr.status_produto.is_none() || ovr.status_produto.as_deref() == Some("ativo"))
             && ovr.categoria_produto.is_none()
+            && (ovr.produzir_apenas_kit.is_none() || ovr.produzir_apenas_kit == Some(0))
+            && (ovr.lancamento_meta_meses.is_none() || ovr.lancamento_meta_meses == Some(6))
+            && ovr.lancamento_data_inicio.is_none()
         {
             conn.execute("DELETE FROM overrides_produtos WHERE codigo = ?1", params![ovr.codigo])?;
         } else {
             conn.execute(
-                "INSERT INTO overrides_produtos (codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                "INSERT INTO overrides_produtos (codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                  ON CONFLICT(codigo) DO UPDATE SET
                     estoque_ideal_manual = excluded.estoque_ideal_manual,
                     pedidos_manual = excluded.pedidos_manual,
@@ -280,7 +351,10 @@ impl Db {
                     observacao = excluded.observacao,
                     linha_prefix_manual = excluded.linha_prefix_manual,
                     status_produto = excluded.status_produto,
-                    categoria_produto = excluded.categoria_produto",
+                    categoria_produto = excluded.categoria_produto,
+                    produzir_apenas_kit = excluded.produzir_apenas_kit,
+                    lancamento_meta_meses = excluded.lancamento_meta_meses,
+                    lancamento_data_inicio = excluded.lancamento_data_inicio",
                 params![
                     ovr.codigo, 
                     ovr.estoque_ideal_manual, 
@@ -291,7 +365,10 @@ impl Db {
                     ovr.observacao,
                     ovr.linha_prefix_manual,
                     ovr.status_produto,
-                    ovr.categoria_produto
+                    ovr.categoria_produto,
+                    ovr.produzir_apenas_kit,
+                    ovr.lancamento_meta_meses,
+                    ovr.lancamento_data_inicio
                 ],
             )?;
         }
@@ -390,7 +467,10 @@ impl Db {
                    AND observacao IS NULL 
                    AND linha_prefix_manual IS NULL
                    AND (status_produto IS NULL OR status_produto = 'ativo')
-                   AND categoria_produto IS NULL",
+                   AND categoria_produto IS NULL
+                   AND (produzir_apenas_kit IS NULL OR produzir_apenas_kit = 0)
+                   AND (lancamento_meta_meses IS NULL OR lancamento_meta_meses = 6)
+                   AND lancamento_data_inicio IS NULL",
                 params![codigo],
             )?;
         }

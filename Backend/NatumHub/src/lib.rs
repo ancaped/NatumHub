@@ -111,6 +111,8 @@ pub struct DemandResult {
     pub recommended_qty: f64,
     pub urgency: String,
     pub notes: Option<String>,
+    pub last_supplier_invoice: Option<String>,
+    pub last_supplier_order: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -129,6 +131,7 @@ pub struct Quotation {
     pub ordered_at: Option<String>,
     pub item_count: Option<i32>,
     pub total_value: Option<f64>,
+    pub quotation_type: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -1644,8 +1647,48 @@ pub fn get_ignored_product_statuses(conn: &Connection) -> Vec<String> {
 
 fn get_auto_ignored_ingredients(conn: &Connection) -> std::collections::HashMap<String, String> {
     let ignored_statuses = get_ignored_product_statuses(conn);
-    if ignored_statuses.is_empty() {
-        return std::collections::HashMap::new();
+    
+    // Mapping of ingredient_code -> (categoriaPrincipal, estoque_atual)
+    let mut item_info_map: std::collections::HashMap<String, (String, f64)> = std::collections::HashMap::new();
+    let query_items = "SELECT code, categoriaPrincipal, estoque_atual FROM items";
+    if let Ok(mut stmt) = conn.prepare(query_items) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, f64>(2)?,
+            ))
+        }) {
+            for r in rows {
+                if let Ok((code, cat, est)) = r {
+                    item_info_map.insert(code, (cat, est));
+                }
+            }
+        }
+    }
+
+    // Mapping of product_code -> Vec<(ingredient_code, ingredient_category, ingredient_stock)>
+    let mut product_ingredients_map: std::collections::HashMap<String, Vec<(String, String, f64)>> = std::collections::HashMap::new();
+    let query_form = "
+        SELECT f.product_code, f.ingredient_code, i.categoriaPrincipal, i.estoque_atual
+        FROM formulations f
+        JOIN items i ON f.ingredient_code = i.code
+    ";
+    if let Ok(mut stmt) = conn.prepare(query_form) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, f64>(3)?,
+            ))
+        }) {
+            for r in rows {
+                if let Ok((prod_code, ing_code, cat, est)) = r {
+                    product_ingredients_map.entry(prod_code).or_default().push((ing_code, cat, est));
+                }
+            }
+        }
     }
 
     let mut item_products_map: std::collections::HashMap<String, Vec<(String, String, String)>> = std::collections::HashMap::new();
@@ -1678,25 +1721,62 @@ fn get_auto_ignored_ingredients(conn: &Connection) -> std::collections::HashMap<
             continue;
         }
 
-        let all_ignored = products_info.iter().all(|(_, _, status)| ignored_statuses.contains(status));
+        // An ingredient is candidate for ignore if ALL products using it are in ignored_statuses OR in 'saindo_de_linha'
+        let all_ignored = products_info.iter().all(|(_, _, status)| {
+            ignored_statuses.contains(status) || status == "saindo_de_linha"
+        });
+
         if all_ignored {
-            let mut list_parts = Vec::new();
-            for (_code, desc, status) in &products_info {
-                let status_label = match status.as_str() {
-                    "descontinuado" => "Sair de Linha",
-                    "terceirizado" => "Terceirizado",
-                    "coloracao" => "Coloração",
-                    "apoio" => "Material de Apoio",
-                    "bases" => "Bases",
-                    s => s,
-                };
-                list_parts.push(format!("{} ({})", desc, status_label));
+            let has_saindo = products_info.iter().any(|(_, _, status)| status == "saindo_de_linha");
+            let mut should_ignore = true;
+
+            if has_saindo {
+                // Fetch details for the current ingredient
+                let (ing_cat, _) = item_info_map.get(&ing_code).cloned().unwrap_or(("Matéria Prima".to_string(), 0.0));
+                
+                if ing_cat == "Matéria Prima" {
+                    // Check if there is still any exclusive packaging in stock for the saindo_de_linha products
+                    let mut has_packaging_stock = false;
+                    for (prod_code, _, prod_status) in &products_info {
+                        if prod_status == "saindo_de_linha" {
+                            if let Some(ingredients) = product_ingredients_map.get(prod_code) {
+                                for (_, sub_cat, sub_est) in ingredients {
+                                    // Check if it's packaging and has stock (threshold 0.1)
+                                    if sub_cat != "Matéria Prima" && *sub_est > 0.1 {
+                                        has_packaging_stock = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if has_packaging_stock {
+                        // Do NOT ignore this raw material. Allow buying to consume the remaining packaging.
+                        should_ignore = false;
+                    }
+                }
             }
-            let reason = format!(
-                "Suspenso por Linha/Produto ({})",
-                list_parts.join(", ")
-            );
-            auto_ignored_map.insert(ing_code, reason);
+
+            if should_ignore {
+                let mut list_parts = Vec::new();
+                for (_code, desc, status) in &products_info {
+                    let status_label = match status.as_str() {
+                        "descontinuado" => "Saiu de Linha",
+                        "saindo_de_linha" => "Saindo de Linha",
+                        "terceirizado" => "Terceirizado",
+                        "coloracao" => "Coloração",
+                        "apoio" => "Material de Apoio",
+                        "bases" => "Bases",
+                        s => s,
+                    };
+                    list_parts.push(format!("{} ({})", desc, status_label));
+                }
+                let reason = format!(
+                    "Suspenso por Linha/Produto ({})",
+                    list_parts.join(", ")
+                );
+                auto_ignored_map.insert(ing_code, reason);
+            }
         }
     }
 
@@ -2078,34 +2158,82 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
     }
 
     let mut sql = String::from(
-        "SELECT 
-            i.code, i.description, i.unit, i.category_id, IFNULL(c.name, 'Sem Categoria') as category_name,
-            IFNULL(s.stock_qty, 0), IFNULL(s.reserved_qty, 0), IFNULL(s.in_production, 0), IFNULL(s.in_orders, 0),
-            IFNULL(c2024.monthly_avg, 0), IFNULL(c2025.monthly_avg, 0), IFNULL(c2026.monthly_avg, 0),
-            i.notes
-        FROM items i
-        LEFT JOIN categories c ON i.category_id = c.id
-        LEFT JOIN (
-            SELECT item_code, stock_qty, reserved_qty, in_production, in_orders
-            FROM stock_snapshots ss
-            WHERE ss.id = (
-                SELECT id FROM stock_snapshots ss2 
-                WHERE ss2.item_code = ss.item_code 
-                ORDER BY ss2.snapshot_date DESC, ss2.id DESC LIMIT 1
-            )
-        ) s ON i.code = s.item_code
-        LEFT JOIN consumption c2024 ON i.code = c2024.item_code AND c2024.year = 2024
-        LEFT JOIN consumption c2025 ON i.code = c2025.item_code AND c2025.year = 2025
-        LEFT JOIN consumption c2026 ON i.code = c2026.item_code AND c2026.year = 2026
-        WHERE i.is_ignored = 0 AND i.code NOT IN (SELECT codigo FROM produtos) AND (i.code LIKE '9.%' OR i.code LIKE '08.%')"
+        "SELECT code, description, unit, category_id, category_name,
+                stock_qty, reserved_qty, in_production, in_orders,
+                monthly_avg_2024, monthly_avg_2025, monthly_avg_2026,
+                notes
+         FROM (
+             SELECT 
+                 i.code, i.description, i.unit, i.category_id, IFNULL(c.name, 'Sem Categoria') as category_name,
+                 IFNULL(s.stock_qty, 0) as stock_qty, IFNULL(s.reserved_qty, 0) as reserved_qty, 
+                 IFNULL(s.in_production, 0) as in_production, IFNULL(s.in_orders, 0) as in_orders,
+                 IFNULL(c2024.monthly_avg, 0) as monthly_avg_2024, 
+                 IFNULL(c2025.monthly_avg, 0) as monthly_avg_2025, 
+                 IFNULL(c2026.monthly_avg, 0) as monthly_avg_2026,
+                 i.notes
+             FROM items i
+             LEFT JOIN categories c ON i.category_id = c.id
+             LEFT JOIN (
+                 SELECT item_code, stock_qty, reserved_qty, in_production, in_orders
+                 FROM stock_snapshots ss
+                 WHERE ss.id = (
+                     SELECT id FROM stock_snapshots ss2 
+                     WHERE ss2.item_code = ss.item_code 
+                     ORDER BY ss2.snapshot_date DESC, ss2.id DESC LIMIT 1
+                 )
+             ) s ON i.code = s.item_code
+             LEFT JOIN consumption c2024 ON i.code = c2024.item_code AND c2024.year = 2024
+             LEFT JOIN consumption c2025 ON i.code = c2025.item_code AND c2025.year = 2025
+             LEFT JOIN consumption c2026 ON i.code = c2026.item_code AND c2026.year = 2026
+             WHERE i.is_ignored = 0 
+               AND (i.code NOT IN (SELECT codigo FROM produtos) AND (i.code LIKE '9.%' OR i.code LIKE '08.%'))
+             
+             UNION ALL
+             
+             SELECT 
+                 p.codigo as code, p.descricao as description, 'UN' as unit, 
+                 IFNULL(o.categoria_produto, CASE WHEN p.codigo LIKE '1.34.%' THEN 'cat_coloracao' WHEN p.codigo LIKE '1.30.%' THEN 'cat_apoio' ELSE '' END) as category_id,
+                 CASE WHEN p.codigo LIKE '1.34.%' THEN 'Coloração' WHEN p.codigo LIKE '1.30.%' THEN 'Material de Apoio' ELSE 'Sem Categoria' END as category_name,
+                 IFNULL(e.estoque, 0) as stock_qty, 0 as reserved_qty, IFNULL(e.producao, 0) as in_production, 
+                 (
+                     IFNULL((
+                         SELECT SUM(poi.n_qtde - poi.n_chegou)
+                         FROM purchase_order_items poi
+                         JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
+                         WHERE po.c_status <> 'T' AND (poi.n_qtde > poi.n_chegou)
+                           AND poi.c_referencia = p.codigo
+                     ), 0.0)
+                     -
+                     IFNULL(o.pedidos_manual, IFNULL((
+                         SELECT SUM(soi.n_qtde - soi.n_qtde_fat)
+                         FROM sales_order_items soi
+                         JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
+                         WHERE so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
+                           AND soi.c_cod_prod = p.codigo
+                           AND (
+                                CAST(COALESCE((SELECT value FROM settings WHERE key = 'sales_faltas_days_limit'), '180') AS INTEGER) = 0 
+                                OR so.d_pedido >= date('now', '-' || CAST(COALESCE((SELECT value FROM settings WHERE key = 'sales_faltas_days_limit'), '180') AS INTEGER) || ' days')
+                           )
+                     ), 0.0))
+                 ) as in_orders,
+                 IFNULL(o.media_manual, p.media_levantamento) as monthly_avg_2024, 
+                 IFNULL(o.media_manual, p.media_levantamento) as monthly_avg_2025, 
+                 IFNULL(o.media_manual, p.media_levantamento) as monthly_avg_2026,
+                 IFNULL(o.observacao, '') as notes
+             FROM produtos p
+             LEFT JOIN overrides_produtos o ON p.codigo = o.codigo
+             LEFT JOIN estoque_atual e ON p.codigo = e.codigo
+             WHERE (p.codigo LIKE '1.34.%' OR p.codigo LIKE '1.30.%' OR o.categoria_produto = 'cat_coloracao' OR o.categoria_produto = 'cat_apoio')
+         ) t
+         WHERE 1=1"
     );
 
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     if let Some(ref cat_id) = category_id {
-        sql.push_str(" AND i.category_id = ?1");
+        sql.push_str(" AND t.category_id = ?1");
         params_vec.push(Box::new(cat_id.clone()));
     }
-    sql.push_str(" ORDER BY i.description");
+    sql.push_str(" ORDER BY t.description");
 
     let mut movements_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
     if let Ok(mut mv_stmt) = conn.prepare(
@@ -2124,6 +2252,55 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
                 if let Ok((code, qty)) = r {
                     let clean = code.replace(".", "");
                     *movements_map.entry(clean).or_insert(0.0) += qty;
+                }
+            }
+        }
+    }
+    // E. Fetch latest invoice supplier name in bulk
+    let mut last_supplier_invoice_map = std::collections::HashMap::new();
+    if let Ok(mut stmt_inv) = conn.prepare(
+        "SELECT ss.item_code, ss.supplier_name 
+         FROM invoices ss
+         WHERE ss.id = (
+             SELECT id FROM invoices ss2 
+             WHERE ss2.item_code = ss.item_code 
+             ORDER BY ss2.invoice_date DESC, ss2.id DESC LIMIT 1
+         )"
+    ) {
+        if let Ok(rows_inv) = stmt_inv.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        }) {
+            for r in rows_inv {
+                if let Ok((code, supplier)) = r {
+                    if let Some(s) = supplier {
+                        last_supplier_invoice_map.insert(code, s);
+                    }
+                }
+            }
+        }
+    }
+
+    // F. Fetch latest purchase order supplier name in bulk
+    let mut last_supplier_order_map = std::collections::HashMap::new();
+    if let Ok(mut stmt_ord) = conn.prepare(
+        "SELECT poi.c_referencia, po.c_nome_f
+         FROM purchase_order_items poi
+         JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
+         WHERE poi.id = (
+             SELECT poi2.id FROM purchase_order_items poi2
+             JOIN purchase_orders po2 ON poi2.n_pedido_registro = po2.n_registro
+             WHERE poi2.c_referencia = poi.c_referencia
+             ORDER BY po2.d_pedido DESC, poi2.id DESC LIMIT 1
+         )"
+    ) {
+        if let Ok(rows_ord) = stmt_ord.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        }) {
+            for r in rows_ord {
+                if let Ok((code, supplier)) = r {
+                    if let Some(s) = supplier {
+                        last_supplier_order_map.insert(code, s);
+                    }
                 }
             }
         }
@@ -2223,6 +2400,9 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
             "ok".to_string()
         };
 
+        let last_supplier_invoice = last_supplier_invoice_map.get(&code).cloned();
+        let last_supplier_order = last_supplier_order_map.get(&code).cloned();
+
         Ok(DemandResult {
             item_code: code,
             description: desc,
@@ -2242,6 +2422,8 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
             recommended_qty,
             urgency,
             notes,
+            last_supplier_invoice,
+            last_supplier_order,
         })
     }).map_err(|e| e.to_string())?;
 
@@ -2283,6 +2465,35 @@ fn create_quotation(state: State<DbState>, title: String, item_codes: Vec<String
 #[tauri::command]
 fn get_quotations(state: State<DbState>, status: Option<String>) -> Result<Vec<Quotation>, String> {
     let conn = state.0.lock().unwrap();
+
+    let mut category_parent_map = std::collections::HashMap::new();
+    if let Ok(mut stmt) = conn.prepare("SELECT id, parent_id FROM categories") {
+        let mut rows = stmt.query([]).ok();
+        if let Some(ref mut r) = rows {
+            while let Ok(Some(row)) = r.next() {
+                if let (Ok(id), Ok(parent_id)) = (row.get::<_, String>(0), row.get::<_, Option<String>>(1)) {
+                    if let Some(p_id) = parent_id {
+                        category_parent_map.insert(id, p_id);
+                    }
+                }
+            }
+        }
+    }
+
+    let resolve_root_category = |cat_id: &str, parent_map: &std::collections::HashMap<String, String>| -> String {
+        let mut current = cat_id.to_string();
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(current.clone());
+        while let Some(parent) = parent_map.get(&current) {
+            if visited.contains(parent) {
+                break;
+            }
+            current = parent.clone();
+            visited.insert(current.clone());
+        }
+        current
+    };
+
     let mut sql = String::from("
         SELECT 
             q.id, q.title, q.status, q.target_days, q.notes, 
@@ -2294,7 +2505,14 @@ fn get_quotations(state: State<DbState>, status: Option<String>) -> Result<Vec<Q
                 FROM quotation_items qi
                 JOIN quotation_prices qp ON qp.quotation_item_id = qi.id AND qp.is_selected = 1
                 WHERE qi.quotation_id = q.id
-            ) as total_value
+            ) as total_value,
+            (
+                SELECT i.category_id 
+                FROM quotation_items qi 
+                LEFT JOIN items i ON qi.item_code = i.code 
+                WHERE qi.quotation_id = q.id 
+                LIMIT 1
+            ) as first_item_cat_id
         FROM quotations q
         WHERE 1=1
     ");
@@ -2310,6 +2528,16 @@ fn get_quotations(state: State<DbState>, status: Option<String>) -> Result<Vec<Q
     let param_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| &**p).collect();
     
     let rows = stmt.query_map(param_refs.as_slice(), |row| {
+        let first_item_cat_id: Option<String> = row.get(13)?;
+        let root_cat = first_item_cat_id.map(|cid| resolve_root_category(&cid, &category_parent_map));
+        let quotation_type = match root_cat.as_deref() {
+            Some("cat_mp") => Some("materia_prima".to_string()),
+            Some("cat_emb") => Some("embalagens".to_string()),
+            Some("cat_coloracao") => Some("coloracao".to_string()),
+            Some("cat_apoio") => Some("apoio".to_string()),
+            _ => Some("materia_prima".to_string()),
+        };
+
         Ok(Quotation {
             id: row.get(0)?,
             title: row.get(1)?,
@@ -2324,6 +2552,7 @@ fn get_quotations(state: State<DbState>, status: Option<String>) -> Result<Vec<Q
             ordered_at: row.get(10)?,
             item_count: row.get(11)?,
             total_value: row.get(12)?,
+            quotation_type,
         })
     }).map_err(|e| e.to_string())?;
 
@@ -2338,12 +2567,57 @@ fn get_quotations(state: State<DbState>, status: Option<String>) -> Result<Vec<Q
 fn get_quotation_detail(state: State<DbState>, id: String) -> Result<serde_json::Value, String> {
     let conn = state.0.lock().unwrap();
     
+    let mut category_parent_map = std::collections::HashMap::new();
+    if let Ok(mut stmt) = conn.prepare("SELECT id, parent_id FROM categories") {
+        let mut rows = stmt.query([]).ok();
+        if let Some(ref mut r) = rows {
+            while let Ok(Some(row)) = r.next() {
+                if let (Ok(id), Ok(parent_id)) = (row.get::<_, String>(0), row.get::<_, Option<String>>(1)) {
+                    if let Some(p_id) = parent_id {
+                        category_parent_map.insert(id, p_id);
+                    }
+                }
+            }
+        }
+    }
+
+    let resolve_root_category = |cat_id: &str, parent_map: &std::collections::HashMap<String, String>| -> String {
+        let mut current = cat_id.to_string();
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(current.clone());
+        while let Some(parent) = parent_map.get(&current) {
+            if visited.contains(parent) {
+                break;
+            }
+            current = parent.clone();
+            visited.insert(current.clone());
+        }
+        current
+    };
+
     let q: Quotation = conn.query_row(
         "SELECT id, title, status, target_days, notes, director_demand_notes, director_final_notes, 
-         created_at, demand_approved_at, final_approved_at, ordered_at 
+         created_at, demand_approved_at, final_approved_at, ordered_at,
+         (
+             SELECT i.category_id 
+             FROM quotation_items qi 
+             LEFT JOIN items i ON qi.item_code = i.code 
+             WHERE qi.quotation_id = quotations.id 
+             LIMIT 1
+         ) as first_item_cat_id
          FROM quotations WHERE id = ?1",
         params![id],
         |row| {
+            let first_item_cat_id: Option<String> = row.get(11)?;
+            let root_cat = first_item_cat_id.map(|cid| resolve_root_category(&cid, &category_parent_map));
+            let quotation_type = match root_cat.as_deref() {
+                Some("cat_mp") => Some("materia_prima".to_string()),
+                Some("cat_emb") => Some("embalagens".to_string()),
+                Some("cat_coloracao") => Some("coloracao".to_string()),
+                Some("cat_apoio") => Some("apoio".to_string()),
+                _ => Some("materia_prima".to_string()),
+            };
+
             Ok(Quotation {
                 id: row.get(0)?,
                 title: row.get(1)?,
@@ -2358,6 +2632,7 @@ fn get_quotation_detail(state: State<DbState>, id: String) -> Result<serde_json:
                 ordered_at: row.get(10)?,
                 item_count: None,
                 total_value: None,
+                quotation_type,
             })
         }
     ).map_err(|e| e.to_string())?;
@@ -3211,6 +3486,7 @@ fn start_axum_server() {
             .route("/api/configs/:prefix", delete(handlers::delete_config))
             .route("/api/overrides", get(handlers::get_overrides).post(handlers::save_override))
             .route("/api/overrides/bulk", post(handlers::save_override_bulk))
+            .route("/api/lancamento/graduation-check", get(handlers::get_graduation_candidates_handler))
             .route("/api/import/faturamento", post(handlers::import_faturamento))
             .route("/api/import/levantamento", post(handlers::import_levantamento))
             .route("/api/import/kits", post(handlers::import_kits))

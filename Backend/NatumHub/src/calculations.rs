@@ -61,23 +61,14 @@ pub fn calculate_products(
         };
 
         let resolved_status_produto = if let Some(o) = ovr {
-            let status = o.status_produto.clone().unwrap_or_else(|| "ativo".to_string());
-            if status == "coloracao" || status == "apoio" {
-                "ativo".to_string()
-            } else {
-                status
-            }
+            o.status_produto.clone().unwrap_or_else(|| "ativo".to_string())
         } else {
             "ativo".to_string()
         };
 
         let resolved_categoria_produto = if let Some(o) = ovr {
             o.categoria_produto.clone().or_else(|| {
-                if o.status_produto.as_deref() == Some("coloracao") {
-                    Some("cat_coloracao".to_string())
-                } else if o.status_produto.as_deref() == Some("apoio") {
-                    Some("cat_apoio".to_string())
-                } else if prod.codigo.starts_with("1.34.") {
+                if prod.codigo.starts_with("1.34.") {
                     Some("cat_coloracao".to_string())
                 } else if prod.codigo.starts_with("1.30.") {
                     Some("cat_apoio".to_string())
@@ -202,7 +193,24 @@ pub fn calculate_products(
 
         // 8. Status decision & Recommended Production Quantity
         let (status, status_label, producao_recomendada) = if resolved_status_produto == "descontinuado" {
-            ("descontinuado".to_string(), "Sair de Linha".to_string(), 0)
+            ("descontinuado".to_string(), "Saiu de Linha".to_string(), 0)
+        } else if resolved_status_produto == "saindo_de_linha" {
+            let (st, lbl) = if duracao_meses <= config_prod {
+                ("critico", "Produzir Urgente (Saindo de Linha)")
+            } else if duracao_meses <= config_ordem {
+                ("ordem", "Abrir Ordem (Saindo de Linha)")
+            } else if duracao_meses <= config_ideal {
+                ("saudavel", "Estoque OK (Saindo de Linha)")
+            } else {
+                ("abundante", "Abundante (Saindo de Linha)")
+            };
+            let rec = if st == "critico" || st == "ordem" {
+                let needed = (estoque_ideal_qtd - estoque_futuro_com_producao as f64).round() as i64;
+                if needed > 0 { needed } else { 0 }
+            } else {
+                0
+            };
+            ("saindo_de_linha".to_string(), "Saindo de Linha".to_string(), rec)
         } else if resolved_status_produto == "bases" {
             ("bases".to_string(), "Bases".to_string(), 0)
         } else {
@@ -245,6 +253,10 @@ pub fn calculate_products(
             linha_prefix_manual: ovr.and_then(|o| o.linha_prefix_manual.clone()),
             status_produto: Some(resolved_status_produto),
             categoria_produto: resolved_categoria_produto,
+            produzir_apenas_kit: ovr.and_then(|o| o.produzir_apenas_kit),
+            lancamento_meta_meses: ovr.and_then(|o| o.lancamento_meta_meses),
+            lancamento_data_inicio: ovr.and_then(|o| o.lancamento_data_inicio.clone()),
+            is_kit_component: None,
             media_vendas: base_media,
             desvio_padrao,
             demanda_ajustada,

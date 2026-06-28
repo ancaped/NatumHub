@@ -48,6 +48,11 @@ CREATE TABLE IF NOT EXISTS overrides_produtos (
     visivel INTEGER DEFAULT 1, -- 0 = oculto, 1 = visível
     observacao TEXT, -- Campo de observações (ex: produzir apenas com pedido)
     linha_prefix_manual TEXT, -- Sobrescreve a linha de produto
+    status_produto TEXT DEFAULT 'ativo',
+    categoria_produto TEXT,
+    produzir_apenas_kit INTEGER DEFAULT 0,
+    lancamento_meta_meses INTEGER DEFAULT 6,
+    lancamento_data_inicio TEXT,
     FOREIGN KEY(codigo) REFERENCES produtos(codigo) ON DELETE CASCADE
 );
 

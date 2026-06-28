@@ -173,7 +173,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
 
   // Load Main Data
   const loadData = async (silent = false) => {
-    if (activeTab === 'ativos') return;
+    if ((activeTab as string) === 'ativos') return;
     if (!silent) setLoading(true);
     try {
       if (activeTab === 'produtos') {
@@ -201,7 +201,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
     const alreadyLoaded = (activeTab === 'produtos' && hasProducts) || 
                           (activeTab === 'insumos' && hasDemands);
     
-    if (activeTab !== 'ativos') {
+    if ((activeTab as string) !== 'ativos') {
       loadData(alreadyLoaded);
     }
     (window as any).__current_page__ = config.pageName;
@@ -488,7 +488,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
             <p className="text-xs text-zinc-500 leading-relaxed">{config.subtitle}</p>
           </div>
           
-          {activeTab !== 'ativos' && (
+          {(activeTab as string) !== 'ativos' && (
             <div className="space-y-2">
               <div className="flex justify-between items-center px-1">
                 <span className="text-[10px] text-zinc-400 font-bold uppercase">Total Itens</span>
@@ -534,7 +534,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
-        {activeTab === 'ativos' ? (
+        {(activeTab as string) === 'ativos' ? (
           <ActiveProductsView onBackToHub={onBackToHub} standalone={false} />
         ) : (
           <>
@@ -648,8 +648,6 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                                   p.status === 'saudavel' && "bg-emerald-50 text-emerald-700 border border-emerald-200",
                                   p.status === 'abundante' && "bg-blue-50 text-blue-700 border border-blue-200",
                                   p.status === 'descontinuado' && "bg-zinc-100 text-zinc-750 border border-zinc-200",
-                                  p.status === 'apoio' && "bg-purple-50 text-purple-700 border border-purple-200",
-                                  p.status === 'coloracao' && "bg-rose-50 text-rose-700 border border-rose-200",
                                   p.status === 'bases' && "bg-indigo-50 text-indigo-700 border border-indigo-200"
                                 )}>
                                   {p.status_label}

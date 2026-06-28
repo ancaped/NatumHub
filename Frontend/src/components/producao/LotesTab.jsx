@@ -181,7 +181,7 @@ export function LotesTab({
       </div>
 
       {/* Main Table Card */}
-      <div className="table-card">
+      <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col w-full text-xs">
         {loading ? (
           <div style={{ padding: '4rem', textAlign: 'center', color: 'hsl(var(--text-secondary-hsl))', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
             <RefreshCw className="animate-spin" size={32} />
@@ -193,20 +193,20 @@ export function LotesTab({
             <span>Nenhum lote industrial encontrado.</span>
           </div>
         ) : (
-          <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th style={{ width: '10%' }}>Nº Lote</th>
-                  <th style={{ width: '12%' }}>Data</th>
-                  <th style={{ width: '10%' }}>REF</th>
-                  <th style={{ width: '28%' }}>Produto</th>
-                  <th className="numeric-col" style={{ width: '10%' }}>Quantidade</th>
-                  <th style={{ width: '10%' }}>Status</th>
-                  <th style={{ width: '20%' }}>Operador / Autorização</th>
+          <div className="overflow-x-auto w-full">
+            <table className="w-full text-left text-xs whitespace-nowrap border-collapse">
+              <thead className="bg-zinc-50 sticky top-0 z-10">
+                <tr className="border-b border-zinc-200">
+                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px]" style={{ width: '10%' }}>Nº Lote</th>
+                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px]" style={{ width: '12%' }}>Data</th>
+                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px]" style={{ width: '10%' }}>REF</th>
+                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px]" style={{ width: '28%' }}>Produto</th>
+                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px] text-right" style={{ width: '10%' }}>Quantidade</th>
+                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px] text-center" style={{ width: '10%' }}>Status</th>
+                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px]" style={{ width: '20%' }}>Operador / Autorização</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-zinc-100">
                 {paginatedLotes.map((l) => {
                   const dateObj = new Date(l.date.replace(' ', 'T'));
                   const formattedDate = isNaN(dateObj.getTime()) ? l.date : dateObj.toLocaleDateString('pt-BR');
@@ -218,20 +218,20 @@ export function LotesTab({
                       style={{ cursor: onOpenDetails ? 'pointer' : 'default' }}
                       className="hover:bg-zinc-50/50 transition-colors"
                     >
-                      <td className="product-code" style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>
+                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle font-mono font-bold text-zinc-600" style={{ fontSize: '0.85rem' }}>
                         #{l.loteNumber}
                       </td>
-                      <td style={{ fontSize: '0.8rem', color: 'hsl(var(--text-primary-hsl))', fontWeight: '500' }}>
+                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-zinc-700 font-semibold" style={{ fontSize: '0.8rem' }}>
                         {formattedDate}
                       </td>
-                      <td className="product-code">{l.productCode}</td>
-                      <td>
-                        <div className="product-desc" style={{ fontWeight: '500' }}>{l.productDescription || 'Item Não Sincronizado'}</div>
+                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle font-mono font-bold text-zinc-600">{l.productCode}</td>
+                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle">
+                        <div className="font-bold text-zinc-900">{l.productDescription || 'Item Não Sincronizado'}</div>
                       </td>
-                      <td className="numeric-col" style={{ fontWeight: '700', fontSize: '0.85rem' }}>
+                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-right font-bold text-zinc-900" style={{ fontSize: '0.85rem' }}>
                         {l.quantity.toLocaleString()} kg
                       </td>
-                      <td>
+                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-center">
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
                           <span className={`status-badge ${getStatusBadgeClass(l.status)}`}>
                             {getStatusLabel(l.status)}
@@ -302,8 +302,8 @@ export function LotesTab({
                           )}
                         </div>
                       </td>
-                      <td>
-                        <div style={{ fontSize: '0.75rem', color: 'hsl(var(--text-primary-hsl))', fontWeight: '600' }}>
+                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle">
+                        <div className="font-semibold text-zinc-700" style={{ fontSize: '0.75rem' }}>
                           <User size={10} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle', opacity: 0.6 }} />
                           {l.fabricatedBy || 'N/A'}
                         </div>

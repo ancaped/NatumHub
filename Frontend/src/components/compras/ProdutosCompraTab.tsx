@@ -31,6 +31,7 @@ interface ProductRow {
   linha_prefix_manual?: string;
   status_produto?: string;
   categoria_produto?: string;
+  produzir_apenas_kit?: number;
 }
 
 interface ProductDetalhes {
@@ -128,7 +129,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
 
   useEffect(() => {
     const loadPrintList = () => {
-      const stored = localStorage.getItem('natum_hub_produtos_print_list');
+      const stored = localStorage.getItem('natum_hub_print_list');
       if (stored) {
         try { setPrintList(JSON.parse(stored)); } catch (e) { console.error(e); }
       } else {
@@ -140,17 +141,21 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     return () => window.removeEventListener('storage', loadPrintList);
   }, []);
 
-  const isInPrintList = (code: string) => printList.includes(code);
+  const isInPrintList = (code: string) => {
+    const cleanCode = code.replace(/\./g, '');
+    return printList.some(c => c.replace(/\./g, '') === cleanCode);
+  };
 
   const handleTogglePrintList = (code: string) => {
+    const cleanCode = code.replace(/\./g, '');
     let newList: string[];
-    if (printList.includes(code)) {
-      newList = printList.filter(c => c !== code);
+    if (printList.some(c => c.replace(/\./g, '') === cleanCode)) {
+      newList = printList.filter(c => c.replace(/\./g, '') !== cleanCode);
     } else {
       newList = [...printList, code];
     }
     setPrintList(newList);
-    localStorage.setItem('natum_hub_produtos_print_list', JSON.stringify(newList));
+    localStorage.setItem('natum_hub_print_list', JSON.stringify(newList));
     window.dispatchEvent(new Event('storage'));
   };
 
@@ -954,20 +959,88 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
             {/* Drawer Header */}
             <div className="px-6 py-5 border-b border-zinc-200 bg-zinc-50/50 flex justify-between items-start shrink-0">
               <div className="min-w-0 flex-1">
-                <span className="px-2.5 py-0.5 bg-zinc-900 text-white rounded-full text-[9px] font-extrabold uppercase tracking-wider">
-                  Detalhamento de Produto Acabado
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 bg-zinc-900 text-white rounded-full text-[9px] font-extrabold uppercase tracking-wider">
+                    Detalhamento de Produto Acabado
+                  </span>
+                  {selectedProduct?.visivel === 0 && (
+                    <span className="px-2 py-0.5 bg-red-100 text-red-800 rounded-full text-[9px] font-extrabold uppercase tracking-wider">
+                      Suspenso
+                    </span>
+                  )}
+                </div>
                 <h3 className="font-extrabold text-zinc-900 text-lg mt-1.5 truncate">
                   {details?.description || 'Carregando...'}
                 </h3>
                 <p className="text-xs text-zinc-500 font-mono mt-0.5">Código do Produto: {selectedProductCode}</p>
               </div>
-              <button 
-                onClick={setSelectedItemCodeNull} 
-                className="p-1.5 hover:bg-zinc-150 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer border border-zinc-250/20"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2 ml-4 shrink-0">
+                {selectedProduct && (
+                  <button
+                    onClick={async () => {
+                      const newVisivel = selectedProduct.visivel === 0 ? 1 : 0;
+                      if (confirm(newVisivel === 0 
+                        ? `Tem certeza que deseja suspender o produto "${selectedProduct.descricao}"? Ele será ocultado das demandas e sugestões de compra.`
+                        : `Deseja reativar o produto "${selectedProduct.descricao}"?`
+                      )) {
+                        try {
+                          const res = await fetch(`${API_BASE}/overrides`, {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                              codigo: selectedProduct.codigo,
+                              estoque_ideal_manual: selectedProduct.estoque_ideal_manual ?? null,
+                              pedidos_manual: selectedProduct.pedidos_manual ?? null,
+                              media_manual: selectedProduct.media_manual ?? null,
+                              is_lancamento_manual: selectedProduct.is_lancamento_manual ?? null,
+                              visivel: newVisivel,
+                              observacao: selectedProduct.observacao ?? null,
+                              linha_prefix_manual: selectedProduct.linha_prefix_manual ?? null,
+                              status_produto: selectedProduct.status_produto ?? null,
+                              categoria_produto: selectedProduct.categoria_produto ?? null,
+                              produzir_apenas_kit: selectedProduct.produzir_apenas_kit ?? null
+                            })
+                          });
+                          if (res.ok) {
+                            await loadProducts();
+                            if (newVisivel === 0) {
+                              setSelectedItemCodeNull();
+                            } else {
+                              await loadDetails(selectedProduct.codigo);
+                            }
+                          } else {
+                            alert("Erro ao salvar alteração");
+                          }
+                        } catch (e) {
+                          console.error(e);
+                          alert("Erro de conexão com o servidor");
+                        }
+                      }
+                    }}
+                    className={cn(
+                      "text-xs px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 cursor-pointer border",
+                      selectedProduct.visivel === 0
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-250/30 hover:bg-emerald-100/70"
+                        : "bg-rose-50 text-rose-700 border-rose-250/30 hover:bg-rose-100/70"
+                    )}
+                    title={selectedProduct.visivel === 0 ? "Reativar Produto" : "Suspender Produto das Demandas"}
+                  >
+                    {selectedProduct.visivel === 0 ? (
+                      <>Reativar Produto</>
+                    ) : (
+                      <>Suspender Produto</>
+                    )}
+                  </button>
+                )}
+                <button 
+                  onClick={setSelectedItemCodeNull} 
+                  className="p-1.5 hover:bg-zinc-150 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer border border-zinc-250/20"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* Drawer Tab Navigation */}

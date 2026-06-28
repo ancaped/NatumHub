@@ -370,6 +370,49 @@ fn fetch_calculation_data(state: &Db) -> anyhow::Result<(
     Ok((products, stocks, fat_map, configs, overrides))
 }
 
+pub fn post_process_kit_only_production(
+    computed: &mut [ProductCalculationResult],
+    kit_composition: &HashMap<String, Vec<String>>,
+) {
+    // 1. Build a map of product code -> index in computed slice
+    let mut code_to_idx = HashMap::new();
+    for (i, p) in computed.iter().enumerate() {
+        code_to_idx.insert(p.codigo.clone(), i);
+    }
+
+    // 2. Build a map of component -> list of parent kits
+    let mut component_to_kits: HashMap<String, Vec<String>> = HashMap::new();
+    for (kit_code, components) in kit_composition {
+        for comp in components {
+            component_to_kits.entry(comp.clone()).or_default().push(kit_code.clone());
+        }
+    }
+
+    // 3. For each computed product, if it's marked `produzir_apenas_kit`, check parent kits
+    for i in 0..computed.len() {
+        if computed[i].produzir_apenas_kit.unwrap_or(0) == 1 {
+            if let Some(kits) = component_to_kits.get(&computed[i].codigo) {
+                let mut all_kits_ok = true;
+                for kit_code in kits {
+                    if let Some(&kit_idx) = code_to_idx.get(kit_code) {
+                        let kit_rec_prod = computed[kit_idx].producao_recomendada;
+                        if kit_rec_prod > 0 {
+                            all_kits_ok = false;
+                            break;
+                        }
+                    }
+                }
+                
+                if all_kits_ok {
+                    computed[i].producao_recomendada = 0;
+                    computed[i].status = "saudavel".to_string();
+                    computed[i].status_label = "Estoque OK (Apenas Kit)".to_string();
+                }
+            }
+        }
+    }
+}
+
 // 6. GET /api/products (List products, calculate stock metrics in real-time, filter and paginate)
 pub async fn list_products(
     State(state): State<Arc<AppState>>,
@@ -385,6 +428,17 @@ pub async fn list_products(
 
     // Calculate all items in real time
     let mut computed = calculate_products(&products, &stocks, &fat_map, &configs, &overrides);
+
+    // Fetch kit composition and apply kit-only overrides
+    let kit_composition = state.db.get_kit_composition().unwrap_or_default();
+    post_process_kit_only_production(&mut computed, &kit_composition);
+
+    let mut kit_components_set = std::collections::HashSet::new();
+    for components in kit_composition.values() {
+        for comp in components {
+            kit_components_set.insert(comp.clone());
+        }
+    }
 
     // Connect to fetch formulation and latest stock levels for error decoration
     let conn = match state.db.connect() {
@@ -588,6 +642,7 @@ pub async fn list_products(
         }
         p.has_formulation = has_form;
         p.missing_ingredients = missing;
+        p.is_kit_component = Some(kit_components_set.contains(&p.codigo));
 
         // Populate sales order faltas and purchase transit
         let active_faltas = *sales_faltas_map.get(&p.codigo).unwrap_or(&0);
@@ -623,6 +678,30 @@ pub async fn list_products(
             p.sugestao_compra = Some(if suggestion > 0.0 { suggestion.round() as i64 } else { 0 });
         }
     }
+
+    // Filter out kits, coloracao, and apoio from the general production list!
+    computed.retain(|p| {
+        let is_kit = kit_composition.contains_key(&p.codigo);
+        let cat_p = p.categoria_produto.as_deref().unwrap_or("");
+        let root_cat = if !cat_p.is_empty() {
+            resolve_root_category(cat_p, &category_parent_map)
+        } else {
+            "".to_string()
+        };
+        let is_coloracao = root_cat == "cat_coloracao";
+        let is_apoio = root_cat == "cat_apoio";
+        
+        if let Some(ref status) = params.status {
+            if status == "coloracao" && is_coloracao {
+                return true;
+            }
+            if status == "apoio" && is_apoio {
+                return true;
+            }
+        }
+        
+        !is_kit && !is_coloracao && !is_apoio
+    });
 
     // Extract stats for metadata based on visible products (excluding hidden ones where visivel == 0)
     let visible_products: Vec<&crate::models::ProductCalculationResult> = computed
@@ -964,7 +1043,8 @@ pub async fn list_kits(
     };
 
     // 3. Calculate all items in real time
-    let computed = calculate_products(&products, &stocks, &fat_map, &configs, &overrides);
+    let mut computed = calculate_products(&products, &stocks, &fat_map, &configs, &overrides);
+    post_process_kit_only_production(&mut computed, &kit_composition);
 
     // Create a HashMap of computed products for fast lookup of component details
     let computed_map: HashMap<String, ProductCalculationResult> = computed
@@ -2869,6 +2949,37 @@ pub async fn get_product_detalhes(
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     };
 
+    // Fetch category parent mapping to resolve subcategories to roots
+    let mut category_parent_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    if let Ok(mut stmt) = conn.prepare("SELECT id, parent_id FROM categories") {
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        });
+        if let Ok(iter) = rows {
+            for r in iter {
+                if let Ok((id, parent_id)) = r {
+                    if let Some(p_id) = parent_id {
+                        category_parent_map.insert(id, p_id);
+                    }
+                }
+            }
+        }
+    }
+
+    let resolve_root_category = |cat_id: &str, parent_map: &std::collections::HashMap<String, String>| -> String {
+        let mut current = cat_id.to_string();
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(current.clone());
+        while let Some(parent) = parent_map.get(&current) {
+            if visited.contains(parent) {
+                break;
+            }
+            current = parent.clone();
+            visited.insert(current.clone());
+        }
+        current
+    };
+
     // 2. Fetch formulation/composition left joined with latest ingredient stock snapshot
     let mut formulation = Vec::new();
     if let Ok(mut stmt) = conn.prepare(
@@ -2878,8 +2989,10 @@ pub async fn get_product_detalhes(
             f.description, 
             f.quantity, 
             f.percentage,
-            IFNULL(s.stock_qty, 0.0) as ingredient_stock
+            IFNULL(s.stock_qty, 0.0) as ingredient_stock,
+            i.category_id
          FROM formulations f
+         LEFT JOIN items i ON f.ingredient_code = i.code
          LEFT JOIN (
              SELECT ss.item_code, ss.stock_qty
              FROM stock_snapshots ss
@@ -2893,6 +3006,8 @@ pub async fn get_product_detalhes(
          ORDER BY f.quantity DESC"
     ) {
         let rows = stmt.query_map(params![code], |row| {
+            let cat_id: Option<String> = row.get(6)?;
+            let root_cat = cat_id.map(|cid| resolve_root_category(&cid, &category_parent_map));
             Ok(crate::models::ProductFormulationLine {
                 product_code: row.get(0)?,
                 ingredient_code: row.get(1)?,
@@ -2900,6 +3015,7 @@ pub async fn get_product_detalhes(
                 quantity: row.get(3)?,
                 percentage: row.get(4)?,
                 current_stock: row.get(5)?,
+                category_id: root_cat,
             })
         });
         if let Ok(iter) = rows {
@@ -4725,4 +4841,76 @@ pub async fn get_product_pending_orders(
     };
 
     (StatusCode::OK, Json(resp)).into_response()
+}
+
+// GET /api/lancamento/graduation-check
+pub async fn get_graduation_candidates_handler(
+    axum::extract::State(state): axum::extract::State<std::sync::Arc<AppState>>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": format!("Erro de conexão: {}", e) }))
+        ).into_response(),
+    };
+
+    let global_limit: i64 = match state.db.get_setting("lancamento_meta_meses_global") {
+        Ok(Some(val)) => val.parse().unwrap_or(6),
+        _ => 6,
+    };
+
+    let query = "
+        SELECT op.codigo, p.descricao, cl.nome_linha, op.lancamento_meta_meses, op.lancamento_data_inicio
+        FROM overrides_produtos op
+        JOIN produtos p ON op.codigo = p.codigo
+        LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
+        WHERE op.status_produto = 'lancamento'
+    ";
+
+    let mut stmt = match conn.prepare(query) {
+        Ok(s) => s,
+        Err(e) => return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": format!("Erro ao preparar query: {}", e) }))
+        ).into_response(),
+    };
+
+    let candidates_rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, Option<i64>>(3)?,
+            row.get::<_, Option<String>>(4)?,
+        ))
+    });
+
+    let mut candidates = Vec::new();
+
+    if let Ok(rows) = candidates_rows {
+        for r in rows {
+            if let Ok((code, desc, line_name, meta, date_start)) = r {
+                let limit = meta.unwrap_or(global_limit);
+                let mut months_with_sales = 0;
+                let count_query = "SELECT COUNT(*) FROM historico_faturamento WHERE codigo = ?1 AND quantidade > 0";
+                if let Ok(count) = conn.query_row(count_query, params![code], |row| row.get::<_, i64>(0)) {
+                    months_with_sales = count;
+                }
+
+                if months_with_sales >= limit {
+                    candidates.push(serde_json::json!({
+                        "codigo": code,
+                        "descricao": desc,
+                        "nome_linha": line_name.unwrap_or_else(|| "Geral".to_string()),
+                        "meses_com_historico": months_with_sales,
+                        "meta_meses": limit,
+                        "lancamento_data_inicio": date_start,
+                    }));
+                }
+            }
+        }
+    }
+
+    (StatusCode::OK, Json(candidates)).into_response()
 }

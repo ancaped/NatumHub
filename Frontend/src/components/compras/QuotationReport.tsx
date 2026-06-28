@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../lib/api';
-import { Quotation, QuotationItem } from '../../types';
+import { Quotation, QuotationItem, DemandResult } from '../../types';
 import { Printer, ArrowLeft, CheckCircle2, DollarSign } from 'lucide-react';
 import { cn, COMPANY_INFO, APP_NAME } from '../../lib/utils';
 
@@ -12,7 +12,30 @@ interface QuotationReportProps {
 export function QuotationReport({ id, onBack }: QuotationReportProps) {
   const [quotation, setQuotation] = useState<Quotation | null>(null);
   const [items, setItems] = useState<QuotationItem[]>([]);
+  const [demands, setDemands] = useState<DemandResult[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [columns, setColumns] = useState<Record<string, boolean>>({
+    ref: true,
+    desc: true,
+    un: true,
+    qty: true,
+    suppliers: true,
+    winner: true
+  });
+  const [columnOrder, setColumnOrder] = useState<string[]>([
+    'ref', 'desc', 'un', 'qty', 'suppliers', 'winner'
+  ]);
+
+  const handleMoveColumn = (index: number, direction: 'up' | 'down') => {
+    const newOrder = [...columnOrder];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newOrder.length) return;
+    const temp = newOrder[index];
+    newOrder[index] = newOrder[targetIndex];
+    newOrder[targetIndex] = temp;
+    setColumnOrder(newOrder);
+  };
 
   useEffect(() => {
     loadData();
@@ -21,15 +44,30 @@ export function QuotationReport({ id, onBack }: QuotationReportProps) {
   const loadData = async () => {
     setLoading(true);
     try {
-      const detail = await api.getQuotationDetail(id);
+      const [detail, demandsRes] = await Promise.all([
+        api.getQuotationDetail(id),
+        api.getDemands()
+      ]);
       setQuotation(detail.quotation);
       setItems(detail.items);
+      setDemands(demandsRes);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
   };
+
+  const groupedItems = useMemo(() => {
+    const groups: Record<string, QuotationItem[]> = {};
+    items.forEach(item => {
+      const demand = demands.find(d => d.itemCode === item.itemCode);
+      const catName = demand?.categoryName || 'Insumos Gerais';
+      if (!groups[catName]) groups[catName] = [];
+      groups[catName].push(item);
+    });
+    return groups;
+  }, [items, demands]);
 
   const handlePrint = () => window.print();
 
@@ -82,6 +120,47 @@ export function QuotationReport({ id, onBack }: QuotationReportProps) {
         </button>
       </div>
 
+      {/* Column Reordering and Visibility Panel */}
+      <div className="no-print bg-zinc-50 p-4 border border-zinc-200 rounded-lg mb-4 space-y-2 text-xs">
+        <div className="font-bold text-zinc-700 flex items-center gap-1.5">
+          ⚙️ Personalizar Colunas do Relatório Comparativo
+        </div>
+        <div className="flex flex-wrap gap-3">
+          {columnOrder.map((colKey, idx) => {
+            const label = colKey === 'ref' ? 'Ref' : colKey === 'desc' ? 'Descrição' : colKey === 'un' ? 'Un' : colKey === 'qty' ? 'Quantidade' : colKey === 'suppliers' ? 'Cotações Fornecedores' : 'Vencedor';
+            return (
+              <div key={colKey} className="bg-white px-2.5 py-1.5 border border-zinc-200 rounded flex items-center gap-2 shadow-sm">
+                <input
+                  type="checkbox"
+                  checked={columns[colKey]}
+                  onChange={e => setColumns({ ...columns, [colKey]: e.target.checked })}
+                  className="rounded border-zinc-300 text-zinc-950 focus:ring-zinc-950 cursor-pointer h-3.5 w-3.5"
+                />
+                <span className="font-semibold text-zinc-700">{label}</span>
+                <div className="flex items-center gap-1 border-l border-zinc-150 pl-2 ml-1">
+                  <button
+                    onClick={() => handleMoveColumn(idx, 'up')}
+                    disabled={idx === 0}
+                    className="p-0.5 hover:bg-zinc-100 rounded disabled:opacity-30 text-[10px]"
+                    title="Mover esquerda"
+                  >
+                    ◀
+                  </button>
+                  <button
+                    onClick={() => handleMoveColumn(idx, 'down')}
+                    disabled={idx === columnOrder.length - 1}
+                    className="p-0.5 hover:bg-zinc-100 rounded disabled:opacity-30 text-[10px]"
+                    title="Mover direita"
+                  >
+                    ▶
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Printable Report */}
       <div className="bg-white border border-zinc-200 rounded-xl shadow-sm print:shadow-none print:border-none print:rounded-none">
         {/* Header */}
@@ -124,65 +203,116 @@ export function QuotationReport({ id, onBack }: QuotationReportProps) {
           <table className="w-full text-sm print:text-xs">
             <thead className="bg-zinc-100 print:bg-zinc-200">
               <tr>
-                <th className="px-3 py-2 text-left font-semibold text-zinc-700 border-b border-zinc-200">Ref</th>
-                <th className="px-3 py-2 text-left font-semibold text-zinc-700 border-b border-zinc-200">Descrição</th>
-                <th className="px-3 py-2 text-center font-semibold text-zinc-700 border-b border-zinc-200">Un</th>
-                <th className="px-3 py-2 text-right font-semibold text-zinc-700 border-b border-zinc-200">Qtd</th>
-                {supplierList.map(([sid, sname]) => (
-                  <th key={sid} className="px-3 py-2 text-right font-semibold text-zinc-700 border-b border-zinc-200 min-w-24">
-                    {sname}
-                  </th>
-                ))}
-                <th className="px-3 py-2 text-center font-semibold text-zinc-900 border-b border-zinc-200 bg-emerald-50">Vencedor</th>
+                {columnOrder.map(colKey => {
+                  if (!columns[colKey]) return null;
+                  if (colKey === 'ref') {
+                    return <th key="ref" className="px-3 py-2 text-left font-semibold text-zinc-700 border-b border-zinc-200">Ref</th>;
+                  }
+                  if (colKey === 'desc') {
+                    return <th key="desc" className="px-3 py-2 text-left font-semibold text-zinc-700 border-b border-zinc-200">Descrição</th>;
+                  }
+                  if (colKey === 'un') {
+                    return <th key="un" className="px-3 py-2 text-center font-semibold text-zinc-700 border-b border-zinc-200">Un</th>;
+                  }
+                  if (colKey === 'qty') {
+                    return <th key="qty" className="px-3 py-2 text-right font-semibold text-zinc-700 border-b border-zinc-200">Qtd</th>;
+                  }
+                  if (colKey === 'suppliers') {
+                    return supplierList.map(([sid, sname]) => (
+                      <th key={sid} className="px-3 py-2 text-right font-semibold text-zinc-700 border-b border-zinc-200 min-w-24">
+                        {sname}
+                      </th>
+                    ));
+                  }
+                  if (colKey === 'winner') {
+                    return <th key="winner" className="px-3 py-2 text-center font-semibold text-zinc-900 border-b border-zinc-200 bg-emerald-50">Vencedor</th>;
+                  }
+                  return null;
+                })}
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
-              {items.map(item => {
-                const qty = item.finalQty ?? item.approvedQty ?? item.recommendedQty;
-                const selectedPrice = item.prices?.find(p => p.isSelected);
-                const minPrice = item.prices && item.prices.length > 0
-                  ? Math.min(...item.prices.map(p => p.unitPrice))
-                  : null;
-
-                return (
-                  <tr key={item.id} className="hover:bg-zinc-50 print:hover:bg-transparent">
-                    <td className="px-3 py-2 font-mono text-xs text-zinc-600">{item.itemCode}</td>
-                    <td className="px-3 py-2 text-zinc-900 max-w-48 truncate">{item.description}</td>
-                    <td className="px-3 py-2 text-center text-zinc-500">{item.unit}</td>
-                    <td className="px-3 py-2 text-right font-medium">{qty.toLocaleString('pt-BR')}</td>
-                    {supplierList.map(([sid]) => {
-                      const price = item.prices?.find(p => p.supplierId === sid);
-                      if (!price) return <td key={sid} className="px-3 py-2 text-right text-zinc-300">-</td>;
-                      const isMin = minPrice !== null && price.unitPrice === minPrice;
-                      const isSelected = price.isSelected;
-                      return (
-                        <td key={sid} className={cn(
-                          "px-3 py-2 text-right",
-                          isSelected && "font-bold text-emerald-700",
-                          isMin && !isSelected && "text-blue-600"
-                        )}>
-                          {fmt(price.unitPrice)}
-                          {price.paymentTerms && (
-                            <div className="text-[10px] text-zinc-400">{price.paymentTerms}</div>
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="px-3 py-2 text-center bg-emerald-50/50">
-                      {selectedPrice ? (
-                        <div>
-                          <div className="font-bold text-emerald-700 flex items-center justify-center gap-1">
-                            <CheckCircle2 className="h-3 w-3 print:hidden" /> {selectedPrice.supplierName}
-                          </div>
-                          <div className="text-xs font-semibold text-emerald-600">{fmt(selectedPrice.unitPrice * qty)}</div>
-                        </div>
-                      ) : (
-                        <span className="text-zinc-400 text-xs">Pendente</span>
-                      )}
+              {Object.entries(groupedItems).map(([categoryName, groupItems]) => (
+                <React.Fragment key={categoryName}>
+                  <tr className="bg-zinc-50 print:bg-zinc-100">
+                    <td 
+                      colSpan={columnOrder.reduce((acc, colKey) => {
+                        if (!columns[colKey]) return acc;
+                        if (colKey === 'suppliers') return acc + supplierList.length;
+                        return acc + 1;
+                      }, 0)} 
+                      className="px-3 py-1.5 font-extrabold text-zinc-700 text-xs"
+                    >
+                      📁 {categoryName}
                     </td>
                   </tr>
-                );
-              })}
+                  
+                  {groupItems.map(item => {
+                    const qty = item.finalQty ?? item.approvedQty ?? item.recommendedQty;
+                    const selectedPrice = item.prices?.find(p => p.isSelected);
+                    const minPrice = item.prices && item.prices.length > 0
+                      ? Math.min(...item.prices.map(p => p.unitPrice))
+                      : null;
+
+                    return (
+                      <tr key={item.id} className="hover:bg-zinc-50 print:hover:bg-transparent">
+                        {columnOrder.map(colKey => {
+                          if (!columns[colKey]) return null;
+                          if (colKey === 'ref') {
+                            return <td key="ref" className="px-3 py-2 font-mono text-xs text-zinc-650">{item.itemCode}</td>;
+                          }
+                          if (colKey === 'desc') {
+                            return <td key="desc" className="px-3 py-2 text-zinc-900 max-w-48 truncate">{item.description}</td>;
+                          }
+                          if (colKey === 'un') {
+                            return <td key="un" className="px-3 py-2 text-center text-zinc-500">{item.unit}</td>;
+                          }
+                          if (colKey === 'qty') {
+                            return <td key="qty" className="px-3 py-2 text-right font-medium">{qty.toLocaleString('pt-BR')}</td>;
+                          }
+                          if (colKey === 'suppliers') {
+                            return supplierList.map(([sid]) => {
+                              const price = item.prices?.find(p => p.supplierId === sid);
+                              if (!price) return <td key={sid} className="px-3 py-2 text-right text-zinc-300">-</td>;
+                              const isMin = minPrice !== null && price.unitPrice === minPrice;
+                              const isSelected = price.isSelected;
+                              return (
+                                <td key={sid} className={cn(
+                                  "px-3 py-2 text-right",
+                                  isSelected && "font-bold text-emerald-700",
+                                  isMin && !isSelected && "text-blue-600"
+                                )}>
+                                  {fmt(price.unitPrice)}
+                                  {price.paymentTerms && (
+                                    <div className="text-[10px] text-zinc-400">{price.paymentTerms}</div>
+                                  )}
+                                </td>
+                              );
+                            });
+                          }
+                          if (colKey === 'winner') {
+                            return (
+                              <td key="winner" className="px-3 py-2 text-center bg-emerald-50/50">
+                                {selectedPrice ? (
+                                  <div>
+                                    <div className="font-bold text-emerald-700 flex items-center justify-center gap-1">
+                                      <CheckCircle2 className="h-3 w-3 print:hidden" /> {selectedPrice.supplierName}
+                                    </div>
+                                    <div className="text-xs font-semibold text-emerald-600">{fmt(selectedPrice.unitPrice * qty)}</div>
+                                  </div>
+                                ) : (
+                                  <span className="text-zinc-400 text-xs">Pendente</span>
+                                )}
+                              </td>
+                            );
+                          }
+                          return null;
+                        })}
+                      </tr>
+                    );
+                  })}
+                </React.Fragment>
+              ))}
             </tbody>
           </table>
         </div>
