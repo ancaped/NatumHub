@@ -703,10 +703,14 @@ pub async fn list_products(
         !is_kit && !is_coloracao && !is_apoio
     });
 
-    // Extract stats for metadata based on visible products (excluding hidden ones where visivel == 0)
+    // Extract stats for metadata based on visible products (excluding hidden ones and ignored statuses)
+    let ignored_statuses = crate::get_ignored_product_statuses(&conn);
     let visible_products: Vec<&crate::models::ProductCalculationResult> = computed
         .iter()
-        .filter(|p| p.visivel.unwrap_or(1) != 0)
+        .filter(|p| {
+            let status = p.status_produto.as_deref().unwrap_or("ativo");
+            !ignored_statuses.contains(&status.to_string()) && p.visivel.unwrap_or(1) != 0
+        })
         .collect();
     let count_critico = visible_products.iter().filter(|p| p.status == "critico").count();
     let count_ordem = visible_products.iter().filter(|p| p.status == "ordem").count();
@@ -718,12 +722,14 @@ pub async fn list_products(
     // Apply visibility filter
     let show_hidden = params.show_hidden.unwrap_or(false);
     if !show_hidden && !params.suspended_only.unwrap_or(false) {
-        computed.retain(|p| p.visivel.unwrap_or(1) != 0);
+        computed.retain(|p| {
+            let status = p.status_produto.as_deref().unwrap_or("ativo");
+            !ignored_statuses.contains(&status.to_string()) && p.visivel.unwrap_or(1) != 0
+        });
     }
 
     // Apply suspended filter if requested
     if params.suspended_only.unwrap_or(false) {
-        let ignored_statuses = crate::get_ignored_product_statuses(&conn);
         computed.retain(|p| {
             let status = p.status_produto.as_deref().unwrap_or("ativo");
             ignored_statuses.contains(&status.to_string()) || p.visivel.unwrap_or(1) == 0

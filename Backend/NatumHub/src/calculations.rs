@@ -89,7 +89,7 @@ pub fn calculate_products(
         // Get config
         let config = config_map.get(&resolved_linha_prefix).copied().unwrap_or(&default_config);
 
-        let resolved_visivel = if config.visivel == Some(0) {
+        let resolved_visivel = if config.visivel == Some(0) || resolved_status_produto == "terceirizado" || resolved_status_produto == "descontinuado" {
             Some(0)
         } else {
             ovr.and_then(|o| o.visivel)
@@ -200,6 +200,8 @@ pub fn calculate_products(
         // 8. Status decision & Recommended Production Quantity
         let (status, status_label, producao_recomendada) = if resolved_status_produto == "descontinuado" || config.visivel == Some(0) {
             ("descontinuado".to_string(), if config.visivel == Some(0) { "Linha Inativa".to_string() } else { "Saiu de Linha".to_string() }, 0)
+        } else if resolved_status_produto == "terceirizado" {
+            ("terceirizado".to_string(), "Terceirizado".to_string(), 0)
         } else if resolved_status_produto == "saindo_de_linha" {
             let (st, lbl) = if duracao_meses <= config_prod {
                 ("critico", "Produzir Urgente (Saindo de Linha)")
