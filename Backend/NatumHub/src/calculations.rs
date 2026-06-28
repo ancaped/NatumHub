@@ -89,6 +89,12 @@ pub fn calculate_products(
         // Get config
         let config = config_map.get(&resolved_linha_prefix).copied().unwrap_or(&default_config);
 
+        let resolved_visivel = if config.visivel == Some(0) {
+            Some(0)
+        } else {
+            ovr.and_then(|o| o.visivel)
+        };
+
         // 1. Determine Média de Vendas
         let base_media = if let Some(o) = ovr {
             if let Some(m) = o.media_manual {
@@ -192,8 +198,8 @@ pub fn calculate_products(
         let abrir_prod_qtd = config_prod * da_for_division;
 
         // 8. Status decision & Recommended Production Quantity
-        let (status, status_label, producao_recomendada) = if resolved_status_produto == "descontinuado" {
-            ("descontinuado".to_string(), "Saiu de Linha".to_string(), 0)
+        let (status, status_label, producao_recomendada) = if resolved_status_produto == "descontinuado" || config.visivel == Some(0) {
+            ("descontinuado".to_string(), if config.visivel == Some(0) { "Linha Inativa".to_string() } else { "Saiu de Linha".to_string() }, 0)
         } else if resolved_status_produto == "saindo_de_linha" {
             let (st, lbl) = if duracao_meses <= config_prod {
                 ("critico", "Produzir Urgente (Saindo de Linha)")
@@ -248,7 +254,7 @@ pub fn calculate_products(
             pedidos_manual: ovr.and_then(|o| o.pedidos_manual),
             media_manual: ovr.and_then(|o| o.media_manual),
             is_lancamento_manual: ovr.and_then(|o| o.is_lancamento_manual),
-            visivel: ovr.and_then(|o| o.visivel),
+            visivel: resolved_visivel,
             observacao: ovr.and_then(|o| o.observacao.clone()),
             linha_prefix_manual: ovr.and_then(|o| o.linha_prefix_manual.clone()),
             status_produto: Some(resolved_status_produto),

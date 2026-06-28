@@ -726,7 +726,7 @@ pub async fn list_products(
         let ignored_statuses = crate::get_ignored_product_statuses(&conn);
         computed.retain(|p| {
             let status = p.status_produto.as_deref().unwrap_or("ativo");
-            ignored_statuses.contains(&status.to_string())
+            ignored_statuses.contains(&status.to_string()) || p.visivel.unwrap_or(1) == 0
         });
     }
 

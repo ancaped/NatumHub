@@ -1693,9 +1693,10 @@ fn get_auto_ignored_ingredients(conn: &Connection) -> std::collections::HashMap<
 
     let mut item_products_map: std::collections::HashMap<String, Vec<(String, String, String)>> = std::collections::HashMap::new();
     let query = "
-        SELECT f.ingredient_code, f.product_code, p.descricao, IFNULL(op.status_produto, 'ativo')
+        SELECT f.ingredient_code, f.product_code, p.descricao, IFNULL(op.status_produto, 'ativo'), IFNULL(cl.visivel, 1)
         FROM formulations f
         JOIN produtos p ON f.product_code = p.codigo
+        LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
         LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
     ";
     if let Ok(mut stmt) = conn.prepare(query) {
@@ -1705,10 +1706,14 @@ fn get_auto_ignored_ingredients(conn: &Connection) -> std::collections::HashMap<
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
+                row.get::<_, i32>(4)?,
             ))
         }) {
             for r in rows {
-                if let Ok((ing_code, prod_code, prod_desc, prod_status)) = r {
+                if let Ok((ing_code, prod_code, prod_desc, mut prod_status, line_visivel)) = r {
+                    if line_visivel == 0 {
+                        prod_status = "descontinuado".to_string();
+                    }
                     item_products_map.entry(ing_code).or_default().push((prod_code, prod_desc, prod_status));
                 }
             }
@@ -2223,7 +2228,9 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
              FROM produtos p
              LEFT JOIN overrides_produtos o ON p.codigo = o.codigo
              LEFT JOIN estoque_atual e ON p.codigo = e.codigo
+             LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
              WHERE (p.codigo LIKE '1.34.%' OR p.codigo LIKE '1.30.%' OR o.categoria_produto = 'cat_coloracao' OR o.categoria_produto = 'cat_apoio')
+               AND IFNULL(cl.visivel, 1) <> 0
          ) t
          WHERE 1=1"
     );
