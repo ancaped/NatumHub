@@ -1,7 +1,7 @@
 import React from 'react';
 import { 
   Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, HelpCircle, 
-  ChevronDown, AlertTriangle, Play, Edit3, ChevronLeft, ChevronRight 
+  ChevronDown, AlertTriangle, Edit3, ChevronLeft, ChevronRight, CheckCircle2, PlusCircle
 } from 'lucide-react';
 import { ChevronRight as ChevronRightIcon } from 'lucide-react';
 
@@ -32,7 +32,9 @@ export function KitsTab({
   toggleSort,
   SortIcon,
   expandedKits,
-  toggleKitExpanded
+  toggleKitExpanded,
+  productionApprovalList = [],
+  onToggleApprovalList
 }) {
   return (
     <div className="view-container animate-in fade-in duration-200">
@@ -166,6 +168,7 @@ export function KitsTab({
                       <SortIcon field="max_montavel" activeField={kitSortField} activeDir={kitSortDir} />
                     </div>
                   </th>
+                  <th style={{ width: '8%', textAlign: 'center' }}>Fila</th>
                   <th style={{ width: '10%' }}>Ações</th>
                 </tr>
               </thead>
@@ -227,15 +230,26 @@ export function KitsTab({
                             )}
                           </div>
                         </td>
-                        <td style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
-                          <button 
-                            className="action-btn text-success cursor-pointer" 
-                            onClick={() => onLaunchProduct(p)} 
-                            title="Lançar Lote de Produção"
-                            style={{ color: 'hsl(var(--success-hsl))' }}
+                        <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => onToggleApprovalList(p.codigo)}
+                            className="action-btn cursor-pointer"
+                            style={{ 
+                              color: productionApprovalList.includes(p.codigo) ? 'rgb(22, 163, 74)' : '#a3a3a3',
+                              border: 'none',
+                              background: 'transparent',
+                              padding: 0
+                            }}
+                            title={productionApprovalList.includes(p.codigo) ? "Remover da Fila de Aprovação" : "Adicionar à Fila de Aprovação"}
                           >
-                            <Play size={14} />
+                            {productionApprovalList.includes(p.codigo) ? (
+                              <CheckCircle2 size={14} />
+                            ) : (
+                              <PlusCircle size={14} />
+                            )}
                           </button>
+                        </td>
+                        <td style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
                           <button className="action-btn cursor-pointer" onClick={() => onEditOverrides(p)} title="Ajustar overrides manuais">
                             <Edit3 size={14} />
                           </button>
@@ -245,7 +259,7 @@ export function KitsTab({
                       {/* Expanded Row containing Components details */}
                       {isExpanded && (
                         <tr className="expanded-row-tr">
-                          <td colSpan="8" style={{ padding: 0 }}>
+                          <td colSpan="9" style={{ padding: 0 }}>
                             <div className="components-detail-panel">
                               <div className="components-panel-title">Componentes do Kit ({k.componentes.length})</div>
                               <table className="components-table">

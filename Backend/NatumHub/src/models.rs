@@ -260,6 +260,7 @@ pub struct NewProducaoEntry {
     // Base control fields
     pub consume_base: Option<bool>,
     pub base_code: Option<String>,
+    pub lote_erp: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -289,6 +290,7 @@ pub struct ProducaoHistoryRecord {
     // Base control fields
     pub consume_base: Option<bool>,
     pub base_code: Option<String>,
+    pub lote_erp: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -564,6 +566,18 @@ pub struct ProductionLote {
     pub pesagem_error: Option<bool>,
     pub envase_error: Option<bool>,
     pub conferencia_error: Option<bool>,
+    pub is_resolved: Option<bool>,
+    pub resolution_obs: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LoteErrorResolution {
+    pub lote_number: String,
+    pub is_resolved: bool,
+    pub resolved_by: Option<String>,
+    pub resolved_at: Option<String>,
+    pub observations: Option<String>,
 }
 
 

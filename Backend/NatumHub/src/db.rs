@@ -158,6 +158,7 @@ impl Db {
         // Migrations: base control columns in historico_producao
         let _ = conn.execute("ALTER TABLE historico_producao ADD COLUMN consume_base INTEGER DEFAULT 0", []);
         let _ = conn.execute("ALTER TABLE historico_producao ADD COLUMN base_code TEXT", []);
+        let _ = conn.execute("ALTER TABLE historico_producao ADD COLUMN lote_erp TEXT", []);
 
         // Initialize watch config defaults if not set
         let _ = conn.execute(
@@ -524,8 +525,8 @@ impl Db {
             "INSERT INTO historico_producao (data_producao, codigo, quantidade, observacoes,
              snap_estoque, snap_producao, snap_pedidos, snap_efp, snap_media_vendas,
              snap_duracao_meses, snap_status, snap_status_label, snap_producao_recomendada,
-             snap_estoque_ideal_qtd, snap_demanda_ajustada, consume_base, base_code)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+             snap_estoque_ideal_qtd, snap_demanda_ajustada, consume_base, base_code, lote_erp)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 entry.data_producao,
                 entry.codigo,
@@ -543,7 +544,8 @@ impl Db {
                 entry.snap_estoque_ideal_qtd,
                 entry.snap_demanda_ajustada,
                 if entry.consume_base.unwrap_or(false) { 1 } else { 0 },
-                entry.base_code
+                entry.base_code,
+                entry.lote_erp
             ],
         )?;
         let insert_id = tx.last_insert_rowid();
@@ -625,9 +627,18 @@ impl Db {
 
         tx.commit()?;
         Ok(())
-    }
+     }
 
-    pub fn list_producao_history(&self, params: &crate::models::HistoryQueryParams) -> Result<Vec<crate::models::ProducaoHistoryRecord>> {
+     pub fn update_producao_lote(&self, id: i64, lote_erp: Option<&str>) -> Result<()> {
+         let conn = self.connect()?;
+         conn.execute(
+             "UPDATE historico_producao SET lote_erp = ?1 WHERE id = ?2",
+             params![lote_erp, id],
+         )?;
+         Ok(())
+     }
+
+     pub fn list_producao_history(&self, params: &crate::models::HistoryQueryParams) -> Result<Vec<crate::models::ProducaoHistoryRecord>> {
         let conn = self.connect()?;
         
         let mut query = String::from(
@@ -637,7 +648,7 @@ impl Db {
                     h.snap_estoque, h.snap_producao, h.snap_pedidos, h.snap_efp,
                     h.snap_media_vendas, h.snap_duracao_meses, h.snap_status,
                     h.snap_status_label, h.snap_producao_recomendada, h.snap_estoque_ideal_qtd,
-                    h.snap_demanda_ajustada, h.consume_base, h.base_code
+                    h.snap_demanda_ajustada, h.consume_base, h.base_code, h.lote_erp
              FROM historico_producao h
              LEFT JOIN produtos p ON h.codigo = p.codigo
              LEFT JOIN overrides_produtos o ON h.codigo = o.codigo
@@ -713,6 +724,7 @@ impl Db {
                 snap_demanda_ajustada: row.get(19)?,
                 consume_base: Some(row.get::<_, Option<i32>>(20)?.unwrap_or(0) == 1),
                 base_code: row.get(21)?,
+                lote_erp: row.get(22)?,
             })
         })?;
         

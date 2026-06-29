@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Search, RefreshCw, ChevronDown, ChevronRight, Play, Edit3, HelpCircle, AlertTriangle
+  Search, RefreshCw, ChevronDown, ChevronRight, Edit3, HelpCircle, AlertTriangle, CheckCircle2, PlusCircle
 } from 'lucide-react';
 
 const API_BASE = 'http://127.0.0.1:3001/api';
@@ -10,7 +10,9 @@ export function BasesTab({
   tabOptions,
   onLaunchProduct,
   onEditOverrides,
-  onRefresh
+  onRefresh,
+  productionApprovalList = [],
+  onToggleApprovalList
 }) {
   const [bases, setBases] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -219,6 +221,7 @@ export function BasesTab({
                     Produção {sortField === 'producao' && (sortDir === 'asc' ? '▲' : '▼')}
                   </th>
                   <th style={{ width: '12%' }}>Status</th>
+                  <th style={{ width: '8%', textAlign: 'center' }}>Fila</th>
                   <th style={{ width: '8%' }}>Ações</th>
                 </tr>
               </thead>
@@ -254,16 +257,27 @@ export function BasesTab({
                             Base
                           </span>
                         </td>
+                        <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => onToggleApprovalList(b.codigo)}
+                            className="action-btn cursor-pointer"
+                            style={{ 
+                              color: productionApprovalList.includes(b.codigo) ? 'rgb(22, 163, 74)' : '#a3a3a3',
+                              border: 'none',
+                              background: 'transparent',
+                              padding: 0
+                            }}
+                            title={productionApprovalList.includes(b.codigo) ? "Remover da Fila de Aprovação" : "Adicionar à Fila de Aprovação"}
+                          >
+                            {productionApprovalList.includes(b.codigo) ? (
+                              <CheckCircle2 size={14} />
+                            ) : (
+                              <PlusCircle size={14} />
+                            )}
+                          </button>
+                        </td>
                         <td>
                           <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
-                            <button 
-                              className="action-btn cursor-pointer" 
-                              onClick={() => onLaunchProduct(b)} 
-                              title="Lançar Lote de Produção"
-                              style={{ color: 'rgb(22, 163, 74)' }}
-                            >
-                              <Play size={14} />
-                            </button>
                             <button 
                               className="action-btn cursor-pointer" 
                               onClick={() => onEditOverrides(b)} 
@@ -278,7 +292,7 @@ export function BasesTab({
                       {/* Expanded Section */}
                       {isExpanded && (
                         <tr className="expanded-row-tr">
-                          <td colSpan={7} style={{ padding: 0 }}>
+                          <td colSpan={8} style={{ padding: 0 }}>
                             <div className="components-detail-panel" style={{ padding: '1.5rem', background: '#fafafa', borderTop: '1px solid #e4e4e7' }}>
                               {isDetailsLoading ? (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#737373', fontSize: '0.875rem' }}>

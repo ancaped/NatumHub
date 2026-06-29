@@ -106,6 +106,9 @@ CREATE TABLE IF NOT EXISTS historico_producao (
     snap_producao_recomendada INTEGER,
     snap_estoque_ideal_qtd REAL,
     snap_demanda_ajustada REAL,
+    consume_base INTEGER DEFAULT 0,
+    base_code TEXT,
+    lote_erp TEXT,
     FOREIGN KEY(codigo) REFERENCES produtos(codigo) ON DELETE CASCADE
 );
 

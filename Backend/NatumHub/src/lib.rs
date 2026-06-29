@@ -737,6 +737,14 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             FOREIGN KEY (item_code_a) REFERENCES items(code) ON DELETE CASCADE,
             FOREIGN KEY (item_code_b) REFERENCES items(code) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS lote_error_resolutions (
+            lote_number  TEXT PRIMARY KEY,
+            is_resolved  INTEGER DEFAULT 0,
+            resolved_by  TEXT,
+            resolved_at  TEXT,
+            observations TEXT
+        );
     ")?;
 
     Ok(())
@@ -3481,7 +3489,7 @@ fn start_axum_server() {
             .allow_methods(Any)
             .allow_headers(Any);
 
-        use axum::{routing::{get, post, delete}, Router};
+        use axum::{routing::{get, post, delete, put}, Router};
         
         let app = Router::new()
             .route("/api/products", get(handlers::list_products))
@@ -3509,6 +3517,7 @@ fn start_axum_server() {
             .route("/api/produtos/:code/detalhes", get(handlers::get_product_detalhes))
             .route("/api/producao/lotes", get(handlers::get_production_lotes))
             .route("/api/producao/lotes/:number/detalhes", get(handlers::get_lote_detalhes))
+            .route("/api/producao/lotes/:number/resolver", post(handlers::save_lote_resolution).delete(handlers::delete_lote_resolution))
             .route("/api/producao/recalcular/preview", get(handlers::preview_recalculation))
             .route("/api/producao/recalcular/ajustar", post(handlers::apply_recalculation_adjustment))
             .route("/api/estoque/item-info/:code", get(handlers::get_item_extra_info))
@@ -3521,6 +3530,7 @@ fn start_axum_server() {
             .route("/api/compras/lojas/:id", delete(handlers::delete_online_store_handler))
             .route("/api/historico", get(handlers::list_producao).post(handlers::add_producao))
             .route("/api/historico/:id", delete(handlers::delete_producao))
+            .route("/api/historico/:id/lote", put(handlers::update_producao_lote))
             .route("/api/vendas/pedidos", get(handlers::list_sales_orders))
             .route("/api/vendas/faltas", get(handlers::list_sales_faltas))
             .route("/api/produtos/:code/pedidos-pendentes", get(handlers::get_product_pending_orders))

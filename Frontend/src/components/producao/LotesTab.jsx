@@ -42,6 +42,7 @@ export function LotesTab({
 }) {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [ocultarResolvidos, setOcultarResolvidos] = useState(true);
   const limitPerPage = 15;
 
   const filteredLotes = useMemo(() => {
@@ -69,9 +70,14 @@ export function LotesTab({
         matchesStatus = l.status === selectedStatus;
       }
 
-      return matchesSearch && matchesStatus;
+      let matchesResolution = true;
+      if (ocultarResolvidos && l.isResolved) {
+        matchesResolution = false;
+      }
+
+      return matchesSearch && matchesStatus && matchesResolution;
     });
-  }, [lotes, search, selectedStatus]);
+  }, [lotes, search, selectedStatus, ocultarResolvidos]);
 
   // Pagination
   const totalItems = filteredLotes.length;
@@ -162,7 +168,7 @@ export function LotesTab({
           />
         </div>
 
-        <div className="filters-wrapper">
+        <div className="filters-wrapper flex items-center gap-2">
           <select 
             className="select-filter"
             value={selectedStatus}
@@ -173,6 +179,16 @@ export function LotesTab({
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
+
+          <label className="flex items-center gap-2 text-[11px] font-bold text-zinc-600 border border-zinc-200 rounded-lg px-3 py-1.5 bg-white cursor-pointer select-none hover:bg-zinc-50 transition-colors">
+            <input 
+              type="checkbox" 
+              checked={ocultarResolvidos} 
+              onChange={(e) => { setOcultarResolvidos(e.target.checked); setPage(1); }} 
+              className="accent-zinc-900 rounded" 
+            />
+            Ocultar Resolvidos
+          </label>
 
           <button className="btn-secondary cursor-pointer" onClick={onRefresh} title="Atualizar dados">
             <RefreshCw size={16} />
@@ -236,6 +252,11 @@ export function LotesTab({
                           <span className={`status-badge ${getStatusBadgeClass(l.status)}`}>
                             {getStatusLabel(l.status)}
                           </span>
+                          {l.isResolved === true && (
+                            <span className="bg-emerald-55 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded text-[9px] font-extrabold flex items-center gap-1 shadow-sm">
+                              ✔️ Desvios Justificados
+                            </span>
+                          )}
                           {l.yieldError === true && (
                             <span style={{ 
                               backgroundColor: 'hsl(var(--warning-background-hsl))', 
@@ -247,7 +268,9 @@ export function LotesTab({
                               display: 'flex',
                               alignItems: 'center',
                               gap: '4px',
-                              animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                              opacity: l.isResolved ? 0.4 : 1,
+                              textDecoration: l.isResolved ? 'line-through' : 'none',
+                              animation: l.isResolved ? 'none' : 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
                             }}>
                               <AlertTriangle size={10} /> ERRO RENDIMENTO
                             </span>
@@ -263,7 +286,9 @@ export function LotesTab({
                               display: 'flex',
                               alignItems: 'center',
                               gap: '4px',
-                              animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                              opacity: l.isResolved ? 0.4 : 1,
+                              textDecoration: l.isResolved ? 'line-through' : 'none',
+                              animation: l.isResolved ? 'none' : 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
                             }}>
                               <AlertTriangle size={10} /> ERRO PESAGEM
                             </span>
@@ -279,7 +304,9 @@ export function LotesTab({
                               display: 'flex',
                               alignItems: 'center',
                               gap: '4px',
-                              animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                              opacity: l.isResolved ? 0.4 : 1,
+                              textDecoration: l.isResolved ? 'line-through' : 'none',
+                              animation: l.isResolved ? 'none' : 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
                             }}>
                               <AlertTriangle size={10} /> ERRO ENVASE
                             </span>
@@ -295,7 +322,9 @@ export function LotesTab({
                               display: 'flex',
                               alignItems: 'center',
                               gap: '4px',
-                              animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                              opacity: l.isResolved ? 0.4 : 1,
+                              textDecoration: l.isResolved ? 'line-through' : 'none',
+                              animation: l.isResolved ? 'none' : 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
                             }}>
                               <AlertTriangle size={10} /> ERRO CONFERÊNCIA
                             </span>

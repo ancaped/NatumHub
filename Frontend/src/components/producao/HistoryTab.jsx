@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Search, RefreshCw, X, ArrowUpDown, ArrowUp, ArrowDown, HelpCircle, 
-  ChevronDown, Eye, Trash2, Package, History, Layers 
+  ChevronDown, Eye, Trash2, Package, History, Layers, Check, Edit3 
 } from 'lucide-react';
 
 export function HistoryTab({
@@ -25,6 +25,29 @@ export function HistoryTab({
   expandedHistoryId,
   setExpandedHistoryId
 }) {
+  const [editingId, setEditingId] = useState(null);
+  const [editVal, setEditVal] = useState('');
+
+  const handleSaveLoteErp = async (id) => {
+    try {
+      const res = await fetch(`http://127.0.0.1:3001/api/historico/${id}/lote`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lote_erp: editVal.trim() === '' ? null : editVal.trim() })
+      });
+      if (res.ok) {
+        setEditingId(null);
+        if (onRefresh) onRefresh();
+      } else {
+        const err = await res.json();
+        alert(err.error || "Erro ao atualizar lote");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Falha de conexão com o servidor");
+    }
+  };
+
   return (
     <div className="view-container animate-in fade-in duration-200">
       <div className="view-header">
@@ -171,7 +194,17 @@ export function HistoryTab({
                     </div>
                   </th>
                   <th 
-                    style={{ width: '24%', cursor: 'pointer' }}
+                    style={{ width: '12%', cursor: 'pointer' }}
+                    onClick={() => toggleSort('lote_erp', historySortField, setHistorySortField, historySortDir, setHistorySortDir)}
+                    className="sortable-th"
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      Lote ERP
+                      <SortIcon field="lote_erp" activeField={historySortField} activeDir={historySortDir} />
+                    </div>
+                  </th>
+                  <th 
+                    style={{ width: '20%', cursor: 'pointer' }}
                     onClick={() => toggleSort('observacoes', historySortField, setHistorySortField, historySortDir, setHistorySortDir)}
                     className="sortable-th"
                   >
@@ -223,6 +256,59 @@ export function HistoryTab({
                         <td className="numeric-col" style={{ fontWeight: '700', fontSize: '0.9rem' }}>
                           {r.quantidade.toLocaleString()} un
                         </td>
+                        <td onClick={(e) => { e.stopPropagation(); }} style={{ verticalAlign: 'middle' }}>
+                          {editingId === r.id ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                              <input
+                                type="text"
+                                value={editVal}
+                                onChange={(e) => setEditVal(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleSaveLoteErp(r.id);
+                                  if (e.key === 'Escape') setEditingId(null);
+                                }}
+                                style={{
+                                  width: '5.5rem',
+                                  padding: '0.15rem 0.35rem',
+                                  fontSize: '0.75rem',
+                                  border: '1px solid #d4d4d8',
+                                  borderRadius: '0.25rem',
+                                  fontWeight: 'bold',
+                                  color: '#18181b',
+                                  outline: 'none'
+                                }}
+                                autoFocus
+                              />
+                              <button 
+                                onClick={() => handleSaveLoteErp(r.id)}
+                                style={{ background: 'none', border: 'none', padding: 0, color: 'rgb(22, 163, 74)', cursor: 'pointer', display: 'flex' }}
+                                title="Confirmar"
+                              >
+                                <Check size={14} />
+                              </button>
+                              <button 
+                                onClick={() => setEditingId(null)}
+                                style={{ background: 'none', border: 'none', padding: 0, color: 'rgb(239, 68, 68)', cursor: 'pointer', display: 'flex' }}
+                                title="Cancelar"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          ) : (
+                            <div 
+                              onClick={() => {
+                                setEditingId(r.id);
+                                setEditVal(r.lote_erp || '');
+                              }}
+                              className="flex items-center gap-1 cursor-pointer group"
+                              style={{ fontWeight: '700', color: r.lote_erp ? '#18181b' : '#a3a3a3', fontSize: '0.8rem', display: 'flex', alignItems: 'center' }}
+                              title="Clique para editar o Lote ERP"
+                            >
+                              <span>{r.lote_erp || 'Inserir Lote'}</span>
+                              <Edit3 size={11} className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ marginLeft: '4px' }} />
+                            </div>
+                          )}
+                        </td>
                         <td>
                           {r.observacoes ? (
                             <span style={{ fontSize: '0.8rem', color: 'hsl(var(--text-secondary-hsl))' }}>
@@ -267,7 +353,7 @@ export function HistoryTab({
                       {/* Expandable Snapshot Detail Row */}
                       {isExpanded && hasSnapshot && (
                         <tr className="snapshot-detail-row">
-                          <td colSpan={8} style={{ padding: 0, border: 'none' }}>
+                          <td colSpan={9} style={{ padding: 0, border: 'none' }}>
                             <div className="snapshot-panel">
                               <div className="snapshot-header">
                                 <Package size={14} style={{ opacity: 0.6 }} />

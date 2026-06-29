@@ -1,7 +1,7 @@
 import React from 'react';
 import { 
   Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, HelpCircle, 
-  AlertTriangle, ChevronLeft, ChevronRight, Play, Edit3 
+  AlertTriangle, ChevronLeft, ChevronRight, Edit3, CheckCircle2, PlusCircle 
 } from 'lucide-react';
 
 export function InventoryTab({
@@ -35,7 +35,9 @@ export function InventoryTab({
   tabOptions,
   toggleSort,
   SortIcon,
-  onShowDetails
+  onShowDetails,
+  productionApprovalList = [],
+  onToggleApprovalList
 }) {
   return (
     <div className="view-container animate-in fade-in duration-200">
@@ -193,6 +195,7 @@ export function InventoryTab({
                       <SortIcon field="producao_recomendada" activeField={sortField} activeDir={sortDir} />
                     </div>
                   </th>
+                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px] text-center" style={{ width: '5%' }}>Fila</th>
                   <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px] text-center" style={{ width: '5%' }}>Ações</th>
                 </tr>
               </thead>
@@ -294,8 +297,8 @@ export function InventoryTab({
                             ></div>
                           </div>
                           <div className="flex justify-between text-[10px] text-zinc-400 mt-0.5">
-                            <span>Vendas/mês: {p.demanda_ajustada.toFixed(1)}</span>
-                            {p.desvio_padrao > 0 && <span title={`Média: ${p.media_vendas.toFixed(0)} | σ: ${p.desvio_padrao.toFixed(0)}`}>σ: {p.desvio_padrao.toFixed(0)}</span>}
+                            <span>Vendas/mês: {p.produzir_apenas_kit === 1 ? '—' : p.demanda_ajustada.toFixed(1)}</span>
+                            {p.desvio_padrao > 0 && p.produzir_apenas_kit !== 1 && <span title={`Média: ${p.media_vendas.toFixed(0)} | σ: ${p.desvio_padrao.toFixed(0)}`}>σ: {p.desvio_padrao.toFixed(0)}</span>}
                           </div>
                         </div>
                       </td>
@@ -312,15 +315,25 @@ export function InventoryTab({
                           </div>
                         )}
                       </td>
+                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-center" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => onToggleApprovalList(p.codigo)}
+                          className={`p-1 rounded transition-colors cursor-pointer ${
+                            productionApprovalList.includes(p.codigo)
+                              ? 'text-emerald-650 hover:bg-emerald-50'
+                              : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600'
+                          }`}
+                          title={productionApprovalList.includes(p.codigo) ? "Remover da Fila de Aprovação" : "Adicionar à Fila de Aprovação"}
+                        >
+                          {productionApprovalList.includes(p.codigo) ? (
+                            <CheckCircle2 size={14} />
+                          ) : (
+                            <PlusCircle size={14} />
+                          )}
+                        </button>
+                      </td>
                       <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-center">
                         <div className="flex gap-1 justify-center">
-                          <button 
-                            className="p-1 rounded text-zinc-500 hover:text-emerald-650 hover:bg-emerald-50 transition-colors cursor-pointer" 
-                            onClick={() => onLaunchProduct(p)} 
-                            title="Lançar Lote de Produção"
-                          >
-                            <Play size={14} />
-                          </button>
                           <button 
                             className="p-1 rounded text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 transition-colors cursor-pointer" 
                             onClick={() => onEditOverrides(p)} 

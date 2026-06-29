@@ -4,7 +4,7 @@ import {
   ArrowLeft, Search, Database, Layers, Boxes, Calendar, FileText, 
   RefreshCw, CheckCircle2, AlertTriangle, ArrowUpRight, ArrowDownRight, 
   Info, Shield, Package, ShoppingCart, User, HelpCircle, FileSpreadsheet, Lock,
-  Truck, Receipt, Clock, X
+  Truck, Receipt, Clock, X, Link
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import ActiveProductsView from './ActiveProductsView';
@@ -142,13 +142,25 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
     type: 'insumo' | 'produto' | 'material';
     stock: number;
   } | null>(null);
-  const [drawerTab, setDrawerTab] = useState<'movimentacoes' | 'formulacao' | 'notas' | 'pedidos' | 'lotes'>('movimentacoes');
+  const [drawerTab, setDrawerTab] = useState<'movimentacoes' | 'formulacao' | 'notas' | 'pedidos' | 'lotes' | 'similar'>('movimentacoes');
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [formulation, setFormulation] = useState<FormulationLine[]>([]);
   const [extraInfo, setExtraInfo] = useState<ItemExtraInfo | null>(null);
   const [productPendingOrders, setProductPendingOrders] = useState<any>(null);
   const [drawerLoading, setDrawerLoading] = useState(false);
   const [drawerError, setDrawerError] = useState<string | null>(null);
+  const [similarItems, setSimilarItems] = useState<any[]>([]);
+  const [similarSearch, setSimilarSearch] = useState('');
+  const [allItems, setAllItems] = useState<any[]>([]);
+
+  const reloadSimilarItems = async (code: string) => {
+    try {
+      const data = await api.getSimilarItems(code);
+      setSimilarItems(data || []);
+    } catch (e) {
+      console.error("Erro ao carregar insumos semelhantes:", e);
+    }
+  };
 
   // Invoice detail modal state
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
@@ -265,6 +277,17 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
           }
         }
       }
+
+      if (type !== 'produto') {
+        try {
+          const simData = await api.getSimilarItems(code);
+          setSimilarItems(simData || []);
+          const allData = await api.getItems();
+          setAllItems(allData || []);
+        } catch (e) {
+          console.error("Erro ao carregar dados de semelhantes:", e);
+        }
+      }
     } catch (e) {
       console.error("Erro ao carregar detalhes do item:", e);
       setDrawerError("Erro ao carregar os dados de rastreabilidade.");
@@ -338,6 +361,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
       tabs.push({ id: 'movimentacoes', label: 'Movimentações', icon: ArrowUpRight });
       tabs.push({ id: 'notas', label: 'Notas Fiscais', icon: Receipt });
       tabs.push({ id: 'pedidos', label: 'Pedidos Pendentes', icon: Truck });
+      tabs.push({ id: 'similar', label: 'Semelhantes', icon: Link });
     }
     return tabs;
   }, [selectedItem]);
@@ -1095,6 +1119,103 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                     )}
                   </div>
                 )
+              ) : drawerTab === 'similar' ? (
+                /* Similar Items management for Insumos */
+                <div className="space-y-4 text-left">
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-500 font-medium">
+                    <Info className="h-3.5 w-3.5 text-zinc-400" />
+                    Gerencie insumos semelhantes que podem ser usados como substitutos em lotes de produção.
+                  </div>
+
+                  {/* Search and associate similar items */}
+                  <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-3.5 space-y-3">
+                    <h5 className="text-xs font-bold text-zinc-700">Associar Novo Insumo Semelhante</h5>
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-400" />
+                      <input
+                        type="text"
+                        placeholder="Buscar insumo por código ou descrição..."
+                        value={similarSearch}
+                        onChange={(e) => setSimilarSearch(e.target.value)}
+                        className="w-full text-xs border border-zinc-300 rounded-md pl-8 pr-3 py-2 focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white"
+                      />
+                    </div>
+
+                    {/* Results list */}
+                    {similarSearch.trim().length >= 2 && (
+                      <div className="bg-white border border-zinc-200 rounded-lg max-h-40 overflow-y-auto divide-y divide-zinc-100 shadow-sm">
+                        {allItems
+                          .filter(i => 
+                            i.code !== selectedItem.code &&
+                            (i.code.toLowerCase().includes(similarSearch.toLowerCase()) || 
+                             i.description.toLowerCase().includes(similarSearch.toLowerCase())) &&
+                            !similarItems.some(s => s.code === i.code)
+                          )
+                          .slice(0, 10)
+                          .map(item => (
+                            <div key={item.code} className="p-2 flex items-center justify-between text-xs hover:bg-zinc-50 transition-colors">
+                              <div className="truncate pr-2">
+                                <span className="font-mono font-bold text-zinc-500 mr-2">{item.code}</span>
+                                <span className="font-medium text-zinc-800">{item.description}</span>
+                              </div>
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await api.addSimilarItem(selectedItem.code, item.code);
+                                    setSimilarSearch('');
+                                    reloadSimilarItems(selectedItem.code);
+                                  } catch (e) {
+                                    console.error(e);
+                                    alert("Erro ao associar insumo");
+                                  }
+                                }}
+                                className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 text-white rounded text-[10px] font-bold cursor-pointer transition-colors"
+                              >
+                                Associar
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* List of associated similar items */}
+                  <div className="space-y-2">
+                    <h5 className="text-xs font-bold text-zinc-700">Insumos Semelhantes Cadastrados ({similarItems.length})</h5>
+                    {similarItems.length === 0 ? (
+                      <div className="text-center py-8 text-zinc-400 bg-zinc-50/50 rounded-xl border border-dashed border-zinc-200">
+                        Nenhum insumo semelhante associado a este item.
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-zinc-100 border border-zinc-150 rounded-xl bg-white overflow-hidden font-medium">
+                        {similarItems.map(item => (
+                          <div key={item.code} className="p-3 flex items-center justify-between text-xs hover:bg-zinc-50/30 transition-colors">
+                            <div>
+                              <div className="font-semibold text-zinc-900">{item.description}</div>
+                              <div className="text-[10px] text-zinc-450 font-mono mt-0.5 font-bold">REF: {item.code}</div>
+                            </div>
+                            <button
+                              onClick={async () => {
+                                if (window.confirm(`Remover similaridade com o insumo "${item.description}"?`)) {
+                                  try {
+                                    await api.removeSimilarItem(selectedItem.code, item.code);
+                                    reloadSimilarItems(selectedItem.code);
+                                  } catch (e) {
+                                    console.error(e);
+                                    alert("Erro ao remover associação");
+                                  }
+                                }
+                              }}
+                              className="text-xs text-rose-650 hover:text-rose-700 font-bold hover:underline cursor-pointer"
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               ) : (
                 /* Timeline Movements List */
                 <div className="space-y-6">

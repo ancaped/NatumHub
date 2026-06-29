@@ -1290,6 +1290,29 @@ pub async fn delete_producao(
     }
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdateLotePayload {
+    pub lote_erp: Option<String>,
+}
+
+// 12b. PUT /api/historico/:id/lote
+pub async fn update_producao_lote(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(payload): Json<UpdateLotePayload>,
+) -> impl IntoResponse {
+    match state.db.update_producao_lote(id, payload.lote_erp.as_deref()) {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(json!({ "status": "success", "message": "Lote ERP atualizado com sucesso!" }))
+        ).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Erro ao atualizar Lote ERP: {}", e) }))
+        ).into_response(),
+    }
+}
+
 // ===== KIT COMPOSICAO HANDLERS =====
 
 // GET /api/kits/composicao
@@ -3174,6 +3197,8 @@ pub async fn get_product_detalhes(
                         pesagem_error: None,
                         envase_error: None,
                         conferencia_error: None,
+                        is_resolved: None,
+                        resolution_obs: None,
                     };
 
                     if status == "EA" || status == "FP" || status == "CF" {
@@ -3243,9 +3268,10 @@ pub async fn get_production_lotes(
     };
 
     let mut query = "
-        SELECT m.id, m.document_number, m.item_code, p.descricao, m.quantity, m.date, m.details 
+        SELECT m.id, m.document_number, m.item_code, p.descricao, m.quantity, m.date, m.details, r.is_resolved, r.observations
         FROM stock_movements m
         LEFT JOIN produtos p ON m.item_code = p.codigo
+        LEFT JOIN lote_error_resolutions r ON m.document_number = r.lote_number
         WHERE m.item_type = 'produto' AND m.movement_type = 'entrada' AND m.date <= datetime('now', 'localtime')
     ".to_string();
 
@@ -3290,9 +3316,13 @@ pub async fn get_production_lotes(
             quantity: f64,
             date: String,
             details: String,
+            is_resolved: Option<bool>,
+            resolution_obs: Option<String>,
         }
 
         let rows_res = stmt.query_map(params_converted, |row| {
+            let is_resolved_int: Option<i32> = row.get(7)?;
+            let is_resolved = is_resolved_int.map(|v| v == 1);
             Ok(RawLote {
                 id: row.get(0)?,
                 lote_number: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
@@ -3301,6 +3331,8 @@ pub async fn get_production_lotes(
                 quantity: row.get(4)?,
                 date: row.get(5)?,
                 details: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
+                is_resolved,
+                resolution_obs: row.get(8)?,
             })
         });
 
@@ -3358,6 +3390,8 @@ pub async fn get_production_lotes(
                 pesagem_error: None,
                 envase_error: None,
                 conferencia_error: None,
+                is_resolved: rl.is_resolved,
+                resolution_obs: rl.resolution_obs,
             };
             lote_indices.insert(rl.lote_number, grouped_lotes.len());
             grouped_lotes.push(new_lote);
@@ -3466,6 +3500,48 @@ fn check_lote_errors(
             while let Ok(Some(row)) = rows.next() {
                 if let (Ok(code), Ok(qty)) = (row.get::<_, String>(0), row.get::<_, f64>(1)) {
                     *exits_map.entry(code).or_insert(0.0) += qty;
+                }
+            }
+        }
+    }
+
+    // A. Detect if a base was consumed
+    let mut base_code: Option<String> = None;
+    if let Ok(bc) = conn.query_row(
+        "SELECT base_code FROM historico_producao WHERE lote_erp = ?1 AND consume_base = 1 LIMIT 1",
+        params![lote_number],
+        |r| r.get::<_, Option<String>>(0)
+    ) {
+        base_code = bc;
+    }
+    if base_code.is_none() {
+        if let Ok(Some(b_desc)) = conn.query_row(
+            "SELECT base FROM produtos WHERE codigo = ?1 LIMIT 1",
+            params![product_code],
+            |r| r.get::<_, Option<String>>(0)
+        ) {
+            if let Ok(bc) = conn.query_row(
+                "SELECT codigo FROM produtos WHERE descricao = ?1 LIMIT 1",
+                params![&b_desc],
+                |r| r.get::<_, String>(0)
+            ) {
+                if exits_map.contains_key(&bc) {
+                    base_code = Some(bc);
+                }
+            }
+        }
+    }
+
+    let mut base_ingredients = std::collections::HashSet::new();
+    if let Some(ref bc) = base_code {
+        if let Ok(mut stmt_base) = conn.prepare(
+            "SELECT ingredient_code FROM formulations WHERE product_code = ?1"
+        ) {
+            if let Ok(mut rows_base) = stmt_base.query(params![bc]) {
+                while let Ok(Some(row_base)) = rows_base.next() {
+                    if let Ok(ing) = row_base.get::<_, String>(0) {
+                        base_ingredients.insert(ing);
+                    }
                 }
             }
         }
@@ -3586,6 +3662,24 @@ fn check_lote_errors(
 
     for (ing_code, expected_qty) in &total_expected_ingredients {
         let mut actual_qty = *exits_map.get(ing_code).unwrap_or(&0.0);
+        
+        // Sum exited quantity of similar items
+        if let Ok(mut stmt_sim) = conn.prepare(
+            "SELECT item_code_b FROM similar_items WHERE item_code_a = ?1
+             UNION
+             SELECT item_code_a FROM similar_items WHERE item_code_b = ?1"
+        ) {
+            if let Ok(mut rows_sim) = stmt_sim.query(params![ing_code]) {
+                while let Ok(Some(row_sim)) = rows_sim.next() {
+                    if let Ok(sim_code) = row_sim.get::<_, String>(0) {
+                        if let Some(&qty) = exits_map.get(&sim_code) {
+                            actual_qty += qty;
+                        }
+                    }
+                }
+            }
+        }
+
         if actual_qty < 0.0001 {
             actual_qty = 0.0;
         }
@@ -3598,7 +3692,11 @@ fn check_lote_errors(
         };
 
         if (actual_qty == 0.0 && *expected_qty > 0.0) || (*expected_qty > 0.0 && percentage_diff.abs() > 10.0) {
-            pesagem_error = true;
+            let is_missing = actual_qty == 0.0 && *expected_qty > 0.0;
+            let is_in_base = is_missing && base_ingredients.contains(ing_code);
+            if !is_in_base {
+                pesagem_error = true;
+            }
         }
     }
 
@@ -3845,6 +3943,8 @@ pub struct LoteDetalhes {
     pub total_packaged_weight_kg: f64,
     pub bulk_loss_kg: f64,
     pub bulk_yield_percentage: f64,
+    pub is_resolved: Option<bool>,
+    pub resolution_obs: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -3978,6 +4078,51 @@ pub async fn get_lote_detalhes(
         }
     }
 
+    // B. Detect if a base was consumed
+    let mut base_code: Option<String> = None;
+    if let Ok(bc) = conn.query_row(
+        "SELECT base_code FROM historico_producao WHERE lote_erp = ?1 AND consume_base = 1 LIMIT 1",
+        params![&lote_number],
+        |r| r.get::<_, Option<String>>(0)
+    ) {
+        base_code = bc;
+    }
+    if base_code.is_none() {
+        for (p_code, _, _, _, _) in &products {
+            if let Ok(Some(b_desc)) = conn.query_row(
+                "SELECT base FROM produtos WHERE codigo = ?1 LIMIT 1",
+                params![p_code],
+                |r| r.get::<_, Option<String>>(0)
+            ) {
+                if let Ok(bc) = conn.query_row(
+                    "SELECT codigo FROM produtos WHERE descricao = ?1 LIMIT 1",
+                    params![&b_desc],
+                    |r| r.get::<_, String>(0)
+                ) {
+                    if exits_map.contains_key(&bc) {
+                        base_code = Some(bc);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut base_ingredients = std::collections::HashSet::new();
+    if let Some(ref bc) = base_code {
+        if let Ok(mut stmt_base) = conn.prepare(
+            "SELECT ingredient_code FROM formulations WHERE product_code = ?1"
+        ) {
+            if let Ok(mut rows_base) = stmt_base.query(params![bc]) {
+                while let Ok(Some(row_base)) = rows_base.next() {
+                    if let Ok(ing) = row_base.get::<_, String>(0) {
+                        base_ingredients.insert(ing);
+                    }
+                }
+            }
+        }
+    }
+
     let mut total_expected_ingredients = std::collections::HashMap::new();
 
 
@@ -4053,7 +4198,11 @@ pub async fn get_lote_detalhes(
         };
 
         let item_status = if actual_qty == 0.0 && *expected_qty > 0.0 {
-            "MISSING"
+            if base_ingredients.contains(ing_code) {
+                "OK (Na Base)"
+            } else {
+                "MISSING"
+            }
         } else if percentage_diff.abs() > 10.0 {
             "DISCREPANCY"
         } else {
@@ -4069,6 +4218,58 @@ pub async fn get_lote_detalhes(
             percentage_diff,
             status: item_status.to_string(),
         });
+    }
+
+    // Also include unplanned/unregistered exits in pesagem_items
+    for (ing_code, actual_qty) in &exits_map {
+        let is_base = base_code.as_ref().map(|bc| bc == ing_code).unwrap_or(false);
+        if is_base || (ing_code.starts_with("9.15.") && !total_expected_ingredients.contains_key(ing_code)) {
+            let mut ing_desc = String::new();
+            if let Ok(mut stmt_item) = conn.prepare("SELECT description FROM items WHERE code = ?1") {
+                if let Ok(desc) = stmt_item.query_row(params![ing_code], |r| r.get::<_, String>(0)) {
+                    ing_desc = desc;
+                }
+            }
+            if ing_desc.is_empty() {
+                if let Ok(mut stmt_item) = conn.prepare("SELECT descricao FROM produtos WHERE codigo = ?1") {
+                    if let Ok(desc) = stmt_item.query_row(params![ing_code], |r| r.get::<_, String>(0)) {
+                        ing_desc = desc;
+                    }
+                }
+            }
+            if ing_desc.is_empty() {
+                ing_desc = "Insumo não cadastrado".to_string();
+            }
+
+            let (expected_qty, status_str) = if is_base {
+                let mut expected_base_weight = 0.0;
+                for (code, (_, exp_qty)) in &total_expected_ingredients {
+                    if base_ingredients.contains(code) {
+                        expected_base_weight += exp_qty;
+                    }
+                }
+                (expected_base_weight, "OK (Base)".to_string())
+            } else {
+                (0.0, "UNPLANNED".to_string())
+            };
+
+            let difference = *actual_qty - expected_qty;
+            let percentage_diff = if expected_qty > 0.0 {
+                (difference / expected_qty) * 100.0
+            } else {
+                100.0
+            };
+
+            pesagem_items.push(PesagemItemDetail {
+                ingredient_code: ing_code.clone(),
+                description: ing_desc,
+                expected_qty,
+                actual_qty: *actual_qty,
+                difference,
+                percentage_diff,
+                status: status_str,
+            });
+        }
     }
 
     let mut envase_products = Vec::new();
@@ -4286,6 +4487,21 @@ pub async fn get_lote_detalhes(
         0.0
     };
 
+    let mut is_resolved = None;
+    let mut resolution_obs = None;
+
+    if let Ok(mut stmt_res) = conn.prepare(
+        "SELECT is_resolved, observations FROM lote_error_resolutions WHERE lote_number = ?1"
+    ) {
+        if let Ok(mut rows_res) = stmt_res.query(params![&lote_number]) {
+            if let Ok(Some(row_res)) = rows_res.next() {
+                let is_res_int: Option<i32> = row_res.get(0).ok();
+                is_resolved = is_res_int.map(|v| v == 1);
+                resolution_obs = row_res.get(1).ok();
+            }
+        }
+    }
+
     let details = LoteDetalhes {
         lote_number,
         product_code,
@@ -4304,9 +4520,64 @@ pub async fn get_lote_detalhes(
         total_packaged_weight_kg,
         bulk_loss_kg,
         bulk_yield_percentage,
+        is_resolved,
+        resolution_obs,
     };
 
     (StatusCode::OK, Json(details)).into_response()
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ResolveLotePayload {
+    pub observations: String,
+    pub resolved_by: Option<String>,
+}
+
+// POST /api/producao/lotes/:number/resolver
+pub async fn save_lote_resolution(
+    State(state): State<Arc<AppState>>,
+    Path(lote_number): Path<String>,
+    Json(payload): Json<ResolveLotePayload>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let resolved_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let resolved_by = payload.resolved_by.unwrap_or_else(|| "Administrador".to_string());
+
+    let res = conn.execute(
+        "INSERT OR REPLACE INTO lote_error_resolutions (lote_number, is_resolved, resolved_by, resolved_at, observations)
+         VALUES (?1, 1, ?2, ?3, ?4)",
+        params![lote_number, resolved_by, resolved_at, payload.observations],
+    );
+
+    match res {
+        Ok(_) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+// DELETE /api/producao/lotes/:number/resolver
+pub async fn delete_lote_resolution(
+    State(state): State<Arc<AppState>>,
+    Path(lote_number): Path<String>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let res = conn.execute(
+        "DELETE FROM lote_error_resolutions WHERE lote_number = ?1",
+        params![lote_number],
+    );
+
+    match res {
+        Ok(_) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    }
 }
 
 // === VENDAS: PEDIDOS DE VENDA & FALTAS ===

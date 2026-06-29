@@ -3,7 +3,7 @@ import {
   AlertTriangle, CheckCircle2, X, RefreshCw, Database, Check, Play,
   ArrowUpDown, ArrowUp, ArrowDown, LayoutDashboard, Table, Layers, History,
   Settings, ArrowLeft, ClipboardList, User, TrendingUp, BarChart3,
-  Scale, Package, FileText, EyeOff, HelpCircle, Info, Search
+  Scale, Package, FileText, EyeOff, HelpCircle, Info, Search, ClipboardCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -18,6 +18,7 @@ import ItemRegistry from '../components/compras/ItemRegistry';
 import { HistoryTab } from '../components/producao/HistoryTab';
 import { SettingsTab } from '../components/producao/SettingsTab';
 import { LotesTab } from '../components/producao/LotesTab';
+import { AprovacaoTab } from '../components/producao/AprovacaoTab';
 
 export default function ProducaoView({ onBackToHub }) {
   // Navigation State
@@ -27,6 +28,7 @@ export default function ProducaoView({ onBackToHub }) {
     const viewLabels = {
       dashboard: 'Dashboard',
       inventory: 'Gerenciamento de Produção',
+      aprovacao: 'Aprovação de Produção',
       kits: 'Gestão de Kits',
       bases: 'Gestão de Bases',
       history: 'Histórico de Produção',
@@ -35,6 +37,34 @@ export default function ProducaoView({ onBackToHub }) {
     };
     window.__current_page__ = viewLabels[currentView] || currentView;
   }, [currentView]);
+
+  const [productionApprovalList, setProductionApprovalList] = useState([]);
+
+  useEffect(() => {
+    const loadApprovalList = () => {
+      const stored = localStorage.getItem('natum_hub_production_approval_list');
+      if (stored) {
+        try { setProductionApprovalList(JSON.parse(stored)); } catch (e) { console.error(e); }
+      } else {
+        setProductionApprovalList([]);
+      }
+    };
+    loadApprovalList();
+    window.addEventListener('storage', loadApprovalList);
+    return () => window.removeEventListener('storage', loadApprovalList);
+  }, []);
+
+  const handleToggleApprovalList = (code) => {
+    let newList;
+    if (productionApprovalList.includes(code)) {
+      newList = productionApprovalList.filter(c => c !== code);
+    } else {
+      newList = [...productionApprovalList, code];
+    }
+    setProductionApprovalList(newList);
+    localStorage.setItem('natum_hub_production_approval_list', JSON.stringify(newList));
+    window.dispatchEvent(new Event('storage'));
+  };
   
   // Data State
   const [products, setProducts] = useState([]);
@@ -160,6 +190,32 @@ export default function ProducaoView({ onBackToHub }) {
   const [loteDetailsDrawerOpen, setLoteDetailsDrawerOpen] = useState(false);
   const [loteDetailsDrawerLoading, setLoteDetailsDrawerLoading] = useState(false);
   const [loteActiveSubTab, setLoteActiveSubTab] = useState('inicio');
+  const [resolutionObs, setResolutionObs] = useState('');
+  const [resolveLoteLoading, setResolveLoteLoading] = useState(false);
+  const [associateSwapSimilar, setAssociateSwapSimilar] = useState(true);
+  const [selectedExpectedCode, setSelectedExpectedCode] = useState('');
+  const [selectedActualCode, setSelectedActualCode] = useState('');
+  const [mappedSwaps, setMappedSwaps] = useState([]);
+
+  useEffect(() => {
+    if (selectedLoteDetails && selectedLoteDetails.pesagem_items) {
+      const missing = selectedLoteDetails.pesagem_items.filter(item => item.status === 'MISSING');
+      const unplanned = selectedLoteDetails.pesagem_items.filter(item => item.status === 'UNPLANNED');
+      if (missing.length > 0) {
+        setSelectedExpectedCode(missing[0].ingredient_code);
+      } else {
+        setSelectedExpectedCode('');
+      }
+      if (unplanned.length > 0) {
+        setSelectedActualCode(unplanned[0].ingredient_code);
+      } else {
+        setSelectedActualCode('');
+      }
+    } else {
+      setSelectedExpectedCode('');
+      setSelectedActualCode('');
+    }
+  }, [selectedLoteDetails]);
 
   useEffect(() => {
     if (!launchingProduct) {
@@ -659,6 +715,9 @@ export default function ProducaoView({ onBackToHub }) {
     setLoteDetailsDrawerLoading(true);
     setSelectedLoteDetails(null);
     setLoteDetailsDrawerOpen(true);
+    setResolutionObs('');
+    setAssociateSwapSimilar(true);
+    setMappedSwaps([]);
     try {
       const res = await fetch(`${API_BASE}/producao/lotes/${loteNumber}/detalhes`);
       if (res.ok) {
@@ -672,6 +731,73 @@ export default function ProducaoView({ onBackToHub }) {
       showToast("Falha ao carregar detalhes do lote", "error");
     } finally {
       setLoteDetailsDrawerLoading(false);
+    }
+  };
+
+  const handleResolveLoteErrors = async (loteNumber) => {
+    if (!resolutionObs.trim()) {
+      showToast("Por favor, preencha a justificativa / observação.", "error");
+      return;
+    }
+    setResolveLoteLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/producao/lotes/${loteNumber}/resolver`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          observations: resolutionObs,
+          resolved_by: "Administrador",
+        }),
+      });
+
+      if (res.ok) {
+        showToast("Desvios do lote justificados com sucesso!", "success");
+
+        if (associateSwapSimilar && mappedSwaps.length > 0) {
+          for (const swap of mappedSwaps) {
+            try {
+              await api.addSimilarItem(swap.expectedCode, swap.actualCode);
+            } catch (err) {
+              console.error(`Erro ao associar ${swap.expectedCode} e ${swap.actualCode} como semelhantes:`, err);
+            }
+          }
+          showToast(`${mappedSwaps.length} substituição(ões) salva(s) no cadastro de semelhantes!`, "success");
+        }
+
+        fetchLoteDetails(loteNumber);
+        fetchLotes();
+      } else {
+        showToast("Erro ao justificar desvios do lote", "error");
+      }
+    } catch (e) {
+      console.error("Error resolving lote:", e);
+      showToast("Falha ao justificar desvios", "error");
+    } finally {
+      setResolveLoteLoading(false);
+    }
+  };
+
+  const handleUndoResolveLoteErrors = async (loteNumber) => {
+    if (!window.confirm("Deseja reabrir os desvios deste lote e remover a justificativa?")) return;
+    setResolveLoteLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/producao/lotes/${loteNumber}/resolver`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        showToast("Resolução estornada com sucesso!", "success");
+        fetchLoteDetails(loteNumber);
+        fetchLotes();
+      } else {
+        showToast("Erro ao estornar resolução", "error");
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("Falha ao estornar resolução", "error");
+    } finally {
+      setResolveLoteLoading(false);
     }
   };
 
@@ -1308,6 +1434,28 @@ export default function ProducaoView({ onBackToHub }) {
           </button>
 
           <button 
+            className={`sidebar-link cursor-pointer ${currentView === 'aprovacao' ? 'active' : ''}`}
+            onClick={() => setCurrentView('aprovacao')}
+          >
+            <ClipboardCheck size={16} />
+            <span>Aprovação de Produção</span>
+            {productionApprovalList.length > 0 && (
+              <span style={{
+                marginLeft: 'auto',
+                backgroundColor: '#27272a',
+                color: '#f4f4f5',
+                fontSize: '10px',
+                fontWeight: '700',
+                padding: '1px 6px',
+                borderRadius: '10px',
+                border: '1px solid #3f3f46'
+              }}>
+                {productionApprovalList.length}
+              </span>
+            )}
+          </button>
+
+          <button 
             className={`sidebar-link cursor-pointer ${currentView === 'lotes' && selectedLoteStatus === 'ERR_ANY_ERROR' ? 'active' : ''}`}
             onClick={() => {
               setCurrentView('lotes');
@@ -1438,6 +1586,23 @@ export default function ProducaoView({ onBackToHub }) {
               tabOptions={tabOptions}
               toggleSort={toggleSort}
               SortIcon={SortIcon}
+              productionApprovalList={productionApprovalList}
+              onToggleApprovalList={handleToggleApprovalList}
+            />
+          )}
+
+          {/* VIEW: APPROVAL QUEUE */}
+          {currentView === 'aprovacao' && (
+            <AprovacaoTab
+              active={currentView === 'aprovacao'}
+              productionApprovalList={productionApprovalList}
+              onToggleApprovalList={handleToggleApprovalList}
+              diasComerciais={diasComerciais}
+              configs={configs}
+              onLaunchSuccess={() => {
+                fetchProducts();
+                fetchKits();
+              }}
             />
           )}
 
@@ -1479,6 +1644,8 @@ export default function ProducaoView({ onBackToHub }) {
               SortIcon={SortIcon}
               expandedKits={expandedKits}
               toggleKitExpanded={toggleKitExpanded}
+              productionApprovalList={productionApprovalList}
+              onToggleApprovalList={handleToggleApprovalList}
             />
           )}
 
@@ -1498,6 +1665,8 @@ export default function ProducaoView({ onBackToHub }) {
               }}
               onEditOverrides={openEditModal}
               onRefresh={fetchProducts}
+              productionApprovalList={productionApprovalList}
+              onToggleApprovalList={handleToggleApprovalList}
             />
           )}
 
@@ -2458,6 +2627,225 @@ export default function ProducaoView({ onBackToHub }) {
                             O lote registrou uma perda de <strong className="text-zinc-800 font-bold">{selectedLoteDetails.bulk_loss_kg.toFixed(3)} Kg</strong> de massa entre a pesagem de matérias-primas e a conferência final de envase.
                           </div>
                         </div>
+
+                        {/* DESVIOS E RESOLUÇÃO */}
+                        {(() => {
+                          const hasYieldError = selectedLoteDetails.bulk_yield_percentage < 90.0;
+                          const hasPesagemError = selectedLoteDetails.pesagem_items.some(item => item.status !== 'OK');
+                          const hasEnvaseError = selectedLoteDetails.envase_products.some(p => p.packaging_items.some(item => item.status !== 'OK'));
+                          const hasConfError = selectedLoteDetails.conferencia_items.some(item => item.status !== 'OK');
+                          const hasErrors = hasYieldError || hasPesagemError || hasEnvaseError || hasConfError;
+
+                          // Swap detection
+                          const missingIngredients = selectedLoteDetails.pesagem_items.filter(item => item.status === 'MISSING');
+                          const unplannedIngredients = selectedLoteDetails.pesagem_items.filter(item => item.status === 'UNPLANNED');
+                          
+                          const missingIng = missingIngredients[0];
+                          const unplannedIng = unplannedIngredients[0];
+                          const swapSuggestion = missingIng && unplannedIng ? {
+                            expected: missingIng.ingredient_code,
+                            expectedDesc: missingIng.description,
+                            actual: unplannedIng.ingredient_code,
+                            actualDesc: unplannedIng.description
+                          } : null;
+
+                          if (selectedLoteDetails.is_resolved) {
+                            return (
+                              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5 space-y-3 text-left shadow-sm">
+                                <div className="flex items-center gap-2 text-emerald-800 font-extrabold text-sm">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                                  <span>Desvios Justificados e Aprovados</span>
+                                </div>
+                                <div className="text-xs text-zinc-700 font-medium space-y-1 bg-white p-3 rounded-lg border border-emerald-100">
+                                  <p className="font-bold text-zinc-900">Justificativa:</p>
+                                  <p className="italic">"{selectedLoteDetails.resolution_obs}"</p>
+                                </div>
+                                <button
+                                  disabled={resolveLoteLoading}
+                                  onClick={() => handleUndoResolveLoteErrors(selectedLoteDetails.lote_number)}
+                                  className="text-xs text-rose-600 hover:text-rose-700 font-bold hover:underline cursor-pointer disabled:opacity-50"
+                                >
+                                  Estornar Justificativa (Reabrir Desvios)
+                                </button>
+                              </div>
+                            );
+                          }
+
+                          if (!hasErrors) {
+                            return (
+                              <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-4 flex items-center gap-3 text-left">
+                                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex-shrink-0">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-bold text-emerald-800">Lote sem desvios críticos</p>
+                                  <p className="text-[10px] text-emerald-600 mt-0.5">Todos os parâmetros de pesagem, envase e rendimento estão dentro da tolerância esperada.</p>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-5 space-y-4 text-left shadow-sm">
+                              <div className="flex items-center gap-2 text-rose-800 font-extrabold text-sm border-b border-zinc-250 pb-2">
+                                <AlertTriangle className="h-4 w-4 text-rose-600" />
+                                <span>Justificar Desvios do Lote</span>
+                              </div>
+
+                              <p className="text-[10px] text-zinc-500 font-medium">
+                                Identificamos desvios de pesagem, envase ou rendimento neste lote. Registre uma justificativa para aprovar o lote com ressalvas.
+                              </p>
+
+                              {(() => {
+                                const availableMissing = missingIngredients.filter(item => 
+                                  !mappedSwaps.some(swap => swap.expectedCode === item.ingredient_code)
+                                );
+                                const availableUnplanned = unplannedIngredients.filter(item => 
+                                  !mappedSwaps.some(swap => swap.actualCode === item.ingredient_code)
+                                );
+
+                                const handleAddSwap = () => {
+                                  if (!selectedExpectedCode || !selectedActualCode) return;
+                                  const expectedItem = missingIngredients.find(item => item.ingredient_code === selectedExpectedCode);
+                                  const actualItem = unplannedIngredients.find(item => item.ingredient_code === selectedActualCode);
+                                  if (expectedItem && actualItem) {
+                                    setMappedSwaps([...mappedSwaps, {
+                                      expectedCode: selectedExpectedCode,
+                                      expectedDesc: expectedItem.description,
+                                      actualCode: selectedActualCode,
+                                      actualDesc: actualItem.description
+                                    }]);
+                                    setSelectedExpectedCode('');
+                                    setSelectedActualCode('');
+                                  }
+                                };
+
+                                return (
+                                  <>
+                                    {missingIngredients.length > 0 && unplannedIngredients.length > 0 && (
+                                      <div className="bg-blue-50/80 border border-blue-200/50 rounded-xl p-3.5 space-y-3 shadow-sm">
+                                        <div className="flex gap-2.5">
+                                          <div className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex-shrink-0 mt-0.5 animate-pulse">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                                          </div>
+                                          <div className="text-xs text-blue-900 font-medium flex-1">
+                                            <span className="font-extrabold block text-blue-950">Mapear Substituições de Insumos</span>
+                                            Selecione um insumo planejado ausente e o respectivo substituto para vinculá-los:
+                                          </div>
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-2 gap-2 text-xs">
+                                          <div className="space-y-1">
+                                            <label className="text-[10px] text-zinc-550 font-bold block">Insumo Planejado (Ausente)</label>
+                                            <select
+                                              value={selectedExpectedCode}
+                                              onChange={(e) => setSelectedExpectedCode(e.target.value)}
+                                              className="w-full text-xs border border-blue-200 rounded-lg p-2 focus:ring-1 focus:ring-blue-500 bg-white font-medium"
+                                            >
+                                              <option value="">-- Selecione o Insumo --</option>
+                                              {availableMissing.map(item => (
+                                                <option key={item.ingredient_code} value={item.ingredient_code}>
+                                                  {item.description} ({item.ingredient_code})
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                          
+                                          <div className="space-y-1">
+                                            <label className="text-[10px] text-zinc-550 font-bold block">Insumo Utilizado (Substituto)</label>
+                                            <select
+                                              value={selectedActualCode}
+                                              onChange={(e) => setSelectedActualCode(e.target.value)}
+                                              className="w-full text-xs border border-blue-200 rounded-lg p-2 focus:ring-1 focus:ring-blue-500 bg-white font-medium"
+                                            >
+                                              <option value="">-- Selecione o Insumo --</option>
+                                              {availableUnplanned.map(item => (
+                                                <option key={item.ingredient_code} value={item.ingredient_code}>
+                                                  {item.description} ({item.ingredient_code})
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                        </div>
+
+                                        <button
+                                          type="button"
+                                          disabled={!selectedExpectedCode || !selectedActualCode}
+                                          onClick={handleAddSwap}
+                                          className="w-full py-1.5 bg-blue-600 hover:bg-blue-750 text-white rounded-lg text-[10px] font-bold shadow-sm disabled:opacity-50 cursor-pointer transition-all"
+                                        >
+                                          + Vincular Substituição
+                                        </button>
+
+                                        {mappedSwaps.length > 0 && (
+                                          <div className="space-y-1.5 mt-2 bg-white rounded-lg border border-blue-100 p-2.5">
+                                            <span className="text-[9px] text-zinc-400 font-extrabold uppercase block">Substituições Vinculadas neste Lote:</span>
+                                            <div className="space-y-1">
+                                              {mappedSwaps.map((swap, idx) => (
+                                                <div key={idx} className="flex justify-between items-center bg-zinc-50 border border-zinc-200 rounded-md p-1.5 text-[10px]">
+                                                  <div className="font-medium text-zinc-700 flex items-center gap-1.5 flex-1 truncate">
+                                                    <span className="font-bold text-zinc-900 truncate max-w-[100px]" title={swap.expectedDesc}>{swap.expectedDesc}</span>
+                                                    <span className="text-zinc-400">➡️</span>
+                                                    <span className="font-bold text-zinc-900 truncate max-w-[100px]" title={swap.actualDesc}>{swap.actualDesc}</span>
+                                                  </div>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      setMappedSwaps(mappedSwaps.filter((_, i) => i !== idx));
+                                                    }}
+                                                    className="text-rose-550 hover:text-rose-700 font-bold ml-2 cursor-pointer"
+                                                  >
+                                                    Remover
+                                                  </button>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        <label className="flex items-center gap-2 bg-white border border-blue-200 rounded-lg p-2.5 cursor-pointer text-[10px] font-bold text-zinc-700 select-none shadow-sm mt-2">
+                                          <input
+                                            type="checkbox"
+                                            checked={associateSwapSimilar}
+                                            onChange={(e) => setAssociateSwapSimilar(e.target.checked)}
+                                            className="accent-blue-600 rounded"
+                                          />
+                                          Cadastrar substituições vinculadas como insumos semelhantes (não alertar nas próximas produções)
+                                        </label>
+                                      </div>
+                                    )}
+                                  </>
+                                );
+                              })()}
+
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Justificativa / Observação</label>
+                                <textarea
+                                  value={resolutionObs}
+                                  onChange={(e) => setResolutionObs(e.target.value)}
+                                  placeholder="Digite a justificativa dos desvios observados..."
+                                  rows="3"
+                                  className="w-full text-xs border border-zinc-300 rounded-xl p-3 focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white font-medium shadow-inner"
+                                />
+                              </div>
+
+                              <button
+                                onClick={() => handleResolveLoteErrors(selectedLoteDetails.lote_number)}
+                                disabled={resolveLoteLoading || !resolutionObs.trim()}
+                                className="w-full py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                              >
+                                {resolveLoteLoading ? (
+                                  <>
+                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                    Processando...
+                                  </>
+                                ) : (
+                                  "Resolver Desvios e Aprovar Lote"
+                                )}
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
 
