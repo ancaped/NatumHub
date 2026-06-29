@@ -503,7 +503,7 @@ export default function App() {
               </div>
             </div>
             <div className="text-xs text-zinc-500 font-mono">
-              Natum v0.002 alpha
+              Natum v0.003 alpha
             </div>
           </header>
 
@@ -781,7 +781,7 @@ export default function App() {
           </div>
           <div className="flex items-center gap-4">
             <div className="text-xs text-zinc-500 font-mono">
-              Natum v0.002 alpha
+              Natum v0.003 alpha
             </div>
             <button 
               onClick={() => { fetchSqlConfig(); setView('hub_settings'); }}

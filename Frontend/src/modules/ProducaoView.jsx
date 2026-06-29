@@ -1373,7 +1373,7 @@ export default function ProducaoView({ onBackToHub }) {
           </button>
 
           <div className="sidebar-footer">
-            <div>Versão: 0.002 alpha</div>
+            <div>Versão: 0.003 alpha</div>
             <div>Banco: SQLite Local</div>
           </div>
         </aside>

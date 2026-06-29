@@ -2071,7 +2071,7 @@ dependencies = [
 
 [[package]]
 name = "natum-hub"
-version = "0.0.2-alpha"
+version = "0.0.3-alpha"
 dependencies = [
  "anyhow",
  "axum",
