@@ -201,14 +201,25 @@ pub fn parse_kits_excel<P: AsRef<Path>>(file_path: P, conn: &mut Connection) -> 
         
         let range = workbook.worksheet_range(sheet_name)?;
         for row in range.rows().skip(1) {
-            if row.len() < 4 {
+            if row.len() < 3 {
                 continue;
             }
             
             let kit_code = cell_as_string(&row[0]);
             let kit_desc = cell_as_string(&row[1]);
             let comp_code = cell_as_string(&row[2]);
-            let comp_desc = cell_as_string(&row[3]);
+            let comp_desc = if row.len() > 3 { cell_as_string(&row[3]) } else { "".to_string() };
+            
+            let quantidade: i64 = if row.len() > 4 {
+                match &row[4] {
+                    calamine::Data::Float(f) => *f as i64,
+                    calamine::Data::Int(i) => *i,
+                    calamine::Data::String(s) => s.trim().parse::<i64>().unwrap_or(1),
+                    _ => 1,
+                }
+            } else {
+                1
+            };
             
             if kit_code.is_empty() || comp_code.is_empty() {
                 continue;
@@ -237,9 +248,9 @@ pub fn parse_kits_excel<P: AsRef<Path>>(file_path: P, conn: &mut Connection) -> 
             
             // Insert composition link
             tx.execute(
-                "INSERT OR IGNORE INTO kit_composicao (kit_codigo, componente_codigo)
-                 VALUES (?1, ?2)",
-                params![kit_code, comp_code],
+                "INSERT INTO kit_composicao (kit_codigo, componente_codigo, quantidade) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(kit_codigo, componente_codigo) DO UPDATE SET quantidade = excluded.quantidade",
+                params![kit_code, comp_code, quantidade],
             )?;
             
             count += 1;

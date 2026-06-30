@@ -745,6 +745,23 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             resolved_at  TEXT,
             observations TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS kit_assembly_orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_number TEXT UNIQUE NOT NULL,
+            kit_product_code TEXT NOT NULL,
+            kit_product_description TEXT NOT NULL,
+            quantity REAL NOT NULL,
+            status TEXT NOT NULL DEFAULT 'PENDING',
+            created_at TEXT NOT NULL,
+            completed_at TEXT,
+            assembled_by TEXT,
+            checked_by TEXT,
+            observations TEXT,
+            erp_launched INTEGER DEFAULT 0,
+            components_lotes TEXT,
+            quantity_assembled REAL
+        );
     ")?;
 
     Ok(())
@@ -3497,6 +3514,14 @@ fn start_axum_server() {
             .route("/api/kits/composicao", get(handlers::list_kit_composicao).post(handlers::add_kit_composicao_handler))
             .route("/api/kits/composicao/upload", post(handlers::upload_kit_composicao))
             .route("/api/kits/composicao/:kit/:comp", delete(handlers::delete_kit_composicao_handler))
+            .route("/api/kits/orders", get(handlers::list_kit_orders).post(handlers::create_kit_order))
+            .route("/api/kits/orders/:id", put(handlers::update_kit_order).delete(handlers::delete_kit_order))
+            .route("/api/kits/next-order-number", get(handlers::get_next_kit_order_number))
+            .route("/api/turnovers/composicao", get(handlers::list_vira_composicao).post(handlers::add_vira_composicao))
+            .route("/api/turnovers/composicao/:de/:para", delete(handlers::delete_vira_composicao))
+            .route("/api/turnovers/orders", get(handlers::list_vira_orders).post(handlers::create_vira_order))
+            .route("/api/turnovers/orders/:id", put(handlers::update_vira_order).delete(handlers::delete_vira_order))
+            .route("/api/turnovers/next-order-number", get(handlers::get_next_vira_order_number))
             .route("/api/configs", get(handlers::get_configs).put(handlers::update_config))
             .route("/api/configs/:prefix", delete(handlers::delete_config))
             .route("/api/overrides", get(handlers::get_overrides).post(handlers::save_override))
@@ -3663,22 +3688,5 @@ mod tests {
             }
         }
     }
-
-    #[tokio::test]
-    async fn test_inspect_lote_11931() {
-        let conn = Connection::open("../data.db").unwrap();
-        println!("--- FORMULATION FOR PRODUCT 70.12.010 ---");
-        let mut stmt = conn.prepare("SELECT ingredient_code, description, quantity, percentage FROM formulations WHERE product_code = '70.12.010'").unwrap();
-        let mut rows = stmt.query([]).unwrap();
-        while let Some(row) = rows.next().unwrap() {
-            let ing_code: String = row.get(0).unwrap();
-            let desc: Option<String> = row.get(1).unwrap();
-            let qty: f64 = row.get(2).unwrap();
-            let percentage: Option<f64> = row.get(3).unwrap();
-            println!("Ing: {}, Desc: {:?}, Qty: {}, Pct: {:?}", ing_code, desc, qty, percentage);
-        }
-    }
 }
-
-
 

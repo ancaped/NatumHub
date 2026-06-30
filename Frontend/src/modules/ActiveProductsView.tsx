@@ -104,6 +104,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const [kitComposicao, setKitComposicao] = useState<any[]>([]);
   const [kitCompNewKit, setKitCompNewKit] = useState('');
   const [kitCompNewComp, setKitCompNewComp] = useState('');
+  const [kitCompNewQty, setKitCompNewQty] = useState(1);
   const [kitCompSearch, setKitCompSearch] = useState('');
   const [uploadingKitsConfig, setUploadingKitsConfig] = useState(false);
 
@@ -262,11 +263,16 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
       const res = await fetch(`${API_BASE}/kits/composicao`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kit_codigo: kitCompNewKit.trim(), componente_codigo: kitCompNewComp.trim() })
+        body: JSON.stringify({ 
+          kit_codigo: kitCompNewKit.trim(), 
+          componente_codigo: kitCompNewComp.trim(),
+          quantidade: kitCompNewQty
+        })
       });
       if (res.ok) {
         setKitCompNewKit('');
         setKitCompNewComp('');
+        setKitCompNewQty(1);
         await fetchKitComposicao();
       } else {
         const err = await res.json();
@@ -803,6 +809,20 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     return cat ? cat.name : catId;
   };
 
+  const getKitNamePreview = () => {
+    if (!kitCompNewKit.trim()) return '';
+    const cleaned = kitCompNewKit.trim().replace(/['"]/g, '').toLowerCase();
+    const found = products.find(p => (p.codigo || '').replace(/['"]/g, '').trim().toLowerCase() === cleaned);
+    return found ? found.descricao : 'Produto não encontrado no estoque';
+  };
+
+  const getCompNamePreview = () => {
+    if (!kitCompNewComp.trim()) return '';
+    const cleaned = kitCompNewComp.trim().replace(/['"]/g, '').toLowerCase();
+    const found = products.find(p => (p.codigo || '').replace(/['"]/g, '').trim().toLowerCase() === cleaned);
+    return found ? found.descricao : 'Produto não encontrado no estoque';
+  };
+
   return (
     <div className="flex h-screen bg-zinc-50 font-sans text-zinc-900 overflow-hidden w-full">
       {/* Sidebar */}
@@ -1306,7 +1326,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
           {activeAtivosTab === 'kits' && (
             <div className="flex-1 flex flex-col space-y-4 overflow-hidden">
-              <span className="text-xs font-bold text-zinc-450 shrink-0">
+              <span className="text-xs font-bold text-zinc-455 shrink-0">
                 Gerencie a relação de componentes que compõem cada Kit comercial da Natum.
               </span>
 
@@ -1315,25 +1335,43 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
                   
                   {/* Add relation Form */}
-                  <form onSubmit={handleAddKitComposicao} className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                  <form onSubmit={handleAddKitComposicao} className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
                     <div className="space-y-1">
                       <label className="text-[10px] font-bold text-zinc-400 uppercase">Código do Kit</label>
                       <input
                         type="text"
-                        placeholder="Ex: KIT001"
+                        placeholder="Ex: 2.11.064"
                         value={kitCompNewKit}
                         onChange={(e) => setKitCompNewKit(e.target.value)}
                         className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold"
                         required
                       />
+                      {getKitNamePreview() && (
+                        <div className="text-[10px] text-zinc-550 font-semibold truncate max-w-xs">{getKitNamePreview()}</div>
+                      )}
                     </div>
                     <div className="space-y-1">
                       <label className="text-[10px] font-bold text-zinc-400 uppercase">Código do Componente</label>
                       <input
                         type="text"
-                        placeholder="Ex: COMP001"
+                        placeholder="Ex: 70.12.010"
                         value={kitCompNewComp}
                         onChange={(e) => setKitCompNewComp(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold"
+                        required
+                      />
+                      {getCompNamePreview() && (
+                        <div className="text-[10px] text-zinc-550 font-semibold truncate max-w-xs">{getCompNamePreview()}</div>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-zinc-400 uppercase">Qtd/Kit</label>
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder="Qtd"
+                        value={kitCompNewQty}
+                        onChange={(e) => setKitCompNewQty(parseInt(e.target.value) || 1)}
                         className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold"
                         required
                       />
@@ -1385,28 +1423,38 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500 sticky top-0 z-10">
                       <tr>
                         <th className="px-6 py-3">Código do Kit</th>
+                        <th className="px-6 py-3">Descrição do Kit</th>
                         <th className="px-6 py-3">Código do Componente</th>
+                        <th className="px-6 py-3">Descrição do Componente</th>
+                        <th className="px-6 py-3 text-center">Qtd/Kit</th>
                         <th className="px-6 py-3 text-center w-28">Ações</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100">
                       {kitComposicao.filter(row => 
                         (row.kit_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase()) || 
-                        (row.componente_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase())
+                        (row.kit_descricao || '').toLowerCase().includes(kitCompSearch.toLowerCase()) || 
+                        (row.componente_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase()) || 
+                        (row.componente_descricao || '').toLowerCase().includes(kitCompSearch.toLowerCase())
                       ).length === 0 ? (
                         <tr>
-                          <td colSpan={3} className="p-8 text-center text-zinc-400">
+                          <td colSpan={6} className="p-8 text-center text-zinc-400">
                             Nenhuma relação de composição de kits encontrada.
                           </td>
                         </tr>
                       ) : (
                         kitComposicao.filter(row => 
                           (row.kit_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase()) || 
-                          (row.componente_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase())
+                          (row.kit_descricao || '').toLowerCase().includes(kitCompSearch.toLowerCase()) || 
+                          (row.componente_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase()) || 
+                          (row.componente_descricao || '').toLowerCase().includes(kitCompSearch.toLowerCase())
                         ).map((row) => (
                           <tr key={`${row.kit_codigo}-${row.componente_codigo}`} className="hover:bg-zinc-50/50 transition-colors">
                             <td className="px-6 py-3 font-mono font-bold text-zinc-800">{row.kit_codigo}</td>
+                            <td className="px-6 py-3 font-bold text-zinc-900">{row.kit_descricao}</td>
                             <td className="px-6 py-3 font-mono text-zinc-650">{row.componente_codigo}</td>
+                            <td className="px-6 py-3 text-zinc-700">{row.componente_descricao}</td>
+                            <td className="px-6 py-3 text-center font-bold text-zinc-900">{row.quantidade}</td>
                             <td className="px-6 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                               <button
                                 onClick={() => handleDeleteKitComposicao(row.kit_codigo, row.componente_codigo)}

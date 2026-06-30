@@ -286,6 +286,17 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
       return;
     }
 
+    let reportTitle = 'Relatório de Compras';
+    if (mode === 'materia_prima') {
+      reportTitle = 'Relatório de Compras de Matéria-Prima';
+    } else if (mode === 'embalagens') {
+      reportTitle = 'Relatório de Compras de Embalagens';
+    } else if (mode === 'coloracao') {
+      reportTitle = 'Relatório de Compras de Coloração';
+    } else if (mode === 'apoio') {
+      reportTitle = 'Relatório de Compras de Material de Apoio';
+    }
+
     // Create hidden iframe
     const iframe = document.createElement('iframe');
     iframe.style.position = 'fixed';
@@ -370,7 +381,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Relatório Personalizado de Compras — NatumHub</title>
+        <title>${reportTitle} — NatumHub</title>
         <meta charset="utf-8">
         <style>
           @page {
@@ -481,13 +492,12 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
       </head>
       <body>
         <header>
-          <h1 class="header-title">Relatório Personalizado de Compras</h1>
+          <h1 class="header-title">${reportTitle}</h1>
           <div class="header-meta">
             <div>Gerado em: <strong>${today}</strong></div>
             <div class="meta-group">
               <div>Meta de Estoque: <strong>${targetDays} dias</strong></div>
               <div>Itens Selecionados: <strong>${selectedDemands.length}</strong></div>
-              <div>Tipo: <strong>Lista Personalizada</strong></div>
             </div>
           </div>
         </header>

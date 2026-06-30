@@ -160,6 +160,41 @@ impl Db {
         let _ = conn.execute("ALTER TABLE historico_producao ADD COLUMN base_code TEXT", []);
         let _ = conn.execute("ALTER TABLE historico_producao ADD COLUMN lote_erp TEXT", []);
 
+        // Migration: add quantidade column to kit_composicao
+        let _ = conn.execute("ALTER TABLE kit_composicao ADD COLUMN quantidade INTEGER NOT NULL DEFAULT 1", []);
+
+        // Migration: add quantity_assembled column to kit_assembly_orders
+        let _ = conn.execute("ALTER TABLE kit_assembly_orders ADD COLUMN quantity_assembled REAL", []);
+
+        // Migration: add vira_composicao and vira_ordens tables
+        let _ = conn.execute("
+            CREATE TABLE IF NOT EXISTS vira_composicao (
+                de_produto_codigo TEXT NOT NULL,
+                para_produto_codigo TEXT NOT NULL,
+                quantidade REAL NOT NULL DEFAULT 1.0,
+                PRIMARY KEY (de_produto_codigo, para_produto_codigo)
+            );
+        ", []);
+        let _ = conn.execute("
+            CREATE TABLE IF NOT EXISTS vira_ordens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_number TEXT UNIQUE NOT NULL,
+                de_produto_codigo TEXT NOT NULL,
+                de_produto_descricao TEXT NOT NULL,
+                para_produto_codigo TEXT NOT NULL,
+                para_produto_descricao TEXT NOT NULL,
+                quantity REAL NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                created_at TEXT NOT NULL,
+                completed_at TEXT,
+                assembled_by TEXT,
+                checked_by TEXT,
+                observations TEXT,
+                erp_launched INTEGER DEFAULT 0,
+                quantity_assembled REAL
+            );
+        ", []);
+
         // Initialize watch config defaults if not set
         let _ = conn.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES ('watch_pasta', 'c:\\Users\\Edson\\antigravity\\Natum\\PlanilhasBase')",
@@ -501,17 +536,17 @@ impl Db {
         Ok(())
     }
 
-    pub fn get_kit_composition(&self) -> Result<HashMap<String, Vec<String>>> {
+    pub fn get_kit_composition(&self) -> Result<HashMap<String, Vec<(String, i64)>>> {
         let conn = self.connect()?;
-        let mut stmt = conn.prepare("SELECT kit_codigo, componente_codigo FROM kit_composicao")?;
+        let mut stmt = conn.prepare("SELECT kit_codigo, componente_codigo, COALESCE(quantidade, 1) FROM kit_composicao")?;
         let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
         })?;
 
-        let mut map: HashMap<String, Vec<String>> = HashMap::new();
+        let mut map: HashMap<String, Vec<(String, i64)>> = HashMap::new();
         for r in rows {
-            let (kit, comp) = r?;
-            map.entry(kit).or_default().push(comp);
+            let (kit, comp, qty) = r?;
+            map.entry(kit).or_default().push((comp, qty));
         }
         Ok(map)
     }
@@ -740,10 +775,10 @@ impl Db {
     pub fn get_kit_composition_full(&self) -> Result<Vec<crate::models::KitComposicaoRow>> {
         let conn = self.connect()?;
         let mut stmt = conn.prepare(
-            "SELECT kc.kit_codigo, pk.descricao as kit_desc, kc.componente_codigo, pc.descricao as comp_desc
+            "SELECT kc.kit_codigo, pk.descricao as kit_desc, kc.componente_codigo, pc.descricao as comp_desc, COALESCE(kc.quantidade, 1) as quantidade
              FROM kit_composicao kc
-             JOIN produtos pk ON kc.kit_codigo = pk.codigo
-             JOIN produtos pc ON kc.componente_codigo = pc.codigo
+             JOIN produtos pk ON TRIM(REPLACE(kc.kit_codigo, '\"', '')) = TRIM(REPLACE(pk.codigo, '\"', ''))
+             JOIN produtos pc ON TRIM(REPLACE(kc.componente_codigo, '\"', '')) = TRIM(REPLACE(pc.codigo, '\"', ''))
              ORDER BY pk.descricao, pc.descricao"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -752,6 +787,7 @@ impl Db {
                 kit_descricao: row.get(1)?,
                 componente_codigo: row.get(2)?,
                 componente_descricao: row.get(3)?,
+                quantidade: row.get(4)?,
             })
         })?;
         let mut result = Vec::new();
@@ -759,11 +795,12 @@ impl Db {
         Ok(result)
     }
 
-    pub fn add_kit_composicao(&self, kit_codigo: &str, componente_codigo: &str) -> Result<()> {
+    pub fn add_kit_composicao(&self, kit_codigo: &str, componente_codigo: &str, quantidade: i64) -> Result<()> {
         let conn = self.connect()?;
         conn.execute(
-            "INSERT OR IGNORE INTO kit_composicao (kit_codigo, componente_codigo) VALUES (?1, ?2)",
-            params![kit_codigo, componente_codigo],
+            "INSERT INTO kit_composicao (kit_codigo, componente_codigo, quantidade) VALUES (?1, ?2, ?3)
+             ON CONFLICT(kit_codigo, componente_codigo) DO UPDATE SET quantidade = excluded.quantidade",
+            params![kit_codigo, componente_codigo, quantidade],
         )?;
         Ok(())
     }

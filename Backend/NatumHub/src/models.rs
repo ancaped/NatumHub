@@ -227,6 +227,8 @@ pub struct KitComponentDetail {
     pub producao_recomendada: i64,
     pub status: String,
     pub status_label: String,
+    pub quantidade: i64,
+    pub necessita_producao: bool,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -335,13 +337,18 @@ pub struct KitComposicaoRow {
     pub kit_descricao: String,
     pub componente_codigo: String,
     pub componente_descricao: String,
+    pub quantidade: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NewKitComposicao {
     pub kit_codigo: String,
     pub componente_codigo: String,
+    #[serde(default = "default_quantidade")]
+    pub quantidade: i64,
 }
+
+fn default_quantidade() -> i64 { 1 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -578,6 +585,117 @@ pub struct LoteErrorResolution {
     pub resolved_by: Option<String>,
     pub resolved_at: Option<String>,
     pub observations: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct KitAssemblyOrder {
+    pub id: i64,
+    pub order_number: String,
+    pub kit_product_code: String,
+    pub kit_product_description: String,
+    pub quantity: f64,
+    pub status: String,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+    pub assembled_by: Option<String>,
+    pub checked_by: Option<String>,
+    pub observations: Option<String>,
+    pub erp_launched: i32,
+    pub components_lotes: Option<String>,
+    pub quantity_assembled: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateKitOrderRequest {
+    pub order_number: String,
+    pub kit_product_code: String,
+    pub kit_product_description: String,
+    pub quantity: f64,
+    pub status: Option<String>,
+    pub assembled_by: Option<String>,
+    pub checked_by: Option<String>,
+    pub observations: Option<String>,
+    pub components_lotes: Option<String>,
+    pub quantity_assembled: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateKitOrderRequest {
+    pub status: Option<String>,
+    pub completed_at: Option<String>,
+    pub assembled_by: Option<String>,
+    pub checked_by: Option<String>,
+    pub observations: Option<String>,
+    pub erp_launched: Option<i32>,
+    pub components_lotes: Option<String>,
+    pub quantity_assembled: Option<f64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ViraComposicaoRow {
+    pub de_produto_codigo: String,
+    pub de_produto_descricao: String,
+    pub para_produto_codigo: String,
+    pub para_produto_descricao: String,
+    pub quantidade: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct NewViraComposicao {
+    pub de_produto_codigo: String,
+    pub para_produto_codigo: String,
+    pub quantidade: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ViraOrder {
+    pub id: i64,
+    pub order_number: String,
+    pub de_produto_codigo: String,
+    pub de_produto_descricao: String,
+    pub para_produto_codigo: String,
+    pub para_produto_descricao: String,
+    pub quantity: f64,
+    pub status: String,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+    pub assembled_by: Option<String>,
+    pub checked_by: Option<String>,
+    pub observations: Option<String>,
+    pub erp_launched: i32,
+    pub quantity_assembled: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateViraOrderRequest {
+    pub order_number: String,
+    pub de_produto_codigo: String,
+    pub para_produto_codigo: String,
+    pub quantity: f64,
+    pub status: Option<String>,
+    pub assembled_by: Option<String>,
+    pub checked_by: Option<String>,
+    pub observations: Option<String>,
+    pub quantity_assembled: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateViraOrderRequest {
+    pub status: Option<String>,
+    pub completed_at: Option<String>,
+    pub assembled_by: Option<String>,
+    pub checked_by: Option<String>,
+    pub observations: Option<String>,
+    pub erp_launched: Option<i32>,
+    pub quantity_assembled: Option<f64>,
 }
 
 

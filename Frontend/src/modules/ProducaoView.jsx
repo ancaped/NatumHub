@@ -1467,14 +1467,6 @@ export default function ProducaoView({ onBackToHub }) {
           </button>
           
           <button 
-            className={`sidebar-link cursor-pointer ${currentView === 'kits' ? 'active' : ''}`}
-            onClick={() => { setCurrentView('kits'); setKitsPage(1); }}
-          >
-            <Layers size={16} />
-            <span>Gestão de Kits</span>
-          </button>
-          
-          <button 
             className={`sidebar-link cursor-pointer ${currentView === 'bases' ? 'active' : ''}`}
             onClick={() => setCurrentView('bases')}
           >
@@ -1603,49 +1595,6 @@ export default function ProducaoView({ onBackToHub }) {
                 fetchProducts();
                 fetchKits();
               }}
-            />
-          )}
-
-          {/* VIEW: KITS & COMPONENT DETAILS */}
-          {currentView === 'kits' && (
-            <KitsTab
-              kits={kits}
-              configs={configs}
-              kitsActiveTab={kitsActiveTab}
-              setKitsActiveTab={setKitsActiveTab}
-              kitsSearch={kitsSearch}
-              setKitsSearch={setKitsSearch}
-              kitsSelectedStatus={kitsSelectedStatus}
-              setKitsSelectedStatus={setKitsSelectedStatus}
-              kitsPage={kitsPage}
-              setKitsPage={setKitsPage}
-              kitsTotalPages={kitsTotalPages}
-              kitsTotalItems={kitsTotalItems}
-              limitPerPage={limitPerPage}
-              showHidden={showHidden}
-              kitSortField={kitSortField}
-              setKitSortField={setKitSortField}
-              kitSortDir={kitSortDir}
-              setKitSortDir={setKitSortDir}
-              onLaunchProduct={(p) => {
-                setLaunchingProduct(p);
-                setLaunchQty(p.producao_recomendada > 0 ? p.producao_recomendada : 100);
-                const today = new Date();
-                const yyyy = today.getFullYear();
-                const mm = String(today.getMonth() + 1).padStart(2, '0');
-                const dd = String(today.getDate()).padStart(2, '0');
-                setLaunchDate(`${yyyy}-${mm}-${dd}`);
-              }}
-              onEditOverrides={openEditModal}
-              onRefresh={fetchKits}
-              loading={loading}
-              tabOptions={tabOptions}
-              toggleSort={toggleSort}
-              SortIcon={SortIcon}
-              expandedKits={expandedKits}
-              toggleKitExpanded={toggleKitExpanded}
-              productionApprovalList={productionApprovalList}
-              onToggleApprovalList={handleToggleApprovalList}
             />
           )}
 

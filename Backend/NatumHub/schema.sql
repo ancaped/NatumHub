@@ -218,3 +218,39 @@ CREATE TABLE IF NOT EXISTS sales_order_items (
 );
 CREATE INDEX IF NOT EXISTS idx_soi_pedido ON sales_order_items(n_pedido, d_pedido);
 CREATE INDEX IF NOT EXISTS idx_soi_prod ON sales_order_items(c_cod_prod);
+
+-- Itens Semelhantes
+CREATE TABLE IF NOT EXISTS similar_items (
+    item_code_a TEXT NOT NULL,
+    item_code_b TEXT NOT NULL,
+    PRIMARY KEY (item_code_a, item_code_b),
+    FOREIGN KEY (item_code_a) REFERENCES items(code) ON DELETE CASCADE,
+    FOREIGN KEY (item_code_b) REFERENCES items(code) ON DELETE CASCADE
+);
+
+-- Resoluções de Erros de Lote
+CREATE TABLE IF NOT EXISTS lote_error_resolutions (
+    lote_number  TEXT PRIMARY KEY,
+    is_resolved  INTEGER DEFAULT 0,
+    resolved_by  TEXT,
+    resolved_at  TEXT,
+    observations TEXT
+);
+
+-- Ordens de Montagem de Kits
+CREATE TABLE IF NOT EXISTS kit_assembly_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_number TEXT UNIQUE NOT NULL,
+    kit_product_code TEXT NOT NULL,
+    kit_product_description TEXT NOT NULL,
+    quantity REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    assembled_by TEXT,
+    checked_by TEXT,
+    observations TEXT,
+    erp_launched INTEGER DEFAULT 0,
+    components_lotes TEXT
+);
+

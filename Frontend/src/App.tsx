@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ProducaoView from './modules/ProducaoView';
+import MontagemKitsView from './modules/MontagemKitsView';
 import MicrobiologiaView from './modules/MicrobiologiaView';
 import FiscoQuimicaView from './modules/FiscoQuimicaView';
 import ComprasView from './modules/ComprasView';
@@ -260,6 +261,14 @@ export default function App() {
       return (
         <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Produção">
           <ProducaoView onBackToHub={() => setView('producao_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'montagem_kits') {
+      return (
+        <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Montagem de Kits">
+          <MontagemKitsView onBackToHub={() => setView('producao_hub')} />
         </ErrorBoundary>
       );
     }
@@ -897,7 +906,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-2">
                 {/* Gerenciamento de Produção */}
                 <button 
                   onClick={() => setView('producao')}
@@ -952,6 +961,25 @@ export default function App() {
                   </div>
                   <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
                     Acessar Laboratório <ArrowRight className="h-3 w-3" />
+                  </div>
+                </button>
+
+                {/* Montagem de Kits */}
+                <button 
+                  onClick={() => setView('montagem_kits')}
+                  className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
+                >
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                      <Layers className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-zinc-900">Montagem de Kits</h3>
+                      <p className="text-xs text-zinc-500 mt-1">Acompanhe falta de componentes, gere ordens de montagem, controle lotes individuais e imprima fichas de produção.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                    Acessar Ordens <ArrowRight className="h-3 w-3" />
                   </div>
                 </button>
               </div>
