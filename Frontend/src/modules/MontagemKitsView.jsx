@@ -716,8 +716,8 @@ export default function MontagemKitsView({ onBackToHub }) {
                   <span className="text-[10px] font-semibold tracking-[0.3em] text-zinc-450 uppercase">COSMÉTICOS</span>
                 </div>
                 <p className="text-[9px] font-bold text-zinc-455 uppercase tracking-widest mt-1">
-                  {printingOrder.kitProductDescription?.startsWith("TRANSFORMAÇÃO:") 
-                    ? "Ordem de Transformação de Produto" 
+                  {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
+                    ? "Ordem de Conversão de Produto" 
                     : "Ordem de Montagem de Kit"}
                 </p>
               </div>
@@ -736,14 +736,18 @@ export default function MontagemKitsView({ onBackToHub }) {
             <div className="grid grid-cols-12 border border-zinc-200 rounded-xl overflow-hidden divide-x divide-zinc-200 text-[10px]">
               <div className="p-3 bg-zinc-50/50 space-y-1 col-span-6">
                 <span className="text-[7.5px] uppercase font-black text-zinc-400 tracking-wider block">
-                  {printingOrder.kitProductDescription?.startsWith("TRANSFORMAÇÃO:") 
-                    ? "Transformação de Produto" 
+                  {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
+                    ? "Conversão de Produto" 
                     : "Produto / Kit Comercial"}
                 </span>
                 <p className="font-extrabold text-zinc-900 leading-tight">{printingOrder.kitProductDescription}</p>
               </div>
               <div className="p-3 space-y-1 col-span-2 text-center flex flex-col justify-center">
-                <span className="text-[7.5px] uppercase font-black text-zinc-400 tracking-wider block">Código do Kit</span>
+                <span className="text-[7.5px] uppercase font-black text-zinc-400 tracking-wider block">
+                  {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
+                    ? "Código Destino" 
+                    : "Código do Kit"}
+                </span>
                 <p className="font-mono font-bold text-zinc-800 leading-none mt-1">{printingOrder.kitProductCode}</p>
               </div>
               <div className="p-3 bg-zinc-50/50 space-y-1 col-span-2 text-center flex flex-col justify-center">
@@ -751,7 +755,11 @@ export default function MontagemKitsView({ onBackToHub }) {
                 <p className="font-bold text-zinc-650 leading-none mt-1">{printingOrder.quantity} un</p>
               </div>
               <div className="p-3 space-y-1 col-span-2 text-center flex flex-col justify-center">
-                <span className="text-[7.5px] uppercase font-black text-zinc-400 tracking-wider block">Montada Real</span>
+                <span className="text-[7.5px] uppercase font-black text-zinc-400 tracking-wider block">
+                  {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
+                    ? "Convertida Real" 
+                    : "Montada Real"}
+                </span>
                 {printingOrder.status === 'COMPLETED' ? (
                   <p className="font-black text-zinc-950 leading-none mt-1">
                     {printingOrder.quantityAssembled !== null && printingOrder.quantityAssembled !== undefined ? printingOrder.quantityAssembled : printingOrder.quantity} un
@@ -765,17 +773,37 @@ export default function MontagemKitsView({ onBackToHub }) {
             {/* Components Section */}
             <div className="space-y-3">
               <div className="flex items-center justify-between border-b border-zinc-950 pb-1.5">
-                <h3 className="text-[9px] font-black text-zinc-950 uppercase tracking-widest">Instruções e Componentes do Kit</h3>
+                <h3 className="text-[9px] font-black text-zinc-950 uppercase tracking-widest">
+                  {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
+                    ? "Instruções e Origem da Conversão" 
+                    : "Instruções e Componentes do Kit"}
+                </h3>
                 <span className="text-[8px] text-zinc-450 font-bold uppercase">NatumHub — Controle de Fluxo</span>
               </div>
               <table className="w-full text-[9px] border-collapse">
                 <thead>
                   <tr className="border-b border-zinc-950 text-zinc-900 font-black text-[8px] uppercase tracking-wider">
                     <th className="py-2 text-left w-20">Código</th>
-                    <th className="py-2 text-left">Componente / Descrição</th>
-                    <th className="py-2 text-center w-16">Qtd p/ Kit</th>
-                    <th className="py-2 text-center w-20">Qtd Prog.</th>
-                    <th className="py-2 text-center w-20">Qtd Usada</th>
+                    <th className="py-2 text-left">
+                      {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
+                        ? "Produto Origem / Descrição" 
+                        : "Componente / Descrição"}
+                    </th>
+                    <th className="py-2 text-center w-16">
+                      {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
+                        ? "Fator" 
+                        : "Qtd p/ Kit"}
+                    </th>
+                    <th className="py-2 text-center w-20">
+                      {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
+                        ? "Origem Prog." 
+                        : "Qtd Prog."}
+                    </th>
+                    <th className="py-2 text-center w-20">
+                      {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
+                        ? "Origem Usada" 
+                        : "Qtd Usada"}
+                    </th>
                     <th className="py-2 text-left w-36 pl-4">Lote Utilizado</th>
                   </tr>
                 </thead>
@@ -830,7 +858,10 @@ export default function MontagemKitsView({ onBackToHub }) {
               </span>
               {printingOrder.status === 'COMPLETED' ? (
                 <p className="text-[9.5px] italic text-zinc-650 leading-tight">
-                  {printingOrder.observations || "Nenhuma observação registrada para esta ordem de montagem."}
+                  {printingOrder.observations || (printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
+                    ? "Nenhuma observação registrada para esta ordem de conversão."
+                    : "Nenhuma observação registrada para esta ordem de montagem.")
+                  }
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -850,7 +881,11 @@ export default function MontagemKitsView({ onBackToHub }) {
             <div className="grid grid-cols-3 gap-6 pt-4 border-t border-zinc-200">
               {/* Column 1: Operator */}
               <div className="border border-zinc-200 bg-zinc-50/20 p-4 rounded-xl space-y-3 h-28 flex flex-col justify-between">
-                <span className="text-[8px] font-black text-zinc-950 uppercase tracking-wider block border-b border-zinc-200 pb-1 text-center">1. MONTADOR RESPONSÁVEL</span>
+                <span className="text-[8px] font-black text-zinc-950 uppercase tracking-wider block border-b border-zinc-200 pb-1 text-center">
+                  {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
+                    ? "1. OPERADOR RESPONSÁVEL" 
+                    : "1. MONTADOR RESPONSÁVEL"}
+                </span>
                 <div className="space-y-2.5 text-[9.5px] text-zinc-650">
                   <div className="flex items-baseline gap-1">
                     <span className="font-bold">Nome:</span>
@@ -865,7 +900,11 @@ export default function MontagemKitsView({ onBackToHub }) {
 
               {/* Column 2: Checker */}
               <div className="border border-zinc-200 bg-zinc-50/20 p-4 rounded-xl space-y-3 h-28 flex flex-col justify-between">
-                <span className="text-[8px] font-black text-zinc-950 uppercase tracking-wider block border-b border-zinc-200 pb-1 text-center">2. CONFERENTE EXPEDIÇÃO</span>
+                <span className="text-[8px] font-black text-zinc-950 uppercase tracking-wider block border-b border-zinc-200 pb-1 text-center">
+                  {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
+                    ? "2. CONFERENTE CONTROLE" 
+                    : "2. CONFERENTE EXPEDIÇÃO"}
+                </span>
                 <div className="space-y-2.5 text-[9.5px] text-zinc-650">
                   <div className="flex items-baseline gap-1">
                     <span className="font-bold">Nome:</span>
@@ -1676,7 +1715,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                                       id: o.id,
                                       orderNumber: o.orderNumber,
                                       kitProductCode: o.paraProdutoCodigo,
-                                      kitProductDescription: `VIRA: ${o.deProdutoDescricao} ➔ ${o.paraProdutoDescricao}`,
+                                      kitProductDescription: `CONVERSÃO: ${o.deProdutoDescricao} ➔ ${o.paraProdutoDescricao}`,
                                       quantity: o.quantity,
                                       quantityAssembled: o.quantityAssembled,
                                       status: o.status,
@@ -1685,7 +1724,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                                       componentsLotes: JSON.stringify([
                                         {
                                           code: o.deProdutoCodigo,
-                                          description: `Produto de Origem: ${o.deProdutoDescricao}`,
+                                          description: o.deProdutoDescricao,
                                           expected_qty: 1,
                                           used_qty: o.quantityAssembled || undefined
                                         }
