@@ -192,7 +192,7 @@ export default function MontagemKitsView({ onBackToHub }) {
       const res = await fetch(`${API_BASE}/products?limit=5000&show_hidden=true`);
       if (res.ok) {
         const data = await res.json();
-        setProducts(data.products || []);
+        setProducts(data.items || []);
       }
     } catch (e) {
       console.error("Error fetching products:", e);
@@ -963,7 +963,7 @@ export default function MontagemKitsView({ onBackToHub }) {
 
           <div className="p-2 border-b border-zinc-100 space-y-1">
             <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-              Menu Vira de Produto
+              Menu Conversão de Produto
             </div>
             <button
               onClick={() => setActiveSubTab('vira_ordens')}
@@ -972,7 +972,7 @@ export default function MontagemKitsView({ onBackToHub }) {
               }`}
             >
               <RefreshCw className="h-4 w-4" />
-              Ordens de Vira
+              Ordens de Conversão
               <span className="ml-auto bg-zinc-200 text-zinc-700 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
                 {viraOrders.length}
               </span>
@@ -984,7 +984,7 @@ export default function MontagemKitsView({ onBackToHub }) {
               }`}
             >
               <Settings className="h-4 w-4" />
-              Composição de Viras
+              Fórmulas de Conversão
             </button>
           </div>
 
@@ -993,7 +993,7 @@ export default function MontagemKitsView({ onBackToHub }) {
             <div className="bg-zinc-50 rounded-xl p-4 space-y-3 border border-zinc-100">
               <h3 className="text-xs font-bold text-zinc-700 uppercase tracking-wider">Módulos NatumHub</h3>
               <p className="text-xs text-zinc-550 leading-relaxed">
-                Controle o fluxo fabril e logístico. Gerencie montagens de kits comerciais e ordens de vira de produtos (reetiquetagem e reenvase).
+                Controle o fluxo fabril e logístico. Gerencie montagens de kits comerciais e ordens de conversão de produtos (reetiquetagem e reenvase).
               </p>
             </div>
           </div>
@@ -1007,15 +1007,15 @@ export default function MontagemKitsView({ onBackToHub }) {
                 {activeSubTab === 'ordens' && 'Ordens de Montagem de Kits'}
                 {activeSubTab === 'componentes' && 'Componentes e Alertas de Estoque'}
                 {activeSubTab === 'composicao' && 'Composição de Kits Comerciais'}
-                {activeSubTab === 'vira_ordens' && 'Ordens de Vira de Produto'}
-                {activeSubTab === 'vira_composicao' && 'Composição de Viras de Produto'}
+                {activeSubTab === 'vira_ordens' && 'Ordens de Conversão de Produto'}
+                {activeSubTab === 'vira_composicao' && 'Composição de Conversões de Produto'}
               </h2>
               <p className="text-xs text-zinc-500 mt-0.5">
                 {activeSubTab === 'ordens' && 'Gerencie e acompanhe a montagem de kits comerciais.'}
                 {activeSubTab === 'componentes' && 'Verifique a disponibilidade de componentes individuais para montagem.'}
                 {activeSubTab === 'composicao' && 'Gerencie a relação de componentes que compõem cada kit comercial.'}
-                {activeSubTab === 'vira_ordens' && 'Gerencie a virada, reetiquetagem e reenvase de produtos acabados.'}
-                {activeSubTab === 'vira_composicao' && 'Vincule a relação de produtos origem/destino para ordens de vira.'}
+                {activeSubTab === 'vira_ordens' && 'Gerencie a conversão, reetiquetagem e reenvase de produtos acabados.'}
+                {activeSubTab === 'vira_composicao' && 'Vincule a relação de produtos origem/destino para ordens de conversão.'}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -1411,6 +1411,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                       value={kitCompNewKit}
                       onChange={(e) => setKitCompNewKit(e.target.value)}
                       className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold"
+                      list="produtos-list"
                       required
                     />
                     {getKitNamePreview() && (
@@ -1425,6 +1426,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                       value={kitCompNewComp}
                       onChange={(e) => setKitCompNewComp(e.target.value)}
                       className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold"
+                      list="produtos-list"
                       required
                     />
                     {getCompNamePreview() && (
@@ -1724,7 +1726,7 @@ export default function MontagemKitsView({ onBackToHub }) {
           </div>
         )}
 
-        {/* TAB 5: COMPOSIÇÃO DE VIRAS */}
+        {/* TAB 5: COMPOSIÇÃO DE CONVERSÕES */}
         {activeSubTab === 'vira_composicao' && (
           <div className="space-y-4 animate-in fade-in duration-200 flex-1 flex flex-col overflow-hidden">
             <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-5 space-y-4 shrink-0">
@@ -1737,6 +1739,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                     value={newViraDeCodigo}
                     onChange={(e) => setNewViraDeCodigo(e.target.value)}
                     className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold text-zinc-900"
+                    list="produtos-list"
                     required
                   />
                   {getViraDeNamePreview() && (
@@ -1751,6 +1754,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                     value={newViraParaCodigo}
                     onChange={(e) => setNewViraParaCodigo(e.target.value)}
                     className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold text-zinc-900"
+                    list="produtos-list"
                     required
                   />
                   {getViraParaNamePreview() && (
@@ -1772,7 +1776,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                   type="submit"
                   className="w-full bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-colors cursor-pointer h-[36px]"
                 >
-                  Vincular Vira de Produto
+                  Vincular Conversão de Produto
                 </button>
               </form>
             </div>
@@ -2176,14 +2180,14 @@ export default function MontagemKitsView({ onBackToHub }) {
           </div>
         </div>
       )}
-      {/* MODAL: NOVA ORDEM DE VIRA */}
+      {/* MODAL: NOVA ORDEM DE CONVERSÃO */}
       {showNewViraOrderModal && (
         <div className="fixed inset-0 bg-black/55 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b pb-3">
               <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-1.5">
                 <RefreshCw className="h-5 w-5 text-zinc-900" />
-                Criar Ordem de Vira de Produto
+                Criar Ordem de Conversão de Produto
               </h3>
               <button 
                 onClick={() => setShowNewViraOrderModal(false)}
@@ -2196,7 +2200,7 @@ export default function MontagemKitsView({ onBackToHub }) {
             <form onSubmit={handleCreateViraOrder} className="space-y-4 text-xs font-medium text-zinc-700">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Lote da Ordem de Vira</label>
+                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Lote da Ordem de Conversão</label>
                   <input 
                     type="text"
                     value={newViraOrderNumber}
@@ -2207,7 +2211,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Selecione a Vira de Produto</label>
+                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Selecione a Conversão de Produto</label>
                   <select
                     value={selectedViraComp ? `${selectedViraComp.deProdutoCodigo}-${selectedViraComp.paraProdutoCodigo}` : ''}
                     onChange={(e) => {
@@ -2217,7 +2221,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                     className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900 font-semibold text-zinc-900 bg-white"
                     required
                   >
-                    <option value="">Selecione uma vira...</option>
+                    <option value="">Selecione uma conversão...</option>
                     {viraComposicao.map(vc => (
                       <option key={`${vc.deProdutoCodigo}-${vc.paraProdutoCodigo}`} value={`${vc.deProdutoCodigo}-${vc.paraProdutoCodigo}`}>
                         {vc.deProdutoDescricao} ➔ {vc.paraProdutoDescricao}
@@ -2418,6 +2422,14 @@ export default function MontagemKitsView({ onBackToHub }) {
           </div>
         </div>
       )}
+
+      <datalist id="produtos-list">
+        {products.map(p => (
+          <option key={p.codigo} value={p.codigo}>
+            {p.descricao}
+          </option>
+        ))}
+      </datalist>
     </div>
   );
 }
