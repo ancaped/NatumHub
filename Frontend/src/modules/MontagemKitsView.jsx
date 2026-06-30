@@ -321,8 +321,8 @@ export default function MontagemKitsView({ onBackToHub }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          de_produto_codigo: newViraDeCodigo.trim(), 
-          para_produto_codigo: newViraParaCodigo.trim(),
+          deProdutoCodigo: newViraDeCodigo.trim(), 
+          paraProdutoCodigo: newViraParaCodigo.trim(),
           quantidade: parseFloat(newViraQuantidade) || 1.0
         })
       });
@@ -386,9 +386,9 @@ export default function MontagemKitsView({ onBackToHub }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          order_number: newViraOrderNumber.trim(),
-          de_produto_codigo: selectedViraComp.deProdutoCodigo,
-          para_produto_codigo: selectedViraComp.paraProdutoCodigo,
+          orderNumber: newViraOrderNumber.trim(),
+          deProdutoCodigo: selectedViraComp.deProdutoCodigo,
+          paraProdutoCodigo: selectedViraComp.paraProdutoCodigo,
           quantity: parseFloat(newViraOrderQuantity) || 0,
           status: 'PENDING',
           observations: newViraOrderNotes
@@ -427,11 +427,11 @@ export default function MontagemKitsView({ onBackToHub }) {
     try {
       const payload = {
         status: editViraStatus,
-        assembled_by: editViraAssembledBy,
-        checked_by: editViraCheckedBy,
+        assembledBy: editViraAssembledBy,
+        checkedBy: editViraCheckedBy,
         observations: editViraNotes,
-        erp_launched: editViraErpLaunched ? 1 : 0,
-        quantity_assembled: parseFloat(editViraQuantityAssembled) || 0
+        erpLaunched: editViraErpLaunched ? 1 : 0,
+        quantityAssembled: parseFloat(editViraQuantityAssembled) || 0
       };
       const res = await fetch(`${API_BASE}/turnovers/orders/${selectedViraOrder.id}`, {
         method: 'PUT',
