@@ -715,7 +715,11 @@ export default function MontagemKitsView({ onBackToHub }) {
                   <span className="text-2xl font-black tracking-tighter text-zinc-950">NATUM</span>
                   <span className="text-[10px] font-semibold tracking-[0.3em] text-zinc-450 uppercase">COSMÉTICOS</span>
                 </div>
-                <p className="text-[9px] font-bold text-zinc-455 uppercase tracking-widest mt-1">Ordem de Montagem de Kit</p>
+                <p className="text-[9px] font-bold text-zinc-455 uppercase tracking-widest mt-1">
+                  {printingOrder.kitProductDescription?.startsWith("TRANSFORMAÇÃO:") 
+                    ? "Ordem de Transformação de Produto" 
+                    : "Ordem de Montagem de Kit"}
+                </p>
               </div>
               <div className="flex flex-col items-end">
                 <div className="bg-zinc-950 text-white px-3 py-1.5 rounded-lg text-center min-w-32 shadow-sm">
@@ -731,7 +735,11 @@ export default function MontagemKitsView({ onBackToHub }) {
             {/* Info Block - Clean modern layout */}
             <div className="grid grid-cols-12 border border-zinc-200 rounded-xl overflow-hidden divide-x divide-zinc-200 text-[10px]">
               <div className="p-3 bg-zinc-50/50 space-y-1 col-span-6">
-                <span className="text-[7.5px] uppercase font-black text-zinc-400 tracking-wider block">Produto / Kit Comercial</span>
+                <span className="text-[7.5px] uppercase font-black text-zinc-400 tracking-wider block">
+                  {printingOrder.kitProductDescription?.startsWith("TRANSFORMAÇÃO:") 
+                    ? "Transformação de Produto" 
+                    : "Produto / Kit Comercial"}
+                </span>
                 <p className="font-extrabold text-zinc-900 leading-tight">{printingOrder.kitProductDescription}</p>
               </div>
               <div className="p-3 space-y-1 col-span-2 text-center flex flex-col justify-center">
@@ -2275,7 +2283,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                   disabled={submittingNewViraOrder || !selectedViraComp}
                   className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold disabled:opacity-50 cursor-pointer"
                 >
-                  {submittingNewViraOrder ? "Criando..." : "Criar Ordem de Vira"}
+                  {submittingNewViraOrder ? "Criando..." : "Criar Ordem"}
                 </button>
               </div>
             </form>
@@ -2283,7 +2291,7 @@ export default function MontagemKitsView({ onBackToHub }) {
         </div>
       )}
 
-      {/* MODAL: RETORNO DE ORDEM DE VIRA */}
+      {/* MODAL: RETORNO DE ORDEM DE TRANSFORMAÇÃO */}
       {showEditViraOrderModal && selectedViraOrder && (
         <div className="fixed inset-0 bg-black/55 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
@@ -2291,7 +2299,7 @@ export default function MontagemKitsView({ onBackToHub }) {
               <div className="flex flex-col">
                 <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-1.5">
                   <RefreshCw className="h-5 w-5 text-zinc-900" />
-                  Retorno de Lote / Ordem de Vira
+                  Retorno de Lote / Ordem de Transformação
                 </h3>
                 <span className="text-[10px] text-zinc-500 font-mono mt-0.5">Lote: {selectedViraOrder.orderNumber}</span>
               </div>
