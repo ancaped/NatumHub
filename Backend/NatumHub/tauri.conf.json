@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "NatumHub",
-  "version": "0.0.9-alpha",
+  "version": "0.0.10-alpha",
   "identifier": "com.natum.hub",
   "build": {
     "frontendDist": "../../Frontend/dist",

@@ -378,7 +378,10 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
       await api.createQuotation(title, selectedDemands.map(d => d.itemCode), selectedDemands.map(d => d.recommendedQty));
       alert('Cotação criada com sucesso!');
       setSelectedItems(new Set());
-    } catch (e) { console.error(e); alert('Erro ao criar cotação'); }
+    } catch (e) { 
+      console.error(e); 
+      alert('Erro ao criar cotação: ' + (e instanceof Error ? e.message : String(e))); 
+    }
   };
 
   const handlePrint = () => {

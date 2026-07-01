@@ -267,7 +267,8 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
       const itemCodes = selectedDemands.map(d => d.itemCode);
       const recommendedQtys = selectedDemands.map(d => {
         const manual = manualQtys[d.itemCode];
-        return manual !== undefined ? manual : Math.max(0, Math.round(d.recommendedQty));
+        const val = manual !== undefined ? parseFloat(manual) : Math.max(0, Math.round(d.recommendedQty));
+        return isNaN(val) ? 0 : val;
       });
       await api.createQuotation(title, itemCodes, recommendedQtys);
       alert('Cotação criada a partir da lista com sucesso!');
@@ -276,7 +277,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
       }
     } catch (e) {
       console.error(e);
-      alert('Erro ao criar cotação a partir da lista.');
+      alert('Erro ao criar cotação a partir da lista: ' + (e instanceof Error ? e.message : String(e)));
     }
   };
 
