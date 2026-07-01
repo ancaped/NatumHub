@@ -482,8 +482,7 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             approved_qty    REAL,
             final_qty       REAL,
             notes           TEXT,
-            FOREIGN KEY (quotation_id) REFERENCES quotations(id) ON DELETE CASCADE,
-            FOREIGN KEY (item_code) REFERENCES items(code)
+            FOREIGN KEY (quotation_id) REFERENCES quotations(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS quotation_prices (
@@ -763,6 +762,35 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             quantity_assembled REAL
         );
     ")?;
+    // Migration: Remove foreign key from quotation_items to items(code)
+    if conn.query_row("SELECT 1 FROM settings WHERE key = 'migration_remove_quotation_items_fk_v1'", [], |_| Ok(())).is_err() {
+        let _ = conn.execute("PRAGMA foreign_keys = OFF", []);
+        let _ = conn.execute("ALTER TABLE quotation_items RENAME TO quotation_items_old", []);
+        
+        let _ = conn.execute("
+            CREATE TABLE IF NOT EXISTS quotation_items (
+                id              TEXT PRIMARY KEY,
+                quotation_id    TEXT NOT NULL,
+                item_code       TEXT NOT NULL,
+                recommended_qty REAL DEFAULT 0,
+                approved_qty    REAL,
+                final_qty       REAL,
+                notes           TEXT,
+                FOREIGN KEY (quotation_id) REFERENCES quotations(id) ON DELETE CASCADE
+            )
+        ", []);
+        
+        let _ = conn.execute("
+            INSERT OR IGNORE INTO quotation_items (id, quotation_id, item_code, recommended_qty, approved_qty, final_qty, notes)
+            SELECT id, quotation_id, item_code, recommended_qty, approved_qty, final_qty, notes
+            FROM quotation_items_old
+        ", []);
+        
+        let _ = conn.execute("DROP TABLE IF EXISTS quotation_items_old", []);
+        let _ = conn.execute("PRAGMA foreign_keys = ON", []);
+        
+        let _ = conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('migration_remove_quotation_items_fk_v1', 'done')", []);
+    }
 
     Ok(())
 }
