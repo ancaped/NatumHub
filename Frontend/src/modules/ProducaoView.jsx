@@ -683,6 +683,52 @@ export default function ProducaoView({ onBackToHub }) {
     }
   }, [suspendedSearch]);
 
+  const handleUnsuspendProduct = async (code) => {
+    if (!window.confirm(`Deseja realmente reativar o produto ${code} e remover sua suspensão?`)) return;
+    try {
+      const res = await fetch(`${API_BASE}/overrides`);
+      if (res.ok) {
+        const overrides = await res.json();
+        const existing = overrides.find(o => o.codigo === code);
+        
+        const updated = {
+          codigo: code,
+          estoque_ideal_manual: existing ? existing.estoque_ideal_manual : null,
+          pedidos_manual: existing ? existing.pedidos_manual : null,
+          media_manual: existing ? existing.media_manual : null,
+          is_lancamento_manual: existing ? existing.is_lancamento_manual : null,
+          visivel: 1, 
+          observacao: existing ? existing.observacao : null,
+          linha_prefix_manual: existing ? existing.linha_prefix_manual : null,
+          status_produto: 'ativo', 
+          categoria_produto: existing ? existing.categoria_produto : null,
+          produzir_apenas_kit: existing ? existing.produzir_apenas_kit : null,
+          lancamento_meta_meses: existing ? existing.lancamento_meta_meses : null,
+          lancamento_data_inicio: existing ? existing.lancamento_data_inicio : null,
+        };
+
+        const saveRes = await fetch(`${API_BASE}/overrides`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updated),
+        });
+
+        if (saveRes.ok) {
+          showToast("Produto reativado com sucesso!", "success");
+          fetchSuspendedProducts();
+          fetchProducts();
+        } else {
+          showToast("Erro ao reativar o produto.", "error");
+        }
+      } else {
+        showToast("Erro ao ler overrides do banco.", "error");
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("Erro de conexão.", "error");
+    }
+  };
+
   useEffect(() => {
     if (currentView === 'ignored_items') {
       fetchSuspendedProducts();
@@ -1513,7 +1559,7 @@ export default function ProducaoView({ onBackToHub }) {
           </button>
 
           <div className="sidebar-footer">
-            <div>Versão: 0.008 alpha</div>
+            <div>Versão: 0.009 alpha</div>
             <div>Banco: SQLite Local</div>
           </div>
         </aside>
@@ -1700,9 +1746,10 @@ export default function ProducaoView({ onBackToHub }) {
                       <thead>
                         <tr>
                           <th style={{ width: '15%' }}>REF</th>
-                          <th style={{ width: '50%' }}>Descrição</th>
-                          <th style={{ width: '20%' }}>Linha</th>
+                          <th style={{ width: '45%' }}>Descrição</th>
+                          <th style={{ width: '15%' }}>Linha</th>
                           <th style={{ width: '15%' }}>Status</th>
+                          <th style={{ width: '10%', textAlign: 'center' }}>Ações</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1733,6 +1780,17 @@ export default function ProducaoView({ onBackToHub }) {
                               <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[10px] font-bold uppercase">
                                 {p.status_produto || 'suspenso'}
                               </span>
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleUnsuspendProduct(p.codigo);
+                                }}
+                                className="px-3 py-1 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-[10px] font-bold shadow-sm cursor-pointer transition-all border border-zinc-950"
+                              >
+                                Reativar
+                              </button>
                             </td>
                           </tr>
                         ))}
