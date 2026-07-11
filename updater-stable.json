@@ -1,0 +1,11 @@
+{
+  "version": "0.0.9",
+  "notes": "Canal Estável — produção. Recomendado para operação diária.",
+  "pub_date": "2026-07-11T00:00:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "",
+      "url": "https://github.com/ancaped/NatumHub/releases/download/v0.0.9/NatumHub_0.0.9_x64-setup.exe"
+    }
+  }
+}
