@@ -1,0 +1,183 @@
+name: Release NatumHub
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Canal de release'
+        required: true
+        type: choice
+        options:
+          - alpha
+          - beta
+          - stable
+      version_tag:
+        description: 'Tag da release (ex. v0.0.12-alpha.1 ou v0.0.12). Obrigatório no dispatch manual.'
+        required: true
+        type: string
+      release_notes:
+        description: 'Notas da versão (opcional)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect channel and version
+        id: meta
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.version_tag }}"
+            CHANNEL="${{ github.event.inputs.channel }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+            if echo "$TAG" | grep -qiE 'alpha'; then
+              CHANNEL="alpha"
+            elif echo "$TAG" | grep -qiE 'beta'; then
+              CHANNEL="beta"
+            else
+              CHANNEL="stable"
+            fi
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+          NOTES="${{ github.event.inputs.release_notes }}"
+          if [ -z "$NOTES" ]; then
+            NOTES="NatumHub $VERSION — canal $CHANNEL"
+          fi
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Sync version in project files
+        shell: node
+        run: |
+          const fs = require('fs');
+          const v = '${{ steps.meta.outputs.version }}';
+          const tauriPath = 'Backend/tauri.conf.json';
+          const tauri = JSON.parse(fs.readFileSync(tauriPath, 'utf8'));
+          tauri.version = v;
+          fs.writeFileSync(tauriPath, JSON.stringify(tauri, null, 2) + '\n');
+          for (const p of ['Frontend/package.json', 'Backend/package.json']) {
+            const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+            pkg.version = v;
+            fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
+          }
+          let cargo = fs.readFileSync('Backend/Cargo.toml', 'utf8');
+          cargo = cargo.replace(/^version = ".*"/m, `version = "${v}"`);
+          fs.writeFileSync('Backend/Cargo.toml', cargo);
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            Frontend/package-lock.json
+            Backend/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: Backend
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: Frontend
+
+      - name: Install backend (Tauri CLI) dependencies
+        run: npm ci
+        working-directory: Backend
+
+      - name: Build and release (Tauri)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: Backend
+          tagName: ${{ steps.meta.outputs.tag }}
+          releaseName: NatumHub ${{ steps.meta.outputs.tag }} (${{ steps.meta.outputs.channel }})
+          releaseBody: ${{ steps.meta.outputs.notes }}
+          releaseDraft: false
+          prerelease: ${{ steps.meta.outputs.channel != 'stable' }}
+          args: --target x86_64-pc-windows-msvc
+
+      - name: Locate updater signature
+        id: sig
+        shell: pwsh
+        run: |
+          $version = "${{ steps.meta.outputs.version }}"
+          $patterns = @(
+            "Backend/target/release/bundle/updater/*.sig",
+            "Backend/target/x86_64-pc-windows-msvc/release/bundle/updater/*.sig"
+          )
+          $sig = $null
+          foreach ($p in $patterns) {
+            $found = Get-ChildItem -Path $p -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { $sig = $found.FullName; break }
+          }
+          if (-not $sig) {
+            Write-Warning "Arquivo .sig não encontrado — manifest ficará com signature vazia até configurar TAURI_SIGNING_PRIVATE_KEY"
+            "path=" >> $env:GITHUB_OUTPUT
+          } else {
+            "path=$sig" >> $env:GITHUB_OUTPUT
+          }
+          $tag = "${{ steps.meta.outputs.tag }}"
+          $assetName = "NatumHub_${version}_x64-setup.exe"
+          $zipName = "NatumHub_${version}_x64-setup.nsis.zip"
+          $base = "https://github.com/${{ github.repository }}/releases/download/$tag"
+          "url=$base/$zipName" >> $env:GITHUB_OUTPUT
+          "url_exe=$base/$assetName" >> $env:GITHUB_OUTPUT
+
+      - name: Update updater manifest
+        shell: pwsh
+        run: |
+          $args = @(
+            "scripts/update-updater-manifest.mjs",
+            "--channel", "${{ steps.meta.outputs.channel }}",
+            "--version", "${{ steps.meta.outputs.version }}",
+            "--url", "${{ steps.sig.outputs.url }}",
+            "--notes", "${{ steps.meta.outputs.notes }}"
+          )
+          if ("${{ steps.sig.outputs.path }}") {
+            $args += @("--sig", "${{ steps.sig.outputs.path }}")
+          }
+          node @args
+
+      - name: Commit updater manifest to main
+        shell: bash
+        run: |
+          MANIFEST="updater-${{ steps.meta.outputs.channel }}.json"
+          cp "$MANIFEST" "/tmp/$MANIFEST"
+          git fetch origin main
+          git checkout main
+          git pull origin main
+          cp "/tmp/$MANIFEST" "$MANIFEST"
+          git add "$MANIFEST"
+          git diff --staged --quiet && echo "Manifest unchanged" && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(release): $MANIFEST → ${{ steps.meta.outputs.version }}"
+          git push origin main

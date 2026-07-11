@@ -1,0 +1,56 @@
+# Promover versão entre canais (re-release do mesmo commit com nova tag)
+
+name: Promote Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_tag:
+        description: 'Tag existente para reutilizar artefatos (ex. v0.0.12-alpha.1)'
+        required: true
+        type: string
+      target_channel:
+        description: 'Canal destino'
+        required: true
+        type: choice
+        options:
+          - beta
+          - stable
+      target_tag:
+        description: 'Nova tag (ex. v0.0.12-beta.1 ou v0.0.12)'
+        required: true
+        type: string
+      release_notes:
+        description: 'Notas da versão promovida'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate tags
+        shell: bash
+        run: |
+          echo "Promoção: ${{ github.event.inputs.source_tag }} → ${{ github.event.inputs.target_tag }} (${{ github.event.inputs.target_channel }})"
+
+      - name: Trigger build for target channel
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'release.yml',
+              ref: 'feat/update-channels-ci',
+              inputs: {
+                channel: '${{ github.event.inputs.target_channel }}',
+                version_tag: '${{ github.event.inputs.target_tag }}',
+                release_notes: '${{ github.event.inputs.release_notes }}' || 'Promovido de ${{ github.event.inputs.source_tag }}',
+              },
+            });
