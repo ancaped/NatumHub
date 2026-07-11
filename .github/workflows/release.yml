@@ -36,6 +36,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'feat/update-channels-ci' || github.ref }}
 
       - name: Detect channel and version
         id: meta
