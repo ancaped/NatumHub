@@ -3,7 +3,7 @@
  * URL dinâmica: master local ou remoto via Tailscale.
  */
 
-import { getApiOrigin } from './connectionConfig';
+import { getApiOrigin, loadConnectionConfig } from './connectionConfig';
 import { getAuthToken, clearAuthSession } from './auth';
 
 export function resolveApiOrigin(): string {
@@ -60,6 +60,10 @@ function buildHeaders(init?: RequestInit & { skipAuth?: boolean }): HeadersInit 
     const token = getAuthToken();
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
+    }
+    const deviceId = loadConnectionConfig().deviceId;
+    if (deviceId) {
+      headers['X-Natum-Device-Id'] = deviceId;
     }
   }
 

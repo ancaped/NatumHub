@@ -6,7 +6,7 @@ import {
   fetchOperatorsManage,
   createOperator,
   updateOperator,
-  isAdmin,
+  isSupervisor,
   type AuthUser,
   type OperatorDetail,
   type UpdateChannel,
@@ -18,6 +18,8 @@ import { checkServerHealth } from '../lib/connectionConfig';
 interface OperadoresPanelProps {
   currentUser: AuthUser | null;
   setMessage: (msg: { text: string; type: 'success' | 'error' } | null) => void;
+  /** Canais de update ficam só no painel administrador */
+  includeUpdateChannel?: boolean;
 }
 
 interface FormState {
@@ -26,6 +28,8 @@ interface FormState {
   active: boolean;
   modules: string[];
   updateChannel: UpdateChannel;
+  password: string;
+  passwordConfirm: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -34,23 +38,29 @@ const EMPTY_FORM: FormState = {
   active: true,
   modules: [],
   updateChannel: 'stable',
+  password: '',
+  passwordConfirm: '',
 };
 
 function defaultChannelForRole(role: string): UpdateChannel {
-  return role === 'admin' ? 'alpha' : 'stable';
+  return role === 'supervisor' || role === 'admin' ? 'alpha' : 'stable';
 }
 
 function applyChannelForRole(form: FormState, role: string): FormState {
   const next = { ...form, role };
-  if (form.updateChannel === 'alpha' && role !== 'admin') {
+  if (form.updateChannel === 'alpha' && role !== 'supervisor' && role !== 'admin') {
     next.updateChannel = 'stable';
-  } else if (role === 'admin' && form.updateChannel === 'stable' && form.role !== 'admin') {
+  } else if ((role === 'supervisor' || role === 'admin') && form.updateChannel === 'stable') {
     next.updateChannel = 'alpha';
   }
   return next;
 }
 
-export default function OperadoresPanel({ currentUser, setMessage }: OperadoresPanelProps) {
+export default function OperadoresPanel({
+  currentUser,
+  setMessage,
+  includeUpdateChannel = false,
+}: OperadoresPanelProps) {
   const [registry] = useState<ModuleGroup[]>(() => moduleRegistry());
   const [operators, setOperators] = useState<OperatorDetail[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,6 +93,8 @@ export default function OperadoresPanel({ currentUser, setMessage }: OperadoresP
           active: op.active,
           modules: [...op.modules],
           updateChannel: op.updateChannel,
+          password: '',
+          passwordConfirm: '',
         };
       }
       setEditForms(forms);
@@ -96,10 +108,10 @@ export default function OperadoresPanel({ currentUser, setMessage }: OperadoresP
   }, [setMessage]);
 
   useEffect(() => {
-    if (isAdmin(currentUser)) load();
+    if (isSupervisor(currentUser)) load();
   }, [load, currentUser]);
 
-  if (!isAdmin(currentUser)) {
+  if (!isSupervisor(currentUser)) {
     return null;
   }
 
@@ -138,18 +150,33 @@ export default function OperadoresPanel({ currentUser, setMessage }: OperadoresP
     }
   };
 
+  const validatePasswordPair = (password: string, confirm: string, required: boolean) => {
+    if (!required && !password.trim()) return true;
+    if (required && password.length < 4) {
+      setMessage({ text: 'Senha deve ter no mínimo 4 caracteres.', type: 'error' });
+      return false;
+    }
+    if (password !== confirm) {
+      setMessage({ text: 'Senha e confirmação não conferem.', type: 'error' });
+      return false;
+    }
+    return true;
+  };
+
   const handleCreate = async () => {
     if (!newForm.displayName.trim()) {
       setMessage({ text: 'Informe o nome do operador.', type: 'error' });
       return;
     }
+    if (!validatePasswordPair(newForm.password, newForm.passwordConfirm, true)) return;
     setSaving(true);
     try {
       await createOperator({
         displayName: newForm.displayName,
         role: newForm.role,
         modules: newForm.modules,
-        updateChannel: newForm.updateChannel,
+        updateChannel: includeUpdateChannel ? newForm.updateChannel : 'stable',
+        password: newForm.password,
       });
       setMessage({ text: 'Operador criado com sucesso.', type: 'success' });
       setShowNewForm(false);
@@ -169,10 +196,13 @@ export default function OperadoresPanel({ currentUser, setMessage }: OperadoresP
 
   const handleSave = async (id: string) => {
     const form = editForms[id];
+    const op = operators.find((o) => o.id === id);
     if (!form?.displayName.trim()) {
       setMessage({ text: 'Nome é obrigatório.', type: 'error' });
       return;
     }
+    const changingPassword = Boolean(form.password.trim());
+    if (!validatePasswordPair(form.password, form.passwordConfirm, changingPassword)) return;
     setSaving(true);
     try {
       await updateOperator(id, {
@@ -180,7 +210,8 @@ export default function OperadoresPanel({ currentUser, setMessage }: OperadoresP
         role: form.role,
         active: form.active,
         modules: form.modules,
-        updateChannel: form.updateChannel,
+        updateChannel: includeUpdateChannel ? form.updateChannel : (op?.updateChannel ?? 'stable'),
+        password: changingPassword ? form.password : undefined,
       });
       setMessage({ text: 'Operador atualizado.', type: 'success' });
       await load();
@@ -235,7 +266,6 @@ export default function OperadoresPanel({ currentUser, setMessage }: OperadoresP
             }}
             className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-50"
           >
-            <option value="admin">Administrador</option>
             <option value="estoque">Estoque</option>
             <option value="producao">Produção</option>
             <option value="micro">Microbiologia</option>
@@ -248,6 +278,7 @@ export default function OperadoresPanel({ currentUser, setMessage }: OperadoresP
         </div>
       </div>
 
+      {includeUpdateChannel && (
       <div>
         <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
           Canal de atualização
@@ -269,14 +300,59 @@ export default function OperadoresPanel({ currentUser, setMessage }: OperadoresP
         >
           <option value="stable">{UPDATE_CHANNEL_LABELS.stable}</option>
           <option value="beta">{UPDATE_CHANNEL_LABELS.beta}</option>
-          <option value="alpha" disabled={form.role !== 'admin'}>
+          <option value="alpha" disabled={form.role !== 'supervisor' && form.role !== 'admin'}>
             {UPDATE_CHANNEL_LABELS.alpha}
-            {form.role !== 'admin' ? ' (só admin)' : ''}
+            {form.role !== 'supervisor' && form.role !== 'admin' ? ' (só supervisor)' : ''}
           </option>
         </select>
-        <p className="text-[10px] text-zinc-400 mt-1">
-          Define qual versão do app este operador recebe ao atualizar. Alpha só para administradores.
-        </p>
+      </div>
+      )}
+
+      <div className="grid sm:grid-cols-2 gap-3">
+      <div>
+        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+          {formKey === 'new' ? 'Senha inicial' : 'Nova senha (opcional)'}
+        </label>
+        <input
+          type="password"
+          value={form.password}
+          onChange={(e) => {
+            const password = e.target.value;
+            if (formKey === 'new') {
+              setNewForm((p) => ({ ...p, password }));
+            } else {
+              setEditForms((p) => ({
+                ...p,
+                [formKey]: { ...p[formKey], password },
+              }));
+            }
+          }}
+          placeholder={formKey === 'new' ? 'Mín. 4 caracteres' : 'Deixe vazio para manter'}
+          className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-50"
+        />
+      </div>
+      <div>
+        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+          Confirmar senha
+        </label>
+        <input
+          type="password"
+          value={form.passwordConfirm}
+          onChange={(e) => {
+            const passwordConfirm = e.target.value;
+            if (formKey === 'new') {
+              setNewForm((p) => ({ ...p, passwordConfirm }));
+            } else {
+              setEditForms((p) => ({
+                ...p,
+                [formKey]: { ...p[formKey], passwordConfirm },
+              }));
+            }
+          }}
+          placeholder="Repita a senha"
+          className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-50"
+        />
+      </div>
       </div>
 
       {formKey !== 'new' && (
@@ -424,7 +500,9 @@ export default function OperadoresPanel({ currentUser, setMessage }: OperadoresP
                         {isSelf && <span className="text-zinc-400 font-normal ml-1">(você)</span>}
                       </p>
                       <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
-                        {op.role} · {UPDATE_CHANNEL_LABELS[op.updateChannel]} · {op.modules.length} módulo(s)
+                        {op.role} · {op.modules.length} módulo(s)
+                        {includeUpdateChannel ? ` · ${UPDATE_CHANNEL_LABELS[op.updateChannel]}` : ''}
+                        {op.hasPassword ? '' : ' · SEM SENHA'}
                         {!op.active && ' · INATIVO'}
                       </p>
                     </div>

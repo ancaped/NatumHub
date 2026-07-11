@@ -49,10 +49,10 @@ pub async fn auth_middleware(
 
     match store::resolve_session(&conn, &token) {
         Ok(Some(ctx)) => {
-            if store::requires_admin(&path, &method) && !ctx.role.is_admin() {
+            if store::requires_supervisor(&path, &method) && !ctx.role.is_supervisor() {
                 return (
                     StatusCode::FORBIDDEN,
-                    Json(json!({ "error": "Apenas administradores podem executar esta ação." })),
+                    Json(json!({ "error": "Apenas o supervisor pode executar esta ação." })),
                 )
                     .into_response();
             }

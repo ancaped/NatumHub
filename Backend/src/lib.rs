@@ -835,6 +835,7 @@ pub fn run() {
             hub_save_client_config,
             hub_check_server_health,
             open_external_browser,
+            modules::geral::updater::commands::get_build_info,
             modules::geral::updater::commands::check_channel_update,
             modules::geral::updater::commands::install_channel_update,
             // Config & Common

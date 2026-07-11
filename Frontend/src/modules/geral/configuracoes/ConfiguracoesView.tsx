@@ -5,16 +5,21 @@ import {
 
 import ConexaoServidorPanel from './ConexaoServidorPanel';
 import OperadoresPanel from './OperadoresPanel';
+import DispositivosPanel from './DispositivosPanel';
 import CanaisAtualizacaoPanel from './CanaisAtualizacaoPanel';
+import OperadoresCanaisPanel from './OperadoresCanaisPanel';
+import ReleasesPanel from './ReleasesPanel';
 import { isClientMode, isPrincipalPc } from '../lib/connectionConfig';
 import { apiJson } from '../lib/http';
-import { isAdmin, type AuthUser } from '../lib/auth';
+import { isSupervisor, type AuthUser } from '../lib/auth';
 
 interface ConfiguracoesViewProps {
   currentUser: AuthUser | null;
   setView: (view: any) => void;
   message: { text: string; type: 'success' | 'error' } | null;
   setMessage: (msg: { text: string; type: 'success' | 'error' } | null) => void;
+  /** general = operadores; supervisor = painel master completo */
+  variant?: 'general' | 'supervisor';
   
   // Google / Firebase Sync State & Actions
   firebaseUser: any;
@@ -85,9 +90,12 @@ export default function ConfiguracoesView({
   savingSql,
   handleSyncSqlDatabase,
   syncingSql,
+  variant = 'general',
 }: ConfiguracoesViewProps) {
   const isPrincipal = isPrincipalPc();
   const clientMode = isClientMode();
+  const supervisorMode = variant === 'supervisor';
+  const canEditInfra = supervisorMode && isSupervisor(currentUser);
 
   const [erpSchedule, setErpSchedule] = useState<ErpSyncSchedule>({
     ativo: true,
@@ -171,12 +179,20 @@ export default function ConfiguracoesView({
       <main className="flex-1 p-8 max-w-4xl w-full mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
         <div className="flex items-center gap-3 no-print">
           <button
-            onClick={() => setView('hub')}
+            onClick={() => setView(supervisorMode ? 'hub' : 'hub')}
             className="bg-white border border-zinc-200 hover:bg-zinc-100 px-4 py-2 rounded-xl text-xs font-bold text-zinc-650 hover:text-zinc-900 transition-all cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-98"
           >
             <ArrowLeft className="h-4 w-4" /> Voltar ao Início
           </button>
         </div>
+        {supervisorMode && (
+          <div className="bg-violet-50 border border-violet-100 rounded-2xl px-5 py-4">
+            <h2 className="font-black text-sm text-violet-900">Painel Supervisor</h2>
+            <p className="text-xs text-violet-800/90 mt-1">
+              Infraestrutura, dispositivos e canais de atualização — exclusivo da conta master.
+            </p>
+          </div>
+        )}
         {message && (
           <div className={`p-4 rounded-xl border text-sm font-bold flex items-center justify-between shadow-sm ${
             message.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'
@@ -189,15 +205,31 @@ export default function ConfiguracoesView({
         )}
 
         <ConexaoServidorPanel
-          isAdmin={isAdmin(currentUser)}
+          isAdmin={canEditInfra}
           message={message}
           setMessage={setMessage}
         />
 
-        <OperadoresPanel currentUser={currentUser} setMessage={setMessage} />
-        <CanaisAtualizacaoPanel currentUser={currentUser} setMessage={setMessage} />
+        {!supervisorMode && isSupervisor(currentUser) && (
+          <OperadoresPanel currentUser={currentUser} setMessage={setMessage} includeUpdateChannel={false} />
+        )}
 
-        {clientMode && (
+        {supervisorMode && canEditInfra && (
+          <>
+            <CanaisAtualizacaoPanel currentUser={currentUser} setMessage={setMessage} />
+            <ReleasesPanel currentUser={currentUser} setMessage={setMessage} />
+            <OperadoresCanaisPanel currentUser={currentUser} setMessage={setMessage} />
+            <DispositivosPanel currentUser={currentUser} setMessage={setMessage} />
+          </>
+        )}
+
+        {supervisorMode && !canEditInfra && (
+          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
+            Faça login como supervisor para editar operadores, dispositivos e infraestrutura.
+          </p>
+        )}
+
+        {(!supervisorMode || canEditInfra) && clientMode && (
           <div className="bg-indigo-50 border border-indigo-100 rounded-2xl px-5 py-4 text-sm text-indigo-900">
             <p className="font-bold mb-1">Configurações do servidor</p>
             <p className="text-xs text-indigo-800/90 leading-relaxed">
@@ -207,7 +239,7 @@ export default function ConfiguracoesView({
           </div>
         )}
 
-        {isPrincipal && (
+        {canEditInfra && isPrincipal && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Sincronização Google Cloud / Firebase */}
           <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-6">

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import LoginView from './modules/geral/acesso/LoginView';
+import SetupSupervisorView from './modules/geral/acesso/SetupSupervisorView';
 import DashboardView from './modules/geral/dashboard/DashboardView';
 import ConfiguracoesView from './modules/geral/configuracoes/ConfiguracoesView';
 import FeedbacksAdminView from './modules/geral/feedbacks/FeedbacksAdminView';
@@ -27,7 +28,7 @@ import {
 } from 'lucide-react';
 import { APP_NAME } from './modules/geral/lib/utils';
 import { api, localAuth } from './modules/geral/lib/api';
-import { getAuthUser, validateSession, type AuthUser } from './modules/geral/lib/auth';
+import { clearAuthSession, getAuthUser, validateSession, fetchSetupStatus, canSeeFeedbacks, type AuthUser } from './modules/geral/lib/auth';
 import { canAccessView } from './modules/geral/lib/modules/permissions';
 import { apiFetch, apiJson, getSetting, getSettings, setSetting, setSettings } from './modules/geral/lib/http';
 import { 
@@ -42,12 +43,14 @@ import { getRedirectResult } from 'firebase/auth';
 import { runUpdateCheckFlow } from './modules/geral/lib/updateChannel';
 import { isPrincipalPc } from './modules/geral/lib/connectionConfig';
 
-type HubView = 'hub' | 'producao_hub' | 'producao' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'hub_feedbacks' | 'estoque_hub' | 'estoque_insumos' | 'estoque_produtos' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'vendas' | 'linha_produtos' | 'estoque_ativos' | 'financeiro';
+type HubView = 'hub' | 'producao_hub' | 'producao' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'estoque_hub' | 'estoque_insumos' | 'estoque_produtos' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'vendas' | 'linha_produtos' | 'estoque_ativos' | 'financeiro';
 
 export default function App() {
   const [view, setView] = useState<HubView>('hub');
   const [currentUser, setCurrentUser] = useState<any>(() => getAuthUser());
   const [authReady, setAuthReady] = useState(false);
+  const [needsSupervisorSetup, setNeedsSupervisorSetup] = useState(false);
+  const [setupChecked, setSetupChecked] = useState(false);
 
   useEffect(() => {
     syncCurrentPageForView(view);
@@ -216,12 +219,31 @@ export default function App() {
           }
         });
     });
-    validateSession()
-      .then((user) => {
-        setCurrentUser(user);
-        if (user) checkUpdates(user);
+    fetchSetupStatus()
+      .then(async (setup) => {
+        setNeedsSupervisorSetup(setup.needsSupervisorSetup);
+        if (setup.needsSupervisorSetup) {
+          clearAuthSession();
+          setCurrentUser(null);
+          return null;
+        }
+        return validateSession();
       })
-      .finally(() => setAuthReady(true));
+      .then((user) => {
+        if (user) {
+          setCurrentUser(user);
+          checkUpdates(user);
+        }
+      })
+      .catch(() => {
+        setNeedsSupervisorSetup(true);
+        clearAuthSession();
+        setCurrentUser(null);
+      })
+      .finally(() => {
+        setSetupChecked(true);
+        setAuthReady(true);
+      });
 
     const onExpired = () => setCurrentUser(null);
     window.addEventListener('natum:auth-expired', onExpired);
@@ -380,11 +402,22 @@ export default function App() {
   };
 
   const renderContent = () => {
-    if (!authReady) {
+    if (!authReady || !setupChecked) {
       return (
         <div className="flex-1 flex items-center justify-center bg-zinc-50">
           <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
         </div>
+      );
+    }
+
+    if (needsSupervisorSetup) {
+      return (
+        <SetupSupervisorView
+          onComplete={() => {
+            setNeedsSupervisorSetup(false);
+            setCurrentUser(getAuthUser());
+          }}
+        />
       );
     }
 
@@ -646,6 +679,45 @@ export default function App() {
     if (view === 'hub_settings') {
       return (
         <ConfiguracoesView
+          variant="general"
+          currentUser={currentUser}
+          setView={setView}
+          message={message}
+          setMessage={setMessage}
+          firebaseUser={firebaseUser}
+          firebaseInitialized={firebaseInitialized}
+          handleFirebaseLogin={handleFirebaseLogin}
+          handleFirebaseLogout={handleFirebaseLogout}
+          handleFirebaseSync={handleFirebaseSync}
+          syncingFirebase={syncingFirebase}
+          uploadProgress={uploadProgress}
+          firebaseLastSync={firebaseLastSync}
+          handleManualBackup={handleManualBackup}
+          backingUpManual={backingUpManual}
+          handleManualRestore={handleManualRestore}
+          restoringManual={restoringManual}
+          sqlHost={sqlHost}
+          setSqlHost={setSqlHost}
+          sqlPort={sqlPort}
+          setSqlPort={setSqlPort}
+          sqlUser={sqlUser}
+          setSqlUser={setSqlUser}
+          sqlPassword={sqlPassword}
+          setSqlPassword={setSqlPassword}
+          sqlDatabase={sqlDatabase}
+          setSqlDatabase={setSqlDatabase}
+          handleSaveSqlConfig={handleSaveSqlConfig}
+          savingSql={savingSql}
+          handleSyncSqlDatabase={handleSyncSqlDatabase}
+          syncingSql={syncingSql}
+        />
+      );
+    }
+
+    if (view === 'hub_supervisor') {
+      return (
+        <ConfiguracoesView
+          variant="supervisor"
           currentUser={currentUser}
           setView={setView}
           message={message}
@@ -711,10 +783,10 @@ export default function App() {
           fetchSqlConfig={fetchSqlConfig}
         />
       )}
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 flex flex-col overflow-hidden relative min-h-0 w-full">
         {renderContent()}
       </div>
-      <FeedbackWidget currentView={view} />
+      <FeedbackWidget currentView={view} visible={canSeeFeedbacks(currentUser)} />
     </div>
   );
 }

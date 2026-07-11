@@ -7,7 +7,7 @@ import { api } from '../lib/api';
 import type { Feedback, FeedbackDetail } from '../lib/types';
 import { cn } from '../lib/utils';
 import type { AuthUser } from '../lib/auth';
-import { isAdmin } from '../lib/auth';
+import { isSupervisor } from '../lib/auth';
 import AppLayout from '../components/layout/AppLayout';
 
 interface FeedbacksAdminViewProps {
@@ -369,12 +369,12 @@ export default function FeedbacksAdminView({ currentUser, setView }: FeedbacksAd
   }, []);
 
   useEffect(() => {
-    if (isAdmin(currentUser)) loadList();
+    if (isSupervisor(currentUser)) loadList();
   }, [currentUser, loadList]);
 
   useEffect(() => {
     const refresh = () => {
-      if (isAdmin(currentUser)) loadList();
+      if (isSupervisor(currentUser)) loadList();
     };
     window.addEventListener('focus', refresh);
     const onVisibility = () => {
@@ -528,7 +528,7 @@ export default function FeedbacksAdminView({ currentUser, setView }: FeedbacksAd
     }
   };
 
-  if (!isAdmin(currentUser)) {
+  if (!isSupervisor(currentUser)) {
     return (
       <div className="flex-1 flex items-center justify-center p-8 text-zinc-500 text-sm">
         Acesso restrito a administradores.

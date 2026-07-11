@@ -86,6 +86,9 @@ jobs:
           cargo = cargo.replace(/^version = ".*"/m, `version = "${v}"`);
           fs.writeFileSync('Backend/Cargo.toml', cargo);
 
+      - name: Apply channel config (identifier, updater endpoint)
+        run: node scripts/apply-channel-config.mjs --channel ${{ steps.meta.outputs.channel }}
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:

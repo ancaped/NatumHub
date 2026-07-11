@@ -4,6 +4,7 @@
  */
 
 import { apiJson } from './http';
+import { loadConnectionConfig } from './connectionConfig';
 import type { ModuleGroup } from './modules/registry';
 
 const TOKEN_KEY = 'natum_auth_token';
@@ -17,7 +18,12 @@ export interface AuthUser {
   role: string;
   photoURL: string;
   modules: string[];
+  /** Canal efetivo usado pelo updater (min operador × instalação) */
   updateChannel: UpdateChannel;
+  userUpdateChannel: UpdateChannel;
+  deviceUpdateChannel: UpdateChannel;
+  effectiveUpdateChannel: UpdateChannel;
+  isSupervisor: boolean;
 }
 
 export interface OperatorOption {
@@ -32,6 +38,22 @@ export interface OperatorDetail {
   active: boolean;
   modules: string[];
   updateChannel: UpdateChannel;
+  hasPassword: boolean;
+}
+
+export interface HubDevice {
+  deviceId: string;
+  label: string;
+  updateChannel: UpdateChannel;
+  lastIp?: string | null;
+  lastSeen?: string | null;
+  registeredBy?: string | null;
+  registeredAt?: string | null;
+}
+
+export interface SetupStatus {
+  needsSupervisorSetup: boolean;
+  hasSupervisor: boolean;
 }
 
 export interface LoginResult {
@@ -40,36 +62,65 @@ export interface LoginResult {
   expiresAt: string;
 }
 
+function parseChannel(raw: unknown): UpdateChannel {
+  const ch = String(raw ?? 'stable').toLowerCase();
+  if (ch === 'alpha' || ch === 'beta') return ch;
+  return 'stable';
+}
+
 function mapUser(raw: Record<string, unknown>): AuthUser {
   const modulesRaw = raw.modules ?? raw.module_keys;
-  const modules = Array.isArray(modulesRaw)
-    ? modulesRaw.map(String)
-    : [];
-  const ch = String(raw.updateChannel ?? raw.update_channel ?? 'stable').toLowerCase();
-  const updateChannel: UpdateChannel =
-    ch === 'alpha' || ch === 'beta' ? ch : 'stable';
+  const modules = Array.isArray(modulesRaw) ? modulesRaw.map(String) : [];
+  const userCh = parseChannel(raw.userUpdateChannel ?? raw.user_update_channel ?? raw.updateChannel ?? raw.update_channel);
+  const deviceCh = parseChannel(raw.deviceUpdateChannel ?? raw.device_update_channel ?? 'stable');
+  const effective = parseChannel(
+    raw.effectiveUpdateChannel ?? raw.effective_update_channel ?? raw.updateChannel ?? raw.update_channel ?? userCh
+  );
+  const role = String(raw.role ?? 'operador');
   return {
     id: String(raw.id ?? ''),
     displayName: String(raw.displayName ?? raw.display_name ?? ''),
-    role: String(raw.role ?? 'operador'),
+    role,
     photoURL: String(raw.photoURL ?? raw.photo_url ?? ''),
     modules,
-    updateChannel,
+    updateChannel: effective,
+    userUpdateChannel: userCh,
+    deviceUpdateChannel: deviceCh,
+    effectiveUpdateChannel: effective,
+    isSupervisor: Boolean(raw.isSupervisor ?? raw.is_supervisor) || role === 'supervisor' || role === 'admin',
   };
 }
 
 function mapOperator(raw: Record<string, unknown>): OperatorDetail {
   const modulesRaw = raw.modules ?? [];
-  const ch = String(raw.updateChannel ?? raw.update_channel ?? 'stable').toLowerCase();
-  const updateChannel: UpdateChannel =
-    ch === 'alpha' || ch === 'beta' ? ch : 'stable';
   return {
     id: String(raw.id ?? ''),
     displayName: String(raw.displayName ?? raw.display_name ?? ''),
     role: String(raw.role ?? 'operador'),
     active: raw.active !== false,
     modules: Array.isArray(modulesRaw) ? modulesRaw.map(String) : [],
-    updateChannel,
+    updateChannel: parseChannel(raw.updateChannel ?? raw.update_channel),
+    hasPassword: Boolean(raw.hasPassword ?? raw.has_password),
+  };
+}
+
+function mapDevice(raw: Record<string, unknown>): HubDevice {
+  return {
+    deviceId: String(raw.deviceId ?? raw.device_id ?? ''),
+    label: String(raw.label ?? ''),
+    updateChannel: parseChannel(raw.updateChannel ?? raw.update_channel),
+    lastIp: (raw.lastIp ?? raw.last_ip) as string | null | undefined,
+    lastSeen: (raw.lastSeen ?? raw.last_seen) as string | null | undefined,
+    registeredBy: (raw.registeredBy ?? raw.registered_by) as string | null | undefined,
+    registeredAt: (raw.registeredAt ?? raw.registered_at) as string | null | undefined,
+  };
+}
+
+function deviceContext() {
+  const cfg = loadConnectionConfig();
+  return {
+    deviceId: cfg.deviceId,
+    deviceLabel: cfg.deviceLabel,
   };
 }
 
@@ -99,6 +150,46 @@ export function saveAuthSession(token: string, user: AuthUser): void {
   localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
+export async function fetchSetupStatus(): Promise<SetupStatus> {
+  const raw = await apiJson<Record<string, unknown>>('/auth/setup-status', {
+    skipAuth: true,
+  } as RequestInit & { skipAuth?: boolean });
+  return {
+    needsSupervisorSetup: Boolean(raw.needsSupervisorSetup ?? raw.needs_supervisor_setup),
+    hasSupervisor: Boolean(raw.hasSupervisor ?? raw.has_supervisor),
+  };
+}
+
+export async function setupSupervisor(data: {
+  displayName: string;
+  password: string;
+}): Promise<LoginResult> {
+  const { deviceId, deviceLabel } = deviceContext();
+  const res = await apiJson<{
+    token: string;
+    user: Record<string, unknown>;
+    expiresAt?: string;
+    expires_at?: string;
+  }>('/auth/setup-supervisor', {
+    method: 'POST',
+    body: JSON.stringify({
+      displayName: data.displayName.trim(),
+      password: data.password,
+      deviceId,
+      deviceLabel,
+    }),
+    skipAuth: true,
+  } as RequestInit & { skipAuth?: boolean });
+
+  const user = mapUser(res.user);
+  saveAuthSession(res.token, user);
+  return {
+    token: res.token,
+    user,
+    expiresAt: res.expiresAt ?? res.expires_at ?? '',
+  };
+}
+
 export async function fetchOperators(): Promise<OperatorOption[]> {
   const list = await apiJson<Array<{ displayName?: string; display_name?: string; role: string }>>(
     '/auth/operators',
@@ -119,11 +210,36 @@ export async function fetchOperatorsManage(): Promise<OperatorDetail[]> {
   return list.map(mapOperator);
 }
 
+export async function fetchDevicesManage(): Promise<HubDevice[]> {
+  const list = await apiJson<Array<Record<string, unknown>>>('/auth/devices/manage');
+  return list.map(mapDevice);
+}
+
+export async function updateDeviceManage(
+  deviceId: string,
+  data: {
+    label?: string;
+    updateChannel?: UpdateChannel;
+    supervisorPassword: string;
+  }
+): Promise<HubDevice> {
+  const raw = await apiJson<Record<string, unknown>>(`/auth/devices/manage/${encodeURIComponent(deviceId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      label: data.label,
+      updateChannel: data.updateChannel,
+      supervisorPassword: data.supervisorPassword,
+    }),
+  });
+  return mapDevice(raw);
+}
+
 export async function createOperator(data: {
   displayName: string;
   role: string;
   modules: string[];
   updateChannel?: UpdateChannel;
+  password: string;
 }): Promise<OperatorDetail> {
   const raw = await apiJson<Record<string, unknown>>('/auth/operators/manage', {
     method: 'POST',
@@ -132,6 +248,7 @@ export async function createOperator(data: {
       role: data.role,
       modules: data.modules,
       updateChannel: data.updateChannel,
+      password: data.password,
     }),
   });
   return mapOperator(raw);
@@ -145,6 +262,8 @@ export async function updateOperator(
     active: boolean;
     modules: string[];
     updateChannel: UpdateChannel;
+    password?: string;
+    supervisorPassword?: string;
   }
 ): Promise<OperatorDetail> {
   const raw = await apiJson<Record<string, unknown>>(`/auth/operators/manage/${id}`, {
@@ -155,12 +274,15 @@ export async function updateOperator(
       active: data.active,
       modules: data.modules,
       updateChannel: data.updateChannel,
+      password: data.password,
+      supervisorPassword: data.supervisorPassword,
     }),
   });
   return mapOperator(raw);
 }
 
-export async function loginOperator(displayName: string): Promise<LoginResult> {
+export async function loginOperator(displayName: string, password: string): Promise<LoginResult> {
+  const { deviceId, deviceLabel } = deviceContext();
   const res = await apiJson<{
     token: string;
     user: Record<string, unknown>;
@@ -168,7 +290,12 @@ export async function loginOperator(displayName: string): Promise<LoginResult> {
     expires_at?: string;
   }>('/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ displayName: displayName.trim() }),
+    body: JSON.stringify({
+      displayName: displayName.trim(),
+      password,
+      deviceId,
+      deviceLabel,
+    }),
     skipAuth: true,
   } as RequestInit & { skipAuth?: boolean });
 
@@ -208,6 +335,110 @@ export async function validateSession(): Promise<AuthUser | null> {
   }
 }
 
+export function isSupervisor(user: AuthUser | null): boolean {
+  if (!user) return false;
+  if (user.isSupervisor) return true;
+  const r = user.role?.toLowerCase();
+  return r === 'supervisor' || r === 'admin';
+}
+
+/** @deprecated Use isSupervisor */
 export function isAdmin(user: AuthUser | null): boolean {
-  return user?.role?.toLowerCase() === 'admin';
+  return isSupervisor(user);
+}
+
+export function canSeeFeedbacks(user: AuthUser | null): boolean {
+  return isSupervisor(user);
+}
+
+export interface ChannelManifestInfo {
+  channel: UpdateChannel;
+  version?: string | null;
+  notes?: string | null;
+  pubDate?: string | null;
+  url?: string | null;
+}
+
+export interface ReleasesStatus {
+  manifests: ChannelManifestInfo[];
+  githubConfigured: boolean;
+  githubRepo: string;
+  githubBranch: string;
+}
+
+export interface GithubReleaseConfig {
+  githubConfigured: boolean;
+  githubRepo: string;
+  githubBranch: string;
+}
+
+export async function fetchReleasesStatus(): Promise<ReleasesStatus> {
+  const raw = await apiJson<Record<string, unknown>>('/auth/releases/status');
+  const manifestsRaw = (raw.manifests ?? []) as Record<string, unknown>[];
+  return {
+    manifests: manifestsRaw.map((m) => ({
+      channel: parseChannel(m.channel),
+      version: (m.version as string | null | undefined) ?? null,
+      notes: (m.notes as string | null | undefined) ?? null,
+      pubDate: (m.pubDate ?? m.pub_date) as string | null | undefined,
+      url: (m.url as string | null | undefined) ?? null,
+    })),
+    githubConfigured: Boolean(raw.githubConfigured ?? raw.github_configured),
+    githubRepo: String(raw.githubRepo ?? raw.github_repo ?? 'ancaped/NatumHub'),
+    githubBranch: String(raw.githubBranch ?? raw.github_branch ?? 'main'),
+  };
+}
+
+export async function fetchGithubReleaseConfig(): Promise<GithubReleaseConfig> {
+  const raw = await apiJson<Record<string, unknown>>('/auth/releases/github-config');
+  return {
+    githubConfigured: Boolean(raw.githubConfigured ?? raw.github_configured),
+    githubRepo: String(raw.githubRepo ?? raw.github_repo ?? 'ancaped/NatumHub'),
+    githubBranch: String(raw.githubBranch ?? raw.github_branch ?? 'main'),
+  };
+}
+
+export async function saveGithubReleaseConfig(data: {
+  githubToken: string;
+  githubRepo?: string;
+  githubBranch?: string;
+  supervisorPassword: string;
+}): Promise<GithubReleaseConfig> {
+  const raw = await apiJson<Record<string, unknown>>('/auth/releases/github-config', {
+    method: 'POST',
+    body: JSON.stringify({
+      githubToken: data.githubToken,
+      githubRepo: data.githubRepo,
+      githubBranch: data.githubBranch,
+      supervisorPassword: data.supervisorPassword,
+    }),
+  });
+  return {
+    githubConfigured: Boolean(raw.githubConfigured ?? raw.github_configured),
+    githubRepo: String(raw.githubRepo ?? raw.github_repo ?? 'ancaped/NatumHub'),
+    githubBranch: String(raw.githubBranch ?? raw.github_branch ?? 'main'),
+  };
+}
+
+export async function promoteRelease(data: {
+  channel: UpdateChannel;
+  versionTag: string;
+  releaseNotes?: string;
+  supervisorPassword: string;
+}): Promise<{ ok: boolean; message: string; channel: string; versionTag: string }> {
+  const raw = await apiJson<Record<string, unknown>>('/auth/releases/promote', {
+    method: 'POST',
+    body: JSON.stringify({
+      channel: data.channel,
+      versionTag: data.versionTag,
+      releaseNotes: data.releaseNotes,
+      supervisorPassword: data.supervisorPassword,
+    }),
+  });
+  return {
+    ok: Boolean(raw.ok),
+    message: String(raw.message ?? ''),
+    channel: String(raw.channel ?? data.channel),
+    versionTag: String(raw.versionTag ?? raw.version_tag ?? data.versionTag),
+  };
 }

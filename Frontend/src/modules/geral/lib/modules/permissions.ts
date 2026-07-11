@@ -1,5 +1,5 @@
 import type { AuthUser } from '../auth';
-import { isAdmin } from '../auth';
+import { isSupervisor } from '../auth';
 import { moduleRegistry } from './registry';
 
 const ALL_KEYS = new Set(moduleRegistry().flatMap((g) => g.children.map((c) => c.key)));
@@ -23,7 +23,8 @@ function hubVisible(modules: string[], hubView: string): boolean {
 
 export function canAccessView(user: AuthUser | null, view: string): boolean {
   if (!user) return view === 'hub_settings';
-  if (isAdmin(user)) return true;
+  if (view === 'hub_supervisor') return isSupervisor(user);
+  if (isSupervisor(user)) return true;
   if (view === 'hub') return true;
 
   const modules = user.modules ?? [];
@@ -34,6 +35,6 @@ export function canAccessView(user: AuthUser | null, view: string): boolean {
 
 export function getAccessibleModules(user: AuthUser | null): string[] {
   if (!user) return [];
-  if (isAdmin(user)) return Array.from(ALL_KEYS);
+  if (isSupervisor(user)) return Array.from(ALL_KEYS);
   return user.modules ?? [];
 }

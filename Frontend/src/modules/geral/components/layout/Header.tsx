@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Boxes, User, Settings, LogOut, ChevronRight, UserCog, ClipboardList } from 'lucide-react';
+import { Boxes, User, Settings, LogOut, ChevronRight, UserCog, ClipboardList, Shield } from 'lucide-react';
 import { localAuth } from '../../lib/api';
 import { isPrincipalPc } from '../../lib/connectionConfig';
 import { canAccessView } from '../../lib/modules/permissions';
-import { isAdmin } from '../../lib/auth';
+import { isSupervisor, canSeeFeedbacks } from '../../lib/auth';
 import type { AuthUser } from '../../lib/auth';
 import Modal from '../ui/Modal';
 import NotificationsPanel from './NotificationsPanel';
@@ -161,7 +161,7 @@ export default function Header({
                       Dados do Perfil
                     </button>
 
-                    {isAdmin(currentUser) && (
+                    {canSeeFeedbacks(currentUser) && (
                       <button
                         onClick={() => {
                           setDropdownOpen(false);
@@ -171,6 +171,20 @@ export default function Header({
                       >
                         <ClipboardList className="h-4 w-4 text-zinc-400" />
                         Gestão de Feedbacks
+                      </button>
+                    )}
+
+                    {isSupervisor(currentUser) && (
+                      <button
+                        onClick={() => {
+                          setDropdownOpen(false);
+                          if (isPrincipalPc()) fetchSqlConfig();
+                          setView('hub_supervisor');
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-violet-700 hover:bg-violet-50 transition-colors cursor-pointer text-left"
+                      >
+                        <Shield className="h-4 w-4 text-violet-500" />
+                        Painel Supervisor
                       </button>
                     )}
 

@@ -49,6 +49,8 @@ export function getModuleTitle(view: string): string {
       return 'Financeiro';
     case 'hub_settings':
       return 'Configurações Gerais';
+    case 'hub_supervisor':
+      return 'Painel Supervisor';
     case 'hub_feedbacks':
       return 'Gestão de Feedbacks';
     default:

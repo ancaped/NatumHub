@@ -5,6 +5,7 @@ pub mod acesso;
 pub mod hub;
 pub mod auth;
 pub mod notifications;
+pub mod releases;
 pub mod updater;
 
 pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
@@ -21,5 +22,6 @@ pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
         .route("/api/auth/session", axum::routing::get(acesso::get_session).post(acesso::save_session).delete(acesso::clear_session))
         .merge(hub::router())
         .merge(auth::router())
+        .merge(releases::router())
         .merge(notifications::router())
 }

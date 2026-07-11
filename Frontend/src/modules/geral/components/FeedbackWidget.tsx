@@ -9,9 +9,11 @@ import { buildFeedbackPagePath, splitFeedbackPagePath } from '../lib/viewLabels'
 
 interface FeedbackWidgetProps {
   currentView?: string;
+  visible?: boolean;
 }
 
-export function FeedbackWidget({ currentView }: FeedbackWidgetProps) {
+export function FeedbackWidget({ currentView, visible = false }: FeedbackWidgetProps) {
+  if (!visible) return null;
   const [isOpen, setIsOpen] = useState(false);
   const [type, setType] = useState<'bug' | 'feedback'>('bug');
   const [module, setModule] = useState('Geral');

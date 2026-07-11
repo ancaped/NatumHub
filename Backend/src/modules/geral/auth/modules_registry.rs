@@ -140,7 +140,7 @@ pub fn all_module_keys_vec() -> Vec<String> {
 
 pub fn default_modules_for_role(role: &str) -> Vec<String> {
     match role.to_lowercase().as_str() {
-        "admin" => all_module_keys_vec(),
+        "supervisor" | "admin" => all_module_keys_vec(),
         "estoque" => vec![
             MODULE_ESTOQUE_INSUMOS,
             MODULE_ESTOQUE_PRODUTOS,
