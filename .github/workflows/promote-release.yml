@@ -47,7 +47,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: 'release.yml',
-              ref: 'main',
+              ref: 'feat/update-channels-ci',
               inputs: {
                 channel: '${{ github.event.inputs.target_channel }}',
                 version_tag: '${{ github.event.inputs.target_tag }}',
