@@ -1,0 +1,14 @@
+{
+  "name": "natum-hub-desktop",
+  "private": true,
+  "version": "0.0.11-alpha",
+  "scripts": {
+    "tauri": "npx tauri",
+    "tauri:dev": "npx tauri dev",
+    "tauri:build": "npx tauri build",
+    "tauri:clean": "cargo sweep --time 30"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.2"
+  }
+}

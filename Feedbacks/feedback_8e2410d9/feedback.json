@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-11 00:00:02",
+  "descricao": "Tempo de Cálculo da Média definido manualmente em configuracoes do insumo ou item, parece nao esta surgindo efeito, pois alterei o item 134001 de 12 para 3 meses e o numero de media mes se manteve igual, isso deve ser verificados nos outros modulos de compras, materia prima, embalagens e material de apoio. \n\n\nalem disso devemos atualizar a lista (onde sai o relatorio impresso ) para levar em consideracao o que essas coisas, e ajustar no relatorio o detalhe do tempo de disparo e o objetivo de cada compra, para ficar transparente e claro.\n\ndetalhe importante, essa informacao de tempo de disparo e objetivo deve ser informada item a item, mas nao pode ocupar muito espaco no relatorio, para nao ficar confuso ou muito grande, remover a metrica de meta de estoque do relatorio, ja que nao usamos uma geral mais e permitir alterar mais. isso no relatorio da aba lista\n\natualizar os relatorios gerados aba por aba tambem, permitir que eles tragram o nome da aba, atualizar a informacao para ele ser indentico ao relatorio da lista, sei que em lista posso definir quais abas quero que apareca, entao, para o relatorio de abas isso pode ficar em configuracoes do modulo  ",
+  "id": "8e2410d9-ab38-4bcf-b8a7-a09c5d38c1f7",
+  "notas_admin": null,
+  "pagina": "Geral > Coloração",
+  "prioridade": 101,
+  "resolvido_em": "2026-07-11 00:30:00",
+  "solicitante": "EdsonFerrari",
+  "status": "resolved",
+  "tem_logs": true,
+  "tem_screenshot": false,
+  "tipo": "bug"
+}

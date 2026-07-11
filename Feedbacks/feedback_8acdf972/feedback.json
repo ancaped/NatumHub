@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-11 00:16:22",
+  "descricao": "melhorar a deteccao de modulos, submodulos, abas paginas nos report de feedbacks",
+  "id": "8acdf972-afef-4d1d-acef-cf8c7241e98c",
+  "notas_admin": null,
+  "pagina": "Geral > Coloração",
+  "prioridade": 100,
+  "resolvido_em": null,
+  "solicitante": "EdsonFerrari",
+  "status": "queued",
+  "tem_logs": true,
+  "tem_screenshot": false,
+  "tipo": "feedback"
+}

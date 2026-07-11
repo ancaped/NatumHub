@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-10 23:36:25",
+  "descricao": "permitir abrir e reabrir qualquer feedback quando precisar, e adicionar quantas notas do admnistrador for necessarias, manter todo um historico\n\natualmente os feedback abre uma janela flutuante, abrir uma aba separada, com todas as regras de design do app, sidebar e tudo, para permitir ser mais completo e intuitivo ",
+  "id": "cba9ef9d-78a8-47a3-b82f-3f6ee764220c",
+  "notas_admin": "[2026-07-10 23:45:17] EdsonFerrari:\nachei side bar om os feedbaks muito pequeno, talves os feedbacks precisariam ficar na janela principal, e o side ficar apenas para mudanca de abas, assim como definidos na regra de design do projeto",
+  "pagina": "Geral > feedbacks",
+  "prioridade": 100,
+  "resolvido_em": "2026-07-10 23:52:00",
+  "solicitante": "EdsonFerrari",
+  "status": "resolved",
+  "tem_logs": true,
+  "tem_screenshot": false,
+  "tipo": "feedback"
+}

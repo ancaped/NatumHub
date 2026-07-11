@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-10 23:47:44",
+  "descricao": "adiionando teste",
+  "id": "81f37c84-f12b-4d11-9141-0c777eb7fc71",
+  "notas_admin": null,
+  "pagina": "Geral > Coloração",
+  "prioridade": 101,
+  "resolvido_em": null,
+  "solicitante": "EdsonFerrari",
+  "status": "wont_fix",
+  "tem_logs": true,
+  "tem_screenshot": false,
+  "tipo": "bug"
+}

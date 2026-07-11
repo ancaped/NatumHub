@@ -1,0 +1,583 @@
+﻿cargo :     Checking natum-hub v0.0.11-alpha (C:\api\Backend)
+No C:\Users\Edson\AppData\Local\Temp\ps-script-9ab10566-9d59-40e0-a4a7-50a3c4df5cf3.ps1:114 caractere:30
++ Set-Location C:\api\Backend; cargo check 2>&1 | Out-File -FilePath C: ...
++                              ~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    Checking na...C:\api\Backend):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+warning: unused import: `params`
+ --> src\lib.rs:1:16
+  |
+1 | use rusqlite::{params, Connection};
+  |                ^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `State`
+ --> src\lib.rs:4:13
+  |
+4 | use tauri::{State, Manager};
+  |             ^^^^^
+
+warning: unused import: `uuid::Uuid`
+ --> src\lib.rs:5:5
+  |
+5 | use uuid::Uuid;
+  |     ^^^^^^^^^^
+
+warning: unused import: `tauri::State`
+ --> src\modules\geral\backup\commands.rs:1:5
+  |
+1 | use tauri::State;
+  |     ^^^^^^^^^^^^
+
+warning: unused import: `crate::DbState`
+ --> src\modules\geral\backup\commands.rs:2:5
+  |
+2 | use crate::DbState;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `rusqlite::Connection`
+ --> src\modules\geral\configuracoes\commands.rs:1:5
+  |
+1 | use rusqlite::Connection;
+  |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `post`
+ --> src\modules\geral\hub\mod.rs:4:30
+  |
+4 |     use axum::routing::{get, post};
+  |                              ^^^^
+
+warning: unused import: `std::collections::HashMap`
+ --> src\modules\compras\planejamento\commands\categories.rs:3:5
+  |
+3 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `uuid::Uuid`
+ --> src\modules\compras\planejamento\commands\categories.rs:4:5
+  |
+4 | use uuid::Uuid;
+  |     ^^^^^^^^^^
+
+warning: unused imports: `get_auto_ignored_ingredients` and `get_ignored_product_statuses`
+  --> src\modules\compras\planejamento\commands\categories.rs:10:55
+   |
+10 | use crate::modules::compras::planejamento::commands::{get_auto_ignored_ingredients, get_ignored_product_statuses};
+   |                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `uuid::Uuid`
+ --> src\modules\compras\planejamento\commands\demands.rs:4:5
+  |
+4 | use uuid::Uuid;
+  |     ^^^^^^^^^^
+
+warning: unused import: `get_ignored_product_statuses`
+  --> src\modules\compras\planejamento\commands\demands.rs:10:85
+   |
+10 | use crate::modules::compras::planejamento::commands::{get_auto_ignored_ingredients, get_ignored_product_statuses};
+   |                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+ --> src\modules\compras\planejamento\commands\imports.rs:3:5
+  |
+3 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `HubFinancialSummary` and `MonthComparison`
+  --> src\modules\financeiro\handlers.rs:17:51
+   |
+17 |     Concentration, FinancialAccount, FlowSummary, HubFinancialSummary, MonthComparison,
+   |                                                   ^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^
+
+warning: unused import: `post`
+ --> src\modules\hub_api\microbio.rs:4:28
+  |
+4 |     routing::{delete, get, post},
+  |                            ^^^^
+
+warning: unused import: `post`
+ --> src\modules\hub_api\fisco.rs:4:28
+  |
+4 |     routing::{delete, get, post},
+  |                            ^^^^
+
+warning: unused imports: `Multipart` and `Query`
+ --> src\handlers\configs.rs:2:15
+  |
+2 |     extract::{Multipart, Query, State, Path},
+  |               ^^^^^^^^^  ^^^^^
+
+warning: unused import: `std::collections::HashMap`
+ --> src\handlers\configs.rs:7:5
+  |
+7 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::fs::File`
+ --> src\handlers\configs.rs:8:5
+  |
+8 | use std::fs::File;
+  |     ^^^^^^^^^^^^^
+
+warning: unused import: `std::io::Write`
+ --> src\handlers\configs.rs:9:5
+  |
+9 | use std::io::Write;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `crate::core::db::Db`
+  --> src\handlers\configs.rs:14:5
+   |
+14 | use crate::core::db::Db;
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `HistoryQueryParams`, `KitCalculationResult`, `KitComponentDetail`, `NewKitComposicao`, 
+`NewProducaoEntry`, `ProductCalculationResult`, `Product`, `QueryParams`, `Stock`, and `WatchConfig`
+  --> src\handlers\configs.rs:16:26
+   |
+16 |     BulkOverrideRequest, KitComponentDetail, KitCalculationResult, LineConfig, Product, ProductCalculationResult, 
+ProductOverride, QueryParams, Stock,
+   |                          ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^              ^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^  
+                 ^^^^^^^^^^^  ^^^^^
+17 |     NewProducaoEntry, HistoryQueryParams,
+   |     ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+18 |     WatchConfig, NewKitComposicao,
+   |     ^^^^^^^^^^^  ^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::modules::producao::gerenciamento::calculations::calculate_products`
+  --> src\handlers\configs.rs:20:5
+   |
+20 | use crate::modules::producao::gerenciamento::calculations::calculate_products;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::handlers::imports::clean_product_code`
+  --> src\handlers\configs.rs:24:5
+   |
+24 | use crate::handlers::imports::clean_product_code;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::handlers::producao::fetch_calculation_data`
+  --> src\handlers\configs.rs:25:5
+   |
+25 | use crate::handlers::producao::fetch_calculation_data;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::handlers::producao::check_lote_errors`
+  --> src\handlers\configs.rs:26:5
+   |
+26 | use crate::handlers::producao::check_lote_errors;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `Path` and `Query`
+ --> src\handlers\imports.rs:2:26
+  |
+2 |     extract::{Multipart, Query, State, Path},
+  |                          ^^^^^         ^^^^
+
+warning: unused import: `std::collections::HashMap`
+ --> src\handlers\imports.rs:7:5
+  |
+7 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `rusqlite::params`
+  --> src\handlers\imports.rs:12:5
+   |
+12 | use rusqlite::params;
+   |     ^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::core::db::Db`
+  --> src\handlers\imports.rs:14:5
+   |
+14 | use crate::core::db::Db;
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `BulkOverrideRequest`, `HistoryQueryParams`, `KitCalculationResult`, `KitComponentDetail`, 
+`LineConfig`, `NewKitComposicao`, `NewProducaoEntry`, `ProductCalculationResult`, `ProductOverride`, `Product`, 
+`QueryParams`, `Stock`, and `WatchConfig`
+  --> src\handlers\imports.rs:16:5
+   |
+16 |     BulkOverrideRequest, KitComponentDetail, KitCalculationResult, LineConfig, Product, ProductCalculationResult, 
+ProductOverride, QueryParams, Stock,
+   |     ^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^  
+^^^^^^^^^^^^^^^  ^^^^^^^^^^^  ^^^^^
+17 |     NewProducaoEntry, HistoryQueryParams,
+   |     ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+18 |     WatchConfig, NewKitComposicao,
+   |     ^^^^^^^^^^^  ^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::modules::producao::gerenciamento::calculations::calculate_products`
+  --> src\handlers\imports.rs:20:5
+   |
+20 | use crate::modules::producao::gerenciamento::calculations::calculate_products;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::handlers::producao::fetch_calculation_data`
+  --> src\handlers\imports.rs:25:5
+   |
+25 | use crate::handlers::producao::fetch_calculation_data;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::handlers::producao::check_lote_errors`
+  --> src\handlers\imports.rs:26:5
+   |
+26 | use crate::handlers::producao::check_lote_errors;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Multipart`
+ --> src\handlers\producao.rs:2:15
+  |
+2 |     extract::{Multipart, Query, State, Path},
+  |               ^^^^^^^^^
+
+warning: unused import: `std::fs::File`
+ --> src\handlers\producao.rs:8:5
+  |
+8 | use std::fs::File;
+  |     ^^^^^^^^^^^^^
+
+warning: unused import: `std::io::Write`
+ --> src\handlers\producao.rs:9:5
+  |
+9 | use std::io::Write;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused imports: `BulkOverrideRequest`, `NewKitComposicao`, and `WatchConfig`
+  --> src\handlers\producao.rs:16:5
+   |
+16 |     BulkOverrideRequest, KitComponentDetail, KitCalculationResult, LineConfig, Product, ProductCalculationResult, 
+ProductOverride, Q...
+   |     ^^^^^^^^^^^^^^^^^^^
+17 |     NewProducaoEntry, HistoryQueryParams,
+18 |     WatchConfig, NewKitComposicao,
+   |     ^^^^^^^^^^^  ^^^^^^^^^^^^^^^^
+
+warning: unused import: `Query`
+ --> src\handlers\kits.rs:2:26
+  |
+2 |     extract::{Multipart, Query, State, Path},
+  |                          ^^^^^
+
+warning: unused import: `std::collections::HashMap`
+ --> src\handlers\kits.rs:7:5
+  |
+7 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::core::db::Db`
+  --> src\handlers\kits.rs:14:5
+   |
+14 | use crate::core::db::Db;
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `BulkOverrideRequest`, `HistoryQueryParams`, `KitCalculationResult`, `KitComponentDetail`, 
+`LineConfig`, `NewProducaoEntry`, `ProductCalculationResult`, `ProductOverride`, `Product`, `QueryParams`, `Stock`, 
+and `WatchConfig`
+  --> src\handlers\kits.rs:16:5
+   |
+16 |     BulkOverrideRequest, KitComponentDetail, KitCalculationResult, LineConfig, Product, ProductCalculationResult, 
+ProductOverride, QueryParams, Stock,
+   |     ^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^  
+^^^^^^^^^^^^^^^  ^^^^^^^^^^^  ^^^^^
+17 |     NewProducaoEntry, HistoryQueryParams,
+   |     ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+18 |     WatchConfig, NewKitComposicao,
+   |     ^^^^^^^^^^^
+
+warning: unused import: `crate::modules::producao::gerenciamento::calculations::calculate_products`
+  --> src\handlers\kits.rs:20:5
+   |
+20 | use crate::modules::producao::gerenciamento::calculations::calculate_products;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::handlers::imports::clean_product_code`
+  --> src\handlers\kits.rs:24:5
+   |
+24 | use crate::handlers::imports::clean_product_code;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::handlers::producao::fetch_calculation_data`
+  --> src\handlers\kits.rs:25:5
+   |
+25 | use crate::handlers::producao::fetch_calculation_data;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::handlers::producao::check_lote_errors`
+  --> src\handlers\kits.rs:26:5
+   |
+26 | use crate::handlers::producao::check_lote_errors;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `Multipart` and `Query`
+ --> src\handlers\estoque.rs:2:15
+  |
+2 |     extract::{Multipart, Query, State, Path},
+  |               ^^^^^^^^^  ^^^^^
+
+warning: unused import: `std::fs::File`
+ --> src\handlers\estoque.rs:8:5
+  |
+8 | use std::fs::File;
+  |     ^^^^^^^^^^^^^
+
+warning: unused import: `std::io::Write`
+ --> src\handlers\estoque.rs:9:5
+  |
+9 | use std::io::Write;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `crate::core::db::Db`
+  --> src\handlers\estoque.rs:14:5
+   |
+14 | use crate::core::db::Db;
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `BulkOverrideRequest`, `HistoryQueryParams`, `KitCalculationResult`, `KitComponentDetail`, 
+`LineConfig`, `NewKitComposicao`, `NewProducaoEntry`, `ProductCalculationResult`, `ProductOverride`, `Product`, 
+`QueryParams`, `Stock`, and `WatchConfig`
+  --> src\handlers\estoque.rs:16:5
+   |
+16 |     BulkOverrideRequest, KitComponentDetail, KitCalculationResult, LineConfig, Product, ProductCalculationResult, 
+ProductOverride, QueryParams, Stock,
+   |     ^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^  
+^^^^^^^^^^^^^^^  ^^^^^^^^^^^  ^^^^^
+17 |     NewProducaoEntry, HistoryQueryParams,
+   |     ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+18 |     WatchConfig, NewKitComposicao,
+   |     ^^^^^^^^^^^  ^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::handlers::imports::clean_product_code`
+  --> src\handlers\estoque.rs:24:5
+   |
+24 | use crate::handlers::imports::clean_product_code;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `Multipart` and `Path`
+ --> src\handlers\vendas.rs:2:15
+  |
+2 |     extract::{Multipart, Query, State, Path},
+  |               ^^^^^^^^^                ^^^^
+
+warning: unused import: `std::fs::File`
+ --> src\handlers\vendas.rs:8:5
+  |
+8 | use std::fs::File;
+  |     ^^^^^^^^^^^^^
+
+warning: unused import: `std::io::Write`
+ --> src\handlers\vendas.rs:9:5
+  |
+9 | use std::io::Write;
+  |     ^^^^^^^^^^^^^^
+
+warning: unused import: `crate::core::db::Db`
+  --> src\handlers\vendas.rs:14:5
+   |
+14 | use crate::core::db::Db;
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `BulkOverrideRequest`, `HistoryQueryParams`, `KitCalculationResult`, `KitComponentDetail`, 
+`LineConfig`, `NewKitComposicao`, `NewProducaoEntry`, `ProductCalculationResult`, `ProductOverride`, `Product`, 
+`QueryParams`, `Stock`, and `WatchConfig`
+  --> src\handlers\vendas.rs:16:5
+   |
+16 |     BulkOverrideRequest, KitComponentDetail, KitCalculationResult, LineConfig, Product, ProductCalculationResult, 
+ProductOverride, QueryParams, Stock,
+   |     ^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^  
+^^^^^^^^^^^^^^^  ^^^^^^^^^^^  ^^^^^
+17 |     NewProducaoEntry, HistoryQueryParams,
+   |     ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+18 |     WatchConfig, NewKitComposicao,
+   |     ^^^^^^^^^^^  ^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::modules::producao::gerenciamento::calculations::calculate_products`
+  --> src\handlers\vendas.rs:20:5
+   |
+20 | use crate::modules::producao::gerenciamento::calculations::calculate_products;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::handlers::imports::clean_product_code`
+  --> src\handlers\vendas.rs:24:5
+   |
+24 | use crate::handlers::imports::clean_product_code;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::handlers::producao::fetch_calculation_data`
+  --> src\handlers\vendas.rs:25:5
+   |
+25 | use crate::handlers::producao::fetch_calculation_data;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::handlers::producao::check_lote_errors`
+  --> src\handlers\vendas.rs:26:5
+   |
+26 | use crate::handlers::producao::check_lote_errors;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0063]: missing fields `attention_pagar_7d`, `attention_pagar_atrasado`, `attention_receber_7d` and 9 other 
+fields in initializer of `FlowSummary`
+    --> src\modules\financeiro\handlers.rs:1040:14
+     |
+1040 |         Json(FlowSummary {
+     |              ^^^^^^^^^^^ missing `attention_pagar_7d`, `attention_pagar_atrasado`, `attention_receber_7d` and 9 
+other fields
+
+error[E0277]: `&&[serde_json::Value]` is not an iterator
+   --> src\modules\compras\planejamento\commands\imports.rs:150:16
+    |
+150 |     for row in &rows {
+    |                ^^^^^ `&&[serde_json::Value]` is not an iterator
+    |
+    = help: the trait `Iterator` is not implemented for `&&[serde_json::Value]`
+    = note: required for `&&[serde_json::Value]` to implement `IntoIterator`
+help: consider removing the leading `&`-reference
+    |
+150 -     for row in &rows {
+150 +     for row in rows {
+    |
+
+error[E0277]: `&&[serde_json::Value]` is not an iterator
+   --> src\modules\compras\planejamento\commands\imports.rs:216:16
+    |
+216 |     for row in &rows {
+    |                ^^^^^ `&&[serde_json::Value]` is not an iterator
+    |
+    = help: the trait `Iterator` is not implemented for `&&[serde_json::Value]`
+    = note: required for `&&[serde_json::Value]` to implement `IntoIterator`
+help: consider removing the leading `&`-reference
+    |
+216 -     for row in &rows {
+216 +     for row in rows {
+    |
+
+error[E0277]: `&&[serde_json::Value]` is not an iterator
+   --> src\modules\compras\planejamento\commands\imports.rs:280:16
+    |
+280 |     for row in &rows {
+    |                ^^^^^ `&&[serde_json::Value]` is not an iterator
+    |
+    = help: the trait `Iterator` is not implemented for `&&[serde_json::Value]`
+    = note: required for `&&[serde_json::Value]` to implement `IntoIterator`
+help: consider removing the leading `&`-reference
+    |
+280 -     for row in &rows {
+280 +     for row in rows {
+    |
+
+warning: unused import: `Manager`
+ --> src\lib.rs:4:20
+  |
+4 | use tauri::{State, Manager};
+  |                    ^^^^^^^
+
+warning: unused variable: `lbl`
+   --> src\modules\producao\gerenciamento\calculations.rs:206:22
+    |
+206 |             let (st, lbl) = if duracao_meses <= config_prod {
+    |                      ^^^ help: if this is intentional, prefix it with an underscore: `_lbl`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+error[E0596]: cannot borrow `*conn` as mutable, as it is behind a `&` reference
+   --> src\modules\compras\planejamento\commands\items.rs:181:14
+    |
+181 |     let tx = conn.transaction().map_err(|e| e.to_string())?;
+    |              ^^^^ `conn` is a `&` reference, so it cannot be borrowed as mutable
+    |
+help: consider changing this to be a mutable reference
+    |
+180 | pub fn update_items_category_conn(conn: &mut Connection, codes: &[String], category_id: Option<String>) -> 
+Result<(), String> {
+    |                                          +++
+
+error[E0596]: cannot borrow `*conn` as mutable, as it is behind a `&` reference
+   --> src\modules\compras\planejamento\commands\items.rs:227:14
+    |
+227 |     let tx = conn.transaction().map_err(|e| e.to_string())?;
+    |              ^^^^ `conn` is a `&` reference, so it cannot be borrowed as mutable
+    |
+help: consider changing this to be a mutable reference
+    |
+226 | pub fn import_item_observations_conn(conn: &mut Connection, observations: &[ObsInput]) -> Result<(), String> {
+    |                                             +++
+
+warning: variable `use_lead_time_val` is assigned to, but never used
+   --> src\modules\compras\planejamento\commands\demands.rs:611:13
+    |
+611 |         let mut use_lead_time_val = false;
+    |             ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: consider using `_use_lead_time_val` instead
+
+warning: value assigned to `use_lead_time_val` is never read
+   --> src\modules\compras\planejamento\commands\demands.rs:615:17
+    |
+615 |                 use_lead_time_val = true;
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `safety_days_val` is never read
+   --> src\modules\compras\planejamento\commands\demands.rs:612:35
+    |
+612 |         let mut safety_days_val = 0;
+    |                                   ^
+    |
+    = help: maybe it is overwritten before being read?
+
+error[E0596]: cannot borrow `*conn` as mutable, as it is behind a `&` reference
+ --> src\modules\compras\planejamento\commands\quotations.rs:9:14
+  |
+9 |     let tx = conn.transaction().map_err(|e| e.to_string())?;
+  |              ^^^^ `conn` is a `&` reference, so it cannot be borrowed as mutable
+  |
+help: consider changing this to be a mutable reference
+  |
+8 | pub fn create_quotation_conn(conn: &mut Connection, title: &str, item_codes: &[String], recommended_qtys: &[f64]) 
+-> Result<String, String> {
+  |                                     +++
+
+error[E0596]: cannot borrow `*conn` as mutable, as it is behind a `&` reference
+   --> src\modules\compras\planejamento\commands\quotations.rs:360:14
+    |
+360 |     let tx = conn.transaction().map_err(|e| e.to_string())?;
+    |              ^^^^ `conn` is a `&` reference, so it cannot be borrowed as mutable
+    |
+help: consider changing this to be a mutable reference
+    |
+359 | pub fn select_supplier_conn(conn: &mut Connection, quotation_item_id: &str, price_id: &str) -> Result<(), 
+String> {
+    |                                    +++
+
+warning: unused variable: `start`
+   --> src\modules\financeiro\handlers.rs:775:13
+    |
+775 |         let start = today - Duration::days((w + 1) * 7 - 1) - Duration::days(6);
+    |             ^^^^^ help: if this is intentional, prefix it with an underscore: `_start`
+
+warning: value assigned to `param_idx` is never read
+  --> src\handlers\vendas.rs:78:17
+   |
+78 |                 param_idx += 1;
+   |                 ^^^^^^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+error[E0596]: cannot borrow `*conn` as mutable, as it is behind a `&` reference
+   --> src\tauri_commands.rs:124:14
+    |
+124 |     let tx = conn.transaction().map_err(|e| e.to_string())?;
+    |              ^^^^ `conn` is a `&` reference, so it cannot be borrowed as mutable
+    |
+help: consider changing this to be a mutable reference
+    |
+123 | pub fn save_reports_conn(conn: &mut Connection, reports: &[Report]) -> Result<(), String> {
+    |                                 +++
+
+Some errors have detailed explanations: E0063, E0277, E0596.
+For more information about an error, try `rustc --explain E0063`.
+warning: `natum-hub` (lib) generated 68 warnings
+error: could not compile `natum-hub` (lib) due to 9 previous errors; 68 warnings emitted

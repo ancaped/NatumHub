@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-11 00:10:02",
+  "descricao": "algumas confusoes em relacao aos status desses feedbacks : \n\nTriagem (novos) = mudar para apenas triagem, sao feedbacks novos lancados por usuarios que vao passar pela aprovacao do supervisor, nao podem ser resolvidos pelo agente\n\nFila de execucao -  mudar para apenas fila, sao os feedbacks que estao aprovados apos triagem, ou retornaram do em abertos com agulma nota do supervisor, os feedbacks que so podem voltar do em aberto com alguma nota do supervisor, se tiver sem nota nenhuma nao pode voltar. \n\nEm aberto - nao sei se seria o melhor nome, mas sao os feedbacks ja passados e supostamentes corrigidos pelo agente, e estao aguardando para a conferencia do supervisor. \n\nNao resolvidos- mudar para Reprovados\n\nResolvidos, mudar para finalizados\n\nfazer uma separacao de feedbacks e bugs com a mesma sequencia \n\n",
+  "id": "d031d931-8d9a-48bb-8f78-13729240a5e0",
+  "notas_admin": null,
+  "pagina": "Geral",
+  "prioridade": 102,
+  "resolvido_em": "2026-07-11 00:30:00",
+  "solicitante": "EdsonFerrari",
+  "status": "resolved",
+  "tem_logs": true,
+  "tem_screenshot": false,
+  "tipo": "feedback"
+}

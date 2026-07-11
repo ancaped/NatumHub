@@ -1,0 +1,39 @@
+import type { AuthUser } from '../auth';
+import { isAdmin } from '../auth';
+import { moduleRegistry } from './registry';
+
+const ALL_KEYS = new Set(moduleRegistry().flatMap((g) => g.children.map((c) => c.key)));
+
+function viewToModuleKey(view: string): string | null {
+  if (view === 'hub') return null;
+  if (view === 'estoque_hub' || view === 'producao_hub' || view === 'compras_hub') return null;
+  if (view === 'linha_produtos') return 'estoque_ativos';
+  if (ALL_KEYS.has(view)) return view;
+  return null;
+}
+
+function hubVisible(modules: string[], hubView: string): boolean {
+  for (const group of moduleRegistry()) {
+    if (group.hubView === hubView) {
+      return group.children.some((c) => modules.includes(c.key));
+    }
+  }
+  return false;
+}
+
+export function canAccessView(user: AuthUser | null, view: string): boolean {
+  if (!user) return view === 'hub_settings';
+  if (isAdmin(user)) return true;
+  if (view === 'hub') return true;
+
+  const modules = user.modules ?? [];
+  const key = viewToModuleKey(view);
+  if (key) return modules.includes(key);
+  return hubVisible(modules, view);
+}
+
+export function getAccessibleModules(user: AuthUser | null): string[] {
+  if (!user) return [];
+  if (isAdmin(user)) return Array.from(ALL_KEYS);
+  return user.modules ?? [];
+}

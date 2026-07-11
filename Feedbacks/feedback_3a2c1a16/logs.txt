@@ -1,0 +1,3 @@
+[2026-07-11T02:15:45.273Z] [ERROR] Erro ao verificar atualizações: updater.check not allowed. Permissions associated with this command: updater:allow-check, updater:default
+[2026-07-11T02:15:45.274Z] [ERROR] Erro ao verificar atualizações: updater.check not allowed. Permissions associated with this command: updater:allow-check, updater:default
+[2026-07-11T02:18:55.244Z] [ERROR] {"name":"ApiError","status":422,"body":"Failed to deserialize the JSON body into the target type: missing field `row` at line 1 column 176"}

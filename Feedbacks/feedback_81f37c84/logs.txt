@@ -1,0 +1,2 @@
+[2026-07-11T02:41:36.870Z] [ERROR] Erro ao verificar atualizações: updater.check not allowed. Permissions associated with this command: updater:allow-check, updater:default
+[2026-07-11T02:41:36.871Z] [ERROR] Erro ao verificar atualizações: updater.check not allowed. Permissions associated with this command: updater:allow-check, updater:default

@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-01 11:37:26",
+  "descricao": "O GRAFICO DOS DETALHES DO ITEM, CONSUMO MENSAL DETALHADO, ESTA GRAFICAMENTE COM ERROS, MOSTRANDO TUDO BRANCO, CORRIGIR ",
+  "id": "a666f9e7-b9f4-4b99-89cc-ad2125fb6f05",
+  "notas_admin": null,
+  "pagina": "Geral > Embalagens",
+  "prioridade": 100,
+  "resolvido_em": "2026-07-10 23:13:19",
+  "solicitante": null,
+  "status": "resolved",
+  "tem_logs": false,
+  "tem_screenshot": false,
+  "tipo": "bug"
+}

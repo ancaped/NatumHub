@@ -1,0 +1,8 @@
+{
+  "appMode": "master",
+  "apiOrigin": "http://127.0.0.1:3001",
+  "isSyncMaster": true,
+  "apiBindHost": "0.0.0.0",
+  "apiPort": 3001,
+  "setupLocked": false
+}

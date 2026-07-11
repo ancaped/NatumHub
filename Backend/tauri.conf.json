@@ -1,0 +1,34 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "NatumHub",
+  "version": "0.0.11-alpha",
+  "identifier": "com.natum.hub",
+  "build": {
+    "frontendDist": "../Frontend/dist",
+    "devUrl": "http://localhost:5175",
+    "beforeDevCommand": "npm --prefix ../Frontend run dev",
+    "beforeBuildCommand": "npm --prefix ../Frontend run build"
+  },
+  "app": {
+    "windows": [{ "title": "Natum Hub", "width": 1280, "height": 850, "resizable": true, "fullscreen": false }],
+    "security": {
+      "csp": "default-src 'self' tauri:; connect-src 'self' tauri: http: https://*.googleapis.com https://*.firebaseapp.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://ui-avatars.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval';"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "icon": ["icons/32x32.png","icons/128x128.png","icons/128x128@2x.png","icons/icon.icns","icons/icon.ico"]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": [
+        "https://raw.githubusercontent.com/ancaped/NatumHub/main/updater-alpha.json",
+        "https://raw.githubusercontent.com/ancaped/NatumHub/main/updater-beta.json",
+        "https://raw.githubusercontent.com/ancaped/NatumHub/main/updater-stable.json"
+      ]
+    }
+  }
+}
