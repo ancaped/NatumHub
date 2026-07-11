@@ -357,6 +357,8 @@ export interface ChannelManifestInfo {
   notes?: string | null;
   pubDate?: string | null;
   url?: string | null;
+  availableOnServer?: boolean;
+  source?: string | null;
 }
 
 export interface ReleasesStatus {
@@ -382,6 +384,8 @@ export async function fetchReleasesStatus(): Promise<ReleasesStatus> {
       notes: (m.notes as string | null | undefined) ?? null,
       pubDate: (m.pubDate ?? m.pub_date) as string | null | undefined,
       url: (m.url as string | null | undefined) ?? null,
+      availableOnServer: Boolean(m.availableOnServer ?? m.available_on_server),
+      source: (m.source as string | null | undefined) ?? null,
     })),
     githubConfigured: Boolean(raw.githubConfigured ?? raw.github_configured),
     githubRepo: String(raw.githubRepo ?? raw.github_repo ?? 'ancaped/NatumHub'),
@@ -440,5 +444,23 @@ export async function promoteRelease(data: {
     message: String(raw.message ?? ''),
     channel: String(raw.channel ?? data.channel),
     versionTag: String(raw.versionTag ?? raw.version_tag ?? data.versionTag),
+  };
+}
+
+export async function syncUpdaterManifests(data: {
+  supervisorPassword: string;
+  versionTag?: string;
+}): Promise<{ ok: boolean; message: string; synced: string[] }> {
+  const raw = await apiJson<Record<string, unknown>>('/auth/releases/sync-manifests', {
+    method: 'POST',
+    body: JSON.stringify({
+      supervisorPassword: data.supervisorPassword,
+      versionTag: data.versionTag,
+    }),
+  });
+  return {
+    ok: Boolean(raw.ok),
+    message: String(raw.message ?? ''),
+    synced: Array.isArray(raw.synced) ? (raw.synced as string[]) : [],
   };
 }

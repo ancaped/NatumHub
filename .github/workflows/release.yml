@@ -87,7 +87,15 @@ jobs:
           fs.writeFileSync('Backend/Cargo.toml', cargo);
 
       - name: Apply channel config (identifier, updater endpoint)
-        run: node scripts/apply-channel-config.mjs --channel ${{ steps.meta.outputs.channel }}
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/apply-channel-config.mjs --channel ${{ steps.meta.outputs.channel }} --tag ${{ steps.meta.outputs.tag }}
+
+      - name: Apply updater public key
+        env:
+          TAURI_SIGNING_PUBLIC_KEY: ${{ secrets.TAURI_SIGNING_PUBLIC_KEY }}
+        run: node scripts/apply-updater-pubkey.mjs
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -171,18 +179,16 @@ jobs:
           }
           node @args
 
-      - name: Commit updater manifest to main
+      - name: Upload updater manifest to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           MANIFEST="updater-${{ steps.meta.outputs.channel }}.json"
-          cp "$MANIFEST" "/tmp/$MANIFEST"
-          git fetch origin main
-          git checkout main
-          git pull origin main
-          cp "/tmp/$MANIFEST" "$MANIFEST"
-          git add "$MANIFEST"
-          git diff --staged --quiet && echo "Manifest unchanged" && exit 0
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "chore(release): $MANIFEST → ${{ steps.meta.outputs.version }}"
-          git push origin main
+          gh release upload "${{ steps.meta.outputs.tag }}" "$MANIFEST" --clobber
+
+      - name: Copy updater manifest to Saves (server seed)
+        shell: bash
+        run: |
+          mkdir -p Saves/updater-manifests
+          cp "updater-${{ steps.meta.outputs.channel }}.json" "Saves/updater-manifests/updater-${{ steps.meta.outputs.channel }}.json"

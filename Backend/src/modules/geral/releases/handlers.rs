@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::handlers::AppState;
 use super::models::{
     GithubReleaseConfig, PromoteReleaseResponse, ReleasesStatusResponse, SaveGithubReleaseConfigRequest,
+    SyncManifestsRequest, SyncManifestsResponse,
 };
 use super::store;
 use crate::modules::geral::auth::models::AuthContext;
@@ -25,20 +26,63 @@ pub async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse
     };
 
     let client = reqwest::Client::new();
+    let token = store::github_token(&conn);
     let mut manifests = Vec::new();
 
     for channel in ["alpha", "beta", "stable"] {
-        let url = format!("{}/updater-{}.json", store::GITHUB_RAW_BASE, channel);
-        match client.get(&url).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                if let Ok(body) = resp.text().await {
-                    manifests.push(store::parse_manifest_channel(channel, &body));
-                } else {
-                    manifests.push(empty_manifest(channel));
+        if let Ok(body) = crate::modules::geral::hub::updater_manifest::read_manifest(channel) {
+            let mut info = store::parse_manifest_channel(channel, &body);
+            info.available_on_server =
+                crate::modules::geral::hub::updater_manifest::manifest_available_on_server(channel);
+            info.source = "server".to_string();
+            manifests.push(info);
+            continue;
+        }
+
+        if let Some(ref t) = token {
+            let repo = store::github_repo(&conn);
+            let url = format!(
+                "https://api.github.com/repos/{}/releases/latest",
+                repo
+            );
+            let req = client
+                .get(&url)
+                .header("Accept", "application/vnd.github+json")
+                .header("X-GitHub-Api-Version", "2022-11-28")
+                .header("Authorization", format!("Bearer {t}"));
+            if let Ok(resp) = req.send().await {
+                if resp.status().is_success() {
+                    if let Ok(release) = resp.json::<serde_json::Value>().await {
+                        let asset_name = format!("updater-{channel}.json");
+                        if let Some(assets) = release.get("assets").and_then(|a| a.as_array()) {
+                            if let Some(asset) = assets
+                                .iter()
+                                .find(|a| a.get("name").and_then(|n| n.as_str()) == Some(asset_name.as_str()))
+                            {
+                                if let Some(dl) = asset.get("browser_download_url").and_then(|u| u.as_str()) {
+                                    let dl_req = client
+                                        .get(dl)
+                                        .header("Authorization", format!("Bearer {t}"));
+                                    if let Ok(mresp) = dl_req.send().await {
+                                        if mresp.status().is_success() {
+                                            if let Ok(body) = mresp.text().await {
+                                                let mut info = store::parse_manifest_channel(channel, &body);
+                                                info.available_on_server = false;
+                                                info.source = "github".to_string();
+                                                manifests.push(info);
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            _ => manifests.push(empty_manifest(channel)),
         }
+
+        manifests.push(empty_manifest(channel));
     }
 
     let github_repo = store::github_repo(&conn);
@@ -64,6 +108,8 @@ fn empty_manifest(channel: &str) -> super::models::ChannelManifestInfo {
         notes: None,
         pub_date: None,
         url: None,
+        available_on_server: false,
+        source: "none".to_string(),
     }
 }
 
@@ -250,6 +296,86 @@ pub async fn promote_release(
             }),
         )
             .into_response(),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "error": e })),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn sync_manifests(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Json(body): Json<SyncManifestsRequest>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    match auth_store::verify_supervisor_password(&conn, &ctx.operator_id, &body.supervisor_password)
+    {
+        Ok(true) => {}
+        Ok(false) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "Senha do supervisor incorreta." })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            return (StatusCode::FORBIDDEN, Json(json!({ "error": e }))).into_response();
+        }
+    }
+
+    if store::github_token(&conn).is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Configure o token GitHub antes de sincronizar manifests."
+            })),
+        )
+            .into_response();
+    }
+
+    let tag = body.version_tag.as_deref().filter(|s| !s.trim().is_empty());
+    let token = store::github_token(&conn);
+    let repo = store::github_repo(&conn);
+
+    match crate::modules::geral::hub::updater_manifest::sync_all_manifests_from_github(
+        token, repo, tag,
+    )
+    .await
+    {
+        Ok(synced) => {
+            let msg = if let Some(t) = tag {
+                format!(
+                    "Manifests sincronizados da release {t} para o servidor ({})",
+                    synced.join(", ")
+                )
+            } else {
+                format!(
+                    "Manifests sincronizados da última release GitHub ({})",
+                    synced.join(", ")
+                )
+            };
+            (
+                StatusCode::OK,
+                Json(SyncManifestsResponse {
+                    ok: true,
+                    message: msg,
+                    synced,
+                }),
+            )
+                .into_response()
+        }
         Err(e) => (
             StatusCode::BAD_GATEWAY,
             Json(json!({ "error": e })),

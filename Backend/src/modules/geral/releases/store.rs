@@ -86,5 +86,7 @@ pub fn parse_manifest_channel(channel: &str, body: &str) -> super::models::Chann
         notes,
         pub_date,
         url,
+        available_on_server: false,
+        source: "unknown".to_string(),
     }
 }

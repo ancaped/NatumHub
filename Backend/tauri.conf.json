@@ -25,9 +25,9 @@
     "updater": {
       "pubkey": "",
       "endpoints": [
-        "https://raw.githubusercontent.com/ancaped/NatumHub/main/updater-alpha.json",
-        "https://raw.githubusercontent.com/ancaped/NatumHub/main/updater-beta.json",
-        "https://raw.githubusercontent.com/ancaped/NatumHub/main/updater-stable.json"
+        "http://127.0.0.1:3001/api/hub/updater-manifest/alpha",
+        "http://127.0.0.1:3001/api/hub/updater-manifest/beta",
+        "http://127.0.0.1:3001/api/hub/updater-manifest/stable"
       ]
     }
   }

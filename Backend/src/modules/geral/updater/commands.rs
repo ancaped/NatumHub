@@ -1,11 +1,10 @@
 use serde::Serialize;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use tauri_plugin_updater::UpdaterExt;
 
+use crate::core::app_config::load_client_config;
 use crate::modules::geral::releases::models::BuildInfo;
 use crate::modules::geral::releases::store;
-
-const GITHUB_RAW_BASE: &str = "https://raw.githubusercontent.com/ancaped/NatumHub/main";
 
 pub fn validate_channel(channel: &str) -> Result<(), String> {
     match channel {
@@ -57,9 +56,55 @@ pub fn version_matches_channel(version: &str, channel: &str) -> Result<(), Strin
     }
 }
 
-fn endpoint_for_channel(channel: &str) -> Result<String, String> {
-    validate_channel(channel)?;
-    Ok(format!("{GITHUB_RAW_BASE}/updater-{channel}.json"))
+fn parse_endpoint(raw: &str) -> Result<url::Url, String> {
+    raw.parse()
+        .map_err(|e| format!("URL de update inválida ({raw}): {e}"))
+}
+
+fn read_tauri_conf_endpoints() -> Vec<String> {
+    const PATHS: &[&str] = &["tauri.conf.json", "Backend/tauri.conf.json", "../Backend/tauri.conf.json"];
+    for path in PATHS {
+        if let Ok(raw) = std::fs::read_to_string(path) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+                if let Some(endpoints) = json
+                    .get("plugins")
+                    .and_then(|p| p.get("updater"))
+                    .and_then(|u| u.get("endpoints"))
+                    .and_then(|e| e.as_array())
+                {
+                    return endpoints
+                        .iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect();
+                }
+            }
+        }
+    }
+    vec![]
+}
+
+/// Prioriza manifest no PC master (LAN); fallback nos endpoints do tauri.conf (GitHub Releases).
+fn resolve_update_endpoints(_app: &AppHandle, build_channel: &str) -> Result<Vec<url::Url>, String> {
+    validate_channel(build_channel)?;
+    let cfg = load_client_config();
+    let api_origin = cfg.api_origin.trim_end_matches('/');
+
+    let mut urls = vec![parse_endpoint(&format!(
+        "{api_origin}/api/hub/updater-manifest/{build_channel}"
+    ))?];
+
+    for ep in read_tauri_conf_endpoints() {
+        if ep.contains("/api/hub/updater-manifest/") {
+            continue;
+        }
+        if let Ok(url) = parse_endpoint(&ep) {
+            if !urls.iter().any(|u| u.as_str() == url.as_str()) {
+                urls.push(url);
+            }
+        }
+    }
+
+    Ok(urls)
 }
 
 #[tauri::command]
@@ -106,14 +151,11 @@ pub async fn check_channel_update(
     let use_channel = resolve_update_channel(&app, &channel)?;
     let current_version = app.package_info().version.to_string();
 
-    let endpoint = endpoint_for_channel(&build)?;
-    let url = endpoint
-        .parse()
-        .map_err(|e| format!("URL de update inválida: {e}"))?;
+    let endpoints = resolve_update_endpoints(&app, &build)?;
 
     let updater = app
         .updater_builder()
-        .endpoints(vec![url])
+        .endpoints(endpoints)
         .map_err(|e| e.to_string())?
         .build()
         .map_err(|e| e.to_string())?;
@@ -148,14 +190,11 @@ pub async fn check_channel_update(
 pub async fn install_channel_update(app: AppHandle, channel: String) -> Result<(), String> {
     let build = build_channel(&app);
     let use_channel = resolve_update_channel(&app, &channel)?;
-    let endpoint = endpoint_for_channel(&build)?;
-    let url = endpoint
-        .parse()
-        .map_err(|e| format!("URL de update inválida: {e}"))?;
+    let endpoints = resolve_update_endpoints(&app, &build)?;
 
     let updater = app
         .updater_builder()
-        .endpoints(vec![url])
+        .endpoints(endpoints)
         .map_err(|e| e.to_string())?
         .build()
         .map_err(|e| e.to_string())?;

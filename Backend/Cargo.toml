@@ -40,6 +40,7 @@ tiberius = { version = "0.12", default-features = false, features = ["chrono", "
 tokio-util = { version = "0.7", features = ["compat"] }
 flate2 = "1.0"
 reqwest = { version = "0.12", features = ["json"] }
+url = "2"
 
 [profile.dev]
 debug = 1

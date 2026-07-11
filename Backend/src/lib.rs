@@ -722,6 +722,7 @@ fn start_axum_server() {
 
         if let Ok(conn) = db.connect() {
             let _ = modules::geral::auth::store::init_auth_tables(&conn);
+            modules::geral::hub::updater_manifest::seed_manifests_from_repo_root();
         }
         
         let state = std::sync::Arc::new(handlers::AppState { db });

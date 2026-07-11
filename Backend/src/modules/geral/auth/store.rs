@@ -1021,6 +1021,8 @@ pub fn is_public_path(path: &str) -> bool {
             | "/api/auth/setup-supervisor"
             | "/login"
     ) || path.starts_with("/api/hub/client-config")
+        || path.starts_with("/api/hub/updater-manifest/")
+        || path == "/api/hub/public-config"
         || path.starts_with("/api/google/callback")
 }
 

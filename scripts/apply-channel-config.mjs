@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Aplica identifier/productName/endpoints por canal antes do build Tauri.
- * Uso: node scripts/apply-channel-config.mjs --channel stable|beta|alpha
+ * Uso: node scripts/apply-channel-config.mjs --channel stable|beta|alpha [--tag v0.0.12]
  */
 import fs from 'fs';
 import path from 'path';
@@ -35,7 +35,7 @@ function getArg(name) {
 
 const channel = getArg('channel');
 if (!channel || !CHANNELS[channel]) {
-  console.error('Uso: node scripts/apply-channel-config.mjs --channel stable|beta|alpha');
+  console.error('Uso: node scripts/apply-channel-config.mjs --channel stable|beta|alpha [--tag v0.0.12]');
   process.exit(1);
 }
 
@@ -50,10 +50,19 @@ if (tauri.app?.windows?.[0]) {
   tauri.app.windows[0].title = cfg.windowTitle;
 }
 
-const rawBase = 'https://raw.githubusercontent.com/ancaped/NatumHub/main';
+const repo = process.env.GITHUB_REPOSITORY || 'ancaped/NatumHub';
+const tag = getArg('tag') || process.env.RELEASE_TAG || '';
+const port = process.env.API_PORT || '3001';
+
+const endpoints = [`http://127.0.0.1:${port}/api/hub/updater-manifest/${channel}`];
+if (tag) {
+  endpoints.push(`https://github.com/${repo}/releases/download/${tag}/updater-${channel}.json`);
+}
+
 if (tauri.plugins?.updater) {
-  tauri.plugins.updater.endpoints = [`${rawBase}/updater-${channel}.json`];
+  tauri.plugins.updater.endpoints = endpoints;
 }
 
 fs.writeFileSync(tauriPath, JSON.stringify(tauri, null, 2) + '\n');
 console.log(`Canal ${channel}: ${cfg.identifier} / ${cfg.productName}`);
+console.log('Updater endpoints:', endpoints.join(', '));

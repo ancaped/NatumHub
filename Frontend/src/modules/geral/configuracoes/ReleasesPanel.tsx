@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Rocket, Loader2, Save, Lock, RefreshCw, Github, ExternalLink } from 'lucide-react';
+import { Rocket, Loader2, Save, Lock, RefreshCw, Github, ExternalLink, Download } from 'lucide-react';
 import {
   fetchReleasesStatus,
   fetchGithubReleaseConfig,
   saveGithubReleaseConfig,
   promoteRelease,
+  syncUpdaterManifests,
   isSupervisor,
   type AuthUser,
   type UpdateChannel,
@@ -24,6 +25,7 @@ export default function ReleasesPanel({ currentUser, setMessage }: ReleasesPanel
   const [loading, setLoading] = useState(true);
   const [savingConfig, setSavingConfig] = useState(false);
   const [promoting, setPromoting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const [githubToken, setGithubToken] = useState('');
   const [githubRepo, setGithubRepo] = useState('ancaped/NatumHub');
@@ -137,6 +139,34 @@ export default function ReleasesPanel({ currentUser, setMessage }: ReleasesPanel
     }
   };
 
+  const handleSyncManifests = async () => {
+    if (!validateSupervisorAuth()) return;
+    if (!status?.githubConfigured) {
+      setMessage({ text: 'Configure o token GitHub antes de sincronizar.', type: 'error' });
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      const res = await syncUpdaterManifests({
+        supervisorPassword,
+        versionTag: versionTag.trim() || undefined,
+      });
+      setMessage({ text: res.message, type: 'success' });
+      setSupervisorPassword('');
+      setSupervisorPasswordConfirm('');
+      await load();
+    } catch (e: unknown) {
+      setMessage({
+        text: e instanceof Error ? e.message : 'Erro ao sincronizar manifests',
+        type: 'error',
+      });
+    } finally {
+      setSyncing(false);
+      setTimeout(() => setMessage(null), 6000);
+    }
+  };
+
   const manifestFor = (ch: UpdateChannel) =>
     status?.manifests.find((m) => m.channel === ch);
 
@@ -181,6 +211,11 @@ export default function ReleasesPanel({ currentUser, setMessage }: ReleasesPanel
                   <p className="text-sm font-extrabold text-zinc-900 mt-1 font-mono">
                     {m?.version ?? '—'}
                   </p>
+                  {m?.availableOnServer ? (
+                    <p className="text-[9px] text-emerald-700 font-bold mt-1">No servidor</p>
+                  ) : m?.source === 'github' ? (
+                    <p className="text-[9px] text-amber-700 font-bold mt-1">Só GitHub</p>
+                  ) : null}
                   {m?.pubDate && (
                     <p className="text-[10px] text-zinc-500 mt-1 truncate" title={m.pubDate}>
                       {m.pubDate}
@@ -193,8 +228,9 @@ export default function ReleasesPanel({ currentUser, setMessage }: ReleasesPanel
 
           <div className="text-[10px] text-zinc-500 bg-zinc-50 border border-zinc-100 rounded-xl p-3 space-y-1">
             <p>
-              Cada canal gera um instalador separado (<code>com.natum.hub.alpha</code>,{' '}
-              <code>.beta</code>, <code>.stable</code>) — podem coexistir no mesmo PC.
+              Terminais na LAN buscam atualizações em{' '}
+              <code>/api/hub/updater-manifest/&#123;canal&#125;</code> no PC Estável (repo privado
+              OK). Após cada release, sincronize os manifests para o servidor.
             </p>
             <p>
               Repo: <strong>{status?.githubRepo}</strong> · branch CI:{' '}
@@ -333,6 +369,15 @@ export default function ReleasesPanel({ currentUser, setMessage }: ReleasesPanel
             >
               {savingConfig ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Salvar token GitHub
+            </button>
+            <button
+              type="button"
+              onClick={handleSyncManifests}
+              disabled={syncing}
+              className="flex items-center gap-2 bg-emerald-600 text-white text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-emerald-700 disabled:opacity-50 cursor-pointer"
+            >
+              {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Sincronizar manifests no servidor
             </button>
             <button
               type="button"

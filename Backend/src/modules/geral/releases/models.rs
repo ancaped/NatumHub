@@ -8,6 +8,8 @@ pub struct ChannelManifestInfo {
     pub notes: Option<String>,
     pub pub_date: Option<String>,
     pub url: Option<String>,
+    pub available_on_server: bool,
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +54,21 @@ pub struct PromoteReleaseResponse {
     pub message: String,
     pub channel: String,
     pub version_tag: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncManifestsRequest {
+    pub supervisor_password: String,
+    pub version_tag: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncManifestsResponse {
+    pub ok: bool,
+    pub message: String,
+    pub synced: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -1,6 +1,6 @@
 use axum::{
-    extract::State,
-    http::StatusCode,
+    extract::{Path, State},
+    http::{header, StatusCode},
     response::IntoResponse,
     Json,
 };
@@ -227,4 +227,51 @@ pub async fn claim_principal(
         })),
     )
         .into_response()
+}
+
+/// Config mínima para clientes (repo de releases) — sem auth.
+pub async fn public_config(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Database unavailable" })),
+            )
+                .into_response();
+        }
+    };
+
+    let repo = crate::modules::geral::releases::store::github_repo(&conn);
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "updaterGithubRepo": repo,
+        })),
+    )
+        .into_response()
+}
+
+/// Manifest de atualização por canal — público na LAN (repo GitHub pode ser privado).
+pub async fn get_updater_manifest(
+    State(state): State<Arc<AppState>>,
+    Path(channel): Path<String>,
+) -> impl IntoResponse {
+    let _ = state;
+    match crate::modules::geral::hub::updater_manifest::read_manifest(&channel) {
+        Ok(body) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/json")],
+            body,
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": e })),
+        )
+            .into_response(),
+    }
 }
