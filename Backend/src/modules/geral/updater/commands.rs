@@ -8,24 +8,10 @@ use crate::modules::geral::releases::store;
 
 pub fn validate_channel(channel: &str) -> Result<(), String> {
     match channel {
-        "alpha" | "beta" | "stable" => Ok(()),
-        _ => Err(format!("Canal de atualização inválido: {channel}")),
-    }
-}
-
-fn channel_rank(channel: &str) -> u8 {
-    match channel {
-        "alpha" => 2,
-        "beta" => 1,
-        _ => 0,
-    }
-}
-
-fn min_channel(a: &str, b: &str) -> String {
-    if channel_rank(a) <= channel_rank(b) {
-        a.to_string()
-    } else {
-        b.to_string()
+        "stable" => Ok(()),
+        _ => Err(format!(
+            "Canal de atualização inválido: {channel}. Apenas stable é suportado."
+        )),
     }
 }
 
@@ -33,30 +19,13 @@ fn build_channel(app: &AppHandle) -> String {
     store::channel_from_identifier(&app.config().identifier).to_string()
 }
 
-fn resolve_update_channel(app: &AppHandle, requested: &str) -> Result<String, String> {
-    if crate::core::app_config::NETWORK_CHANNELS_FROZEN {
-        validate_channel(crate::core::app_config::PRODUCTION_UPDATE_CHANNEL)?;
-        let build = build_channel(app);
-        return Ok(min_channel(
-            crate::core::app_config::PRODUCTION_UPDATE_CHANNEL,
-            &build,
-        ));
-    }
-    validate_channel(requested)?;
-    let build = build_channel(app);
-    if channel_rank(requested) > channel_rank(&build) {
-        return Err(format!(
-            "Canal \"{requested}\" não permitido nesta instalação (build {build})."
-        ));
-    }
-    Ok(min_channel(requested, &build))
+fn resolve_update_channel(_app: &AppHandle, _requested: &str) -> Result<String, String> {
+    Ok("stable".to_string())
 }
 
 pub fn version_matches_channel(version: &str, channel: &str) -> Result<(), String> {
     let v = version.to_lowercase();
     match channel {
-        "alpha" if v.contains("-alpha") => Ok(()),
-        "beta" if v.contains("-beta") && !v.contains("-alpha") => Ok(()),
         "stable" if !v.contains("-alpha") && !v.contains("-beta") => Ok(()),
         _ => Err(format!(
             "Versão \"{version}\" não corresponde ao canal \"{channel}\". Atualização bloqueada por segurança."
@@ -91,17 +60,9 @@ fn read_tauri_conf_endpoints() -> Vec<String> {
     vec![]
 }
 
-fn manifest_channel_for_updates(build_channel: &str) -> &str {
-    if crate::core::app_config::NETWORK_CHANNELS_FROZEN {
-        crate::core::app_config::PRODUCTION_UPDATE_CHANNEL
-    } else {
-        build_channel
-    }
-}
-
 /// Prioriza manifest no PC master (LAN); fallback nos endpoints do tauri.conf (GitHub Releases).
-fn resolve_update_endpoints(_app: &AppHandle, build_channel: &str) -> Result<Vec<url::Url>, String> {
-    let channel = manifest_channel_for_updates(build_channel);
+fn resolve_update_endpoints(_app: &AppHandle, _build_channel: &str) -> Result<Vec<url::Url>, String> {
+    let channel = "stable";
     validate_channel(channel)?;
     let cfg = load_client_config();
     let api_origin = cfg.api_origin.trim_end_matches('/');

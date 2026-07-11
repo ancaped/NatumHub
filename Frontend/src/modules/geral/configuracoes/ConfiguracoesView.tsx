@@ -7,7 +7,6 @@ import ConexaoServidorPanel from './ConexaoServidorPanel';
 import OperadoresPanel from './OperadoresPanel';
 import DispositivosPanel from './DispositivosPanel';
 import CanaisAtualizacaoPanel from './CanaisAtualizacaoPanel';
-import OperadoresCanaisPanel from './OperadoresCanaisPanel';
 import ReleasesPanel from './ReleasesPanel';
 import { isClientMode, isPrincipalPc } from '../lib/connectionConfig';
 import { apiJson } from '../lib/http';
@@ -211,14 +210,13 @@ export default function ConfiguracoesView({
         />
 
         {!supervisorMode && isSupervisor(currentUser) && (
-          <OperadoresPanel currentUser={currentUser} setMessage={setMessage} includeUpdateChannel={false} />
+          <OperadoresPanel currentUser={currentUser} setMessage={setMessage} />
         )}
 
         {supervisorMode && canEditInfra && (
           <>
             <CanaisAtualizacaoPanel currentUser={currentUser} setMessage={setMessage} />
             <ReleasesPanel currentUser={currentUser} setMessage={setMessage} />
-            <OperadoresCanaisPanel currentUser={currentUser} setMessage={setMessage} />
             <DispositivosPanel currentUser={currentUser} setMessage={setMessage} />
           </>
         )}

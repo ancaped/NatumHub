@@ -4,10 +4,8 @@ import {
   fetchDevicesManage,
   updateDeviceManage,
   type HubDevice,
-  type UpdateChannel,
   type AuthUser,
 } from '../lib/auth';
-import { UPDATE_CHANNEL_LABELS, NETWORK_CHANNELS_FROZEN } from '../lib/updateChannel';
 import { loadConnectionConfig } from '../lib/connectionConfig';
 
 interface DispositivosPanelProps {
@@ -15,13 +13,13 @@ interface DispositivosPanelProps {
   setMessage: (msg: { text: string; type: 'success' | 'error' } | null) => void;
 }
 
-export default function DispositivosPanel({ currentUser, setMessage }: DispositivosPanelProps) {
+export default function DispositivosPanel({ setMessage }: DispositivosPanelProps) {
   const [devices, setDevices] = useState<HubDevice[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [supervisorPassword, setSupervisorPassword] = useState('');
   const [supervisorPasswordConfirm, setSupervisorPasswordConfirm] = useState('');
-  const [edits, setEdits] = useState<Record<string, { label: string; updateChannel: UpdateChannel }>>({});
+  const [edits, setEdits] = useState<Record<string, { label: string }>>({});
 
   const localDeviceId = loadConnectionConfig().deviceId;
 
@@ -30,9 +28,9 @@ export default function DispositivosPanel({ currentUser, setMessage }: Dispositi
     try {
       const list = await fetchDevicesManage();
       setDevices(list);
-      const map: Record<string, { label: string; updateChannel: UpdateChannel }> = {};
+      const map: Record<string, { label: string }> = {};
       for (const d of list) {
-        map[d.deviceId] = { label: d.label, updateChannel: d.updateChannel };
+        map[d.deviceId] = { label: d.label };
       }
       setEdits(map);
     } catch (e: any) {
@@ -62,7 +60,7 @@ export default function DispositivosPanel({ currentUser, setMessage }: Dispositi
     try {
       await updateDeviceManage(deviceId, {
         label: edit.label,
-        updateChannel: NETWORK_CHANNELS_FROZEN ? 'stable' : edit.updateChannel,
+        updateChannel: 'stable',
         supervisorPassword,
       });
       setMessage({ text: 'Dispositivo atualizado.', type: 'success' });
@@ -101,14 +99,7 @@ export default function DispositivosPanel({ currentUser, setMessage }: Dispositi
 
       <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 text-xs text-amber-900 leading-relaxed">
         Cada instalação registra um <strong>deviceId</strong> único no primeiro login.
-        {NETWORK_CHANNELS_FROZEN ? (
-          <> Na rede, todas usam o canal <strong>Estável</strong> — mesma versão em todos os PCs.</>
-        ) : (
-          <>
-            {' '}
-            O canal efetivo de update é o mais restritivo entre operador e instalação.
-          </>
-        )}
+        Todos os PCs usam a mesma versão Estável.
       </div>
 
       <div className="grid sm:grid-cols-2 gap-3">
@@ -172,47 +163,19 @@ export default function DispositivosPanel({ currentUser, setMessage }: Dispositi
                 </div>
 
                 {edit && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-[10px] font-bold text-zinc-500 uppercase">Rótulo</label>
-                      <input
-                        type="text"
-                        value={edit.label}
-                        onChange={(e) =>
-                          setEdits((p) => ({
-                            ...p,
-                            [d.deviceId]: { ...p[d.deviceId], label: e.target.value },
-                          }))
-                        }
-                        className="mt-1 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-bold text-zinc-500 uppercase">Canal</label>
-                      {NETWORK_CHANNELS_FROZEN ? (
-                        <p className="mt-1 text-sm font-bold text-zinc-800">
-                          {UPDATE_CHANNEL_LABELS.stable}
-                        </p>
-                      ) : (
-                        <select
-                          value={edit.updateChannel}
-                          onChange={(e) =>
-                            setEdits((p) => ({
-                              ...p,
-                              [d.deviceId]: {
-                                ...p[d.deviceId],
-                                updateChannel: e.target.value as UpdateChannel,
-                              },
-                            }))
-                          }
-                          className="mt-1 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm"
-                        >
-                          <option value="stable">{UPDATE_CHANNEL_LABELS.stable}</option>
-                          <option value="beta">{UPDATE_CHANNEL_LABELS.beta}</option>
-                          <option value="alpha">{UPDATE_CHANNEL_LABELS.alpha} (lab/dev)</option>
-                        </select>
-                      )}
-                    </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase">Rótulo</label>
+                    <input
+                      type="text"
+                      value={edit.label}
+                      onChange={(e) =>
+                        setEdits((p) => ({
+                          ...p,
+                          [d.deviceId]: { label: e.target.value },
+                        }))
+                      }
+                      className="mt-1 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm"
+                    />
                   </div>
                 )}
 
@@ -232,14 +195,6 @@ export default function DispositivosPanel({ currentUser, setMessage }: Dispositi
             );
           })}
         </div>
-      )}
-
-      {currentUser && (
-        <p className="text-[10px] text-zinc-400">
-          Seu canal efetivo: {UPDATE_CHANNEL_LABELS[currentUser.effectiveUpdateChannel]} —
-          operador {UPDATE_CHANNEL_LABELS[currentUser.userUpdateChannel]} × instalação{' '}
-          {UPDATE_CHANNEL_LABELS[currentUser.deviceUpdateChannel]}
-        </p>
       )}
     </div>
   );

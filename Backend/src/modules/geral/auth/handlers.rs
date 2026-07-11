@@ -83,10 +83,10 @@ pub async fn setup_supervisor(
                 role: operator.role.clone(),
                 photo_url: String::new(),
                 modules: vec![],
-                update_channel: "alpha".to_string(),
-                user_update_channel: "alpha".to_string(),
-                device_update_channel: "alpha".to_string(),
-                effective_update_channel: "alpha".to_string(),
+                update_channel: "stable".to_string(),
+                user_update_channel: "stable".to_string(),
+                device_update_channel: "stable".to_string(),
+                effective_update_channel: "stable".to_string(),
                 is_supervisor: true,
             });
             (

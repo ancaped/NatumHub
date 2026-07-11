@@ -158,7 +158,7 @@ pub async fn claim_principal(
         return (
             StatusCode::FORBIDDEN,
             Json(json!({
-                "error": "Somente instalações NatumHub Estável podem ser PC Principal. Builds Alpha/Beta/desenvolvedor devem ser Clientes."
+                "error": "Somente NatumHub Estável pode ser PC Principal. Outras instalações devem ser Clientes apontando para o servidor."
             })),
         )
             .into_response();

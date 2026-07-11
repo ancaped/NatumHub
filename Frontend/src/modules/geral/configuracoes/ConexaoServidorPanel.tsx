@@ -306,7 +306,7 @@ export default function ConexaoServidorPanel({ isAdmin, setMessage }: ConexaoSer
             </div>
             <ul className="text-[11px] text-zinc-600 space-y-1 list-disc list-inside">
               <li>Terminal ou máquina de dev — conecta ao servidor Estável</li>
-              <li>Canal de atualização definido pelo supervisor por dispositivo</li>
+              <li>Recebe atualizações Estável do PC Principal</li>
               <li>Bloqueado para operadores comuns após salvar</li>
             </ul>
           </button>

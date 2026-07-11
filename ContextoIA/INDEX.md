@@ -70,4 +70,4 @@ Saves/client_config.json                      # appMode, apiOrigin, deviceId
 
 ## Versão
 
-`0.0.11-alpha` — master único, clientes finos, auth operador, notificações por módulo.
+`0.0.11` — master único, clientes finos, auth operador, notificações por módulo. Uma versão Estável na rede.

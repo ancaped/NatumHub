@@ -10,7 +10,8 @@ import type { ModuleGroup } from './modules/registry';
 const TOKEN_KEY = 'natum_auth_token';
 const USER_KEY = 'natum_auth_user';
 
-export type UpdateChannel = 'alpha' | 'beta' | 'stable';
+/** Sempre Estável — campos mantidos por compatibilidade com a API. */
+export type UpdateChannel = 'stable';
 
 export interface AuthUser {
   id: string;
@@ -18,7 +19,7 @@ export interface AuthUser {
   role: string;
   photoURL: string;
   modules: string[];
-  /** Canal efetivo usado pelo updater (min operador × instalação) */
+  /** Sempre 'stable' (compat API). */
   updateChannel: UpdateChannel;
   userUpdateChannel: UpdateChannel;
   deviceUpdateChannel: UpdateChannel;
@@ -62,20 +63,13 @@ export interface LoginResult {
   expiresAt: string;
 }
 
-function parseChannel(raw: unknown): UpdateChannel {
-  const ch = String(raw ?? 'stable').toLowerCase();
-  if (ch === 'alpha' || ch === 'beta') return ch;
+function parseChannel(_raw?: unknown): UpdateChannel {
   return 'stable';
 }
 
 function mapUser(raw: Record<string, unknown>): AuthUser {
   const modulesRaw = raw.modules ?? raw.module_keys;
   const modules = Array.isArray(modulesRaw) ? modulesRaw.map(String) : [];
-  const userCh = parseChannel(raw.userUpdateChannel ?? raw.user_update_channel ?? raw.updateChannel ?? raw.update_channel);
-  const deviceCh = parseChannel(raw.deviceUpdateChannel ?? raw.device_update_channel ?? 'stable');
-  const effective = parseChannel(
-    raw.effectiveUpdateChannel ?? raw.effective_update_channel ?? raw.updateChannel ?? raw.update_channel ?? userCh
-  );
   const role = String(raw.role ?? 'operador');
   return {
     id: String(raw.id ?? ''),
@@ -83,10 +77,10 @@ function mapUser(raw: Record<string, unknown>): AuthUser {
     role,
     photoURL: String(raw.photoURL ?? raw.photo_url ?? ''),
     modules,
-    updateChannel: effective,
-    userUpdateChannel: userCh,
-    deviceUpdateChannel: deviceCh,
-    effectiveUpdateChannel: effective,
+    updateChannel: 'stable',
+    userUpdateChannel: 'stable',
+    deviceUpdateChannel: 'stable',
+    effectiveUpdateChannel: 'stable',
     isSupervisor: Boolean(raw.isSupervisor ?? raw.is_supervisor) || role === 'supervisor' || role === 'admin',
   };
 }
@@ -425,7 +419,6 @@ export async function saveGithubReleaseConfig(data: {
 }
 
 export async function promoteRelease(data: {
-  channel: UpdateChannel;
   versionTag: string;
   releaseNotes?: string;
   supervisorPassword: string;
@@ -433,7 +426,7 @@ export async function promoteRelease(data: {
   const raw = await apiJson<Record<string, unknown>>('/auth/releases/promote', {
     method: 'POST',
     body: JSON.stringify({
-      channel: data.channel,
+      channel: 'stable',
       versionTag: data.versionTag,
       releaseNotes: data.releaseNotes,
       supervisorPassword: data.supervisorPassword,
@@ -442,7 +435,7 @@ export async function promoteRelease(data: {
   return {
     ok: Boolean(raw.ok),
     message: String(raw.message ?? ''),
-    channel: String(raw.channel ?? data.channel),
+    channel: String(raw.channel ?? 'stable'),
     versionTag: String(raw.versionTag ?? raw.version_tag ?? data.versionTag),
   };
 }

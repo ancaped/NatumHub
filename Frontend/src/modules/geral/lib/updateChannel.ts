@@ -1,19 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { AuthUser, UpdateChannel } from './auth';
+import type { AuthUser } from './auth';
 
-export type { UpdateChannel };
-
-/** Produção na rede: só canal Estável até o fluxo de release amadurecer. */
-export const NETWORK_CHANNELS_FROZEN = true;
-
-export const UPDATE_CHANNEL_LABELS: Record<UpdateChannel, string> = {
-  alpha: 'Alpha (desenvolvimento)',
-  beta: 'Beta (testes)',
-  stable: 'Estável (produção)',
-};
+export type BuildChannel = 'stable' | 'dev';
 
 export interface BuildInfo {
-  channel: UpdateChannel;
+  channel: BuildChannel;
   identifier: string;
   productName: string;
   version: string;
@@ -38,14 +29,10 @@ export function isUpdaterEnabled(): boolean {
   return !import.meta.env.DEV;
 }
 
-function channelRank(ch: UpdateChannel): number {
-  if (ch === 'alpha') return 2;
-  if (ch === 'beta') return 1;
-  return 0;
-}
-
-function minChannel(a: UpdateChannel, b: UpdateChannel): UpdateChannel {
-  return channelRank(a) <= channelRank(b) ? a : b;
+function parseBuildChannel(raw: unknown): BuildChannel {
+  const ch = String(raw ?? 'stable').toLowerCase();
+  if (ch === 'dev' || ch === 'development' || ch === 'alpha' || ch === 'beta') return 'dev';
+  return 'stable';
 }
 
 export async function getBuildInfo(): Promise<BuildInfo | null> {
@@ -54,9 +41,9 @@ export async function getBuildInfo(): Promise<BuildInfo | null> {
     const info = await invoke<BuildInfo>('get_build_info');
     cachedBuildInfo = {
       ...info,
-      channel: parseChannel(info.channel),
-      canBePrincipalServer: Boolean(info.canBePrincipalServer ?? info.can_be_principal_server),
-      isDeveloperInstall: Boolean(info.isDeveloperInstall ?? info.is_developer_install),
+      channel: parseBuildChannel(info.channel),
+      canBePrincipalServer: Boolean(info.canBePrincipalServer ?? (info as { can_be_principal_server?: boolean }).can_be_principal_server),
+      isDeveloperInstall: Boolean(info.isDeveloperInstall ?? (info as { is_developer_install?: boolean }).is_developer_install),
     };
     return cachedBuildInfo;
   } catch (e) {
@@ -65,50 +52,29 @@ export async function getBuildInfo(): Promise<BuildInfo | null> {
   }
 }
 
-function parseChannel(raw: unknown): UpdateChannel {
-  const ch = String(raw ?? 'stable').toLowerCase();
-  if (ch === 'alpha' || ch === 'beta') return ch;
-  return 'stable';
-}
-
-async function channelForUser(user: AuthUser | null): Promise<UpdateChannel> {
-  if (NETWORK_CHANNELS_FROZEN) return 'stable';
-  const effective = parseChannel(user?.effectiveUpdateChannel ?? user?.updateChannel ?? 'stable');
-  const build = await getBuildInfo();
-  if (!build) return effective;
-  return minChannel(effective, build.channel);
-}
-
-/** Verifica atualização no canal efetivo (operador × instalação × build). */
+/** Verifica atualização no canal Estável. */
 export async function checkUpdateForUser(user: AuthUser | null): Promise<ChannelUpdateInfo | null> {
   if (!user || !isUpdaterEnabled()) return null;
-  const channel = await channelForUser(user);
   try {
-    return await invoke<ChannelUpdateInfo>('check_channel_update', { channel });
+    return await invoke<ChannelUpdateInfo>('check_channel_update', { channel: 'stable' });
   } catch (e) {
     console.error('Erro ao verificar atualização:', e);
     return null;
   }
 }
 
-/** Confirmação dupla antes de instalar — evita engano de canal/versão. */
+/** Confirmação dupla antes de instalar. */
 export async function confirmAndInstallUpdate(
   user: AuthUser | null,
   info: ChannelUpdateInfo
 ): Promise<boolean> {
   if (!user || !info.available || !info.version || !isUpdaterEnabled()) return false;
 
-  const channel = await channelForUser(user);
   const build = await getBuildInfo();
-  const channelLabel = UPDATE_CHANNEL_LABELS[channel];
-  const buildLabel = build ? UPDATE_CHANNEL_LABELS[build.channel] : '—';
 
   const msg1 =
-    `Canal efetivo: ${channelLabel}\n` +
-    `Build instalado: ${build?.productName ?? 'NatumHub'} (${buildLabel})\n` +
-    `Operador: ${UPDATE_CHANNEL_LABELS[user.userUpdateChannel ?? user.updateChannel]}\n` +
-    `Instalação: ${UPDATE_CHANNEL_LABELS[user.deviceUpdateChannel ?? 'stable']}\n` +
-    `Versão atual: ${info.currentVersion}\n` +
+    `Atualização Estável disponível\n` +
+    `Build: ${build?.productName ?? 'NatumHub'} v${info.currentVersion}\n` +
     `Nova versão: ${info.version}\n\n` +
     (info.body ? `Notas:\n${info.body}\n\n` : '') +
     `Confirma que deseja BAIXAR e INSTALAR esta atualização?`;
@@ -117,12 +83,12 @@ export async function confirmAndInstallUpdate(
 
   const msg2 =
     `Última confirmação — operador: ${user.displayName}\n` +
-    `Canal ${channelLabel} → v${info.version}\n\n` +
+    `Estável → v${info.version}\n\n` +
     `O aplicativo será reiniciado após a instalação. Continuar?`;
 
   if (!confirm(msg2)) return false;
 
-  await invoke('install_channel_update', { channel });
+  await invoke('install_channel_update', { channel: 'stable' });
   return true;
 }
 

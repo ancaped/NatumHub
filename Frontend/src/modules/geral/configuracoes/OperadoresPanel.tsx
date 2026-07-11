@@ -9,17 +9,13 @@ import {
   isSupervisor,
   type AuthUser,
   type OperatorDetail,
-  type UpdateChannel,
 } from '../lib/auth';
-import { UPDATE_CHANNEL_LABELS, NETWORK_CHANNELS_FROZEN } from '../lib/updateChannel';
 import { defaultModulesForRole, moduleRegistry, type ModuleGroup } from '../lib/modules/registry';
 import { checkServerHealth } from '../lib/connectionConfig';
 
 interface OperadoresPanelProps {
   currentUser: AuthUser | null;
   setMessage: (msg: { text: string; type: 'success' | 'error' } | null) => void;
-  /** Canais de update ficam só no painel administrador */
-  includeUpdateChannel?: boolean;
 }
 
 interface FormState {
@@ -27,7 +23,6 @@ interface FormState {
   role: string;
   active: boolean;
   modules: string[];
-  updateChannel: UpdateChannel;
   password: string;
   passwordConfirm: string;
 }
@@ -37,32 +32,13 @@ const EMPTY_FORM: FormState = {
   role: 'operador',
   active: true,
   modules: [],
-  updateChannel: 'stable',
   password: '',
   passwordConfirm: '',
 };
 
-function defaultChannelForRole(_role: string): UpdateChannel {
-  return 'stable';
-}
-
-function applyChannelForRole(form: FormState, role: string): FormState {
-  if (NETWORK_CHANNELS_FROZEN) {
-    return { ...form, role, updateChannel: 'stable' };
-  }
-  const next = { ...form, role };
-  if (form.updateChannel === 'alpha' && role !== 'supervisor' && role !== 'admin') {
-    next.updateChannel = 'stable';
-  } else if ((role === 'supervisor' || role === 'admin') && form.updateChannel === 'stable') {
-    next.updateChannel = 'alpha';
-  }
-  return next;
-}
-
 export default function OperadoresPanel({
   currentUser,
   setMessage,
-  includeUpdateChannel = false,
 }: OperadoresPanelProps) {
   const [registry] = useState<ModuleGroup[]>(() => moduleRegistry());
   const [operators, setOperators] = useState<OperatorDetail[]>([]);
@@ -74,7 +50,6 @@ export default function OperadoresPanel({
   const [newForm, setNewForm] = useState<FormState>({
     ...EMPTY_FORM,
     modules: defaultModulesForRole('operador'),
-    updateChannel: 'stable',
   });
   const [editForms, setEditForms] = useState<Record<string, FormState>>({});
 
@@ -95,7 +70,6 @@ export default function OperadoresPanel({
           role: op.role,
           active: op.active,
           modules: [...op.modules],
-          updateChannel: op.updateChannel,
           password: '',
           passwordConfirm: '',
         };
@@ -119,10 +93,7 @@ export default function OperadoresPanel({
   }
 
   const applyRoleTemplate = (form: FormState, role: string): FormState =>
-    applyChannelForRole(
-      { ...form, role, modules: defaultModulesForRole(role) },
-      role
-    );
+    ({ ...form, role, modules: defaultModulesForRole(role) });
 
   const toggleModule = (formKey: 'new' | string, moduleKey: string) => {
     if (formKey === 'new') {
@@ -178,7 +149,7 @@ export default function OperadoresPanel({
         displayName: newForm.displayName,
         role: newForm.role,
         modules: newForm.modules,
-        updateChannel: includeUpdateChannel ? newForm.updateChannel : 'stable',
+        updateChannel: 'stable',
         password: newForm.password,
       });
       setMessage({ text: 'Operador criado com sucesso.', type: 'success' });
@@ -186,7 +157,6 @@ export default function OperadoresPanel({
       setNewForm({
         ...EMPTY_FORM,
         modules: defaultModulesForRole('operador'),
-        updateChannel: 'stable',
       });
       await load();
     } catch (e: any) {
@@ -199,7 +169,6 @@ export default function OperadoresPanel({
 
   const handleSave = async (id: string) => {
     const form = editForms[id];
-    const op = operators.find((o) => o.id === id);
     if (!form?.displayName.trim()) {
       setMessage({ text: 'Nome é obrigatório.', type: 'error' });
       return;
@@ -213,7 +182,7 @@ export default function OperadoresPanel({
         role: form.role,
         active: form.active,
         modules: form.modules,
-        updateChannel: includeUpdateChannel ? form.updateChannel : (op?.updateChannel ?? 'stable'),
+        updateChannel: 'stable',
         password: changingPassword ? form.password : undefined,
       });
       setMessage({ text: 'Operador atualizado.', type: 'success' });
@@ -280,36 +249,6 @@ export default function OperadoresPanel({
           </select>
         </div>
       </div>
-
-      {includeUpdateChannel && !NETWORK_CHANNELS_FROZEN && (
-      <div>
-        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-          Canal de atualização
-        </label>
-        <select
-          value={form.updateChannel}
-          onChange={(e) => {
-            const updateChannel = e.target.value as UpdateChannel;
-            if (formKey === 'new') {
-              setNewForm((p) => ({ ...p, updateChannel }));
-            } else {
-              setEditForms((p) => ({
-                ...p,
-                [formKey]: { ...p[formKey], updateChannel },
-              }));
-            }
-          }}
-          className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-50"
-        >
-          <option value="stable">{UPDATE_CHANNEL_LABELS.stable}</option>
-          <option value="beta">{UPDATE_CHANNEL_LABELS.beta}</option>
-          <option value="alpha" disabled={form.role !== 'supervisor' && form.role !== 'admin'}>
-            {UPDATE_CHANNEL_LABELS.alpha}
-            {form.role !== 'supervisor' && form.role !== 'admin' ? ' (só supervisor)' : ''}
-          </option>
-        </select>
-      </div>
-      )}
 
       <div className="grid sm:grid-cols-2 gap-3">
       <div>
@@ -504,7 +443,6 @@ export default function OperadoresPanel({
                       </p>
                       <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
                         {op.role} · {op.modules.length} módulo(s)
-                        {includeUpdateChannel ? ` · ${UPDATE_CHANNEL_LABELS[op.updateChannel]}` : ''}
                         {op.hasPassword ? '' : ' · SEM SENHA'}
                         {!op.active && ' · INATIVO'}
                       </p>

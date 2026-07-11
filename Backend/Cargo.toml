@@ -1,6 +1,6 @@
 [package]
 name = "natum-hub"
-version = "0.0.11-alpha"
+version = "0.0.11"
 description = "Natum Unified Hub"
 authors = ["Natum"]
 edition = "2021"

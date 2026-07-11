@@ -6,16 +6,8 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
-      channel:
-        description: 'Canal de release'
-        required: true
-        type: choice
-        options:
-          - alpha
-          - beta
-          - stable
       version_tag:
-        description: 'Tag da release (ex. v0.0.12-alpha.1 ou v0.0.12). Obrigatório no dispatch manual.'
+        description: 'Tag da release (ex. v0.0.12). Obrigatório no dispatch manual.'
         required: true
         type: string
       release_notes:
@@ -39,30 +31,25 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && 'feat/update-channels-ci' || github.ref }}
 
-      - name: Detect channel and version
+      - name: Detect version
         id: meta
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TAG="${{ github.event.inputs.version_tag }}"
-            CHANNEL="${{ github.event.inputs.channel }}"
           else
             TAG="${GITHUB_REF#refs/tags/}"
-            if echo "$TAG" | grep -qiE 'alpha'; then
-              CHANNEL="alpha"
-            elif echo "$TAG" | grep -qiE 'beta'; then
-              CHANNEL="beta"
-            else
-              CHANNEL="stable"
-            fi
+          fi
+          if echo "$TAG" | grep -qiE 'alpha|beta'; then
+            echo "Tags alpha/beta não são mais suportadas. Use vX.Y.Z (Estável)."
+            exit 1
           fi
           VERSION="${TAG#v}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
           NOTES="${{ github.event.inputs.release_notes }}"
           if [ -z "$NOTES" ]; then
-            NOTES="NatumHub $VERSION — canal $CHANNEL"
+            NOTES="NatumHub $VERSION"
           fi
           echo "notes<<EOF" >> "$GITHUB_OUTPUT"
           echo "$NOTES" >> "$GITHUB_OUTPUT"
@@ -86,11 +73,11 @@ jobs:
           cargo = cargo.replace(/^version = ".*"/m, `version = "${v}"`);
           fs.writeFileSync('Backend/Cargo.toml', cargo);
 
-      - name: Apply channel config (identifier, updater endpoint)
+      - name: Apply stable release config
         env:
           RELEASE_TAG: ${{ steps.meta.outputs.tag }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: node scripts/apply-channel-config.mjs --channel ${{ steps.meta.outputs.channel }} --tag ${{ steps.meta.outputs.tag }}
+        run: node scripts/apply-channel-config.mjs --channel stable --tag ${{ steps.meta.outputs.tag }}
 
       - name: Apply updater public key
         env:
@@ -131,10 +118,10 @@ jobs:
         with:
           projectPath: Backend
           tagName: ${{ steps.meta.outputs.tag }}
-          releaseName: NatumHub ${{ steps.meta.outputs.tag }} (${{ steps.meta.outputs.channel }})
+          releaseName: NatumHub ${{ steps.meta.outputs.tag }}
           releaseBody: ${{ steps.meta.outputs.notes }}
           releaseDraft: false
-          prerelease: ${{ steps.meta.outputs.channel != 'stable' }}
+          prerelease: false
           args: --target x86_64-pc-windows-msvc
 
       - name: Locate updater signature
@@ -158,18 +145,16 @@ jobs:
             "path=$sig" >> $env:GITHUB_OUTPUT
           }
           $tag = "${{ steps.meta.outputs.tag }}"
-          $assetName = "NatumHub_${version}_x64-setup.exe"
           $zipName = "NatumHub_${version}_x64-setup.nsis.zip"
           $base = "https://github.com/${{ github.repository }}/releases/download/$tag"
           "url=$base/$zipName" >> $env:GITHUB_OUTPUT
-          "url_exe=$base/$assetName" >> $env:GITHUB_OUTPUT
 
       - name: Update updater manifest
         shell: pwsh
         run: |
           $args = @(
             "scripts/update-updater-manifest.mjs",
-            "--channel", "${{ steps.meta.outputs.channel }}",
+            "--channel", "stable",
             "--version", "${{ steps.meta.outputs.version }}",
             "--url", "${{ steps.sig.outputs.url }}",
             "--notes", "${{ steps.meta.outputs.notes }}"
@@ -184,11 +169,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          MANIFEST="updater-${{ steps.meta.outputs.channel }}.json"
-          gh release upload "${{ steps.meta.outputs.tag }}" "$MANIFEST" --clobber
+          gh release upload "${{ steps.meta.outputs.tag }}" "updater-stable.json" --clobber
 
       - name: Copy updater manifest to Saves (server seed)
         shell: bash
         run: |
           mkdir -p Saves/updater-manifests
-          cp "updater-${{ steps.meta.outputs.channel }}.json" "Saves/updater-manifests/updater-${{ steps.meta.outputs.channel }}.json"
+          cp "updater-stable.json" "Saves/updater-manifests/updater-stable.json"

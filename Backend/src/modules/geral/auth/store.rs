@@ -69,7 +69,7 @@ pub fn init_auth_tables(conn: &Connection) -> Result<(), rusqlite::Error> {
     seed_default_operators(conn)?;
     migrate_operator_modules(conn)?;
     migrate_update_channel(conn)?;
-    migrate_freeze_network_channels(conn)?;
+    migrate_channels_to_stable(conn)?;
     migrate_password_hash(conn)?;
     migrate_supervisor_role(conn)?;
     let _ = ensure_supervisor_password_ready(conn);
@@ -159,24 +159,18 @@ fn migrate_update_channel(conn: &Connection) -> Result<(), rusqlite::Error> {
             "ALTER TABLE hub_operators ADD COLUMN update_channel TEXT NOT NULL DEFAULT 'stable'",
             [],
         )?;
-        conn.execute(
-            "UPDATE hub_operators SET update_channel = 'stable' WHERE role IN ('admin', 'supervisor')",
-            [],
-        )?;
     }
     Ok(())
 }
 
-fn migrate_freeze_network_channels(conn: &Connection) -> Result<(), rusqlite::Error> {
-    if !crate::core::app_config::NETWORK_CHANNELS_FROZEN {
-        return Ok(());
-    }
+/// Garante que operadores e dispositivos usem apenas o canal stable.
+fn migrate_channels_to_stable(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute(
-        "UPDATE hub_operators SET update_channel = 'stable' WHERE update_channel IN ('alpha', 'beta')",
+        "UPDATE hub_operators SET update_channel = 'stable' WHERE update_channel != 'stable'",
         [],
     )?;
     conn.execute(
-        "UPDATE hub_devices SET update_channel = 'stable' WHERE update_channel IN ('alpha', 'beta')",
+        "UPDATE hub_devices SET update_channel = 'stable' WHERE update_channel != 'stable'",
         [],
     )?;
     Ok(())
@@ -330,45 +324,16 @@ pub fn setup_supervisor(
     create_session_for_operator(conn, &operator)
 }
 
-pub fn normalize_update_channel(role: &str, channel: Option<&str>) -> Result<String, String> {
-    if crate::core::app_config::NETWORK_CHANNELS_FROZEN {
-        return Ok(crate::core::app_config::PRODUCTION_UPDATE_CHANNEL.to_string());
-    }
-    let ch = channel.unwrap_or("stable").trim().to_lowercase();
-    if !matches!(ch.as_str(), "alpha" | "beta" | "stable") {
-        return Err("Canal de atualização deve ser: alpha, beta ou stable.".to_string());
-    }
-    if ch == "alpha" && role != "supervisor" && role != "admin" {
-        return Err("Canal Alpha é exclusivo para o supervisor/desenvolvedor.".to_string());
-    }
-    Ok(ch)
+pub fn normalize_update_channel(_role: &str, _channel: Option<&str>) -> Result<String, String> {
+    Ok("stable".to_string())
 }
 
 pub fn default_update_channel_for_role(_role: &str) -> &'static str {
-    if crate::core::app_config::NETWORK_CHANNELS_FROZEN {
-        crate::core::app_config::PRODUCTION_UPDATE_CHANNEL
-    } else if _role == "supervisor" || _role == "admin" {
-        "alpha"
-    } else {
-        "stable"
-    }
+    "stable"
 }
 
-fn channel_rank(channel: &str) -> u8 {
-    match channel {
-        "stable" => 0,
-        "beta" => 1,
-        "alpha" => 2,
-        _ => 0,
-    }
-}
-
-pub fn effective_update_channel(user_channel: &str, device_channel: &str) -> String {
-    if channel_rank(user_channel) <= channel_rank(device_channel) {
-        user_channel.to_string()
-    } else {
-        device_channel.to_string()
-    }
+pub fn effective_update_channel(_user_channel: &str, _device_channel: &str) -> String {
+    "stable".to_string()
 }
 
 pub fn get_operator_update_channel(conn: &Connection, id: &str, role: &str) -> Result<String, String> {
@@ -419,7 +384,7 @@ pub fn register_or_update_device(
         .map_err(|e| e.to_string())?;
 
     if exists == 0 {
-        let channel = force_channel.unwrap_or("stable");
+        let channel = "stable";
         conn.execute(
             "INSERT INTO hub_devices (device_id, label, update_channel, last_ip, last_seen, registered_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![did, label.trim(), channel, client_ip, now, registered_by],
@@ -431,8 +396,8 @@ pub fn register_or_update_device(
             params![did, label.trim(), client_ip, now, registered_by],
         )
         .map_err(|e| e.to_string())?;
-        if let Some(ch) = force_channel {
-            update_device_channel_internal(conn, did, ch)?;
+        if force_channel.is_some() {
+            update_device_channel_internal(conn, did, "stable")?;
         }
     }
 
@@ -764,18 +729,13 @@ pub fn create_session(
     }
 
     if let Some(did) = device_id.filter(|s| !s.trim().is_empty()) {
-        let force_alpha = if operator.role == "supervisor" || operator.role == "admin" {
-            None
-        } else {
-            None
-        };
         register_or_update_device(
             conn,
             did,
             device_label.unwrap_or("NatumHub"),
             Some(&operator.id),
             client_ip,
-            force_alpha,
+            Some("stable"),
         )?;
     }
 

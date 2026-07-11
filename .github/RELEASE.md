@@ -1,4 +1,4 @@
-# Secrets obrigatórios no repositório GitHub (Settings → Secrets → Actions)
+# Secrets obrigatórios (Settings → Secrets → Actions)
 
 | Secret | Descrição |
 |--------|-----------|
@@ -6,40 +6,45 @@
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | (opcional) Senha da chave |
 | `TAURI_SIGNING_PUBLIC_KEY` | Chave pública — injetada no build via `apply-updater-pubkey.mjs` |
 
-O token GitHub (`github_release_token`) é configurado no **Painel Supervisor → Releases** (PAT com scope `workflow` + `repo` para repo privado).
+Token GitHub (`github_release_token`) no **Painel Supervisor → Releases** (PAT com `workflow` + `repo`).
 
 ---
 
-## Política de canais (rede)
+## Modelo
 
-| Contexto | Papel | Canal |
+| Contexto | Papel | Dados |
 |----------|-------|-------|
-| **Produção (rede)** | PC Estável = servidor (master) | Estável |
-| **Produção (rede)** | Demais PCs = terminais (client) | Estável |
-| **Desenvolvimento** | Seu PC com `tauri dev` | master local, sem updater |
+| **Produção** | 1 PC Estável = servidor (master) | `Saves/data.db` + sync ERP |
+| **Produção** | Demais PCs = terminais (client) | HTTP → servidor |
+| **Dev** | `tauri dev` = master local | SQLite local, sem updater |
 
-Alpha e Beta permanecem no CI para uso futuro, mas **não são usados na rede** enquanto `NETWORK_CHANNELS_FROZEN = true`.
-
----
-
-## Fluxo de atualização (repo privado)
-
-1. CI gera `updater-stable.json` e faz upload como **asset da release** no GitHub.
-2. Terminais na LAN buscam o manifest no **PC Estável**: `GET /api/hub/updater-manifest/stable`.
-3. Após publicar, use **Sincronizar manifests no servidor** no painel supervisor.
+Uma versão Estável na rede. Sem canais Alpha/Beta.
 
 ---
 
-## Como publicar (produção)
+## Publicar
 
 ```bash
 git tag v0.0.12 && git push origin v0.0.12
 ```
 
-Ou: GitHub → Actions → "Release NatumHub" → canal **stable**, tag `v0.0.12`.
+Ou Actions → "Release NatumHub" → tag `v0.0.12`.
+
+Após a release: no PC servidor, **Sincronizar manifests** (Painel Supervisor → Releases).
+
+Terminais buscam: `GET /api/hub/updater-manifest/stable`.
 
 ---
 
-## Side-by-side
+## Testar nova versão com o Saves da Estável (sem quebrar produção)
 
-Instalações Alpha/Beta podem coexistir no mesmo PC para testes locais, mas **não devem ser usadas na rede de produção**.
+Objetivo: validar se o código novo abre o banco do servidor atual.
+
+1. No PC servidor Estável, **pare** o NatumHub (ou copie com o app fechado).
+2. Copie a pasta `Saves/` (pelo menos `data.db` + `client_config.json`) para o PC de desenvolvimento.
+3. No PC de dev, com o repo atualizado: `cd Backend && npm run tauri dev` (ou build local).
+4. Wizard → **Desenvolvimento** / master local — o app usa o `Saves` copiado.
+5. Confira login, módulos, sync ERP (se SQL acessível), etc.
+6. **Não** publique essa pasta de volta para produção sem backup; o teste é só leitura/validação.
+
+Se algo quebrar na migração do schema, corrija antes da release Estável.

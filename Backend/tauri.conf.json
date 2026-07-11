@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "NatumHub",
-  "version": "0.0.11-alpha",
+  "version": "0.0.11",
   "identifier": "com.natum.hub",
   "build": {
     "frontendDist": "../Frontend/dist",
@@ -25,8 +25,6 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE1NERDMEU4MDNCMUJFNQpSV1RsR3p1QUR0eFVDbXNtQ2V3ZTdOUjNGYXdPc04vT2ZyYkVzY3RWcW9hdmpodGw3b1AycnE4NAo=",
       "endpoints": [
-        "http://127.0.0.1:3001/api/hub/updater-manifest/alpha",
-        "http://127.0.0.1:3001/api/hub/updater-manifest/beta",
         "http://127.0.0.1:3001/api/hub/updater-manifest/stable"
       ]
     }

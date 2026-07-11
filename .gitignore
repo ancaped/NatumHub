@@ -35,15 +35,7 @@ Backend/WixTools/
 
 # Tauri updater signing (never commit private key)
 Backend/natum-hub.key
+Backend/natum-hub.key.pub
 
-# Scratch scripts (dev only)
-**/scratch/
-
-# Spreadsheet templates (large binaries)
-PlanilhasBase/
-
-# Cursor/AI
-.cursorignore
-
-# Legacy ERP Antigo folder
-ERP Antigo/
+# Runtime updater manifests (seeded on server)
+Saves/updater-manifests/

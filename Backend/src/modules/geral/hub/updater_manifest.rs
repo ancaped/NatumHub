@@ -20,19 +20,17 @@ pub fn manifest_path(channel: &str) -> Result<PathBuf, String> {
 
 pub fn validate_channel(channel: &str) -> Result<(), String> {
     match channel {
-        "alpha" | "beta" | "stable" => Ok(()),
-        _ => Err(format!("Canal inválido: {channel}")),
+        "stable" => Ok(()),
+        _ => Err(format!("Canal inválido: {channel}. Apenas stable é suportado.")),
     }
 }
 
 /// Copia manifests da raiz do repo para Saves na primeira execução.
 pub fn seed_manifests_from_repo_root() {
     let _ = ensure_manifests_dir();
-    for channel in ["alpha", "beta", "stable"] {
-        if let Ok(dest) = manifest_path(channel) {
-            if dest.exists() {
-                continue;
-            }
+    let channel = "stable";
+    if let Ok(dest) = manifest_path(channel) {
+        if !dest.exists() {
             let root_file = PathBuf::from(format!("../updater-{channel}.json"));
             if root_file.exists() {
                 let _ = fs::copy(&root_file, &dest);
@@ -73,22 +71,14 @@ pub async fn sync_all_manifests_from_github(
     tag: Option<&str>,
 ) -> Result<Vec<String>, String> {
     let mut synced = Vec::new();
+    let channel = "stable";
 
-    for channel in ["alpha", "beta", "stable"] {
-        match fetch_manifest_from_github_release(token.as_deref(), &repo, channel, tag).await {
-            Ok(body) => {
-                write_manifest(channel, &body)?;
-                synced.push(channel.to_string());
-            }
-            Err(e) if tag.is_some() => {
-                eprintln!("sync {channel}: {e}");
-            }
-            Err(e) => return Err(e),
+    match fetch_manifest_from_github_release(token.as_deref(), &repo, channel, tag).await {
+        Ok(body) => {
+            write_manifest(channel, &body)?;
+            synced.push(channel.to_string());
         }
-    }
-
-    if synced.is_empty() {
-        return Err("Nenhum manifest encontrado para sincronizar.".to_string());
+        Err(e) => return Err(e),
     }
 
     Ok(synced)

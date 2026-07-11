@@ -6,10 +6,6 @@ pub const CLIENT_CONFIG_PATH: &str = "../Saves/client_config.json";
 pub const DEFAULT_API_PORT: u16 = 3001;
 pub const DEFAULT_BIND_HOST: &str = "0.0.0.0";
 
-/// Produção na rede: só canal Estável até o fluxo de release amadurecer.
-pub const NETWORK_CHANNELS_FROZEN: bool = true;
-pub const PRODUCTION_UPDATE_CHANNEL: &str = "stable";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AppMode {
@@ -163,9 +159,9 @@ pub fn read_tauri_identifier() -> String {
     "com.natum.hub".to_string()
 }
 
-/// Dev local (`tauri dev`) ou build Alpha — nunca servidor de produção.
+/// Dev local (`com.natum.hub`) — nunca servidor de produção.
 pub fn is_developer_identifier(identifier: &str) -> bool {
-    identifier == "com.natum.hub" || identifier.contains(".alpha")
+    identifier == "com.natum.hub"
 }
 
 /// Somente build Estável pode hospedar SQLite, Axum e sync ERP.
@@ -173,13 +169,12 @@ pub fn can_be_principal_server(identifier: &str) -> bool {
     identifier.contains(".stable")
 }
 
+/// Canal de instalação: apenas `"stable"` ou `"dev"`.
 pub fn install_channel_from_identifier(identifier: &str) -> &'static str {
     if identifier.contains(".stable") {
         "stable"
-    } else if identifier.contains(".beta") {
-        "beta"
-    } else if is_developer_identifier(identifier) {
-        "alpha"
+    } else if is_developer_identifier(identifier) || cfg!(debug_assertions) {
+        "dev"
     } else {
         "stable"
     }
@@ -197,22 +192,11 @@ pub fn validate_master_mode(config: &ClientConfig) -> Result<(), String> {
     if cfg!(debug_assertions) {
         return Ok(());
     }
-    if !can_be_principal_server(&id) {
-        let kind = if is_developer_identifier(&id) {
-            "desenvolvedor/Alpha"
-        } else if id.contains(".beta") {
-            "Beta"
-        } else {
-            "esta instalação"
-        };
-        return Err(format!(
-            "Build {kind} não pode ser PC Principal (servidor). \
-             Use NatumHub Estável no PC servidor e configure esta máquina como Cliente \
-             apontando para o endereço do servidor. O servidor Estável gerencia os canais \
-             Alpha, Beta e Estável para toda a rede."
-        ));
-    }
-    Ok(())
+    Err(
+        "Somente a instalação Estável pode ser PC Principal (servidor). \
+         Configure esta máquina como Cliente apontando para o endereço do servidor."
+            .to_string(),
+    )
 }
 
 /// Cliente remoto sem SQLite/Axum local. Em `tauri dev` + master, mantém servidor local.

@@ -28,50 +28,45 @@ pub async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse
     let client = reqwest::Client::new();
     let token = store::github_token(&conn);
     let mut manifests = Vec::new();
+    let channel = "stable";
 
-    for channel in ["alpha", "beta", "stable"] {
-        if let Ok(body) = crate::modules::geral::hub::updater_manifest::read_manifest(channel) {
-            let mut info = store::parse_manifest_channel(channel, &body);
-            info.available_on_server =
-                crate::modules::geral::hub::updater_manifest::manifest_available_on_server(channel);
-            info.source = "server".to_string();
-            manifests.push(info);
-            continue;
-        }
-
-        if let Some(ref t) = token {
-            let repo = store::github_repo(&conn);
-            let url = format!(
-                "https://api.github.com/repos/{}/releases/latest",
-                repo
-            );
-            let req = client
-                .get(&url)
-                .header("Accept", "application/vnd.github+json")
-                .header("X-GitHub-Api-Version", "2022-11-28")
-                .header("Authorization", format!("Bearer {t}"));
-            if let Ok(resp) = req.send().await {
-                if resp.status().is_success() {
-                    if let Ok(release) = resp.json::<serde_json::Value>().await {
-                        let asset_name = format!("updater-{channel}.json");
-                        if let Some(assets) = release.get("assets").and_then(|a| a.as_array()) {
-                            if let Some(asset) = assets
-                                .iter()
-                                .find(|a| a.get("name").and_then(|n| n.as_str()) == Some(asset_name.as_str()))
-                            {
-                                if let Some(dl) = asset.get("browser_download_url").and_then(|u| u.as_str()) {
-                                    let dl_req = client
-                                        .get(dl)
-                                        .header("Authorization", format!("Bearer {t}"));
-                                    if let Ok(mresp) = dl_req.send().await {
-                                        if mresp.status().is_success() {
-                                            if let Ok(body) = mresp.text().await {
-                                                let mut info = store::parse_manifest_channel(channel, &body);
-                                                info.available_on_server = false;
-                                                info.source = "github".to_string();
-                                                manifests.push(info);
-                                                continue;
-                                            }
+    if let Ok(body) = crate::modules::geral::hub::updater_manifest::read_manifest(channel) {
+        let mut info = store::parse_manifest_channel(channel, &body);
+        info.available_on_server =
+            crate::modules::geral::hub::updater_manifest::manifest_available_on_server(channel);
+        info.source = "server".to_string();
+        manifests.push(info);
+    } else if let Some(ref t) = token {
+        let repo = store::github_repo(&conn);
+        let url = format!(
+            "https://api.github.com/repos/{}/releases/latest",
+            repo
+        );
+        let req = client
+            .get(&url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("Authorization", format!("Bearer {t}"));
+        if let Ok(resp) = req.send().await {
+            if resp.status().is_success() {
+                if let Ok(release) = resp.json::<serde_json::Value>().await {
+                    let asset_name = format!("updater-{channel}.json");
+                    if let Some(assets) = release.get("assets").and_then(|a| a.as_array()) {
+                        if let Some(asset) = assets
+                            .iter()
+                            .find(|a| a.get("name").and_then(|n| n.as_str()) == Some(asset_name.as_str()))
+                        {
+                            if let Some(dl) = asset.get("browser_download_url").and_then(|u| u.as_str()) {
+                                let dl_req = client
+                                    .get(dl)
+                                    .header("Authorization", format!("Bearer {t}"));
+                                if let Ok(mresp) = dl_req.send().await {
+                                    if mresp.status().is_success() {
+                                        if let Ok(body) = mresp.text().await {
+                                            let mut info = store::parse_manifest_channel(channel, &body);
+                                            info.available_on_server = false;
+                                            info.source = "github".to_string();
+                                            manifests.push(info);
                                         }
                                     }
                                 }
@@ -81,7 +76,10 @@ pub async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse
                 }
             }
         }
-
+        if manifests.is_empty() {
+            manifests.push(empty_manifest(channel));
+        }
+    } else {
         manifests.push(empty_manifest(channel));
     }
 
@@ -219,23 +217,23 @@ pub async fn promote_release(
     Extension(ctx): Extension<AuthContext>,
     Json(body): Json<super::models::PromoteReleaseRequest>,
 ) -> impl IntoResponse {
-    let channel = body.channel.trim().to_lowercase();
-    if !matches!(channel.as_str(), "alpha" | "beta" | "stable") {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Canal deve ser alpha, beta ou stable." })),
-        )
-            .into_response();
-    }
-
     let tag = body.version_tag.trim();
     if !tag.starts_with('v') {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Tag deve começar com v (ex. v0.0.12-beta.1)." })),
+            Json(json!({ "error": "Tag deve começar com v (ex. v0.0.12)." })),
         )
             .into_response();
     }
+    if tag.to_lowercase().contains("alpha") || tag.to_lowercase().contains("beta") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Use tag Estável (ex. v0.0.12), sem alpha/beta." })),
+        )
+            .into_response();
+    }
+
+    let channel = "stable".to_string();
 
     let conn = match state.db.connect() {
         Ok(c) => c,
@@ -281,15 +279,15 @@ pub async fn promote_release(
     let notes = body
         .release_notes
         .clone()
-        .unwrap_or_else(|| format!("NatumHub {tag} — canal {channel}"));
+        .unwrap_or_else(|| format!("NatumHub {tag}"));
 
-    match dispatch_release_workflow(&token, &repo, &branch, &channel, tag, &notes).await {
+    match dispatch_release_workflow(&token, &repo, &branch, tag, &notes).await {
         Ok(()) => (
             StatusCode::OK,
             Json(PromoteReleaseResponse {
                 ok: true,
                 message: format!(
-                    "Build disparado no GitHub Actions para {tag} ({channel}). Acompanhe em Actions → Release NatumHub."
+                    "Build Estável disparado no GitHub Actions para {tag}. Acompanhe em Actions → Release NatumHub."
                 ),
                 channel,
                 version_tag: tag.to_string(),
@@ -388,7 +386,6 @@ async fn dispatch_release_workflow(
     token: &str,
     repo: &str,
     branch: &str,
-    channel: &str,
     version_tag: &str,
     release_notes: &str,
 ) -> Result<(), String> {
@@ -405,7 +402,6 @@ async fn dispatch_release_workflow(
     let body = json!({
         "ref": branch,
         "inputs": {
-            "channel": channel,
             "version_tag": version_tag,
             "release_notes": release_notes,
         }
