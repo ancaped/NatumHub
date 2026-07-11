@@ -1,6 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Boxes, Settings, User, AlertCircle, Loader2, Lock } from 'lucide-react';
 import { loginOperator, fetchOperators, type OperatorOption } from '../lib/auth';
+import {
+  getApiOrigin,
+  isClientMode,
+  isDevRuntime,
+  isPrincipalPc,
+  checkServerHealth,
+} from '../lib/connectionConfig';
 
 interface LoginViewProps {
   message: { text: string; type: 'success' | 'error' } | null;
@@ -24,20 +31,46 @@ export default function LoginView({
   const [selectedOperator, setSelectedOperator] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    fetchOperators()
-      .then((list) => {
-        setOperators(list);
-        if (list.length > 0) {
-          setSelectedOperator(list[0].displayName);
+  const loadOperators = async () => {
+    setLoadingOps(true);
+    setLoadError(null);
+    try {
+      if (isClientMode()) {
+        const health = await checkServerHealth();
+        if (!health.ok) {
+          setLoadError(
+            health.error ||
+              `Não foi possível contactar o servidor em ${getApiOrigin()}. Abra Configurações e verifique o endereço (Tailscale/LAN).`
+          );
+          setOperators([]);
+          return;
         }
-      })
-      .catch(() => {
-        setOperators([]);
-      })
-      .finally(() => setLoadingOps(false));
+      }
+      const list = await fetchOperators();
+      setOperators(list);
+      if (list.length > 0) {
+        setSelectedOperator(list[0].displayName);
+      } else if (isPrincipalPc()) {
+        setLoadError(
+          'Nenhum operador cadastrado ainda. Se for a primeira execução, conclua o setup do supervisor ou cadastre operadores em Configurações.'
+        );
+      } else {
+        setLoadError('Servidor respondeu, mas não há operadores ativos. Peça ao supervisor para cadastrar contas.');
+      }
+    } catch (e: unknown) {
+      setOperators([]);
+      const msg = e instanceof Error ? e.message : 'Erro ao carregar operadores';
+      setLoadError(msg);
+    } finally {
+      setLoadingOps(false);
+    }
+  };
+
+  useEffect(() => {
+    loadOperators();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -130,11 +163,46 @@ export default function LoginView({
                   <div className="mt-2 flex items-center gap-2 text-sm text-zinc-400 py-2">
                     <Loader2 className="h-4 w-4 animate-spin" /> Carregando operadores...
                   </div>
-                ) : operators.length === 0 ? (
-                  <p className="mt-2 text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5">
-                    Nenhum operador disponível. Configure a conexão com o servidor ou peça ao supervisor.
+              ) : operators.length === 0 ? (
+                <div className="mt-2 space-y-2">
+                  <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5">
+                    {loadError ||
+                      'Nenhum operador disponível. Configure a conexão com o servidor ou peça ao supervisor.'}
                   </p>
-                ) : (
+                  {isClientMode() && (
+                    <p className="text-[11px] text-zinc-500">
+                      Servidor configurado: <code className="font-mono">{getApiOrigin()}</code>
+                    </p>
+                  )}
+                  {isDevRuntime() && isClientMode() && (
+                    <p className="text-[11px] text-violet-700">
+                      Em tauri dev, use <strong>Desenvolvimento</strong> no wizard (servidor local) ou aponte para o
+                      PC Estável remoto.
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={loadOperators}
+                      className="text-xs font-bold text-zinc-700 underline hover:no-underline"
+                    >
+                      Tentar novamente
+                    </button>
+                    {!loginOnly && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          fetchSqlConfig();
+                          setView('hub_settings');
+                        }}
+                        className="text-xs font-bold text-indigo-700 underline hover:no-underline"
+                      >
+                        Abrir Configurações
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
                   <select
                     value={selectedOperator}
                     onChange={(e) => setSelectedOperator(e.target.value)}

@@ -167,6 +167,34 @@ export async function isDeveloperInstall(): Promise<boolean> {
   return build?.isDeveloperInstall ?? false;
 }
 
+export async function repairDevConnectionIfNeeded(): Promise<boolean> {
+  if (!isDevRuntime()) return false;
+  const cfg = loadConnectionConfig();
+  if (cfg.appMode !== 'client') return false;
+
+  const origin = cfg.apiOrigin.replace(/\/$/, '');
+  const isLocal =
+    origin.includes('127.0.0.1') || origin.includes('localhost') || origin === '';
+  const shouldRepair =
+    cfg.installRole === 'development' || (isLocal && cfg.installRole !== 'terminal');
+  if (!shouldRepair) return false;
+
+  const fixed = markConnectionSetupCompleted(
+    {
+      ...cfg,
+      appMode: 'master',
+      isSyncMaster: true,
+      apiOrigin: `http://127.0.0.1:${DEFAULT_API_PORT}`,
+      apiBindHost: cfg.apiBindHost || '0.0.0.0',
+      apiPort: cfg.apiPort || DEFAULT_API_PORT,
+      setupLocked: false,
+    },
+    'development'
+  );
+  await saveConfigToTauri(fixed);
+  return true;
+}
+
 export async function syncConfigFromTauri(): Promise<ClientConfig> {
   try {
     const { invoke } = await import('@tauri-apps/api/core');

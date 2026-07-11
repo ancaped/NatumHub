@@ -264,6 +264,10 @@ export default function App() {
     async function initAuth() {
       try {
         await syncConfigFromTauri();
+        const { repairDevConnectionIfNeeded } = await import('./modules/geral/lib/connectionConfig');
+        if (await repairDevConnectionIfNeeded()) {
+          await syncConfigFromTauri();
+        }
       } catch {
         /* localStorage */
       }

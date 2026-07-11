@@ -186,6 +186,13 @@ pub fn validate_master_mode(config: &ClientConfig) -> Result<(), String> {
         return Ok(());
     }
     let id = read_tauri_identifier();
+    if can_be_principal_server(&id) {
+        return Ok(());
+    }
+    // `tauri dev` — servidor local só para desenvolvimento (não produção).
+    if cfg!(debug_assertions) {
+        return Ok(());
+    }
     if !can_be_principal_server(&id) {
         let kind = if is_developer_identifier(&id) {
             "desenvolvedor/Alpha"
@@ -202,4 +209,18 @@ pub fn validate_master_mode(config: &ClientConfig) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// Cliente remoto sem SQLite/Axum local. Em `tauri dev` + master, mantém servidor local.
+pub fn effective_is_client_mode(cfg: &ClientConfig) -> bool {
+    if cfg.app_mode == AppMode::Client {
+        return true;
+    }
+    if can_be_principal_server(&read_tauri_identifier()) {
+        return false;
+    }
+    if cfg!(debug_assertions) {
+        return false;
+    }
+    true
 }

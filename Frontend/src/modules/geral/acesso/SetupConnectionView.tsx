@@ -81,7 +81,7 @@ export default function SetupConnectionView({ onComplete }: SetupConnectionViewP
       deviceLabel: deviceLabel.trim() || loadConnectionConfig().deviceLabel,
     });
 
-    if (role === 'server') {
+    if (role === 'server' || (role === 'development' && isDevRuntime())) {
       return markConnectionSetupCompleted(
         {
           ...base,
@@ -92,7 +92,7 @@ export default function SetupConnectionView({ onComplete }: SetupConnectionViewP
           apiPort: base.apiPort || DEFAULT_API_PORT,
           setupLocked: false,
         },
-        'server'
+        role === 'development' ? 'development' : 'server'
       );
     }
 
@@ -130,6 +130,15 @@ export default function SetupConnectionView({ onComplete }: SetupConnectionViewP
           '• Sync ERP e backup automático\n' +
           '• Outros PCs devem ser Terminais apontando para este\n\n' +
           'Reinicie o aplicativo após concluir a configuração inicial.\n\nContinuar?'
+      );
+      if (!ok) return;
+    }
+
+    if (role === 'development' && isDevRuntime()) {
+      const ok = window.confirm(
+        'Servidor local de DESENVOLVIMENTO (tauri dev):\n\n' +
+          '• Banco SQLite neste PC\n' +
+          '• Separado da produção\n\nContinuar?'
       );
       if (!ok) return;
     }
@@ -275,7 +284,30 @@ export default function SetupConnectionView({ onComplete }: SetupConnectionViewP
                 </>
               )}
 
-              {(role === 'terminal' || role === 'development') && (
+              {role === 'development' && isDevRuntime() && (
+                <>
+                  <div className="flex items-start gap-2 text-sm text-violet-900 bg-violet-50 border border-violet-100 rounded-xl p-3">
+                    <Code2 className="h-4 w-4 shrink-0 mt-0.5" />
+                    <p>
+                      Servidor Axum e SQLite locais neste PC. Após continuar, crie a conta supervisor se for a
+                      primeira vez.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">
+                      Nome deste PC (opcional)
+                    </label>
+                    <input
+                      type="text"
+                      value={deviceLabel}
+                      onChange={(e) => setDeviceLabel(e.target.value)}
+                      className="mt-1.5 w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-sm bg-zinc-50"
+                    />
+                  </div>
+                </>
+              )}
+
+              {(role === 'terminal' || (role === 'development' && !isDevRuntime())) && (
                 <>
                   <div>
                     <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">
@@ -317,10 +349,9 @@ export default function SetupConnectionView({ onComplete }: SetupConnectionViewP
                     </div>
                   )}
 
-                  {role === 'development' && (
+                  {role === 'development' && !isDevRuntime() && (
                     <p className="text-[11px] text-violet-800 bg-violet-50 border border-violet-100 rounded-lg px-3 py-2">
-                      URL opcional agora — ajuste depois em Configurações. Não aponte para produção durante testes
-                      arriscados.
+                      Build Alpha: aponte para o servidor de homologação ou produção.
                     </p>
                   )}
 
