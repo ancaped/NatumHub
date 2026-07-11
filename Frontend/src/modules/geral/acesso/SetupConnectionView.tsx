@@ -230,7 +230,7 @@ export default function SetupConnectionView({ onComplete, reason }: SetupConnect
                 {!allowsServer && (
                   <p className="text-[11px] text-amber-800 mt-2 font-semibold">
                     Indisponível nesta instalação
-                    {isDevRuntime() ? ' (tauri dev)' : isDevInstall ? ' (Alpha/Beta)' : ''}. Use Terminal ou
+                    {isDevRuntime() ? ' (tauri dev)' : isDevInstall ? ' (build não-Estável)' : ''}. Use Terminal ou
                     Desenvolvimento.
                   </p>
                 )}
@@ -243,10 +243,10 @@ export default function SetupConnectionView({ onComplete, reason }: SetupConnect
               >
                 <div className="flex items-center gap-2 mb-2">
                   <Monitor className="h-5 w-5 text-indigo-600" />
-                  <span className="font-black text-zinc-900">Terminal (Beta ou Estável)</span>
+                  <span className="font-black text-zinc-900">Terminal (Estável)</span>
                 </div>
                 <p className="text-xs text-zinc-600 leading-relaxed">
-                  Operação diária — dados salvos no servidor. Informe o endereço do PC Principal (LAN ou Tailscale).
+                  Operação diária — conecta ao PC Principal (LAN ou Tailscale). Todos na mesma versão Estável.
                 </p>
               </button>
 
@@ -273,8 +273,8 @@ export default function SetupConnectionView({ onComplete, reason }: SetupConnect
                   <div className="flex items-start gap-2 text-sm text-amber-900 bg-amber-50 border border-amber-100 rounded-xl p-3">
                     <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                     <p>
-                      Este PC guardará o <strong>data.db</strong> e gerenciará canais Alpha, Beta e Estável para
-                      todos os terminais da rede.
+                      Este PC guardará o <strong>data.db</strong>, sync ERP e backup. Todos os terminais da rede
+                      conectam aqui na versão <strong>Estável</strong>.
                     </p>
                   </div>
                   <div>
@@ -359,7 +359,7 @@ export default function SetupConnectionView({ onComplete, reason }: SetupConnect
 
                   {role === 'development' && !isDevRuntime() && (
                     <p className="text-[11px] text-violet-800 bg-violet-50 border border-violet-100 rounded-lg px-3 py-2">
-                      Build Alpha: aponte para o servidor de homologação ou produção.
+                      Build de desenvolvimento: aponte para o servidor Estável de produção.
                     </p>
                   )}
 

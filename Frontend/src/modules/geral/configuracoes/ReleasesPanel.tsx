@@ -11,14 +11,15 @@ import {
   type UpdateChannel,
   type ReleasesStatus,
 } from '../lib/auth';
-import { UPDATE_CHANNEL_LABELS } from '../lib/updateChannel';
+import { UPDATE_CHANNEL_LABELS, NETWORK_CHANNELS_FROZEN } from '../lib/updateChannel';
 
 interface ReleasesPanelProps {
   currentUser: AuthUser | null;
   setMessage: (msg: { text: string; type: 'success' | 'error' } | null) => void;
 }
 
-const CHANNELS: UpdateChannel[] = ['alpha', 'beta', 'stable'];
+const ALL_CHANNELS: UpdateChannel[] = ['alpha', 'beta', 'stable'];
+const PROMOTE_CHANNELS: UpdateChannel[] = NETWORK_CHANNELS_FROZEN ? ['stable'] : ALL_CHANNELS;
 
 export default function ReleasesPanel({ currentUser, setMessage }: ReleasesPanelProps) {
   const [status, setStatus] = useState<ReleasesStatus | null>(null);
@@ -31,7 +32,7 @@ export default function ReleasesPanel({ currentUser, setMessage }: ReleasesPanel
   const [githubRepo, setGithubRepo] = useState('ancaped/NatumHub');
   const [githubBranch, setGithubBranch] = useState('main');
 
-  const [promoteChannel, setPromoteChannel] = useState<UpdateChannel>('alpha');
+  const [promoteChannel, setPromoteChannel] = useState<UpdateChannel>('stable');
   const [versionTag, setVersionTag] = useState('');
   const [releaseNotes, setReleaseNotes] = useState('');
   const [supervisorPassword, setSupervisorPassword] = useState('');
@@ -106,7 +107,7 @@ export default function ReleasesPanel({ currentUser, setMessage }: ReleasesPanel
     if (!validateSupervisorAuth()) return;
     const tag = versionTag.trim();
     if (!tag.startsWith('v')) {
-      setMessage({ text: 'Tag deve começar com v (ex. v0.0.12-beta.1).', type: 'error' });
+      setMessage({ text: 'Tag deve começar com v (ex. v0.0.12).', type: 'error' });
       return;
     }
     if (!status?.githubConfigured) {
@@ -180,7 +181,7 @@ export default function ReleasesPanel({ currentUser, setMessage }: ReleasesPanel
           <div>
             <h3 className="font-black text-sm tracking-tight">Releases & CI</h3>
             <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
-              Publicar builds Alpha / Beta / Estável
+              {NETWORK_CHANNELS_FROZEN ? 'Produção — Estável' : 'Publicar builds Alpha / Beta / Estável'}
             </p>
           </div>
         </div>
@@ -203,7 +204,7 @@ export default function ReleasesPanel({ currentUser, setMessage }: ReleasesPanel
       ) : (
         <>
           <div className="grid sm:grid-cols-3 gap-3">
-            {CHANNELS.map((ch) => {
+            {(NETWORK_CHANNELS_FROZEN ? (['stable'] as UpdateChannel[]) : ALL_CHANNELS).map((ch) => {
               const m = manifestFor(ch);
               return (
                 <div key={ch} className="bg-zinc-50 border border-zinc-200 rounded-xl p-4">
@@ -227,10 +228,15 @@ export default function ReleasesPanel({ currentUser, setMessage }: ReleasesPanel
           </div>
 
           <div className="text-[10px] text-zinc-500 bg-zinc-50 border border-zinc-100 rounded-xl p-3 space-y-1">
+            {NETWORK_CHANNELS_FROZEN && (
+              <p className="text-emerald-800 font-semibold">
+                Na rede: só <strong>Estável</strong>. Alpha/Beta permanecem no CI para uso futuro.
+              </p>
+            )}
             <p>
               Terminais na LAN buscam atualizações em{' '}
-              <code>/api/hub/updater-manifest/&#123;canal&#125;</code> no PC Estável (repo privado
-              OK). Após cada release, sincronize os manifests para o servidor.
+              <code>/api/hub/updater-manifest/stable</code> no PC Estável.
+              Após cada release, sincronize os manifests para o servidor.
             </p>
             <p>
               Repo: <strong>{status?.githubRepo}</strong> · branch CI:{' '}
@@ -301,9 +307,10 @@ export default function ReleasesPanel({ currentUser, setMessage }: ReleasesPanel
                 <select
                   value={promoteChannel}
                   onChange={(e) => setPromoteChannel(e.target.value as UpdateChannel)}
-                  className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-violet-500 focus:outline-none bg-white"
+                  disabled={PROMOTE_CHANNELS.length === 1}
+                  className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-violet-500 focus:outline-none bg-white disabled:bg-zinc-50"
                 >
-                  {CHANNELS.map((ch) => (
+                  {PROMOTE_CHANNELS.map((ch) => (
                     <option key={ch} value={ch}>
                       {UPDATE_CHANNEL_LABELS[ch]}
                     </option>
@@ -318,7 +325,7 @@ export default function ReleasesPanel({ currentUser, setMessage }: ReleasesPanel
                   type="text"
                   value={versionTag}
                   onChange={(e) => setVersionTag(e.target.value)}
-                  placeholder="v0.0.12-alpha.1 / v0.0.12-beta.1 / v0.0.12"
+                  placeholder="v0.0.12"
                   className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-violet-500 focus:outline-none"
                 />
               </div>

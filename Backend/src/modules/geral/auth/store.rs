@@ -69,6 +69,7 @@ pub fn init_auth_tables(conn: &Connection) -> Result<(), rusqlite::Error> {
     seed_default_operators(conn)?;
     migrate_operator_modules(conn)?;
     migrate_update_channel(conn)?;
+    migrate_freeze_network_channels(conn)?;
     migrate_password_hash(conn)?;
     migrate_supervisor_role(conn)?;
     let _ = ensure_supervisor_password_ready(conn);
@@ -135,7 +136,7 @@ fn migrate_supervisor_role(conn: &Connection) -> Result<(), rusqlite::Error> {
             |row| row.get::<_, String>(0),
         ) {
             conn.execute(
-                "UPDATE hub_operators SET role = 'supervisor', update_channel = 'alpha' WHERE id = ?1",
+                "UPDATE hub_operators SET role = 'supervisor', update_channel = 'stable' WHERE id = ?1",
                 params![first_admin],
             )?;
             conn.execute(
@@ -159,10 +160,25 @@ fn migrate_update_channel(conn: &Connection) -> Result<(), rusqlite::Error> {
             [],
         )?;
         conn.execute(
-            "UPDATE hub_operators SET update_channel = 'alpha' WHERE role IN ('admin', 'supervisor')",
+            "UPDATE hub_operators SET update_channel = 'stable' WHERE role IN ('admin', 'supervisor')",
             [],
         )?;
     }
+    Ok(())
+}
+
+fn migrate_freeze_network_channels(conn: &Connection) -> Result<(), rusqlite::Error> {
+    if !crate::core::app_config::NETWORK_CHANNELS_FROZEN {
+        return Ok(());
+    }
+    conn.execute(
+        "UPDATE hub_operators SET update_channel = 'stable' WHERE update_channel IN ('alpha', 'beta')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE hub_devices SET update_channel = 'stable' WHERE update_channel IN ('alpha', 'beta')",
+        [],
+    )?;
     Ok(())
 }
 
@@ -275,7 +291,7 @@ pub fn setup_supervisor(
             .map_err(|e| e.to_string())?;
         }
         conn.execute(
-            "UPDATE hub_operators SET role = 'supervisor', active = 1, update_channel = 'alpha', password_hash = ?2 WHERE id = ?1",
+            "UPDATE hub_operators SET role = 'supervisor', active = 1, update_channel = 'stable', password_hash = ?2 WHERE id = ?1",
             params![op.id, hash],
         )
         .map_err(|e| e.to_string())?;
@@ -287,7 +303,7 @@ pub fn setup_supervisor(
     } else {
         let id = Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT INTO hub_operators (id, display_name, role, active, update_channel, password_hash) VALUES (?1, ?2, 'supervisor', 1, 'alpha', ?3)",
+            "INSERT INTO hub_operators (id, display_name, role, active, update_channel, password_hash) VALUES (?1, ?2, 'supervisor', 1, 'stable', ?3)",
             params![id, name, hash],
         )
         .map_err(|e| e.to_string())?;
@@ -307,7 +323,7 @@ pub fn setup_supervisor(
             device_label.unwrap_or("Supervisor"),
             Some(&operator.id),
             client_ip,
-            Some("alpha"),
+            Some("stable"),
         )?;
     }
 
@@ -315,6 +331,9 @@ pub fn setup_supervisor(
 }
 
 pub fn normalize_update_channel(role: &str, channel: Option<&str>) -> Result<String, String> {
+    if crate::core::app_config::NETWORK_CHANNELS_FROZEN {
+        return Ok(crate::core::app_config::PRODUCTION_UPDATE_CHANNEL.to_string());
+    }
     let ch = channel.unwrap_or("stable").trim().to_lowercase();
     if !matches!(ch.as_str(), "alpha" | "beta" | "stable") {
         return Err("Canal de atualização deve ser: alpha, beta ou stable.".to_string());
@@ -325,8 +344,10 @@ pub fn normalize_update_channel(role: &str, channel: Option<&str>) -> Result<Str
     Ok(ch)
 }
 
-pub fn default_update_channel_for_role(role: &str) -> &'static str {
-    if role == "supervisor" || role == "admin" {
+pub fn default_update_channel_for_role(_role: &str) -> &'static str {
+    if crate::core::app_config::NETWORK_CHANNELS_FROZEN {
+        crate::core::app_config::PRODUCTION_UPDATE_CHANNEL
+    } else if _role == "supervisor" || _role == "admin" {
         "alpha"
     } else {
         "stable"

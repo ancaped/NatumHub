@@ -3,6 +3,9 @@ import type { AuthUser, UpdateChannel } from './auth';
 
 export type { UpdateChannel };
 
+/** Produção na rede: só canal Estável até o fluxo de release amadurecer. */
+export const NETWORK_CHANNELS_FROZEN = true;
+
 export const UPDATE_CHANNEL_LABELS: Record<UpdateChannel, string> = {
   alpha: 'Alpha (desenvolvimento)',
   beta: 'Beta (testes)',
@@ -69,6 +72,7 @@ function parseChannel(raw: unknown): UpdateChannel {
 }
 
 async function channelForUser(user: AuthUser | null): Promise<UpdateChannel> {
+  if (NETWORK_CHANNELS_FROZEN) return 'stable';
   const effective = parseChannel(user?.effectiveUpdateChannel ?? user?.updateChannel ?? 'stable');
   const build = await getBuildInfo();
   if (!build) return effective;

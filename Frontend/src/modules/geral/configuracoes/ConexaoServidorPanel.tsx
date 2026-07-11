@@ -47,7 +47,7 @@ export default function ConexaoServidorPanel({ isAdmin, setMessage }: ConexaoSer
         }));
         setMessage({
           text: isDev
-            ? 'Versão desenvolvedor/Alpha não pode ser servidor. Modo ajustado para Cliente — aponte para o PC Estável da rede.'
+            ? 'Versão desenvolvedor não pode ser servidor. Modo ajustado para Cliente — aponte para o PC Estável da rede.'
             : 'Somente NatumHub Estável pode ser servidor. Modo ajustado para Cliente.',
           type: 'error',
         });
@@ -196,7 +196,7 @@ export default function ConexaoServidorPanel({ isAdmin, setMessage }: ConexaoSer
           <h3 className="font-bold text-zinc-900">Tipo deste computador</h3>
           <p className="text-xs text-zinc-500">
             {isAdmin
-              ? 'Somente build Estável pode ser servidor. Terminais Beta/Estável conectam ao PC Principal.'
+              ? 'Somente build Estável pode ser servidor. Terminais conectam ao PC Principal na mesma versão.'
               : 'Configuração definida pelo administrador neste terminal'}
           </p>
         </div>
@@ -206,7 +206,7 @@ export default function ConexaoServidorPanel({ isAdmin, setMessage }: ConexaoSer
         <div className="flex items-start gap-3 bg-violet-50 border border-violet-200 rounded-xl px-4 py-3">
           <Code2 className="h-4 w-4 text-violet-600 mt-0.5 shrink-0" />
           <div className="text-xs text-violet-900 space-y-1">
-            <p className="font-bold">Instalação desenvolvedor {isDevRuntime() ? '(tauri dev)' : '(Alpha)'}</p>
+            <p className="font-bold">Instalação desenvolvedor {isDevRuntime() ? '(tauri dev)' : '(não-Estável)'}</p>
             <p>
               Não use como servidor — conflita com o PC Estável de produção (porta, banco, sync ERP).
               Configure como <strong>Cliente</strong> e informe o endereço do servidor (ex. Tailscale).
@@ -281,12 +281,12 @@ export default function ConexaoServidorPanel({ isAdmin, setMessage }: ConexaoSer
             </div>
             <ul className="text-[11px] text-zinc-600 space-y-1 list-disc list-inside">
               <li>Exclusivo do build <strong>NatumHub Estável</strong></li>
-              <li>Sync ERP, banco local e gestão dos 3 canais (Alpha/Beta/Estável)</li>
+              <li>Sync ERP, banco local e atualizações Estável para toda a rede</li>
               <li>Único servidor na rede — substitui o principal anterior ao salvar</li>
             </ul>
             {allowsServer === false && (
               <p className="text-[10px] text-amber-800 mt-2 font-semibold">
-                Indisponível nesta instalação (Alpha/Beta/dev).
+                Indisponível nesta instalação (use NatumHub Estável ou tauri dev).
               </p>
             )}
           </button>
@@ -389,7 +389,7 @@ export default function ConexaoServidorPanel({ isAdmin, setMessage }: ConexaoSer
         <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
           Este PC está registrado como o <strong>único principal</strong> do NatumHub
           {principalInfo.claimedAt ? ` (desde ${principalInfo.claimedAt})` : ''}.
-          Pelo Painel Supervisor você define canal Alpha, Beta ou Estável para cada terminal da rede.
+          Após cada release Estável, sincronize os manifests no Painel Supervisor → Releases.
         </p>
       )}
     </div>

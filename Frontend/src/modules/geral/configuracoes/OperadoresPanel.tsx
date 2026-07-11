@@ -11,7 +11,7 @@ import {
   type OperatorDetail,
   type UpdateChannel,
 } from '../lib/auth';
-import { UPDATE_CHANNEL_LABELS } from '../lib/updateChannel';
+import { UPDATE_CHANNEL_LABELS, NETWORK_CHANNELS_FROZEN } from '../lib/updateChannel';
 import { defaultModulesForRole, moduleRegistry, type ModuleGroup } from '../lib/modules/registry';
 import { checkServerHealth } from '../lib/connectionConfig';
 
@@ -42,11 +42,14 @@ const EMPTY_FORM: FormState = {
   passwordConfirm: '',
 };
 
-function defaultChannelForRole(role: string): UpdateChannel {
-  return role === 'supervisor' || role === 'admin' ? 'alpha' : 'stable';
+function defaultChannelForRole(_role: string): UpdateChannel {
+  return 'stable';
 }
 
 function applyChannelForRole(form: FormState, role: string): FormState {
+  if (NETWORK_CHANNELS_FROZEN) {
+    return { ...form, role, updateChannel: 'stable' };
+  }
   const next = { ...form, role };
   if (form.updateChannel === 'alpha' && role !== 'supervisor' && role !== 'admin') {
     next.updateChannel = 'stable';
@@ -278,7 +281,7 @@ export default function OperadoresPanel({
         </div>
       </div>
 
-      {includeUpdateChannel && (
+      {includeUpdateChannel && !NETWORK_CHANNELS_FROZEN && (
       <div>
         <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
           Canal de atualização

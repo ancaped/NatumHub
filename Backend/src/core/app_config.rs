@@ -6,6 +6,10 @@ pub const CLIENT_CONFIG_PATH: &str = "../Saves/client_config.json";
 pub const DEFAULT_API_PORT: u16 = 3001;
 pub const DEFAULT_BIND_HOST: &str = "0.0.0.0";
 
+/// Produção na rede: só canal Estável até o fluxo de release amadurecer.
+pub const NETWORK_CHANNELS_FROZEN: bool = true;
+pub const PRODUCTION_UPDATE_CHANNEL: &str = "stable";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AppMode {

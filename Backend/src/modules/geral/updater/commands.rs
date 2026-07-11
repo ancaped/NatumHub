@@ -34,6 +34,14 @@ fn build_channel(app: &AppHandle) -> String {
 }
 
 fn resolve_update_channel(app: &AppHandle, requested: &str) -> Result<String, String> {
+    if crate::core::app_config::NETWORK_CHANNELS_FROZEN {
+        validate_channel(crate::core::app_config::PRODUCTION_UPDATE_CHANNEL)?;
+        let build = build_channel(app);
+        return Ok(min_channel(
+            crate::core::app_config::PRODUCTION_UPDATE_CHANNEL,
+            &build,
+        ));
+    }
     validate_channel(requested)?;
     let build = build_channel(app);
     if channel_rank(requested) > channel_rank(&build) {
@@ -83,14 +91,23 @@ fn read_tauri_conf_endpoints() -> Vec<String> {
     vec![]
 }
 
+fn manifest_channel_for_updates(build_channel: &str) -> &str {
+    if crate::core::app_config::NETWORK_CHANNELS_FROZEN {
+        crate::core::app_config::PRODUCTION_UPDATE_CHANNEL
+    } else {
+        build_channel
+    }
+}
+
 /// Prioriza manifest no PC master (LAN); fallback nos endpoints do tauri.conf (GitHub Releases).
 fn resolve_update_endpoints(_app: &AppHandle, build_channel: &str) -> Result<Vec<url::Url>, String> {
-    validate_channel(build_channel)?;
+    let channel = manifest_channel_for_updates(build_channel);
+    validate_channel(channel)?;
     let cfg = load_client_config();
     let api_origin = cfg.api_origin.trim_end_matches('/');
 
     let mut urls = vec![parse_endpoint(&format!(
-        "{api_origin}/api/hub/updater-manifest/{build_channel}"
+        "{api_origin}/api/hub/updater-manifest/{channel}"
     ))?];
 
     for ep in read_tauri_conf_endpoints() {

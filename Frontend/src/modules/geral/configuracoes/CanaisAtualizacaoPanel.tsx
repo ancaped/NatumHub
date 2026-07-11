@@ -7,6 +7,7 @@ import {
   checkUpdateForUser,
   isUpdaterEnabled,
   getBuildInfo,
+  NETWORK_CHANNELS_FROZEN,
   type BuildInfo,
 } from '../lib/updateChannel';
 
@@ -32,9 +33,15 @@ export default function CanaisAtualizacaoPanel({
 
   if (!currentUser) return null;
 
-  const effective = currentUser.effectiveUpdateChannel ?? currentUser.updateChannel ?? 'stable';
-  const userCh = currentUser.userUpdateChannel ?? currentUser.updateChannel ?? 'stable';
-  const deviceCh = currentUser.deviceUpdateChannel ?? 'stable';
+  const effective = NETWORK_CHANNELS_FROZEN
+    ? 'stable'
+    : (currentUser.effectiveUpdateChannel ?? currentUser.updateChannel ?? 'stable');
+  const userCh = NETWORK_CHANNELS_FROZEN
+    ? 'stable'
+    : (currentUser.userUpdateChannel ?? currentUser.updateChannel ?? 'stable');
+  const deviceCh = NETWORK_CHANNELS_FROZEN
+    ? 'stable'
+    : (currentUser.deviceUpdateChannel ?? 'stable');
 
   const handleCheck = async () => {
     setChecking(true);
@@ -76,7 +83,7 @@ export default function CanaisAtualizacaoPanel({
         <div>
           <h3 className="font-black text-sm tracking-tight">Canal de atualização</h3>
           <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
-            {readOnly ? 'Somente leitura — alteração pelo supervisor' : 'Operador + instalação'}
+            {NETWORK_CHANNELS_FROZEN ? 'Produção — canal Estável' : readOnly ? 'Somente leitura — alteração pelo supervisor' : 'Operador + instalação'}
           </p>
         </div>
       </div>
@@ -126,20 +133,29 @@ export default function CanaisAtualizacaoPanel({
         </div>
       )}
 
-      <div className="text-[10px] text-zinc-500 flex items-start gap-2 bg-amber-50 border border-amber-100 rounded-xl p-3">
-        <Shield className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
-        <div className="space-y-1">
+      {NETWORK_CHANNELS_FROZEN ? (
+        <div className="text-[10px] text-zinc-500 flex items-start gap-2 bg-emerald-50 border border-emerald-100 rounded-xl p-3">
+          <Shield className="h-4 w-4 shrink-0 text-emerald-600 mt-0.5" />
           <p>
-            O canal efetivo é o <strong>mais restritivo</strong> entre operador e instalação.
-            Dev alpha num PC de produção continua em <strong>estável</strong>.
+            Na rede, <strong>todos os PCs</strong> usam a mesma versão <strong>Estável</strong>.
+            Desenvolvimento local usa <code className="text-[10px]">tauri dev</code> (master no seu PC, sem updater).
           </p>
-          {!readOnly && (
-            <p>
-              Altere canais em <strong>Gestão de Operadores</strong> e <strong>Dispositivos</strong>.
-            </p>
-          )}
         </div>
-      </div>
+      ) : (
+        <div className="text-[10px] text-zinc-500 flex items-start gap-2 bg-amber-50 border border-amber-100 rounded-xl p-3">
+          <Shield className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+          <div className="space-y-1">
+            <p>
+              O canal efetivo é o <strong>mais restritivo</strong> entre operador e instalação.
+            </p>
+            {!readOnly && (
+              <p>
+                Altere canais em <strong>Gestão de Operadores</strong> e <strong>Dispositivos</strong>.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

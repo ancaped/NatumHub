@@ -7,7 +7,7 @@ import {
   type UpdateChannel,
   type AuthUser,
 } from '../lib/auth';
-import { UPDATE_CHANNEL_LABELS } from '../lib/updateChannel';
+import { UPDATE_CHANNEL_LABELS, NETWORK_CHANNELS_FROZEN } from '../lib/updateChannel';
 import { loadConnectionConfig } from '../lib/connectionConfig';
 
 interface DispositivosPanelProps {
@@ -62,7 +62,7 @@ export default function DispositivosPanel({ currentUser, setMessage }: Dispositi
     try {
       await updateDeviceManage(deviceId, {
         label: edit.label,
-        updateChannel: edit.updateChannel,
+        updateChannel: NETWORK_CHANNELS_FROZEN ? 'stable' : edit.updateChannel,
         supervisorPassword,
       });
       setMessage({ text: 'Dispositivo atualizado.', type: 'success' });
@@ -87,7 +87,7 @@ export default function DispositivosPanel({ currentUser, setMessage }: Dispositi
           <div>
             <h3 className="font-black text-sm tracking-tight">Dispositivos / Instalações</h3>
             <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
-              Canal por PC — trava alpha em produção
+              Registro de PCs na rede
             </p>
           </div>
         </div>
@@ -101,8 +101,14 @@ export default function DispositivosPanel({ currentUser, setMessage }: Dispositi
 
       <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 text-xs text-amber-900 leading-relaxed">
         Cada instalação registra um <strong>deviceId</strong> único no primeiro login.
-        O canal efetivo de update é o mais restritivo entre operador e instalação —
-        um dev alpha num PC de produção (stable) <strong>não</strong> baixa alpha.
+        {NETWORK_CHANNELS_FROZEN ? (
+          <> Na rede, todas usam o canal <strong>Estável</strong> — mesma versão em todos os PCs.</>
+        ) : (
+          <>
+            {' '}
+            O canal efetivo de update é o mais restritivo entre operador e instalação.
+          </>
+        )}
       </div>
 
       <div className="grid sm:grid-cols-2 gap-3">
@@ -182,24 +188,30 @@ export default function DispositivosPanel({ currentUser, setMessage }: Dispositi
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-bold text-zinc-500 uppercase">Canal da instalação</label>
-                      <select
-                        value={edit.updateChannel}
-                        onChange={(e) =>
-                          setEdits((p) => ({
-                            ...p,
-                            [d.deviceId]: {
-                              ...p[d.deviceId],
-                              updateChannel: e.target.value as UpdateChannel,
-                            },
-                          }))
-                        }
-                        className="mt-1 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm"
-                      >
-                        <option value="stable">{UPDATE_CHANNEL_LABELS.stable}</option>
-                        <option value="beta">{UPDATE_CHANNEL_LABELS.beta}</option>
-                        <option value="alpha">{UPDATE_CHANNEL_LABELS.alpha} (lab/dev)</option>
-                      </select>
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase">Canal</label>
+                      {NETWORK_CHANNELS_FROZEN ? (
+                        <p className="mt-1 text-sm font-bold text-zinc-800">
+                          {UPDATE_CHANNEL_LABELS.stable}
+                        </p>
+                      ) : (
+                        <select
+                          value={edit.updateChannel}
+                          onChange={(e) =>
+                            setEdits((p) => ({
+                              ...p,
+                              [d.deviceId]: {
+                                ...p[d.deviceId],
+                                updateChannel: e.target.value as UpdateChannel,
+                              },
+                            }))
+                          }
+                          className="mt-1 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm"
+                        >
+                          <option value="stable">{UPDATE_CHANNEL_LABELS.stable}</option>
+                          <option value="beta">{UPDATE_CHANNEL_LABELS.beta}</option>
+                          <option value="alpha">{UPDATE_CHANNEL_LABELS.alpha} (lab/dev)</option>
+                        </select>
+                      )}
                     </div>
                   </div>
                 )}
