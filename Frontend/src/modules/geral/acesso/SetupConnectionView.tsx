@@ -29,9 +29,11 @@ export type InstallRole = 'server' | 'terminal' | 'development';
 
 interface SetupConnectionViewProps {
   onComplete: () => void;
+  /** Ex.: servidor remoto offline — reconfigurar */
+  reason?: string | null;
 }
 
-export default function SetupConnectionView({ onComplete }: SetupConnectionViewProps) {
+export default function SetupConnectionView({ onComplete, reason }: SetupConnectionViewProps) {
   const [step, setStep] = useState<1 | 2>(1);
   const [role, setRole] = useState<InstallRole | null>(null);
   const [allowsServer, setAllowsServer] = useState(false);
@@ -193,9 +195,15 @@ export default function SetupConnectionView({ onComplete }: SetupConnectionViewP
             </div>
             <h1 className="text-xl font-bold tracking-tight">Configurar {APP_NAME}</h1>
             <p className="text-sm text-zinc-500 leading-relaxed">
-              {step === 1
-                ? 'Primeira instalação — como este computador será usado?'
-                : 'Detalhes da conexão'}
+              {reason ? (
+                <span className="block text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-2 text-left text-xs">
+                  {reason}
+                </span>
+              ) : step === 1 ? (
+                'Primeira instalação — como este computador será usado?'
+              ) : (
+                'Detalhes da conexão'
+              )}
             </p>
           </div>
 

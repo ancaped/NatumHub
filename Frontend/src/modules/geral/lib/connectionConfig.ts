@@ -142,6 +142,33 @@ export function markConnectionSetupCompleted(
   });
 }
 
+export function resetConnectionSetupForWizard(): void {
+  const cfg = loadConnectionConfig();
+  saveConnectionConfig({
+    ...cfg,
+    connectionSetupCompleted: false,
+  });
+}
+
+/** Aguarda API local/remota ficar online (bootstrap). */
+export async function waitForServerHealth(
+  maxMs = 20000,
+  intervalMs = 600,
+  apiOrigin?: string
+): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    try {
+      const h = await checkServerHealth(apiOrigin);
+      if (h.ok) return true;
+    } catch {
+      /* retry */
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return false;
+}
+
 export function isSetupLocked(): boolean {
   const cfg = loadConnectionConfig();
   return cfg.appMode === 'client' && !!cfg.setupLocked;

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import LoginView from './modules/geral/acesso/LoginView';
 import SetupSupervisorView from './modules/geral/acesso/SetupSupervisorView';
 import SetupConnectionView from './modules/geral/acesso/SetupConnectionView';
+import RestartRequiredView from './modules/geral/acesso/RestartRequiredView';
 import DashboardView from './modules/geral/dashboard/DashboardView';
 import ConfiguracoesView from './modules/geral/configuracoes/ConfiguracoesView';
 import FeedbacksAdminView from './modules/geral/feedbacks/FeedbacksAdminView';
@@ -47,6 +48,9 @@ import {
   isConnectionSetupCompleted,
   syncConfigFromTauri,
   loadConnectionConfig,
+  waitForServerHealth,
+  resetConnectionSetupForWizard,
+  getApiOrigin,
 } from './modules/geral/lib/connectionConfig';
 import { claimPrincipalDevice } from './modules/geral/lib/notifications';
 
@@ -58,6 +62,9 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [needsSupervisorSetup, setNeedsSupervisorSetup] = useState(false);
   const [needsConnectionSetup, setNeedsConnectionSetup] = useState(false);
+  const [connectionWizardReason, setConnectionWizardReason] = useState<string | null>(null);
+  const [needsAppRestart, setNeedsAppRestart] = useState(false);
+  const [restartMessage, setRestartMessage] = useState('');
   const [setupChecked, setSetupChecked] = useState(false);
 
   useEffect(() => {
@@ -228,33 +235,57 @@ export default function App() {
     }
   };
 
+  const openConnectionWizard = (reason?: string) => {
+    resetConnectionSetupForWizard();
+    setConnectionWizardReason(reason ?? null);
+    setNeedsConnectionSetup(true);
+    setNeedsSupervisorSetup(false);
+  };
+
   const afterConnectionSetup = async () => {
     setNeedsConnectionSetup(false);
-    if (!isPrincipalPc()) {
-      setNeedsSupervisorSetup(false);
+    setConnectionWizardReason(null);
+
+    if (isPrincipalPc()) {
+      const online = await waitForServerHealth(25000);
+      if (!online) {
+        openConnectionWizard(
+          'Servidor local não respondeu na porta 3001. Escolha Desenvolvimento (tauri dev) ou reinicie o app após configurar como Servidor.'
+        );
+        return;
+      }
       try {
-        const user = await validateSession();
-        if (user) {
-          setCurrentUser(user);
-          checkUpdates(user);
+        const setup = await fetchSetupStatus();
+        setNeedsSupervisorSetup(setup.needsSupervisorSetup);
+        if (setup.needsSupervisorSetup) {
+          clearAuthSession();
+          setCurrentUser(null);
         }
       } catch {
-        /* login em seguida */
+        setNeedsSupervisorSetup(true);
+        clearAuthSession();
+        setCurrentUser(null);
       }
       return;
     }
 
+    const online = await waitForServerHealth(12000);
+    if (!online) {
+      openConnectionWizard(
+        `Não foi possível contactar o servidor em ${getApiOrigin()}. Verifique se o PC Estável está ligado e o endereço está correto (Tailscale/LAN).`
+      );
+      return;
+    }
+
+    setNeedsSupervisorSetup(false);
     try {
-      const setup = await fetchSetupStatus();
-      setNeedsSupervisorSetup(setup.needsSupervisorSetup);
-      if (setup.needsSupervisorSetup) {
-        clearAuthSession();
-        setCurrentUser(null);
+      const user = await validateSession();
+      if (user) {
+        setCurrentUser(user);
+        checkUpdates(user);
       }
     } catch {
-      setNeedsSupervisorSetup(true);
-      clearAuthSession();
-      setCurrentUser(null);
+      /* login em seguida */
     }
   };
 
@@ -266,7 +297,15 @@ export default function App() {
         await syncConfigFromTauri();
         const { repairDevConnectionIfNeeded } = await import('./modules/geral/lib/connectionConfig');
         if (await repairDevConnectionIfNeeded()) {
-          await syncConfigFromTauri();
+          if (!cancelled) {
+            setNeedsAppRestart(true);
+            setRestartMessage(
+              'A configuração foi ajustada para servidor local de desenvolvimento. Reinicie o aplicativo para o banco e a API subirem neste PC.'
+            );
+            setSetupChecked(true);
+            setAuthReady(true);
+          }
+          return;
         }
       } catch {
         /* localStorage */
@@ -285,36 +324,68 @@ export default function App() {
       if (isPrincipalPc()) {
         fetchFirebaseConfig();
         fetchSqlConfig();
-      }
-
-      let needsSetup = false;
-      if (isPrincipalPc()) {
+        const online = await waitForServerHealth(25000);
+        if (cancelled) return;
+        if (!online) {
+          openConnectionWizard(
+            'Servidor local ainda não respondeu. Em tauri dev, escolha Desenvolvimento ou reinicie o app.'
+          );
+          setSetupChecked(true);
+          setAuthReady(true);
+          return;
+        }
+        let needsSetup = false;
         try {
           const setup = await fetchSetupStatus();
           needsSetup = setup.needsSupervisorSetup;
         } catch {
           needsSetup = true;
         }
-      }
-
-      if (cancelled) return;
-
-      if (needsSetup) {
-        clearAuthSession();
-        setCurrentUser(null);
-        setNeedsSupervisorSetup(true);
-      } else {
-        setNeedsSupervisorSetup(false);
-        try {
-          const user = await validateSession();
-          if (user) {
-            setCurrentUser(user);
-            checkUpdates(user);
-          }
-        } catch {
+        if (cancelled) return;
+        if (needsSetup) {
           clearAuthSession();
           setCurrentUser(null);
+          setNeedsSupervisorSetup(true);
+        } else {
+          setNeedsSupervisorSetup(false);
+          try {
+            const user = await validateSession();
+            if (user) {
+              setCurrentUser(user);
+              checkUpdates(user);
+            }
+          } catch {
+            clearAuthSession();
+            setCurrentUser(null);
+          }
         }
+        setSetupChecked(true);
+        setAuthReady(true);
+        return;
+      }
+
+      // Cliente remoto
+      const online = await waitForServerHealth(12000);
+      if (cancelled) return;
+      if (!online) {
+        openConnectionWizard(
+          `Servidor inacessível em ${getApiOrigin()}. Antes do login, configure a conexão com o PC Estável (ou use Desenvolvimento no tauri dev).`
+        );
+        setSetupChecked(true);
+        setAuthReady(true);
+        return;
+      }
+
+      setNeedsSupervisorSetup(false);
+      try {
+        const user = await validateSession();
+        if (user) {
+          setCurrentUser(user);
+          checkUpdates(user);
+        }
+      } catch {
+        clearAuthSession();
+        setCurrentUser(null);
       }
 
       setSetupChecked(true);
@@ -491,8 +562,14 @@ export default function App() {
       );
     }
 
+    if (needsAppRestart) {
+      return <RestartRequiredView message={restartMessage} />;
+    }
+
     if (needsConnectionSetup) {
-      return <SetupConnectionView onComplete={() => afterConnectionSetup()} />;
+      return (
+        <SetupConnectionView reason={connectionWizardReason} onComplete={() => afterConnectionSetup()} />
+      );
     }
 
     if (needsSupervisorSetup && isPrincipalPc()) {
@@ -506,6 +583,9 @@ export default function App() {
           setView={setView}
           fetchSqlConfig={fetchSqlConfig}
           appName={APP_NAME}
+          onReconfigureConnection={() =>
+            openConnectionWizard('Reconfigure como Servidor, Terminal ou Desenvolvimento.')
+          }
           onLoginSuccess={() => {
             setCurrentUser(getAuthUser());
           }}

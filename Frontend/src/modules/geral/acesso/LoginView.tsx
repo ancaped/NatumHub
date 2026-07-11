@@ -16,6 +16,7 @@ interface LoginViewProps {
   appName: string;
   loginOnly?: boolean;
   onLoginSuccess?: () => void;
+  onReconfigureConnection?: () => void;
 }
 
 export default function LoginView({
@@ -25,6 +26,7 @@ export default function LoginView({
   appName,
   loginOnly = false,
   onLoginSuccess,
+  onReconfigureConnection,
 }: LoginViewProps) {
   const [operators, setOperators] = useState<OperatorOption[]>([]);
   const [loadingOps, setLoadingOps] = useState(true);
@@ -188,6 +190,15 @@ export default function LoginView({
                     >
                       Tentar novamente
                     </button>
+                    {onReconfigureConnection && (
+                      <button
+                        type="button"
+                        onClick={onReconfigureConnection}
+                        className="text-xs font-bold text-violet-700 underline hover:no-underline"
+                      >
+                        Reconfigurar conexão
+                      </button>
+                    )}
                     {!loginOnly && (
                       <button
                         type="button"

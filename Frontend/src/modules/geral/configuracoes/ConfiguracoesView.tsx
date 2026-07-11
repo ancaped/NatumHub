@@ -205,7 +205,7 @@ export default function ConfiguracoesView({
         )}
 
         <ConexaoServidorPanel
-          isAdmin={canEditInfra}
+          isAdmin={!currentUser || isSupervisor(currentUser)}
           message={message}
           setMessage={setMessage}
         />
