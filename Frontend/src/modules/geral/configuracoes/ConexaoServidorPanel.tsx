@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Server, Wifi, Loader2, Save, Crown, Monitor, Lock, AlertTriangle } from 'lucide-react';
+import { Server, Wifi, Loader2, Save, Crown, Monitor, Lock, AlertTriangle, Code2 } from 'lucide-react';
 import {
   loadConnectionConfig,
   saveConfigToTauri,
@@ -7,6 +7,9 @@ import {
   normalizeClientConfig,
   isSetupLocked,
   isPrincipalPc,
+  canBePrincipalServer,
+  isDeveloperInstall,
+  isDevRuntime,
   type ClientConfig,
   type AppMode,
   type HealthCheckResult,
@@ -26,7 +29,35 @@ export default function ConexaoServidorPanel({ isAdmin, setMessage }: ConexaoSer
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [principalInfo, setPrincipalInfo] = useState<PrincipalDeviceInfo | null>(null);
+  const [allowsServer, setAllowsServer] = useState<boolean | null>(null);
+  const [developerInstall, setDeveloperInstall] = useState<boolean | null>(null);
   const lockedClient = isSetupLocked() && !isAdmin;
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([canBePrincipalServer(), isDeveloperInstall()]).then(([serverOk, isDev]) => {
+      if (cancelled) return;
+      setAllowsServer(serverOk);
+      setDeveloperInstall(isDev);
+      if (!serverOk && loadConnectionConfig().appMode === 'master') {
+        setConfig((prev) => ({
+          ...prev,
+          appMode: 'client',
+          isSyncMaster: false,
+        }));
+        setMessage({
+          text: isDev
+            ? 'Versão desenvolvedor/Alpha não pode ser servidor. Modo ajustado para Cliente — aponte para o PC Estável da rede.'
+            : 'Somente NatumHub Estável pode ser servidor. Modo ajustado para Cliente.',
+          type: 'error',
+        });
+        setTimeout(() => setMessage(null), 8000);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [setMessage]);
 
   useEffect(() => {
     handleTest(false);
@@ -57,6 +88,15 @@ export default function ConexaoServidorPanel({ isAdmin, setMessage }: ConexaoSer
 
   const handleSave = async () => {
     if (!isAdmin) return;
+
+    if (config.appMode === 'master' && allowsServer === false) {
+      setMessage({
+        text: 'Esta instalação não pode ser PC Principal. Use NatumHub Estável no servidor de produção.',
+        type: 'error',
+      });
+      setTimeout(() => setMessage(null), 6000);
+      return;
+    }
 
     if (
       config.appMode === 'client' &&
@@ -126,6 +166,7 @@ export default function ConexaoServidorPanel({ isAdmin, setMessage }: ConexaoSer
 
   const setAppMode = (mode: AppMode) => {
     if (lockedClient) return;
+    if (mode === 'master' && allowsServer === false) return;
     setConfig((prev) => ({
       ...prev,
       appMode: mode,
@@ -155,11 +196,24 @@ export default function ConexaoServidorPanel({ isAdmin, setMessage }: ConexaoSer
           <h3 className="font-bold text-zinc-900">Tipo deste computador</h3>
           <p className="text-xs text-zinc-500">
             {isAdmin
-              ? 'Somente administradores definem qual PC é o servidor principal (único na rede)'
+              ? 'Somente build Estável pode ser servidor. Terminais Beta/Estável conectam ao PC Principal.'
               : 'Configuração definida pelo administrador neste terminal'}
           </p>
         </div>
       </div>
+
+      {developerInstall && isAdmin && (
+        <div className="flex items-start gap-3 bg-violet-50 border border-violet-200 rounded-xl px-4 py-3">
+          <Code2 className="h-4 w-4 text-violet-600 mt-0.5 shrink-0" />
+          <div className="text-xs text-violet-900 space-y-1">
+            <p className="font-bold">Instalação desenvolvedor {isDevRuntime() ? '(tauri dev)' : '(Alpha)'}</p>
+            <p>
+              Não use como servidor — conflita com o PC Estável de produção (porta, banco, sync ERP).
+              Configure como <strong>Cliente</strong> e informe o endereço do servidor (ex. Tailscale).
+            </p>
+          </div>
+        </div>
+      )}
 
       {!isAdmin && (
         <div className="flex items-center gap-3 bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3">
@@ -212,10 +266,13 @@ export default function ConexaoServidorPanel({ isAdmin, setMessage }: ConexaoSer
           <button
             type="button"
             onClick={() => setAppMode('master')}
+            disabled={allowsServer === false}
             className={`text-left rounded-xl border-2 p-4 transition-all ${
               config.appMode === 'master'
                 ? 'border-amber-400 bg-amber-50/80 ring-1 ring-amber-200'
-                : 'border-zinc-200 bg-white hover:border-zinc-300'
+                : allowsServer === false
+                  ? 'border-zinc-100 bg-zinc-50 opacity-60 cursor-not-allowed'
+                  : 'border-zinc-200 bg-white hover:border-zinc-300'
             }`}
           >
             <div className="flex items-center gap-2 mb-2">
@@ -223,9 +280,15 @@ export default function ConexaoServidorPanel({ isAdmin, setMessage }: ConexaoSer
               <span className="text-sm font-black text-zinc-900">PC Principal (Servidor)</span>
             </div>
             <ul className="text-[11px] text-zinc-600 space-y-1 list-disc list-inside">
-              <li>Único PC com sync ERP e banco local</li>
-              <li>Ao salvar, substitui o principal anterior</li>
+              <li>Exclusivo do build <strong>NatumHub Estável</strong></li>
+              <li>Sync ERP, banco local e gestão dos 3 canais (Alpha/Beta/Estável)</li>
+              <li>Único servidor na rede — substitui o principal anterior ao salvar</li>
             </ul>
+            {allowsServer === false && (
+              <p className="text-[10px] text-amber-800 mt-2 font-semibold">
+                Indisponível nesta instalação (Alpha/Beta/dev).
+              </p>
+            )}
           </button>
 
           <button
@@ -239,11 +302,12 @@ export default function ConexaoServidorPanel({ isAdmin, setMessage }: ConexaoSer
           >
             <div className="flex items-center gap-2 mb-2">
               <Monitor className={`h-4 w-4 ${config.appMode === 'client' ? 'text-indigo-600' : 'text-zinc-400'}`} />
-              <span className="text-sm font-black text-zinc-900">PC Secundário (Cliente)</span>
+              <span className="text-sm font-black text-zinc-900">PC Secundário / Desenvolvedor</span>
             </div>
             <ul className="text-[11px] text-zinc-600 space-y-1 list-disc list-inside">
-              <li>Terminal de acesso — sem sync ERP</li>
-              <li>Bloqueado para operadores comuns</li>
+              <li>Terminal ou máquina de dev — conecta ao servidor Estável</li>
+              <li>Canal de atualização definido pelo supervisor por dispositivo</li>
+              <li>Bloqueado para operadores comuns após salvar</li>
             </ul>
           </button>
         </div>
@@ -321,10 +385,11 @@ export default function ConexaoServidorPanel({ isAdmin, setMessage }: ConexaoSer
         <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{health.error}</p>
       )}
 
-      {isAdmin && principalInfo?.isThisDevice && (
+      {isAdmin && principalInfo?.isThisDevice && config.appMode === 'master' && (
         <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
           Este PC está registrado como o <strong>único principal</strong> do NatumHub
           {principalInfo.claimedAt ? ` (desde ${principalInfo.claimedAt})` : ''}.
+          Pelo Painel Supervisor você define canal Alpha, Beta ou Estável para cada terminal da rede.
         </p>
       )}
     </div>

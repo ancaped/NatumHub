@@ -17,6 +17,10 @@ export interface ClientConfig {
   /** Identificador único desta instalação */
   deviceId?: string;
   deviceLabel?: string;
+  /** Wizard de primeira instalação concluído */
+  connectionSetupCompleted?: boolean;
+  /** server | terminal | development — definido no wizard */
+  installRole?: 'server' | 'terminal' | 'development';
 }
 
 const STORAGE_KEY = 'natum_client_config';
@@ -102,9 +106,65 @@ export function isSyncMaster(): boolean {
   return isPrincipalPc();
 }
 
+export function isConnectionSetupCompleted(): boolean {
+  const cfg = loadConnectionConfig();
+  if (cfg.connectionSetupCompleted) return true;
+
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as Partial<ClientConfig>;
+    if (parsed.connectionSetupCompleted) return true;
+    // Migração: instalações anteriores ao wizard
+    if (parsed.appMode === 'client' || parsed.setupLocked) {
+      const migrated = normalizeClientConfig({
+        ...loadConnectionConfig(),
+        connectionSetupCompleted: true,
+        installRole: parsed.appMode === 'client' ? 'terminal' : cfg.installRole,
+      });
+      saveConnectionConfig(migrated);
+      return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+export function markConnectionSetupCompleted(
+  config: ClientConfig,
+  role: ClientConfig['installRole']
+): ClientConfig {
+  return normalizeClientConfig({
+    ...config,
+    connectionSetupCompleted: true,
+    installRole: role,
+  });
+}
+
 export function isSetupLocked(): boolean {
   const cfg = loadConnectionConfig();
   return cfg.appMode === 'client' && !!cfg.setupLocked;
+}
+
+/** Dev (`tauri dev`) nunca pode ser servidor. */
+export function isDevRuntime(): boolean {
+  return import.meta.env.DEV;
+}
+
+/** Pode ser PC Principal: build Estável e fora do `tauri dev`. */
+export async function canBePrincipalServer(): Promise<boolean> {
+  if (isDevRuntime()) return false;
+  const { getBuildInfo } = await import('./updateChannel');
+  const build = await getBuildInfo();
+  return build?.canBePrincipalServer ?? false;
+}
+
+export async function isDeveloperInstall(): Promise<boolean> {
+  if (isDevRuntime()) return true;
+  const { getBuildInfo } = await import('./updateChannel');
+  const build = await getBuildInfo();
+  return build?.isDeveloperInstall ?? false;
 }
 
 export async function syncConfigFromTauri(): Promise<ClientConfig> {

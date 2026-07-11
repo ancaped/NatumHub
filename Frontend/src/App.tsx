@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import LoginView from './modules/geral/acesso/LoginView';
 import SetupSupervisorView from './modules/geral/acesso/SetupSupervisorView';
+import SetupConnectionView from './modules/geral/acesso/SetupConnectionView';
 import DashboardView from './modules/geral/dashboard/DashboardView';
 import ConfiguracoesView from './modules/geral/configuracoes/ConfiguracoesView';
 import FeedbacksAdminView from './modules/geral/feedbacks/FeedbacksAdminView';
@@ -41,7 +42,13 @@ import {
 import { getRedirectResult } from 'firebase/auth';
 
 import { runUpdateCheckFlow } from './modules/geral/lib/updateChannel';
-import { isPrincipalPc } from './modules/geral/lib/connectionConfig';
+import {
+  isPrincipalPc,
+  isConnectionSetupCompleted,
+  syncConfigFromTauri,
+  loadConnectionConfig,
+} from './modules/geral/lib/connectionConfig';
+import { claimPrincipalDevice } from './modules/geral/lib/notifications';
 
 type HubView = 'hub' | 'producao_hub' | 'producao' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'estoque_hub' | 'estoque_insumos' | 'estoque_produtos' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'vendas' | 'linha_produtos' | 'estoque_ativos' | 'financeiro';
 
@@ -50,6 +57,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<any>(() => getAuthUser());
   const [authReady, setAuthReady] = useState(false);
   const [needsSupervisorSetup, setNeedsSupervisorSetup] = useState(false);
+  const [needsConnectionSetup, setNeedsConnectionSetup] = useState(false);
   const [setupChecked, setSetupChecked] = useState(false);
 
   useEffect(() => {
@@ -203,51 +211,120 @@ export default function App() {
     }
   }, [view, currentUser, authReady]);
 
-  useEffect(() => {
-    import('./modules/geral/lib/connectionConfig').then(({ syncConfigFromTauri, isPrincipalPc: isPrincipal }) => {
-      syncConfigFromTauri()
-        .then(() => {
-          if (isPrincipal()) {
-            fetchFirebaseConfig();
-            fetchSqlConfig();
-          }
-        })
-        .catch(() => {
-          if (isPrincipalPc()) {
-            fetchFirebaseConfig();
-            fetchSqlConfig();
-          }
-        });
-    });
-    fetchSetupStatus()
-      .then(async (setup) => {
-        setNeedsSupervisorSetup(setup.needsSupervisorSetup);
-        if (setup.needsSupervisorSetup) {
-          clearAuthSession();
-          setCurrentUser(null);
-          return null;
+  const finishSupervisorSetup = async () => {
+    setNeedsSupervisorSetup(false);
+    setCurrentUser(getAuthUser());
+    if (isPrincipalPc()) {
+      const cfg = loadConnectionConfig();
+      if (cfg.deviceId) {
+        try {
+          await claimPrincipalDevice(cfg.deviceId, cfg.deviceLabel || 'PC Principal');
+        } catch (e) {
+          console.warn('Registro de PC principal:', e);
         }
-        return validateSession();
-      })
-      .then((user) => {
+      }
+      fetchFirebaseConfig();
+      fetchSqlConfig();
+    }
+  };
+
+  const afterConnectionSetup = async () => {
+    setNeedsConnectionSetup(false);
+    if (!isPrincipalPc()) {
+      setNeedsSupervisorSetup(false);
+      try {
+        const user = await validateSession();
         if (user) {
           setCurrentUser(user);
           checkUpdates(user);
         }
-      })
-      .catch(() => {
-        setNeedsSupervisorSetup(true);
+      } catch {
+        /* login em seguida */
+      }
+      return;
+    }
+
+    try {
+      const setup = await fetchSetupStatus();
+      setNeedsSupervisorSetup(setup.needsSupervisorSetup);
+      if (setup.needsSupervisorSetup) {
         clearAuthSession();
         setCurrentUser(null);
-      })
-      .finally(() => {
+      }
+    } catch {
+      setNeedsSupervisorSetup(true);
+      clearAuthSession();
+      setCurrentUser(null);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function initAuth() {
+      try {
+        await syncConfigFromTauri();
+      } catch {
+        /* localStorage */
+      }
+
+      if (cancelled) return;
+
+      if (!isConnectionSetupCompleted()) {
+        setNeedsConnectionSetup(true);
+        setNeedsSupervisorSetup(false);
         setSetupChecked(true);
         setAuthReady(true);
-      });
+        return;
+      }
+
+      if (isPrincipalPc()) {
+        fetchFirebaseConfig();
+        fetchSqlConfig();
+      }
+
+      let needsSetup = false;
+      if (isPrincipalPc()) {
+        try {
+          const setup = await fetchSetupStatus();
+          needsSetup = setup.needsSupervisorSetup;
+        } catch {
+          needsSetup = true;
+        }
+      }
+
+      if (cancelled) return;
+
+      if (needsSetup) {
+        clearAuthSession();
+        setCurrentUser(null);
+        setNeedsSupervisorSetup(true);
+      } else {
+        setNeedsSupervisorSetup(false);
+        try {
+          const user = await validateSession();
+          if (user) {
+            setCurrentUser(user);
+            checkUpdates(user);
+          }
+        } catch {
+          clearAuthSession();
+          setCurrentUser(null);
+        }
+      }
+
+      setSetupChecked(true);
+      setAuthReady(true);
+    }
+
+    initAuth();
 
     const onExpired = () => setCurrentUser(null);
     window.addEventListener('natum:auth-expired', onExpired);
-    return () => window.removeEventListener('natum:auth-expired', onExpired);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('natum:auth-expired', onExpired);
+    };
   }, []);
 
   const handleSaveFirebaseConfig = async () => {
@@ -410,15 +487,12 @@ export default function App() {
       );
     }
 
-    if (needsSupervisorSetup) {
-      return (
-        <SetupSupervisorView
-          onComplete={() => {
-            setNeedsSupervisorSetup(false);
-            setCurrentUser(getAuthUser());
-          }}
-        />
-      );
+    if (needsConnectionSetup) {
+      return <SetupConnectionView onComplete={() => afterConnectionSetup()} />;
+    }
+
+    if (needsSupervisorSetup && isPrincipalPc()) {
+      return <SetupSupervisorView onComplete={() => finishSupervisorSetup()} />;
     }
 
     if (!currentUser && view !== 'hub_settings') {

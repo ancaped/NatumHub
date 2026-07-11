@@ -54,6 +54,12 @@ pub struct ClientConfig {
     pub setup_locked: bool,
     #[serde(default)]
     pub device_id: String,
+    #[serde(default)]
+    pub device_label: String,
+    #[serde(default)]
+    pub connection_setup_completed: bool,
+    #[serde(default)]
+    pub install_role: String,
 }
 
 fn default_api_origin() -> String {
@@ -82,6 +88,9 @@ impl Default for ClientConfig {
             api_port: DEFAULT_API_PORT,
             setup_locked: false,
             device_id: String::new(),
+            device_label: String::new(),
+            connection_setup_completed: false,
+            install_role: String::new(),
         }
     }
 }
@@ -111,6 +120,7 @@ pub fn load_client_config() -> ClientConfig {
 
 pub fn save_client_config(config: &ClientConfig) -> Result<(), String> {
     let mut cfg = config.clone();
+    validate_master_mode(&cfg)?;
     normalize_client_config(&mut cfg);
     let path = config_path();
     if let Some(parent) = path.parent() {
@@ -134,4 +144,62 @@ pub fn is_sync_master() -> bool {
 
 pub fn is_principal_pc() -> bool {
     is_sync_master()
+}
+
+/// Lê `identifier` do `tauri.conf.json` (build atual).
+pub fn read_tauri_identifier() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json");
+    if let Ok(raw) = fs::read_to_string(&path) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+            if let Some(id) = json.get("identifier").and_then(|v| v.as_str()) {
+                return id.to_string();
+            }
+        }
+    }
+    "com.natum.hub".to_string()
+}
+
+/// Dev local (`tauri dev`) ou build Alpha — nunca servidor de produção.
+pub fn is_developer_identifier(identifier: &str) -> bool {
+    identifier == "com.natum.hub" || identifier.contains(".alpha")
+}
+
+/// Somente build Estável pode hospedar SQLite, Axum e sync ERP.
+pub fn can_be_principal_server(identifier: &str) -> bool {
+    identifier.contains(".stable")
+}
+
+pub fn install_channel_from_identifier(identifier: &str) -> &'static str {
+    if identifier.contains(".stable") {
+        "stable"
+    } else if identifier.contains(".beta") {
+        "beta"
+    } else if is_developer_identifier(identifier) {
+        "alpha"
+    } else {
+        "stable"
+    }
+}
+
+pub fn validate_master_mode(config: &ClientConfig) -> Result<(), String> {
+    if config.app_mode != AppMode::Master {
+        return Ok(());
+    }
+    let id = read_tauri_identifier();
+    if !can_be_principal_server(&id) {
+        let kind = if is_developer_identifier(&id) {
+            "desenvolvedor/Alpha"
+        } else if id.contains(".beta") {
+            "Beta"
+        } else {
+            "esta instalação"
+        };
+        return Err(format!(
+            "Build {kind} não pode ser PC Principal (servidor). \
+             Use NatumHub Estável no PC servidor e configure esta máquina como Cliente \
+             apontando para o endereço do servidor. O servidor Estável gerencia os canais \
+             Alpha, Beta e Estável para toda a rede."
+        ));
+    }
+    Ok(())
 }

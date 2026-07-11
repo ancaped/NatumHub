@@ -51,15 +51,15 @@ pub fn github_token(conn: &Connection) -> Option<String> {
 }
 
 pub fn channel_from_identifier(identifier: &str) -> &'static str {
-    if identifier.contains(".stable") {
-        "stable"
-    } else if identifier.contains(".beta") {
-        "beta"
-    } else if identifier.contains(".alpha") {
-        "alpha"
-    } else {
-        "stable"
-    }
+    crate::core::app_config::install_channel_from_identifier(identifier)
+}
+
+pub fn is_developer_identifier(identifier: &str) -> bool {
+    crate::core::app_config::is_developer_identifier(identifier)
+}
+
+pub fn can_be_principal_server(identifier: &str) -> bool {
+    crate::core::app_config::can_be_principal_server(identifier)
 }
 
 pub fn parse_manifest_channel(channel: &str, body: &str) -> super::models::ChannelManifestInfo {

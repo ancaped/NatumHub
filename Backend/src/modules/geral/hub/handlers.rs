@@ -153,6 +153,17 @@ pub async fn claim_principal(
             .into_response();
     }
 
+    let install_id = crate::core::app_config::read_tauri_identifier();
+    if !crate::core::app_config::can_be_principal_server(&install_id) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "Somente instalações NatumHub Estável podem ser PC Principal. Builds Alpha/Beta/desenvolvedor devem ser Clientes."
+            })),
+        )
+            .into_response();
+    }
+
     if body.device_id.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,

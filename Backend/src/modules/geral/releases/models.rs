@@ -61,4 +61,6 @@ pub struct BuildInfo {
     pub identifier: String,
     pub product_name: String,
     pub version: String,
+    pub can_be_principal_server: bool,
+    pub is_developer_install: bool,
 }

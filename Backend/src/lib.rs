@@ -807,7 +807,17 @@ fn start_axum_server() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let cfg = core::app_config::load_client_config();
-    let is_client = cfg.app_mode == core::app_config::AppMode::Client;
+    let install_id = core::app_config::read_tauri_identifier();
+    let can_host_server = core::app_config::can_be_principal_server(&install_id);
+    let is_client = cfg.app_mode == core::app_config::AppMode::Client
+        || (cfg.app_mode == core::app_config::AppMode::Master && !can_host_server);
+
+    if cfg.app_mode == core::app_config::AppMode::Master && !can_host_server {
+        eprintln!(
+            "Aviso: build \"{}\" não pode ser servidor — Axum/SQLite local desativados. Configure como Cliente.",
+            install_id
+        );
+    }
 
     if !is_client {
         run_migration_if_needed();
