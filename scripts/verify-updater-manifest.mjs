@@ -46,8 +46,8 @@ for (const file of toCheck) {
     continue;
   }
 
-  if (!platform.url.includes('.nsis.zip')) {
-    console.warn(`⚠ ${file}: URL não aponta para .nsis.zip (updater Tauri espera o zip, não o .exe)`);
+  if (!/\.(nsis\.zip|exe)$/i.test(platform.url.split('?')[0])) {
+    console.warn(`⚠ ${file}: URL deve apontar para .exe (Tauri 2) ou .nsis.zip (v1Compatible)`);
     failed = true;
   }
 

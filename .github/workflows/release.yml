@@ -134,43 +134,48 @@ jobs:
         id: artifacts
         shell: pwsh
         run: |
-          $version = "${{ needs.meta.outputs.version }}"
           $channel = "${{ matrix.channel }}"
+          # Backend/.cargo/config.toml usa target-dir = C:/natumhub no Windows local/CI
           $roots = @(
-            "Backend/target/release/bundle",
-            "Backend/target/x86_64-pc-windows-msvc/release/bundle"
+            "C:/natumhub/x86_64-pc-windows-msvc/release/bundle",
+            "C:/natumhub/release/bundle",
+            "Backend/target/x86_64-pc-windows-msvc/release/bundle",
+            "Backend/target/release/bundle"
           )
           $exe = $null
-          $zip = $null
           $sig = $null
+          $pkg = $null
           foreach ($root in $roots) {
             if (-not (Test-Path $root)) { continue }
+            Write-Host "Procurando em $root"
             if (-not $exe) {
-              $exe = Get-ChildItem -Path "$root/nsis/*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+              $exe = Get-ChildItem -Path "$root/nsis/*-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
             }
-            if (-not $zip) {
-              $zip = Get-ChildItem -Path "$root/updater/*.nsis.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $pkg) {
+              $pkg = Get-ChildItem -Path "$root/nsis/*.nsis.zip","$root/updater/*.nsis.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
             }
             if (-not $sig) {
-              $sig = Get-ChildItem -Path "$root/updater/*.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
+              $sig = Get-ChildItem -Path "$root/nsis/*-setup.exe.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
             }
-          }
-          if (-not $zip) {
-            Write-Error "Arquivo .nsis.zip do updater não encontrado (canal $channel)."
-            exit 1
+            if (-not $sig) {
+              $sig = Get-ChildItem -Path "$root/nsis/*.nsis.zip.sig","$root/updater/*.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
+            }
           }
           if (-not $exe) {
             Write-Error "Instalador .exe não encontrado (canal $channel)."
             exit 1
           }
+          # Tauri 2 (createUpdaterArtifacts: true): updater usa o próprio .exe + .exe.sig
+          if (-not $pkg) { $pkg = $exe }
           $tag = "${{ needs.meta.outputs.tag }}"
-          $zipName = $zip.Name
+          $pkgName = $pkg.Name
           $base = "https://github.com/${{ github.repository }}/releases/download/$tag"
-          "zip_path=$($zip.FullName)" >> $env:GITHUB_OUTPUT
-          "zip_name=$zipName" >> $env:GITHUB_OUTPUT
+          $urlName = [uri]::EscapeDataString($pkgName)
+          "pkg_path=$($pkg.FullName)" >> $env:GITHUB_OUTPUT
+          "pkg_name=$pkgName" >> $env:GITHUB_OUTPUT
           "exe_path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
           "exe_name=$($exe.Name)" >> $env:GITHUB_OUTPUT
-          "url=$base/$zipName" >> $env:GITHUB_OUTPUT
+          "url=$base/$urlName" >> $env:GITHUB_OUTPUT
           if ($sig) {
             "sig_path=$($sig.FullName)" >> $env:GITHUB_OUTPUT
           } else {
@@ -198,7 +203,11 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "release-staging/${{ matrix.channel }}" | Out-Null
           Copy-Item "${{ steps.artifacts.outputs.exe_path }}" "release-staging/${{ matrix.channel }}/"
-          Copy-Item "${{ steps.artifacts.outputs.zip_path }}" "release-staging/${{ matrix.channel }}/"
+          $pkg = "${{ steps.artifacts.outputs.pkg_path }}"
+          $exe = "${{ steps.artifacts.outputs.exe_path }}"
+          if ($pkg -and ($pkg -ne $exe)) {
+            Copy-Item $pkg "release-staging/${{ matrix.channel }}/"
+          }
           Copy-Item "updater-${{ matrix.channel }}.json" "release-staging/${{ matrix.channel }}/"
 
       - name: Upload channel artifacts
@@ -235,7 +244,7 @@ jobs:
             - **Desenvolvedor:** `NatumHub Dev_*_x64-setup.exe` (supervisor)
 
             ## Atualização in-app
-            Manifests `updater-stable.json` e `updater-dev.json` (pacotes `.nsis.zip`).
+            Manifests `updater-stable.json` e `updater-dev.json` (URL do instalador `.exe` assinado).
             No PC master: Configurações → Atualizações → Sincronizar manifests do GitHub.
           draft: false
           prerelease: false

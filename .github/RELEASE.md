@@ -8,7 +8,7 @@
 | **Desenvolvedor** | `com.natum.hub.dev` | `NatumHub Dev_*_x64-setup.exe` | Somente supervisor |
 
 - **Primeira instalação:** baixe o `.exe` da [GitHub Release](https://github.com/ancaped/NatumHub/releases).
-- **Atualização in-app:** Tauri baixa o **`.nsis.zip`** (URL no manifest), não o `.exe`.
+- **Atualização in-app:** com Tauri 2 (`createUpdaterArtifacts: true`), o manifest aponta para o **mesmo `.exe`** assinado (`.exe.sig` embutido no JSON).
 
 ---
 
@@ -57,11 +57,11 @@ npm run build:stable
 npm run build:dev
 ```
 
-Saída:
+Saída (com `Backend/.cargo/config.toml` → `C:/natumhub`):
 
-- `Backend/target/release/bundle/nsis/*.exe` — instalador
-- `Backend/target/release/bundle/updater/*.nsis.zip` — pacote de update
-- `Backend/target/release/bundle/updater/*.sig` — assinatura (com chave configurada)
+- `…/bundle/nsis/*-setup.exe` — instalador (também pacote de update no Tauri 2)
+- `…/bundle/nsis/*-setup.exe.sig` — assinatura do updater
+- (legado v1Compatible) `*.nsis.zip` / `*.nsis.zip.sig`
 
 ---
 
@@ -75,9 +75,8 @@ Ou **Actions → Release NatumHub → Run workflow** com tag `v0.0.12`.
 
 O workflow gera **duas builds** (matrix stable + dev) e publica na mesma release:
 
-- 2 instaladores `.exe`
-- 2 pacotes `.nsis.zip`
-- `updater-stable.json` e `updater-dev.json`
+- 2 instaladores `.exe` (Principal + Dev)
+- `updater-stable.json` e `updater-dev.json` (URL do `.exe` + signature)
 
 ---
 
@@ -100,7 +99,7 @@ node scripts/verify-updater-manifest.mjs --skip-http
 
 Checklist manual:
 
-- [ ] Release contém `updater-stable.json` e `updater-dev.json` com URLs `.nsis.zip`
+- [ ] Release contém `updater-stable.json` e `updater-dev.json` com URLs `.exe` (ou `.nsis.zip`)
 - [ ] Signatures não vazias (com secrets configurados)
 - [ ] Master sincronizou manifests (`availableOnServer` no painel)
 - [ ] App com versão anterior: **Verificar atualização (Principal)** baixa e instala
