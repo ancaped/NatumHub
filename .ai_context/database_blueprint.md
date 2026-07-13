@@ -1,6 +1,6 @@
 # Esquema e Arquitetura do Banco de Dados SQLite (`data.db`)
 
-Este blueprint detalha a estrutura do banco de dados relacional compartilhado, localizado em **`c/api/Backend/data.db`**.
+Este blueprint detalha a estrutura do banco de dados relacional compartilhado, localizado em **`Backend/data.db`** (ex.: `C:\api\Backend\data.db`).
 
 ---
 

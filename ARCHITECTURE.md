@@ -47,7 +47,7 @@ graph TD
 
 Para otimizar o consumo de tokens das IAs de codificação, evite ler todos os arquivos. Consulte apenas os caminhos específicos indicados abaixo:
 
-*   **`c/api/Frontend/`**: Frontend do aplicativo unificado.
+*   **`Frontend/`** (ex.: `C:\api\Frontend`): Frontend do aplicativo unificado.
     *   **`src/App.tsx`**: Entrada do aplicativo, controle de visualização do Hub e Error Boundaries.
     *   **`src/types.ts`**: Definições de tipos e interfaces TypeScript de todos os módulos.
     *   **`src/modules/`**: Visões principais de cada módulo.
@@ -58,7 +58,7 @@ Para otimizar o consumo de tokens das IAs de codificação, evite ler todos os a
         *   `ComprasOnlineView.tsx`: Interface de compras online integrada.
     *   **`src/components/`**: Componentes reutilizáveis (Demandas, Cotações, Cadastro de Itens, Relatórios, etc.).
     *   **`src/index.css`**: Estilos globais e tokens de design (Zinc Aesthetic).
-*   **`c/api/Backend/NatumHub/`**: Backend em Rust e infraestrutura Tauri.
+*   **`Backend/NatumHub/`** (ex.: `C:\api\Backend\NatumHub`): Backend em Rust e infraestrutura Tauri.
     *   **`src/lib.rs`**: Manipuladores Tauri, configurações do servidor Axum integrado, rotas e exportação automática de feedbacks para Markdown.
     *   **`src/db.rs`**: Funções de manipulação e migrações automáticas do banco SQLite.
     *   **`src/watcher.rs`**: Watcher automático de planilhas Excel (Faturamento/Levantamento) integradas na pasta de trabalho.
@@ -69,7 +69,7 @@ Para otimizar o consumo de tokens das IAs de codificação, evite ler todos os a
 
 ## 3. Banco de Dados Compartilhado (`data.db`)
 
-Para evitar reiniciar a compilação do Tauri continuamente durante o desenvolvimento, o arquivo **`data.db`** é mantido na pasta **`c/api/Backend/data.db`** (fora do diretório de compilação do Tauri).
+Para evitar reiniciar a compilação do Tauri continuamente durante o desenvolvimento, o arquivo **`data.db`** é mantido na pasta **`Backend/data.db`** (ex.: `C:\api\Backend\data.db`, fora do diretório de compilação do Tauri).
 
 ### Tabelas Principais e Relações
 
