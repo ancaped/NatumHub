@@ -29,6 +29,7 @@ permissions:
 env:
   CARGO_INCREMENTAL: 0
   RUST_BACKTRACE: 1
+  PROJECT_ROOT: c/api
 
 jobs:
   build-and-release:
@@ -72,19 +73,20 @@ jobs:
         shell: node
         run: |
           const fs = require('fs');
+          const root = process.env.PROJECT_ROOT;
           const v = '${{ steps.meta.outputs.version }}';
-          const tauriPath = 'Backend/tauri.conf.json';
+          const tauriPath = `${root}/Backend/NatumHub/tauri.conf.json`;
           const tauri = JSON.parse(fs.readFileSync(tauriPath, 'utf8'));
           tauri.version = v;
           fs.writeFileSync(tauriPath, JSON.stringify(tauri, null, 2) + '\n');
-          for (const p of ['Frontend/package.json', 'Backend/package.json']) {
+          for (const p of [`${root}/Frontend/package.json`, `${root}/Backend/NatumHub/package.json`]) {
             const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
             pkg.version = v;
             fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
           }
-          let cargo = fs.readFileSync('Backend/Cargo.toml', 'utf8');
+          let cargo = fs.readFileSync(`${root}/Backend/NatumHub/Cargo.toml`, 'utf8');
           cargo = cargo.replace(/^version = ".*"/m, `version = "${v}"`);
-          fs.writeFileSync('Backend/Cargo.toml', cargo);
+          fs.writeFileSync(`${root}/Backend/NatumHub/Cargo.toml`, cargo);
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -92,8 +94,8 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: |
-            Frontend/package-lock.json
-            Backend/package-lock.json
+            c/api/Frontend/package-lock.json
+            c/api/Backend/NatumHub/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -101,15 +103,15 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: Backend
+          workspaces: c/api/Backend/NatumHub
 
       - name: Install frontend dependencies
         run: npm ci
-        working-directory: Frontend
+        working-directory: c/api/Frontend
 
       - name: Install backend (Tauri CLI) dependencies
         run: npm ci
-        working-directory: Backend
+        working-directory: c/api/Backend/NatumHub
 
       - name: Build and release (Tauri)
         uses: tauri-apps/tauri-action@v0
@@ -118,7 +120,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          projectPath: Backend
+          projectPath: c/api/Backend/NatumHub
           tagName: ${{ steps.meta.outputs.tag }}
           releaseName: NatumHub ${{ steps.meta.outputs.tag }} (${{ steps.meta.outputs.channel }})
           releaseBody: ${{ steps.meta.outputs.notes }}
@@ -132,8 +134,8 @@ jobs:
         run: |
           $version = "${{ steps.meta.outputs.version }}"
           $patterns = @(
-            "Backend/target/release/bundle/updater/*.sig",
-            "Backend/target/x86_64-pc-windows-msvc/release/bundle/updater/*.sig"
+            "c/api/Backend/NatumHub/target/release/bundle/updater/*.sig",
+            "c/api/Backend/NatumHub/target/x86_64-pc-windows-msvc/release/bundle/updater/*.sig"
           )
           $sig = $null
           foreach ($p in $patterns) {
@@ -155,6 +157,7 @@ jobs:
 
       - name: Update updater manifest
         shell: pwsh
+        working-directory: c/api
         run: |
           $args = @(
             "scripts/update-updater-manifest.mjs",
@@ -171,12 +174,12 @@ jobs:
       - name: Commit updater manifest to main
         shell: bash
         run: |
-          MANIFEST="updater-${{ steps.meta.outputs.channel }}.json"
-          cp "$MANIFEST" "/tmp/$MANIFEST"
+          MANIFEST="c/api/updater-${{ steps.meta.outputs.channel }}.json"
+          cp "$MANIFEST" "/tmp/$(basename "$MANIFEST")"
           git fetch origin main
           git checkout main
           git pull origin main
-          cp "/tmp/$MANIFEST" "$MANIFEST"
+          cp "/tmp/$(basename "$MANIFEST")" "$MANIFEST"
           git add "$MANIFEST"
           git diff --staged --quiet && echo "Manifest unchanged" && exit 0
           git config user.name "github-actions[bot]"

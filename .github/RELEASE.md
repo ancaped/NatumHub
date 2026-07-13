@@ -6,7 +6,7 @@
 # TAURI_SIGNING_PRIVATE_KEY_PASSWORD (opcional)
 #   Senha da chave, se houver
 #
-# Depois de adicionar a chave privada, copie a chave PÚBLICA para Backend/tauri.conf.json → plugins.updater.pubkey
+# Depois de adicionar a chave privada, copie a chave PÚBLICA para c/api/Backend/NatumHub/tauri.conf.json → plugins.updater.pubkey
 #
 # --- Como publicar ---
 #
@@ -24,4 +24,4 @@
 #   Actions → "Promote Release" → source_tag + target_tag + target_channel
 #
 # Manifests atualizados automaticamente em:
-#   updater-alpha.json | updater-beta.json | updater-stable.json
+#   c/api/updater-alpha.json | c/api/updater-beta.json | c/api/updater-stable.json
