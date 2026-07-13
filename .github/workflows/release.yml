@@ -23,14 +23,13 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  build-and-release:
-    runs-on: windows-latest
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      notes: ${{ steps.meta.outputs.notes }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && 'feat/update-channels-ci' || github.ref }}
-
       - name: Detect version
         id: meta
         shell: bash
@@ -41,7 +40,7 @@ jobs:
             TAG="${GITHUB_REF#refs/tags/}"
           fi
           if echo "$TAG" | grep -qiE 'alpha|beta'; then
-            echo "Tags alpha/beta não são mais suportadas. Use vX.Y.Z (Estável)."
+            echo "Tags alpha/beta não são suportadas. Use vX.Y.Z."
             exit 1
           fi
           VERSION="${TAG#v}"
@@ -55,11 +54,23 @@ jobs:
           echo "$NOTES" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
+  build:
+    needs: meta
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [stable, dev]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Sync version in project files
-        shell: node
+        shell: bash
         run: |
+          node <<'NODE'
           const fs = require('fs');
-          const v = '${{ steps.meta.outputs.version }}';
+          const v = process.env.RELEASE_VERSION;
           const tauriPath = 'Backend/tauri.conf.json';
           const tauri = JSON.parse(fs.readFileSync(tauriPath, 'utf8'));
           tauri.version = v;
@@ -72,12 +83,15 @@ jobs:
           let cargo = fs.readFileSync('Backend/Cargo.toml', 'utf8');
           cargo = cargo.replace(/^version = ".*"/m, `version = "${v}"`);
           fs.writeFileSync('Backend/Cargo.toml', cargo);
-
-      - name: Apply stable release config
+          NODE
         env:
-          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.meta.outputs.version }}
+
+      - name: Apply channel config
+        env:
+          RELEASE_TAG: ${{ needs.meta.outputs.tag }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: node scripts/apply-channel-config.mjs --channel stable --tag ${{ steps.meta.outputs.tag }}
+        run: node scripts/apply-channel-config.mjs --channel ${{ matrix.channel }} --tag ${{ needs.meta.outputs.tag }}
 
       - name: Apply updater public key
         env:
@@ -109,70 +123,129 @@ jobs:
         run: npm ci
         working-directory: Backend
 
-      - name: Build and release (Tauri)
-        uses: tauri-apps/tauri-action@v0
+      - name: Build Tauri (${{ matrix.channel }})
+        working-directory: Backend
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          projectPath: Backend
-          tagName: ${{ steps.meta.outputs.tag }}
-          releaseName: NatumHub ${{ steps.meta.outputs.tag }}
-          releaseBody: ${{ steps.meta.outputs.notes }}
-          releaseDraft: false
-          prerelease: false
-          args: --target x86_64-pc-windows-msvc
+        run: npm run tauri -- build --target x86_64-pc-windows-msvc
 
-      - name: Locate updater signature
-        id: sig
+      - name: Locate release artifacts
+        id: artifacts
         shell: pwsh
         run: |
-          $version = "${{ steps.meta.outputs.version }}"
-          $patterns = @(
-            "Backend/target/release/bundle/updater/*.sig",
-            "Backend/target/x86_64-pc-windows-msvc/release/bundle/updater/*.sig"
+          $version = "${{ needs.meta.outputs.version }}"
+          $channel = "${{ matrix.channel }}"
+          $roots = @(
+            "Backend/target/release/bundle",
+            "Backend/target/x86_64-pc-windows-msvc/release/bundle"
           )
+          $exe = $null
+          $zip = $null
           $sig = $null
-          foreach ($p in $patterns) {
-            $found = Get-ChildItem -Path $p -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($found) { $sig = $found.FullName; break }
+          foreach ($root in $roots) {
+            if (-not (Test-Path $root)) { continue }
+            if (-not $exe) {
+              $exe = Get-ChildItem -Path "$root/nsis/*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            }
+            if (-not $zip) {
+              $zip = Get-ChildItem -Path "$root/updater/*.nsis.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
+            }
+            if (-not $sig) {
+              $sig = Get-ChildItem -Path "$root/updater/*.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
+            }
           }
-          if (-not $sig) {
-            Write-Warning "Arquivo .sig não encontrado — manifest ficará com signature vazia até configurar TAURI_SIGNING_PRIVATE_KEY"
-            "path=" >> $env:GITHUB_OUTPUT
-          } else {
-            "path=$sig" >> $env:GITHUB_OUTPUT
+          if (-not $zip) {
+            Write-Error "Arquivo .nsis.zip do updater não encontrado (canal $channel)."
+            exit 1
           }
-          $tag = "${{ steps.meta.outputs.tag }}"
-          $zipName = "NatumHub_${version}_x64-setup.nsis.zip"
+          if (-not $exe) {
+            Write-Error "Instalador .exe não encontrado (canal $channel)."
+            exit 1
+          }
+          $tag = "${{ needs.meta.outputs.tag }}"
+          $zipName = $zip.Name
           $base = "https://github.com/${{ github.repository }}/releases/download/$tag"
+          "zip_path=$($zip.FullName)" >> $env:GITHUB_OUTPUT
+          "zip_name=$zipName" >> $env:GITHUB_OUTPUT
+          "exe_path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+          "exe_name=$($exe.Name)" >> $env:GITHUB_OUTPUT
           "url=$base/$zipName" >> $env:GITHUB_OUTPUT
+          if ($sig) {
+            "sig_path=$($sig.FullName)" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Warning "Arquivo .sig não encontrado — configure TAURI_SIGNING_PRIVATE_KEY"
+            "sig_path=" >> $env:GITHUB_OUTPUT
+          }
 
-      - name: Update updater manifest
+      - name: Generate updater manifest
         shell: pwsh
         run: |
           $args = @(
             "scripts/update-updater-manifest.mjs",
-            "--channel", "stable",
-            "--version", "${{ steps.meta.outputs.version }}",
-            "--url", "${{ steps.sig.outputs.url }}",
-            "--notes", "${{ steps.meta.outputs.notes }}"
+            "--channel", "${{ matrix.channel }}",
+            "--version", "${{ needs.meta.outputs.version }}",
+            "--url", "${{ steps.artifacts.outputs.url }}",
+            "--notes", "${{ needs.meta.outputs.notes }}"
           )
-          if ("${{ steps.sig.outputs.path }}") {
-            $args += @("--sig", "${{ steps.sig.outputs.path }}")
+          if ("${{ steps.artifacts.outputs.sig_path }}") {
+            $args += @("--sig", "${{ steps.artifacts.outputs.sig_path }}")
           }
           node @args
 
-      - name: Upload updater manifest to GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
+      - name: Stage release files
+        shell: pwsh
         run: |
-          gh release upload "${{ steps.meta.outputs.tag }}" "updater-stable.json" --clobber
+          New-Item -ItemType Directory -Force -Path "release-staging/${{ matrix.channel }}" | Out-Null
+          Copy-Item "${{ steps.artifacts.outputs.exe_path }}" "release-staging/${{ matrix.channel }}/"
+          Copy-Item "${{ steps.artifacts.outputs.zip_path }}" "release-staging/${{ matrix.channel }}/"
+          Copy-Item "updater-${{ matrix.channel }}.json" "release-staging/${{ matrix.channel }}/"
 
-      - name: Copy updater manifest to Saves (server seed)
-        shell: bash
+      - name: Upload channel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.channel }}
+          path: release-staging/${{ matrix.channel }}/
+          if-no-files-found: error
+
+  publish:
+    needs: [meta, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all channel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-files
+          merge-multiple: true
+
+      - name: List release files
+        run: find release-files -type f | sort
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.meta.outputs.tag }}
+          name: NatumHub ${{ needs.meta.outputs.tag }}
+          body: |
+            ${{ needs.meta.outputs.notes }}
+
+            ## Instaladores (primeira instalação)
+            - **Principal:** `NatumHub_*_x64-setup.exe`
+            - **Desenvolvedor:** `NatumHub Dev_*_x64-setup.exe` (supervisor)
+
+            ## Atualização in-app
+            Manifests `updater-stable.json` e `updater-dev.json` (pacotes `.nsis.zip`).
+            No PC master: Configurações → Atualizações → Sincronizar manifests do GitHub.
+          draft: false
+          prerelease: false
+          files: release-files/**/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Copy manifests to Saves seed
         run: |
           mkdir -p Saves/updater-manifests
-          cp "updater-stable.json" "Saves/updater-manifests/updater-stable.json"
+          cp release-files/updater-stable.json Saves/updater-manifests/updater-stable.json
+          cp release-files/updater-dev.json Saves/updater-manifests/updater-dev.json

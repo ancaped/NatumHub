@@ -5,13 +5,15 @@ node_modules/
 # Build outputs
 Frontend/dist/
 Backend/target/
+Backend/target-migrate/
 Backend/gen/
 
-# Database (contains production data)
+# Database (legado local — não versionar)
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
+Saves/backups/
 
 # Logs and OS files
 *.log
@@ -31,11 +33,15 @@ Backend/WixTools/
 # Environment
 .env
 .env.local
+Saves/supabase.env
+Saves/seed_hub_from_sqlite.sql
+Saves/migrate.log
 .github_token
 
 # Tauri updater signing (never commit private key)
 Backend/natum-hub.key
 Backend/natum-hub.key.pub
+Backend/updater.pubkey
 
 # Runtime updater manifests (seeded on server)
 Saves/updater-manifests/

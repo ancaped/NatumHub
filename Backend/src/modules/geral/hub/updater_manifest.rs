@@ -20,20 +20,21 @@ pub fn manifest_path(channel: &str) -> Result<PathBuf, String> {
 
 pub fn validate_channel(channel: &str) -> Result<(), String> {
     match channel {
-        "stable" => Ok(()),
-        _ => Err(format!("Canal inválido: {channel}. Apenas stable é suportado.")),
+        "stable" | "dev" => Ok(()),
+        _ => Err(format!("Canal inválido: {channel}. Use stable ou dev.")),
     }
 }
 
 /// Copia manifests da raiz do repo para Saves na primeira execução.
 pub fn seed_manifests_from_repo_root() {
     let _ = ensure_manifests_dir();
-    let channel = "stable";
-    if let Ok(dest) = manifest_path(channel) {
-        if !dest.exists() {
-            let root_file = PathBuf::from(format!("../updater-{channel}.json"));
-            if root_file.exists() {
-                let _ = fs::copy(&root_file, &dest);
+    for channel in ["stable", "dev"] {
+        if let Ok(dest) = manifest_path(channel) {
+            if !dest.exists() {
+                let root_file = PathBuf::from(format!("../updater-{channel}.json"));
+                if root_file.exists() {
+                    let _ = fs::copy(&root_file, &dest);
+                }
             }
         }
     }
@@ -71,14 +72,24 @@ pub async fn sync_all_manifests_from_github(
     tag: Option<&str>,
 ) -> Result<Vec<String>, String> {
     let mut synced = Vec::new();
-    let channel = "stable";
+    let mut errors = Vec::new();
 
-    match fetch_manifest_from_github_release(token.as_deref(), &repo, channel, tag).await {
-        Ok(body) => {
-            write_manifest(channel, &body)?;
-            synced.push(channel.to_string());
+    for channel in ["stable", "dev"] {
+        match fetch_manifest_from_github_release(token.as_deref(), &repo, channel, tag).await {
+            Ok(body) => {
+                write_manifest(channel, &body)?;
+                synced.push(channel.to_string());
+            }
+            Err(e) => errors.push(format!("{channel}: {e}")),
         }
-        Err(e) => return Err(e),
+    }
+
+    if synced.is_empty() {
+        return Err(errors.join("; "));
+    }
+
+    if !errors.is_empty() {
+        eprintln!("[updater] sync parcial: {}", errors.join("; "));
     }
 
     Ok(synced)

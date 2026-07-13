@@ -3,6 +3,46 @@ use std::fs;
 use std::path::PathBuf;
 
 pub const CLIENT_CONFIG_PATH: &str = "../Saves/client_config.json";
+pub const LEGACY_SAVES_REL: &str = "../Saves";
+
+/// Raiz do repositório (Backend + Frontend), subindo a partir do executável ou do manifest.
+pub fn resolve_repo_root() -> Option<PathBuf> {
+    if let Ok(mut path) = std::env::current_exe() {
+        while path.pop() {
+            if path.join("Backend").is_dir() && path.join("Frontend").is_dir() {
+                return Some(path);
+            }
+        }
+    }
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    if manifest.join("tauri.conf.json").exists() {
+        return manifest.parent().map(|p| p.to_path_buf());
+    }
+    None
+}
+
+/// Pasta Saves — sempre caminho absoluto quando possível (independe do CWD do processo).
+pub fn saves_dir() -> PathBuf {
+    if let Some(root) = resolve_repo_root() {
+        return root.join("Saves");
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        for candidate in [cwd.join("Saves"), cwd.join("../Saves"), cwd.join("../../Saves")] {
+            if candidate.join("data.db").exists() {
+                return candidate;
+            }
+        }
+    }
+    PathBuf::from(LEGACY_SAVES_REL)
+}
+
+pub fn data_db_path() -> PathBuf {
+    saves_dir().join("data.db")
+}
+
+pub fn client_config_file() -> PathBuf {
+    saves_dir().join("client_config.json")
+}
 pub const DEFAULT_API_PORT: u16 = 3001;
 pub const DEFAULT_BIND_HOST: &str = "0.0.0.0";
 
@@ -104,6 +144,10 @@ pub fn normalize_client_config(config: &mut ClientConfig) {
 }
 
 pub fn config_path() -> PathBuf {
+    let resolved = client_config_file();
+    if resolved.exists() || resolve_repo_root().is_some() {
+        return resolved;
+    }
     PathBuf::from(CLIENT_CONFIG_PATH)
 }
 
@@ -159,9 +203,9 @@ pub fn read_tauri_identifier() -> String {
     "com.natum.hub".to_string()
 }
 
-/// Dev local (`com.natum.hub`) — nunca servidor de produção.
+/// Build de desenvolvimento (`com.natum.hub` = tauri dev, `com.natum.hub.dev` = instalador Dev).
 pub fn is_developer_identifier(identifier: &str) -> bool {
-    identifier == "com.natum.hub"
+    identifier == "com.natum.hub" || identifier == "com.natum.hub.dev"
 }
 
 /// Somente build Estável pode hospedar SQLite, Axum e sync ERP.
@@ -173,7 +217,10 @@ pub fn can_be_principal_server(identifier: &str) -> bool {
 pub fn install_channel_from_identifier(identifier: &str) -> &'static str {
     if identifier.contains(".stable") {
         "stable"
-    } else if is_developer_identifier(identifier) || cfg!(debug_assertions) {
+    } else if identifier.contains(".dev")
+        || is_developer_identifier(identifier)
+        || cfg!(debug_assertions)
+    {
         "dev"
     } else {
         "stable"

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Gera/atualiza updater-stable.json após build Tauri.
- * Uso: node scripts/update-updater-manifest.mjs --version 0.0.12 --sig path/to/file.sig --url https://...
+ * Gera/atualiza updater-{channel}.json após build Tauri.
+ * Uso: node scripts/update-updater-manifest.mjs --channel stable|dev --version 0.0.12 --url https://... [--sig path/to/file.sig]
  */
 import fs from 'fs';
 import path from 'path';
@@ -16,23 +16,27 @@ const channel = getArg('channel') || 'stable';
 const version = getArg('version');
 const sigPath = getArg('sig');
 const url = getArg('url');
-const notes = getArg('notes') || `NatumHub ${version}`;
+const notesArg = getArg('notes');
 const outDir = getArg('out') || process.cwd();
 
 if (!version || !url) {
-  console.error('Uso: --version X.Y.Z [--sig file.sig] --url https://... [--channel stable]');
+  console.error('Uso: --channel stable|dev --version X.Y.Z --url https://... [--sig file.sig] [--notes texto]');
   process.exit(1);
 }
 
-if (channel !== 'stable') {
-  console.error('Somente canal stable é suportado.');
+if (channel !== 'stable' && channel !== 'dev') {
+  console.error('Canal inválido. Use stable ou dev.');
   process.exit(1);
 }
 
-if (/alpha|beta/i.test(version)) {
-  console.error('Versão Estável não pode conter alpha/beta no número.');
+if (channel === 'stable' && /alpha|beta/i.test(version)) {
+  console.error('Versão Principal não pode conter alpha/beta no número.');
   process.exit(1);
 }
+
+const notes =
+  notesArg ||
+  (channel === 'dev' ? `NatumHub Dev ${version}` : `NatumHub ${version}`);
 
 let signature = '';
 if (sigPath && fs.existsSync(sigPath)) {
@@ -51,6 +55,6 @@ const manifest = {
   },
 };
 
-const outFile = path.join(outDir, 'updater-stable.json');
+const outFile = path.join(outDir, `updater-${channel}.json`);
 fs.writeFileSync(outFile, JSON.stringify(manifest, null, 2) + '\n');
 console.log('Escrito:', outFile);
