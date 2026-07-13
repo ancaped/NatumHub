@@ -1,15 +1,26 @@
 use serde::{Deserialize, Serialize};
 
 /// Chaves de submódulos (views folha) — espelham HubView do frontend.
+/// Legado — use [`MODULE_ESTOQUE_MP`] + [`MODULE_ESTOQUE_EMB`].
 pub const MODULE_ESTOQUE_INSUMOS: &str = "estoque_insumos";
+/// Legado — use [`MODULE_ESTOQUE_COLOR`] + [`MODULE_ESTOQUE_APOIO`].
 pub const MODULE_ESTOQUE_PRODUTOS: &str = "estoque_produtos";
+pub const MODULE_ESTOQUE_MP: &str = "estoque_materia_prima";
+pub const MODULE_ESTOQUE_EMB: &str = "estoque_embalagens";
+pub const MODULE_ESTOQUE_COLOR: &str = "estoque_coloracao";
+pub const MODULE_ESTOQUE_APOIO: &str = "estoque_apoio";
+/// Legado — use [`MODULE_ADMIN_LINHA_PRODUTOS`].
 pub const MODULE_ESTOQUE_ATIVOS: &str = "estoque_ativos";
+pub const MODULE_ADMIN_LINHA_PRODUTOS: &str = "admin_linha_produtos";
 
 pub const MODULE_PRODUCAO: &str = "producao";
+pub const MODULE_PRODUCAO_BASES: &str = "producao_bases";
+pub const MODULE_PRODUCAO_LOTES: &str = "producao_lotes";
 pub const MODULE_MONTAGEM_KITS: &str = "montagem_kits";
 pub const MODULE_MICROBIOLOGIA: &str = "microbiologia";
 pub const MODULE_FISCO_QUIMICA: &str = "fisco_quimica";
 
+/// Legado — Planejamento Geral removido; use MP/EMB/COLOR/APOIO.
 pub const MODULE_COMPRAS: &str = "compras";
 pub const MODULE_COMPRAS_MP: &str = "compras_materia_prima";
 pub const MODULE_COMPRAS_EMB: &str = "compras_embalagens";
@@ -21,6 +32,11 @@ pub const MODULE_COMPRAS_PEDIDOS: &str = "compras_pedidos";
 pub const MODULE_COMPRAS_NOTAS: &str = "compras_notas";
 
 pub const MODULE_VENDAS: &str = "vendas";
+pub const MODULE_VENDAS_ONLINE: &str = "vendas_online";
+pub const MODULE_CONTROLE_QUALIDADE: &str = "controle_qualidade";
+/// Placeholder legado — hub Administrativo usa filhos (`admin_linha_produtos`, …).
+pub const MODULE_ADMINISTRATIVO: &str = "administrativo";
+pub const MODULE_EXPEDICAO: &str = "expedicao";
 pub const MODULE_FINANCEIRO: &str = "financeiro";
 pub const MODULE_CONFIGURACOES: &str = "hub_settings";
 pub const MODULE_OPERADORES: &str = "hub_operadores";
@@ -28,12 +44,17 @@ pub const MODULE_OPERADORES: &str = "hub_operadores";
 pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_ESTOQUE_INSUMOS,
     MODULE_ESTOQUE_PRODUTOS,
-    MODULE_ESTOQUE_ATIVOS,
+    MODULE_ESTOQUE_MP,
+    MODULE_ESTOQUE_EMB,
+    MODULE_ESTOQUE_COLOR,
+    MODULE_ESTOQUE_APOIO,
+    MODULE_ADMIN_LINHA_PRODUTOS,
     MODULE_PRODUCAO,
+    MODULE_PRODUCAO_BASES,
+    MODULE_PRODUCAO_LOTES,
     MODULE_MONTAGEM_KITS,
     MODULE_MICROBIOLOGIA,
     MODULE_FISCO_QUIMICA,
-    MODULE_COMPRAS,
     MODULE_COMPRAS_MP,
     MODULE_COMPRAS_EMB,
     MODULE_COMPRAS_COLOR,
@@ -43,6 +64,10 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_COMPRAS_PEDIDOS,
     MODULE_COMPRAS_NOTAS,
     MODULE_VENDAS,
+    MODULE_VENDAS_ONLINE,
+    MODULE_CONTROLE_QUALIDADE,
+    MODULE_ADMINISTRATIVO,
+    MODULE_EXPEDICAO,
     MODULE_FINANCEIRO,
     MODULE_CONFIGURACOES,
     MODULE_OPERADORES,
@@ -71,9 +96,10 @@ pub fn module_registry() -> Vec<ModuleGroup> {
             label: "Estoque".into(),
             hub_view: "estoque_hub".into(),
             children: vec![
-                leaf(MODULE_ESTOQUE_INSUMOS, "Insumos"),
-                leaf(MODULE_ESTOQUE_PRODUTOS, "Produtos"),
-                leaf(MODULE_ESTOQUE_ATIVOS, "Linha de Produtos"),
+                leaf(MODULE_ESTOQUE_MP, "Matéria-Prima"),
+                leaf(MODULE_ESTOQUE_EMB, "Embalagens"),
+                leaf(MODULE_ESTOQUE_COLOR, "Coloração"),
+                leaf(MODULE_ESTOQUE_APOIO, "Material de Apoio"),
             ],
         },
         ModuleGroup {
@@ -82,6 +108,8 @@ pub fn module_registry() -> Vec<ModuleGroup> {
             hub_view: "producao_hub".into(),
             children: vec![
                 leaf(MODULE_PRODUCAO, "Gerenciamento"),
+                leaf(MODULE_PRODUCAO_BASES, "Gestão de Bases"),
+                leaf(MODULE_PRODUCAO_LOTES, "Lotes de Produção"),
                 leaf(MODULE_MONTAGEM_KITS, "Montagem de Kits"),
                 leaf(MODULE_MICROBIOLOGIA, "Microbiologia"),
                 leaf(MODULE_FISCO_QUIMICA, "Físico-Química"),
@@ -92,7 +120,6 @@ pub fn module_registry() -> Vec<ModuleGroup> {
             label: "Compras".into(),
             hub_view: "compras_hub".into(),
             children: vec![
-                leaf(MODULE_COMPRAS, "Planejamento Geral"),
                 leaf(MODULE_COMPRAS_MP, "Matéria-Prima"),
                 leaf(MODULE_COMPRAS_EMB, "Embalagens"),
                 leaf(MODULE_COMPRAS_COLOR, "Coloração"),
@@ -106,8 +133,29 @@ pub fn module_registry() -> Vec<ModuleGroup> {
         ModuleGroup {
             key: "vendas".into(),
             label: "Vendas".into(),
-            hub_view: "vendas".into(),
-            children: vec![leaf(MODULE_VENDAS, "Vendas Geral")],
+            hub_view: "vendas_hub".into(),
+            children: vec![
+                leaf(MODULE_VENDAS, "Vendas Geral"),
+                leaf(MODULE_VENDAS_ONLINE, "Vendas Online"),
+            ],
+        },
+        ModuleGroup {
+            key: "qualidade".into(),
+            label: "Qualidade".into(),
+            hub_view: "controle_qualidade".into(),
+            children: vec![leaf(MODULE_CONTROLE_QUALIDADE, "Controle de Qualidade")],
+        },
+        ModuleGroup {
+            key: "administrativo".into(),
+            label: "Administrativo".into(),
+            hub_view: "administrativo".into(),
+            children: vec![leaf(MODULE_ADMIN_LINHA_PRODUTOS, "Linha de Produtos")],
+        },
+        ModuleGroup {
+            key: "expedicao".into(),
+            label: "Expedição".into(),
+            hub_view: "expedicao".into(),
+            children: vec![leaf(MODULE_EXPEDICAO, "Expedição")],
         },
         ModuleGroup {
             key: "financeiro".into(),
@@ -142,15 +190,18 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
     match role.to_lowercase().as_str() {
         "supervisor" | "admin" => all_module_keys_vec(),
         "estoque" => vec![
-            MODULE_ESTOQUE_INSUMOS,
-            MODULE_ESTOQUE_PRODUTOS,
-            MODULE_ESTOQUE_ATIVOS,
+            MODULE_ESTOQUE_MP,
+            MODULE_ESTOQUE_EMB,
+            MODULE_ESTOQUE_COLOR,
+            MODULE_ESTOQUE_APOIO,
         ]
         .into_iter()
         .map(String::from)
         .collect(),
         "producao" | "produção" => vec![
             MODULE_PRODUCAO,
+            MODULE_PRODUCAO_BASES,
+            MODULE_PRODUCAO_LOTES,
             MODULE_MONTAGEM_KITS,
         ]
         .into_iter()
@@ -159,7 +210,6 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
         "micro" | "microbiologia" => vec![MODULE_MICROBIOLOGIA.to_string()],
         "fisco" | "fisico-quimica" | "físico-química" => vec![MODULE_FISCO_QUIMICA.to_string()],
         "compras" => vec![
-            MODULE_COMPRAS,
             MODULE_COMPRAS_MP,
             MODULE_COMPRAS_EMB,
             MODULE_COMPRAS_COLOR,
@@ -173,7 +223,13 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
         .map(String::from)
         .collect(),
         "financeiro" => vec![MODULE_FINANCEIRO.to_string()],
-        "vendas" => vec![MODULE_VENDAS.to_string()],
+        "vendas" => vec![MODULE_VENDAS, MODULE_VENDAS_ONLINE]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        "qualidade" => vec![MODULE_CONTROLE_QUALIDADE.to_string()],
+        "administrativo" => vec![MODULE_ADMIN_LINHA_PRODUTOS.to_string()],
+        "expedicao" => vec![MODULE_EXPEDICAO.to_string()],
         _ => vec![],
     }
 }
@@ -185,7 +241,8 @@ pub fn view_to_module_key(view: &str) -> Option<&str> {
         "estoque_hub" => None,
         "producao_hub" => None,
         "compras_hub" => None,
-        "linha_produtos" => Some(MODULE_ESTOQUE_ATIVOS),
+        "vendas_hub" => None,
+        "linha_produtos" | "estoque_ativos" => Some(MODULE_ADMIN_LINHA_PRODUTOS),
         other => {
             if ALL_MODULE_KEYS.contains(&other) {
                 Some(other)
@@ -213,18 +270,39 @@ pub fn can_access_view(modules: &[String], view: &str, is_admin: bool) -> bool {
         return true;
     }
     if let Some(key) = view_to_module_key(view) {
-        return modules.iter().any(|m| m == key);
+        return module_grants_view(modules, key);
     }
     hub_visible_if_any_child(modules, view)
 }
 
 pub fn normalize_modules(modules: &[String]) -> Vec<String> {
-    let mut out: Vec<String> = modules
-        .iter()
-        .filter(|m| ALL_MODULE_KEYS.contains(&m.as_str()))
-        .cloned()
-        .collect();
+    let mut out: Vec<String> = Vec::new();
+    for m in modules {
+        if m == MODULE_ESTOQUE_ATIVOS {
+            out.push(MODULE_ADMIN_LINHA_PRODUTOS.to_string());
+        } else if m == MODULE_ESTOQUE_INSUMOS {
+            out.push(MODULE_ESTOQUE_MP.to_string());
+            out.push(MODULE_ESTOQUE_EMB.to_string());
+        } else if m == MODULE_ESTOQUE_PRODUTOS {
+            out.push(MODULE_ESTOQUE_COLOR.to_string());
+            out.push(MODULE_ESTOQUE_APOIO.to_string());
+        } else if ALL_MODULE_KEYS.contains(&m.as_str()) {
+            out.push(m.clone());
+        }
+    }
     out.sort();
     out.dedup();
     out
+}
+
+fn module_grants_view(modules: &[String], key: &str) -> bool {
+    match key {
+        MODULE_ESTOQUE_INSUMOS => modules.iter().any(|m| {
+            m == MODULE_ESTOQUE_INSUMOS || m == MODULE_ESTOQUE_MP || m == MODULE_ESTOQUE_EMB
+        }),
+        MODULE_ESTOQUE_PRODUTOS => modules.iter().any(|m| {
+            m == MODULE_ESTOQUE_PRODUTOS || m == MODULE_ESTOQUE_COLOR || m == MODULE_ESTOQUE_APOIO
+        }),
+        other => modules.iter().any(|m| m == other),
+    }
 }

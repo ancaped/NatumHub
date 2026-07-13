@@ -19,9 +19,8 @@ Se for view folha, adicione em `view_to_module_key` / `viewToModuleKey` quando n
 
 ```
 Frontend/src/modules/<area>/<sub>/
-├── <Nome>View.tsx          # Tela principal
-├── docs/README.md          # Doc do módulo (contrato, rotas)
-└── lib/                    # (opcional) helpers locais
+├── <Nome>View.tsx
+└── lib/                    # (opcional)
 ```
 
 1. Criar pasta espelhando o backend (`compras/planejamento`, `producao/microbiologia`, etc.).

@@ -74,11 +74,7 @@ pub async fn start_erp_sync_scheduler(state: Arc<AppState>) {
     loop {
         ticker.tick().await;
 
-        if !crate::core::app_config::is_sync_master() {
-            continue;
-        }
-
-        let cfg = match state.db.get_erp_sync_schedule() {
+        let cfg = match state.db.get_erp_sync_schedule().await {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("[ERP Sync Scheduler] Erro ao ler configuração: {}", e);
@@ -102,6 +98,7 @@ pub async fn start_erp_sync_scheduler(state: Arc<AppState>) {
         if state
             .db
             .get_erp_sync_last_slot()
+            .await
             .ok()
             .flatten()
             .as_deref()
@@ -126,19 +123,25 @@ pub async fn start_erp_sync_scheduler(state: Arc<AppState>) {
             slot_key
         );
 
-        let result = execute_erp_sync(state.clone(), "Banco SQL Server NATUM (automático)").await;
+        let result = execute_erp_sync(
+            state.clone(),
+            "Banco SQL Server NATUM (automático)",
+            crate::core::legacy_db::SyncMode::Incremental,
+        )
+        .await;
         SYNC_IN_PROGRESS.store(false, Ordering::SeqCst);
 
         match result {
             Ok(_) => {
                 let stamp = Local::now().format("%d/%m/%Y %H:%M:%S").to_string();
-                let _ = state.db.set_erp_sync_last_slot(&slot_key);
-                let _ = state.db.set_erp_sync_last_auto_run(&stamp);
+                let _ = state.db.set_erp_sync_last_slot(&slot_key).await;
+                let _ = state.db.set_erp_sync_last_auto_run(&stamp).await;
                 println!(
                     "[ERP Sync Scheduler] Sync automático concluído ({})",
                     stamp
                 );
             }
+            Err(e) if e == crate::core::pg_db::SYNC_ALREADY_RUNNING => {}
             Err(e) => {
                 eprintln!("[ERP Sync Scheduler] Falha no sync automático: {}", e);
             }

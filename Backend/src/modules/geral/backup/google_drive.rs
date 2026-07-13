@@ -17,9 +17,9 @@ pub struct GoogleConfig {
 
 // GET /api/google/status
 pub async fn get_google_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let client_id = state.db.get_setting("google_client_id").unwrap_or(None);
+    let client_id = state.db.get_setting("google_client_id").await.unwrap_or(None);
     let client_configured = client_id.is_some() && !client_id.as_ref().unwrap().is_empty();
-    let is_authenticated = state.db.get_setting("google_access_token").unwrap_or(None).is_some();
+    let is_authenticated = state.db.get_setting("google_access_token").await.unwrap_or(None).is_some();
     
     (
         StatusCode::OK,
@@ -27,7 +27,7 @@ pub async fn get_google_status(State(state): State<Arc<AppState>>) -> impl IntoR
             "configured": client_configured,
             "client_id": client_id.unwrap_or_default(),
             "authenticated": is_authenticated,
-            "last_sync": state.db.get_setting("google_last_sync").unwrap_or(None).unwrap_or_else(|| "Nunca sincronizado".to_string())
+            "last_sync": state.db.get_setting("google_last_sync").await.unwrap_or(None).unwrap_or_else(|| "Nunca sincronizado".to_string())
         }))
     ).into_response()
 }
@@ -37,10 +37,10 @@ pub async fn save_google_config(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<GoogleConfig>,
 ) -> impl IntoResponse {
-    if let Err(e) = state.db.save_setting("google_client_id", &payload.client_id) {
+    if let Err(e) = state.db.save_setting("google_client_id", &payload.client_id).await {
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response();
     }
-    if let Err(e) = state.db.save_setting("google_client_secret", &payload.client_secret) {
+    if let Err(e) = state.db.save_setting("google_client_secret", &payload.client_secret).await {
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response();
     }
     
@@ -52,7 +52,7 @@ pub async fn save_google_config(
 
 // GET /api/google/auth-url
 pub async fn google_auth_url(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let client_id = match state.db.get_setting("google_client_id") {
+    let client_id = match state.db.get_setting("google_client_id").await {
         Ok(Some(id)) if !id.is_empty() => id,
         _ => return (
             StatusCode::BAD_REQUEST,
@@ -88,10 +88,10 @@ pub async fn google_callback(
     
     // In a real implementation, we exchange the code for access/refresh tokens here.
     // We will simulate authentication by saving a mock access token.
-    if let Err(e) = state.db.save_setting("google_access_token", "mock_access_token") {
+    if let Err(e) = state.db.save_setting("google_access_token", "mock_access_token").await {
         return (StatusCode::INTERNAL_SERVER_ERROR, format!("Erro ao salvar token: {}", e)).into_response();
     }
-    if let Err(e) = state.db.save_setting("google_refresh_token", "mock_refresh_token") {
+    if let Err(e) = state.db.save_setting("google_refresh_token", "mock_refresh_token").await {
         return (StatusCode::INTERNAL_SERVER_ERROR, format!("Erro ao salvar refresh token: {}", e)).into_response();
     }
 
@@ -99,9 +99,9 @@ pub async fn google_callback(
     axum::response::Redirect::temporary("http://localhost:5173/").into_response()
 }
 
-// POST /api/google/sync (Triggers upload of SQLite DB file to Google Drive)
+// POST /api/google/sync — placeholder (backup via resumo ERP / Firebase)
 pub async fn trigger_sync(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let access_token = state.db.get_setting("google_access_token").unwrap_or(None);
+    let access_token = state.db.get_setting("google_access_token").await.unwrap_or(None);
     if access_token.is_none() {
         return (
             StatusCode::UNAUTHORIZED,
@@ -114,7 +114,7 @@ pub async fn trigger_sync(State(state): State<Arc<AppState>>) -> impl IntoRespon
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     println!("Sincronizando arquivo de banco natum_producao.db com Google Drive em: {}", now);
 
-    if let Err(e) = state.db.save_setting("google_last_sync", &now) {
+    if let Err(e) = state.db.save_setting("google_last_sync", &now).await {
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response();
     }
 
@@ -122,7 +122,7 @@ pub async fn trigger_sync(State(state): State<Arc<AppState>>) -> impl IntoRespon
         StatusCode::OK,
         Json(json!({
             "status": "success",
-            "message": format!("Banco de dados SQLite sincronizado com Google Drive com sucesso em: {}", now),
+            "message": format!("Sync Google Drive registrado em: {}", now),
             "last_sync": now
         }))
     ).into_response()

@@ -5,17 +5,29 @@ import {
   ArrowLeft, Search, Database, Layers, Boxes, Calendar, FileText, 
   RefreshCw, CheckCircle2, AlertTriangle, ArrowUpRight, ArrowDownRight, 
   Info, Shield, Package, ShoppingCart, User, HelpCircle, FileSpreadsheet, Lock,
-  Truck, Receipt, Clock, X, Link
+  Truck, Receipt, Clock, X, Link, Palette, Tag
 } from 'lucide-react';
 import { cn } from '../../geral/lib/utils';
-import ActiveProductsView from '../linha_produtos/ActiveProductsView';
+import { useGlobalNavActive } from '../../geral/components/layout/NavShellContext';
 import { StockMovement, FormulationLine, DbDumpResult } from '../../geral/lib/types';
 
-type EstoqueMode = 'insumos' | 'produtos' | 'ativos';
+type EstoqueMode = 'materia_prima' | 'embalagens' | 'coloracao' | 'apoio' | 'insumos' | 'produtos';
+type DataKind = 'insumos' | 'produtos';
 
 interface EstoqueViewProps {
   mode: EstoqueMode;
   onBackToHub: () => void;
+}
+
+function activeTabForMode(mode: EstoqueMode): DataKind {
+  if (mode === 'coloracao' || mode === 'apoio' || mode === 'produtos') return 'produtos';
+  return 'insumos';
+}
+
+function lockedInsumosSubTab(mode: EstoqueMode): 'mp' | 'emb' | null {
+  if (mode === 'materia_prima') return 'mp';
+  if (mode === 'embalagens') return 'emb';
+  return null;
 }
 
 interface ProductCalculationResult {
@@ -24,6 +36,8 @@ interface ProductCalculationResult {
   linha_prefix: string;
   nome_linha: string;
   base: string | null;
+  base_codigo?: string | null;
+  categoria_produto?: string | null;
   fase: string | null;
   estoque: number;
   producao: number;
@@ -90,7 +104,31 @@ interface ItemExtraInfo {
   lotes: ProductLoteInfo[];
 }
 
-const MODE_CONFIGS = {
+const MODE_CONFIGS: Record<EstoqueMode, { title: string; subtitle: string; icon: typeof Layers; pageName: string }> = {
+  materia_prima: {
+    title: 'Matéria-Prima',
+    subtitle: 'Estoque de insumos químicos e matérias-primas — consulta, movimentações e contagens.',
+    icon: Database,
+    pageName: 'Módulo de Estoque > Matéria-Prima',
+  },
+  embalagens: {
+    title: 'Embalagens',
+    subtitle: 'Frascos, rótulos, tampas e demais embalagens — movimentação e saldo por item.',
+    icon: Boxes,
+    pageName: 'Módulo de Estoque > Embalagens',
+  },
+  coloracao: {
+    title: 'Coloração',
+    subtitle: 'Produtos de coloração — estoque, lotes produzidos e movimentações.',
+    icon: Palette,
+    pageName: 'Módulo de Estoque > Coloração',
+  },
+  apoio: {
+    title: 'Material de Apoio',
+    subtitle: 'Materiais de apoio à produção — consulta de saldo e histórico de movimentações.',
+    icon: Tag,
+    pageName: 'Módulo de Estoque > Material de Apoio',
+  },
   insumos: {
     title: 'Insumos',
     subtitle: 'Níveis de estoque de matérias-primas químicas, essências, embalagens e materiais de consumo com histórico de movimentações.',
@@ -103,29 +141,20 @@ const MODE_CONFIGS = {
     icon: Package,
     pageName: 'Módulo de Estoque > Produtos',
   },
-  ativos: {
-    title: 'Linha de Produtos',
-    subtitle: 'Definição de linhas de produtos, visibilidade e status ativo/lançamento.',
-    icon: CheckCircle2,
-    pageName: 'Módulo de Estoque > Linha de Produtos',
-  },
 };
 
-export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueViewProps) {
-  const [activeTab, setActiveTab] = useState<EstoqueMode>(mode);
-  const [insumosSubTab, setInsumosSubTab] = useState<'todas' | 'mp' | 'emb' | 'mat' | 'relatorios' | 'contagens'>('todas');
+export default function EstoqueView({ mode = 'materia_prima', onBackToHub }: EstoqueViewProps) {
+  const globalNav = useGlobalNavActive();
+  const activeTab = activeTabForMode(mode);
+  const lockedSub = lockedInsumosSubTab(mode);
+  const [insumosSubTab, setInsumosSubTab] = useState<'todas' | 'mp' | 'emb' | 'mat' | 'relatorios' | 'contagens'>(lockedSub ?? 'todas');
   const [produtosSubTab, setProdutosSubTab] = useState<'todos' | 'relatorios' | 'contagens'>('todos');
 
-  // Sync active tab if mode changes
   useEffect(() => {
-    setActiveTab(mode);
-  }, [mode]);
+    if (lockedSub) setInsumosSubTab(lockedSub);
+  }, [lockedSub]);
 
-  if (activeTab === 'ativos') {
-    return <ActiveProductsView onBackToHub={onBackToHub} standalone={false} />;
-  }
-
-  const config = MODE_CONFIGS[activeTab];
+  const config = MODE_CONFIGS[mode];
   const ModeIcon = config.icon;
   
   // Data States
@@ -185,19 +214,24 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
 
   // Load Main Data
   const loadData = async (silent = false) => {
-    if ((activeTab as string) === 'ativos') return;
     if (!silent) setLoading(true);
     try {
       if (activeTab === 'produtos') {
-        // Get calculated products with stocks via REST API
-        const res = await apiFetch(`/products?limit=5000`);
+        const params = new URLSearchParams({ limit: '5000' });
+        if (mode === 'coloracao') params.set('categoria', 'cat_coloracao');
+        if (mode === 'apoio') params.set('categoria', 'cat_apoio');
+        const res = await apiFetch(`/products?${params.toString()}`);
         if (res.ok) {
           const data = await res.json();
           setProducts(data.items || []);
         }
-      } else if (activeTab === 'insumos') {
-        // Get raw items/demands via Tauri API (for stock snapshots of Insumos/Materiais)
-        const demandsData = await api.getDemands();
+      } else {
+        const categoryId =
+          mode === 'materia_prima' ? 'cat_mp'
+          : mode === 'embalagens' ? 'cat_emb'
+          : mode === 'insumos' ? undefined
+          : undefined;
+        const demandsData = await api.getDemands(categoryId);
         setDemands(demandsData as any);
       }
     } catch (e) {
@@ -208,16 +242,9 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
   };
 
   useEffect(() => {
-    const hasProducts = products.length > 0;
-    const hasDemands = demands.length > 0;
-    const alreadyLoaded = (activeTab === 'produtos' && hasProducts) || 
-                          (activeTab === 'insumos' && hasDemands);
-    
-    if ((activeTab as string) !== 'ativos') {
-      loadData(alreadyLoaded);
-    }
+    loadData(false);
     (window as any).__current_page__ = config.pageName;
-  }, [activeTab]);
+  }, [mode]);
 
   // Click handler to open detail drawer
   const handleOpenDrawer = async (
@@ -301,11 +328,12 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
     if (activeTab !== 'insumos') return [];
     let list = demands;
 
-    if (insumosSubTab === 'mp') {
+    const sub = lockedSub ?? insumosSubTab;
+    if (sub === 'mp') {
       list = list.filter(d => d.itemCode.startsWith('9.15.'));
-    } else if (insumosSubTab === 'emb') {
+    } else if (sub === 'emb') {
       list = list.filter(d => d.itemCode.startsWith('9.') && !d.itemCode.startsWith('9.15.'));
-    } else if (insumosSubTab === 'mat') {
+    } else if (sub === 'mat') {
       list = list.filter(d => d.itemCode.startsWith('08.'));
     }
 
@@ -317,9 +345,8 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
       );
     }
     return list;
-  }, [demands, activeTab, insumosSubTab, search]);
+  }, [demands, activeTab, insumosSubTab, lockedSub, search]);
 
-  // Filter products based on search
   const filteredProducts = useMemo(() => {
     if (activeTab !== 'produtos') return [];
     let list = products;
@@ -371,7 +398,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
       {/* Sidebar */}
       <div className="w-64 bg-white border-r border-zinc-200 flex flex-col shrink-0">
 
-        {/* Back Button */}
+        {!globalNav && (
         <div className="p-3 border-b border-zinc-100">
           <button
             onClick={onBackToHub}
@@ -381,9 +408,10 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
             Voltar ao Estoque Hub
           </button>
         </div>
+        )}
 
         {/* Navigation Tabs */}
-        {activeTab === 'insumos' ? (
+        {activeTab === 'insumos' && mode === 'insumos' ? (
           <div className="p-2 border-b border-zinc-100 space-y-1">
             <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
               Categorias
@@ -502,8 +530,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
             <p className="text-xs text-zinc-500 leading-relaxed">{config.subtitle}</p>
           </div>
           
-          {(activeTab as string) !== 'ativos' && (
-            <div className="space-y-2">
+          <div className="space-y-2">
               <div className="flex justify-between items-center px-1">
                 <span className="text-[10px] text-zinc-400 font-bold uppercase">Total Itens</span>
                 <span className="text-sm font-extrabold text-zinc-900">
@@ -542,16 +569,11 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                 </>
               )}
             </div>
-          )}
         </div>
       </div>
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
-        {(activeTab as string) === 'ativos' ? (
-          <ActiveProductsView onBackToHub={onBackToHub} standalone={false} />
-        ) : (
-          <>
             <main className="flex-1 overflow-y-auto p-6 flex flex-col">
               {activeTab === 'insumos' && insumosSubTab === 'relatorios' ? (
                 <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-zinc-200 rounded-2xl shadow-sm space-y-4 max-w-2xl mx-auto mt-12 animate-in fade-in duration-300">
@@ -725,8 +747,6 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
             </div>
           )}
         </main>
-          </>
-        )}
       </div>
 
       {/* Side Detail Drawer (Movimentações, Fórmula, Notas, Pedidos, Lotes) */}

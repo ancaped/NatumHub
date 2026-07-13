@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../geral/lib/api';
-import { getAuthUser, logoutOperator } from '../../geral/lib/auth';
+import { apiFetch } from '../../geral/lib/http';
+import { getAuthUser } from '../../geral/lib/auth';
 import { 
-  FiscoQuimicaPattern, FiscoQuimicaAgent, FiscoQuimicaAnalysis, Product, Item
+  FiscoQuimicaPattern, FiscoQuimicaAgent, FiscoQuimicaAnalysis, Product, Item, LoteProductLine
 } from '../../geral/lib/types';
 import { 
   ArrowLeft, FlaskConical, Plus, Search, Calendar, User, Info, 
@@ -10,6 +11,7 @@ import {
   HelpCircle, Settings, Calculator, Activity, Trash, X, Loader2
 } from 'lucide-react';
 import { cn } from '../../geral/lib/utils';
+import { loteLookupErrorMessage, loteProductLabel } from '../lib/loteLookup';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import Modal from '../../geral/components/ui/Modal';
 
@@ -37,8 +39,11 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
 
   // New Analysis Form States
   const [formProductCode, setFormProductCode] = useState('');
+  const [formProductName, setFormProductName] = useState('');
   const [formBatch, setFormBatch] = useState('');
   const [formBatchLoading, setFormBatchLoading] = useState(false);
+  const [formLoteProducts, setFormLoteProducts] = useState<LoteProductLine[]>([]);
+  const [formLoteHint, setFormLoteHint] = useState<string | null>(null);
   const [formDate, setFormDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [formTechnician, setFormTechnician] = useState('');
 
@@ -86,14 +91,26 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
   const loadAllData = async () => {
     setLoading(true);
     try {
-      const [prods, pats, ags, anals, allItems] = await Promise.all([
-        api.getProducts(),
+      const [prodsRes, pats, ags, anals, allItems] = await Promise.all([
+        apiFetch('/products?limit=5000'),
         api.getFiscoQuimicaPatterns(),
         api.getFiscoQuimicaAgents(),
         api.getFiscoQuimicaAnalyses(),
         api.getItems()
       ]);
-      setProducts(prods);
+
+      let catalogProducts: Product[] = [];
+      if (prodsRes.ok) {
+        const data = await prodsRes.json();
+        catalogProducts = (data.items || []).map((p: { codigo: string; descricao?: string }) => ({
+          code: p.codigo,
+          name: p.descricao || p.codigo,
+          packaging: 'Pote',
+          validity: '3 anos',
+        }));
+      }
+
+      setProducts(catalogProducts);
       setPatterns(pats);
       setAgents(ags);
       setAnalyses(anals);
@@ -133,31 +150,75 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
 
   const handleBatchChange = async (val: string) => {
     setFormBatch(val);
-    if (val.length >= 3) {
-      setFormBatchLoading(true);
-      try {
-        const lote = await api.getLoteByNumber(val);
-        if (lote) {
-          // Find matching product code with normalization fallback
-          const normalizedLoteCode = normalizeCode(lote.productCode);
-          const matchedProduct = products.find(p => normalizeCode(p.code) === normalizedLoteCode);
-          
-          if (matchedProduct) {
-            setFormProductCode(matchedProduct.code);
-          } else {
-            setFormProductCode(lote.productCode);
-          }
-
-          if (lote.quantity > 0) {
-            setAdjBatchSize(lote.quantity.toString());
-          }
-        }
-      } catch (err) {
-        console.error("Error fetching lote:", err);
-      } finally {
-        setFormBatchLoading(false);
-      }
+    setFormLoteProducts([]);
+    setFormLoteHint(null);
+    if (val.trim().length < 3) {
+      setFormProductCode('');
+      setFormProductName('');
+      return;
     }
+    setFormBatchLoading(true);
+    try {
+      const lote = await api.getLoteByNumber(val);
+      if (lote?.products?.length) {
+        setFormLoteProducts(lote.products);
+        if (lote.products.length === 1) {
+          applyLoteProduct(lote.products[0]);
+        } else {
+          // Default: lote completo (todas as gramaturas) — seletor opcional para unitário
+          setFormProductCode('__ALL__');
+          setFormProductName(
+            lote.products.map((p) => loteProductLabel(p)).join(' · '),
+          );
+          setFormLoteHint(
+            `Lote com ${lote.products.length} produtos: análise padrão do lote completo. Opcionalmente escolha uma gramatura só.`,
+          );
+        }
+        const totalQty = lote.products.reduce((s, p) => s + p.quantity, 0);
+        if (totalQty > 0) {
+          setAdjBatchSize(totalQty.toString());
+        }
+        if (lote.status && lote.status !== 'EA') {
+          setFormLoteHint(
+            (prev) =>
+              `${prev ? prev + ' ' : ''}(Status: ${lote.statusLabel || lote.status})`,
+          );
+        }
+      } else {
+        setFormProductCode('');
+        setFormProductName('');
+        setFormLoteHint(`Lote "${val.trim()}" não encontrado. Confira o número ou rode o Sync ERP.`);
+      }
+    } catch (err) {
+      console.error("Error fetching lote:", err);
+      setFormProductCode('');
+      setFormProductName('');
+      setFormLoteHint(loteLookupErrorMessage(err, val.trim()));
+    } finally {
+      setFormBatchLoading(false);
+    }
+  };
+
+  const applyLoteProduct = (p: LoteProductLine) => {
+    setFormProductCode(p.productCode);
+    setFormProductName(p.productDescription);
+    if (p.quantity > 0) {
+      setAdjBatchSize(p.quantity.toString());
+    }
+  };
+
+  const handleLoteProductSelect = (code: string) => {
+    if (code === '__ALL__') {
+      setFormProductCode('__ALL__');
+      setFormProductName(
+        formLoteProducts.map((p) => loteProductLabel(p)).join(' · '),
+      );
+      const totalQty = formLoteProducts.reduce((s, p) => s + p.quantity, 0);
+      if (totalQty > 0) setAdjBatchSize(totalQty.toString());
+      return;
+    }
+    const p = formLoteProducts.find((x) => x.productCode === code);
+    if (p) applyLoteProduct(p);
   };
 
   const handlePhBlur = () => {
@@ -316,14 +377,24 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
   // Selected Product's Pattern info
   const activePattern = useMemo(() => {
     if (!formProductCode) return null;
-    return patterns.find(p => p.productCode === formProductCode) || null;
+    const norm = normalizeCode(formProductCode);
+    return patterns.find(p => normalizeCode(p.productCode) === norm) || null;
   }, [formProductCode, patterns]);
 
   // Selected Product detail
   const activeProduct = useMemo(() => {
     if (!formProductCode) return null;
-    return products.find(p => p.code === formProductCode) || null;
-  }, [formProductCode, products]);
+    const fromCatalog = products.find(
+      (p) => normalizeCode(p.code) === normalizeCode(formProductCode),
+    );
+    if (fromCatalog) return fromCatalog;
+    return {
+      code: formProductCode,
+      name: formProductName || formProductCode,
+      packaging: 'Pote',
+      validity: '3 anos',
+    };
+  }, [formProductCode, formProductName, products]);
 
   // Filtered products for patterns list
   const filteredPatternProducts = useMemo(() => {
@@ -478,7 +549,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
   const handleSaveAnalysis = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formProductCode) {
-      alert('Selecione um produto.');
+      alert('Informe um lote válido para carregar o produto.');
       return;
     }
     if (!formBatch.trim()) {
@@ -504,47 +575,79 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
       return;
     }
 
-    const linkedProduct = products.find(p => p.code === formProductCode);
-    const productName = linkedProduct ? linkedProduct.name : 'Produto Desconhecido';
-
     const adjInitialViscNum = hasAdjustment ? parseFloat(adjInitialVisc.toString().replace(',', '.')) : null;
     const adjTrialQtyNum = hasAdjustment ? parseFloat(adjTrialQty.toString().replace(',', '.')) : null;
     const adjTrialViscNum = hasAdjustment ? parseFloat(adjTrialVisc.toString().replace(',', '.')) : null;
     const adjFinalQtyNum = hasAdjustment ? parseFloat(adjFinalQty.toString().replace(',', '.')) : null;
     const adjBatchSizeNum = hasAdjustment ? parseFloat(adjBatchSize.toString().replace(',', '.')) : null;
 
-    const payload: FiscoQuimicaAnalysis = {
-      id: crypto.randomUUID(),
-      productCode: formProductCode,
-      productName,
-      batch: formBatch.trim(),
-      analysisDate: formDate,
-      technician: formTechnician.trim() || 'Técnico de Laboratório',
-      phMeasured: phNum,
-      viscosityMeasured: viscNum,
-      densityMeasured: calculatedDensity,
-      fractionWeight: fracNum,
-      envaseTargetWeight: calculatedPackagingWeight.value,
-      envaseTargetUnit: calculatedPackagingWeight.unit,
-      hasAdjustment,
-      correctiveAgentId: hasAdjustment ? (adjAgentId || null) : null,
-      initialViscosity: hasAdjustment ? (adjInitialViscNum || null) : null,
-      trialAgentQty: hasAdjustment ? (adjTrialQtyNum || null) : null,
-      trialViscosity: hasAdjustment ? (adjTrialViscNum || null) : null,
-      agentQtyPerLiter: hasAdjustment ? (adjFinalQtyNum || null) : null,
-      batchSize: hasAdjustment ? (adjBatchSizeNum || null) : null,
-      totalAgentRequired: (hasAdjustment && adjFinalQtyNum && adjBatchSizeNum) 
-        ? Number((adjFinalQtyNum * (adjBatchSizeNum - 1)).toFixed(2)) 
-        : null,
-      notes: formNotes.trim() || null
-    };
+    const analyzeAll =
+      formProductCode === '__ALL__' && formLoteProducts.length > 1;
+    const targets: { code: string; name: string; qty: number }[] = analyzeAll
+      ? formLoteProducts.map((p) => ({
+          code: p.productCode,
+          name: p.productDescription,
+          qty: p.quantity,
+        }))
+      : [
+          {
+            code: formProductCode,
+            name:
+              formProductName ||
+              products.find((p) => p.code === formProductCode)?.name ||
+              formProductCode,
+            qty: adjBatchSizeNum || 0,
+          },
+        ];
 
     try {
-      await api.saveFiscoQuimicaAnalysis(payload);
-      alert('Análise físico-química salva com sucesso!');
+      for (const t of targets) {
+        const payload: FiscoQuimicaAnalysis = {
+          id: crypto.randomUUID(),
+          productCode: t.code,
+          productName: t.name,
+          batch: formBatch.trim(),
+          analysisDate: formDate,
+          technician: formTechnician.trim() || 'Técnico de Laboratório',
+          phMeasured: phNum,
+          viscosityMeasured: viscNum,
+          densityMeasured: calculatedDensity,
+          fractionWeight: fracNum,
+          envaseTargetWeight: calculatedPackagingWeight.value,
+          envaseTargetUnit: calculatedPackagingWeight.unit,
+          hasAdjustment,
+          correctiveAgentId: hasAdjustment ? (adjAgentId || null) : null,
+          initialViscosity: hasAdjustment ? (adjInitialViscNum || null) : null,
+          trialAgentQty: hasAdjustment ? (adjTrialQtyNum || null) : null,
+          trialViscosity: hasAdjustment ? (adjTrialViscNum || null) : null,
+          agentQtyPerLiter: hasAdjustment ? (adjFinalQtyNum || null) : null,
+          batchSize: hasAdjustment
+            ? (analyzeAll && t.qty > 0 ? t.qty : adjBatchSizeNum || null)
+            : null,
+          totalAgentRequired:
+            hasAdjustment && adjFinalQtyNum && (analyzeAll ? t.qty : adjBatchSizeNum)
+              ? Number(
+                  (
+                    adjFinalQtyNum *
+                    ((analyzeAll ? t.qty : adjBatchSizeNum!) - 1)
+                  ).toFixed(2),
+                )
+              : null,
+          notes: formNotes.trim() || null,
+        };
+        await api.saveFiscoQuimicaAnalysis(payload);
+      }
+      alert(
+        analyzeAll
+          ? `Análise do lote salva para ${targets.length} produtos.`
+          : 'Análise físico-química salva com sucesso!',
+      );
       
       // Reset form
       setFormProductCode('');
+      setFormProductName('');
+      setFormLoteProducts([]);
+      setFormLoteHint(null);
       setFormBatch('');
       setFormPh('');
       setFormFractionWeight('');
@@ -753,7 +856,6 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
   return (
     <AppLayout
       moduleTitle="Físico-Química"
-      moduleSubtitle="Controle de Qualidade"
       onBackToHub={onBackToHub}
       sidebarItems={sidebarItems}
       activeTab={activeTab}
@@ -761,49 +863,25 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
     >
         {/* TAB: NEW ANALYSIS FORM */}
         {activeTab === 'new_analysis' && (
-          <div className="max-w-4xl mx-auto space-y-6">
+          <div className="view-container animate-in fade-in duration-200">
+            <div className="view-header">
+              <h2 className="view-title">Registrar Análise</h2>
+            </div>
             <form onSubmit={handleSaveAnalysis} className="space-y-6">
-              
-              {/* 1. Lot and Product selection */}
-                
-                {/* 1. Lot and Product selection */}
-                <div className="bg-white rounded-2xl p-6 border border-zinc-200 shadow-sm grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider block">Produto Acabado *</label>
-                    <input 
-                      type="text"
-                      list="fisco-quimica-product-codes"
-                      value={formProductCode}
-                      onChange={e => handleProductCodeChange(e.target.value)}
-                      required
-                      placeholder="Código do item"
-                      className={cn(
-                        "w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 bg-white font-mono font-bold transition-colors",
-                        formProductCode && !activeProduct ? "border-red-300 text-red-600 focus:ring-red-500 focus:border-red-500" : "border-zinc-300 text-zinc-900"
-                      )}
-                    />
-                    <datalist id="fisco-quimica-product-codes">
-                      {products.map(p => (
-                        <option key={p.code} value={p.code}>
-                          {p.code.replace(/\./g, '')} - {p.name}
-                        </option>
-                      ))}
-                    </datalist>
-                    <span className="text-[10px] font-medium text-zinc-550 block truncate mt-1">
-                      {activeProduct ? activeProduct.name : formProductCode ? 'Produto não localizado' : 'Aguardando código...'}
-                    </span>
-                  </div>
-
+              {formLoteHint && (
+                <div className="info-note-card text-sm">{formLoteHint}</div>
+              )}
+                <div className="panel-card grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider block">Lote de Produção *</label>
                     <div className="relative">
                       <input 
                         type="text" 
                         required
-                        placeholder="Ex: L2026-A"
+                        placeholder="Nº do lote ERP"
                         value={formBatch}
                         onChange={e => handleBatchChange(e.target.value)}
-                        className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-850 bg-white"
+                        className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-850 bg-white font-bold"
                       />
                       {formBatchLoading && (
                         <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -811,6 +889,40 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                         </div>
                       )}
                     </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider block">Código</label>
+                    <div className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm font-mono font-bold text-zinc-700 bg-zinc-50 min-h-[38px] flex items-center">
+                      {formProductCode === '__ALL__'
+                        ? 'LOTE COMPLETO'
+                        : formProductCode || '—'}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider block">
+                      {formLoteProducts.length > 1 ? 'Escopo da análise' : 'Produto'}
+                    </label>
+                    {formLoteProducts.length > 1 ? (
+                      <select
+                        required
+                        value={formProductCode}
+                        onChange={(e) => handleLoteProductSelect(e.target.value)}
+                        className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 bg-white text-zinc-900"
+                      >
+                        <option value="__ALL__">Lote completo ({formLoteProducts.length} produtos)</option>
+                        {formLoteProducts.map((p) => (
+                          <option key={p.productCode} value={p.productCode}>
+                            Só: {loteProductLabel(p)}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm text-zinc-800 bg-zinc-50 min-h-[38px] flex items-center truncate">
+                        {formProductName || activeProduct?.name || (formBatch.trim().length >= 3 && !formProductCode ? 'Lote não encontrado' : 'Informe o lote')}
+                      </div>
+                    )}
                   </div>
 
 
@@ -845,13 +957,13 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                 </div>
 
                 {/* 2. Measured parameters */}
-                <div className="bg-white rounded-2xl p-6 border border-zinc-200 shadow-sm space-y-6">
+                <div className="panel-card space-y-6">
                   <h3 className="font-bold text-sm text-zinc-800 border-b border-zinc-150 pb-2">Especificações e Medições</h3>
                   
-                  {!activeProduct ? (
-                    <div className="p-6 text-center bg-zinc-50 rounded-xl border border-zinc-200 text-zinc-500 text-xs font-semibold flex items-center justify-center gap-2">
+                  {!formProductCode ? (
+                    <div className="empty-state flex items-center justify-center gap-2 py-8">
                       <Info className="w-5 h-5" />
-                      Por favor, digite um código de produto válido para liberar o preenchimento das medições.
+                      Informe um lote ERP válido para liberar as medições.
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1182,21 +1294,24 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
 
           {/* TAB: ANALYSIS HISTORY */}
           {activeTab === 'history' && (
-            <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col">
-              <div className="p-4 border-b border-zinc-200 bg-zinc-50 flex items-center justify-between gap-4">
-                <div className="relative w-80">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-                  <input 
+            <div className="view-container animate-in fade-in duration-200">
+              <div className="view-header">
+                <h2 className="view-title">Histórico de Análises</h2>
+              </div>
+              <div className="toolbar-section">
+                <div className="search-input-wrapper">
+                  <Search size={18} />
+                  <input
                     type="text"
                     placeholder="Buscar por lote, produto, analista..."
                     value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-300 rounded-xl focus:outline-none text-xs shadow-sm transition-all"
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="search-input"
                   />
                 </div>
               </div>
 
-              <div className="overflow-x-auto min-h-[300px]">
+              <div className="table-card overflow-x-auto min-h-[300px]">
                 {loading ? (
                   <div className="py-20 text-center text-zinc-400">Carregando histórico...</div>
                 ) : filteredAnalyses.length === 0 ? (
@@ -1282,24 +1397,27 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
 
           {/* TAB: PRODUCT PATTERNS */}
           {activeTab === 'patterns' && (
-            <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col">
-              <div className="p-4 border-b border-zinc-200 bg-zinc-50 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="relative w-80">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-                  <input 
+            <div className="view-container animate-in fade-in duration-200">
+              <div className="view-header">
+                <h2 className="view-title">Padrões por Produto</h2>
+              </div>
+              <div className="toolbar-section">
+                <div className="search-input-wrapper">
+                  <Search size={18} />
+                  <input
                     type="text"
                     placeholder="Buscar produto por nome ou código..."
                     value={patternSearchQuery}
-                    onChange={e => setPatternSearchQuery(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-300 rounded-xl focus:outline-none text-xs shadow-sm transition-all"
+                    onChange={(e) => setPatternSearchQuery(e.target.value)}
+                    className="search-input"
                   />
                 </div>
-                <div className="text-xs font-bold text-zinc-500">
-                  Total de Produtos: {products.length} ({patterns.length} com especificações)
+                <div className="text-xs font-bold text-zinc-500 shrink-0">
+                  {products.length} produtos · {patterns.length} com especificações
                 </div>
               </div>
 
-              <div className="overflow-x-auto min-h-[300px]">
+              <div className="table-card overflow-x-auto min-h-[300px]">
                 {loading ? (
                   <div className="py-20 text-center text-zinc-400">Carregando produtos e especificações...</div>
                 ) : filteredPatternProducts.length === 0 ? (
@@ -1409,12 +1527,14 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
 
           {/* TAB: CORRECTIVE AGENTS */}
           {activeTab === 'agents' && (
-            <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-              {/* Form card */}
-              <div className="bg-white rounded-2xl p-6 border border-zinc-200 shadow-sm text-left space-y-4">
+            <div className="view-container animate-in fade-in duration-200">
+              <div className="view-header">
+                <h2 className="view-title">Agentes Corretivos</h2>
+              </div>
+            <div className="settings-grid">
+              <div className="panel-card text-left space-y-4">
                 <div>
                   <h3 className="font-bold text-sm text-zinc-800">Vincular Matéria-Prima Corretiva</h3>
-                  <p className="text-xs text-zinc-400 mt-1">Busque uma matéria-prima cadastrada no ERP para atuar como corretivo de viscosidade.</p>
                 </div>
                 <form onSubmit={handleLinkAgent} className="space-y-4">
                   <div className="space-y-1">
@@ -1456,9 +1576,9 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
               </div>
 
               {/* List card */}
-              <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden text-left flex flex-col">
-                <div className="px-6 py-4 bg-zinc-50 border-b border-zinc-200">
-                  <h3 className="font-bold text-sm text-zinc-800">Agentes Corretivos Vinculados</h3>
+              <div className="panel-card text-left flex flex-col overflow-hidden">
+                <div className="px-2 pb-3 border-b border-zinc-200 mb-2">
+                  <h3 className="font-bold text-sm text-zinc-800">Agentes Vinculados</h3>
                 </div>
                 
                 <div className="divide-y divide-zinc-200 max-h-[400px] overflow-y-auto">
@@ -1485,6 +1605,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                   )}
                 </div>
               </div>
+            </div>
             </div>
           )}
 

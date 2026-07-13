@@ -13,35 +13,25 @@ use crate::modules::geral::auth::store as auth_store;
 
 const WORKFLOW_FILE: &str = "release.yml";
 
-pub async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
+const RELEASE_CHANNELS: [&str; 2] = ["stable", "dev"];
 
-    let client = reqwest::Client::new();
-    let token = store::github_token(&conn);
-    let mut manifests = Vec::new();
-    let channel = "stable";
-
+async fn manifest_status_for_channel(
+    pool: &sqlx::PgPool,
+    client: &reqwest::Client,
+    token: Option<&str>,
+    channel: &str,
+) -> super::models::ChannelManifestInfo {
     if let Ok(body) = crate::modules::geral::hub::updater_manifest::read_manifest(channel) {
         let mut info = store::parse_manifest_channel(channel, &body);
         info.available_on_server =
             crate::modules::geral::hub::updater_manifest::manifest_available_on_server(channel);
         info.source = "server".to_string();
-        manifests.push(info);
-    } else if let Some(ref t) = token {
-        let repo = store::github_repo(&conn);
-        let url = format!(
-            "https://api.github.com/repos/{}/releases/latest",
-            repo
-        );
+        return info;
+    }
+
+    if let Some(t) = token {
+        let repo = store::github_repo(pool).await;
+        let url = format!("https://api.github.com/repos/{repo}/releases/latest");
         let req = client
             .get(&url)
             .header("Accept", "application/vnd.github+json")
@@ -52,21 +42,22 @@ pub async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse
                 if let Ok(release) = resp.json::<serde_json::Value>().await {
                     let asset_name = format!("updater-{channel}.json");
                     if let Some(assets) = release.get("assets").and_then(|a| a.as_array()) {
-                        if let Some(asset) = assets
-                            .iter()
-                            .find(|a| a.get("name").and_then(|n| n.as_str()) == Some(asset_name.as_str()))
-                        {
-                            if let Some(dl) = asset.get("browser_download_url").and_then(|u| u.as_str()) {
+                        if let Some(asset) = assets.iter().find(|a| {
+                            a.get("name").and_then(|n| n.as_str()) == Some(asset_name.as_str())
+                        }) {
+                            if let Some(dl) = asset.get("browser_download_url").and_then(|u| u.as_str())
+                            {
                                 let dl_req = client
                                     .get(dl)
                                     .header("Authorization", format!("Bearer {t}"));
                                 if let Ok(mresp) = dl_req.send().await {
                                     if mresp.status().is_success() {
                                         if let Ok(body) = mresp.text().await {
-                                            let mut info = store::parse_manifest_channel(channel, &body);
+                                            let mut info =
+                                                store::parse_manifest_channel(channel, &body);
                                             info.available_on_server = false;
                                             info.source = "github".to_string();
-                                            manifests.push(info);
+                                            return info;
                                         }
                                     }
                                 }
@@ -76,16 +67,26 @@ pub async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse
                 }
             }
         }
-        if manifests.is_empty() {
-            manifests.push(empty_manifest(channel));
-        }
-    } else {
-        manifests.push(empty_manifest(channel));
     }
 
-    let github_repo = store::github_repo(&conn);
-    let github_branch = store::github_branch(&conn);
-    let github_configured = store::github_token(&conn).is_some();
+    empty_manifest(channel)
+}
+
+pub async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let pool = state.db.pool();
+    let client = reqwest::Client::new();
+    let token = store::github_token(pool).await;
+
+    let mut manifests = Vec::new();
+    for channel in RELEASE_CHANNELS {
+        manifests.push(
+            manifest_status_for_channel(pool, &client, token.as_deref(), channel).await,
+        );
+    }
+
+    let github_repo = store::github_repo(pool).await;
+    let github_branch = store::github_branch(pool).await;
+    let github_configured = store::github_token(pool).await.is_some();
 
     (
         StatusCode::OK,
@@ -112,23 +113,14 @@ fn empty_manifest(channel: &str) -> super::models::ChannelManifestInfo {
 }
 
 pub async fn get_github_config(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
+    let pool = state.db.pool();
 
     (
         StatusCode::OK,
         Json(GithubReleaseConfig {
-            github_configured: store::github_token(&conn).is_some(),
-            github_repo: store::github_repo(&conn),
-            github_branch: store::github_branch(&conn),
+            github_configured: store::github_token(pool).await.is_some(),
+            github_repo: store::github_repo(pool).await,
+            github_branch: store::github_branch(pool).await,
         }),
     )
         .into_response()
@@ -139,18 +131,10 @@ pub async fn save_github_config(
     Extension(ctx): Extension<AuthContext>,
     Json(body): Json<SaveGithubReleaseConfigRequest>,
 ) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
+    let pool = state.db.pool();
 
-    match auth_store::verify_supervisor_password(&conn, &ctx.operator_id, &body.supervisor_password)
+    match auth_store::verify_supervisor_password(pool, &ctx.operator_id, &body.supervisor_password)
+        .await
     {
         Ok(true) => {}
         Ok(false) => {
@@ -166,14 +150,14 @@ pub async fn save_github_config(
     }
 
     if body.github_token.trim().is_empty() {
-        if store::github_token(&conn).is_none() {
+        if store::github_token(pool).await.is_none() {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": "Token GitHub é obrigatório na primeira configuração." })),
             )
                 .into_response();
         }
-    } else if let Err(e) = store::set_setting(&conn, store::SETTING_GITHUB_TOKEN, body.github_token.trim()) {
+    } else if let Err(e) = store::set_setting(pool, store::SETTING_GITHUB_TOKEN, body.github_token.trim()).await {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": e })),
@@ -182,7 +166,7 @@ pub async fn save_github_config(
     }
 
     if let Some(repo) = body.github_repo.as_deref().filter(|s| !s.trim().is_empty()) {
-        if let Err(e) = store::set_setting(&conn, store::SETTING_GITHUB_REPO, repo.trim()) {
+        if let Err(e) = store::set_setting(pool, store::SETTING_GITHUB_REPO, repo.trim()).await {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": e })),
@@ -192,7 +176,7 @@ pub async fn save_github_config(
     }
 
     if let Some(branch) = body.github_branch.as_deref().filter(|s| !s.trim().is_empty()) {
-        if let Err(e) = store::set_setting(&conn, store::SETTING_GITHUB_BRANCH, branch.trim()) {
+        if let Err(e) = store::set_setting(pool, store::SETTING_GITHUB_BRANCH, branch.trim()).await {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": e })),
@@ -205,8 +189,8 @@ pub async fn save_github_config(
         StatusCode::OK,
         Json(GithubReleaseConfig {
             github_configured: true,
-            github_repo: store::github_repo(&conn),
-            github_branch: store::github_branch(&conn),
+            github_repo: store::github_repo(pool).await,
+            github_branch: store::github_branch(pool).await,
         }),
     )
         .into_response()
@@ -234,19 +218,10 @@ pub async fn promote_release(
     }
 
     let channel = "stable".to_string();
+    let pool = state.db.pool();
 
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
-
-    match auth_store::verify_supervisor_password(&conn, &ctx.operator_id, &body.supervisor_password)
+    match auth_store::verify_supervisor_password(pool, &ctx.operator_id, &body.supervisor_password)
+        .await
     {
         Ok(true) => {}
         Ok(false) => {
@@ -261,7 +236,7 @@ pub async fn promote_release(
         }
     }
 
-    let token = match store::github_token(&conn) {
+    let token = match store::github_token(pool).await {
         Some(t) => t,
         None => {
             return (
@@ -274,8 +249,8 @@ pub async fn promote_release(
         }
     };
 
-    let repo = store::github_repo(&conn);
-    let branch = store::github_branch(&conn);
+    let repo = store::github_repo(pool).await;
+    let branch = store::github_branch(pool).await;
     let notes = body
         .release_notes
         .clone()
@@ -307,18 +282,10 @@ pub async fn sync_manifests(
     Extension(ctx): Extension<AuthContext>,
     Json(body): Json<SyncManifestsRequest>,
 ) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
+    let pool = state.db.pool();
 
-    match auth_store::verify_supervisor_password(&conn, &ctx.operator_id, &body.supervisor_password)
+    match auth_store::verify_supervisor_password(pool, &ctx.operator_id, &body.supervisor_password)
+        .await
     {
         Ok(true) => {}
         Ok(false) => {
@@ -333,7 +300,7 @@ pub async fn sync_manifests(
         }
     }
 
-    if store::github_token(&conn).is_none() {
+    if store::github_token(pool).await.is_none() {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({
@@ -344,8 +311,8 @@ pub async fn sync_manifests(
     }
 
     let tag = body.version_tag.as_deref().filter(|s| !s.trim().is_empty());
-    let token = store::github_token(&conn);
-    let repo = store::github_repo(&conn);
+    let token = store::github_token(pool).await;
+    let repo = store::github_repo(pool).await;
 
     match crate::modules::geral::hub::updater_manifest::sync_all_manifests_from_github(
         token, repo, tag,

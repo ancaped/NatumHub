@@ -15,7 +15,7 @@ pub async fn start_folder_watcher(state: Arc<AppState>) {
         ticker.tick().await;
 
         // Read current watch config
-        let cfg = match state.db.get_watch_config() {
+        let cfg = match state.db.get_watch_config().await {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("[Watcher] Erro ao ler configurações de monitoramento: {}", e);
@@ -40,8 +40,8 @@ pub async fn start_folder_watcher(state: Arc<AppState>) {
         };
 
         // Get already imported file names for each type
-        let imported_lev = state.db.get_already_imported_files("levantamento").unwrap_or_default();
-        let imported_fat = state.db.get_already_imported_files("faturamento").unwrap_or_default();
+        let imported_lev = state.db.get_already_imported_files("levantamento").await.unwrap_or_default();
+        let imported_fat = state.db.get_already_imported_files("faturamento").await.unwrap_or_default();
 
         for entry in entries.flatten() {
             let file_name = entry.file_name();
@@ -59,19 +59,16 @@ pub async fn start_folder_watcher(state: Arc<AppState>) {
                     continue; // Already imported
                 }
                 println!("[Watcher] Novo arquivo detectado (Levantamento): {}", name);
-                let mut conn = match state.db.connect() {
-                    Ok(c) => c,
-                    Err(e) => { eprintln!("[Watcher] Erro de conexão: {}", e); continue; }
-                };
-                match crate::modules::compras::planejamento::parser::parse_levantamento_excel(&full_path, &mut conn) {
+                let pool = state.db.pool();
+                match crate::modules::compras::planejamento::parser::parse_levantamento_excel(&full_path, pool).await {
                     Ok(count) => {
                         println!("[Watcher] Levantamento importado com sucesso: {} produtos", count);
                         let _ = state.db.record_import("levantamento", &name, count as i64, "success",
-                            Some(&format!("{} produtos atualizados", count)));
+                            Some(&format!("{} produtos atualizados", count))).await;
                     }
                     Err(e) => {
                         eprintln!("[Watcher] Erro ao importar {}: {}", name, e);
-                        let _ = state.db.record_import("levantamento", &name, 0, "error", Some(&e.to_string()));
+                        let _ = state.db.record_import("levantamento", &name, 0, "error", Some(&e.to_string())).await;
                     }
                 }
             } else if name.starts_with("Faturamento_Anual_") {
@@ -79,19 +76,16 @@ pub async fn start_folder_watcher(state: Arc<AppState>) {
                     continue; // Already imported
                 }
                 println!("[Watcher] Novo arquivo detectado (Faturamento): {}", name);
-                let mut conn = match state.db.connect() {
-                    Ok(c) => c,
-                    Err(e) => { eprintln!("[Watcher] Erro de conexão: {}", e); continue; }
-                };
-                match crate::modules::compras::planejamento::parser::parse_faturamento_excel(&full_path, &mut conn) {
+                let pool = state.db.pool();
+                match crate::modules::compras::planejamento::parser::parse_faturamento_excel(&full_path, pool).await {
                     Ok(count) => {
                         println!("[Watcher] Faturamento importado com sucesso: {} produtos", count);
                         let _ = state.db.record_import("faturamento", &name, count as i64, "success",
-                            Some(&format!("{} produtos atualizados", count)));
+                            Some(&format!("{} produtos atualizados", count))).await;
                     }
                     Err(e) => {
                         eprintln!("[Watcher] Erro ao importar {}: {}", name, e);
-                        let _ = state.db.record_import("faturamento", &name, 0, "error", Some(&e.to_string()));
+                        let _ = state.db.record_import("faturamento", &name, 0, "error", Some(&e.to_string())).await;
                     }
                 }
             }

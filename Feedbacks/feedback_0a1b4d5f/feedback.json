@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-12 06:45:52.68973+00",
+  "descricao": "mudar as os padroes de status, permanecer com as mesmas cores, mas como agora o tempo de meta e disparo podem variar de item a item, entao nao faz mais sentido usar status definidos em dias, certo ? ",
+  "id": "0a1b4d5f-f4fd-4c5d-a687-14fcb89e013a",
+  "notas_admin": null,
+  "pagina": "Compras > coloracao/materiaprima/embalagens/materialdeapapoio",
+  "prioridade": 111,
+  "resolvido_em": null,
+  "solicitante": "Edson",
+  "status": "awaiting_review",
+  "tem_logs": false,
+  "tem_screenshot": false,
+  "tipo": "feedback"
+}

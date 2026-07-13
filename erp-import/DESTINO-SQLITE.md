@@ -10,7 +10,7 @@ Banco único em `Saves/data.db`, compartilhado por todos os PCs via master.
 | `estoque_atual` | codigo, estoque, producao, pedidos_aberto, fase | Passo A |
 | `items` | code, description, unit, category, is_ignored | Passos C, D |
 | `suppliers` | id, name, contact, email | Passo B |
-| `item_stock_snapshots` | item_code, stock_qty, reserved, in_prod, in_orders | D1, D2 |
+| `stock_snapshots` | item_code, stock_qty, reserved_qty, in_production, in_orders | D1, D2 — ver [`ESTOQUE.md`](ESTOQUE.md) |
 
 ## Compras
 

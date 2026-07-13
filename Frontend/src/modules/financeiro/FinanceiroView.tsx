@@ -6,6 +6,7 @@ import {
   Scale, BarChart3, Users, Wallet
 } from 'lucide-react';
 import { apiJson } from '../geral/lib/http';
+import { useGlobalNavActive } from '../geral/components/layout/NavShellContext';
 import type {
   AccountsPage, FinancialStatus, FinancialSyncResult, FlowSummary, AgingBucket, PartyBalance
 } from '../geral/lib/types';
@@ -139,6 +140,7 @@ function TopParties({ title, parties, accent }: { title: string; parties: PartyB
 }
 
 export default function FinanceiroView({ onBackToHub }: Props) {
+  const globalNav = useGlobalNavActive();
   const [tab, setTab] = useState<Tab>('dashboard');
   const [status, setStatus] = useState<FinancialStatus | null>(null);
   const [flow, setFlow] = useState<FlowSummary | null>(null);
@@ -289,6 +291,7 @@ export default function FinanceiroView({ onBackToHub }: Props) {
     <div className="flex-1 flex flex-col overflow-y-auto bg-zinc-50 font-sans text-zinc-900">
       {/* Header */}
       <div className="bg-white border-b border-zinc-200 px-6 py-4 flex items-center gap-4 shrink-0">
+        {!globalNav && (
         <button
           onClick={onBackToHub}
           className="p-2 rounded-xl border border-zinc-200 hover:bg-zinc-100 text-zinc-600 transition-all"
@@ -296,6 +299,7 @@ export default function FinanceiroView({ onBackToHub }: Props) {
         >
           <ArrowLeft className="h-4 w-4" />
         </button>
+        )}
         <div>
           <h1 className="font-bold text-lg tracking-tight flex items-center gap-2">
             <DollarSign className="h-5 w-5 text-emerald-600" />
@@ -758,7 +762,7 @@ export default function FinanceiroView({ onBackToHub }: Props) {
                   <Key className="h-4 w-4 text-zinc-600" />Token da API Tiny ERP
                 </h2>
                 <p className="text-xs text-zinc-400 mt-1">
-                  O token é ofuscado no SQLite local e nunca é re-exibido após salvar.
+                  O token é ofuscado no banco PostgreSQL e nunca é re-exibido após salvar.
                   As chamadas à API do Tiny rodam apenas no backend Rust.
                 </p>
               </div>

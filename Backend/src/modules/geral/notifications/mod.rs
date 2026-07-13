@@ -28,9 +28,23 @@ pub fn notify(
     message: &str,
     metadata: Option<&str>,
 ) {
-    if let Ok(conn) = state.db.connect() {
-        let _ = store::create_notification(&conn, module_key, kind, title, message, metadata);
-    }
+    let pool = state.db.pool().clone();
+    let module_key = module_key.to_string();
+    let kind = kind.to_string();
+    let title = title.to_string();
+    let message = message.to_string();
+    let metadata = metadata.map(|s| s.to_string());
+    tauri::async_runtime::spawn(async move {
+        let _ = store::create_notification(
+            &pool,
+            &module_key,
+            &kind,
+            &title,
+            &message,
+            metadata.as_deref(),
+        )
+        .await;
+    });
 }
 
 pub fn notify_config(

@@ -24,11 +24,3 @@ pub struct CreateNotificationInput {
     #[serde(default)]
     pub metadata: Option<String>,
 }
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ClaimPrincipalInput {
-    pub device_id: String,
-    #[serde(default)]
-    pub device_label: Option<String>,
-}

@@ -1,5 +1,5 @@
 use calamine::{open_workbook, Data, Reader, Xlsx};
-use rusqlite::{params, Connection};
+use sqlx::PgPool;
 use std::path::Path;
 
 fn cell_as_string(cell: &Data) -> String {
@@ -45,7 +45,10 @@ pub fn get_linha_prefix(codigo: &str) -> String {
     "DEFAULT".to_string()
 }
 
-pub fn parse_faturamento_excel<P: AsRef<Path>>(file_path: P, conn: &mut Connection) -> anyhow::Result<usize> {
+pub async fn parse_faturamento_excel<P: AsRef<Path>>(
+    file_path: P,
+    pool: &PgPool,
+) -> anyhow::Result<usize> {
     let mut workbook: Xlsx<_> = open_workbook(file_path)?;
     let sheets = workbook.sheet_names();
     if sheets.is_empty() {
@@ -54,8 +57,8 @@ pub fn parse_faturamento_excel<P: AsRef<Path>>(file_path: P, conn: &mut Connecti
 
     let sheet_name = &sheets[0];
     let range = workbook.worksheet_range(sheet_name)?;
-    
-    let tx = conn.transaction()?;
+
+    let mut tx = pool.begin().await?;
     let mut count = 0;
 
     for (_row_idx, row) in range.rows().skip(1).enumerate() {
@@ -72,49 +75,64 @@ pub fn parse_faturamento_excel<P: AsRef<Path>>(file_path: P, conn: &mut Connecti
 
         let prefix = get_linha_prefix(&codigo);
 
-        // 1. Garantir que o produto existe na tabela produtos (sem sobrescrever se já existir detalhes melhores)
-        tx.execute(
+        // Garantir que o produto existe (sem sobrescrever detalhes melhores)
+        sqlx::query(
             "INSERT INTO produtos (codigo, descricao, linha_prefix, base)
-             VALUES (?1, ?2, ?3, NULL)
+             VALUES ($1, $2, $3, NULL)
              ON CONFLICT(codigo) DO UPDATE SET
-                descricao = CASE WHEN descricao = '' THEN excluded.descricao ELSE descricao END",
-            params![codigo, nome_produto, prefix],
-        )?;
+                descricao = CASE WHEN descricao = '' THEN EXCLUDED.descricao ELSE descricao END",
+        )
+        .bind(&codigo)
+        .bind(&nome_produto)
+        .bind(&prefix)
+        .execute(&mut *tx)
+        .await?;
 
-        // 2. Limpar histórico antigo desse produto
-        tx.execute("DELETE FROM historico_faturamento WHERE codigo = ?1", params![codigo])?;
+        // Limpar histórico antigo desse produto
+        sqlx::query("DELETE FROM historico_faturamento WHERE codigo = $1")
+            .bind(&codigo)
+            .execute(&mut *tx)
+            .await?;
 
-        // 3. Inserir faturamento mensal para os 12 meses
-        // Colunas correspondentes a Janeiro (índice 2) a Dezembro (índice 13)
+        // Inserir faturamento mensal (Jan=col 2 … Dez=col 13)
         for mes in 1..=12 {
             let col_idx = (mes + 1) as usize;
             if col_idx < row.len() {
                 let quantidade = cell_as_i64(&row[col_idx]);
-                tx.execute(
+                sqlx::query(
                     "INSERT INTO historico_faturamento (codigo, mes, quantidade)
-                     VALUES (?1, ?2, ?3)",
-                    params![codigo, mes, quantidade],
-                )?;
+                     VALUES ($1, $2, $3)",
+                )
+                .bind(&codigo)
+                .bind(mes)
+                .bind(quantidade)
+                .execute(&mut *tx)
+                .await?;
             }
         }
         count += 1;
     }
 
-    tx.commit()?;
+    tx.commit().await?;
     Ok(count)
 }
 
-pub fn parse_levantamento_excel<P: AsRef<Path>>(file_path: P, conn: &mut Connection) -> anyhow::Result<usize> {
+pub async fn parse_levantamento_excel<P: AsRef<Path>>(
+    file_path: P,
+    pool: &PgPool,
+) -> anyhow::Result<usize> {
     let mut workbook: Xlsx<_> = open_workbook(file_path)?;
     let sheets = workbook.sheet_names();
     if sheets.is_empty() {
-        return Err(anyhow::anyhow!("O arquivo de levantamento de produção está vazio ou sem abas"));
+        return Err(anyhow::anyhow!(
+            "O arquivo de levantamento de produção está vazio ou sem abas"
+        ));
     }
 
     let sheet_name = &sheets[0];
     let range = workbook.worksheet_range(sheet_name)?;
 
-    let tx = conn.transaction()?;
+    let mut tx = pool.begin().await?;
     let mut count = 0;
 
     for (_row_idx, row) in range.rows().skip(1).enumerate() {
@@ -129,11 +147,11 @@ pub fn parse_levantamento_excel<P: AsRef<Path>>(file_path: P, conn: &mut Connect
             continue;
         }
 
-        let media_lev = cell_as_f64(&row[4]); // Coluna Média
-        let estoque = cell_as_i64(&row[6]);   // Coluna Qtde. em Estoque
-        let producao = cell_as_i64(&row[7]);  // Coluna Qtde. em Produção
-        let pedidos = cell_as_i64(&row[8]);   // Coluna Pedidos em Aberto
-        
+        let media_lev = cell_as_f64(&row[4]);
+        let estoque = cell_as_i64(&row[6]);
+        let producao = cell_as_i64(&row[7]);
+        let pedidos = cell_as_i64(&row[8]);
+
         let fase = if row.len() > 13 {
             let f = cell_as_string(&row[13]);
             if f.is_empty() { None } else { Some(f) }
@@ -150,66 +168,83 @@ pub fn parse_levantamento_excel<P: AsRef<Path>>(file_path: P, conn: &mut Connect
 
         let prefix = get_linha_prefix(&codigo);
 
-        // 1. Inserir ou atualizar produto
-        tx.execute(
+        sqlx::query(
             "INSERT INTO produtos (codigo, descricao, linha_prefix, base, media_levantamento)
-             VALUES (?1, ?2, ?3, ?4, ?5)
+             VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT(codigo) DO UPDATE SET
-                descricao = excluded.descricao,
-                linha_prefix = excluded.linha_prefix,
-                base = excluded.base,
-                media_levantamento = excluded.media_levantamento",
-            params![codigo, descricao, prefix, base_val, media_lev],
-        )?;
+                descricao = EXCLUDED.descricao,
+                linha_prefix = EXCLUDED.linha_prefix,
+                base = EXCLUDED.base,
+                media_levantamento = EXCLUDED.media_levantamento",
+        )
+        .bind(&codigo)
+        .bind(&descricao)
+        .bind(&prefix)
+        .bind(&base_val)
+        .bind(media_lev)
+        .execute(&mut *tx)
+        .await?;
 
-        // 2. Inserir ou atualizar estoque atual
-        tx.execute(
+        sqlx::query(
             "INSERT INTO estoque_atual (codigo, estoque, producao, pedidos_aberto, fase)
-             VALUES (?1, ?2, ?3, ?4, ?5)
+             VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT(codigo) DO UPDATE SET
-                estoque = excluded.estoque,
-                producao = excluded.producao,
-                pedidos_aberto = excluded.pedidos_aberto,
-                fase = excluded.fase",
-            params![codigo, estoque, producao, pedidos, fase],
-        )?;
+                estoque = EXCLUDED.estoque,
+                producao = EXCLUDED.producao,
+                pedidos_aberto = EXCLUDED.pedidos_aberto,
+                fase = EXCLUDED.fase",
+        )
+        .bind(&codigo)
+        .bind(estoque)
+        .bind(producao)
+        .bind(pedidos)
+        .bind(&fase)
+        .execute(&mut *tx)
+        .await?;
 
         count += 1;
     }
 
-    tx.commit()?;
+    tx.commit().await?;
     Ok(count)
 }
 
-pub fn parse_kits_excel<P: AsRef<Path>>(file_path: P, conn: &mut Connection) -> anyhow::Result<usize> {
+pub async fn parse_kits_excel<P: AsRef<Path>>(
+    file_path: P,
+    pool: &PgPool,
+) -> anyhow::Result<usize> {
     let mut workbook: Xlsx<_> = open_workbook(file_path)?;
     let sheets = workbook.sheet_names();
-    
-    let tx = conn.transaction()?;
-    
-    // Clear old compositions
-    tx.execute("DELETE FROM kit_composicao", [])?;
-    
+
+    let mut tx = pool.begin().await?;
+
+    sqlx::query("DELETE FROM kit_composicao")
+        .execute(&mut *tx)
+        .await?;
+
     let mut count = 0;
-    
-    // Sheets to parse
+
     let sheets_to_parse = ["HAIREXTRATTUS", "LISSSHINE", "NATUM"];
     for sheet_name in sheets_to_parse {
         if !sheets.iter().any(|s| s == sheet_name) {
             continue;
         }
-        
+
         let range = workbook.worksheet_range(sheet_name)?;
         for row in range.rows().skip(1) {
             if row.len() < 3 {
                 continue;
             }
-            
+
             let kit_code = cell_as_string(&row[0]);
             let kit_desc = cell_as_string(&row[1]);
             let comp_code = cell_as_string(&row[2]);
-            let comp_desc = if row.len() > 3 { cell_as_string(&row[3]) } else { "".to_string() };
-            
+            let comp_desc = if row.len() > 3 {
+                cell_as_string(&row[3])
+            } else {
+                "".to_string()
+            };
+
             let quantidade: i64 = if row.len() > 4 {
                 match &row[4] {
                     calamine::Data::Float(f) => *f as i64,
@@ -220,43 +255,52 @@ pub fn parse_kits_excel<P: AsRef<Path>>(file_path: P, conn: &mut Connection) -> 
             } else {
                 1
             };
-            
+
             if kit_code.is_empty() || comp_code.is_empty() {
                 continue;
             }
-            
+
             let kit_prefix = get_linha_prefix(&kit_code);
             let comp_prefix = get_linha_prefix(&comp_code);
-            
-            // Insert kit product
-            tx.execute(
+
+            sqlx::query(
                 "INSERT INTO produtos (codigo, descricao, linha_prefix, base)
-                 VALUES (?1, ?2, ?3, NULL)
+                 VALUES ($1, $2, $3, NULL)
                  ON CONFLICT(codigo) DO UPDATE SET
-                    descricao = CASE WHEN descricao = '' THEN excluded.descricao ELSE descricao END",
-                params![kit_code, kit_desc, kit_prefix],
-            )?;
-            
-            // Insert component product
-            tx.execute(
+                    descricao = CASE WHEN descricao = '' THEN EXCLUDED.descricao ELSE descricao END",
+            )
+            .bind(&kit_code)
+            .bind(&kit_desc)
+            .bind(&kit_prefix)
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query(
                 "INSERT INTO produtos (codigo, descricao, linha_prefix, base)
-                 VALUES (?1, ?2, ?3, NULL)
+                 VALUES ($1, $2, $3, NULL)
                  ON CONFLICT(codigo) DO UPDATE SET
-                    descricao = CASE WHEN descricao = '' THEN excluded.descricao ELSE descricao END",
-                params![comp_code, comp_desc, comp_prefix],
-            )?;
-            
-            // Insert composition link
-            tx.execute(
-                "INSERT INTO kit_composicao (kit_codigo, componente_codigo, quantidade) VALUES (?1, ?2, ?3)
-                 ON CONFLICT(kit_codigo, componente_codigo) DO UPDATE SET quantidade = excluded.quantidade",
-                params![kit_code, comp_code, quantidade],
-            )?;
-            
+                    descricao = CASE WHEN descricao = '' THEN EXCLUDED.descricao ELSE descricao END",
+            )
+            .bind(&comp_code)
+            .bind(&comp_desc)
+            .bind(&comp_prefix)
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query(
+                "INSERT INTO kit_composicao (kit_codigo, componente_codigo, quantidade) VALUES ($1, $2, $3)
+                 ON CONFLICT(kit_codigo, componente_codigo) DO UPDATE SET quantidade = EXCLUDED.quantidade",
+            )
+            .bind(&kit_code)
+            .bind(&comp_code)
+            .bind(quantidade)
+            .execute(&mut *tx)
+            .await?;
+
             count += 1;
         }
     }
-    
-    tx.commit()?;
+
+    tx.commit().await?;
     Ok(count)
 }

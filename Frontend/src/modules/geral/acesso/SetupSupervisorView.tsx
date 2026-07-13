@@ -51,8 +51,8 @@ export default function SetupSupervisorView({ onComplete }: SetupSupervisorViewP
           </div>
           <h1 className="text-xl font-bold tracking-tight">Configurar Supervisor — {APP_NAME}</h1>
           <p className="text-sm text-zinc-500">
-            Primeira execução: crie a conta master única com senha forte.
-            Somente ela gerencia operadores, dispositivos e infraestrutura.
+            Primeira execução: crie a conta <strong>supervisor</strong> com senha forte.
+            Somente ela cadastra outros usuários e gerencia infraestrutura (sync ERP, dispositivos).
           </p>
         </div>
 

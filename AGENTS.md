@@ -43,7 +43,7 @@ Múltiplas skills podem aplicar (ex.: bug no sync ERP → `natumhub-resolve-bugs
 | Auth / rede / notificações | `ContextoIA/arquitetura/multi_usuario.md` |
 | API REST (referência) | `ContextoIA/api/routes.md` |
 | Sync ERP (referência) | `ContextoIA/erp-import/README.md` → `erp-import/` |
-| Schema SQLite | `ContextoIA/banco-dados/database_blueprint.md` |
+| Schema PostgreSQL | `ContextoIA/banco-dados/database_blueprint.md` + `Backend/supabase/` |
 | Criar módulo (referência) | `ContextoIA/modulos/criacao.md` |
 | Feedbacks (referência) | `ContextoIA/feedbacks/README.md` |
 | Bugs pendentes (fila viva) | `Feedbacks/feedback.md` |
@@ -52,4 +52,4 @@ Múltiplas skills podem aplicar (ex.: bug no sync ERP → `natumhub-resolve-bugs
 
 ## Stack (lembrete)
 
-Tauri 2 + React + Rust Axum (:3001) + SQLite `Saves/data.db` · PC Principal (`master`) + Secundários (`client`) · Auth operador local com Bearer token.
+Tauri 2 + React + Rust Axum (:3001) + PostgreSQL (Supabase) · Auth operador (Bearer) · Supervisor cadastra usuários.

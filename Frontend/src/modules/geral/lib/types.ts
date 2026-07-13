@@ -90,6 +90,13 @@ export const PRODUCT_LINE_STATUSES: ProductLineStatusConfig[] = [
   { value: 'terceirizado', label: 'Terceirizado', description: 'Produção terceirizada, sem compras ou produção automática', color: 'text-purple-700', bgColor: 'bg-purple-50', borderColor: 'border-purple-200', icon: '🏭' },
 ];
 
+/** Categorias de roteamento (não confundir com status de ciclo de vida). */
+export const PRODUCT_ROUTING_CATEGORIES = [
+  { id: 'cat_base', label: 'Base de produção', description: 'Fórmula intermediária — Gestão de Bases e consumo em lotes' },
+  { id: 'cat_coloracao', label: 'Coloração', description: 'Compras > Coloração' },
+  { id: 'cat_apoio', label: 'Material de Apoio', description: 'Compras > Material de Apoio' },
+] as const;
+
 export interface GraduationCandidate {
   codigo: string;
   descricao: string;
@@ -386,6 +393,26 @@ export interface FiscoQuimicaAnalysis {
   totalAgentRequired?: number | null;
   notes: string | null;
   createdAt?: string;
+}
+
+export interface LoteProductLine {
+  productCode: string;
+  productDescription: string;
+  quantity: number;
+  unitWeightKg: number;
+}
+
+export interface LoteLookup {
+  loteNumber: string;
+  productCode: string;
+  productDescription: string;
+  quantity: number;
+  date: string;
+  status: string;
+  statusLabel: string;
+  fabricatedBy: string;
+  authorizedBy: string;
+  products: LoteProductLine[];
 }
 
 export interface ProductionLote {

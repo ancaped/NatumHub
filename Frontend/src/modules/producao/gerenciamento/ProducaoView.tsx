@@ -21,9 +21,17 @@ import { SettingsTab } from './components/SettingsTab';
 import { LotesTab } from './components/LotesTab';
 import { AprovacaoTab } from './components/AprovacaoTab';
 
-export default function ProducaoView({ onBackToHub }) {
+type ProducaoLockedView = 'bases' | 'lotes';
+
+export default function ProducaoView({
+  onBackToHub,
+  lockedView = null,
+}: {
+  onBackToHub: () => void;
+  lockedView?: ProducaoLockedView | null;
+}) {
   // Navigation State
-  const [currentView, setCurrentView] = useState('dashboard');
+  const [currentView, setCurrentView] = useState(lockedView || 'dashboard');
 
   useEffect(() => {
     const viewLabels = {
@@ -197,6 +205,9 @@ export default function ProducaoView({ onBackToHub }) {
   const [selectedExpectedCode, setSelectedExpectedCode] = useState('');
   const [selectedActualCode, setSelectedActualCode] = useState('');
   const [mappedSwaps, setMappedSwaps] = useState([]);
+  const [resolveBaseCode, setResolveBaseCode] = useState('');
+  const [resolveBaseQty, setResolveBaseQty] = useState('');
+  const [baseProductOptions, setBaseProductOptions] = useState([]);
 
   useEffect(() => {
     if (selectedLoteDetails && selectedLoteDetails.pesagem_items) {
@@ -215,6 +226,29 @@ export default function ProducaoView({ onBackToHub }) {
     } else {
       setSelectedExpectedCode('');
       setSelectedActualCode('');
+    }
+  }, [selectedLoteDetails]);
+
+  useEffect(() => {
+    if (!loteDetailsDrawerOpen) return;
+    apiFetch('/products?limit=5000&status=base')
+      .then((res) => (res.ok ? res.json() : { items: [] }))
+      .then((data) => setBaseProductOptions(data.items || []))
+      .catch(() => setBaseProductOptions([]));
+  }, [loteDetailsDrawerOpen]);
+
+  useEffect(() => {
+    if (selectedLoteDetails) {
+      setResolutionObs(selectedLoteDetails.resolutionObs || selectedLoteDetails.resolution_obs || '');
+      setResolveBaseCode(
+        selectedLoteDetails.resolvedBaseCode ||
+        selectedLoteDetails.resolved_base_code ||
+        selectedLoteDetails.base_codigo ||
+        selectedLoteDetails.baseCodigo ||
+        ''
+      );
+      const qty = selectedLoteDetails.resolvedBaseQuantity ?? selectedLoteDetails.resolved_base_quantity;
+      setResolveBaseQty(qty != null && qty > 0 ? String(qty) : '');
     }
   }, [selectedLoteDetails]);
 
@@ -554,11 +588,18 @@ export default function ProducaoView({ onBackToHub }) {
         if (data.stats) setStats(data.stats);
         if (data.bases) setBases(data.bases);
       } else {
-        showToast("Erro ao buscar produtos da API", "error");
+        let detail = '';
+        try {
+          const err = await res.json();
+          detail = err?.error ? `: ${err.error}` : '';
+        } catch {
+          /* ignore */
+        }
+        showToast(`Erro ao buscar produtos da API${detail}`, "error");
       }
     } catch (e) {
       console.error("Error fetching products:", e);
-      showToast("Falha de conexão com o servidor local", "error");
+      showToast("Falha de conexão com a API", "error");
     } finally {
       setLoading(false);
     }
@@ -598,8 +639,11 @@ export default function ProducaoView({ onBackToHub }) {
   }, [kitsSearch, kitsActiveTab, kitsSelectedStatus, kitsPage, limitPerPage, showHidden, kitSortField, kitSortDir]);
 
   useEffect(() => {
-    fetchKits();
-  }, [fetchKits]);
+    // Kits só sob demanda (evita /products + /kits no mount)
+    if (kitsSearch || kitsActiveTab !== 'ALL' || kitsSelectedStatus !== 'ALL' || kitsPage > 1) {
+      fetchKits();
+    }
+  }, [fetchKits, kitsSearch, kitsActiveTab, kitsSelectedStatus, kitsPage]);
 
   // Fetch production history from API
   const fetchHistory = useCallback(async () => {
@@ -623,7 +667,7 @@ export default function ProducaoView({ onBackToHub }) {
       }
     } catch (e) {
       console.error("Error fetching history:", e);
-      showToast("Falha de conexão com o servidor local", "error");
+      showToast("Falha de conexão com a API", "error");
     } finally {
       setLoading(false);
     }
@@ -648,17 +692,17 @@ export default function ProducaoView({ onBackToHub }) {
       }
     } catch (e) {
       console.error("Error fetching lotes:", e);
-      showToast("Falha de conexão com o servidor local", "error");
+      showToast("Falha de conexão com a API", "error");
     } finally {
       setLotesLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (currentView === 'lotes') {
+    if (currentView === 'lotes' || lockedView === 'lotes') {
       fetchLotes();
     }
-  }, [currentView, fetchLotes]);
+  }, [currentView, lockedView, fetchLotes]);
 
   const fetchSuspendedProducts = useCallback(async () => {
     setSuspendedLoading(true);
@@ -796,6 +840,12 @@ export default function ProducaoView({ onBackToHub }) {
         body: JSON.stringify({
           observations: resolutionObs,
           resolved_by: "Administrador",
+          base_code: resolveBaseCode.trim() || null,
+          base_quantity: resolveBaseQty.trim() ? parseFloat(resolveBaseQty) : null,
+          substitutions: mappedSwaps.map((swap) => ({
+            expected_code: swap.expectedCode,
+            actual_code: swap.actualCode,
+          })),
         }),
       });
 
@@ -1141,7 +1191,7 @@ export default function ProducaoView({ onBackToHub }) {
   const handleSyncDatabase = async () => {
     setSyncingDb(true);
     try {
-      const res = await apiFetch(`/import/sync`, {
+      const res = await apiFetch(`/import/sync?mode=incremental`, {
         method: 'POST',
       });
       const data = await res.json();
@@ -1310,7 +1360,7 @@ export default function ProducaoView({ onBackToHub }) {
       }
     } catch (e) {
       console.error("Error in bulk overrides:", e);
-      showToast("Falha de conexão com o servidor local", "error");
+      showToast("Falha de conexão com a API", "error");
     } finally {
       setLoading(false);
     }
@@ -1417,17 +1467,24 @@ export default function ProducaoView({ onBackToHub }) {
         ])
   ];
 
-  const sidebarItems = [
+  const gerenciamentoSidebarItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'inventory', label: 'Gerenciamento de Produção', icon: Table },
     { id: 'aprovacao', label: 'Aprovação de Produção', icon: ClipboardCheck, badge: productionApprovalList.length },
-    { id: 'erros', label: 'Erros de Estoque', icon: AlertTriangle },
-    { id: 'bases', label: 'Gestão de Bases', icon: Database },
     { id: 'history', label: 'Histórico de Produção', icon: History },
-    { id: 'lotes', label: 'Lotes de Produção', icon: ClipboardList },
     { id: 'ignored_items', label: 'Produtos Suspensos', icon: EyeOff },
     { id: 'settings', label: 'Configurações', icon: Settings },
   ];
+
+  const sidebarItems =
+    lockedView === 'bases'
+      ? [{ id: 'bases', label: 'Gestão de Bases', icon: Database }]
+      : lockedView === 'lotes'
+        ? [
+            { id: 'lotes', label: 'Lotes de Produção', icon: ClipboardList },
+            { id: 'erros', label: 'Erros de Estoque', icon: AlertTriangle },
+          ]
+        : gerenciamentoSidebarItems;
 
   const layoutActiveTab = (() => {
     if (currentView === 'lotes') {
@@ -1456,25 +1513,17 @@ export default function ProducaoView({ onBackToHub }) {
     }
   };
 
-  const headerActions = (
-    <div className="flex items-center gap-2">
-      <div 
-        className={`google-sync-badge ${googleStatus.authenticated ? 'synced' : ''}`} 
-        onClick={() => googleStatus.authenticated ? handleGoogleSync() : showToast("Configure o backup no Hub principal", "info")}
-        title={googleStatus.authenticated ? `Backup Google Drive ativo. Última sincronização: ${googleStatus.last_sync}. Clique para sincronizar agora.` : 'Configure o backup no Hub principal.'}
-        style={{ cursor: 'pointer' }}
-      >
-        <Database size={14} />
-        <span style={{ fontSize: '0.75rem' }}>{googleStatus.authenticated ? 'Drive Conectado' : 'Configurar Backup'}</span>
-        {googleStatus.authenticated && <Check size={12} style={{ marginLeft: '4px' }} />}
-      </div>
-    </div>
-  );
+  const headerActions = null;
 
   return (
     <AppLayout
-      moduleTitle="Natum Produção"
-      moduleSubtitle="Planejamento e Estoques"
+      moduleTitle={
+        lockedView === 'bases'
+          ? 'Gestão de Bases'
+          : lockedView === 'lotes'
+            ? 'Lotes de Produção'
+            : 'Natum Produção'
+      }
       onBackToHub={onBackToHub}
       sidebarItems={sidebarItems}
       activeTab={layoutActiveTab}
@@ -1489,8 +1538,6 @@ export default function ProducaoView({ onBackToHub }) {
               totalItems={totalItems}
               bases={bases}
               productsLength={products.length}
-              googleStatus={googleStatus}
-              onGoogleSync={handleGoogleSync}
               setCurrentView={setCurrentView}
               setSelectedStatus={setSelectedStatus}
               setSelectedBase={setSelectedBase}
@@ -1620,15 +1667,8 @@ export default function ProducaoView({ onBackToHub }) {
           {/* VIEW: IGNORED ITEMS (PRODUTOS SUSPENSOS) */}
           {currentView === 'ignored_items' && (
             <div className="view-container animate-in fade-in duration-200">
-              <div className="view-header text-left">
-                <h2 className="view-title">Produtos Suspensos</h2>
-                <p className="view-subtitle">
-                  Produtos acabados (linhas de produtos) suspensos nas demandas e no painel de gerenciamento devido aos seus status configurados (ex: descontinuado, terceirizado).
-                </p>
-              </div>
-
               {/* Search Toolbar */}
-              <div className="toolbar-section flex justify-between items-center gap-4 mt-6">
+              <div className="toolbar-section flex justify-between items-center gap-4">
                 <div className="search-input-wrapper flex-1 max-w-md">
                   <Search size={18} />
                   <input 
@@ -2419,32 +2459,33 @@ export default function ProducaoView({ onBackToHub }) {
               style={{ zIndex: 200 }}
             >
               {/* Header */}
-              <div className="p-6 border-b border-zinc-150 flex items-center justify-between bg-zinc-50 shrink-0">
-                <div className="min-w-0 flex-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                    Análise Detalhada de Lote
-                  </span>
-                  <h3 className="font-extrabold text-zinc-900 text-lg mt-0.5 flex items-center gap-2">
+              <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50 flex items-center justify-between shrink-0">
+                <div className="min-w-0 flex-1 pr-4">
+                  <h3 className="font-extrabold text-zinc-900 text-base tracking-tight truncate">
                     Lote #{selectedLoteDetails?.lote_number || '...'}
                   </h3>
-                  <p className="text-xs text-zinc-500 font-mono mt-0.5 flex items-center gap-1.5">
-                    <span className="font-bold text-zinc-700 bg-zinc-100 px-2 py-0.5 rounded border border-zinc-200">
+                  <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mt-0.5 truncate">
+                    Análise Detalhada de Lote
+                  </p>
+                  <p className="text-xs text-zinc-500 mt-1.5 flex items-center gap-1.5 min-w-0">
+                    <span className="font-mono font-bold text-zinc-700 bg-white px-2 py-0.5 rounded-lg border border-zinc-200 shrink-0">
                       {selectedLoteDetails?.product_code}
                     </span>
-                    <span className="text-zinc-400">•</span>
-                    <span className="truncate max-w-md text-zinc-600">{selectedLoteDetails?.product_description}</span>
+                    <span className="text-zinc-300">·</span>
+                    <span className="truncate text-zinc-600">{selectedLoteDetails?.product_description}</span>
                   </p>
                 </div>
                 <button
                   onClick={() => setLoteDetailsDrawerOpen(false)}
-                  className="p-1 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-650 transition-colors cursor-pointer border border-zinc-200 bg-white shadow-sm"
+                  className="text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200 p-1.5 rounded-lg transition-colors cursor-pointer shrink-0"
+                  title="Fechar"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               {/* Sub-tab Navigation */}
-              <div className="px-6 py-3 bg-zinc-50 border-b border-zinc-150 flex gap-2 shrink-0">
+              <div className="px-6 py-3 bg-white border-b border-zinc-200 flex flex-wrap gap-1.5 shrink-0">
                 {[
                   { id: 'inicio', label: 'Início', icon: LayoutDashboard },
                   { id: 'pesagem', label: 'Pesagem', icon: Scale },
@@ -2457,10 +2498,10 @@ export default function ProducaoView({ onBackToHub }) {
                     <button
                       key={t.id}
                       onClick={() => setLoteActiveSubTab(t.id)}
-                      className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                      className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
                         isActive 
-                          ? 'bg-zinc-900 text-white shadow-md' 
-                          : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'
+                          ? 'bg-zinc-900 text-white' 
+                          : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 border border-transparent'
                       }`}
                     >
                       <Icon size={14} />
@@ -2471,7 +2512,7 @@ export default function ProducaoView({ onBackToHub }) {
               </div>
 
               {/* Body */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white">
+              <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-zinc-50/40">
                 {loteDetailsDrawerLoading ? (
                   <div className="flex flex-col items-center justify-center h-64 gap-3 text-zinc-400">
                     <RefreshCw className="h-8 w-8 animate-spin text-zinc-500" />
@@ -2481,61 +2522,61 @@ export default function ProducaoView({ onBackToHub }) {
                   <>
                     {/* TAB: INÍCIO */}
                     {loteActiveSubTab === 'inicio' && (
-                      <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-200">
+                      <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-200">
                         {/* Meta Cards Grid */}
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
-                            <span className="text-[10px] text-zinc-400 font-bold uppercase block">Status do Lote</span>
-                            <div className="mt-1.5">
-                              <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider border ${
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white border border-zinc-200 p-4 rounded-2xl shadow-sm text-left">
+                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Status do Lote</span>
+                            <div className="mt-2">
+                              <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border ${
                                 selectedLoteDetails.status.toUpperCase() === 'EA' 
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200/50'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
                                   : selectedLoteDetails.status.toUpperCase() === 'CA'
-                                  ? 'bg-rose-50 text-rose-700 border-rose-200/50'
-                                  : 'bg-amber-50 text-amber-700 border-amber-200/50'
+                                  ? 'bg-rose-50 text-rose-700 border-rose-100'
+                                  : 'bg-amber-50 text-amber-700 border-amber-100'
                               }`}>
                                 {selectedLoteDetails.status_label}
                               </span>
                             </div>
                           </div>
                           
-                          <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
-                            <span className="text-[10px] text-zinc-400 font-bold uppercase block">Data de Abertura</span>
-                            <p className="text-sm font-bold text-zinc-800 mt-1">
+                          <div className="bg-white border border-zinc-200 p-4 rounded-2xl shadow-sm text-left">
+                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Data de Abertura</span>
+                            <p className="text-sm font-bold text-zinc-800 mt-2">
                               {new Date(selectedLoteDetails.date.replace(' ', 'T')).toLocaleDateString('pt-BR')}
                             </p>
                           </div>
                           
-                          <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
-                            <span className="text-[10px] text-zinc-400 font-bold uppercase block">Operador (Pesagem/Prod)</span>
-                            <p className="text-sm font-bold text-zinc-800 mt-1">
+                          <div className="bg-white border border-zinc-200 p-4 rounded-2xl shadow-sm text-left">
+                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Operador (Pesagem/Prod)</span>
+                            <p className="text-sm font-bold text-zinc-800 mt-2">
                               {selectedLoteDetails.fabricated_by || 'Não registrado'}
                             </p>
                           </div>
 
-                          <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
-                            <span className="text-[10px] text-zinc-400 font-bold uppercase block">Autorização (Liberação)</span>
-                            <p className="text-sm font-bold text-zinc-800 mt-1">
+                          <div className="bg-white border border-zinc-200 p-4 rounded-2xl shadow-sm text-left">
+                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Autorização (Liberação)</span>
+                            <p className="text-sm font-bold text-zinc-800 mt-2">
                               {selectedLoteDetails.authorized_by || 'Não registrado'}
                             </p>
                           </div>
                         </div>
 
                         {/* Batch yields */}
-                        <div className="bg-zinc-50 border border-zinc-150 p-5 rounded-xl space-y-4 shadow-sm">
-                          <h4 className="font-extrabold text-sm text-zinc-900 border-b border-zinc-200 pb-2">Rendimento Geral do Lote</h4>
+                        <div className="bg-white border border-zinc-200 p-5 rounded-2xl space-y-4 shadow-sm">
+                          <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-wider border-b border-zinc-100 pb-2">Rendimento Geral do Lote</h4>
                           <div className="grid grid-cols-3 gap-4">
                             <div className="text-left">
-                              <span className="text-[10px] text-zinc-400 font-bold uppercase block">Massa Teórica (Pesada)</span>
-                              <p className="text-lg font-extrabold text-zinc-900 mt-0.5">{(selectedLoteDetails.pesagem_total_actual ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} Kg</p>
+                              <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Massa Teórica (Pesada)</span>
+                              <p className="text-lg font-extrabold text-zinc-900 mt-1">{(selectedLoteDetails.pesagem_total_actual ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} Kg</p>
                             </div>
                             <div className="text-left">
-                              <span className="text-[10px] text-zinc-400 font-bold uppercase block">Massa Envasada (SKUs)</span>
-                              <p className="text-lg font-extrabold text-zinc-900 mt-0.5">{(selectedLoteDetails.total_packaged_weight_kg ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} Kg</p>
+                              <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Massa Envasada (SKUs)</span>
+                              <p className="text-lg font-extrabold text-zinc-900 mt-1">{(selectedLoteDetails.total_packaged_weight_kg ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} Kg</p>
                             </div>
                             <div className="text-left">
-                              <span className="text-[10px] text-zinc-400 font-bold uppercase block">Aproveitamento de Massa</span>
-                              <p className={`text-lg font-extrabold mt-0.5 ${
+                              <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Aproveitamento de Massa</span>
+                              <p className={`text-lg font-extrabold mt-1 ${
                                 selectedLoteDetails.bulk_yield_percentage >= 90.0 ? 'text-emerald-600' : 'text-amber-600'
                               }`}>
                                 {selectedLoteDetails.bulk_yield_percentage.toFixed(2)}%
@@ -2543,7 +2584,7 @@ export default function ProducaoView({ onBackToHub }) {
                             </div>
                           </div>
 
-                          <div className="p-3.5 bg-white rounded-lg border border-zinc-200 text-xs text-zinc-500">
+                          <div className="p-3.5 bg-zinc-50 rounded-xl border border-zinc-100 text-xs text-zinc-500">
                             O lote registrou uma perda de <strong className="text-zinc-800 font-bold">{selectedLoteDetails.bulk_loss_kg.toFixed(3)} Kg</strong> de massa entre a pesagem de matérias-primas e a conferência final de envase.
                           </div>
                         </div>
@@ -2571,14 +2612,14 @@ export default function ProducaoView({ onBackToHub }) {
 
                           if (selectedLoteDetails.is_resolved) {
                             return (
-                              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5 space-y-3 text-left shadow-sm">
-                                <div className="flex items-center gap-2 text-emerald-800 font-extrabold text-sm">
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                              <div className="bg-white border border-zinc-200 rounded-2xl p-5 space-y-3 text-left shadow-sm">
+                                <div className="flex items-center gap-2 text-emerald-700 font-bold text-sm">
+                                  <CheckCircle2 className="h-4 w-4 shrink-0" />
                                   <span>Desvios Justificados e Aprovados</span>
                                 </div>
-                                <div className="text-xs text-zinc-700 font-medium space-y-1 bg-white p-3 rounded-lg border border-emerald-100">
-                                  <p className="font-bold text-zinc-900">Justificativa:</p>
-                                  <p className="italic">"{selectedLoteDetails.resolution_obs}"</p>
+                                <div className="text-xs text-zinc-700 font-medium space-y-1.5 bg-zinc-50 p-3.5 rounded-xl border border-zinc-100">
+                                  <p className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Justificativa</p>
+                                  <p className="text-zinc-800 leading-relaxed">"{selectedLoteDetails.resolution_obs}"</p>
                                 </div>
                                 <button
                                   disabled={resolveLoteLoading}
@@ -2593,28 +2634,71 @@ export default function ProducaoView({ onBackToHub }) {
 
                           if (!hasErrors) {
                             return (
-                              <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-4 flex items-center gap-3 text-left">
-                                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex-shrink-0">
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                              <div className="bg-white border border-zinc-200 rounded-2xl p-4 flex items-center gap-3 text-left shadow-sm">
+                                <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex-shrink-0 border border-emerald-100">
+                                  <CheckCircle2 className="h-4 w-4" />
                                 </div>
                                 <div>
-                                  <p className="text-xs font-bold text-emerald-800">Lote sem desvios críticos</p>
-                                  <p className="text-[10px] text-emerald-600 mt-0.5">Todos os parâmetros de pesagem, envase e rendimento estão dentro da tolerância esperada.</p>
+                                  <p className="text-xs font-bold text-zinc-900">Lote sem desvios críticos</p>
+                                  <p className="text-[11px] text-zinc-500 mt-0.5">Todos os parâmetros de pesagem, envase e rendimento estão dentro da tolerância esperada.</p>
                                 </div>
                               </div>
                             );
                           }
 
                           return (
-                            <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-5 space-y-4 text-left shadow-sm">
-                              <div className="flex items-center gap-2 text-rose-800 font-extrabold text-sm border-b border-zinc-250 pb-2">
-                                <AlertTriangle className="h-4 w-4 text-rose-600" />
-                                <span>Justificar Desvios do Lote</span>
+                            <div className="bg-white border border-zinc-200 rounded-2xl p-5 space-y-4 text-left shadow-sm">
+                              <div className="flex items-start justify-between gap-3 border-b border-zinc-100 pb-3">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-rose-50 text-rose-600 border border-rose-100 shrink-0">
+                                    <AlertTriangle className="h-4 w-4" />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <h4 className="font-extrabold text-sm text-zinc-900 tracking-tight">Justificar Desvios do Lote</h4>
+                                    <p className="text-[11px] text-zinc-500 mt-0.5">
+                                      Informe a base utilizada (se aplicável) e registre a justificativa dos desvios.
+                                    </p>
+                                  </div>
+                                </div>
                               </div>
 
-                              <p className="text-[10px] text-zinc-500 font-medium">
-                                Identificamos desvios de pesagem, envase ou rendimento neste lote. Registre uma justificativa para aprovar o lote com ressalvas.
-                              </p>
+                              <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4 space-y-3">
+                                <div>
+                                  <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Base de produção consumida</p>
+                                  <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
+                                    Quando o ERP pesou só fragrância/aditivos, selecione a base pré-produzida. O NatumHub gera a baixa local de estoque.
+                                  </p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Produto base</label>
+                                    <select
+                                      value={resolveBaseCode}
+                                      onChange={(e) => setResolveBaseCode(e.target.value)}
+                                      className="w-full text-xs border border-zinc-200 rounded-xl p-2.5 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                                    >
+                                      <option value="">— Não aplicável —</option>
+                                      {baseProductOptions.map((p) => (
+                                        <option key={p.codigo} value={p.codigo}>
+                                          {p.descricao} ({p.codigo})
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Quantidade (kg/un)</label>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      value={resolveBaseQty}
+                                      onChange={(e) => setResolveBaseQty(e.target.value)}
+                                      className="w-full text-xs border border-zinc-200 rounded-xl p-2.5 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                                      placeholder="Ex: 65"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
 
                               {(() => {
                                 const availableMissing = missingIngredients.filter(item => 
@@ -2643,24 +2727,21 @@ export default function ProducaoView({ onBackToHub }) {
                                 return (
                                   <>
                                     {missingIngredients.length > 0 && unplannedIngredients.length > 0 && (
-                                      <div className="bg-blue-50/80 border border-blue-200/50 rounded-xl p-3.5 space-y-3 shadow-sm">
-                                        <div className="flex gap-2.5">
-                                          <div className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex-shrink-0 mt-0.5 animate-pulse">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-                                          </div>
-                                          <div className="text-xs text-blue-900 font-medium flex-1">
-                                            <span className="font-extrabold block text-blue-950">Mapear Substituições de Insumos</span>
-                                            Selecione um insumo planejado ausente e o respectivo substituto para vinculá-los:
-                                          </div>
+                                      <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4 space-y-3">
+                                        <div>
+                                          <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Mapear Substituições de Insumos</p>
+                                          <p className="text-[11px] text-zinc-500 mt-1">
+                                            Selecione um insumo planejado ausente e o respectivo substituto para vinculá-los.
+                                          </p>
                                         </div>
                                         
-                                        <div className="grid grid-cols-2 gap-2 text-xs">
+                                        <div className="grid grid-cols-2 gap-3 text-xs">
                                           <div className="space-y-1">
-                                            <label className="text-[10px] text-zinc-550 font-bold block">Insumo Planejado (Ausente)</label>
+                                            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Insumo Planejado (Ausente)</label>
                                             <select
                                               value={selectedExpectedCode}
                                               onChange={(e) => setSelectedExpectedCode(e.target.value)}
-                                              className="w-full text-xs border border-blue-200 rounded-lg p-2 focus:ring-1 focus:ring-blue-500 bg-white font-medium"
+                                              className="w-full text-xs border border-zinc-200 rounded-xl p-2.5 focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white font-medium"
                                             >
                                               <option value="">-- Selecione o Insumo --</option>
                                               {availableMissing.map(item => (
@@ -2672,11 +2753,11 @@ export default function ProducaoView({ onBackToHub }) {
                                           </div>
                                           
                                           <div className="space-y-1">
-                                            <label className="text-[10px] text-zinc-550 font-bold block">Insumo Utilizado (Substituto)</label>
+                                            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Insumo Utilizado (Substituto)</label>
                                             <select
                                               value={selectedActualCode}
                                               onChange={(e) => setSelectedActualCode(e.target.value)}
-                                              className="w-full text-xs border border-blue-200 rounded-lg p-2 focus:ring-1 focus:ring-blue-500 bg-white font-medium"
+                                              className="w-full text-xs border border-zinc-200 rounded-xl p-2.5 focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white font-medium"
                                             >
                                               <option value="">-- Selecione o Insumo --</option>
                                               {availableUnplanned.map(item => (
@@ -2692,20 +2773,20 @@ export default function ProducaoView({ onBackToHub }) {
                                           type="button"
                                           disabled={!selectedExpectedCode || !selectedActualCode}
                                           onClick={handleAddSwap}
-                                          className="w-full py-1.5 bg-blue-600 hover:bg-blue-750 text-white rounded-lg text-[10px] font-bold shadow-sm disabled:opacity-50 cursor-pointer transition-all"
+                                          className="w-full py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold disabled:opacity-50 cursor-pointer transition-colors"
                                         >
                                           + Vincular Substituição
                                         </button>
 
                                         {mappedSwaps.length > 0 && (
-                                          <div className="space-y-1.5 mt-2 bg-white rounded-lg border border-blue-100 p-2.5">
-                                            <span className="text-[9px] text-zinc-400 font-extrabold uppercase block">Substituições Vinculadas neste Lote:</span>
-                                            <div className="space-y-1">
+                                          <div className="space-y-1.5 bg-white rounded-xl border border-zinc-200 p-3">
+                                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Substituições vinculadas</span>
+                                            <div className="space-y-1.5 mt-1.5">
                                               {mappedSwaps.map((swap, idx) => (
-                                                <div key={idx} className="flex justify-between items-center bg-zinc-50 border border-zinc-200 rounded-md p-1.5 text-[10px]">
+                                                <div key={idx} className="flex justify-between items-center bg-zinc-50 border border-zinc-100 rounded-lg px-2.5 py-2 text-[11px]">
                                                   <div className="font-medium text-zinc-700 flex items-center gap-1.5 flex-1 truncate">
                                                     <span className="font-bold text-zinc-900 truncate max-w-[100px]" title={swap.expectedDesc}>{swap.expectedDesc}</span>
-                                                    <span className="text-zinc-400">➡️</span>
+                                                    <span className="text-zinc-400">→</span>
                                                     <span className="font-bold text-zinc-900 truncate max-w-[100px]" title={swap.actualDesc}>{swap.actualDesc}</span>
                                                   </div>
                                                   <button
@@ -2713,7 +2794,7 @@ export default function ProducaoView({ onBackToHub }) {
                                                     onClick={() => {
                                                       setMappedSwaps(mappedSwaps.filter((_, i) => i !== idx));
                                                     }}
-                                                    className="text-rose-550 hover:text-rose-700 font-bold ml-2 cursor-pointer"
+                                                    className="text-rose-600 hover:text-rose-700 font-bold ml-2 cursor-pointer shrink-0"
                                                   >
                                                     Remover
                                                   </button>
@@ -2723,14 +2804,14 @@ export default function ProducaoView({ onBackToHub }) {
                                           </div>
                                         )}
 
-                                        <label className="flex items-center gap-2 bg-white border border-blue-200 rounded-lg p-2.5 cursor-pointer text-[10px] font-bold text-zinc-700 select-none shadow-sm mt-2">
+                                        <label className="flex items-start gap-2.5 bg-white border border-zinc-200 rounded-xl p-3 cursor-pointer text-[11px] font-medium text-zinc-700 select-none">
                                           <input
                                             type="checkbox"
                                             checked={associateSwapSimilar}
                                             onChange={(e) => setAssociateSwapSimilar(e.target.checked)}
-                                            className="accent-blue-600 rounded"
+                                            className="mt-0.5 accent-zinc-900 rounded"
                                           />
-                                          Cadastrar substituições vinculadas como insumos semelhantes (não alertar nas próximas produções)
+                                          <span>Cadastrar substituições vinculadas como insumos semelhantes (não alertar nas próximas produções)</span>
                                         </label>
                                       </div>
                                     )}
@@ -2739,20 +2820,20 @@ export default function ProducaoView({ onBackToHub }) {
                               })()}
 
                               <div className="space-y-1.5">
-                                <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Justificativa / Observação</label>
+                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Justificativa / Observação</label>
                                 <textarea
                                   value={resolutionObs}
                                   onChange={(e) => setResolutionObs(e.target.value)}
                                   placeholder="Digite a justificativa dos desvios observados..."
-                                  rows="3"
-                                  className="w-full text-xs border border-zinc-300 rounded-xl p-3 focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white font-medium shadow-inner"
+                                  rows={3}
+                                  className="w-full text-xs border border-zinc-200 rounded-xl p-3 focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white font-medium"
                                 />
                               </div>
 
                               <button
                                 onClick={() => handleResolveLoteErrors(selectedLoteDetails.lote_number)}
                                 disabled={resolveLoteLoading || !resolutionObs.trim()}
-                                className="w-full py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                                className="w-full py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
                               >
                                 {resolveLoteLoading ? (
                                   <>

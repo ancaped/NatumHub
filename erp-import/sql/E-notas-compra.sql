@@ -1,6 +1,6 @@
 -- Passo E: Notas fiscais de compra (itens)
 -- Destino: invoices
--- Filtro: últimos 48 meses
+-- Full: últimos 48 meses | Incremental: desde watermark − 2 dias
 
 SELECT 
     c.NOTA,

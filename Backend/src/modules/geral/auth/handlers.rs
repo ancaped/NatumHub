@@ -16,19 +16,10 @@ use super::modules_registry;
 use super::store;
 
 pub async fn setup_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
+    let pool = state.db.pool();
 
-    let _ = store::init_auth_tables(&conn);
-    match store::setup_status(&conn) {
+    let _ = store::init_auth_tables(pool).await;
+    match store::setup_status(pool).await {
         Ok((has_supervisor, has_password)) => (
             StatusCode::OK,
             Json(SetupStatusResponse {
@@ -49,34 +40,28 @@ pub async fn setup_supervisor(
     State(state): State<Arc<AppState>>,
     Json(body): Json<SetupSupervisorRequest>,
 ) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
+    let pool = state.db.pool();
 
-    let _ = store::init_auth_tables(&conn);
+    let _ = store::init_auth_tables(pool).await;
 
     match store::setup_supervisor(
-        &conn,
+        pool,
         &body.display_name,
         &body.password,
         body.device_id.as_deref(),
         body.device_label.as_deref(),
         None,
-    ) {
+    )
+    .await
+    {
         Ok((token, operator, modules, expires_at)) => {
             let user = store::build_auth_user(
-                &conn,
+                pool,
                 &operator,
                 modules,
                 body.device_id.as_deref(),
             )
+            .await
             .unwrap_or_else(|_| AuthUser {
                 id: operator.id.clone(),
                 display_name: operator.display_name.clone(),
@@ -104,19 +89,10 @@ pub async fn setup_supervisor(
 }
 
 pub async fn list_operators(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
+    let pool = state.db.pool();
 
-    let _ = store::init_auth_tables(&conn);
-    match store::list_active_operators(&conn) {
+    let _ = store::init_auth_tables(pool).await;
+    match store::list_active_operators(pool).await {
         Ok(list) => (StatusCode::OK, Json(list)).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -131,25 +107,16 @@ pub async fn module_registry() -> impl IntoResponse {
 }
 
 pub async fn list_operators_manage(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
+    let pool = state.db.pool();
 
-    if let Err(e) = store::init_auth_tables(&conn) {
+    if let Err(e) = store::init_auth_tables(pool).await {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
+            Json(json!({ "error": e })),
         )
             .into_response();
     }
-    match store::list_all_operators(&conn) {
+    match store::list_all_operators(pool).await {
         Ok(list) => (StatusCode::OK, Json(list)).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -163,33 +130,26 @@ pub async fn create_operator(
     State(state): State<Arc<AppState>>,
     Json(body): Json<SaveOperatorRequest>,
 ) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
+    let pool = state.db.pool();
 
-    if let Err(e) = store::init_auth_tables(&conn) {
+    if let Err(e) = store::init_auth_tables(pool).await {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
+            Json(json!({ "error": e })),
         )
             .into_response();
     }
 
     match store::create_operator(
-        &conn,
+        pool,
         &body.display_name,
         &body.role,
         &body.modules,
         body.update_channel.as_deref(),
         body.password.as_deref(),
-    ) {
+    )
+    .await
+    {
         Ok(op) => (StatusCode::CREATED, Json(op)).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
     }
@@ -209,28 +169,19 @@ pub async fn update_operator(
             .into_response();
     }
 
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
+    let pool = state.db.pool();
 
-    if let Err(e) = store::init_auth_tables(&conn) {
+    if let Err(e) = store::init_auth_tables(pool).await {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
+            Json(json!({ "error": e })),
         )
             .into_response();
     }
 
     let active = body.active.unwrap_or(true);
     match store::update_operator(
-        &conn,
+        pool,
         &id,
         &body.display_name,
         &body.role,
@@ -240,26 +191,19 @@ pub async fn update_operator(
         body.password.as_deref(),
         Some(&ctx.operator_id),
         body.supervisor_password.as_deref(),
-    ) {
+    )
+    .await
+    {
         Ok(op) => (StatusCode::OK, Json(op)).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
     }
 }
 
 pub async fn list_devices_manage(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
+    let pool = state.db.pool();
 
-    let _ = store::init_auth_tables(&conn);
-    match store::list_devices(&conn) {
+    let _ = store::init_auth_tables(pool).await;
+    match store::list_devices(pool).await {
         Ok(list) => (StatusCode::OK, Json(list)).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -275,21 +219,12 @@ pub async fn update_device_manage(
     Extension(ctx): Extension<AuthContext>,
     Json(body): Json<UpdateDeviceRequest>,
 ) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
+    let pool = state.db.pool();
 
-    let _ = store::init_auth_tables(&conn);
+    let _ = store::init_auth_tables(pool).await;
 
     if let Some(pwd) = body.supervisor_password.as_deref() {
-        match store::verify_supervisor_password(&conn, &ctx.operator_id, pwd) {
+        match store::verify_supervisor_password(pool, &ctx.operator_id, pwd).await {
             Ok(true) => {}
             Ok(false) => {
                 return (
@@ -311,11 +246,13 @@ pub async fn update_device_manage(
     }
 
     match store::update_device(
-        &conn,
+        pool,
         &device_id,
         body.label.as_deref(),
         body.update_channel.as_deref(),
-    ) {
+    )
+    .await
+    {
         Ok(device) => (StatusCode::OK, Json(device)).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
     }
@@ -325,35 +262,29 @@ pub async fn login(
     State(state): State<Arc<AppState>>,
     Json(body): Json<LoginRequest>,
 ) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
+    let pool = state.db.pool();
 
-    let _ = store::init_auth_tables(&conn);
-    let _ = store::purge_expired_sessions(&conn);
+    let _ = store::init_auth_tables(pool).await;
+    let _ = store::purge_expired_sessions(pool).await;
 
     match store::create_session(
-        &conn,
+        pool,
         &body.display_name,
         &body.password,
         body.device_id.as_deref(),
         body.device_label.as_deref(),
         body.client_ip.as_deref(),
-    ) {
+    )
+    .await
+    {
         Ok((token, operator, modules, expires_at)) => {
             let user = store::build_auth_user(
-                &conn,
+                pool,
                 &operator,
                 modules,
                 body.device_id.as_deref(),
             )
+            .await
             .unwrap_or_else(|_| AuthUser {
                 id: operator.id.clone(),
                 display_name: operator.display_name.clone(),
@@ -392,18 +323,9 @@ pub async fn logout(
         return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "Token ausente" }))).into_response();
     };
 
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
+    let pool = state.db.pool();
 
-    match store::revoke_session(&conn, &token) {
+    match store::revoke_session(pool, &token).await {
         Ok(()) => (StatusCode::OK, Json(json!({ "status": "success" }))).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -426,18 +348,9 @@ pub async fn me(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
+    let pool = state.db.pool();
 
-    match store::resolve_session(&conn, &token) {
+    match store::resolve_session(pool, &token).await {
         Ok(Some(ctx)) => {
             let operator = super::models::Operator {
                 id: ctx.operator_id.clone(),
@@ -445,11 +358,13 @@ pub async fn me(
                 role: ctx.role.as_str().to_string(),
             };
             match store::build_auth_user(
-                &conn,
+                pool,
                 &operator,
                 ctx.modules.clone(),
                 device_id.as_deref(),
-            ) {
+            )
+            .await
+            {
                 Ok(user) => (StatusCode::OK, Json(user)).into_response(),
                 Err(e) => (
                     StatusCode::INTERNAL_SERVER_ERROR,

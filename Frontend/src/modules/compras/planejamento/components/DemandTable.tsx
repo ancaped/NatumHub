@@ -14,6 +14,10 @@ interface InsumoDetalhes {
   categoryName: string | null;
   isIgnored: boolean;
   currentStock: number;
+  reservedQty?: number;
+  inProduction?: number;
+  inOrders?: number;
+  availableQty?: number;
   consumptionYoy: {
     year: number;
     totalQty: number;
@@ -130,6 +134,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   const [printFilterType, setPrintFilterType] = useState<'needed' | 'all'>('needed');
 
   const [printList, setPrintList] = useState<string[]>([]);
+  const [lastErpStockSync, setLastErpStockSync] = useState<{ at: string; count: number } | null>(null);
 
   const activeCategoryId = selectedCategory || 
     (activeMainTab !== 'ALL' ? activeMainTab : (mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : 'cat_mp'));
@@ -311,8 +316,21 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   const loadDemands = async () => {
     setLoading(true);
     try {
-      const results = await api.getDemands(undefined, targetDaysInput);
+      const categoryId =
+        mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : undefined;
+      const [results, history] = await Promise.all([
+        api.getDemands(categoryId, targetDaysInput),
+        api.getImportHistory().catch(() => [] as Awaited<ReturnType<typeof api.getImportHistory>>),
+      ]);
       setDemands(results);
+      const erp = history.find(
+        (h) => h.source === 'ERP' || (h.filename || '').includes('SQL Server')
+      );
+      if (erp?.imported_at) {
+        setLastErpStockSync({ at: erp.imported_at, count: erp.item_count ?? 0 });
+      } else {
+        setLastErpStockSync(null);
+      }
     } catch (e) {
       console.error(e);
       alert('Erro ao carregar demandas');
@@ -834,6 +852,22 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
             </div>
           )}
 
+          {lastErpStockSync && (
+            <div className="px-4 py-1.5 border-b border-zinc-200 bg-zinc-50/80 text-[11px] text-zinc-600 flex items-center gap-2 shrink-0">
+              <Database className="h-3.5 w-3.5 text-zinc-400" />
+              <span>
+                Estoque físico ERP — último sync:{' '}
+                <strong className="text-zinc-800">
+                  {new Date(lastErpStockSync.at.replace(' ', 'T')).toLocaleString('pt-BR')}
+                </strong>
+                {lastErpStockSync.count > 0 && ` (${lastErpStockSync.count.toLocaleString('pt-BR')} itens)`}
+              </span>
+              <span className="text-zinc-400 hidden sm:inline">
+                · Coluna Estoque = nQtdeEstoque do ERP. Se divergir, rode Sync ERP em Configurações.
+              </span>
+            </div>
+          )}
+
           <div className="px-4 py-2 border-b border-zinc-200 bg-zinc-50 flex items-center justify-between shrink-0 gap-4 flex-wrap">
             <div className="flex items-center gap-4 flex-wrap">
               <div className="flex items-center gap-2 bg-white border border-zinc-300 rounded-md px-3 py-1.5">
@@ -851,9 +885,9 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
               )}
               <select value={urgencyFilter} onChange={e => setUrgencyFilter(e.target.value)} className="text-sm border border-zinc-300 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none">
                 <option value="">Todos os Status</option>
-                <option value="critical">🔴 Crítico (&lt;30 dias)</option>
-                <option value="warning">🟡 Atenção (30-60 dias)</option>
-                <option value="ok">🟢 OK (&gt;60 dias)</option>
+                <option value="critical">🔴 Crítico (&lt; disparo)</option>
+                <option value="warning">🟡 Atenção (disparo–meta)</option>
+                <option value="ok">🟢 OK (≥ meta)</option>
               </select>
               <div className="flex items-center gap-2 border-l border-zinc-300 pl-4">
                 <span className="text-sm text-zinc-650">Disparo:</span>
@@ -954,7 +988,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="font-medium">{demand.currentStock.toLocaleString('pt-BR')} {demand.unit}</div>
-                        <div className="text-xs text-zinc-500" title="Reserva + Pedidos">-{demand.reservedQty} R / +{demand.inOrders} P</div>
+                        <div className="text-xs text-zinc-500" title="R = reservada ERP (já refletida no estoque). P = pedidos em trânsito. Prev. Futura = estoque + pedidos.">-{demand.reservedQty} R / +{demand.inOrders} P</div>
                       </td>
                       <td className="px-4 py-3 text-right font-medium text-zinc-700">{demand.overallAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {demand.unit}</td>
                       <td className="px-4 py-3 text-center">

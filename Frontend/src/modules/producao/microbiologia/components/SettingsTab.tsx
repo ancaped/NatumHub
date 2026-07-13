@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../../../geral/lib/api';
 import { MicrobioAppConfig as AppConfig, TemplateConfig } from '../../../geral/lib/types';
 import { Loader2, Save, Database, X } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
 import { motion, AnimatePresence } from 'motion/react';
 import { LAB_NAME, DEPT_NAME, COMPANY_INFO, DEFAULT_TESTS, cn } from '../../../geral/lib/microbioUtils';
 
@@ -87,7 +86,7 @@ export function SettingsTab({ config, onRefresh }: SettingsTabProps) {
   }
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto pb-20 mt-4 px-4 lg:px-6 animate-in fade-in duration-200">
+    <div className="view-container animate-in fade-in duration-200">
       <AnimatePresence>
         {message && (
           <motion.div
@@ -114,11 +113,14 @@ export function SettingsTab({ config, onRefresh }: SettingsTabProps) {
         )}
       </AnimatePresence>
 
-      <div className="bg-white rounded-md border border-zinc-200 shadow-sm p-8 relative overflow-hidden text-left">
-        <div className="flex items-start justify-between mb-10 flex-col md:flex-row gap-4">
+      <div className="view-header">
+        <h2 className="view-title">Configurações</h2>
+      </div>
+
+      <div className="panel-card text-left">
+        <div className="flex items-start justify-between mb-8 flex-col md:flex-row gap-4">
           <div>
-            <h2 className="text-2xl font-black text-zinc-800 tracking-tight">Sequenciamento Automático</h2>
-            <p className="text-sm text-zinc-500">Controle o número do próximo laudo a ser gerado.</p>
+            <h3 className="text-base font-bold text-zinc-800">Sequenciamento Automático</h3>
           </div>
           <div className="bg-zinc-50 border border-zinc-200 rounded-md p-4 flex gap-6 px-6 self-start md:self-auto">
             <div className="flex flex-col">
@@ -144,10 +146,9 @@ export function SettingsTab({ config, onRefresh }: SettingsTabProps) {
 
         <div className="h-px bg-zinc-100 w-full mb-10" />
 
-        <div className="flex items-center justify-between mb-10 flex-col sm:flex-row gap-4">
+        <div className="flex items-center justify-between mb-8 flex-col sm:flex-row gap-4">
           <div>
-            <h2 className="text-2xl font-black text-zinc-800 tracking-tight">Modelo do Relatório</h2>
-            <p className="text-sm text-zinc-500">Personalize o cabeçalho e rodapé dos laudos impressos.</p>
+            <h3 className="text-base font-bold text-zinc-800">Modelo do Relatório</h3>
           </div>
           <div className="flex gap-4 items-center">
             {showConfirmReset ? (

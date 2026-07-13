@@ -1,5 +1,5 @@
-use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
+use sqlx::PgPool;
 
 pub const SETTING_GITHUB_TOKEN: &str = "github_release_token";
 pub const SETTING_GITHUB_REPO: &str = "github_release_repo";
@@ -8,43 +8,48 @@ pub const DEFAULT_GITHUB_REPO: &str = "ancaped/NatumHub";
 pub const DEFAULT_GITHUB_BRANCH: &str = "main";
 pub const GITHUB_RAW_BASE: &str = "https://raw.githubusercontent.com/ancaped/NatumHub/main";
 
-pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>, String> {
-    conn.query_row(
-        "SELECT value FROM settings WHERE key = ?1",
-        params![key],
-        |row| row.get(0),
-    )
-    .optional()
-    .map_err(|e| e.to_string())
+pub async fn get_setting(pool: &PgPool, key: &str) -> Result<Option<String>, String> {
+    sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = $1")
+        .bind(key)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())
 }
 
-pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
-    conn.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
-        params![key, value],
+pub async fn set_setting(pool: &PgPool, key: &str, value: &str) -> Result<(), String> {
+    sqlx::query(
+        "INSERT INTO settings (key, value) VALUES ($1, $2)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
     )
+    .bind(key)
+    .bind(value)
+    .execute(pool)
+    .await
     .map_err(|e| e.to_string())?;
     Ok(())
 }
 
-pub fn github_repo(conn: &Connection) -> String {
-    get_setting(conn, SETTING_GITHUB_REPO)
+pub async fn github_repo(pool: &PgPool) -> String {
+    get_setting(pool, SETTING_GITHUB_REPO)
+        .await
         .ok()
         .flatten()
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_GITHUB_REPO.to_string())
 }
 
-pub fn github_branch(conn: &Connection) -> String {
-    get_setting(conn, SETTING_GITHUB_BRANCH)
+pub async fn github_branch(pool: &PgPool) -> String {
+    get_setting(pool, SETTING_GITHUB_BRANCH)
+        .await
         .ok()
         .flatten()
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_GITHUB_BRANCH.to_string())
 }
 
-pub fn github_token(conn: &Connection) -> Option<String> {
-    get_setting(conn, SETTING_GITHUB_TOKEN)
+pub async fn github_token(pool: &PgPool) -> Option<String> {
+    get_setting(pool, SETTING_GITHUB_TOKEN)
+        .await
         .ok()
         .flatten()
         .filter(|s| !s.trim().is_empty())

@@ -1,23 +1,23 @@
 import React from 'react';
 import { OnlineOrdersManager } from './components/OnlineOrdersManager';
 import { ArrowLeft, Globe } from 'lucide-react';
-import { cn } from '../../geral/lib/utils';
+import { useGlobalNavActive } from '../../geral/components/layout/NavShellContext';
 
 interface ComprasOnlineViewProps {
   onBackToHub: () => void;
 }
 
 export default function ComprasOnlineView({ onBackToHub }: ComprasOnlineViewProps) {
+  const globalNav = useGlobalNavActive();
+
   React.useEffect(() => {
     (window as any).__current_page__ = "Compras Online";
   }, []);
 
   return (
     <div className="flex flex-1 h-full bg-zinc-50 font-sans text-zinc-900 overflow-hidden">
-      {/* Sidebar */}
+      {!globalNav && (
       <div className="w-64 bg-white border-r border-zinc-200 flex flex-col shrink-0">
-        
-        {/* Voltar ao Hub Button */}
         <div className="p-2 border-b border-zinc-100">
           <button
             onClick={onBackToHub}
@@ -37,16 +37,11 @@ export default function ComprasOnlineView({ onBackToHub }: ComprasOnlineViewProp
           </button>
         </nav>
       </div>
+      )}
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
-        <header className="h-16 bg-white border-b border-zinc-200 flex items-center px-8 shrink-0">
-          <h2 className="text-xl font-semibold">Acompanhamento de Compras Online</h2>
-        </header>
-        <main className="flex-1 overflow-y-auto p-2 lg:p-4 bg-zinc-50/50">
-          <div className="w-full max-w-none">
-            <OnlineOrdersManager />
-          </div>
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+          <OnlineOrdersManager />
         </main>
       </div>
     </div>

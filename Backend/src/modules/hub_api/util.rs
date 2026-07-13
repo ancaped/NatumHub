@@ -3,8 +3,8 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use rusqlite::Connection;
 use serde_json::{json, Value};
+use sqlx::PgPool;
 use std::sync::Arc;
 
 use crate::handlers::AppState;
@@ -32,20 +32,12 @@ pub fn not_found(msg: impl ToString) -> (StatusCode, Json<Value>) {
     )
 }
 
-pub fn with_conn<F, T>(state: &Arc<AppState>, f: F) -> ApiResult<T>
+pub async fn with_pool<F, Fut, T>(state: &Arc<AppState>, f: F) -> ApiResult<T>
 where
-    F: FnOnce(&Connection) -> Result<T, String>,
+    F: FnOnce(PgPool) -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
 {
-    let conn = state.db.connect().map_err(db_err)?;
-    f(&conn).map_err(db_err)
-}
-
-pub fn with_conn_mut<F, T>(state: &Arc<AppState>, f: F) -> ApiResult<T>
-where
-    F: FnOnce(&mut Connection) -> Result<T, String>,
-{
-    let mut conn = state.db.connect().map_err(db_err)?;
-    f(&mut conn).map_err(db_err)
+    f(state.db.pool().clone()).await.map_err(db_err)
 }
 
 pub fn ok_json<T: serde::Serialize>(value: T) -> impl IntoResponse {

@@ -19,12 +19,12 @@ CREATE TABLE IF NOT EXISTS produtos (
     FOREIGN KEY(linha_prefix) REFERENCES config_linhas(linha_prefix)
 );
 
--- Estado Atual do Estoque (importado do Levantamento de Produção)
+-- Estado Atual do Estoque (importado do ERP — Passo A / nQtdeEstoque)
 CREATE TABLE IF NOT EXISTS estoque_atual (
     codigo TEXT PRIMARY KEY,
-    estoque INTEGER NOT NULL DEFAULT 0,
-    producao INTEGER NOT NULL DEFAULT 0,
-    pedidos_aberto INTEGER NOT NULL DEFAULT 0,
+    estoque REAL NOT NULL DEFAULT 0,
+    producao REAL NOT NULL DEFAULT 0,
+    pedidos_aberto REAL NOT NULL DEFAULT 0,
     fase TEXT,
     FOREIGN KEY(codigo) REFERENCES produtos(codigo) ON DELETE CASCADE
 );

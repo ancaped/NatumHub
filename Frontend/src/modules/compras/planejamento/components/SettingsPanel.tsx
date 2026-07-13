@@ -2,13 +2,12 @@ import { apiFetch } from '../../../geral/lib/http';
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../geral/lib/api';
 import { Category, ComprasAppConfig, Item } from '../../../geral/lib/types';
-import { Settings, FolderTree, Plus, Trash2, X, Save, Package, Search, CheckSquare, Square, Link, Unlink } from 'lucide-react';
+import { Settings, FolderTree, Plus, Trash2, X, Save, Package, Search, Link, Unlink } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
-import obsData from '../../../geral/lib/obs_data.json';
 
 export function SettingsPanel({ mode = 'all', active = false }: { mode?: string; active?: boolean }) {
   const [config, setConfig] = useState<ComprasAppConfig>({ targetDays: 90, itemOverrides: {} });
-  const [activeSettingTab, setActiveSettingTab] = useState<'geral' | 'categorias' | 'regras' | 'blacklist'>('geral');
+  const [activeSettingTab, setActiveSettingTab] = useState<'geral' | 'categorias' | 'regras'>('geral');
   const [categories, setCategories] = useState<Category[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [selectedSubcategory, setSelectedSubcategory] = useState<Category | null>(null);
@@ -294,7 +293,6 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
           { id: 'geral', label: 'Geral & Atalhos', icon: Settings },
           { id: 'categorias', label: 'Categorias & Insumos', icon: FolderTree },
           { id: 'regras', label: 'Regras Automáticas', icon: Link },
-          { id: 'blacklist', label: 'Lista Negra', icon: Package },
         ] as const).map(tab => (
           <button
             key={tab.id}
@@ -314,21 +312,28 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
 
       {activeSettingTab === 'geral' && (
         <div className="space-y-6">
-          {/* Meta de Estoque */}
+          {/* Metas e disparos personalizados */}
           <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50">
               <h3 className="font-semibold flex items-center gap-2">
                 <Settings className="h-5 w-5 text-zinc-500" />
-                Meta de Estoque Global
+                Metas e Disparos de Estoque
               </h3>
             </div>
             <div className="p-6 space-y-4">
-              <div className="flex items-center gap-4">
-                <label className="text-sm font-medium text-zinc-700 w-48">Dias-alvo de estoque:</label>
-                <input type="number" value={config.targetDays}
-                  onChange={e => setConfig({ ...config, targetDays: Number(e.target.value) })}
-                  className="w-24 border border-zinc-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:outline-none" />
-                <span className="text-sm text-zinc-500">dias</span>
+              <div className="rounded-lg border border-zinc-200 bg-zinc-50/80 px-4 py-3 text-sm text-zinc-700 leading-relaxed">
+                <p className="font-semibold text-zinc-900 mb-2">Hierarquia de configuração (prioridade crescente)</p>
+                <ol className="list-decimal list-inside space-y-1 text-xs text-zinc-600">
+                  <li><strong className="text-zinc-800">Geral</strong> — fallback do módulo quando não há override.</li>
+                  <li><strong className="text-zinc-800">Subcategoria</strong> — sobrescreve o geral para todos os itens da subcategoria.</li>
+                  <li><strong className="text-zinc-800">Item</strong> — sobrescreve subcategoria e geral para aquele código.</li>
+                </ol>
+                <p className="text-xs text-zinc-500 mt-3">
+                  Metas (dias-alvo) e disparos são definidos em <strong className="text-zinc-700">Demandas</strong> via
+                  configurações personalizadas (<code className="font-mono text-[11px] bg-zinc-100 px-1 rounded">compras_config_personalizado</code>).
+                  A meta global única não é mais a fonte principal — use a hierarquia acima em todos os módulos
+                  (Matéria-Prima, Embalagens, Coloração e Material de Apoio).
+                </p>
               </div>
               <div className="flex items-center gap-4">
                 <label className="text-sm font-medium text-zinc-700 w-48">Tempo de cálculo da média:</label>
@@ -342,7 +347,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
                 </select>
               </div>
               <p className="text-xs text-zinc-500">
-                Define as configurações globais de cobertura de estoque e o período de análise de histórico utilizado para projetar o consumo médio mensal.
+                Período de histórico usado para projetar o consumo médio mensal neste módulo.
               </p>
               <div className="flex items-center gap-3">
                 <button onClick={saveConfig} disabled={saving}
@@ -364,7 +369,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
             </div>
             <div className="p-6 space-y-4">
               <p className="text-xs text-zinc-500">
-                Selecione quais subcategorias de insumos você deseja fixar como atalhos diretos no menu lateral de Compras para acesso rápido:
+                Selecione quais subcategorias deste módulo deseja fixar como atalhos diretos no menu lateral de Compras:
               </p>
               {subcategoriesOnly.length === 0 ? (
                 <div className="text-xs text-zinc-400 italic">Nenhuma subcategoria criada ainda. Crie abaixo primeiro.</div>
@@ -426,7 +431,10 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
           </div>
           <div className="p-6 space-y-6">
             <p className="text-xs text-zinc-500">
-              Crie regras para classificar insumos automaticamente nas subcategorias. Por exemplo: todos os insumos cuja descrição inicia com "Bouquet" serão movidos para a subcategoria "Fragrâncias".
+              Crie regras para classificar automaticamente os insumos deste módulo nas subcategorias.
+              Exemplo: itens cuja descrição inicia com &quot;Bouquet&quot; vão para &quot;Fragrâncias&quot;.
+              As regras valem para Matéria-Prima, Embalagens, Coloração e Material de Apoio — cada módulo mantém as suas.
+              Metas e disparos de estoque continuam na hierarquia geral &lt; subcategoria &lt; item (aba Demandas).
             </p>
 
             {/* Form to add a rule */}
@@ -512,6 +520,10 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
                 <FolderTree className="h-5 w-5 text-zinc-500" />
                 Categorias e Subcategorias
               </h3>
+              <p className="text-xs text-zinc-500 mt-1.5 font-normal">
+                Organize as subcategorias deste módulo e associe insumos. Configurações de meta/disparo por
+                subcategoria ou item são feitas em Demandas (prioridade: geral &lt; subcategoria &lt; item).
+              </p>
             </div>
             <div className="p-6 space-y-4">
               <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
@@ -685,47 +697,6 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
                 </button>
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {activeSettingTab === 'blacklist' && (
-        /* Lista Negra de Insumos */
-        <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50">
-            <h3 className="font-semibold flex items-center gap-2">
-              <Package className="h-5 w-5 text-zinc-500" />
-              Lista Negra de Insumos
-            </h3>
-          </div>
-          <div className="p-6 space-y-4">
-            <p className="text-sm text-zinc-500 leading-relaxed">
-              Sincronize a lista negra de matérias-primas a partir de uma planilha Excel configurada localmente.
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={async () => {
-                  try {
-                    const rawData = obsData as any[];
-                    const formatted = rawData.map((row: any) => ({
-                      code: String(row['CÓDIGO'] || '').trim(),
-                      notes: String(row['OBS'] || row['OBSERVAÇÃO'] || '').trim()
-                    })).filter((r: any) => r.code);
-                    
-                    await api.importItemObservations(formatted);
-                    alert('Lista negra sincronizada com sucesso!');
-                    loadItems();
-                  } catch (e) {
-                    console.error(e);
-                    alert('Erro ao sincronizar lista negra. Verifique o console.');
-                  }
-                }}
-                className="flex items-center gap-2 px-6 py-2.5 bg-zinc-900 text-white rounded-xl font-bold hover:bg-zinc-800 transition-all shadow-sm cursor-pointer text-sm"
-              >
-                <Package className="w-4 h-4" />
-                Sincronizar Lista Negra (XLSX)
-              </button>
-            </div>
           </div>
         </div>
       )}

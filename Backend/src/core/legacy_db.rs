@@ -1,11 +1,53 @@
-use rusqlite::{params, Connection};
+use sqlx::{PgPool, Row};
+use std::collections::HashMap;
 use tiberius::{Client, Config};
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use std::collections::HashSet;
 use uuid::Uuid;
-use chrono::NaiveDateTime;
+use chrono::{Duration, Local, NaiveDate, NaiveDateTime, Utc};
+use serde::{Deserialize, Serialize};
 use crate::modules::compras::planejamento::parser::get_linha_prefix;
+
+/// Modo de sincronização ERP.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncMode {
+    /// Rebuild da janela histórica (desde 2024-01-01 nas tabelas transacionais).
+    Full,
+    /// Delta desde watermark − overlap (2 dias). Escalona para Full se não houver cursor.
+    Incremental,
+}
+
+impl SyncMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SyncMode::Full => "full",
+            SyncMode::Incremental => "incremental",
+        }
+    }
+
+    pub fn parse(raw: Option<&str>) -> Self {
+        match raw.map(|s| s.trim().to_ascii_lowercase()).as_deref() {
+            Some("full") | Some("completo") => SyncMode::Full,
+            _ => SyncMode::Incremental,
+        }
+    }
+}
+
+const HISTORY_FLOOR: &str = "2024-01-01";
+const OVERLAP_DAYS: i64 = 2;
+const WATERMARK_KEY: &str = "erp_sync_watermark";
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ErpSyncWatermark {
+    version: u32,
+    #[serde(default)]
+    last_full_at: Option<String>,
+    #[serde(default)]
+    last_incremental_at: Option<String>,
+    #[serde(default)]
+    cursor: Option<String>,
+}
 
 pub struct SyncResult {
     pub products: usize,
@@ -18,15 +60,17 @@ pub struct SyncResult {
     pub movements: usize,
     pub purchase_orders: usize,
     pub sales_orders: usize,
+    pub mode: &'static str,
+    pub since: String,
 }
 
 // Intermediate thread-safe structs to hold SQL Server data
 struct ProductRow {
     codigo: String,
     descricao: String,
-    estoque: i32,
-    producao: i32,
-    pedidos: i32,
+    estoque: f64,
+    producao: f64,
+    pedidos: f64,
     base: Option<String>,
     fase: Option<String>,
     m_sales: [i32; 12],
@@ -120,7 +164,6 @@ struct LoteBaixaRow {
 }
 
 struct VendaRow {
-    registro: i32,
     venda: i32,
     prod_code: String,
     qty: f64,
@@ -183,35 +226,161 @@ struct SalesOrderItemRow {
     c_lote: Option<String>,
 }
 
-fn get_setting_from_db_or_file(conn: Option<&Connection>, key: &str, default: &str) -> String {
-    if let Some(c) = conn {
-        if let Ok(val) = c.query_row("SELECT value FROM settings WHERE key = ?1", params![key], |r| r.get::<_, String>(0)) {
-            return val;
+async fn get_setting_from_pool(pool: &PgPool, key: &str) -> Option<String> {
+    sqlx::query("SELECT value FROM settings WHERE key = $1")
+        .bind(key)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .map(|r| r.get(0))
+}
+
+async fn save_setting_to_pool(pool: &PgPool, key: &str, value: &str) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO settings (key, value) VALUES ($1, $2)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+    )
+    .bind(key)
+    .bind(value)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn load_watermark(pool: &PgPool) -> ErpSyncWatermark {
+    let Some(raw) = get_setting_from_pool(pool, WATERMARK_KEY).await else {
+        return ErpSyncWatermark {
+            version: 1,
+            ..Default::default()
+        };
+    };
+    serde_json::from_str(&raw).unwrap_or(ErpSyncWatermark {
+        version: 1,
+        ..Default::default()
+    })
+}
+
+async fn save_watermark(pool: &PgPool, wm: &ErpSyncWatermark) -> anyhow::Result<()> {
+    let raw = serde_json::to_string(wm)?;
+    save_setting_to_pool(pool, WATERMARK_KEY, &raw).await
+}
+
+fn parse_ymd(s: &str) -> Option<NaiveDate> {
+    let trimmed = s.trim();
+    if trimmed.len() >= 10 {
+        NaiveDate::parse_from_str(&trimmed[..10], "%Y-%m-%d").ok()
+    } else {
+        None
+    }
+}
+
+fn resolve_sync_window(requested: SyncMode, wm: &ErpSyncWatermark) -> (SyncMode, String) {
+    let has_cursor = wm
+        .cursor
+        .as_ref()
+        .map(|c| parse_ymd(c).is_some())
+        .unwrap_or(false);
+
+    let effective = match requested {
+        SyncMode::Full => SyncMode::Full,
+        SyncMode::Incremental if has_cursor => SyncMode::Incremental,
+        SyncMode::Incremental => SyncMode::Full,
+    };
+
+    let floor = parse_ymd(HISTORY_FLOOR).unwrap_or_else(|| NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
+
+    let since = match effective {
+        SyncMode::Full => HISTORY_FLOOR.to_string(),
+        SyncMode::Incremental => {
+            let cursor = parse_ymd(wm.cursor.as_deref().unwrap_or(HISTORY_FLOOR)).unwrap_or(floor);
+            let with_overlap = cursor - Duration::days(OVERLAP_DAYS);
+            let since_date = if with_overlap < floor { floor } else { with_overlap };
+            since_date.format("%Y-%m-%d").to_string()
+        }
+    };
+
+    (effective, since)
+}
+
+fn sql_datetime_since(since_ymd: &str) -> String {
+    format!("{} 00:00:00", since_ymd)
+}
+
+struct MovInsert {
+    id: String,
+    item_code: String,
+    item_type: String,
+    movement_type: String,
+    quantity: f64,
+    date: String,
+    document_number: String,
+    details: String,
+}
+
+async fn flush_stock_movements(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    batch: &mut Vec<MovInsert>,
+) -> anyhow::Result<()> {
+    if batch.is_empty() {
+        return Ok(());
+    }
+    let ids: Vec<String> = batch.iter().map(|m| m.id.clone()).collect();
+    let codes: Vec<String> = batch.iter().map(|m| m.item_code.clone()).collect();
+    let types: Vec<String> = batch.iter().map(|m| m.item_type.clone()).collect();
+    let mtypes: Vec<String> = batch.iter().map(|m| m.movement_type.clone()).collect();
+    let qtys: Vec<f64> = batch.iter().map(|m| m.quantity).collect();
+    let dates: Vec<String> = batch.iter().map(|m| m.date.clone()).collect();
+    let docs: Vec<String> = batch.iter().map(|m| m.document_number.clone()).collect();
+    let details: Vec<String> = batch.iter().map(|m| m.details.clone()).collect();
+
+    sqlx::query(
+        r#"
+        INSERT INTO stock_movements (id, item_code, item_type, movement_type, quantity, date, document_number, details)
+        SELECT * FROM UNNEST(
+            $1::text[], $2::text[], $3::text[], $4::text[], $5::float8[], $6::text[], $7::text[], $8::text[]
+        )
+        "#,
+    )
+    .bind(&ids)
+    .bind(&codes)
+    .bind(&types)
+    .bind(&mtypes)
+    .bind(&qtys)
+    .bind(&dates)
+    .bind(&docs)
+    .bind(&details)
+    .execute(&mut **tx)
+    .await?;
+
+    batch.clear();
+    Ok(())
+}
+
+const MOV_BATCH: usize = 500;
+
+async fn env_or_setting(pool: &PgPool, env_key: &str, setting_key: &str, default: &str) -> String {
+    if let Ok(v) = std::env::var(env_key) {
+        if !v.is_empty() {
+            return v;
         }
     }
-    // Fallback: try to open "../Saves/data.db"
-    if let Ok(c) = Connection::open("../Saves/data.db") {
-        if let Ok(val) = c.query_row("SELECT value FROM settings WHERE key = ?1", params![key], |r| r.get::<_, String>(0)) {
-            return val;
+    if let Some(v) = get_setting_from_pool(pool, setting_key).await {
+        if !v.is_empty() {
+            return v;
         }
     }
     default.to_string()
 }
 
-pub async fn connect_sql_server(sqlite_path: Option<&str>) -> anyhow::Result<Client<tokio_util::compat::Compat<TcpStream>>> {
-    let path = sqlite_path.unwrap_or("../Saves/data.db");
-    let (host, port_str, user, password, database) = {
-        let conn = Connection::open(path).ok();
-        let conn_ref = conn.as_ref();
-        // Defaults neutros — nunca embutir senhas reais no binário.
-        // Credenciais devem vir de settings (UI) ou variáveis de ambiente NATUM_SQL_*.
-        let host = env_or_setting(conn_ref, "NATUM_SQL_HOST", "sql_host", "127.0.0.1");
-        let port_str = env_or_setting(conn_ref, "NATUM_SQL_PORT", "sql_port", "1433");
-        let user = env_or_setting(conn_ref, "NATUM_SQL_USER", "sql_user", "");
-        let password = env_or_setting(conn_ref, "NATUM_SQL_PASSWORD", "sql_password", "");
-        let database = env_or_setting(conn_ref, "NATUM_SQL_DATABASE", "sql_database", "");
-        (host, port_str, user, password, database)
-    };
+pub async fn connect_sql_server(pool: &PgPool) -> anyhow::Result<Client<tokio_util::compat::Compat<TcpStream>>> {
+    // Defaults neutros — nunca embutir senhas reais no binário.
+    // Credenciais devem vir de settings (UI) ou variáveis de ambiente NATUM_SQL_*.
+    let host = env_or_setting(pool, "NATUM_SQL_HOST", "sql_host", "127.0.0.1").await;
+    let port_str = env_or_setting(pool, "NATUM_SQL_PORT", "sql_port", "1433").await;
+    let user = env_or_setting(pool, "NATUM_SQL_USER", "sql_user", "").await;
+    let password = env_or_setting(pool, "NATUM_SQL_PASSWORD", "sql_password", "").await;
+    let database = env_or_setting(pool, "NATUM_SQL_DATABASE", "sql_database", "").await;
 
     if host.trim().is_empty() || user.trim().is_empty() || password.is_empty() || database.trim().is_empty() {
         anyhow::bail!(
@@ -236,19 +405,19 @@ pub async fn connect_sql_server(sqlite_path: Option<&str>) -> anyhow::Result<Cli
     Ok(client)
 }
 
-/// Preferência: variável de ambiente > settings no SQLite > default neutro.
-fn env_or_setting(conn: Option<&Connection>, env_key: &str, setting_key: &str, default: &str) -> String {
-    if let Ok(v) = std::env::var(env_key) {
-        if !v.is_empty() {
-            return v;
-        }
-    }
-    get_setting_from_db_or_file(conn, setting_key, default)
-}
-
-pub async fn sync_from_sql_server(sqlite_path: &str) -> anyhow::Result<SyncResult> {
+pub async fn sync_from_sql_server(pool: &PgPool, requested: SyncMode) -> anyhow::Result<SyncResult> {
     // Queries SQL e mapeamento documentados em ../../erp-import/ (raiz do projeto).
-    let mut client = connect_sql_server(Some(sqlite_path)).await?;
+    let wm = load_watermark(pool).await;
+    let (mode, since) = resolve_sync_window(requested, &wm);
+    let since_dt = sql_datetime_since(&since);
+    eprintln!(
+        "[ERP Sync] solicitado={} efetivo={} since={}",
+        requested.as_str(),
+        mode.as_str(),
+        since
+    );
+
+    let mut client = connect_sql_server(pool).await?;
 
     // ==========================================
     // 1. FETCH ALL DATA FROM SQL SERVER FIRST (AWAIT POINTS)
@@ -259,9 +428,9 @@ pub async fn sync_from_sql_server(sqlite_path: &str) -> anyhow::Result<SyncResul
 SELECT 
     p.cCodProd COLLATE Latin1_General_CI_AS as cCodProd,
     p.cNomeProd COLLATE Latin1_General_CI_AS as cNomeProd,
-    CAST(p.nQtdeEstoque AS INT) as nQtdeEstoque,
-    CAST(p.nQtdeProducao AS INT) as nQtdeProducao,
-    CAST(p.nPedidos AS INT) as nPedidos,
+    CAST(p.nQtdeEstoque AS FLOAT) as nQtdeEstoque,
+    CAST(p.nQtdeProducao AS FLOAT) as nQtdeProducao,
+    CAST(p.nPedidos AS FLOAT) as nPedidos,
     p.cBase COLLATE Latin1_General_CI_AS as cBase,
     p.cNomeTipo COLLATE Latin1_General_CI_AS as cNomeTipo,
     CAST(ISNULL(v.M1, 0) AS INT) as M1,
@@ -313,9 +482,9 @@ WHERE p.cInativo = 'N' OR p.cInativo IS NULL;
         products_list.push(ProductRow {
             codigo: codigo.trim().to_string(),
             descricao: raw_descricao.trim().to_string(),
-            estoque: row.get(2).unwrap_or(0),
-            producao: row.get(3).unwrap_or(0),
-            pedidos: row.get(4).unwrap_or(0),
+            estoque: row.get(2).unwrap_or(0.0),
+            producao: row.get(3).unwrap_or(0.0),
+            pedidos: row.get(4).unwrap_or(0.0),
             base: row.get(5).map(|s: &str| s.trim().to_string()).filter(|s| !s.is_empty()),
             fase: row.get(6).map(|s: &str| s.trim().to_string()).filter(|s| !s.is_empty()),
             m_sales,
@@ -412,17 +581,18 @@ WHERE cReferencia IS NOT NULL AND cReferencia <> '';
     }
 
     // D. Query Insumos Stocks & Snapshots
+    // Estoque canônico da tela ERP = nQtdeEstoqueA (fallback nQtdeEstoque)
     let query_stocks = "
 SELECT 
     cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
-    CAST(nQtdeEstoque AS FLOAT) as nQtdeEstoque,
+    CAST(COALESCE(nQtdeEstoqueA, nQtdeEstoque) AS FLOAT) as nQtdeEstoque,
     CAST(nqtdeReserva AS FLOAT) as nqtdeReserva,
     CAST(nQtdeProducao AS FLOAT) as nQtdeProducao,
     CAST(nQtdePedidos AS FLOAT) as nQtdePedidos
 FROM Insumos WITH (NOLOCK)
 WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInativo IS NULL);
     ";
-    println!("Step D1: Querying Insumos Stocks");
+    println!("Step D1: Querying Insumos Stocks (nQtdeEstoqueA)");
     let stream = client.query(query_stocks, &[]).await?;
     let db_rows_stocks = stream.into_first_result().await?;
     let mut stocks_list = Vec::new();
@@ -465,8 +635,29 @@ WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInat
         });
     }
 
-    // E. Query Invoices
-    let query_invoices = "
+    // E. Query Invoices (full: 48 meses; incremental: desde watermark)
+    let query_invoices = if mode == SyncMode::Incremental {
+        format!(
+            "
+SELECT 
+    c.NOTA,
+    c.CODIGO_PRODUTO COLLATE Latin1_General_CI_AS as CODIGO_PRODUTO,
+    c.DESCRICAO_PRODUTO COLLATE Latin1_General_CI_AS as DESCRICAO_PRODUTO,
+    c.UNIDADE COLLATE Latin1_General_CI_AS as UNIDADE,
+    CAST(c.QUANTIDADE AS FLOAT) as QUANTIDADE,
+    CAST(c.VALOR_UNITARIO AS FLOAT) as VALOR_UNITARIO,
+    CAST(c.VALOR_TOTAL AS FLOAT) as VALOR_TOTAL,
+    f.RAZAO_SOCIAL COLLATE Latin1_General_CI_AS as RAZAO_SOCIAL,
+    c.nCodFornec,
+    f.DATA_EMISSAO
+FROM COMPRAS2 c WITH (NOLOCK)
+LEFT JOIN COMPRAS1 f WITH (NOLOCK) ON c.nCodFornec = f.nCodFornec AND c.NOTA = f.NOTA
+WHERE f.DATA_EMISSAO >= '{since_dt}'
+  AND c.CODIGO_PRODUTO IS NOT NULL AND c.CODIGO_PRODUTO <> '';
+"
+        )
+    } else {
+        "
 SELECT 
     c.NOTA,
     c.CODIGO_PRODUTO COLLATE Latin1_General_CI_AS as CODIGO_PRODUTO,
@@ -482,8 +673,10 @@ FROM COMPRAS2 c WITH (NOLOCK)
 LEFT JOIN COMPRAS1 f WITH (NOLOCK) ON c.nCodFornec = f.nCodFornec AND c.NOTA = f.NOTA
 WHERE f.DATA_EMISSAO >= DATEADD(month, -48, GETDATE())
   AND c.CODIGO_PRODUTO IS NOT NULL AND c.CODIGO_PRODUTO <> '';
-    ";
-    println!("Step E: Querying Purchases");
+"
+        .to_string()
+    };
+    println!("Step E: Querying Purchases (since {since})");
     let stream = client.query(query_invoices, &[]).await?;
     let db_rows_invoices = stream.into_first_result().await?;
     let mut invoices_list = Vec::new();
@@ -566,7 +759,8 @@ WHERE c.cCodProd IS NOT NULL AND c.cReferencia IS NOT NULL;
     }
 
     // H. Query Lotes (Production logs for Finished Goods)
-    let query_lotes = "
+    let query_lotes = format!(
+        "
 SELECT 
     l.nLote,
     l.cCodProd COLLATE Latin1_General_CI_AS as cCodProd,
@@ -593,15 +787,16 @@ SELECT
     CAST(l.nUnidadesReais4 AS FLOAT) as nUnidadesReais4,
     CONVERT(varchar, l.dPesado, 120) COLLATE Latin1_General_CI_AS as dPesado
 FROM Lotes l WITH (NOLOCK)
-WHERE l.dLote >= '2024-01-01 00:00:00'
+WHERE l.dLote >= '{since_dt}'
   AND (
     (l.cCodProd IS NOT NULL AND l.cCodProd <> '') OR
     (l.cCodProd2 IS NOT NULL AND l.cCodProd2 <> '') OR
     (l.cCodProd3 IS NOT NULL AND l.cCodProd3 <> '') OR
     (l.cCodProd4 IS NOT NULL AND l.cCodProd4 <> '')
   );
-    ";
-    println!("Step H: Querying Lotes");
+"
+    );
+    println!("Step H: Querying Lotes (since {since})");
     let stream = client.query(query_lotes, &[]).await?;
     let db_rows_lotes = stream.into_first_result().await?;
     let mut lotes_list = Vec::new();
@@ -674,7 +869,8 @@ WHERE l.dLote >= '2024-01-01 00:00:00'
 
 
     // I. Query Lotes_Baixas (Insumo exits logs)
-    let query_lotes_baixas = "
+    let query_lotes_baixas = format!(
+        "
 SELECT 
     b.Registro,
     b.nLote,
@@ -686,10 +882,11 @@ SELECT
     b.cCodProd COLLATE Latin1_General_CI_AS as cCodProd,
     CAST(b.nQtdeRef AS FLOAT) as nQtdeRef
 FROM Lotes_Baixas b WITH (NOLOCK)
-WHERE b.dLog >= '2024-01-01 00:00:00'
+WHERE b.dLog >= '{since_dt}'
   AND b.cReferencia IS NOT NULL AND b.cReferencia <> '';
-    ";
-    println!("Step I: Querying Lotes Baixas");
+"
+    );
+    println!("Step I: Querying Lotes Baixas (since {since})");
     let stream = client.query(query_lotes_baixas, &[]).await?;
     let db_rows_baixas = stream.into_first_result().await?;
     let mut lotes_baixas_list = Vec::new();
@@ -711,8 +908,9 @@ WHERE b.dLog >= '2024-01-01 00:00:00'
         });
     }
 
-    // J. Query Vendas (Product sales logs — histórico completo, sem filtro de data)
-    let query_vendas = "
+    // J. Query Vendas (full desde 2024; incremental desde watermark)
+    let query_vendas = format!(
+        "
 SELECT 
     v2.nRegistro,
     v2.nVenda,
@@ -723,9 +921,11 @@ SELECT
     v2.nNotaFiscal
 FROM VENDAS2 v2 WITH (NOLOCK)
 INNER JOIN VENDAS1 v1 WITH (NOLOCK) ON v2.nVenda = v1.nVenda AND CAST(v2.dVenda AS DATE) = CAST(v1.dVenda AS DATE)
-WHERE v2.cCodProd IS NOT NULL AND v2.cCodProd <> '';
-    ";
-    println!("Step J: Querying Vendas (histórico completo)");
+WHERE v2.dVenda >= '{since_dt}'
+  AND v2.cCodProd IS NOT NULL AND v2.cCodProd <> '';
+"
+    );
+    println!("Step J: Querying Vendas (since {since})");
     let stream = client.query(query_vendas, &[]).await?;
     let db_rows_vendas = stream.into_first_result().await?;
     let mut vendas_list = Vec::new();
@@ -735,7 +935,6 @@ WHERE v2.cCodProd IS NOT NULL AND v2.cCodProd <> '';
         let d_venda: Option<&str> = row.get(4);
         if registro == 0 || prod_code.is_empty() || d_venda.is_none() { continue; }
         vendas_list.push(VendaRow {
-            registro,
             venda: row.get(1).unwrap_or(0),
             prod_code: prod_code.trim().to_string(),
             qty: row.get(3).unwrap_or(0.0),
@@ -746,7 +945,13 @@ WHERE v2.cCodProd IS NOT NULL AND v2.cCodProd <> '';
     }
 
     // K. Query PedidoCpa1 (Purchase Orders Header)
-    let query_pedido_cpa1 = "
+    let po_date_filter = if mode == SyncMode::Incremental {
+        format!("dPedido >= '{since_dt}' OR (cStatus <> 'T' AND cStatus IS NOT NULL)")
+    } else {
+        "dPedido >= DATEADD(month, -12, GETDATE()) OR (cStatus <> 'T' AND cStatus IS NOT NULL)".to_string()
+    };
+    let query_pedido_cpa1 = format!(
+        "
 SELECT 
     nRegistro,
     nPedido,
@@ -762,9 +967,10 @@ SELECT
     cEmail COLLATE Latin1_General_CI_AS as cEmail,
     CAST(mObservac AS NVARCHAR(MAX)) COLLATE Latin1_General_CI_AS as mObservac
 FROM PedidoCpa1 WITH (NOLOCK)
-WHERE dPedido >= DATEADD(month, -12, GETDATE()) OR (cStatus <> 'T' AND cStatus IS NOT NULL);
-    ";
-    println!("Step K: Querying PedidoCpa1");
+WHERE {po_date_filter};
+"
+    );
+    println!("Step K: Querying PedidoCpa1 (since {since})");
     let stream = client.query(query_pedido_cpa1, &[]).await?;
     let db_rows_pedido_cpa1 = stream.into_first_result().await?;
     let mut pedido_cpa1_list = Vec::new();
@@ -789,7 +995,13 @@ WHERE dPedido >= DATEADD(month, -12, GETDATE()) OR (cStatus <> 'T' AND cStatus I
         });
     }
 
-    let query_pedido_cpa2 = "
+    let po2_date_filter = if mode == SyncMode::Incremental {
+        format!("p1.dPedido >= '{since_dt}' OR (p1.cStatus <> 'T' AND p1.cStatus IS NOT NULL)")
+    } else {
+        "p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1.cStatus IS NOT NULL)".to_string()
+    };
+    let query_pedido_cpa2 = format!(
+        "
 SELECT 
     p1.nRegistro as nPedidoRegistro,
     c2.nPedido,
@@ -804,9 +1016,10 @@ SELECT
     c2.cChegada COLLATE Latin1_General_CI_AS as cChegada
 FROM PedidoCpa2 c2 WITH (NOLOCK)
 INNER JOIN PedidoCpa1 p1 WITH (NOLOCK) ON p1.nPedido = c2.nPedido AND p1.dPedido = c2.dPedido
-WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1.cStatus IS NOT NULL));
-    ";
-    println!("Step L: Querying PedidoCpa2");
+WHERE ({po2_date_filter});
+"
+    );
+    println!("Step L: Querying PedidoCpa2 (since {since})");
     let stream = client.query(query_pedido_cpa2, &[]).await?;
     let db_rows_pedido_cpa2 = stream.into_first_result().await?;
     let mut pedido_cpa2_list = Vec::new();
@@ -832,7 +1045,13 @@ WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1
     }
 
     // M. Query Sales Orders Header (Pedidos1)
-    let query_sales_order1 = "
+    let so_date_filter = if mode == SyncMode::Incremental {
+        format!("dPedido >= '{since_dt}' OR (CSTATUS NOT IN ('FT', 'CA') AND CSTATUS IS NOT NULL)")
+    } else {
+        "dPedido >= DATEADD(month, -6, GETDATE()) OR (CSTATUS NOT IN ('FT', 'CA') AND CSTATUS IS NOT NULL)".to_string()
+    };
+    let query_sales_order1 = format!(
+        "
 SELECT 
     nPedido,
     CONVERT(varchar, dPedido, 120) COLLATE Latin1_General_CI_AS as dPedido,
@@ -845,9 +1064,10 @@ SELECT
     CONVERT(varchar, dEntrega, 120) COLLATE Latin1_General_CI_AS as dEntrega,
     CAST(mObservac AS NVARCHAR(MAX)) COLLATE Latin1_General_CI_AS as mObservac
 FROM Pedidos1 WITH (NOLOCK)
-WHERE dPedido >= DATEADD(month, -6, GETDATE()) OR (CSTATUS NOT IN ('FT', 'CA') AND CSTATUS IS NOT NULL);
-    ";
-    println!("Step M: Querying Pedidos1");
+WHERE {so_date_filter};
+"
+    );
+    println!("Step M: Querying Pedidos1 (since {since})");
     let stream = client.query(query_sales_order1, &[]).await?;
     let db_rows_pedidos1 = stream.into_first_result().await?;
     let mut sales_orders_list = Vec::new();
@@ -870,7 +1090,13 @@ WHERE dPedido >= DATEADD(month, -6, GETDATE()) OR (CSTATUS NOT IN ('FT', 'CA') A
     }
 
     // N. Query Sales Order Items (Pedidos2)
-    let query_sales_order2 = "
+    let so2_date_filter = if mode == SyncMode::Incremental {
+        format!("p1.dPedido >= '{since_dt}' OR (p1.CSTATUS NOT IN ('FT', 'CA') AND p1.CSTATUS IS NOT NULL)")
+    } else {
+        "p1.dPedido >= DATEADD(month, -6, GETDATE()) OR (p1.CSTATUS NOT IN ('FT', 'CA') AND p1.CSTATUS IS NOT NULL)".to_string()
+    };
+    let query_sales_order2 = format!(
+        "
 SELECT 
     p2.nPedido,
     CONVERT(varchar, p2.dPedido, 120) COLLATE Latin1_General_CI_AS as dPedido,
@@ -882,9 +1108,10 @@ SELECT
     p2.cLote COLLATE Latin1_General_CI_AS as cLote
 FROM Pedidos2 p2 WITH (NOLOCK)
 INNER JOIN Pedidos1 p1 WITH (NOLOCK) ON p1.nPedido = p2.nPedido AND p1.dPedido = p2.dPedido
-WHERE p1.dPedido >= DATEADD(month, -6, GETDATE()) OR (p1.CSTATUS NOT IN ('FT', 'CA') AND p1.CSTATUS IS NOT NULL);
-    ";
-    println!("Step N: Querying Pedidos2");
+WHERE {so2_date_filter};
+"
+    );
+    println!("Step N: Querying Pedidos2 (since {since})");
     let stream = client.query(query_sales_order2, &[]).await?;
     let db_rows_pedidos2 = stream.into_first_result().await?;
     let mut sales_order_items_list = Vec::new();
@@ -906,313 +1133,727 @@ WHERE p1.dPedido >= DATEADD(month, -6, GETDATE()) OR (p1.CSTATUS NOT IN ('FT', '
     }
 
     // ==========================================
-    // 2. OPEN TRANSACTION AND WRITE TO SQLITE (NO AWAIT POINTS)
+    // 2. WRITE TO POSTGRESQL (commits por domínio — evita tx gigante no pooler)
     // ==========================================
-    let mut sqlite_conn = Connection::open(sqlite_path)?;
-    sqlite_conn.execute("PRAGMA foreign_keys = OFF", [])?;
-    let tx = sqlite_conn.transaction()?;
+    eprintln!(
+        "[ERP Sync] SQL Server OK — gravando Postgres: produtos={} fornec={} items={} invoices={} lotes={} baixas={} vendas={} PO={} SO={}",
+        products_list.len(),
+        suppliers_list.len(),
+        insumos_list.len() + materiais_list.len(),
+        invoices_list.len(),
+        lotes_list.len(),
+        lotes_baixas_list.len(),
+        vendas_list.len(),
+        pedido_cpa1_list.len(),
+        sales_orders_list.len(),
+    );
 
-    // Write Products
-    let mut count_prod = 0;
+    let mut tx = pool.begin().await?;
+
+    // Write Products — lotes UNNEST (evita ~14 round-trips/produto no pooler)
+    eprintln!(
+        "[ERP Sync] Gravando produtos em lote ({})...",
+        products_list.len()
+    );
+    let count_prod = products_list.len();
     let mut synced_prod_codes = HashSet::new();
 
-    for p in products_list {
-        let prefix = get_linha_prefix(&p.codigo);
+    let mut codigos: Vec<String> = Vec::with_capacity(count_prod);
+    let mut descricoes: Vec<String> = Vec::with_capacity(count_prod);
+    let mut prefixes: Vec<String> = Vec::with_capacity(count_prod);
+    let mut bases: Vec<Option<String>> = Vec::with_capacity(count_prod);
+    let mut medias: Vec<f64> = Vec::with_capacity(count_prod);
+    let mut estoques: Vec<f64> = Vec::with_capacity(count_prod);
+    let mut producoes: Vec<f64> = Vec::with_capacity(count_prod);
+    let mut pedidos: Vec<f64> = Vec::with_capacity(count_prod);
+    let mut fases: Vec<Option<String>> = Vec::with_capacity(count_prod);
+    let mut hist_codigos: Vec<String> = Vec::with_capacity(count_prod * 12);
+    let mut hist_meses: Vec<i32> = Vec::with_capacity(count_prod * 12);
+    let mut hist_qtds: Vec<i32> = Vec::with_capacity(count_prod * 12);
 
-        tx.execute(
-            "INSERT INTO produtos (codigo, descricao, linha_prefix, base, media_levantamento)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(codigo) DO UPDATE SET
-                descricao = excluded.descricao,
-                linha_prefix = excluded.linha_prefix,
-                base = excluded.base,
-                media_levantamento = excluded.media_levantamento",
-            params![p.codigo, p.descricao, prefix, p.base, p.media_lev()],
-        )?;
-
-        tx.execute(
-            "INSERT INTO estoque_atual (codigo, estoque, producao, pedidos_aberto, fase)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(codigo) DO UPDATE SET
-                estoque = excluded.estoque,
-                producao = excluded.producao,
-                pedidos_aberto = excluded.pedidos_aberto,
-                fase = excluded.fase",
-            params![p.codigo, p.estoque, p.producao, p.pedidos, p.fase],
-        )?;
-
-        tx.execute("DELETE FROM historico_faturamento WHERE codigo = ?1", params![p.codigo])?;
-
+    for p in &products_list {
+        let prefix = get_linha_prefix(&p.codigo).to_string();
+        codigos.push(p.codigo.clone());
+        descricoes.push(p.descricao.clone());
+        prefixes.push(prefix);
+        bases.push(p.base.clone());
+        medias.push(p.media_lev());
+        estoques.push(p.estoque);
+        producoes.push(p.producao);
+        pedidos.push(p.pedidos);
+        fases.push(p.fase.clone());
         for mes in 1..=12 {
-            let quantidade = p.m_sales[mes - 1];
-            tx.execute(
-                "INSERT INTO historico_faturamento (codigo, mes, quantidade)
-                 VALUES (?1, ?2, ?3)",
-                params![p.codigo, mes, quantidade],
-            )?;
+            hist_codigos.push(p.codigo.clone());
+            hist_meses.push(mes);
+            hist_qtds.push(p.m_sales[mes as usize - 1]);
         }
-
         synced_prod_codes.insert(p.codigo.clone());
-        count_prod += 1;
     }
 
-    // Zero out old products no longer in ERP
-    let db_prod_codes: Vec<String> = {
-        let mut stmt = tx.prepare("SELECT codigo FROM estoque_atual")?;
-        let codes: Vec<String> = stmt.query_map([], |r| r.get::<_, String>(0))?
-            .filter_map(|r| r.ok())
-            .collect();
-        codes
-    };
+    // Upsert produtos em chunks
+    const PROD_CHUNK: usize = 400;
+    for chunk_start in (0..codigos.len()).step_by(PROD_CHUNK) {
+        let end = (chunk_start + PROD_CHUNK).min(codigos.len());
+        sqlx::query(
+            r#"
+            INSERT INTO produtos (codigo, descricao, linha_prefix, base, media_levantamento)
+            SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::float8[])
+            ON CONFLICT (codigo) DO UPDATE SET
+                descricao = EXCLUDED.descricao,
+                linha_prefix = EXCLUDED.linha_prefix,
+                base = EXCLUDED.base,
+                media_levantamento = EXCLUDED.media_levantamento
+            "#,
+        )
+        .bind(&codigos[chunk_start..end])
+        .bind(&descricoes[chunk_start..end])
+        .bind(&prefixes[chunk_start..end])
+        .bind(&bases[chunk_start..end])
+        .bind(&medias[chunk_start..end])
+        .execute(&mut *tx)
+        .await?;
 
-    for code in db_prod_codes {
-        if !synced_prod_codes.contains(&code) {
-            tx.execute(
-                "UPDATE estoque_atual SET estoque = 0, producao = 0, pedidos_aberto = 0 WHERE codigo = ?1",
-                params![code],
-            )?;
-        }
+        sqlx::query(
+            r#"
+            INSERT INTO estoque_atual (codigo, estoque, producao, pedidos_aberto, fase)
+            SELECT * FROM UNNEST($1::text[], $2::float8[], $3::float8[], $4::float8[], $5::text[])
+            ON CONFLICT (codigo) DO UPDATE SET
+                estoque = EXCLUDED.estoque,
+                producao = EXCLUDED.producao,
+                pedidos_aberto = EXCLUDED.pedidos_aberto,
+                fase = EXCLUDED.fase
+            "#,
+        )
+        .bind(&codigos[chunk_start..end])
+        .bind(&estoques[chunk_start..end])
+        .bind(&producoes[chunk_start..end])
+        .bind(&pedidos[chunk_start..end])
+        .bind(&fases[chunk_start..end])
+        .execute(&mut *tx)
+        .await?;
+
+        eprintln!("[ERP Sync]   produtos upsert {}/{}", end, count_prod);
     }
+
+    // Histórico: delete dos códigos sincronizados + insert em lote
+    sqlx::query("DELETE FROM historico_faturamento WHERE codigo = ANY($1)")
+        .bind(&codigos)
+        .execute(&mut *tx)
+        .await?;
+
+    const HIST_CHUNK: usize = 2000;
+    for chunk_start in (0..hist_codigos.len()).step_by(HIST_CHUNK) {
+        let end = (chunk_start + HIST_CHUNK).min(hist_codigos.len());
+        sqlx::query(
+            r#"
+            INSERT INTO historico_faturamento (codigo, mes, quantidade)
+            SELECT * FROM UNNEST($1::text[], $2::int4[], $3::int4[])
+            "#,
+        )
+        .bind(&hist_codigos[chunk_start..end])
+        .bind(&hist_meses[chunk_start..end])
+        .bind(&hist_qtds[chunk_start..end])
+        .execute(&mut *tx)
+        .await?;
+    }
+    eprintln!(
+        "[ERP Sync]   historico_faturamento {} linhas",
+        hist_codigos.len()
+    );
+
+    // Zera estoque de produtos que sumiram do ERP (1 query)
+    let synced_vec: Vec<String> = synced_prod_codes.into_iter().collect();
+    sqlx::query(
+        "UPDATE estoque_atual SET estoque = 0, producao = 0, pedidos_aberto = 0
+         WHERE NOT (codigo = ANY($1))",
+    )
+    .bind(&synced_vec)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    eprintln!("[ERP Sync] Fase produtos commitada ({count_prod}).");
+    let mut tx = pool.begin().await?;
 
     // Write Suppliers
+    eprintln!("[ERP Sync] Gravando fornecedores ({})...", suppliers_list.len());
     let mut count_fornec = 0;
-    let mut existing_suppliers = std::collections::HashMap::new();
+    let mut existing_suppliers = HashMap::new();
     {
-        let mut stmt = tx.prepare("SELECT id, name FROM suppliers")?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
+        let rows = sqlx::query("SELECT id, name FROM suppliers")
+            .fetch_all(&mut *tx)
+            .await?;
         for r in rows {
-            if let Ok((id, name)) = r {
-                existing_suppliers.insert(name, id);
-            }
+            let id: String = r.get(0);
+            let name: String = r.get(1);
+            existing_suppliers.insert(name, id);
         }
     }
 
-    let mut current_names = std::collections::HashSet::new();
-    for s in suppliers_list {
+    let mut current_names = HashSet::new();
+    let mut s_ids: Vec<String> = Vec::new();
+    let mut s_names: Vec<String> = Vec::new();
+    let mut s_contacts: Vec<Option<String>> = Vec::new();
+    let mut s_emails: Vec<Option<String>> = Vec::new();
+    let mut s_notes: Vec<Option<String>> = Vec::new();
+
+    for s in &suppliers_list {
         let id_str = s.cod_fornec.to_string();
         let mut unique_name = s.nome.clone();
-        
-        while (existing_suppliers.contains_key(&unique_name) && existing_suppliers.get(&unique_name) != Some(&id_str))
-           || current_names.contains(&unique_name) 
+
+        while (existing_suppliers.contains_key(&unique_name)
+            && existing_suppliers.get(&unique_name) != Some(&id_str))
+            || current_names.contains(&unique_name)
         {
             unique_name = format!("{} (ID: {})", s.nome, id_str);
-            if current_names.contains(&unique_name) || (existing_suppliers.contains_key(&unique_name) && existing_suppliers.get(&unique_name) != Some(&id_str)) {
+            if current_names.contains(&unique_name)
+                || (existing_suppliers.contains_key(&unique_name)
+                    && existing_suppliers.get(&unique_name) != Some(&id_str))
+            {
                 unique_name = format!("{} (ID: {}-dup)", s.nome, id_str);
                 break;
             }
         }
-        
+
         existing_suppliers.insert(unique_name.clone(), id_str.clone());
         current_names.insert(unique_name.clone());
-
-        tx.execute(
-            "INSERT INTO suppliers (id, name, contact, email, notes)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(id) DO UPDATE SET
-                name = excluded.name,
-                contact = excluded.contact,
-                email = excluded.email,
-                notes = excluded.notes",
-            params![id_str, unique_name, s.contato, s.email, s.obs],
-        )?;
+        s_ids.push(id_str);
+        s_names.push(unique_name);
+        s_contacts.push(s.contato.clone());
+        s_emails.push(s.email.clone());
+        s_notes.push(s.obs.clone());
         count_fornec += 1;
     }
 
-    // Write Insumos Items
+    for chunk_start in (0..s_ids.len()).step_by(PROD_CHUNK) {
+        let end = (chunk_start + PROD_CHUNK).min(s_ids.len());
+        sqlx::query(
+            r#"
+            INSERT INTO suppliers (id, name, contact, email, notes)
+            SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::text[])
+            ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name,
+                contact = EXCLUDED.contact,
+                email = EXCLUDED.email,
+                notes = EXCLUDED.notes
+            "#,
+        )
+        .bind(&s_ids[chunk_start..end])
+        .bind(&s_names[chunk_start..end])
+        .bind(&s_contacts[chunk_start..end])
+        .bind(&s_emails[chunk_start..end])
+        .bind(&s_notes[chunk_start..end])
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // Write Items (insumos + materiais) em lote
+    eprintln!(
+        "[ERP Sync] Gravando items ({})...",
+        insumos_list.len() + materiais_list.len()
+    );
     let mut count_items = 0;
-    for item in insumos_list {
-        let category_id = if item.code.starts_with("9.15.") { "cat_mp" } else { "cat_emb" };
-        tx.execute(
-            "INSERT INTO items (code, description, unit, category_id, line, type, is_ignored)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             ON CONFLICT(code) DO UPDATE SET
-                description = excluded.description,
-                unit = excluded.unit,
-                category_id = CASE 
-                    WHEN items.category_id IS NOT NULL AND items.category_id NOT IN ('cat_mp', 'cat_emb', 'cat_mat') THEN items.category_id
-                    ELSE excluded.category_id
-                END,
-                line = excluded.line,
-                type = excluded.type,
-                is_ignored = CASE 
-                    WHEN excluded.is_ignored = 1 THEN 1
-                    ELSE items.is_ignored
-                END,
-                updated_at = CURRENT_TIMESTAMP",
-            params![item.code, item.desc, item.unit, category_id, item.line, item.type_code, item.is_ignored],
-        )?;
+    let mut i_codes: Vec<String> = Vec::new();
+    let mut i_descs: Vec<String> = Vec::new();
+    let mut i_units: Vec<String> = Vec::new();
+    let mut i_cats: Vec<String> = Vec::new();
+    let mut i_lines: Vec<Option<String>> = Vec::new();
+    let mut i_types: Vec<Option<String>> = Vec::new();
+    let mut i_ignored: Vec<i32> = Vec::new();
+
+    for item in &insumos_list {
+        let category_id = if item.code.starts_with("9.15.") {
+            "cat_mp"
+        } else {
+            "cat_emb"
+        };
+        i_codes.push(item.code.clone());
+        i_descs.push(item.desc.clone());
+        i_units.push(item.unit.clone());
+        i_cats.push(category_id.to_string());
+        i_lines.push(item.line.clone());
+        i_types.push(item.type_code.clone());
+        i_ignored.push(item.is_ignored);
+        count_items += 1;
+    }
+    for item in &materiais_list {
+        i_codes.push(item.code.clone());
+        i_descs.push(item.desc.clone());
+        i_units.push(item.unit.clone());
+        i_cats.push("cat_mat".to_string());
+        i_lines.push(item.line.clone());
+        i_types.push(item.type_code.clone());
+        i_ignored.push(item.is_ignored);
         count_items += 1;
     }
 
-    // Write Materiais Items
-    for item in materiais_list {
-        tx.execute(
-            "INSERT INTO items (code, description, unit, category_id, line, type, is_ignored)
-             VALUES (?1, ?2, ?3, 'cat_mat', ?4, ?5, ?6)
-             ON CONFLICT(code) DO UPDATE SET
-                description = excluded.description,
-                unit = excluded.unit,
-                category_id = CASE 
+    for chunk_start in (0..i_codes.len()).step_by(PROD_CHUNK) {
+        let end = (chunk_start + PROD_CHUNK).min(i_codes.len());
+        sqlx::query(
+            r#"
+            INSERT INTO items (code, description, unit, category_id, line, type, is_ignored)
+            SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::int4[])
+            ON CONFLICT (code) DO UPDATE SET
+                description = EXCLUDED.description,
+                unit = EXCLUDED.unit,
+                category_id = CASE
                     WHEN items.category_id IS NOT NULL AND items.category_id NOT IN ('cat_mp', 'cat_emb', 'cat_mat') THEN items.category_id
-                    ELSE excluded.category_id
+                    ELSE EXCLUDED.category_id
                 END,
-                line = excluded.line,
-                type = excluded.type,
-                is_ignored = CASE 
-                    WHEN excluded.is_ignored = 1 THEN 1
+                line = EXCLUDED.line,
+                type = EXCLUDED.type,
+                is_ignored = CASE
+                    WHEN EXCLUDED.is_ignored = 1 THEN 1
                     ELSE items.is_ignored
                 END,
-                updated_at = CURRENT_TIMESTAMP",
-            params![item.code, item.desc, item.unit, item.line, item.type_code, item.is_ignored],
-        )?;
-        count_items += 1;
+                updated_at = CURRENT_TIMESTAMP
+            "#,
+        )
+        .bind(&i_codes[chunk_start..end])
+        .bind(&i_descs[chunk_start..end])
+        .bind(&i_units[chunk_start..end])
+        .bind(&i_cats[chunk_start..end])
+        .bind(&i_lines[chunk_start..end])
+        .bind(&i_types[chunk_start..end])
+        .bind(&i_ignored[chunk_start..end])
+        .execute(&mut *tx)
+        .await?;
+        eprintln!("[ERP Sync]   items upsert {}/{}", end, count_items);
     }
 
-    // Write Stock Snapshots (Insumos + Materiais)
+    tx.commit().await?;
+    eprintln!("[ERP Sync] Fase fornecedores/itens commitada.");
+    let mut tx = pool.begin().await?;
+
+    // Re-lê D1/D2 imediatamente antes de gravar (reduz staleness/NOLOCK).
+    eprintln!("[ERP Sync] Reconsultando D1/D2 imediatamente antes dos snapshots...");
+    {
+        let stream = client.query(query_stocks, &[]).await?;
+        let db_rows_stocks = stream.into_first_result().await?;
+        stocks_list.clear();
+        for row in db_rows_stocks {
+            let code: &str = row.get(0).unwrap_or("");
+            if code.is_empty() {
+                continue;
+            }
+            stocks_list.push(StockRow {
+                code: code.trim().to_string(),
+                stock_qty: row.get(1).unwrap_or(0.0),
+                reserved_qty: row.get(2).unwrap_or(0.0),
+                in_prod: row.get(3).unwrap_or(0.0),
+                in_orders: row.get(4).unwrap_or(0.0),
+            });
+        }
+        let stream = client.query(query_mat_stocks, &[]).await?;
+        let db_rows_mat_stocks = stream.into_first_result().await?;
+        mat_stocks_list.clear();
+        for row in db_rows_mat_stocks {
+            let code: &str = row.get(0).unwrap_or("");
+            if code.is_empty() {
+                continue;
+            }
+            mat_stocks_list.push(StockRow {
+                code: code.trim().to_string(),
+                stock_qty: row.get(1).unwrap_or(0.0),
+                reserved_qty: row.get(2).unwrap_or(0.0),
+                in_prod: row.get(3).unwrap_or(0.0),
+                in_orders: row.get(4).unwrap_or(0.0),
+            });
+        }
+    }
+
+    // Write Stock Snapshots (Insumos + Materiais) — delete + insert em lote
     let mut count_snapshots = 0;
     let total_snapshots = stocks_list.len() + mat_stocks_list.len();
     if total_snapshots > 0 {
+        eprintln!("[ERP Sync] Gravando snapshots ({total_snapshots})...");
         let stock_import_id = Uuid::new_v4().to_string();
-        tx.execute(
-            "INSERT INTO stock_imports (id, filename, source, item_count) 
-             VALUES (?1, 'SQL Server Sync', 'ERP', ?2)",
-            params![stock_import_id, total_snapshots as i32],
-        )?;
+        sqlx::query(
+            "INSERT INTO stock_imports (id, filename, source, item_count)
+             VALUES ($1, 'SQL Server Sync', 'ERP', $2)",
+        )
+        .bind(&stock_import_id)
+        .bind(total_snapshots as i32)
+        .execute(&mut *tx)
+        .await?;
 
-        // Write Insumos stock
-        for stk in stocks_list {
-            let snapshot_id = Uuid::new_v4().to_string();
-            tx.execute(
-                "INSERT INTO stock_snapshots (id, import_id, item_code, stock_qty, reserved_qty, in_production, in_orders)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![snapshot_id, stock_import_id, stk.code, stk.stock_qty, stk.reserved_qty, stk.in_prod, stk.in_orders],
-            )?;
+        let all_stock_codes: Vec<String> = stocks_list
+            .iter()
+            .chain(mat_stocks_list.iter())
+            .map(|s| s.code.clone())
+            .collect();
+        sqlx::query("DELETE FROM stock_snapshots WHERE item_code = ANY($1)")
+            .bind(&all_stock_codes)
+            .execute(&mut *tx)
+            .await?;
+
+        let mut snap_ids: Vec<String> = Vec::new();
+        let mut snap_imports: Vec<String> = Vec::new();
+        let mut snap_codes: Vec<String> = Vec::new();
+        let mut snap_stock: Vec<f64> = Vec::new();
+        let mut snap_reserved: Vec<f64> = Vec::new();
+        let mut snap_prod: Vec<f64> = Vec::new();
+        let mut snap_orders: Vec<f64> = Vec::new();
+
+        for stk in stocks_list.iter().chain(mat_stocks_list.iter()) {
+            snap_ids.push(Uuid::new_v4().to_string());
+            snap_imports.push(stock_import_id.clone());
+            snap_codes.push(stk.code.clone());
+            snap_stock.push(stk.stock_qty);
+            snap_reserved.push(stk.reserved_qty);
+            snap_prod.push(stk.in_prod);
+            snap_orders.push(stk.in_orders);
             count_snapshots += 1;
         }
 
-        // Write Materiais stock
-        for stk in mat_stocks_list {
-            let snapshot_id = Uuid::new_v4().to_string();
-            tx.execute(
-                "INSERT INTO stock_snapshots (id, import_id, item_code, stock_qty, reserved_qty, in_production, in_orders)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![snapshot_id, stock_import_id, stk.code, stk.stock_qty, stk.reserved_qty, stk.in_prod, stk.in_orders],
-            )?;
-            count_snapshots += 1;
+        for chunk_start in (0..snap_ids.len()).step_by(PROD_CHUNK) {
+            let end = (chunk_start + PROD_CHUNK).min(snap_ids.len());
+            sqlx::query(
+                r#"
+                INSERT INTO stock_snapshots (id, import_id, item_code, stock_qty, reserved_qty, in_production, in_orders)
+                SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::float8[], $5::float8[], $6::float8[], $7::float8[])
+                "#,
+            )
+            .bind(&snap_ids[chunk_start..end])
+            .bind(&snap_imports[chunk_start..end])
+            .bind(&snap_codes[chunk_start..end])
+            .bind(&snap_stock[chunk_start..end])
+            .bind(&snap_reserved[chunk_start..end])
+            .bind(&snap_prod[chunk_start..end])
+            .bind(&snap_orders[chunk_start..end])
+            .execute(&mut *tx)
+            .await?;
         }
+        eprintln!(
+            "[ERP Sync] Snapshots gravados: {count_snapshots} (insumos via nQtdeEstoqueA)"
+        );
     }
 
-    // Write Invoices
+    // Write Invoices em lote
+    eprintln!("[ERP Sync] Gravando invoices ({})...", invoices_list.len());
     let mut count_invoices = 0;
-    tx.execute("DELETE FROM invoices", [])?;
-    for inv in invoices_list.clone() {
-        let nota_str = inv.nota.to_string();
-        let invoice_id = Uuid::new_v4().to_string();
-        tx.execute(
-            "INSERT INTO invoices (id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![invoice_id, nota_str, inv.code, inv.desc, inv.unit, inv.quantity, inv.unit_price, inv.total_value, inv.fornec_name, inv.supplier_id, inv.date_str],
-        )?;
-        count_invoices += 1;
+    if mode == SyncMode::Full {
+        sqlx::query("DELETE FROM invoices")
+            .execute(&mut *tx)
+            .await?;
+    } else {
+        sqlx::query(
+            "DELETE FROM invoices WHERE COALESCE(invoice_date, '') >= $1",
+        )
+        .bind(&since)
+        .execute(&mut *tx)
+        .await?;
     }
 
-    // Write Consumption
+    {
+        let mut inv_ids: Vec<String> = Vec::new();
+        let mut inv_nums: Vec<String> = Vec::new();
+        let mut inv_codes: Vec<String> = Vec::new();
+        let mut inv_descs: Vec<Option<String>> = Vec::new();
+        let mut inv_units: Vec<Option<String>> = Vec::new();
+        let mut inv_qtys: Vec<f64> = Vec::new();
+        let mut inv_prices: Vec<f64> = Vec::new();
+        let mut inv_totals: Vec<f64> = Vec::new();
+        let mut inv_sup_names: Vec<Option<String>> = Vec::new();
+        let mut inv_sup_ids: Vec<Option<String>> = Vec::new();
+        let mut inv_dates: Vec<Option<String>> = Vec::new();
+
+        for inv in &invoices_list {
+            inv_ids.push(Uuid::new_v4().to_string());
+            inv_nums.push(inv.nota.to_string());
+            inv_codes.push(inv.code.clone());
+            inv_descs.push(inv.desc.clone());
+            inv_units.push(inv.unit.clone());
+            inv_qtys.push(inv.quantity);
+            inv_prices.push(inv.unit_price);
+            inv_totals.push(inv.total_value);
+            inv_sup_names.push(inv.fornec_name.clone());
+            inv_sup_ids.push(inv.supplier_id.clone());
+            inv_dates.push(inv.date_str.clone());
+            count_invoices += 1;
+        }
+
+        for chunk_start in (0..inv_ids.len()).step_by(PROD_CHUNK) {
+            let end = (chunk_start + PROD_CHUNK).min(inv_ids.len());
+            sqlx::query(
+                r#"
+                INSERT INTO invoices (id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date)
+                SELECT * FROM UNNEST(
+                    $1::text[], $2::text[], $3::text[], $4::text[], $5::text[],
+                    $6::float8[], $7::float8[], $8::float8[], $9::text[], $10::text[], $11::text[]
+                )
+                "#,
+            )
+            .bind(&inv_ids[chunk_start..end])
+            .bind(&inv_nums[chunk_start..end])
+            .bind(&inv_codes[chunk_start..end])
+            .bind(&inv_descs[chunk_start..end])
+            .bind(&inv_units[chunk_start..end])
+            .bind(&inv_qtys[chunk_start..end])
+            .bind(&inv_prices[chunk_start..end])
+            .bind(&inv_totals[chunk_start..end])
+            .bind(&inv_sup_names[chunk_start..end])
+            .bind(&inv_sup_ids[chunk_start..end])
+            .bind(&inv_dates[chunk_start..end])
+            .execute(&mut *tx)
+            .await?;
+            if end % 800 == 0 || end == inv_ids.len() {
+                eprintln!("[ERP Sync]   invoices {end}/{}", inv_ids.len());
+            }
+        }
+    }
+
+    eprintln!("[ERP Sync] Invoices OK — gravando consumption...");
+    // Write Consumption em lote
     let mut count_consumption = 0;
-    for c in consumption_list {
-        let consumption_id = Uuid::new_v4().to_string();
-        tx.execute(
-            "INSERT INTO consumption (id, item_code, year, total_qty, monthly_avg)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(item_code, year) DO UPDATE SET
-                total_qty = excluded.total_qty,
-                monthly_avg = excluded.monthly_avg,
-                imported_at = CURRENT_TIMESTAMP",
-            params![consumption_id, c.code, c.year, c.total_qty, c.monthly_avg],
-        )?;
-        count_consumption += 1;
+    {
+        let mut c_ids: Vec<String> = Vec::new();
+        let mut c_codes: Vec<String> = Vec::new();
+        let mut c_years: Vec<i32> = Vec::new();
+        let mut c_totals: Vec<f64> = Vec::new();
+        let mut c_avgs: Vec<f64> = Vec::new();
+        for c in &consumption_list {
+            c_ids.push(Uuid::new_v4().to_string());
+            c_codes.push(c.code.clone());
+            c_years.push(c.year);
+            c_totals.push(c.total_qty);
+            c_avgs.push(c.monthly_avg);
+            count_consumption += 1;
+        }
+        eprintln!("[ERP Sync] Gravando consumption ({count_consumption})...");
+        const C_CHUNK: usize = 500;
+        for chunk_start in (0..c_ids.len()).step_by(C_CHUNK) {
+            let end = (chunk_start + C_CHUNK).min(c_ids.len());
+            sqlx::query(
+                r#"
+                INSERT INTO consumption (id, item_code, year, total_qty, monthly_avg)
+                SELECT * FROM UNNEST($1::text[], $2::text[], $3::int4[], $4::float8[], $5::float8[])
+                ON CONFLICT (item_code, year) DO UPDATE SET
+                    total_qty = EXCLUDED.total_qty,
+                    monthly_avg = EXCLUDED.monthly_avg,
+                    imported_at = CURRENT_TIMESTAMP
+                "#,
+            )
+            .bind(&c_ids[chunk_start..end])
+            .bind(&c_codes[chunk_start..end])
+            .bind(&c_years[chunk_start..end])
+            .bind(&c_totals[chunk_start..end])
+            .bind(&c_avgs[chunk_start..end])
+            .execute(&mut *tx)
+            .await?;
+        }
     }
 
-    // Write Formulations
+    tx.commit().await?;
+    eprintln!("[ERP Sync] Fase NF/consumo/snapshots commitada.");
+    let mut tx = pool.begin().await?;
+
+    // Write Formulations em lote
+    eprintln!(
+        "[ERP Sync] Gravando formulações ({})...",
+        formulations_list.len()
+    );
     let mut count_formulations = 0;
-    tx.execute("DELETE FROM formulations", [])?;
-    for f in formulations_list {
-        tx.execute(
-            "INSERT INTO formulations (product_code, ingredient_code, description, quantity, percentage)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![f.product_code, f.ingredient_code, f.description, f.quantity, f.percentage],
-        )?;
-        count_formulations += 1;
+    sqlx::query("DELETE FROM formulations")
+        .execute(&mut *tx)
+        .await?;
+    {
+        let mut f_prod: Vec<String> = Vec::new();
+        let mut f_ing: Vec<String> = Vec::new();
+        let mut f_desc: Vec<Option<String>> = Vec::new();
+        let mut f_qty: Vec<f64> = Vec::new();
+        let mut f_pct: Vec<Option<f64>> = Vec::new();
+        for f in &formulations_list {
+            f_prod.push(f.product_code.clone());
+            f_ing.push(f.ingredient_code.clone());
+            f_desc.push(f.description.clone());
+            f_qty.push(f.quantity);
+            f_pct.push(f.percentage);
+            count_formulations += 1;
+        }
+        const F_CHUNK: usize = 500;
+        for chunk_start in (0..f_prod.len()).step_by(F_CHUNK) {
+            let end = (chunk_start + F_CHUNK).min(f_prod.len());
+            // Skip orphan FKs: only insert when product+ingredient exist
+            sqlx::query(
+                r#"
+                INSERT INTO formulations (product_code, ingredient_code, description, quantity, percentage)
+                SELECT v.product_code, v.ingredient_code, v.description, v.quantity, v.percentage
+                FROM UNNEST($1::text[], $2::text[], $3::text[], $4::float8[], $5::float8[])
+                    AS v(product_code, ingredient_code, description, quantity, percentage)
+                WHERE EXISTS (SELECT 1 FROM produtos p WHERE p.codigo = v.product_code)
+                  AND EXISTS (SELECT 1 FROM items i WHERE i.code = v.ingredient_code)
+                "#,
+            )
+            .bind(&f_prod[chunk_start..end])
+            .bind(&f_ing[chunk_start..end])
+            .bind(&f_desc[chunk_start..end])
+            .bind(&f_qty[chunk_start..end])
+            .bind(&f_pct[chunk_start..end])
+            .execute(&mut *tx)
+            .await?;
+            if end % 2000 == 0 || end == f_prod.len() {
+                eprintln!("[ERP Sync]   formulations {end}/{}", f_prod.len());
+            }
+        }
     }
 
-    // Write Stock Movements (Unified)
+    tx.commit().await?;
+    eprintln!("[ERP Sync] Fase formulações commitada ({count_formulations}).");
+    let mut tx = pool.begin().await?;
+
+    // Write Stock Movements (Unified) — TRUNCATE/janela + INSERT em lote (UNNEST)
     let mut count_movements = 0;
-    tx.execute("DELETE FROM stock_movements", [])?;
+    let mov_total_est = invoices_list.len() + lotes_baixas_list.len() + lotes_list.len() + vendas_list.len();
+    eprintln!(
+        "[ERP Sync] Gravando movimentações (~{mov_total_est} linhas, mode={})...",
+        mode.as_str()
+    );
 
-    // 1. Purchases entries
-    for inv in invoices_list {
-        let mov_id = Uuid::new_v4().to_string();
-        let item_type = if inv.code.starts_with("9.15.") { "insumo" } else { "material" };
-        let date_clean = inv.date_str.as_deref().unwrap_or("");
-        tx.execute(
-            "INSERT INTO stock_movements (id, item_code, item_type, movement_type, quantity, date, document_number, details)
-             VALUES (?1, ?2, ?3, 'entrada', ?4, ?5, ?6, ?7)",
-            params![mov_id, inv.code, item_type, inv.quantity, date_clean, inv.nota.to_string(), inv.fornec_name],
-        )?;
-        count_movements += 1;
+    if mode == SyncMode::Full {
+        // TRUNCATE fora de tx longa: commit atual, truncate, nova tx
+        tx.commit().await?;
+        eprintln!("[ERP Sync]   TRUNCATE stock_movements (pode levar alguns segundos)...");
+        let t0 = std::time::Instant::now();
+        sqlx::query("TRUNCATE TABLE stock_movements")
+            .execute(pool)
+            .await?;
+        eprintln!(
+            "[ERP Sync]   TRUNCATE concluído em {:.1}s",
+            t0.elapsed().as_secs_f64()
+        );
+        tx = pool.begin().await?;
+    } else {
+        eprintln!("[ERP Sync]   DELETE stock_movements desde {since}...");
+        sqlx::query("DELETE FROM stock_movements WHERE COALESCE(date, '') >= $1")
+            .bind(&since)
+            .execute(&mut *tx)
+            .await?;
     }
 
-    // 2. Insumo exits (Lotes_Baixas)
-    tx.execute("DROP TABLE IF EXISTS lotes_baixas", [])?;
-    tx.execute(
-        "CREATE TABLE lotes_baixas (
-            Registro INTEGER PRIMARY KEY,
-            nLote INTEGER,
-            cReferencia TEXT,
-            nQtde REAL,
-            dLog TEXT,
-            cUsuario TEXT,
-            cJustificativa TEXT,
-            cCodProd TEXT,
-            nQtdeRef REAL
-        )",
-        [],
-    )?;
-    for b in lotes_baixas_list {
-        let mov_id = Uuid::new_v4().to_string();
-        let details = format!("OP: {} | Usuário: {} | Justificativa: {}", b.lote, b.user.as_deref().unwrap_or(""), b.just.as_deref().unwrap_or(""));
-        tx.execute(
-            "INSERT INTO stock_movements (id, item_code, item_type, movement_type, quantity, date, document_number, details)
-             VALUES (?1, ?2, 'insumo', 'saida', ?3, ?4, ?5, ?6)",
-            params![mov_id, b.ref_code, b.qty, b.date_str, b.lote.to_string(), details],
-        )?;
-        count_movements += 1;
+    let mut mov_batch: Vec<MovInsert> = Vec::with_capacity(MOV_BATCH);
 
-        tx.execute(
-            "INSERT INTO lotes_baixas VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                b.registro,
-                b.lote,
-                b.ref_code,
-                b.qty,
-                b.date_str,
-                b.user,
-                b.just,
-                b.prod_code,
-                b.n_qtde_ref,
-            ],
-        )?;
+    for inv in &invoices_list {
+        let item_type = if inv.code.starts_with("9.15.") {
+            "insumo"
+        } else {
+            "material"
+        };
+        mov_batch.push(MovInsert {
+            id: Uuid::new_v4().to_string(),
+            item_code: inv.code.clone(),
+            item_type: item_type.to_string(),
+            movement_type: "entrada".to_string(),
+            quantity: inv.quantity,
+            date: inv.date_str.clone().unwrap_or_default(),
+            document_number: inv.nota.to_string(),
+            details: inv.fornec_name.clone().unwrap_or_default(),
+        });
+        count_movements += 1;
+        if mov_batch.len() >= MOV_BATCH {
+            flush_stock_movements(&mut tx, &mut mov_batch).await?;
+            if count_movements % 2000 == 0 {
+                eprintln!("[ERP Sync]   movimentos (NF) {count_movements}/{mov_total_est}");
+            }
+        }
     }
 
-    tx.execute(
-        "CREATE INDEX IF NOT EXISTS idx_lotes_baixas_lote_ref ON lotes_baixas(nLote, cReferencia)",
-        [],
-    )?;
+    // lotes_baixas: schema em supabase/001 (role natum_app não tem CREATE no public)
+    if mode == SyncMode::Full {
+        sqlx::query("TRUNCATE lotes_baixas")
+            .execute(&mut *tx)
+            .await?;
+    } else {
+        sqlx::query("DELETE FROM lotes_baixas WHERE COALESCE(dlog, '') >= $1")
+            .bind(&since)
+            .execute(&mut *tx)
+            .await?;
+    }
 
-    // 3. Product entries (Lotes / Production runs)
-    for l in lotes_list {
-        let mov_id = Uuid::new_v4().to_string();
+    let mut lb_reg: Vec<i32> = Vec::new();
+    let mut lb_lote: Vec<i32> = Vec::new();
+    let mut lb_ref: Vec<String> = Vec::new();
+    let mut lb_qty: Vec<f64> = Vec::new();
+    let mut lb_dlog: Vec<String> = Vec::new();
+    let mut lb_user: Vec<Option<String>> = Vec::new();
+    let mut lb_just: Vec<Option<String>> = Vec::new();
+    let mut lb_prod: Vec<Option<String>> = Vec::new();
+    let mut lb_qref: Vec<f64> = Vec::new();
+
+    for b in &lotes_baixas_list {
+        let details = format!(
+            "OP: {} | Usuário: {} | Justificativa: {}",
+            b.lote,
+            b.user.as_deref().unwrap_or(""),
+            b.just.as_deref().unwrap_or("")
+        );
+        mov_batch.push(MovInsert {
+            id: Uuid::new_v4().to_string(),
+            item_code: b.ref_code.clone(),
+            item_type: "insumo".to_string(),
+            movement_type: "saida".to_string(),
+            quantity: b.qty,
+            date: b.date_str.clone(),
+            document_number: b.lote.to_string(),
+            details,
+        });
+        count_movements += 1;
+        if mov_batch.len() >= MOV_BATCH {
+            flush_stock_movements(&mut tx, &mut mov_batch).await?;
+            if count_movements % 2000 == 0 {
+                eprintln!("[ERP Sync]   movimentos (baixas) {count_movements}/{mov_total_est}");
+            }
+        }
+
+        lb_reg.push(b.registro);
+        lb_lote.push(b.lote);
+        lb_ref.push(b.ref_code.clone());
+        lb_qty.push(b.qty);
+        lb_dlog.push(b.date_str.clone());
+        lb_user.push(b.user.clone());
+        lb_just.push(b.just.clone());
+        lb_prod.push(b.prod_code.clone());
+        lb_qref.push(b.n_qtde_ref);
+    }
+
+    const LB_CHUNK: usize = 500;
+    for chunk_start in (0..lb_reg.len()).step_by(LB_CHUNK) {
+        let end = (chunk_start + LB_CHUNK).min(lb_reg.len());
+        sqlx::query(
+            r#"
+            INSERT INTO lotes_baixas (registro, nlote, creferencia, nqtde, dlog, cusuario, cjustificativa, ccodprod, nqtderef)
+            SELECT * FROM UNNEST(
+                $1::int4[], $2::int4[], $3::text[], $4::float8[], $5::text[],
+                $6::text[], $7::text[], $8::text[], $9::float8[]
+            )
+            ON CONFLICT (registro) DO UPDATE SET
+                nlote = EXCLUDED.nlote,
+                creferencia = EXCLUDED.creferencia,
+                nqtde = EXCLUDED.nqtde,
+                dlog = EXCLUDED.dlog,
+                cusuario = EXCLUDED.cusuario,
+                cjustificativa = EXCLUDED.cjustificativa,
+                ccodprod = EXCLUDED.ccodprod,
+                nqtderef = EXCLUDED.nqtderef
+            "#,
+        )
+        .bind(&lb_reg[chunk_start..end])
+        .bind(&lb_lote[chunk_start..end])
+        .bind(&lb_ref[chunk_start..end])
+        .bind(&lb_qty[chunk_start..end])
+        .bind(&lb_dlog[chunk_start..end])
+        .bind(&lb_user[chunk_start..end])
+        .bind(&lb_just[chunk_start..end])
+        .bind(&lb_prod[chunk_start..end])
+        .bind(&lb_qref[chunk_start..end])
+        .execute(&mut *tx)
+        .await?;
+        if end % 5000 == 0 || end == lb_reg.len() {
+            eprintln!("[ERP Sync]   lotes_baixas {end}/{}", lb_reg.len());
+        }
+    }
+
+    for l in &lotes_list {
         let details = format!(
             "Status: {} | Fab: {} | Aut: {} | Unidades: {} | dPesado: {}",
             l.status.as_deref().unwrap_or(""),
@@ -1221,157 +1862,411 @@ WHERE p1.dPedido >= DATEADD(month, -6, GETDATE()) OR (p1.CSTATUS NOT IN ('FT', '
             l.unidades.unwrap_or(0.0),
             l.d_pesado.as_deref().unwrap_or("")
         );
-        tx.execute(
-            "INSERT INTO stock_movements (id, item_code, item_type, movement_type, quantity, date, document_number, details)
-             VALUES (?1, ?2, 'produto', 'entrada', ?3, ?4, ?5, ?6)",
-            params![mov_id, l.product_code, l.qty, l.date_str, l.lote.to_string(), details],
-        )?;
+        mov_batch.push(MovInsert {
+            id: Uuid::new_v4().to_string(),
+            item_code: l.product_code.clone(),
+            item_type: "produto".to_string(),
+            movement_type: "entrada".to_string(),
+            quantity: l.qty,
+            date: l.date_str.clone(),
+            document_number: l.lote.to_string(),
+            details,
+        });
         count_movements += 1;
+        if mov_batch.len() >= MOV_BATCH {
+            flush_stock_movements(&mut tx, &mut mov_batch).await?;
+            if count_movements % 2000 == 0 {
+                eprintln!("[ERP Sync]   movimentos (lotes) {count_movements}/{mov_total_est}");
+            }
+        }
     }
 
-    // 4. Product exits (Vendas)
-    for v in vendas_list {
-        let mov_id = Uuid::new_v4().to_string();
-        let doc_str = v.nota_fiscal.map(|n| n.to_string()).unwrap_or_else(|| format!("Pedido: {}", v.venda));
-        tx.execute(
-            "INSERT INTO stock_movements (id, item_code, item_type, movement_type, quantity, date, document_number, details)
-             VALUES (?1, ?2, 'produto', 'saida', ?3, ?4, ?5, ?6)",
-            params![mov_id, v.prod_code, v.qty, v.date_str, doc_str, v.client_name],
-        )?;
+    for v in &vendas_list {
+        let doc_str = v
+            .nota_fiscal
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| format!("Pedido: {}", v.venda));
+        mov_batch.push(MovInsert {
+            id: Uuid::new_v4().to_string(),
+            item_code: v.prod_code.clone(),
+            item_type: "produto".to_string(),
+            movement_type: "saida".to_string(),
+            quantity: v.qty,
+            date: v.date_str.clone(),
+            document_number: doc_str,
+            details: v.client_name.clone().unwrap_or_default(),
+        });
         count_movements += 1;
+        if mov_batch.len() >= MOV_BATCH {
+            flush_stock_movements(&mut tx, &mut mov_batch).await?;
+            if count_movements % 5000 == 0 {
+                eprintln!("[ERP Sync]   movimentos (vendas) {count_movements}/{mov_total_est}");
+            }
+        }
     }
 
-    // Write Purchase Orders
+    flush_stock_movements(&mut tx, &mut mov_batch).await?;
+
+    tx.commit().await?;
+    eprintln!("[ERP Sync] Fase movimentações commitada ({count_movements} linhas).");
+    let mut tx = pool.begin().await?;
+
+    // Write Purchase Orders + Sales Orders (UNNEST em lote)
+    eprintln!(
+        "[ERP Sync] Gravando pedidos: PO={} itens_PO={} SO={} itens_SO={}...",
+        pedido_cpa1_list.len(),
+        pedido_cpa2_list.len(),
+        sales_orders_list.len(),
+        sales_order_items_list.len()
+    );
     let mut count_pos = 0;
-    tx.execute("DELETE FROM purchase_order_items", [])?;
-    tx.execute("DELETE FROM purchase_orders", [])?;
-
-    for po in pedido_cpa1_list {
-        tx.execute(
-            "INSERT OR REPLACE INTO purchase_orders (n_registro, n_pedido, d_pedido, n_cod_fornec, c_nome_f, c_usuario, c_status, c_prazo_pgto, c_prev_entrega, n_valor, d_previsao, c_email, m_observac)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-            params![
-                po.n_registro,
-                po.n_pedido,
-                po.d_pedido,
-                po.n_cod_fornec,
-                po.c_nome_f,
-                po.c_usuario,
-                po.c_status,
-                po.c_prazo_pgto,
-                po.c_prev_entrega,
-                po.n_valor,
-                po.d_previsao,
-                po.c_email,
-                po.m_observac,
-            ],
-        )?;
-        count_pos += 1;
+    if mode == SyncMode::Full {
+        sqlx::query("DELETE FROM purchase_order_items")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM purchase_orders")
+            .execute(&mut *tx)
+            .await?;
+    } else {
+        let registros: Vec<i32> = pedido_cpa1_list.iter().map(|p| p.n_registro).collect();
+        if !registros.is_empty() {
+            sqlx::query(
+                "DELETE FROM purchase_order_items WHERE n_pedido_registro = ANY($1)",
+            )
+            .bind(&registros)
+            .execute(&mut *tx)
+            .await?;
+        }
     }
 
-    for poi in pedido_cpa2_list {
-        tx.execute(
-            "INSERT INTO purchase_order_items (n_pedido_registro, n_pedido, c_referencia, n_qtde, n_preco, n_chegou, c_descricao, c_unidade, n_valor_total, n_registro, c_chegada)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![
-                poi.n_pedido_registro,
-                poi.n_pedido,
-                poi.c_referencia,
-                poi.n_qtde,
-                poi.n_preco,
-                poi.n_chegou,
-                poi.c_descricao,
-                poi.c_unidade,
-                poi.n_valor_total,
-                poi.n_registro,
-                poi.c_chegada,
-            ],
-        )?;
+    {
+        let mut po_reg: Vec<i32> = Vec::new();
+        let mut po_ped: Vec<i32> = Vec::new();
+        let mut po_dp: Vec<Option<String>> = Vec::new();
+        let mut po_forn: Vec<Option<i32>> = Vec::new();
+        let mut po_nome: Vec<Option<String>> = Vec::new();
+        let mut po_user: Vec<Option<String>> = Vec::new();
+        let mut po_st: Vec<Option<String>> = Vec::new();
+        let mut po_prazo: Vec<Option<String>> = Vec::new();
+        let mut po_prev: Vec<Option<String>> = Vec::new();
+        let mut po_val: Vec<f64> = Vec::new();
+        let mut po_dprev: Vec<Option<String>> = Vec::new();
+        let mut po_email: Vec<Option<String>> = Vec::new();
+        let mut po_obs: Vec<Option<String>> = Vec::new();
+        for po in &pedido_cpa1_list {
+            po_reg.push(po.n_registro);
+            po_ped.push(po.n_pedido);
+            po_dp.push(po.d_pedido.clone());
+            po_forn.push(po.n_cod_fornec);
+            po_nome.push(po.c_nome_f.clone());
+            po_user.push(po.c_usuario.clone());
+            po_st.push(po.c_status.clone());
+            po_prazo.push(po.c_prazo_pgto.clone());
+            po_prev.push(po.c_prev_entrega.clone());
+            po_val.push(po.n_valor);
+            po_dprev.push(po.d_previsao.clone());
+            po_email.push(po.c_email.clone());
+            po_obs.push(po.m_observac.clone());
+            count_pos += 1;
+        }
+        const PO_CHUNK: usize = 200;
+        for chunk_start in (0..po_reg.len()).step_by(PO_CHUNK) {
+            let end = (chunk_start + PO_CHUNK).min(po_reg.len());
+            sqlx::query(
+                r#"
+                INSERT INTO purchase_orders (
+                    n_registro, n_pedido, d_pedido, n_cod_fornec, c_nome_f, c_usuario, c_status,
+                    c_prazo_pgto, c_prev_entrega, n_valor, d_previsao, c_email, m_observac
+                )
+                SELECT * FROM UNNEST(
+                    $1::int4[], $2::int4[], $3::text[], $4::int4[], $5::text[], $6::text[], $7::text[],
+                    $8::text[], $9::text[], $10::float8[], $11::text[], $12::text[], $13::text[]
+                )
+                ON CONFLICT (n_registro) DO UPDATE SET
+                    n_pedido = EXCLUDED.n_pedido,
+                    d_pedido = EXCLUDED.d_pedido,
+                    n_cod_fornec = EXCLUDED.n_cod_fornec,
+                    c_nome_f = EXCLUDED.c_nome_f,
+                    c_usuario = EXCLUDED.c_usuario,
+                    c_status = EXCLUDED.c_status,
+                    c_prazo_pgto = EXCLUDED.c_prazo_pgto,
+                    c_prev_entrega = EXCLUDED.c_prev_entrega,
+                    n_valor = EXCLUDED.n_valor,
+                    d_previsao = EXCLUDED.d_previsao,
+                    c_email = EXCLUDED.c_email,
+                    m_observac = EXCLUDED.m_observac
+                "#,
+            )
+            .bind(&po_reg[chunk_start..end])
+            .bind(&po_ped[chunk_start..end])
+            .bind(&po_dp[chunk_start..end])
+            .bind(&po_forn[chunk_start..end])
+            .bind(&po_nome[chunk_start..end])
+            .bind(&po_user[chunk_start..end])
+            .bind(&po_st[chunk_start..end])
+            .bind(&po_prazo[chunk_start..end])
+            .bind(&po_prev[chunk_start..end])
+            .bind(&po_val[chunk_start..end])
+            .bind(&po_dprev[chunk_start..end])
+            .bind(&po_email[chunk_start..end])
+            .bind(&po_obs[chunk_start..end])
+            .execute(&mut *tx)
+            .await?;
+        }
+        eprintln!("[ERP Sync]   purchase_orders {count_pos}");
     }
 
-    // Write Sales Orders
+    {
+        let mut poi_preg: Vec<i32> = Vec::new();
+        let mut poi_ped: Vec<i32> = Vec::new();
+        let mut poi_ref: Vec<String> = Vec::new();
+        let mut poi_qty: Vec<f64> = Vec::new();
+        let mut poi_preco: Vec<f64> = Vec::new();
+        let mut poi_cheg: Vec<f64> = Vec::new();
+        let mut poi_desc: Vec<Option<String>> = Vec::new();
+        let mut poi_un: Vec<Option<String>> = Vec::new();
+        let mut poi_tot: Vec<f64> = Vec::new();
+        let mut poi_reg: Vec<i32> = Vec::new();
+        let mut poi_ccheg: Vec<Option<String>> = Vec::new();
+        for poi in &pedido_cpa2_list {
+            poi_preg.push(poi.n_pedido_registro);
+            poi_ped.push(poi.n_pedido);
+            poi_ref.push(poi.c_referencia.clone());
+            poi_qty.push(poi.n_qtde);
+            poi_preco.push(poi.n_preco);
+            poi_cheg.push(poi.n_chegou);
+            poi_desc.push(poi.c_descricao.clone());
+            poi_un.push(poi.c_unidade.clone());
+            poi_tot.push(poi.n_valor_total);
+            poi_reg.push(poi.n_registro);
+            poi_ccheg.push(poi.c_chegada.clone());
+        }
+        const POI_CHUNK: usize = 500;
+        for chunk_start in (0..poi_preg.len()).step_by(POI_CHUNK) {
+            let end = (chunk_start + POI_CHUNK).min(poi_preg.len());
+            sqlx::query(
+                r#"
+                INSERT INTO purchase_order_items (
+                    n_pedido_registro, n_pedido, c_referencia, n_qtde, n_preco, n_chegou,
+                    c_descricao, c_unidade, n_valor_total, n_registro, c_chegada
+                )
+                SELECT * FROM UNNEST(
+                    $1::int4[], $2::int4[], $3::text[], $4::float8[], $5::float8[], $6::float8[],
+                    $7::text[], $8::text[], $9::float8[], $10::int4[], $11::text[]
+                )
+                "#,
+            )
+            .bind(&poi_preg[chunk_start..end])
+            .bind(&poi_ped[chunk_start..end])
+            .bind(&poi_ref[chunk_start..end])
+            .bind(&poi_qty[chunk_start..end])
+            .bind(&poi_preco[chunk_start..end])
+            .bind(&poi_cheg[chunk_start..end])
+            .bind(&poi_desc[chunk_start..end])
+            .bind(&poi_un[chunk_start..end])
+            .bind(&poi_tot[chunk_start..end])
+            .bind(&poi_reg[chunk_start..end])
+            .bind(&poi_ccheg[chunk_start..end])
+            .execute(&mut *tx)
+            .await?;
+            if end % 1000 == 0 || end == poi_preg.len() {
+                eprintln!("[ERP Sync]   purchase_order_items {end}/{}", poi_preg.len());
+            }
+        }
+    }
+
     let mut count_sales_orders = 0;
-    tx.execute("DELETE FROM sales_order_items", [])?;
-    tx.execute("DELETE FROM sales_orders", [])?;
-
-    for so in sales_orders_list {
-        tx.execute(
-            "INSERT OR REPLACE INTO sales_orders (n_pedido, d_pedido, n_codigo, c_nome, n_valor_tot, c_status, n_nota_fiscal, d_previsao, d_entrega, m_observac)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![
-                so.n_pedido,
-                so.d_pedido,
-                so.n_codigo,
-                so.c_nome,
-                so.n_valor_tot,
-                so.c_status,
-                so.n_nota_fiscal,
-                so.d_previsao,
-                so.d_entrega,
-                so.m_observac,
-            ],
-        )?;
-        count_sales_orders += 1;
+    if mode == SyncMode::Full {
+        sqlx::query("DELETE FROM sales_order_items")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM sales_orders")
+            .execute(&mut *tx)
+            .await?;
+    } else if !sales_orders_list.is_empty() {
+        let so_ped: Vec<i32> = sales_orders_list.iter().map(|s| s.n_pedido).collect();
+        let so_dp: Vec<String> = sales_orders_list.iter().map(|s| s.d_pedido.clone()).collect();
+        sqlx::query(
+            r#"
+            DELETE FROM sales_order_items soi
+            USING UNNEST($1::int4[], $2::text[]) AS v(n_pedido, d_pedido)
+            WHERE soi.n_pedido = v.n_pedido AND soi.d_pedido = v.d_pedido
+            "#,
+        )
+        .bind(&so_ped)
+        .bind(&so_dp)
+        .execute(&mut *tx)
+        .await?;
     }
 
-    for soi in sales_order_items_list {
-        tx.execute(
-            "INSERT INTO sales_order_items (n_pedido, d_pedido, n_registro, c_cod_prod, n_qtde, n_qtde_fat, n_preco, c_lote)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                soi.n_pedido,
-                soi.d_pedido,
-                soi.n_registro,
-                soi.c_cod_prod,
-                soi.n_qtde,
-                soi.n_qtde_fat,
-                soi.n_preco,
-                soi.c_lote,
-            ],
-        )?;
+    {
+        let mut so_ped: Vec<i32> = Vec::new();
+        let mut so_dp: Vec<String> = Vec::new();
+        let mut so_cod: Vec<Option<i32>> = Vec::new();
+        let mut so_nome: Vec<Option<String>> = Vec::new();
+        let mut so_val: Vec<f64> = Vec::new();
+        let mut so_st: Vec<Option<String>> = Vec::new();
+        let mut so_nf: Vec<i32> = Vec::new();
+        let mut so_prev: Vec<Option<String>> = Vec::new();
+        let mut so_ent: Vec<Option<String>> = Vec::new();
+        let mut so_obs: Vec<Option<String>> = Vec::new();
+        for so in &sales_orders_list {
+            so_ped.push(so.n_pedido);
+            so_dp.push(so.d_pedido.clone());
+            so_cod.push(so.n_codigo);
+            so_nome.push(so.c_nome.clone());
+            so_val.push(so.n_valor_tot);
+            so_st.push(so.c_status.clone());
+            so_nf.push(so.n_nota_fiscal);
+            so_prev.push(so.d_previsao.clone());
+            so_ent.push(so.d_entrega.clone());
+            so_obs.push(so.m_observac.clone());
+            count_sales_orders += 1;
+        }
+        const SO_CHUNK: usize = 400;
+        for chunk_start in (0..so_ped.len()).step_by(SO_CHUNK) {
+            let end = (chunk_start + SO_CHUNK).min(so_ped.len());
+            sqlx::query(
+                r#"
+                INSERT INTO sales_orders (
+                    n_pedido, d_pedido, n_codigo, c_nome, n_valor_tot, c_status,
+                    n_nota_fiscal, d_previsao, d_entrega, m_observac
+                )
+                SELECT * FROM UNNEST(
+                    $1::int4[], $2::text[], $3::int4[], $4::text[], $5::float8[], $6::text[],
+                    $7::int4[], $8::text[], $9::text[], $10::text[]
+                )
+                ON CONFLICT (n_pedido, d_pedido) DO UPDATE SET
+                    n_codigo = EXCLUDED.n_codigo,
+                    c_nome = EXCLUDED.c_nome,
+                    n_valor_tot = EXCLUDED.n_valor_tot,
+                    c_status = EXCLUDED.c_status,
+                    n_nota_fiscal = EXCLUDED.n_nota_fiscal,
+                    d_previsao = EXCLUDED.d_previsao,
+                    d_entrega = EXCLUDED.d_entrega,
+                    m_observac = EXCLUDED.m_observac
+                "#,
+            )
+            .bind(&so_ped[chunk_start..end])
+            .bind(&so_dp[chunk_start..end])
+            .bind(&so_cod[chunk_start..end])
+            .bind(&so_nome[chunk_start..end])
+            .bind(&so_val[chunk_start..end])
+            .bind(&so_st[chunk_start..end])
+            .bind(&so_nf[chunk_start..end])
+            .bind(&so_prev[chunk_start..end])
+            .bind(&so_ent[chunk_start..end])
+            .bind(&so_obs[chunk_start..end])
+            .execute(&mut *tx)
+            .await?;
+            if end % 800 == 0 || end == so_ped.len() {
+                eprintln!("[ERP Sync]   sales_orders {end}/{}", so_ped.len());
+            }
+        }
     }
 
-    tx.commit()?;
+    {
+        let mut soi_ped: Vec<i32> = Vec::new();
+        let mut soi_dp: Vec<String> = Vec::new();
+        let mut soi_reg: Vec<Option<i32>> = Vec::new();
+        let mut soi_cod: Vec<String> = Vec::new();
+        let mut soi_qty: Vec<i32> = Vec::new();
+        let mut soi_fat: Vec<i32> = Vec::new();
+        let mut soi_preco: Vec<Option<f64>> = Vec::new();
+        let mut soi_lote: Vec<Option<String>> = Vec::new();
+        for soi in &sales_order_items_list {
+            soi_ped.push(soi.n_pedido);
+            soi_dp.push(soi.d_pedido.clone());
+            soi_reg.push(soi.n_registro);
+            soi_cod.push(soi.c_cod_prod.clone());
+            soi_qty.push(soi.n_qtde);
+            soi_fat.push(soi.n_qtde_fat);
+            soi_preco.push(Some(soi.n_preco));
+            soi_lote.push(soi.c_lote.clone());
+        }
+        const SOI_CHUNK: usize = 500;
+        for chunk_start in (0..soi_ped.len()).step_by(SOI_CHUNK) {
+            let end = (chunk_start + SOI_CHUNK).min(soi_ped.len());
+            sqlx::query(
+                r#"
+                INSERT INTO sales_order_items (
+                    n_pedido, d_pedido, n_registro, c_cod_prod, n_qtde, n_qtde_fat, n_preco, c_lote
+                )
+                SELECT * FROM UNNEST(
+                    $1::int4[], $2::text[], $3::int4[], $4::text[], $5::int4[], $6::int4[],
+                    $7::float8[], $8::text[]
+                )
+                "#,
+            )
+            .bind(&soi_ped[chunk_start..end])
+            .bind(&soi_dp[chunk_start..end])
+            .bind(&soi_reg[chunk_start..end])
+            .bind(&soi_cod[chunk_start..end])
+            .bind(&soi_qty[chunk_start..end])
+            .bind(&soi_fat[chunk_start..end])
+            .bind(&soi_preco[chunk_start..end])
+            .bind(&soi_lote[chunk_start..end])
+            .execute(&mut *tx)
+            .await?;
+            if end % 2000 == 0 || end == soi_ped.len() {
+                eprintln!("[ERP Sync]   sales_order_items {end}/{}", soi_ped.len());
+            }
+        }
+    }
+
+    tx.commit().await?;
+    eprintln!(
+        "[ERP Sync] Fase pedidos commitada (PO={count_pos} SO={count_sales_orders})."
+    );
 
     // Apply automatic subcategory rules if configured
-    if let Ok(config_str) = sqlite_conn.query_row::<String, _, _>(
-        "SELECT value FROM config WHERE key = 'compras_main'",
-        [],
-        |row| row.get(0)
-    ) {
+    if let Ok(Some(config_str)) = sqlx::query("SELECT value FROM config WHERE key = 'compras_main'")
+        .fetch_optional(pool)
+        .await
+        .map(|r| r.map(|row| row.get::<String, _>(0)))
+    {
         if let Ok(config_json) = serde_json::from_str::<serde_json::Value>(&config_str) {
-            // Reset non-manual items to their default master category
-            let _ = sqlite_conn.execute(
-                "UPDATE items 
-                 SET category_id = CASE 
-                     WHEN code LIKE '9.15.%' THEN 'cat_mp' 
+            let _ = sqlx::query(
+                "UPDATE items
+                 SET category_id = CASE
+                     WHEN code LIKE '9.15.%' THEN 'cat_mp'
                      WHEN code LIKE '08.%' THEN 'cat_mat'
-                     ELSE 'cat_emb' 
-                 END 
+                     ELSE 'cat_emb'
+                 END
                  WHERE (manual_category IS NULL OR manual_category = 0)",
-                [],
-            );
+            )
+            .execute(pool)
+            .await;
 
             if let Some(rules) = config_json.get("autoSubcategories").and_then(|r| r.as_array()) {
                 for rule in rules {
                     if let (Some(sub_id), Some(prefix)) = (
                         rule.get("subcategoryId").and_then(|s| s.as_str()),
-                        rule.get("prefix").and_then(|p| p.as_str())
+                        rule.get("prefix").and_then(|p| p.as_str()),
                     ) {
-                        // Find parent_id of the target subcategory to restrict scope
-                        let parent_id: Option<String> = sqlite_conn.query_row(
-                            "SELECT parent_id FROM categories WHERE id = ?1",
-                            params![sub_id],
-                            |row| row.get(0)
-                        ).ok();
+                        let parent_id: Option<String> = sqlx::query(
+                            "SELECT parent_id FROM categories WHERE id = $1",
+                        )
+                        .bind(sub_id)
+                        .fetch_optional(pool)
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|row| row.get(0));
 
                         if let Some(parent) = parent_id {
-                            let query = "UPDATE items SET category_id = ?1 
-                                         WHERE description LIKE ?2 
-                                           AND category_id = ?3 
-                                           AND (manual_category IS NULL OR manual_category = 0)";
                             let like_pattern = format!("{}%", prefix);
-                            let _ = sqlite_conn.execute(query, params![sub_id, like_pattern, parent]);
+                            let _ = sqlx::query(
+                                "UPDATE items SET category_id = $1
+                                 WHERE description LIKE $2
+                                   AND category_id = $3
+                                   AND (manual_category IS NULL OR manual_category = 0)",
+                            )
+                            .bind(sub_id)
+                            .bind(like_pattern)
+                            .bind(parent)
+                            .execute(pool)
+                            .await;
                         }
                     }
                 }
@@ -1379,7 +2274,24 @@ WHERE p1.dPedido >= DATEADD(month, -6, GETDATE()) OR (p1.CSTATUS NOT IN ('FT', '
         }
     }
 
-    let _ = sqlite_conn.execute("PRAGMA foreign_keys = ON", []);
+    let now_iso = Utc::now().to_rfc3339();
+    let today = Local::now().date_naive().format("%Y-%m-%d").to_string();
+    let mut next_wm = wm;
+    next_wm.version = 1;
+    next_wm.cursor = Some(today.clone());
+    match mode {
+        SyncMode::Full => next_wm.last_full_at = Some(now_iso),
+        SyncMode::Incremental => next_wm.last_incremental_at = Some(now_iso),
+    }
+    if let Err(e) = save_watermark(pool, &next_wm).await {
+        eprintln!("[ERP Sync] Aviso: falha ao gravar watermark: {e}");
+    } else {
+        eprintln!(
+            "[ERP Sync] Watermark atualizado cursor={} mode={}",
+            today,
+            mode.as_str()
+        );
+    }
 
     Ok(SyncResult {
         products: count_prod,
@@ -1392,6 +2304,8 @@ WHERE p1.dPedido >= DATEADD(month, -6, GETDATE()) OR (p1.CSTATUS NOT IN ('FT', '
         movements: count_movements,
         purchase_orders: count_pos,
         sales_orders: count_sales_orders,
+        mode: mode.as_str(),
+        since,
     })
 }
 
@@ -1403,732 +2317,306 @@ impl ProductRow {
 }
 
 // ==========================================
-// 3. LIGHTWEIGHT DATABASE COPY / DUMP UTILITY
+// 3. ERP ROW COUNT SUMMARY (replaces SQLite dump)
 // ==========================================
-pub async fn create_database_dump(sqlite_path: &str) -> anyhow::Result<crate::models::DbDumpResult> {
+pub async fn create_database_dump(pool: &PgPool) -> anyhow::Result<crate::models::DbDumpResult> {
     let start_time = std::time::Instant::now();
-    let mut client = connect_sql_server(None).await?;
-    
-    // ==========================================
-    // 1. FETCH ALL DATA FROM SQL SERVER FIRST (AWAIT POINTS)
-    // ==========================================
+    let mut client = connect_sql_server(pool).await?;
 
-    // A. Dump Insumos
-    let insumos_rows = {
-        let stream = client.query("
-            SELECT 
-                cReferencia COLLATE Latin1_General_CI_AS,
-                cDescricao COLLATE Latin1_General_CI_AS,
-                cUnidade COLLATE Latin1_General_CI_AS,
-                cReferenciaNova COLLATE Latin1_General_CI_AS,
-                cCF COLLATE Latin1_General_CI_AS,
-                CAST(nQtdeEstoque AS FLOAT),
-                CAST(nqtdeReserva AS FLOAT),
-                CAST(nQtdeProducao AS FLOAT),
-                CAST(nQtdePedidos AS FLOAT),
-                cInativo COLLATE Latin1_General_CI_AS
-            FROM Insumos WITH (NOLOCK)", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
+    let table_queries: &[(&str, &str)] = &[
+        ("Insumos", "SELECT COUNT(*) FROM Insumos WITH (NOLOCK)"),
+        ("Produtos", "SELECT COUNT(*) FROM Produtos WITH (NOLOCK)"),
+        ("Materiais", "SELECT COUNT(*) FROM Materiais WITH (NOLOCK)"),
+        ("Composicao", "SELECT COUNT(*) FROM Composicao WITH (NOLOCK)"),
+        ("Fornecedores", "SELECT COUNT(*) FROM Fornecedores WITH (NOLOCK)"),
+        ("Clientes", "SELECT COUNT(*) FROM Clientes WITH (NOLOCK)"),
+        ("Lotes", "SELECT COUNT(*) FROM Lotes WITH (NOLOCK)"),
+        ("Lotes_Baixas", "SELECT COUNT(*) FROM Lotes_Baixas WITH (NOLOCK)"),
+        ("COMPRAS1", "SELECT COUNT(*) FROM COMPRAS1 WITH (NOLOCK)"),
+        ("COMPRAS2", "SELECT COUNT(*) FROM COMPRAS2 WITH (NOLOCK)"),
+        ("VENDAS1", "SELECT COUNT(*) FROM VENDAS1 WITH (NOLOCK)"),
+        ("VENDAS2", "SELECT COUNT(*) FROM VENDAS2 WITH (NOLOCK)"),
+    ];
 
-    // B. Dump Produtos
-    let produtos_rows = {
-        let stream = client.query("
-            SELECT 
-                cCodProd COLLATE Latin1_General_CI_AS,
-                cNomeProd COLLATE Latin1_General_CI_AS,
-                cunidade COLLATE Latin1_General_CI_AS,
-                cInativo COLLATE Latin1_General_CI_AS,
-                CAST(nQtdeEstoque AS FLOAT),
-                CAST(nQtdeProducao AS FLOAT),
-                CAST(nPedidos AS FLOAT),
-                cBase COLLATE Latin1_General_CI_AS,
-                cNomeTipo COLLATE Latin1_General_CI_AS
-            FROM Produtos WITH (NOLOCK)", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
-
-    // C. Dump Materiais
-    let materiais_rows = {
-        let stream = client.query("
-            SELECT 
-                cReferencia COLLATE Latin1_General_CI_AS,
-                cDescricao COLLATE Latin1_General_CI_AS,
-                cUnidade COLLATE Latin1_General_CI_AS,
-                cReferenciaNova COLLATE Latin1_General_CI_AS,
-                cCF COLLATE Latin1_General_CI_AS,
-                CAST(nQtdeEstoque AS FLOAT),
-                CAST(0.0 AS FLOAT),
-                CAST(nQtdeProducao AS FLOAT),
-                CAST(nQtdePedidos AS FLOAT),
-                cInativo COLLATE Latin1_General_CI_AS
-            FROM Materiais WITH (NOLOCK)", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
-
-    // D. Dump Composicao
-    let composicao_rows = {
-        let stream = client.query("
-            SELECT 
-                cCodProd COLLATE Latin1_General_CI_AS,
-                cReferencia COLLATE Latin1_General_CI_AS,
-                cDescricao COLLATE Latin1_General_CI_AS,
-                CAST(nQuantidade AS FLOAT),
-                CAST(NPERCENTUAL AS FLOAT)
-            FROM Composicao WITH (NOLOCK)", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
-
-    // E. Dump Fornecedores
-    let fornecedores_rows = {
-        let stream = client.query("SELECT nCodFornec, cNomeF COLLATE Latin1_General_CI_AS, cContatoF COLLATE Latin1_General_CI_AS, cEmail COLLATE Latin1_General_CI_AS, mObservacF COLLATE Latin1_General_CI_AS FROM Fornecedores WITH (NOLOCK)", &[]).await?;
-        stream.into_first_result().await?
-    };
-
-    // F. Dump Clientes
-    let clientes_rows = {
-        let stream = client.query("SELECT nCodigo, cNome COLLATE Latin1_General_CI_AS FROM Clientes WITH (NOLOCK)", &[]).await?;
-        stream.into_first_result().await?
-    };
-
-    // G. Dump Lotes
-    let lotes_rows = {
-        let stream = client.query("
-            SELECT 
-                nLote,
-                cCodProd COLLATE Latin1_General_CI_AS,
-                cCodProd2 COLLATE Latin1_General_CI_AS,
-                cCodProd3 COLLATE Latin1_General_CI_AS,
-                cCodProd4 COLLATE Latin1_General_CI_AS,
-                CAST(nQtde AS FLOAT),
-                CAST(nQtde1 AS FLOAT),
-                CAST(nQtde2 AS FLOAT),
-                CAST(nQtde3 AS FLOAT),
-                CAST(nQtde4 AS FLOAT),
-                CONVERT(varchar, dLote, 120) COLLATE Latin1_General_CI_AS,
-                cStatus COLLATE Latin1_General_CI_AS,
-                cFabricadopor COLLATE Latin1_General_CI_AS,
-                cAutorizadopor COLLATE Latin1_General_CI_AS,
-                CAST(nUnidades AS FLOAT),
-                CAST(nUnidades1 AS FLOAT),
-                CAST(nUnidades2 AS FLOAT),
-                CAST(nUnidades3 AS FLOAT),
-                CAST(nUnidades4 AS FLOAT),
-                CAST(nUnidadesReais1 AS FLOAT),
-                CAST(nUnidadesReais2 AS FLOAT),
-                CAST(nUnidadesReais3 AS FLOAT),
-                CAST(nUnidadesReais4 AS FLOAT)
-            FROM Lotes WITH (NOLOCK)
-            WHERE dLote >= DATEADD(month, -24, GETDATE())", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
-
-    // H. Dump Baixas
-    let baixas_rows = {
-        let stream = client.query("
-            SELECT 
-                Registro,
-                nLote,
-                cReferencia COLLATE Latin1_General_CI_AS,
-                CAST(nQtde AS FLOAT),
-                CONVERT(varchar, dLog, 120) COLLATE Latin1_General_CI_AS,
-                cUsuario COLLATE Latin1_General_CI_AS,
-                cJustificativa COLLATE Latin1_General_CI_AS,
-                cCodProd COLLATE Latin1_General_CI_AS,
-                CAST(nQtdeRef AS FLOAT)
-            FROM Lotes_Baixas WITH (NOLOCK)
-            WHERE dLog >= DATEADD(month, -24, GETDATE())", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
-
-    // I. Dump Compras1
-    let compras1_rows = {
-        let stream = client.query("
-            SELECT
-                NOTA,
-                CONVERT(varchar, DATA_EMISSAO, 120) COLLATE Latin1_General_CI_AS,
-                RAZAO_SOCIAL COLLATE Latin1_General_CI_AS,
-                nCodFornec 
-            FROM COMPRAS1 WITH (NOLOCK)
-            WHERE DATA_EMISSAO >= DATEADD(month, -48, GETDATE())", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
-
-    // J. Dump Compras2
-    let compras2_rows = {
-        let stream = client.query("
-            SELECT 
-                c.NOTA,
-                c.nCodFornec,
-                c.CODIGO_PRODUTO COLLATE Latin1_General_CI_AS,
-                c.DESCRICAO_PRODUTO COLLATE Latin1_General_CI_AS,
-                c.UNIDADE COLLATE Latin1_General_CI_AS,
-                CAST(c.QUANTIDADE AS FLOAT),
-                CAST(c.VALOR_UNITARIO AS FLOAT),
-                CAST(c.VALOR_TOTAL AS FLOAT)
-            FROM COMPRAS2 c WITH (NOLOCK)
-            WHERE c.nCodFornec IS NOT NULL 
-              AND c.NOTA IN (
-                  SELECT NOTA FROM COMPRAS1 WITH (NOLOCK) WHERE DATA_EMISSAO >= DATEADD(month, -48, GETDATE())
-              )", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
-
-    // K. Dump Vendas1
-    let vendas1_rows = {
-        let stream = client.query("
-            SELECT
-                nVenda,
-                CONVERT(varchar, dVenda, 120) COLLATE Latin1_General_CI_AS,
-                cNome COLLATE Latin1_General_CI_AS,
-                NNOTAFISCAL 
-            FROM VENDAS1 WITH (NOLOCK)
-            WHERE dVenda >= DATEADD(month, -24, GETDATE())", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
-
-    // L. Dump Vendas2
-    let vendas2_rows = {
-        let stream = client.query("
-            SELECT 
-                nRegistro,
-                nVenda,
-                CONVERT(varchar, dVenda, 120) COLLATE Latin1_General_CI_AS,
-                cCodProd COLLATE Latin1_General_CI_AS,
-                nQtde,
-                CAST(nPreco AS FLOAT),
-                CAST(nValor AS FLOAT),
-                nNotaFiscal,
-                cLote COLLATE Latin1_General_CI_AS
-            FROM VENDAS2 WITH (NOLOCK)
-            WHERE dVenda >= DATEADD(month, -24, GETDATE())", 
-            &[]
-        ).await?;
-        stream.into_first_result().await?
-    };
-
-    // ==========================================
-    // 2. OPEN TRANSACTION AND WRITE TO SQLITE (NO AWAIT POINTS)
-    // ==========================================
-    let mut sqlite_conn = Connection::open(sqlite_path)?;
-    sqlite_conn.execute("PRAGMA foreign_keys = OFF", [])?;
-    let _ = sqlite_conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()));
-    sqlite_conn.execute("PRAGMA synchronous = NORMAL", [])?;
-    
+    let mut table_row_counts = HashMap::new();
     let mut tables_copied = Vec::new();
+    let mut total_rows: u64 = 0;
 
-    // 1. Write Insumos
-    {
-        let tx = sqlite_conn.transaction()?;
-        tx.execute("DROP TABLE IF EXISTS insumos", [])?;
-        tx.execute(
-            "CREATE TABLE insumos (
-                cReferencia TEXT PRIMARY KEY,
-                cDescricao TEXT,
-                cUnidade TEXT,
-                cReferenciaNova TEXT,
-                cCF TEXT,
-                nQtdeEstoque REAL,
-                nqtdeReserva REAL,
-                nQtdeProducao REAL,
-                nQtdePedidos REAL,
-                cInativo TEXT
-            )",
-            [],
-        )?;
-        for row in insumos_rows {
-            let ref_code: &str = row.get(0).unwrap_or("");
-            if ref_code.is_empty() { continue; }
-            tx.execute(
-                "INSERT INTO insumos VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                params![
-                    ref_code.trim(),
-                    row.get::<&str, _>(1).map(|s| s.trim()),
-                    row.get::<&str, _>(2).map(|s| s.trim()),
-                    row.get::<&str, _>(3).map(|s| s.trim()),
-                    row.get::<&str, _>(4).map(|s| s.trim()),
-                    row.get::<f64, _>(5),
-                    row.get::<f64, _>(6),
-                    row.get::<f64, _>(7),
-                    row.get::<f64, _>(8),
-                    row.get::<&str, _>(9).map(|s| s.trim())
-                ]
-            )?;
-        }
-        tx.commit()?;
+    for (name, query) in table_queries {
+        let stream = client.query(*query, &[]).await?;
+        let rows = stream.into_first_result().await?;
+        let count: i32 = rows.first().and_then(|r| r.get(0)).unwrap_or(0);
+        table_row_counts.insert(name.to_string(), count as i64);
+        tables_copied.push(format!("{}: {}", name, count));
+        total_rows += count.max(0) as u64;
     }
-    tables_copied.push("Insumos".to_string());
 
-    // 2. Write Produtos
-    {
-        let tx = sqlite_conn.transaction()?;
-        tx.execute("DROP TABLE IF EXISTS produtos", [])?;
-        tx.execute(
-            "CREATE TABLE produtos (
-                cCodProd TEXT PRIMARY KEY,
-                cNomeProd TEXT,
-                cUnidade TEXT,
-                cInativo TEXT,
-                nQtdeEstoque REAL,
-                nQtdeProducao REAL,
-                nPedidos REAL,
-                cBase TEXT,
-                cNomeTipo TEXT
-            )",
-            [],
-        )?;
-        for row in produtos_rows {
-            let code: &str = row.get(0).unwrap_or("");
-            if code.is_empty() { continue; }
-            tx.execute(
-                "INSERT INTO produtos VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![
-                    code.trim(),
-                    row.get::<&str, _>(1).map(|s| s.trim()),
-                    row.get::<&str, _>(2).map(|s| s.trim()),
-                    row.get::<&str, _>(3).map(|s| s.trim()),
-                    row.get::<f64, _>(4),
-                    row.get::<f64, _>(5),
-                    row.get::<f64, _>(6),
-                    row.get::<&str, _>(7).map(|s| s.trim()),
-                    row.get::<&str, _>(8).map(|s| s.trim())
-                ]
-            )?;
-        }
-        tx.commit()?;
-    }
-    tables_copied.push("Produtos".to_string());
-
-    // 3. Write Materiais
-    {
-        let tx = sqlite_conn.transaction()?;
-        tx.execute("DROP TABLE IF EXISTS materiais", [])?;
-        tx.execute(
-            "CREATE TABLE materiais (
-                cReferencia TEXT PRIMARY KEY,
-                cDescricao TEXT,
-                cUnidade TEXT,
-                cReferenciaNova TEXT,
-                cCF TEXT,
-                nQtdeEstoque REAL,
-                nqtdeReserva REAL,
-                nQtdeProducao REAL,
-                nQtdePedidos REAL,
-                cInativo TEXT
-            )",
-            [],
-        )?;
-        for row in materiais_rows {
-            let ref_code: &str = row.get(0).unwrap_or("");
-            if ref_code.is_empty() { continue; }
-            tx.execute(
-                "INSERT INTO materiais VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                params![
-                    ref_code.trim(),
-                    row.get::<&str, _>(1).map(|s| s.trim()),
-                    row.get::<&str, _>(2).map(|s| s.trim()),
-                    row.get::<&str, _>(3).map(|s| s.trim()),
-                    row.get::<&str, _>(4).map(|s| s.trim()),
-                    row.get::<f64, _>(5),
-                    row.get::<f64, _>(6),
-                    row.get::<f64, _>(7),
-                    row.get::<f64, _>(8),
-                    row.get::<&str, _>(9).map(|s| s.trim())
-                ]
-            )?;
-        }
-        tx.commit()?;
-    }
-    tables_copied.push("Materiais".to_string());
-
-    // 4. Write Composicao
-    {
-        let tx = sqlite_conn.transaction()?;
-        tx.execute("DROP TABLE IF EXISTS composicao", [])?;
-        tx.execute(
-            "CREATE TABLE composicao (
-                cCodProd TEXT,
-                cReferencia TEXT,
-                cDescricao TEXT,
-                nQuantidade REAL,
-                nPercentual REAL,
-                PRIMARY KEY (cCodProd, cReferencia)
-            )",
-            [],
-        )?;
-        for row in composicao_rows {
-            let p_code: &str = row.get(0).unwrap_or("");
-            let r_code: &str = row.get(1).unwrap_or("");
-            if p_code.is_empty() || r_code.is_empty() { continue; }
-            let _ = tx.execute(
-                "INSERT OR IGNORE INTO composicao VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![
-                    p_code.trim(),
-                    r_code.trim(),
-                    row.get::<&str, _>(2).map(|s| s.trim()),
-                    row.get::<f64, _>(3),
-                    row.get::<f64, _>(4)
-                ]
-            );
-        }
-        tx.commit()?;
-    }
-    tables_copied.push("Composicao".to_string());
-
-    // 5. Write Fornecedores
-    {
-        let tx = sqlite_conn.transaction()?;
-        tx.execute("DROP TABLE IF EXISTS fornecedores", [])?;
-        tx.execute(
-            "CREATE TABLE fornecedores (
-                nCodFornec INTEGER PRIMARY KEY,
-                cNomeF TEXT,
-                cContatoF TEXT,
-                cEmail TEXT,
-                mObservacF TEXT
-            )",
-            [],
-        )?;
-        for row in fornecedores_rows {
-            let id: i32 = row.get(0).unwrap_or(0);
-            if id == 0 { continue; }
-            tx.execute(
-                "INSERT INTO fornecedores VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![
-                    id,
-                    row.get::<&str, _>(1).map(|s| s.trim()),
-                    row.get::<&str, _>(2).map(|s| s.trim()),
-                    row.get::<&str, _>(3).map(|s| s.trim()),
-                    row.get::<&str, _>(4).map(|s| s.trim())
-                ]
-            )?;
-        }
-        tx.commit()?;
-    }
-    tables_copied.push("Fornecedores".to_string());
-
-    // 6. Write Clientes
-    {
-        let tx = sqlite_conn.transaction()?;
-        tx.execute("DROP TABLE IF EXISTS clientes", [])?;
-        tx.execute(
-            "CREATE TABLE clientes (
-                nCodigo INTEGER PRIMARY KEY,
-                cNome TEXT
-            )",
-            [],
-        )?;
-        for row in clientes_rows {
-            let code: i32 = row.get(0).unwrap_or(0);
-            if code == 0 { continue; }
-            tx.execute(
-                "INSERT INTO clientes VALUES (?1, ?2)",
-                params![code, row.get::<&str, _>(1).map(|s| s.trim())]
-            )?;
-        }
-        tx.commit()?;
-    }
-    tables_copied.push("Clientes".to_string());
-
-    // 7. Write Lotes
-    {
-        let tx = sqlite_conn.transaction()?;
-        tx.execute("DROP TABLE IF EXISTS lotes", [])?;
-        tx.execute(
-            "CREATE TABLE lotes (
-                nLote INTEGER,
-                cCodProd TEXT,
-                nQtde REAL,
-                dLote TEXT,
-                cStatus TEXT,
-                cFabricadopor TEXT,
-                cAutorizadopor TEXT,
-                nUnidades REAL,
-                PRIMARY KEY (nLote, cCodProd)
-            )",
-            [],
-        )?;
-        for row in lotes_rows {
-            let id: i32 = row.get(0).unwrap_or(0);
-            if id == 0 { continue; }
-            let d_lote = row.get::<&str, _>(10);
-            let status = row.get::<&str, _>(11).map(|s| s.trim());
-            let fab = row.get::<&str, _>(12).map(|s| s.trim());
-            let aut = row.get::<&str, _>(13).map(|s| s.trim());
-
-            let prods = [
-                (row.get::<&str, _>(1), row.get::<f64, _>(6), row.get::<f64, _>(15), row.get::<f64, _>(19)),
-                (row.get::<&str, _>(2), row.get::<f64, _>(7), row.get::<f64, _>(16), row.get::<f64, _>(20)),
-                (row.get::<&str, _>(3), row.get::<f64, _>(8), row.get::<f64, _>(17), row.get::<f64, _>(21)),
-                (row.get::<&str, _>(4), row.get::<f64, _>(9), row.get::<f64, _>(18), row.get::<f64, _>(22)),
-            ];
-
-            let total_bulk_qty = row.get::<f64, _>(5).unwrap_or(0.0);
-            let total_units_field = row.get::<f64, _>(14).unwrap_or(0.0);
-
-            let mut present_count = 0;
-            for (code_opt, _, _, _) in &prods {
-                if let Some(code) = code_opt {
-                    if !code.trim().is_empty() {
-                        present_count += 1;
-                    }
-                }
-            }
-
-            for (idx, (code_opt, planned_kg_opt, planned_units_opt, real_units_opt)) in prods.iter().enumerate() {
-                if let Some(code) = code_opt {
-                    let code_trimmed = code.trim();
-                    if code_trimmed.is_empty() { continue; }
-
-                    let mut qty = planned_kg_opt.unwrap_or(0.0);
-                    if qty <= 0.0 {
-                        if present_count <= 1 || idx == 0 {
-                            qty = total_bulk_qty;
-                        }
-                    }
-
-                    let mut unidades = real_units_opt.unwrap_or(0.0);
-                    if unidades <= 0.0 {
-                        unidades = planned_units_opt.unwrap_or(0.0);
-                    }
-                    if unidades <= 0.0 {
-                        if present_count <= 1 || idx == 0 {
-                            unidades = total_units_field;
-                        }
-                    }
-
-                    tx.execute(
-                        "INSERT OR REPLACE INTO lotes VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                        params![
-                            id,
-                            code_trimmed,
-                            qty,
-                            d_lote,
-                            status,
-                            fab,
-                            aut,
-                            unidades
-                        ]
-                    )?;
-                }
-            }
-        }
-        tx.commit()?;
-    }
-    tables_copied.push("Lotes".to_string());
-
-    // 8. Write Baixas
-    {
-        let tx = sqlite_conn.transaction()?;
-        tx.execute("DROP TABLE IF EXISTS lotes_baixas", [])?;
-        tx.execute(
-            "CREATE TABLE lotes_baixas (
-                Registro INTEGER PRIMARY KEY,
-                nLote INTEGER,
-                cReferencia TEXT,
-                nQtde REAL,
-                dLog TEXT,
-                cUsuario TEXT,
-                cJustificativa TEXT,
-                cCodProd TEXT,
-                nQtdeRef REAL
-            )",
-            [],
-        )?;
-        for row in baixas_rows {
-            let reg: i32 = row.get(0).unwrap_or(0);
-            if reg == 0 { continue; }
-            tx.execute(
-                "INSERT INTO lotes_baixas VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![
-                    reg,
-                    row.get::<i32, _>(1).unwrap_or(0),
-                    row.get::<&str, _>(2).unwrap_or(""),
-                    row.get::<f64, _>(3).unwrap_or(0.0),
-                    row.get::<&str, _>(4).unwrap_or(""),
-                    row.get::<&str, _>(5).unwrap_or(""),
-                    row.get::<&str, _>(6).unwrap_or(""),
-                    row.get::<&str, _>(7).unwrap_or(""),
-                    row.get::<f64, _>(8).unwrap_or(0.0),
-                ],
-            )?;
-        }
-        tx.execute(
-            "CREATE INDEX IF NOT EXISTS idx_lotes_baixas_lote_ref ON lotes_baixas(nLote, cReferencia)",
-            [],
-        )?;
-        tx.commit()?;
-    }
-    tables_copied.push("Lotes_Baixas".to_string());
-
-    // 9. Write Compras1
-    {
-        let tx = sqlite_conn.transaction()?;
-        tx.execute("DROP TABLE IF EXISTS compras1", [])?;
-        tx.execute(
-            "CREATE TABLE compras1 (
-                Nota INTEGER,
-                DataEmissao TEXT,
-                RazaoSocial TEXT,
-                nCodFornec INTEGER,
-                PRIMARY KEY (Nota, nCodFornec)
-            )",
-            [],
-        )?;
-        for row in compras1_rows {
-            let nota: i32 = row.get(0).unwrap_or(0);
-            let cod_fornec: i32 = row.get(3).unwrap_or(0);
-            if nota == 0 || cod_fornec == 0 { continue; }
-            let _ = tx.execute(
-                "INSERT OR IGNORE INTO compras1 VALUES (?1, ?2, ?3, ?4)",
-                params![
-                    nota,
-                    row.get::<&str, _>(1),
-                    row.get::<&str, _>(2).map(|s| s.trim()),
-                    cod_fornec
-                ]
-            );
-        }
-        tx.commit()?;
-    }
-    tables_copied.push("COMPRAS1".to_string());
-
-    // 10. Write Compras2
-    {
-        let tx = sqlite_conn.transaction()?;
-        tx.execute("DROP TABLE IF EXISTS compras2", [])?;
-        tx.execute(
-            "CREATE TABLE compras2 (
-                Nota INTEGER,
-                nCodFornec INTEGER,
-                CodigoProduto TEXT,
-                DescricaoProduto TEXT,
-                Unidade TEXT,
-                Quantidade REAL,
-                ValorUnitario REAL,
-                ValorTotal REAL
-            )",
-            [],
-        )?;
-        for row in compras2_rows {
-            let nota: i32 = row.get(0).unwrap_or(0);
-            let cod_fornec: i32 = row.get(1).unwrap_or(0);
-            if nota == 0 || cod_fornec == 0 { continue; }
-            tx.execute(
-                "INSERT INTO compras2 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![
-                    nota,
-                    cod_fornec,
-                    row.get::<&str, _>(2).map(|s| s.trim()),
-                    row.get::<&str, _>(3).map(|s| s.trim()),
-                    row.get::<&str, _>(4).map(|s| s.trim()),
-                    row.get::<f64, _>(5),
-                    row.get::<f64, _>(6),
-                    row.get::<f64, _>(7)
-                ]
-            )?;
-        }
-        tx.commit()?;
-    }
-    tables_copied.push("COMPRAS2".to_string());
-
-    // 11. Write Vendas1
-    {
-        let tx = sqlite_conn.transaction()?;
-        tx.execute("DROP TABLE IF EXISTS vendas1", [])?;
-        tx.execute(
-            "CREATE TABLE vendas1 (
-                nVenda INTEGER PRIMARY KEY,
-                dVenda TEXT,
-                cNome TEXT,
-                nNotaFiscal INTEGER
-            )",
-            [],
-        )?;
-        for row in vendas1_rows {
-            let v: i32 = row.get(0).unwrap_or(0);
-            if v == 0 { continue; }
-            let _ = tx.execute(
-                "INSERT OR IGNORE INTO vendas1 VALUES (?1, ?2, ?3, ?4)",
-                params![
-                    v,
-                    row.get::<&str, _>(1),
-                    row.get::<&str, _>(2).map(|s| s.trim()),
-                    row.get::<i32, _>(3)
-                ]
-            );
-        }
-        tx.commit()?;
-    }
-    tables_copied.push("VENDAS1".to_string());
-
-    // 12. Write Vendas2
-    {
-        let tx = sqlite_conn.transaction()?;
-        tx.execute("DROP TABLE IF EXISTS vendas2", [])?;
-        tx.execute(
-            "CREATE TABLE vendas2 (
-                nRegistro INTEGER,
-                nVenda INTEGER,
-                dVenda TEXT,
-                cCodProd TEXT,
-                nQtde INTEGER,
-                nPreco REAL,
-                nValor REAL,
-                nNotaFiscal INTEGER,
-                cLote TEXT
-            )",
-            [],
-        )?;
-        for row in vendas2_rows {
-            let reg: i32 = row.get(0).unwrap_or(0);
-            if reg == 0 { continue; }
-            tx.execute(
-                "INSERT INTO vendas2 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![
-                    reg,
-                    row.get::<i32, _>(1),
-                    row.get::<&str, _>(2),
-                    row.get::<&str, _>(3).map(|s| s.trim()),
-                    row.get::<i32, _>(4),
-                    row.get::<f64, _>(5),
-                    row.get::<f64, _>(6),
-                    row.get::<i32, _>(7),
-                    row.get::<&str, _>(8).map(|s| s.trim())
-                ]
-            )?;
-        }
-        tx.commit()?;
-    }
-    tables_copied.push("VENDAS2".to_string());
-
-    let _ = sqlite_conn.execute("PRAGMA foreign_keys = ON", []);
-    
-    let size_bytes = std::fs::metadata(sqlite_path)?.len();
-    let elapsed_ms = start_time.elapsed().as_millis() as u64;
-    
     Ok(crate::models::DbDumpResult {
-        filename: "legacy_dump.db".to_string(),
-        size_bytes,
+        filename: "erp_row_summary".to_string(),
+        size_bytes: total_rows,
         tables_copied,
-        elapsed_ms,
+        elapsed_ms: start_time.elapsed().as_millis() as u64,
+        table_row_counts,
     })
 }
+
+/// Posição de estoque lida ao vivo do ERP (Insumos → Materiais → Produtos).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ErpStockLive {
+    pub source: String,
+    pub code: String,
+    pub stock_qty: f64,
+    pub reserved_qty: f64,
+    pub in_production: f64,
+    pub in_orders: f64,
+}
+
+pub async fn fetch_erp_stock_live(pool: &PgPool, code: &str) -> anyhow::Result<Option<ErpStockLive>> {
+    let code = code.trim();
+    if code.is_empty() {
+        return Ok(None);
+    }
+    let mut client = connect_sql_server(pool).await?;
+
+    let query_insumo = "
+SELECT TOP 1
+    CAST(COALESCE(nQtdeEstoqueA, nQtdeEstoque) AS FLOAT),
+    CAST(nqtdeReserva AS FLOAT),
+    CAST(nQtdeProducao AS FLOAT),
+    CAST(nQtdePedidos AS FLOAT)
+FROM Insumos WITH (NOLOCK)
+WHERE cReferencia = @P1
+";
+    let stream = client.query(query_insumo, &[&code]).await?;
+    let rows = stream.into_first_result().await?;
+    if let Some(row) = rows.first() {
+        return Ok(Some(ErpStockLive {
+            source: "Insumos".into(),
+            code: code.to_string(),
+            stock_qty: row.get::<f64, _>(0).unwrap_or(0.0),
+            reserved_qty: row.get::<f64, _>(1).unwrap_or(0.0),
+            in_production: row.get::<f64, _>(2).unwrap_or(0.0),
+            in_orders: row.get::<f64, _>(3).unwrap_or(0.0),
+        }));
+    }
+
+    let query_mat = "
+SELECT TOP 1
+    CAST(nQtdeEstoque AS FLOAT),
+    CAST(0.0 AS FLOAT),
+    CAST(nQtdeProducao AS FLOAT),
+    CAST(nQtdePedidos AS FLOAT)
+FROM Materiais WITH (NOLOCK)
+WHERE cReferencia = @P1
+";
+    let stream = client.query(query_mat, &[&code]).await?;
+    let rows = stream.into_first_result().await?;
+    if let Some(row) = rows.first() {
+        return Ok(Some(ErpStockLive {
+            source: "Materiais".into(),
+            code: code.to_string(),
+            stock_qty: row.get::<f64, _>(0).unwrap_or(0.0),
+            reserved_qty: 0.0,
+            in_production: row.get::<f64, _>(2).unwrap_or(0.0),
+            in_orders: row.get::<f64, _>(3).unwrap_or(0.0),
+        }));
+    }
+
+    let query_prod = "
+SELECT TOP 1
+    CAST(nQtdeEstoque AS FLOAT),
+    CAST(0.0 AS FLOAT),
+    CAST(nQtdeProducao AS FLOAT),
+    CAST(nPedidos AS FLOAT)
+FROM Produtos WITH (NOLOCK)
+WHERE cCodProd = @P1
+";
+    let stream = client.query(query_prod, &[&code]).await?;
+    let rows = stream.into_first_result().await?;
+    if let Some(row) = rows.first() {
+        return Ok(Some(ErpStockLive {
+            source: "Produtos".into(),
+            code: code.to_string(),
+            stock_qty: row.get::<f64, _>(0).unwrap_or(0.0),
+            reserved_qty: 0.0,
+            in_production: row.get::<f64, _>(2).unwrap_or(0.0),
+            in_orders: row.get::<f64, _>(3).unwrap_or(0.0),
+        }));
+    }
+
+    Ok(None)
+}
+
+/// Atualiza o snapshot mais recente do código com valores lidos do ERP (D1/D2/A pontual).
+pub async fn refresh_stock_snapshot_from_erp(
+    pool: &PgPool,
+    code: &str,
+) -> anyhow::Result<ErpStockLive> {
+    let live = fetch_erp_stock_live(pool, code)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Código {code} não encontrado no ERP"))?;
+
+    if live.source == "Produtos" {
+        sqlx::query(
+            r#"
+            INSERT INTO estoque_atual (codigo, estoque, producao, pedidos_aberto)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (codigo) DO UPDATE SET
+                estoque = EXCLUDED.estoque,
+                producao = EXCLUDED.producao,
+                pedidos_aberto = EXCLUDED.pedidos_aberto
+            "#,
+        )
+        .bind(&live.code)
+        .bind(live.stock_qty)
+        .bind(live.in_production)
+        .bind(live.in_orders)
+        .execute(pool)
+        .await?;
+        return Ok(live);
+    }
+
+    let updated = sqlx::query(
+        r#"
+        UPDATE stock_snapshots SET
+            stock_qty = $1,
+            reserved_qty = $2,
+            in_production = $3,
+            in_orders = $4,
+            snapshot_date = NOW()
+        WHERE id = (
+            SELECT id FROM stock_snapshots
+            WHERE item_code = $5
+            ORDER BY snapshot_date DESC, id DESC
+            LIMIT 1
+        )
+        "#,
+    )
+    .bind(live.stock_qty)
+    .bind(live.reserved_qty)
+    .bind(live.in_production)
+    .bind(live.in_orders)
+    .bind(&live.code)
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    if updated == 0 {
+        let import_id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO stock_imports (id, filename, source, item_count) VALUES ($1, $2, $3, 1)",
+        )
+        .bind(&import_id)
+        .bind(format!("audit_refresh_{}", live.code))
+        .bind("audit_refresh")
+        .execute(pool)
+        .await
+        .ok();
+        sqlx::query(
+            r#"
+            INSERT INTO stock_snapshots (id, import_id, item_code, stock_qty, reserved_qty, in_production, in_orders, snapshot_date)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+            "#,
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(&import_id)
+        .bind(&live.code)
+        .bind(live.stock_qty)
+        .bind(live.reserved_qty)
+        .bind(live.in_production)
+        .bind(live.in_orders)
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(live)
+}
+
+/// Regrava todos os snapshots de insumos a partir de nQtdeEstoqueA (D1).
+pub async fn resync_all_insumo_snapshots_from_erp(pool: &PgPool) -> anyhow::Result<usize> {
+    let mut client = connect_sql_server(pool).await?;
+    let query = "
+SELECT 
+    cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
+    CAST(COALESCE(nQtdeEstoqueA, nQtdeEstoque) AS FLOAT) as nQtdeEstoque,
+    CAST(nqtdeReserva AS FLOAT) as nqtdeReserva,
+    CAST(nQtdeProducao AS FLOAT) as nQtdeProducao,
+    CAST(nQtdePedidos AS FLOAT) as nQtdePedidos
+FROM Insumos WITH (NOLOCK)
+WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInativo IS NULL);
+";
+    let stream = client.query(query, &[]).await?;
+    let rows = stream.into_first_result().await?;
+    let mut list = Vec::new();
+    for row in rows {
+        let code: &str = row.get(0).unwrap_or("");
+        if code.is_empty() {
+            continue;
+        }
+        list.push(StockRow {
+            code: code.trim().to_string(),
+            stock_qty: row.get(1).unwrap_or(0.0),
+            reserved_qty: row.get(2).unwrap_or(0.0),
+            in_prod: row.get(3).unwrap_or(0.0),
+            in_orders: row.get(4).unwrap_or(0.0),
+        });
+    }
+
+    let import_id = Uuid::new_v4().to_string();
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "INSERT INTO stock_imports (id, filename, source, item_count) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(&import_id)
+    .bind("D1 nQtdeEstoqueA resync")
+    .bind("ERP")
+    .bind(list.len() as i32)
+    .execute(&mut *tx)
+    .await?;
+
+    let codes: Vec<String> = list.iter().map(|s| s.code.clone()).collect();
+    sqlx::query("DELETE FROM stock_snapshots WHERE item_code = ANY($1)")
+        .bind(&codes)
+        .execute(&mut *tx)
+        .await?;
+
+    const CHUNK: usize = 400;
+    let mut ids = Vec::new();
+    let mut imports = Vec::new();
+    let mut snap_codes = Vec::new();
+    let mut stocks = Vec::new();
+    let mut reserved = Vec::new();
+    let mut prods = Vec::new();
+    let mut orders = Vec::new();
+    for stk in &list {
+        ids.push(Uuid::new_v4().to_string());
+        imports.push(import_id.clone());
+        snap_codes.push(stk.code.clone());
+        stocks.push(stk.stock_qty);
+        reserved.push(stk.reserved_qty);
+        prods.push(stk.in_prod);
+        orders.push(stk.in_orders);
+    }
+    for start in (0..ids.len()).step_by(CHUNK) {
+        let end = (start + CHUNK).min(ids.len());
+        sqlx::query(
+            r#"
+            INSERT INTO stock_snapshots (id, import_id, item_code, stock_qty, reserved_qty, in_production, in_orders)
+            SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::float8[], $5::float8[], $6::float8[], $7::float8[])
+            "#,
+        )
+        .bind(&ids[start..end])
+        .bind(&imports[start..end])
+        .bind(&snap_codes[start..end])
+        .bind(&stocks[start..end])
+        .bind(&reserved[start..end])
+        .bind(&prods[start..end])
+        .bind(&orders[start..end])
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(list.len())
+}
+

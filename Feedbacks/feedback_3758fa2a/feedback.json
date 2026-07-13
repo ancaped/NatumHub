@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-12 05:56:09.468186+00",
+  "descricao": "os itens que forem base, nao considerar erro de conferencia, pois nao vao para envase ok ? Ainda preciso definir em linhas de produtos os itens corretos que sao bases, apenas parar registrar o bug ",
+  "id": "3758fa2a-aa35-4505-af12-cb0863921d0c",
+  "notas_admin": null,
+  "pagina": "Produção > Lotes de Produção > lotes",
+  "prioridade": 103,
+  "resolvido_em": "2026-07-12 06:52:17.17112+00",
+  "solicitante": "Edson",
+  "status": "resolved",
+  "tem_logs": true,
+  "tem_screenshot": false,
+  "tipo": "bug"
+}

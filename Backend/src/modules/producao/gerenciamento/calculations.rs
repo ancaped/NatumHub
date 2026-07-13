@@ -203,7 +203,7 @@ pub fn calculate_products(
         } else if resolved_status_produto == "terceirizado" {
             ("terceirizado".to_string(), "Terceirizado".to_string(), 0)
         } else if resolved_status_produto == "saindo_de_linha" {
-            let (st, lbl) = if duracao_meses <= config_prod {
+            let (st, _lbl) = if duracao_meses <= config_prod {
                 ("critico", "Produzir Urgente (Saindo de Linha)")
             } else if duracao_meses <= config_ordem {
                 ("ordem", "Abrir Ordem (Saindo de Linha)")
@@ -219,8 +219,10 @@ pub fn calculate_products(
                 0
             };
             ("saindo_de_linha".to_string(), "Saindo de Linha".to_string(), rec)
-        } else if resolved_status_produto == "bases" {
-            ("bases".to_string(), "Bases".to_string(), 0)
+        } else if resolved_categoria_produto.as_deref() == Some("cat_base")
+            || resolved_status_produto == "bases"
+        {
+            ("bases".to_string(), "Base de produção".to_string(), 0)
         } else {
             let (st, lbl) = if duracao_meses <= config_prod {
                 ("critico", "Produzir Urgente")
@@ -246,6 +248,7 @@ pub fn calculate_products(
             linha_prefix: resolved_linha_prefix,
             nome_linha: config.nome_linha.clone(),
             base: prod.base.clone(),
+            base_codigo: prod.base_codigo.clone(),
             fase: stock.fase.clone(),
             estoque: raw_estoque,
             producao: raw_producao,
@@ -264,6 +267,7 @@ pub fn calculate_products(
             produzir_apenas_kit: ovr.and_then(|o| o.produzir_apenas_kit),
             lancamento_meta_meses: ovr.and_then(|o| o.lancamento_meta_meses),
             lancamento_data_inicio: ovr.and_then(|o| o.lancamento_data_inicio.clone()),
+            terceirizado_modo: ovr.and_then(|o| o.terceirizado_modo.clone()),
             is_kit_component: None,
             media_vendas: base_media,
             desvio_padrao,
@@ -302,6 +306,7 @@ mod tests {
             descricao: "Test Prod".to_string(),
             linha_prefix: "1".to_string(),
             base: None,
+            base_codigo: None,
             media_levantamento: 100.0,
         };
         let s = Stock {
@@ -340,39 +345,6 @@ mod tests {
         // Configs: Ideal = 3.0, Ordem = 1.5, Prod = 1.0
         // 1.0 < 1.32 <= 1.5 -> status should be "ordem"
         assert_eq!(res.status, "ordem");
-    }
-
-    #[test]
-    fn debug_db_query() {
-        let conn = rusqlite::Connection::open("../Saves/data.db").unwrap();
-        println!("--- DEBUG SQLITE DATABASE ---");
-        
-        let mut stmt = conn.prepare("SELECT code, description FROM items WHERE description LIKE '%citri%' OR description LIKE '%cítri%'").unwrap();
-        let items: Vec<(String, String)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap()
-            .map(|r| r.unwrap()).collect();
-        println!("Items matching 'citri': {:?}", items);
-
-        let mut stmt = conn.prepare("SELECT codigo, descricao FROM produtos WHERE descricao LIKE '%citri%' OR descricao LIKE '%cítri%'").unwrap();
-        let prods: Vec<(String, String)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap()
-            .map(|r| r.unwrap()).collect();
-        println!("Products matching 'citri': {:?}", prods);
-
-        for (code, desc) in &items {
-            let cons: Vec<(i64, f64, f64)> = conn.prepare(&format!("SELECT year, total_qty, monthly_avg FROM consumption WHERE item_code = '{}'", code)).unwrap()
-                .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?, r.get::<_, f64>(2)?))).unwrap()
-                .map(|r| r.unwrap()).collect();
-            println!("Consumption YoY for '{}' ({}): {:?}", code, desc, cons);
-
-            let monthly_cons: Vec<(String, f64)> = conn.prepare(&format!("SELECT strftime('%Y-%m', date) as ym, SUM(quantity) FROM stock_movements WHERE item_code = '{}' AND movement_type = 'saida' AND item_type = 'insumo' AND date <= datetime('now', 'localtime') GROUP BY ym ORDER BY ym ASC", code)).unwrap()
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap()
-                .map(|r| r.unwrap()).collect();
-            println!("Monthly consumption for '{}': {:?}", code, monthly_cons);
-
-            let invs: Vec<(String, f64, String)> = conn.prepare(&format!("SELECT invoice_date, quantity, invoice_number FROM invoices WHERE item_code = '{}' LIMIT 5", code)).unwrap()
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap()
-                .map(|r| r.unwrap()).collect();
-            println!("Invoices for '{}': {:?}", code, invs);
-        }
     }
 }
 

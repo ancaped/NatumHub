@@ -1,21 +1,18 @@
 use axum::{
-    extract::{Multipart, Query, State, Path},
+    extract::{Query, State, Path},
     http::StatusCode,
     response::IntoResponse,
     Json,
 };
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Write;
 use std::sync::Arc;
 use serde_json::json;
-use rusqlite::params;
+use sqlx::{PgPool, Row};
 
 use crate::core::db::Db;
 use crate::models::{
-    BulkOverrideRequest, KitComponentDetail, KitCalculationResult, LineConfig, Product, ProductCalculationResult, ProductOverride, QueryParams, Stock,
+    KitComponentDetail, KitCalculationResult, LineConfig, Product, ProductCalculationResult, ProductOverride, QueryParams, Stock,
     NewProducaoEntry, HistoryQueryParams,
-    WatchConfig, NewKitComposicao,
 };
 use crate::modules::producao::gerenciamento::calculations::calculate_products;
 use crate::handlers::AppState;
@@ -117,108 +114,102 @@ pub struct UpdateLotePayload {
 }
 
 // Helper to query all needed arrays for calculations
-pub fn fetch_calculation_data(state: &Db) -> anyhow::Result<(
+pub async fn fetch_calculation_data(state: &Db) -> anyhow::Result<(
     Vec<Product>,
     Vec<Stock>,
     HashMap<String, Vec<i64>>,
     Vec<LineConfig>,
     Vec<ProductOverride>,
 )> {
-    let conn = state.connect()?;
+    let pool = state.pool();
 
-    // 1. Products
-    let mut stmt = conn.prepare("SELECT codigo, descricao, linha_prefix, base, media_levantamento FROM produtos")?;
-    let products_iter = stmt.query_map([], |row| {
-        Ok(Product {
-            codigo: row.get(0)?,
-            descricao: row.get(1)?,
-            linha_prefix: row.get(2)?,
-            base: row.get(3)?,
-            media_levantamento: row.get(4)?,
-        })
-    })?;
+    let product_rows = sqlx::query(
+        "SELECT codigo, descricao, linha_prefix, base, media_levantamento FROM produtos",
+    )
+    .fetch_all(pool)
+    .await?;
+
     let mut products = Vec::new();
-    for p in products_iter {
-        products.push(p?);
+    for row in product_rows {
+        products.push(Product {
+            codigo: row.get(0),
+            descricao: row.get(1),
+            linha_prefix: row.get(2),
+            base: row.get(3),
+            base_codigo: None,
+            media_levantamento: row.get(4),
+        });
     }
 
-    // 2. Stock (overwritten using date-limited sales orders query to filter out 2024 orders)
-    let sales_faltas_days: i32 = {
-        let query = "SELECT value FROM settings WHERE key = 'sales_faltas_days_limit'";
-        if let Ok(val) = conn.query_row(query, [], |row| row.get::<_, String>(0)) {
-            val.parse::<i32>().unwrap_or(180)
-        } else {
-            180
-        }
+    // Pedidos na Produção = residual de pedidos de venda abertos, limitado pela janela
+    // `sales_faltas_days_limit` (Configurações). 0 = sem limite de data.
+    let sales_faltas_days: i32 = match state.get_setting("sales_faltas_days_limit").await {
+        Ok(Some(val)) => val.parse().unwrap_or(90),
+        _ => 90,
     };
 
     let mut sales_faltas_map: HashMap<String, i64> = HashMap::new();
     let sales_faltas_query = if sales_faltas_days > 0 {
-        format!("
-            SELECT soi.c_cod_prod, SUM(soi.n_qtde - soi.n_qtde_fat) 
-            FROM sales_order_items soi
-            JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
-            WHERE so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
-              AND so.d_pedido >= date('now', '-{} days')
-            GROUP BY soi.c_cod_prod
-        ", sales_faltas_days)
+        format!(
+            "SELECT soi.c_cod_prod, SUM(soi.n_qtde - soi.n_qtde_fat)
+             FROM sales_order_items soi
+             JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
+             WHERE so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
+               AND so.d_pedido::date >= (CURRENT_DATE - INTERVAL '{} days')
+             GROUP BY soi.c_cod_prod",
+            sales_faltas_days
+        )
     } else {
-        "
-            SELECT soi.c_cod_prod, SUM(soi.n_qtde - soi.n_qtde_fat) 
-            FROM sales_order_items soi
-            JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
-            WHERE so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
-            GROUP BY soi.c_cod_prod
-        ".to_string()
+        "SELECT soi.c_cod_prod, SUM(soi.n_qtde - soi.n_qtde_fat)
+         FROM sales_order_items soi
+         JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
+         WHERE so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
+         GROUP BY soi.c_cod_prod"
+            .to_string()
     };
 
-    if let Ok(mut stmt_faltas) = conn.prepare(&sales_faltas_query) {
-        let rows_faltas = stmt_faltas.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        });
-        if let Ok(iter) = rows_faltas {
-            for r in iter {
-                if let Ok((code, qty)) = r {
-                    sales_faltas_map.insert(code, qty);
-                }
-            }
+    if let Ok(rows) = sqlx::query(&sales_faltas_query).fetch_all(pool).await {
+        for row in rows {
+            sales_faltas_map.insert(
+                row.get::<String, _>(0),
+                crate::core::pg_row::pg_i64(&row, 1),
+            );
         }
     }
 
-    let mut stmt = conn.prepare("SELECT codigo, estoque, producao, pedidos_aberto, fase FROM estoque_atual")?;
-    let stock_iter = stmt.query_map([], |row| {
-        let codigo: String = row.get(0)?;
-        let estoque: i64 = row.get(1)?;
-        let producao: i64 = row.get(2)?;
-        let fase: Option<String> = row.get(4)?;
-        let pedidos_aberto = *sales_faltas_map.get(&codigo).unwrap_or(&0);
-        Ok(Stock {
-            codigo,
-            estoque,
-            producao,
-            pedidos_aberto,
-            fase,
-        })
-    })?;
+    let stock_rows = sqlx::query(
+        "SELECT codigo, estoque, producao, pedidos_aberto, fase FROM estoque_atual",
+    )
+    .fetch_all(pool)
+    .await?;
+
     let mut stocks = Vec::new();
-    for s in stock_iter {
-        stocks.push(s?);
+    for row in stock_rows {
+        let codigo: String = row.get(0);
+        let estoque: f64 = row.get(1);
+        let producao: f64 = row.get(2);
+        stocks.push(Stock {
+            codigo: codigo.clone(),
+            estoque: estoque.round() as i64,
+            producao: producao.round() as i64,
+            pedidos_aberto: *sales_faltas_map.get(&codigo).unwrap_or(&0),
+            fase: row.get(4),
+        });
     }
 
-    // 3. Line configs
-    let configs = state.get_line_configs()?;
+    let configs = state.get_line_configs().await.map_err(|e| anyhow::anyhow!(e))?;
+    let overrides = state.get_all_overrides().await.map_err(|e| anyhow::anyhow!(e))?;
 
-    // 4. Overrides
-    let overrides = state.get_all_overrides()?;
-
-    // 5. Faturamento history
     let mut fat_map = HashMap::new();
-    let mut stmt = conn.prepare("SELECT codigo, mes, quantidade FROM historico_faturamento")?;
-    let fat_iter = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)?, row.get::<_, i64>(2)?))
-    })?;
-    for r in fat_iter {
-        let (code, mes, qty) = r?;
+    let fat_rows = sqlx::query(
+        "SELECT codigo, mes, quantidade::bigint FROM historico_faturamento",
+    )
+        .fetch_all(pool)
+        .await?;
+    for row in fat_rows {
+        let code: String = row.get(0);
+        let mes: i32 = row.get(1);
+        let qty = crate::core::pg_row::pg_i64(&row, 2);
         let entry = fat_map.entry(code).or_insert_with(|| vec![0; 12]);
         if mes >= 1 && mes <= 12 {
             entry[(mes - 1) as usize] = qty;
@@ -276,7 +267,7 @@ pub async fn list_products(
     State(state): State<Arc<AppState>>,
     Query(params): Query<QueryParams>,
 ) -> impl IntoResponse {
-    let (products, stocks, fat_map, configs, overrides) = match fetch_calculation_data(&state.db) {
+    let (products, stocks, fat_map, configs, overrides) = match fetch_calculation_data(&state.db).await {
         Ok(data) => data,
         Err(e) => return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -288,7 +279,7 @@ pub async fn list_products(
     let mut computed = calculate_products(&products, &stocks, &fat_map, &configs, &overrides);
 
     // Fetch kit composition and apply kit-only overrides
-    let kit_composition = state.db.get_kit_composition().unwrap_or_default();
+    let kit_composition = state.db.get_kit_composition().await.unwrap_or_default();
     post_process_kit_only_production(&mut computed, &kit_composition);
 
     let mut kit_components_set = std::collections::HashSet::new();
@@ -298,24 +289,20 @@ pub async fn list_products(
         }
     }
 
-    // Connect to fetch formulation and latest stock levels for error decoration
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao conectar ao banco para buscar receitas: {}", e) }))
-        ).into_response(),
-    };
+    // Fetch formulation and latest stock levels for error decoration
+    let pool = state.db.pool();
 
-    // Load config targetDays for coloracao and apoio
     let target_days_coloracao = {
         let mut target = 90.0;
-        if let Ok(mut stmt) = conn.prepare("SELECT value FROM config WHERE key = 'compras_coloracao'") {
-            if let Ok(val) = stmt.query_row([], |row| row.get::<_, String>(0)) {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&val) {
-                    if let Some(days) = json.get("targetDays").and_then(|d| d.as_f64()) {
-                        target = days;
-                    }
+        if let Ok(Some(val)) = sqlx::query_scalar::<_, String>(
+            "SELECT value FROM config WHERE key = 'compras_coloracao'",
+        )
+        .fetch_optional(pool)
+        .await
+        {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&val) {
+                if let Some(days) = json.get("targetDays").and_then(|d| d.as_f64()) {
+                    target = days;
                 }
             }
         }
@@ -324,31 +311,29 @@ pub async fn list_products(
 
     let target_days_apoio = {
         let mut target = 90.0;
-        if let Ok(mut stmt) = conn.prepare("SELECT value FROM config WHERE key = 'compras_apoio'") {
-            if let Ok(val) = stmt.query_row([], |row| row.get::<_, String>(0)) {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&val) {
-                    if let Some(days) = json.get("targetDays").and_then(|d| d.as_f64()) {
-                        target = days;
-                    }
+        if let Ok(Some(val)) = sqlx::query_scalar::<_, String>(
+            "SELECT value FROM config WHERE key = 'compras_apoio'",
+        )
+        .fetch_optional(pool)
+        .await
+        {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&val) {
+                if let Some(days) = json.get("targetDays").and_then(|d| d.as_f64()) {
+                    target = days;
                 }
             }
         }
         target
     };
 
-    // Fetch category parent mapping to resolve subcategories to roots
     let mut category_parent_map: HashMap<String, String> = HashMap::new();
-    if let Ok(mut stmt) = conn.prepare("SELECT id, parent_id FROM categories") {
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-        });
-        if let Ok(iter) = rows {
-            for r in iter {
-                if let Ok((id, parent_id)) = r {
-                    if let Some(p_id) = parent_id {
-                        category_parent_map.insert(id, p_id);
-                    }
-                }
+    if let Ok(rows) = sqlx::query("SELECT id, parent_id FROM categories")
+        .fetch_all(pool)
+        .await
+    {
+        for row in rows {
+            if let Some(p_id) = row.get::<Option<String>, _>(1) {
+                category_parent_map.insert(row.get(0), p_id);
             }
         }
     }
@@ -367,119 +352,64 @@ pub async fn list_products(
         current
     };
 
-    // Fetch formulations
     let mut formulations_map: HashMap<String, Vec<(String, String, f64)>> = HashMap::new();
-    let stmt_form = conn.prepare("SELECT product_code, ingredient_code, description, quantity FROM formulations");
-    if let Ok(mut stmt) = stmt_form {
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                row.get::<_, f64>(3)?
-            ))
-        });
-        if let Ok(iter) = rows {
-            for r in iter {
-                if let Ok((p_code, ing_code, desc, qty)) = r {
-                    let ingredients = formulations_map.entry(p_code).or_default();
-                    if let Some(existing) = ingredients.iter_mut().find(|(code, _, _)| code == &ing_code) {
-                        existing.2 += qty;
-                    } else {
-                        ingredients.push((ing_code, desc, qty));
-                    }
-                }
+    if let Ok(rows) = sqlx::query(
+        "SELECT product_code, ingredient_code, description, quantity FROM formulations",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for row in rows {
+            let p_code: String = row.get(0);
+            let ing_code: String = row.get(1);
+            let desc: String = row.get::<Option<String>, _>(2).unwrap_or_default();
+            let qty: f64 = row.get(3);
+            let ingredients = formulations_map.entry(p_code).or_default();
+            if let Some(existing) = ingredients.iter_mut().find(|(code, _, _)| code == &ing_code) {
+                existing.2 += qty;
+            } else {
+                ingredients.push((ing_code, desc, qty));
             }
         }
     }
 
-    // Fetch latest stock snapshots
     let mut item_stock_map: HashMap<String, f64> = HashMap::new();
-    let stmt_snap = conn.prepare("
-        SELECT item_code, stock_qty 
-        FROM stock_snapshots ss
-        WHERE ss.id = (
-            SELECT id FROM stock_snapshots ss2 
-            WHERE ss2.item_code = ss.item_code 
-            ORDER BY ss2.snapshot_date DESC, ss2.id DESC LIMIT 1
-        )
-    ");
-    if let Ok(mut stmt) = stmt_snap {
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
-        });
-        if let Ok(iter) = rows {
-            for r in iter {
-                if let Ok((code, stock)) = r {
-                    item_stock_map.insert(code, stock);
-                }
-            }
+    if let Ok(rows) = sqlx::query(
+        "SELECT DISTINCT ON (item_code) item_code, stock_qty
+         FROM stock_snapshots
+         ORDER BY item_code, snapshot_date DESC, id DESC",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for row in rows {
+            item_stock_map.insert(row.get(0), row.get(1));
         }
     }
 
-    // Fetch active sales orders faltas per product
+    // Pedidos ERP (nPedidos) já estão em stocks.pedidos_aberto
     let mut sales_faltas_map: HashMap<String, i64> = HashMap::new();
-    let sales_faltas_days: i32 = {
-        let query = "SELECT value FROM settings WHERE key = 'sales_faltas_days_limit'";
-        if let Ok(val) = conn.query_row(query, [], |row| row.get::<_, String>(0)) {
-            val.parse::<i32>().unwrap_or(180)
-        } else {
-            180
-        }
-    };
-
-    let sales_faltas_query = if sales_faltas_days > 0 {
-        format!("
-            SELECT soi.c_cod_prod, SUM(soi.n_qtde - soi.n_qtde_fat) 
-            FROM sales_order_items soi
-            JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
-            WHERE so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
-              AND so.d_pedido >= date('now', '-{} days')
-            GROUP BY soi.c_cod_prod
-        ", sales_faltas_days)
-    } else {
-        "
-            SELECT soi.c_cod_prod, SUM(soi.n_qtde - soi.n_qtde_fat) 
-            FROM sales_order_items soi
-            JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
-            WHERE so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
-            GROUP BY soi.c_cod_prod
-        ".to_string()
-    };
-
-    let stmt_sales_faltas = conn.prepare(&sales_faltas_query);
-    if let Ok(mut stmt) = stmt_sales_faltas {
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        });
-        if let Ok(iter) = rows {
-            for r in iter {
-                if let Ok((code, qty)) = r {
-                    sales_faltas_map.insert(code, qty);
-                }
-            }
+    for s in &stocks {
+        if s.pedidos_aberto != 0 {
+            sales_faltas_map.insert(s.codigo.clone(), s.pedidos_aberto);
         }
     }
 
-    // Fetch active purchase orders in transit per product
     let mut purchase_transit_map: HashMap<String, i64> = HashMap::new();
-    let stmt_purchase_transit = conn.prepare("
-        SELECT poi.c_referencia, SUM(poi.n_qtde - poi.n_chegou) 
-        FROM purchase_order_items poi
-        JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
-        WHERE po.c_status <> 'T' AND (poi.n_qtde > poi.n_chegou)
-        GROUP BY poi.c_referencia
-    ");
-    if let Ok(mut stmt) = stmt_purchase_transit {
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
-        });
-        if let Ok(iter) = rows {
-            for r in iter {
-                if let Ok((code, qty)) = r {
-                    purchase_transit_map.insert(code, qty.round() as i64);
-                }
-            }
+    if let Ok(rows) = sqlx::query(
+        "SELECT poi.c_referencia, SUM(poi.n_qtde - poi.n_chegou)
+         FROM purchase_order_items poi
+         JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
+         WHERE po.c_status <> 'T' AND (poi.n_qtde > poi.n_chegou)
+         GROUP BY poi.c_referencia",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for row in rows {
+            let code: String = row.get(0);
+            let qty: f64 = row.get(1);
+            purchase_transit_map.insert(code, qty.round() as i64);
         }
     }
 
@@ -538,6 +468,7 @@ pub async fn list_products(
     }
 
     // Filter out kits, coloracao, and apoio from the general production list!
+    // Bases (cat_base) ficam na lista geral a menos que o filtro peça só bases.
     computed.retain(|p| {
         let is_kit = kit_composition.contains_key(&p.codigo);
         let cat_p = p.categoria_produto.as_deref().unwrap_or("");
@@ -548,7 +479,8 @@ pub async fn list_products(
         };
         let is_coloracao = root_cat == "cat_coloracao";
         let is_apoio = root_cat == "cat_apoio";
-        
+        let is_base = root_cat == "cat_base" || p.status_produto.as_deref() == Some("bases") || p.status == "bases";
+
         if let Some(ref status) = params.status {
             if status == "coloracao" && is_coloracao {
                 return true;
@@ -556,13 +488,30 @@ pub async fn list_products(
             if status == "apoio" && is_apoio {
                 return true;
             }
+            if (status == "base" || status == "bases") && is_base {
+                return true;
+            }
         }
-        
+        if let Some(ref cat) = params.categoria {
+            if cat == "cat_base" && is_base {
+                return true;
+            }
+            if cat == "cat_coloracao" && is_coloracao {
+                return true;
+            }
+            if cat == "cat_apoio" && is_apoio {
+                return true;
+            }
+        }
+
         !is_kit && !is_coloracao && !is_apoio
     });
 
     // Extract stats for metadata based on visible products (excluding hidden ones and ignored statuses)
-    let ignored_statuses = crate::get_ignored_product_statuses(&conn);
+    let ignored_statuses =
+        crate::modules::compras::planejamento::commands::get_ignored_product_statuses_query(pool.clone())
+            .await
+            .unwrap_or_default();
     let visible_products: Vec<&crate::models::ProductCalculationResult> = computed
         .iter()
         .filter(|p| {
@@ -644,10 +593,39 @@ pub async fn list_products(
                         root_cat == "cat_apoio"
                     });
                 }
+                "base" | "bases" => {
+                    computed.retain(|p| {
+                        let cat_p = p.categoria_produto.as_deref().unwrap_or("");
+                        let root_cat = if !cat_p.is_empty() {
+                            resolve_root_category(cat_p, &category_parent_map)
+                        } else {
+                            "".to_string()
+                        };
+                        root_cat == "cat_base"
+                            || p.status_produto.as_deref() == Some("bases")
+                            || p.status == "bases"
+                    });
+                }
                 _ => {
                     computed.retain(|p| p.status == *status);
                 }
             }
+        }
+    }
+
+    if let Some(ref cat) = params.categoria {
+        if !cat.is_empty() && cat != "ALL" {
+            computed.retain(|p| {
+                let cat_p = p.categoria_produto.as_deref().unwrap_or("");
+                let root_cat = if !cat_p.is_empty() {
+                    resolve_root_category(cat_p, &category_parent_map)
+                } else {
+                    "".to_string()
+                };
+                root_cat == *cat
+                    || (cat == "cat_base"
+                        && (p.status_produto.as_deref() == Some("bases") || p.status == "bases"))
+            });
         }
     }
 
@@ -763,16 +741,10 @@ pub async fn list_kits(
     State(state): State<Arc<AppState>>,
     Query(params): Query<QueryParams>,
 ) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao conectar ao banco de dados: {}", e) }))
-        ).into_response(),
-    };
+    let pool = state.db.pool();
 
     // 1. Fetch normal calculation data
-    let (products, stocks, fat_map, configs, overrides) = match fetch_calculation_data(&state.db) {
+    let (products, stocks, fat_map, configs, overrides) = match fetch_calculation_data(&state.db).await {
         Ok(data) => data,
         Err(e) => return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -781,7 +753,7 @@ pub async fn list_kits(
     };
 
     // 2. Fetch kit composition
-    let kit_composition = match state.db.get_kit_composition() {
+    let kit_composition = match state.db.get_kit_composition().await {
         Ok(comp) => comp,
         Err(e) => return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -811,14 +783,15 @@ pub async fn list_kits(
             Some(c) => c.clone(),
             None => {
                 let cleaned_code = clean_product_code(&kit_code);
-                let kit_desc = match conn.query_row(
-                    "SELECT descricao FROM produtos WHERE TRIM(REPLACE(codigo, '\"', '')) = ?1",
-                    params![cleaned_code],
-                    |row| row.get::<_, String>(0)
-                ) {
-                    Ok(desc) => desc,
-                    Err(_) => format!("Kit: {}", kit_code),
-                };
+                let kit_desc = sqlx::query_scalar::<_, String>(
+                    "SELECT descricao FROM produtos WHERE TRIM(REPLACE(codigo, '\"', '')) = $1",
+                )
+                .bind(&cleaned_code)
+                .fetch_optional(pool)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| format!("Kit: {}", kit_code));
 
                 let kit_stock = stocks.iter().find(|s| clean_product_code(&s.codigo) == kit_code);
                 let estoque_val = kit_stock.map(|s| s.estoque).unwrap_or(0);
@@ -831,6 +804,7 @@ pub async fn list_kits(
                     linha_prefix: "".to_string(),
                     nome_linha: "Kits Comerciais".to_string(),
                     base: None,
+                    base_codigo: None,
                     fase: None,
                     estoque: estoque_val,
                     producao: prod_val,
@@ -849,6 +823,7 @@ pub async fn list_kits(
                     produzir_apenas_kit: Some(0),
                     lancamento_meta_meses: None,
                     lancamento_data_inicio: None,
+                    terceirizado_modo: None,
                     is_kit_component: Some(false),
                     media_vendas: 0.0,
                     desvio_padrao: 0.0,
@@ -1057,7 +1032,7 @@ pub async fn add_producao(
         ).into_response();
     }
 
-    match state.db.add_producao_entry(&entry) {
+    match state.db.add_producao_entry(&entry).await {
         Ok(id) => (
             StatusCode::CREATED,
             Json(json!({ "status": "success", "id": id, "message": "Produção lançada com sucesso!" }))
@@ -1074,7 +1049,7 @@ pub async fn list_producao(
     State(state): State<Arc<AppState>>,
     Query(params): Query<HistoryQueryParams>,
 ) -> impl IntoResponse {
-    match state.db.list_producao_history(&params) {
+    match state.db.list_producao_history(&params).await {
         Ok(records) => (StatusCode::OK, Json(records)).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1088,7 +1063,7 @@ pub async fn delete_producao(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    match state.db.delete_producao_entry(id) {
+    match state.db.delete_producao_entry(id).await {
         Ok(_) => (
             StatusCode::OK,
             Json(json!({ "status": "success", "message": "Produção estornada/excluída com sucesso!" }))
@@ -1106,7 +1081,7 @@ pub async fn update_producao_lote(
     Path(id): Path<i64>,
     Json(payload): Json<UpdateLotePayload>,
 ) -> impl IntoResponse {
-    match state.db.update_producao_lote(id, payload.lote_erp.as_deref()) {
+    match state.db.update_producao_lote(id, payload.lote_erp.as_deref()).await {
         Ok(_) => (
             StatusCode::OK,
             Json(json!({ "status": "success", "message": "Lote ERP atualizado com sucesso!" }))
@@ -1132,62 +1107,56 @@ pub async fn preview_recalculation(
         None => return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Falta ingredient_code" }))).into_response(),
     };
     
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
-    };
-    
-    // 1. Get product description
-    let product_desc: String = match conn.query_row(
-        "SELECT descricao FROM produtos WHERE codigo = ?1",
-        params![product_code],
-        |row| row.get(0)
-    ) {
-        Ok(desc) => desc,
-        Err(_) => "Produto não encontrado".to_string(),
-    };
-    
-    // 2. Get ingredient description
-    let ingredient_desc: String = match conn.query_row(
-        "SELECT description FROM items WHERE code = ?1",
-        params![ingredient_code],
-        |row| row.get(0)
-    ) {
-        Ok(desc) => desc,
-        Err(_) => "Insumo não encontrado".to_string(),
-    };
-    
-    // 3. Get formulation quantity
-    let qty_per_unit: f64 = match conn.query_row(
-        "SELECT SUM(quantity) FROM formulations WHERE product_code = ?1 AND ingredient_code = ?2",
-        params![product_code, ingredient_code],
-        |row| Ok(row.get::<_, Option<f64>>(0)?.unwrap_or(0.0))
-    ) {
-        Ok(qty) => qty,
-        Err(_) => 0.0,
-    };
-    
-    // 4. Calculate total produced
-    let total_produced: i64 = match conn.query_row(
-        "SELECT SUM(quantidade) FROM historico_producao WHERE codigo = ?1",
-        params![product_code],
-        |row| Ok(row.get::<_, Option<i64>>(0)?.unwrap_or(0))
-    ) {
-        Ok(sum) => sum,
-        Err(_) => 0,
-    };
-    
-    // 5. Get current stock
-    let current_stock: f64 = match conn.query_row(
-        "SELECT stock_qty FROM stock_snapshots ss 
-         WHERE ss.item_code = ?1 
+    let pool = state.db.pool();
+
+    let product_desc: String = sqlx::query_scalar(
+        "SELECT descricao FROM produtos WHERE codigo = $1",
+    )
+    .bind(product_code)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or_else(|| "Produto não encontrado".to_string());
+
+    let ingredient_desc: String = sqlx::query_scalar(
+        "SELECT description FROM items WHERE code = $1",
+    )
+    .bind(ingredient_code)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or_else(|| "Insumo não encontrado".to_string());
+
+    let qty_per_unit: f64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(quantity), 0.0) FROM formulations WHERE product_code = $1 AND ingredient_code = $2",
+    )
+    .bind(product_code)
+    .bind(ingredient_code)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0.0);
+
+    let total_produced: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(quantidade), 0)::bigint FROM historico_producao WHERE codigo = $1",
+    )
+    .bind(product_code)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+
+    let current_stock: f64 = sqlx::query_scalar(
+        "SELECT stock_qty FROM stock_snapshots ss
+         WHERE ss.item_code = $1
          ORDER BY ss.snapshot_date DESC, ss.id DESC LIMIT 1",
-        params![ingredient_code],
-        |row| row.get(0)
-    ) {
-        Ok(stock) => stock,
-        Err(_) => 0.0,
-    };
+    )
+    .bind(ingredient_code)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or(0.0);
     
     let total_consumption = total_produced as f64 * qty_per_unit;
     let expected_stock = current_stock - total_consumption;
@@ -1213,42 +1182,52 @@ pub async fn apply_recalculation_adjustment(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<crate::models::RecalculationAdjustmentRequest>,
 ) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
-    };
-    
-    // 1. Fetch latest snapshot details for this ingredient
-    let latest_row_opt = conn.query_row(
-        "SELECT stock_qty, reserved_qty, in_production, in_orders FROM stock_snapshots ss 
-         WHERE ss.item_code = ?1 
-         ORDER BY ss.snapshot_date DESC, ss.id DESC LIMIT 1",
-        params![payload.ingredient_code],
-        |row| Ok((row.get::<_, f64>(0)?, row.get::<_, f64>(1)?, row.get::<_, f64>(2)?, row.get::<_, f64>(3)?))
-    );
-    
-    let (current_stock, reserved_qty, in_production, in_orders) = match latest_row_opt {
-        Ok(details) => details,
-        Err(_) => (0.0, 0.0, 0.0, 0.0), // fallback if no snapshots exist
-    };
-    
+    let pool = state.db.pool();
+
+    let (current_stock, reserved_qty, in_production, in_orders): (f64, f64, f64, f64) =
+        match sqlx::query(
+            "SELECT stock_qty, reserved_qty, in_production, in_orders FROM stock_snapshots ss
+             WHERE ss.item_code = $1
+             ORDER BY ss.snapshot_date DESC, ss.id DESC LIMIT 1",
+        )
+        .bind(&payload.ingredient_code)
+        .fetch_optional(pool)
+        .await
+        {
+            Ok(Some(row)) => (
+                row.get(0),
+                row.get(1),
+                row.get(2),
+                row.get(3),
+            ),
+            _ => (0.0, 0.0, 0.0, 0.0),
+        };
+
     let new_stock = (current_stock - payload.adjustment_qty).max(0.0);
-    
-    // 2. Insert import record if MANUAL_ADJUST doesn't exist
-    let _ = conn.execute(
-        "INSERT OR IGNORE INTO stock_imports (id, filename, source, imported_at, item_count)
-         VALUES ('MANUAL_ADJUST', 'Ajuste Manual', 'AJUSTE', CURRENT_TIMESTAMP, 1)",
-        [],
-    );
-    
-    // 3. Insert new snapshot row
+
+    let _ = sqlx::query(
+        "INSERT INTO stock_imports (id, filename, source, imported_at, item_count)
+         VALUES ('MANUAL_ADJUST', 'Ajuste Manual', 'AJUSTE', NOW(), 1)
+         ON CONFLICT(id) DO NOTHING",
+    )
+    .execute(pool)
+    .await;
+
     let new_uuid = uuid::Uuid::new_v4().to_string();
-    
-    match conn.execute(
+
+    match sqlx::query(
         "INSERT INTO stock_snapshots (id, import_id, item_code, stock_qty, reserved_qty, in_production, in_orders, snapshot_date)
-         VALUES (?1, 'MANUAL_ADJUST', ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP)",
-        params![new_uuid, payload.ingredient_code, new_stock, reserved_qty, in_production, in_orders]
-    ) {
+         VALUES ($1, 'MANUAL_ADJUST', $2, $3, $4, $5, $6, NOW())",
+    )
+    .bind(&new_uuid)
+    .bind(&payload.ingredient_code)
+    .bind(new_stock)
+    .bind(reserved_qty)
+    .bind(in_production)
+    .bind(in_orders)
+    .execute(pool)
+    .await
+    {
         Ok(_) => (
             StatusCode::OK,
             Json(json!({ 
@@ -1265,93 +1244,68 @@ pub async fn get_production_lotes(
     State(state): State<Arc<AppState>>,
     Query(params): Query<QueryParams>,
 ) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
-    };
+    let pool = state.db.pool();
 
-    let mut query = "
-        SELECT m.id, m.document_number, m.item_code, p.descricao, m.quantity, m.date, m.details, r.is_resolved, r.observations
-        FROM stock_movements m
-        LEFT JOIN produtos p ON m.item_code = p.codigo
-        LEFT JOIN lote_error_resolutions r ON m.document_number = r.lote_number
-        WHERE m.item_type = 'produto' AND m.movement_type = 'entrada' AND m.date <= datetime('now', 'localtime')
-    ".to_string();
-
-    let mut args: Vec<String> = Vec::new();
+    let mut qb = sqlx::QueryBuilder::new(
+        "SELECT m.id, m.document_number, m.item_code, p.descricao, m.quantity, m.date, m.details, r.is_resolved, r.observations
+         FROM stock_movements m
+         LEFT JOIN produtos p ON m.item_code = p.codigo
+         LEFT JOIN lote_error_resolutions r ON m.document_number = r.lote_number
+         WHERE m.item_type = 'produto' AND m.movement_type = 'entrada' AND m.date::timestamp <= NOW()",
+    );
 
     if let Some(ref status) = params.status {
         if !status.is_empty() && status != "ALL" {
-            query.push_str(" AND m.details LIKE ?");
-            args.push(format!("%Status: {}%", status));
+            qb.push(" AND m.details LIKE ");
+            qb.push_bind(format!("%Status: {}%", status));
         }
     }
 
     if let Some(ref search) = params.search {
         if !search.trim().is_empty() {
-            query.push_str(" AND (m.document_number LIKE ? OR m.item_code LIKE ? OR p.descricao LIKE ? OR m.details LIKE ?)");
             let like_arg = format!("%{}%", search.trim());
-            args.push(like_arg.clone());
-            args.push(like_arg.clone());
-            args.push(like_arg.clone());
-            args.push(like_arg);
+            qb.push(" AND (m.document_number LIKE ");
+            qb.push_bind(like_arg.clone());
+            qb.push(" OR m.item_code LIKE ");
+            qb.push_bind(like_arg.clone());
+            qb.push(" OR p.descricao LIKE ");
+            qb.push_bind(like_arg.clone());
+            qb.push(" OR m.details LIKE ");
+            qb.push_bind(like_arg);
+            qb.push(")");
         }
     }
 
-    query.push_str(" ORDER BY m.date DESC");
-
+    qb.push(" ORDER BY m.date DESC");
     let limit_val = params.limit.unwrap_or(10000);
-    query.push_str(&format!(" LIMIT {}", limit_val));
+    qb.push(format!(" LIMIT {}", limit_val));
 
-    let raw_lotes = {
-        let mut stmt = match conn.prepare(&query) {
-            Ok(s) => s,
-            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
-        };
-
-        let params_converted = rusqlite::params_from_iter(args.iter());
-
-        struct RawLote {
-            id: String,
-            lote_number: String,
-            product_code: String,
-            product_description: String,
-            quantity: f64,
-            date: String,
-            details: String,
-            is_resolved: Option<bool>,
-            resolution_obs: Option<String>,
-        }
-
-        let rows_res = stmt.query_map(params_converted, |row| {
-            let is_resolved_int: Option<i32> = row.get(7)?;
-            let is_resolved = is_resolved_int.map(|v| v == 1);
-            Ok(RawLote {
-                id: row.get(0)?,
-                lote_number: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                product_code: row.get(2)?,
-                product_description: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
-                quantity: row.get(4)?,
-                date: row.get(5)?,
-                details: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
-                is_resolved,
-                resolution_obs: row.get(8)?,
-            })
-        });
-
-        match rows_res {
-            Ok(iter) => {
-                let mut list = Vec::new();
-                for r in iter {
-                    if let Ok(l) = r {
-                        list.push(l);
-                    }
-                }
-                list
-            }
-            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    let rows = match qb.build().fetch_all(pool).await {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response();
         }
     };
+
+    let mut raw_lotes = Vec::new();
+    for row in rows {
+        let is_resolved_int: Option<i32> = row.get(7);
+        raw_lotes.push(RawLote {
+            id: row.get(0),
+            lote_number: row.get::<Option<String>, _>(1).unwrap_or_default(),
+            product_code: row.get(2),
+            product_description: row.get::<Option<String>, _>(3).unwrap_or_default(),
+            quantity: row.get(4),
+            date: row.get(5),
+            details: row.get::<Option<String>, _>(6).unwrap_or_default(),
+            is_resolved: is_resolved_int.map(|v| v == 1),
+            resolution_obs: row.get(8),
+        });
+    }
 
     let mut grouped_lotes: Vec<crate::models::ProductionLote> = Vec::new();
     let mut lote_indices = std::collections::HashMap::new();
@@ -1401,57 +1355,168 @@ pub async fn get_production_lotes(
         }
     }
 
-    for lote in &mut grouped_lotes {
-        let status = &lote.status;
-        if status == "EA" || status == "FP" || status == "CF" {
-            // Find all products in this same batch
-            let mut batch_products = Vec::new();
-            if let Ok(mut stmt) = conn.prepare(
-                "SELECT m.item_code, m.quantity, p.descricao, m.details 
-                 FROM stock_movements m
-                 LEFT JOIN produtos p ON m.item_code = p.codigo
-                 WHERE m.document_number = ?1 AND m.item_type = 'produto' AND m.movement_type = 'entrada'"
-            ) {
-                if let Ok(mut rows) = stmt.query(params![&lote.lote_number]) {
-                    while let Ok(Some(row)) = rows.next() {
-                        if let (Ok(code), Ok(qty), Ok(desc), Ok(details)) = (
-                            row.get::<_, String>(0),
-                            row.get::<_, f64>(1),
-                            row.get::<_, Option<String>>(2),
-                            row.get::<_, Option<String>>(3),
-                        ) {
-                            batch_products.push((code, qty, desc.unwrap_or_default(), details.unwrap_or_default()));
-                        }
-                    }
+    use std::collections::HashMap as StdHashMap;
+
+    let check_lote_nums: Vec<String> = grouped_lotes
+        .iter()
+        .filter(|l| l.status == "EA" || l.status == "FP" || l.status == "CF")
+        .map(|l| l.lote_number.clone())
+        .collect();
+
+    let mut batch_by_lote: StdHashMap<String, Vec<(String, f64, String, String)>> = StdHashMap::new();
+    let mut exit_sum_by_lote: StdHashMap<String, f64> = StdHashMap::new();
+    let mut form_sum_by_prod: StdHashMap<String, f64> = StdHashMap::new();
+    let mut exits_detail_by_lote: StdHashMap<String, StdHashMap<String, f64>> = StdHashMap::new();
+    let mut recipe_by_prod: StdHashMap<String, Vec<(String, String, f64, Option<f64>)>> = StdHashMap::new();
+
+    if !check_lote_nums.is_empty() {
+        if let Ok(rows) = sqlx::query(
+            "SELECT COALESCE(m.document_number, ''), m.item_code, m.quantity, COALESCE(p.descricao, ''), COALESCE(m.details, '')
+             FROM stock_movements m
+             LEFT JOIN produtos p ON m.item_code = p.codigo
+             WHERE m.document_number = ANY($1)
+               AND m.item_type = 'produto' AND m.movement_type = 'entrada'",
+        )
+        .bind(&check_lote_nums)
+        .fetch_all(pool)
+        .await
+        {
+            for row in rows {
+                let doc: String = row.get(0);
+                batch_by_lote.entry(doc).or_default().push((
+                    row.get(1),
+                    row.get(2),
+                    row.get(3),
+                    row.get(4),
+                ));
+            }
+        }
+
+        if let Ok(rows) = sqlx::query(
+            "SELECT document_number, COALESCE(SUM(quantity), 0.0)
+             FROM stock_movements
+             WHERE document_number = ANY($1)
+               AND item_type = 'insumo' AND movement_type = 'saida'
+             GROUP BY document_number",
+        )
+        .bind(&check_lote_nums)
+        .fetch_all(pool)
+        .await
+        {
+            for row in rows {
+                exit_sum_by_lote.insert(row.get(0), row.get(1));
+            }
+        }
+
+        if let Ok(rows) = sqlx::query(
+            "SELECT document_number, item_code, SUM(quantity)
+             FROM stock_movements
+             WHERE document_number = ANY($1) AND movement_type = 'saida'
+             GROUP BY document_number, item_code",
+        )
+        .bind(&check_lote_nums)
+        .fetch_all(pool)
+        .await
+        {
+            for row in rows {
+                let doc: String = row.get(0);
+                let code: String = row.get(1);
+                let qty: f64 = row.get(2);
+                *exits_detail_by_lote
+                    .entry(doc)
+                    .or_default()
+                    .entry(code)
+                    .or_insert(0.0) += qty;
+            }
+        }
+
+        let mut product_codes: Vec<String> = batch_by_lote
+            .values()
+            .flat_map(|v| v.iter().map(|(c, _, _, _)| c.clone()))
+            .collect();
+        for l in &grouped_lotes {
+            if check_lote_nums.iter().any(|n| n == &l.lote_number) {
+                for part in l.product_code.split(" / ") {
+                    product_codes.push(part.trim().to_string());
+                }
+            }
+        }
+        product_codes.sort();
+        product_codes.dedup();
+
+        if !product_codes.is_empty() {
+            if let Ok(rows) = sqlx::query(
+                "SELECT product_code, COALESCE(SUM(quantity), 1.0)
+                 FROM formulations WHERE product_code = ANY($1)
+                 GROUP BY product_code",
+            )
+            .bind(&product_codes)
+            .fetch_all(pool)
+            .await
+            {
+                for row in rows {
+                    form_sum_by_prod.insert(row.get(0), row.get(1));
                 }
             }
 
+            if let Ok(rows) = sqlx::query(
+                "SELECT product_code, ingredient_code, COALESCE(description, ''), quantity, percentage
+                 FROM formulations WHERE product_code = ANY($1)",
+            )
+            .bind(&product_codes)
+            .fetch_all(pool)
+            .await
+            {
+                for row in rows {
+                    let pcode: String = row.get(0);
+                    recipe_by_prod.entry(pcode).or_default().push((
+                        row.get(1),
+                        row.get(2),
+                        row.get(3),
+                        row.get(4),
+                    ));
+                }
+            }
+        }
+    }
+
+    let mut base_product_codes: StdHashMap<String, bool> = StdHashMap::new();
+    if let Ok(rows) = sqlx::query(
+        "SELECT codigo FROM overrides_produtos
+         WHERE categoria_produto = 'cat_base' OR status_produto = 'bases'",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for row in rows {
+            let c: String = row.get(0);
+            base_product_codes.insert(c, true);
+        }
+    }
+
+    for lote in &mut grouped_lotes {
+        let status = &lote.status;
+        if status == "EA" || status == "FP" || status == "CF" {
+            let mut batch_products = batch_by_lote
+                .get(&lote.lote_number)
+                .cloned()
+                .unwrap_or_default();
             if batch_products.is_empty() {
-                batch_products.push((lote.product_code.clone(), lote.quantity, lote.product_description.clone(), lote.status.clone()));
+                batch_products.push((
+                    lote.product_code.clone(),
+                    lote.quantity,
+                    lote.product_description.clone(),
+                    lote.status.clone(),
+                ));
             }
 
-            // Get total ingredient weight exited for this OP
-            let ing_exit_sum: f64 = match conn.query_row(
-                "SELECT SUM(quantity) FROM stock_movements 
-                 WHERE document_number = ?1 AND item_type = 'insumo' AND movement_type = 'saida'",
-                params![&lote.lote_number],
-                |r| Ok(r.get::<_, Option<f64>>(0)?.unwrap_or(0.0))
-            ) {
-                Ok(val) => val,
-                Err(_) => 0.0,
-            };
-
-            // Compute total expected weight for the batch formulation
+            let ing_exit_sum = exit_sum_by_lote
+                .get(&lote.lote_number)
+                .copied()
+                .unwrap_or(0.0);
             let mut total_expected_weight = 0.0;
             for (p_code, p_qty, _, _) in &batch_products {
-                let form_sum: f64 = match conn.query_row(
-                    "SELECT SUM(quantity) FROM formulations WHERE product_code = ?1",
-                    params![p_code],
-                    |r| Ok(r.get::<_, Option<f64>>(0)?.unwrap_or(1.0))
-                ) {
-                    Ok(val) => val,
-                    Err(_) => 1.0,
-                };
+                let form_sum = form_sum_by_prod.get(p_code).copied().unwrap_or(1.0);
                 total_expected_weight += p_qty * form_sum;
             }
 
@@ -1460,16 +1525,38 @@ pub async fn get_production_lotes(
                 lote.yield_error = Some(diff > 0.10);
             }
 
-            // Compute pesagem, envase, and conferencia errors consolidated
+            let empty_exits = StdHashMap::new();
+            let exits = exits_detail_by_lote
+                .get(&lote.lote_number)
+                .unwrap_or(&empty_exits);
+
             let mut pesagem_err = false;
             let mut envase_err = false;
             let mut conferencia_err = false;
 
             for (p_code, p_qty, p_desc, p_details) in &batch_products {
-                let (pe, ee, ce) = check_lote_errors(&conn, &lote.lote_number, p_code, *p_qty, p_details, p_desc);
-                if pe { pesagem_err = true; }
-                if ee { envase_err = true; }
-                if ce { conferencia_err = true; }
+                let (pe, ee, ce) = check_lote_errors_cached(
+                    pool,
+                    &lote.lote_number,
+                    p_code,
+                    *p_qty,
+                    p_details,
+                    p_desc,
+                    exits,
+                    &recipe_by_prod,
+                    &batch_products,
+                    base_product_codes.contains_key(p_code),
+                )
+                .await;
+                if pe {
+                    pesagem_err = true;
+                }
+                if ee {
+                    envase_err = true;
+                }
+                if ce {
+                    conferencia_err = true;
+                }
             }
 
             lote.pesagem_error = Some(pesagem_err);
@@ -1481,8 +1568,217 @@ pub async fn get_production_lotes(
     (StatusCode::OK, Json(grouped_lotes)).into_response()
 }
 
-pub fn check_lote_errors(
-    conn: &rusqlite::Connection,
+/// Versão com caches pré-carregados (lista de lotes) — evita N+1 em movements/formulations.
+pub async fn check_lote_errors_cached(
+    pool: &PgPool,
+    lote_number: &str,
+    product_code: &str,
+    quantity: f64,
+    details: &str,
+    product_description: &str,
+    exits_map: &std::collections::HashMap<String, f64>,
+    recipe_by_prod: &std::collections::HashMap<String, Vec<(String, String, f64, Option<f64>)>>,
+    batch_products_full: &[(String, f64, String, String)],
+    is_production_base: bool,
+) -> (bool, bool, bool) {
+    let mut pesagem_error = false;
+    let mut envase_error = false;
+    let mut conferencia_error = false;
+
+    let _ = (pool, lote_number);
+
+    let batch_products: Vec<(String, f64, String)> = batch_products_full
+        .iter()
+        .map(|(c, q, d, _)| (c.clone(), *q, d.clone()))
+        .collect();
+
+    let recipe_items = recipe_by_prod
+        .get(product_code)
+        .cloned()
+        .unwrap_or_default();
+
+    let total_batch_quantity: f64 = batch_products.iter().map(|(_, qty, _)| *qty).sum();
+    let pesagem_total_actual = exits_map
+        .iter()
+        .filter(|(code, _)| code.starts_with("9.15."))
+        .map(|(_, qty)| *qty)
+        .sum::<f64>();
+    let basis_weight_total = if pesagem_total_actual > 0.0 {
+        pesagem_total_actual
+    } else {
+        total_batch_quantity
+    };
+
+    let mut total_expected_ingredients = std::collections::HashMap::new();
+    for (p_code, p_qty, p_desc) in &batch_products {
+        let prop = if total_batch_quantity > 0.0 {
+            *p_qty / total_batch_quantity
+        } else {
+            0.0
+        };
+        let basis_weight_p = basis_weight_total * prop;
+        let p_unit_weight = parse_unit_weight_from_desc(p_desc);
+        let empty = Vec::new();
+        let p_recipe = recipe_by_prod.get(p_code).unwrap_or(&empty);
+        for (ing_code, _desc, std_qty, percentage) in p_recipe {
+            if ing_code.starts_with("9.15.") {
+                let pct = percentage.unwrap_or(0.0);
+                let expected_qty = if pct > 0.0 {
+                    basis_weight_p * (pct / 100.0)
+                } else {
+                    let estimated_pct = if p_unit_weight > 0.0 {
+                        (std_qty / p_unit_weight) * 100.0
+                    } else {
+                        0.0
+                    };
+                    basis_weight_p * (estimated_pct / 100.0)
+                };
+                *total_expected_ingredients
+                    .entry(ing_code.clone())
+                    .or_insert(0.0) += expected_qty;
+            }
+        }
+    }
+
+    for (ing_code, expected_qty) in &total_expected_ingredients {
+        let actual_qty = *exits_map.get(ing_code).unwrap_or(&0.0);
+        let percentage_diff = if *expected_qty > 0.0 {
+            ((actual_qty - expected_qty) / expected_qty) * 100.0
+        } else {
+            0.0
+        };
+        if (actual_qty == 0.0 && *expected_qty > 0.0)
+            || (*expected_qty > 0.0 && percentage_diff.abs() > 10.0)
+        {
+            pesagem_error = true;
+            break;
+        }
+    }
+
+    let packaging_recipe_items: Vec<(String, String, f64)> = recipe_items
+        .iter()
+        .filter(|(code, _, _, _)| !code.starts_with("9.15."))
+        .map(|(c, d, q, _)| (c.clone(), d.clone(), *q))
+        .collect();
+
+    // Bases não vão para envase/conferência de unidades acabadas
+    if is_production_base {
+        return (pesagem_error, false, false);
+    }
+
+    let main_unit_weight = parse_unit_weight_from_desc(product_description);
+    let mut actual_units_envasadas = 0.0;
+    let mut primary_units = 0.0;
+    let mut has_primary = false;
+
+    for (code, desc, std_qty) in &packaging_recipe_items {
+        if *std_qty <= 0.0 {
+            continue;
+        }
+        let total_exit_qty = *exits_map.get(code).unwrap_or(&0.0);
+        let mut total_sharing_weight = 0.0;
+        let mut is_shared = false;
+        for (other_code, other_qty, _) in &batch_products {
+            let has_item = recipe_by_prod
+                .get(other_code)
+                .map(|r| r.iter().any(|(ic, _, _, _)| ic == code))
+                .unwrap_or(false);
+            if has_item {
+                total_sharing_weight += *other_qty;
+                if other_code != product_code {
+                    is_shared = true;
+                }
+            }
+        }
+        let exit_qty = if is_shared && total_sharing_weight > 0.0 {
+            total_exit_qty * (quantity / total_sharing_weight)
+        } else {
+            total_exit_qty
+        };
+        let units = exit_qty / std_qty;
+        if is_primary_container(desc) && exit_qty > 0.0 {
+            has_primary = true;
+            if units > primary_units {
+                primary_units = units;
+            }
+        }
+        if units > actual_units_envasadas {
+            actual_units_envasadas = units;
+        }
+    }
+
+    let actual_units_envasadas = if has_primary {
+        primary_units.round()
+    } else {
+        actual_units_envasadas.round()
+    };
+    let basis_units = if actual_units_envasadas > 0.0 {
+        actual_units_envasadas
+    } else if main_unit_weight > 0.0 {
+        (quantity / main_unit_weight).round()
+    } else {
+        quantity
+    };
+
+    for (item_code, _, std_qty) in &packaging_recipe_items {
+        let expected_qty = basis_units * std_qty;
+        let total_exit_qty = *exits_map.get(item_code).unwrap_or(&0.0);
+        let mut total_sharing_weight = 0.0;
+        let mut is_shared = false;
+        for (other_code, other_qty, _) in &batch_products {
+            let has_item = recipe_by_prod
+                .get(other_code)
+                .map(|r| r.iter().any(|(ic, _, _, _)| ic == item_code))
+                .unwrap_or(false);
+            if has_item {
+                total_sharing_weight += *other_qty;
+                if other_code != product_code {
+                    is_shared = true;
+                }
+            }
+        }
+        let actual_qty = if is_shared && total_sharing_weight > 0.0 {
+            total_exit_qty * (quantity / total_sharing_weight)
+        } else {
+            total_exit_qty
+        };
+        let percentage_diff = if expected_qty > 0.0 {
+            ((actual_qty - expected_qty) / expected_qty) * 100.0
+        } else {
+            0.0
+        };
+        if (actual_qty == 0.0 && expected_qty > 0.0)
+            || (expected_qty > 0.0 && percentage_diff.abs() > 10.0)
+        {
+            envase_error = true;
+            break;
+        }
+    }
+
+    let mut unidades_conferidas = None;
+    for part in details.split('|') {
+        let part = part.trim();
+        if part.starts_with("Unidades:") {
+            if let Ok(u) = part.trim_start_matches("Unidades:").trim().parse::<f64>() {
+                unidades_conferidas = Some(u);
+            }
+        }
+    }
+    if let Some(conf) = unidades_conferidas {
+        if basis_units > 0.0 {
+            let diff = ((conf - basis_units).abs() / basis_units) * 100.0;
+            if diff > 10.0 {
+                conferencia_error = true;
+            }
+        }
+    }
+
+    let _ = (pool, lote_number); // reserved for future base_code lookups
+    (pesagem_error, envase_error, conferencia_error)
+}
+
+pub async fn check_lote_errors(
+    pool: &PgPool,
     lote_number: &str,
     product_code: &str,
     quantity: f64,
@@ -1493,43 +1789,63 @@ pub fn check_lote_errors(
     let mut envase_error = false;
     let mut conferencia_error = false;
 
-    // 1. Get exits map for this lote
+    let is_production_base: bool = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM overrides_produtos
+         WHERE codigo = $1 AND (categoria_produto = 'cat_base' OR status_produto = 'bases')",
+    )
+    .bind(product_code)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0)
+        > 0;
+
     let mut exits_map = std::collections::HashMap::new();
-    if let Ok(mut stmt) = conn.prepare(
+    if let Ok(rows) = sqlx::query(
         "SELECT item_code, quantity FROM stock_movements
-         WHERE document_number = ?1 AND movement_type = 'saida'"
-    ) {
-        if let Ok(mut rows) = stmt.query(params![lote_number]) {
-            while let Ok(Some(row)) = rows.next() {
-                if let (Ok(code), Ok(qty)) = (row.get::<_, String>(0), row.get::<_, f64>(1)) {
-                    *exits_map.entry(code).or_insert(0.0) += qty;
-                }
-            }
+         WHERE document_number = $1 AND movement_type = 'saida'",
+    )
+    .bind(lote_number)
+    .fetch_all(pool)
+    .await
+    {
+        for row in rows {
+            let code: String = row.get(0);
+            let qty: f64 = row.get(1);
+            *exits_map.entry(code).or_insert(0.0) += qty;
         }
     }
 
-    // A. Detect if a base was consumed
-    let mut base_code: Option<String> = None;
-    if let Ok(bc) = conn.query_row(
-        "SELECT base_code FROM historico_producao WHERE lote_erp = ?1 AND consume_base = 1 LIMIT 1",
-        params![lote_number],
-        |r| r.get::<_, Option<String>>(0)
-    ) {
-        base_code = bc;
-    }
+    let mut base_code: Option<String> = sqlx::query_scalar(
+        "SELECT base_code FROM historico_producao WHERE lote_erp = $1 AND consume_base = 1 LIMIT 1",
+    )
+    .bind(lote_number)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
     if base_code.is_none() {
-        if let Ok(Some(b_desc)) = conn.query_row(
-            "SELECT base FROM produtos WHERE codigo = ?1 LIMIT 1",
-            params![product_code],
-            |r| r.get::<_, Option<String>>(0)
-        ) {
-            if let Ok(bc) = conn.query_row(
-                "SELECT codigo FROM produtos WHERE descricao = ?1 LIMIT 1",
-                params![&b_desc],
-                |r| r.get::<_, String>(0)
-            ) {
-                if exits_map.contains_key(&bc) {
-                    base_code = Some(bc);
+        if let Some(b_desc) = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT base FROM produtos WHERE codigo = $1 LIMIT 1",
+        )
+        .bind(product_code)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .flatten()
+        {
+            if let Ok(bc) = sqlx::query_scalar::<_, String>(
+                "SELECT codigo FROM produtos WHERE descricao = $1 LIMIT 1",
+            )
+            .bind(&b_desc)
+            .fetch_optional(pool)
+            .await
+            {
+                if let Some(bc) = bc {
+                    if exits_map.contains_key(&bc) {
+                        base_code = Some(bc);
+                    }
                 }
             }
         }
@@ -1537,71 +1853,73 @@ pub fn check_lote_errors(
 
     let mut base_ingredients = std::collections::HashSet::new();
     if let Some(ref bc) = base_code {
-        if let Ok(mut stmt_base) = conn.prepare(
-            "SELECT ingredient_code FROM formulations WHERE product_code = ?1"
-        ) {
-            if let Ok(mut rows_base) = stmt_base.query(params![bc]) {
-                while let Ok(Some(row_base)) = rows_base.next() {
-                    if let Ok(ing) = row_base.get::<_, String>(0) {
-                        base_ingredients.insert(ing);
-                    }
-                }
+        if let Ok(rows) = sqlx::query(
+            "SELECT ingredient_code FROM formulations WHERE product_code = $1",
+        )
+        .bind(bc)
+        .fetch_all(pool)
+        .await
+        {
+            for row in rows {
+                base_ingredients.insert(row.get::<String, _>(0));
             }
         }
     }
 
-    // Find all products in this same batch
     let mut batch_products = Vec::new();
-    if let Ok(mut stmt) = conn.prepare(
-        "SELECT m.item_code, m.quantity, p.descricao 
+    if let Ok(rows) = sqlx::query(
+        "SELECT m.item_code, m.quantity, p.descricao
          FROM stock_movements m
          LEFT JOIN produtos p ON m.item_code = p.codigo
-         WHERE m.document_number = ?1 AND m.item_type = 'produto' AND m.movement_type = 'entrada'"
-    ) {
-        if let Ok(mut rows) = stmt.query(params![lote_number]) {
-            while let Ok(Some(row)) = rows.next() {
-                if let (Ok(code), Ok(qty), Ok(desc)) = (
-                    row.get::<_, String>(0),
-                    row.get::<_, f64>(1),
-                    row.get::<_, Option<String>>(2)
-                ) {
-                    batch_products.push((code, qty, desc.unwrap_or_default()));
-                }
-            }
+         WHERE m.document_number = $1 AND m.item_type = 'produto' AND m.movement_type = 'entrada'",
+    )
+    .bind(lote_number)
+    .fetch_all(pool)
+    .await
+    {
+        for row in rows {
+            batch_products.push((
+                row.get::<String, _>(0),
+                crate::core::pg_row::pg_f64(&row, 1),
+                row.get::<Option<String>, _>(2).unwrap_or_default(),
+            ));
         }
     }
-    
+
     if batch_products.is_empty() {
-        batch_products.push((product_code.to_string(), quantity, product_description.to_string()));
+        batch_products.push((
+            product_code.to_string(),
+            quantity,
+            product_description.to_string(),
+        ));
     }
 
     let total_batch_quantity: f64 = batch_products.iter().map(|(_, qty, _)| *qty).sum();
 
-    // 2. Fetch recipe items for current product (for packaging)
     let mut recipe_items = Vec::new();
-    if let Ok(mut stmt) = conn.prepare(
-        "SELECT ingredient_code, description, quantity, percentage FROM formulations WHERE product_code = ?1"
-    ) {
-        if let Ok(rows) = stmt.query_map(params![product_code], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                row.get::<_, f64>(2)?,
-                row.get::<_, Option<f64>>(3)?,
-            ))
-        }) {
-            for r in rows {
-                if let Ok(val) = r {
-                    recipe_items.push(val);
-                }
-            }
+    if let Ok(rows) = sqlx::query(
+        "SELECT ingredient_code, description, quantity, percentage FROM formulations WHERE product_code = $1",
+    )
+    .bind(product_code)
+    .fetch_all(pool)
+    .await
+    {
+        for row in rows {
+            recipe_items.push((
+                row.get::<String, _>(0),
+                row.get::<Option<String>, _>(1).unwrap_or_default(),
+                crate::core::pg_row::pg_f64(&row, 2),
+                row.get::<Option<f64>, _>(3),
+            ));
         }
     }
 
-    // Group duplicate recipe_items by ingredient_code
     let mut consolidated_recipe_items: Vec<(String, String, f64, Option<f64>)> = Vec::new();
     for (ing_code, ing_desc, qty, pct) in recipe_items {
-        if let Some(existing) = consolidated_recipe_items.iter_mut().find(|(code, _, _, _)| code == &ing_code) {
+        if let Some(existing) = consolidated_recipe_items
+            .iter_mut()
+            .find(|(code, _, _, _)| code == &ing_code)
+        {
             existing.2 += qty;
             if let Some(p) = pct {
                 existing.3 = Some(existing.3.unwrap_or(0.0) + p);
@@ -1612,9 +1930,9 @@ pub fn check_lote_errors(
     }
     let recipe_items = consolidated_recipe_items;
 
-    // 3. Check pesagem errors (consolidated for all products in the batch)
     let mut total_expected_ingredients = std::collections::HashMap::new();
-    let pesagem_total_actual = exits_map.iter()
+    let pesagem_total_actual = exits_map
+        .iter()
         .filter(|(code, _)| code.starts_with("9.15."))
         .map(|(_, qty)| *qty)
         .sum::<f64>();
@@ -1626,26 +1944,28 @@ pub fn check_lote_errors(
     };
 
     for (p_code, p_qty, p_desc) in &batch_products {
-        let prop = if total_batch_quantity > 0.0 { *p_qty / total_batch_quantity } else { 0.0 };
+        let prop = if total_batch_quantity > 0.0 {
+            *p_qty / total_batch_quantity
+        } else {
+            0.0
+        };
         let basis_weight_p = basis_weight_total * prop;
         let p_unit_weight = parse_unit_weight_from_desc(p_desc);
-        
+
         let mut p_recipe = Vec::new();
-        if let Ok(mut stmt) = conn.prepare(
-            "SELECT ingredient_code, quantity, percentage FROM formulations WHERE product_code = ?1"
-        ) {
-            if let Ok(rows) = stmt.query_map(params![p_code], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, f64>(1)?,
-                    row.get::<_, Option<f64>>(2)?,
-                ))
-            }) {
-                for r in rows {
-                    if let Ok(val) = r {
-                        p_recipe.push(val);
-                    }
-                }
+        if let Ok(rows) = sqlx::query(
+            "SELECT ingredient_code, quantity, percentage FROM formulations WHERE product_code = $1",
+        )
+        .bind(p_code)
+        .fetch_all(pool)
+        .await
+        {
+            for row in rows {
+                p_recipe.push((
+                    row.get::<String, _>(0),
+                    crate::core::pg_row::pg_f64(&row, 1),
+                    row.get::<Option<f64>, _>(2),
+                ));
             }
         }
 
@@ -1655,7 +1975,11 @@ pub fn check_lote_errors(
                 let expected_qty = if pct > 0.0 {
                     basis_weight_p * (pct / 100.0)
                 } else {
-                    let estimated_pct = if p_unit_weight > 0.0 { (std_qty / p_unit_weight) * 100.0 } else { 0.0 };
+                    let estimated_pct = if p_unit_weight > 0.0 {
+                        (std_qty / p_unit_weight) * 100.0
+                    } else {
+                        0.0
+                    };
                     basis_weight_p * (estimated_pct / 100.0)
                 };
                 *total_expected_ingredients.entry(ing_code).or_insert(0.0) += expected_qty;
@@ -1665,20 +1989,20 @@ pub fn check_lote_errors(
 
     for (ing_code, expected_qty) in &total_expected_ingredients {
         let mut actual_qty = *exits_map.get(ing_code).unwrap_or(&0.0);
-        
-        // Sum exited quantity of similar items
-        if let Ok(mut stmt_sim) = conn.prepare(
-            "SELECT item_code_b FROM similar_items WHERE item_code_a = ?1
+
+        if let Ok(rows) = sqlx::query(
+            "SELECT item_code_b FROM similar_items WHERE item_code_a = $1
              UNION
-             SELECT item_code_a FROM similar_items WHERE item_code_b = ?1"
-        ) {
-            if let Ok(mut rows_sim) = stmt_sim.query(params![ing_code]) {
-                while let Ok(Some(row_sim)) = rows_sim.next() {
-                    if let Ok(sim_code) = row_sim.get::<_, String>(0) {
-                        if let Some(&qty) = exits_map.get(&sim_code) {
-                            actual_qty += qty;
-                        }
-                    }
+             SELECT item_code_a FROM similar_items WHERE item_code_b = $1",
+        )
+        .bind(ing_code)
+        .fetch_all(pool)
+        .await
+        {
+            for row in rows {
+                let sim_code: String = row.get(0);
+                if let Some(&qty) = exits_map.get(&sim_code) {
+                    actual_qty += qty;
                 }
             }
         }
@@ -1694,7 +2018,9 @@ pub fn check_lote_errors(
             0.0
         };
 
-        if (actual_qty == 0.0 && *expected_qty > 0.0) || (*expected_qty > 0.0 && percentage_diff.abs() > 10.0) {
+        if (actual_qty == 0.0 && *expected_qty > 0.0)
+            || (*expected_qty > 0.0 && percentage_diff.abs() > 10.0)
+        {
             let is_missing = actual_qty == 0.0 && *expected_qty > 0.0;
             let is_in_base = is_missing && base_ingredients.contains(ing_code);
             if !is_in_base {
@@ -1703,7 +2029,6 @@ pub fn check_lote_errors(
         }
     }
 
-    // 4. Check envase errors (isolated for current product)
     let mut actual_units_envasadas = 0.0;
     let mut primary_units = 0.0;
     let mut has_primary = false;
@@ -1715,31 +2040,35 @@ pub fn check_lote_errors(
         }
     }
 
+    if is_production_base {
+        return (pesagem_error, false, false);
+    }
+
     let main_unit_weight = parse_unit_weight_from_desc(product_description);
 
     for (code, desc, std_qty) in &packaging_recipe_items {
         if *std_qty > 0.0 {
             let total_exit_qty = *exits_map.get(code).unwrap_or(&0.0);
-            
+
             let mut total_sharing_weight = 0.0;
             let mut is_shared = false;
             for (other_code, other_qty, _) in &batch_products {
-                let mut has_item = false;
-                if let Ok(mut stmt) = conn.prepare(
-                    "SELECT count(*) FROM formulations WHERE product_code = ?1 AND ingredient_code = ?2"
-                ) {
-                    if let Ok(count) = stmt.query_row(params![other_code, code], |r| r.get::<_, i32>(0)) {
-                        has_item = count > 0;
-                    }
-                }
-                if has_item {
+                let has_item: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM formulations WHERE product_code = $1 AND ingredient_code = $2",
+                )
+                .bind(other_code)
+                .bind(code)
+                .fetch_one(pool)
+                .await
+                .unwrap_or(0);
+                if has_item > 0 {
                     total_sharing_weight += *other_qty;
                     if other_code != product_code {
                         is_shared = true;
                     }
                 }
             }
-            
+
             let exit_qty = if is_shared && total_sharing_weight > 0.0 {
                 total_exit_qty * (quantity / total_sharing_weight)
             } else {
@@ -1747,14 +2076,14 @@ pub fn check_lote_errors(
             };
 
             let units = exit_qty / std_qty;
-            
+
             if is_primary_container(desc) && exit_qty > 0.0 {
                 has_primary = true;
                 if units > primary_units {
                     primary_units = units;
                 }
             }
-            
+
             if units > actual_units_envasadas {
                 actual_units_envasadas = units;
             }
@@ -1769,33 +2098,35 @@ pub fn check_lote_errors(
 
     let basis_units = if actual_units_envasadas > 0.0 {
         actual_units_envasadas
+    } else if main_unit_weight > 0.0 {
+        (quantity / main_unit_weight).round()
     } else {
-        if main_unit_weight > 0.0 { (quantity / main_unit_weight).round() } else { quantity }
+        quantity
     };
 
     for (item_code, _, std_qty) in &packaging_recipe_items {
         let expected_qty = basis_units * std_qty;
         let total_exit_qty = *exits_map.get(item_code).unwrap_or(&0.0);
-        
+
         let mut total_sharing_weight = 0.0;
         let mut is_shared = false;
         for (other_code, other_qty, _) in &batch_products {
-            let mut has_item = false;
-            if let Ok(mut stmt) = conn.prepare(
-                "SELECT count(*) FROM formulations WHERE product_code = ?1 AND ingredient_code = ?2"
-            ) {
-                if let Ok(count) = stmt.query_row(params![other_code, item_code], |r| r.get::<_, i32>(0)) {
-                    has_item = count > 0;
-                }
-            }
-            if has_item {
+            let has_item: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM formulations WHERE product_code = $1 AND ingredient_code = $2",
+            )
+            .bind(other_code)
+            .bind(item_code)
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0);
+            if has_item > 0 {
                 total_sharing_weight += *other_qty;
                 if other_code != product_code {
                     is_shared = true;
                 }
             }
         }
-        
+
         let actual_qty = if is_shared && total_sharing_weight > 0.0 {
             total_exit_qty * (quantity / total_sharing_weight)
         } else {
@@ -1809,12 +2140,13 @@ pub fn check_lote_errors(
             0.0
         };
 
-        if (actual_qty == 0.0 && expected_qty > 0.0) || (expected_qty > 0.0 && percentage_diff.abs() > 10.0) {
+        if (actual_qty == 0.0 && expected_qty > 0.0)
+            || (expected_qty > 0.0 && percentage_diff.abs() > 10.0)
+        {
             envase_error = true;
         }
     }
 
-    // 5. Check conferencia errors (isolated for current product)
     let mut unidades_conferidas = None;
     for part in details.split('|') {
         let part = part.trim();
@@ -1926,43 +2258,149 @@ fn parse_unit_weight_from_desc(desc: &str) -> f64 {
     0.25 // default
 }
 
+// GET /api/producao/lotes/:number
+pub async fn get_lote_lookup(
+    State(state): State<Arc<AppState>>,
+    Path(lote_number): Path<String>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+
+    let rows = match sqlx::query(
+        "SELECT m.item_code, COALESCE(p.descricao, ''), m.quantity, m.date, COALESCE(m.details, '')
+         FROM stock_movements m
+         LEFT JOIN produtos p ON m.item_code = p.codigo
+         WHERE m.document_number = $1 AND m.item_type = 'produto' AND m.movement_type = 'entrada'
+         ORDER BY m.item_code",
+    )
+    .bind(&lote_number)
+    .fetch_all(pool)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    if rows.is_empty() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("Lote \"{}\" não encontrado", lote_number) })),
+        )
+            .into_response();
+    }
+
+    let mut status = String::new();
+    let mut fabricated_by = String::new();
+    let mut authorized_by = String::new();
+    let details: String = rows[0].get(4);
+    for part in details.split('|') {
+        let part = part.trim();
+        if part.starts_with("Status:") {
+            status = part.trim_start_matches("Status:").trim().to_string();
+        } else if part.starts_with("Fab:") {
+            fabricated_by = part.trim_start_matches("Fab:").trim().to_string();
+        } else if part.starts_with("Aut:") {
+            authorized_by = part.trim_start_matches("Aut:").trim().to_string();
+        }
+    }
+
+    let status_label = match status.to_uppercase().as_str() {
+        "EA" => "Estoque Atualizado",
+        "PG" => "Em Pesagem",
+        "PP" => "Pré-Produção",
+        "PR" => "Em Produção",
+        "EN" => "Em Envase",
+        "CF" => "Conferido",
+        "CA" => "Cancelado",
+        "FP" => "Finalizado",
+        _ => &status,
+    }
+    .to_string();
+
+    let mut products = Vec::new();
+    let mut product_code_parts = Vec::new();
+    let mut product_desc_parts = Vec::new();
+    let mut total_qty = 0.0f64;
+    let mut date = String::new();
+
+    for row in &rows {
+        let code: String = row.get(0);
+        let desc: String = row.get(1);
+        let qty: f64 = row.get(2);
+        let dt: String = row.get(3);
+        if date.is_empty() {
+            date = dt.clone();
+        }
+        total_qty += qty;
+        product_code_parts.push(code.clone());
+        product_desc_parts.push(desc.clone());
+        products.push(json!({
+            "productCode": code,
+            "productDescription": desc,
+            "quantity": qty,
+            "unitWeightKg": parse_unit_weight_from_desc(&desc),
+        }));
+    }
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "loteNumber": lote_number,
+            "productCode": product_code_parts.join(" / "),
+            "productDescription": product_desc_parts.join(" / "),
+            "quantity": total_qty,
+            "date": date,
+            "status": status,
+            "statusLabel": status_label,
+            "fabricatedBy": fabricated_by,
+            "authorizedBy": authorized_by,
+            "products": products,
+        })),
+    )
+        .into_response()
+}
+
 // GET /api/producao/lotes/:number/detalhes
 pub async fn get_lote_detalhes(
     State(state): State<Arc<AppState>>,
     Path(lote_number): Path<String>,
 ) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
-    };
+    let pool = state.db.pool();
 
-    let mut stmt = match conn.prepare(
+    let rows = match sqlx::query(
         "SELECT m.item_code, p.descricao, m.quantity, m.date, m.details
          FROM stock_movements m
          LEFT JOIN produtos p ON m.item_code = p.codigo
-         WHERE m.document_number = ?1 AND m.item_type = 'produto' AND m.movement_type = 'entrada'"
-    ) {
-        Ok(s) => s,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+         WHERE m.document_number = $1 AND m.item_type = 'produto' AND m.movement_type = 'entrada'",
+    )
+    .bind(&lote_number)
+    .fetch_all(pool)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
     };
 
-    let product_rows = stmt.query_map(params![&lote_number], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-            row.get::<_, f64>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-        ))
-    });
-
     let mut products = Vec::new();
-    if let Ok(iter) = product_rows {
-        for r in iter {
-            if let Ok(vals) = r {
-                products.push(vals);
-            }
-        }
+    for row in rows {
+        products.push((
+            row.get::<String, _>(0),
+            row.get::<Option<String>, _>(1).unwrap_or_default(),
+            crate::core::pg_row::pg_f64(&row, 2),
+            row.get::<String, _>(3),
+            row.get::<Option<String>, _>(4).unwrap_or_default(),
+        ));
     }
 
     if products.is_empty() {
@@ -2002,40 +2440,49 @@ pub async fn get_lote_detalhes(
     }.to_string();
 
     let mut exits_map = std::collections::HashMap::new();
-    if let Ok(mut stmt) = conn.prepare(
+    if let Ok(rows) = sqlx::query(
         "SELECT item_code, quantity FROM stock_movements
-         WHERE document_number = ?1 AND item_type = 'insumo' AND movement_type = 'saida'"
-    ) {
-        if let Ok(mut rows) = stmt.query(params![&lote_number]) {
-            while let Ok(Some(row)) = rows.next() {
-                if let (Ok(code), Ok(qty)) = (row.get::<_, String>(0), row.get::<_, f64>(1)) {
-                    *exits_map.entry(code).or_insert(0.0) += qty;
-                }
-            }
+         WHERE document_number = $1 AND item_type = 'insumo' AND movement_type = 'saida'",
+    )
+    .bind(&lote_number)
+    .fetch_all(pool)
+    .await
+    {
+        for row in rows {
+            let code: String = row.get(0);
+            let qty: f64 = row.get(1);
+            *exits_map.entry(code).or_insert(0.0) += qty;
         }
     }
 
-    // B. Detect if a base was consumed
-    let mut base_code: Option<String> = None;
-    if let Ok(bc) = conn.query_row(
-        "SELECT base_code FROM historico_producao WHERE lote_erp = ?1 AND consume_base = 1 LIMIT 1",
-        params![&lote_number],
-        |r| r.get::<_, Option<String>>(0)
-    ) {
-        base_code = bc;
-    }
+    let mut base_code: Option<String> = sqlx::query_scalar(
+        "SELECT base_code FROM historico_producao WHERE lote_erp = $1 AND consume_base = 1 LIMIT 1",
+    )
+    .bind(&lote_number)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
     if base_code.is_none() {
         for (p_code, _, _, _, _) in &products {
-            if let Ok(Some(b_desc)) = conn.query_row(
-                "SELECT base FROM produtos WHERE codigo = ?1 LIMIT 1",
-                params![p_code],
-                |r| r.get::<_, Option<String>>(0)
-            ) {
-                if let Ok(bc) = conn.query_row(
-                    "SELECT codigo FROM produtos WHERE descricao = ?1 LIMIT 1",
-                    params![&b_desc],
-                    |r| r.get::<_, String>(0)
-                ) {
+            if let Some(b_desc) = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT base FROM produtos WHERE codigo = $1 LIMIT 1",
+            )
+            .bind(p_code)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+            .flatten()
+            {
+                if let Ok(Some(bc)) = sqlx::query_scalar::<_, String>(
+                    "SELECT codigo FROM produtos WHERE descricao = $1 LIMIT 1",
+                )
+                .bind(&b_desc)
+                .fetch_optional(pool)
+                .await
+                {
                     if exits_map.contains_key(&bc) {
                         base_code = Some(bc);
                         break;
@@ -2047,15 +2494,15 @@ pub async fn get_lote_detalhes(
 
     let mut base_ingredients = std::collections::HashSet::new();
     if let Some(ref bc) = base_code {
-        if let Ok(mut stmt_base) = conn.prepare(
-            "SELECT ingredient_code FROM formulations WHERE product_code = ?1"
-        ) {
-            if let Ok(mut rows_base) = stmt_base.query(params![bc]) {
-                while let Ok(Some(row_base)) = rows_base.next() {
-                    if let Ok(ing) = row_base.get::<_, String>(0) {
-                        base_ingredients.insert(ing);
-                    }
-                }
+        if let Ok(rows) = sqlx::query(
+            "SELECT ingredient_code FROM formulations WHERE product_code = $1",
+        )
+        .bind(bc)
+        .fetch_all(pool)
+        .await
+        {
+            for row in rows {
+                base_ingredients.insert(row.get::<String, _>(0));
             }
         }
     }
@@ -2080,22 +2527,20 @@ pub async fn get_lote_detalhes(
         let p_unit_weight = parse_unit_weight_from_desc(p_desc);
         
         let mut recipe_items = Vec::new();
-        if let Ok(mut stmt) = conn.prepare(
-            "SELECT ingredient_code, description, quantity, percentage FROM formulations WHERE product_code = ?1"
-        ) {
-            if let Ok(rows) = stmt.query_map(params![p_code], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                    row.get::<_, f64>(2)?,
-                    row.get::<_, Option<f64>>(3)?,
-                ))
-            }) {
-                for r in rows {
-                    if let Ok(val) = r {
-                        recipe_items.push(val);
-                    }
-                }
+        if let Ok(rows) = sqlx::query(
+            "SELECT ingredient_code, description, quantity, percentage FROM formulations WHERE product_code = $1",
+        )
+        .bind(p_code)
+        .fetch_all(pool)
+        .await
+        {
+            for row in rows {
+                recipe_items.push((
+                    row.get::<String, _>(0),
+                    row.get::<Option<String>, _>(1).unwrap_or_default(),
+                    crate::core::pg_row::pg_f64(&row, 2),
+                    row.get::<Option<f64>, _>(3),
+                ));
             }
         }
         
@@ -2162,16 +2607,24 @@ pub async fn get_lote_detalhes(
         let is_base = base_code.as_ref().map(|bc| bc == ing_code).unwrap_or(false);
         if is_base || (ing_code.starts_with("9.15.") && !total_expected_ingredients.contains_key(ing_code)) {
             let mut ing_desc = String::new();
-            if let Ok(mut stmt_item) = conn.prepare("SELECT description FROM items WHERE code = ?1") {
-                if let Ok(desc) = stmt_item.query_row(params![ing_code], |r| r.get::<_, String>(0)) {
-                    ing_desc = desc;
-                }
+            if let Ok(Some(desc)) = sqlx::query_scalar::<_, String>(
+                "SELECT description FROM items WHERE code = $1",
+            )
+            .bind(ing_code)
+            .fetch_optional(pool)
+            .await
+            {
+                ing_desc = desc;
             }
             if ing_desc.is_empty() {
-                if let Ok(mut stmt_item) = conn.prepare("SELECT descricao FROM produtos WHERE codigo = ?1") {
-                    if let Ok(desc) = stmt_item.query_row(params![ing_code], |r| r.get::<_, String>(0)) {
-                        ing_desc = desc;
-                    }
+                if let Ok(Some(desc)) = sqlx::query_scalar::<_, String>(
+                    "SELECT descricao FROM produtos WHERE codigo = $1",
+                )
+                .bind(ing_code)
+                .fetch_optional(pool)
+                .await
+                {
+                    ing_desc = desc;
                 }
             }
             if ing_desc.is_empty() {
@@ -2214,6 +2667,19 @@ pub async fn get_lote_detalhes(
     let mut total_packaged_weight_kg = 0.0;
 
     for (p_code, p_desc, p_qty, _, p_details) in &products {
+        let p_is_base: bool = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM overrides_produtos
+             WHERE codigo = $1 AND (categoria_produto = 'cat_base' OR status_produto = 'bases')",
+        )
+        .bind(p_code)
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0)
+            > 0;
+        if p_is_base {
+            continue; // bases não entram em envase/conferência
+        }
+
         let p_unit_weight = parse_unit_weight_from_desc(p_desc);
         
         let mut p_unidades_conferidas = None;
@@ -2229,22 +2695,21 @@ pub async fn get_lote_detalhes(
         }
 
         let mut p_recipe_items = Vec::new();
-        if let Ok(mut stmt) = conn.prepare(
-            "SELECT ingredient_code, description, quantity FROM formulations WHERE product_code = ?1"
-        ) {
-            if let Ok(rows) = stmt.query_map(params![p_code], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                    row.get::<_, f64>(2)?,
-                ))
-            }) {
-                for r in rows {
-                    if let Ok(val) = r {
-                        if !val.0.starts_with("9.15.") {
-                            p_recipe_items.push(val);
-                        }
-                    }
+        if let Ok(rows) = sqlx::query(
+            "SELECT ingredient_code, description, quantity FROM formulations WHERE product_code = $1",
+        )
+        .bind(p_code)
+        .fetch_all(pool)
+        .await
+        {
+            for row in rows {
+                let code: String = row.get(0);
+                if !code.starts_with("9.15.") {
+                    p_recipe_items.push((
+                        code,
+                        row.get::<Option<String>, _>(1).unwrap_or_default(),
+                        crate::core::pg_row::pg_f64(&row, 2),
+                    ));
                 }
             }
         }
@@ -2260,15 +2725,15 @@ pub async fn get_lote_detalhes(
                 let mut total_sharing_weight = 0.0;
                 let mut is_shared = false;
                 for (other_code, _, other_qty, _, _) in &products {
-                    let mut has_item = false;
-                    if let Ok(mut stmt) = conn.prepare(
-                        "SELECT count(*) FROM formulations WHERE product_code = ?1 AND ingredient_code = ?2"
-                    ) {
-                        if let Ok(count) = stmt.query_row(params![other_code, code], |r| r.get::<_, i32>(0)) {
-                            has_item = count > 0;
-                        }
-                    }
-                    if has_item {
+                    let has_item: i64 = sqlx::query_scalar(
+                        "SELECT COUNT(*) FROM formulations WHERE product_code = $1 AND ingredient_code = $2",
+                    )
+                    .bind(other_code)
+                    .bind(code)
+                    .fetch_one(pool)
+                    .await
+                    .unwrap_or(0);
+                    if has_item > 0 {
                         total_sharing_weight += *other_qty;
                         if other_code != p_code {
                             is_shared = true;
@@ -2318,15 +2783,15 @@ pub async fn get_lote_detalhes(
             let mut total_sharing_weight = 0.0;
             let mut is_shared = false;
             for (other_code, _, other_qty, _, _) in &products {
-                let mut has_item = false;
-                if let Ok(mut stmt) = conn.prepare(
-                    "SELECT count(*) FROM formulations WHERE product_code = ?1 AND ingredient_code = ?2"
-                ) {
-                    if let Ok(count) = stmt.query_row(params![other_code, item_code], |r| r.get::<_, i32>(0)) {
-                        has_item = count > 0;
-                    }
-                }
-                if has_item {
+                let has_item: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM formulations WHERE product_code = $1 AND ingredient_code = $2",
+                )
+                .bind(other_code)
+                .bind(item_code)
+                .fetch_one(pool)
+                .await
+                .unwrap_or(0);
+                if has_item > 0 {
                     total_sharing_weight += *other_qty;
                     if other_code != p_code {
                         is_shared = true;
@@ -2424,20 +2889,22 @@ pub async fn get_lote_detalhes(
         0.0
     };
 
-    let mut is_resolved = None;
-    let mut resolution_obs = None;
-
-    if let Ok(mut stmt_res) = conn.prepare(
-        "SELECT is_resolved, observations FROM lote_error_resolutions WHERE lote_number = ?1"
-    ) {
-        if let Ok(mut rows_res) = stmt_res.query(params![&lote_number]) {
-            if let Ok(Some(row_res)) = rows_res.next() {
-                let is_res_int: Option<i32> = row_res.get(0).ok();
-                is_resolved = is_res_int.map(|v| v == 1);
-                resolution_obs = row_res.get(1).ok();
-            }
+    let (is_resolved, resolution_obs) = match sqlx::query(
+        "SELECT is_resolved, observations FROM lote_error_resolutions WHERE lote_number = $1",
+    )
+    .bind(&lote_number)
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(Some(row)) => {
+            let is_res_int: Option<i32> = row.get(0);
+            (
+                is_res_int.map(|v| v == 1),
+                row.get::<Option<String>, _>(1),
+            )
         }
-    }
+        _ => (None, None),
+    };
 
     let details = LoteDetalhes {
         lote_number,
@@ -2470,21 +2937,26 @@ pub async fn save_lote_resolution(
     Path(lote_number): Path<String>,
     Json(payload): Json<ResolveLotePayload>,
 ) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
-    };
-
+    let pool = state.db.pool();
     let resolved_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let resolved_by = payload.resolved_by.unwrap_or_else(|| "Administrador".to_string());
 
-    let res = conn.execute(
-        "INSERT OR REPLACE INTO lote_error_resolutions (lote_number, is_resolved, resolved_by, resolved_at, observations)
-         VALUES (?1, 1, ?2, ?3, ?4)",
-        params![lote_number, resolved_by, resolved_at, payload.observations],
-    );
-
-    match res {
+    match sqlx::query(
+        "INSERT INTO lote_error_resolutions (lote_number, is_resolved, resolved_by, resolved_at, observations)
+         VALUES ($1, 1, $2, $3, $4)
+         ON CONFLICT(lote_number) DO UPDATE SET
+            is_resolved = EXCLUDED.is_resolved,
+            resolved_by = EXCLUDED.resolved_by,
+            resolved_at = EXCLUDED.resolved_at,
+            observations = EXCLUDED.observations",
+    )
+    .bind(&lote_number)
+    .bind(&resolved_by)
+    .bind(&resolved_at)
+    .bind(&payload.observations)
+    .execute(pool)
+    .await
+    {
         Ok(_) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     }
@@ -2495,17 +2967,12 @@ pub async fn delete_lote_resolution(
     State(state): State<Arc<AppState>>,
     Path(lote_number): Path<String>,
 ) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
-    };
-
-    let res = conn.execute(
-        "DELETE FROM lote_error_resolutions WHERE lote_number = ?1",
-        params![lote_number],
-    );
-
-    match res {
+    let pool = state.db.pool();
+    match sqlx::query("DELETE FROM lote_error_resolutions WHERE lote_number = $1")
+        .bind(&lote_number)
+        .execute(pool)
+        .await
+    {
         Ok(_) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     }

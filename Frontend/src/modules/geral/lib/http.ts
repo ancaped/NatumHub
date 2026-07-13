@@ -72,24 +72,37 @@ function buildHeaders(init?: RequestInit & { skipAuth?: boolean }): HeadersInit 
 
 export async function apiFetch(path: string, init?: RequestInit & { skipAuth?: boolean }): Promise<Response> {
   const url = buildUrl(path);
-  try {
-    return await fetch(url, {
-      ...init,
-      headers: buildHeaders(init),
-    });
-  } catch (err: unknown) {
-    const origin = resolveApiOrigin();
-    const hint =
-      origin.includes('127.0.0.1') || origin.includes('localhost')
-        ? 'Verifique se o NatumHub master está aberto e o servidor na porta 3001 está ativo.'
-        : `Verifique a conexão com o servidor master (${origin}) — Tailscale/rede local.`;
-    const msg = err instanceof Error && err.message === 'Failed to fetch'
-      ? `Servidor inacessível. ${hint}`
-      : err instanceof Error
-        ? err.message
-        : String(err);
-    throw new ApiError(msg, 0);
+  const method = (init?.method || 'GET').toUpperCase();
+  const retries = method === 'GET' || method === 'HEAD' ? 2 : 0;
+  let lastErr: unknown;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fetch(url, {
+        ...init,
+        headers: buildHeaders(init),
+      });
+    } catch (err: unknown) {
+      lastErr = err;
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, 350 * (attempt + 1)));
+        continue;
+      }
+    }
   }
+
+  const origin = resolveApiOrigin();
+  const hint =
+    origin.includes('127.0.0.1') || origin.includes('localhost')
+      ? 'Verifique se o NatumHub está aberto e a API local (:3001) responde. Dados ficam no Supabase.'
+      : `Verifique a API em ${origin} e a conexão com o Supabase.`;
+  const msg =
+    lastErr instanceof Error && lastErr.message === 'Failed to fetch'
+      ? `API inacessível. ${hint}`
+      : lastErr instanceof Error
+        ? lastErr.message
+        : String(lastErr);
+  throw new ApiError(msg, 0);
 }
 
 export async function apiJson<T = unknown>(path: string, init?: RequestInit & { skipAuth?: boolean }): Promise<T> {

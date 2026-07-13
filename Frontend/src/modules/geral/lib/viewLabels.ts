@@ -7,6 +7,10 @@ export function getModuleTitle(view: string): string {
       return 'Produção';
     case 'producao':
       return 'Produção > Gerenciamento';
+    case 'producao_bases':
+      return 'Produção > Gestão de Bases';
+    case 'producao_lotes':
+      return 'Produção > Lotes de Produção';
     case 'microbiologia':
       return 'Produção > Microbiologia';
     case 'fisco_quimica':
@@ -15,8 +19,6 @@ export function getModuleTitle(view: string): string {
       return 'Produção > Montagem de Kits';
     case 'compras_hub':
       return 'Compras';
-    case 'compras':
-      return 'Compras > Planejamento';
     case 'compras_materia_prima':
       return 'Compras > Matéria-Prima';
     case 'compras_embalagens':
@@ -36,15 +38,34 @@ export function getModuleTitle(view: string): string {
     case 'estoque_hub':
       return 'Estoque';
     case 'estoque_insumos':
-      return 'Estoque > Insumos';
+      return 'Estoque > Insumos (legado)';
     case 'estoque_produtos':
-      return 'Estoque > Produtos';
+      return 'Estoque > Produtos (legado)';
+    case 'estoque_materia_prima':
+      return 'Estoque > Matéria-Prima';
+    case 'estoque_embalagens':
+      return 'Estoque > Embalagens';
+    case 'estoque_coloracao':
+      return 'Estoque > Coloração';
+    case 'estoque_apoio':
+      return 'Estoque > Material de Apoio';
+    case 'admin_linha_produtos':
     case 'estoque_ativos':
-      return 'Estoque > Linha de Produtos';
+      return 'Administrativo > Linha de Produtos';
     case 'vendas':
+      return 'Vendas > Vendas Geral';
+    case 'vendas_hub':
       return 'Vendas';
+    case 'vendas_online':
+      return 'Vendas > Vendas Online';
+    case 'controle_qualidade':
+      return 'Qualidade > Controle de Qualidade';
+    case 'administrativo':
+      return 'Administrativo';
+    case 'expedicao':
+      return 'Expedição';
     case 'linha_produtos':
-      return 'Estoque > Linhas';
+      return 'Administrativo > Linha de Produtos';
     case 'financeiro':
       return 'Financeiro';
     case 'hub_settings':
@@ -58,9 +79,18 @@ export function getModuleTitle(view: string): string {
   }
 }
 
+/** View id usado no App.tsx por mode do EstoqueView. */
+export const ESTOQUE_MODE_VIEW: Record<string, string> = {
+  materia_prima: 'estoque_materia_prima',
+  embalagens: 'estoque_embalagens',
+  coloracao: 'estoque_coloracao',
+  apoio: 'estoque_apoio',
+  insumos: 'estoque_insumos',
+  produtos: 'estoque_produtos',
+};
+
 /** View id usado no App.tsx por mode do ComprasView. */
 export const COMPRAS_MODE_VIEW: Record<string, string> = {
-  all: 'compras',
   materia_prima: 'compras_materia_prima',
   embalagens: 'compras_embalagens',
   coloracao: 'compras_coloracao',

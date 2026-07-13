@@ -6,9 +6,11 @@ import RestartRequiredView from './modules/geral/acesso/RestartRequiredView';
 import DashboardView from './modules/geral/dashboard/DashboardView';
 import ConfiguracoesView from './modules/geral/configuracoes/ConfiguracoesView';
 import FeedbacksAdminView from './modules/geral/feedbacks/FeedbacksAdminView';
-import Header from './modules/geral/components/layout/Header';
+import AppShell from './modules/geral/components/layout/AppShell';
 
 import ProducaoView from './modules/producao/gerenciamento/ProducaoView';
+import ProducaoBasesView from './modules/producao/bases/ProducaoBasesView';
+import ProducaoLotesView from './modules/producao/lotes/ProducaoLotesView';
 import MontagemKitsView from './modules/producao/montagem_kits/MontagemKitsView';
 import MicrobiologiaView from './modules/producao/microbiologia/MicrobiologiaView';
 import FiscoQuimicaView from './modules/producao/fisco_quimica/FiscoQuimicaView';
@@ -17,8 +19,12 @@ import ComprasOnlineView from './modules/compras/compras_online/ComprasOnlineVie
 import EstoqueView from './modules/estoque/estoque_geral/EstoqueView';
 import PedidosView from './modules/compras/controle_pedidos/PedidosView';
 import NotasFiscaisView from './modules/compras/notas_fiscais/NotasFiscaisView';
-import ActiveProductsView from './modules/estoque/linha_produtos/ActiveProductsView';
+import ActiveProductsView from './modules/administrativo/linha_produtos/ActiveProductsView';
 import VendasView from './modules/vendas/vendas_geral/VendasView';
+import VendasOnlineView from './modules/vendas/vendas_online/VendasOnlineView';
+import ControleQualidadeView from './modules/qualidade/controle/ControleQualidadeView';
+import AdministrativoView from './modules/administrativo/AdministrativoView';
+import ExpedicaoView from './modules/expedicao/ExpedicaoView';
 import FinanceiroView from './modules/financeiro/FinanceiroView';
 import { ErrorBoundary } from './modules/geral/components/ErrorBoundary';
 import { FeedbackWidget } from './modules/geral/components/FeedbackWidget';
@@ -44,17 +50,14 @@ import { getRedirectResult } from 'firebase/auth';
 
 import { runUpdateCheckFlow } from './modules/geral/lib/updateChannel';
 import {
-  isPrincipalPc,
   isConnectionSetupCompleted,
   syncConfigFromTauri,
-  loadConnectionConfig,
   waitForServerHealth,
   resetConnectionSetupForWizard,
   getApiOrigin,
 } from './modules/geral/lib/connectionConfig';
-import { claimPrincipalDevice } from './modules/geral/lib/notifications';
 
-type HubView = 'hub' | 'producao_hub' | 'producao' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'estoque_hub' | 'estoque_insumos' | 'estoque_produtos' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'vendas' | 'linha_produtos' | 'estoque_ativos' | 'financeiro';
+type HubView = 'hub' | 'producao_hub' | 'producao' | 'producao_bases' | 'producao_lotes' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'estoque_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'controle_qualidade' | 'administrativo' | 'admin_linha_produtos' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro';
 
 export default function App() {
   const [view, setView] = useState<HubView>('hub');
@@ -186,17 +189,20 @@ export default function App() {
     }
   };
 
-  const handleSyncSqlDatabase = async () => {
+  const handleSyncSqlDatabase = async (mode: 'incremental' | 'full' = 'incremental') => {
     setSyncingSql(true);
     try {
-      const data = await apiJson<{ message?: string; error?: string }>('/import/sync', { method: 'POST' });
-      setMessage({ text: data.message || "Sincronização realizada com sucesso!", type: 'success' });
+      const qs = mode === 'full' ? '?mode=full' : '?mode=incremental';
+      const data = await apiJson<{ message?: string; error?: string }>(`/import/sync${qs}`, {
+        method: 'POST',
+      });
+      setMessage({ text: data.message || 'Sincronização realizada com sucesso!', type: 'success' });
     } catch (e: any) {
       console.error(e);
-      setMessage({ text: e?.message || "Erro ao sincronizar com o banco de dados", type: 'error' });
+      setMessage({ text: e?.message || 'Erro ao sincronizar com o banco de dados', type: 'error' });
     } finally {
       setSyncingSql(false);
-      setTimeout(() => setMessage(null), 4000);
+      setTimeout(() => setMessage(null), 6000);
     }
   };
 
@@ -221,18 +227,8 @@ export default function App() {
   const finishSupervisorSetup = async () => {
     setNeedsSupervisorSetup(false);
     setCurrentUser(getAuthUser());
-    if (isPrincipalPc()) {
-      const cfg = loadConnectionConfig();
-      if (cfg.deviceId) {
-        try {
-          await claimPrincipalDevice(cfg.deviceId, cfg.deviceLabel || 'PC Principal');
-        } catch (e) {
-          console.warn('Registro de PC principal:', e);
-        }
-      }
-      fetchFirebaseConfig();
-      fetchSqlConfig();
-    }
+    fetchFirebaseConfig();
+    fetchSqlConfig();
   };
 
   const openConnectionWizard = (reason?: string) => {
@@ -246,46 +242,24 @@ export default function App() {
     setNeedsConnectionSetup(false);
     setConnectionWizardReason(null);
 
-    if (isPrincipalPc()) {
-      const online = await waitForServerHealth(25000);
-      if (!online) {
-        openConnectionWizard(
-          'Servidor local não respondeu na porta 3001. Escolha Desenvolvimento (tauri dev) ou reinicie o app após configurar como Servidor.'
-        );
-        return;
-      }
-      try {
-        const setup = await fetchSetupStatus();
-        setNeedsSupervisorSetup(setup.needsSupervisorSetup);
-        if (setup.needsSupervisorSetup) {
-          clearAuthSession();
-          setCurrentUser(null);
-        }
-      } catch {
-        setNeedsSupervisorSetup(true);
-        clearAuthSession();
-        setCurrentUser(null);
-      }
-      return;
-    }
-
-    const online = await waitForServerHealth(12000);
+    const online = await waitForServerHealth(25000);
     if (!online) {
       openConnectionWizard(
-        `Não foi possível contactar o servidor em ${getApiOrigin()}. Verifique se o PC Estável está ligado e o endereço está correto (Tailscale/LAN).`
+        'API local não respondeu na porta 3001. Reinicie o aplicativo e tente novamente.'
       );
       return;
     }
-
-    setNeedsSupervisorSetup(false);
     try {
-      const user = await validateSession();
-      if (user) {
-        setCurrentUser(user);
-        checkUpdates(user);
+      const setup = await fetchSetupStatus();
+      setNeedsSupervisorSetup(setup.needsSupervisorSetup);
+      if (setup.needsSupervisorSetup) {
+        clearAuthSession();
+        setCurrentUser(null);
       }
     } catch {
-      /* login em seguida */
+      setNeedsSupervisorSetup(true);
+      clearAuthSession();
+      setCurrentUser(null);
     }
   };
 
@@ -321,73 +295,43 @@ export default function App() {
         return;
       }
 
-      if (isPrincipalPc()) {
-        fetchFirebaseConfig();
-        fetchSqlConfig();
-        const online = await waitForServerHealth(25000);
-        if (cancelled) return;
-        if (!online) {
-          openConnectionWizard(
-            'Servidor local ainda não respondeu. Em tauri dev, escolha Desenvolvimento ou reinicie o app.'
-          );
-          setSetupChecked(true);
-          setAuthReady(true);
-          return;
-        }
-        let needsSetup = false;
-        try {
-          const setup = await fetchSetupStatus();
-          needsSetup = setup.needsSupervisorSetup;
-        } catch {
-          needsSetup = true;
-        }
-        if (cancelled) return;
-        if (needsSetup) {
-          clearAuthSession();
-          setCurrentUser(null);
-          setNeedsSupervisorSetup(true);
-        } else {
-          setNeedsSupervisorSetup(false);
-          try {
-            const user = await validateSession();
-            if (user) {
-              setCurrentUser(user);
-              checkUpdates(user);
-            }
-          } catch {
-            clearAuthSession();
-            setCurrentUser(null);
-          }
-        }
-        setSetupChecked(true);
-        setAuthReady(true);
-        return;
-      }
-
-      // Cliente remoto
-      const online = await waitForServerHealth(12000);
+      fetchFirebaseConfig();
+      fetchSqlConfig();
+      const online = await waitForServerHealth(25000);
       if (cancelled) return;
       if (!online) {
         openConnectionWizard(
-          `Servidor inacessível em ${getApiOrigin()}. Antes do login, configure a conexão com o PC Estável (ou use Desenvolvimento no tauri dev).`
+          'API local ainda não respondeu. Reinicie o aplicativo e tente novamente.'
         );
         setSetupChecked(true);
         setAuthReady(true);
         return;
       }
-
-      setNeedsSupervisorSetup(false);
+      let needsSetup = false;
       try {
-        const user = await validateSession();
-        if (user) {
-          setCurrentUser(user);
-          checkUpdates(user);
-        }
+        const setup = await fetchSetupStatus();
+        needsSetup = setup.needsSupervisorSetup;
       } catch {
+        needsSetup = true;
+      }
+      if (cancelled) return;
+      if (needsSetup) {
         clearAuthSession();
         setCurrentUser(null);
+        setNeedsSupervisorSetup(true);
+      } else {
+        setNeedsSupervisorSetup(false);
+        try {
+          const user = await validateSession();
+          if (user) {
+            setCurrentUser(user);
+            checkUpdates(user);
+          }
+        } catch {
+          clearAuthSession();
+          setCurrentUser(null);
+        }
       }
-
       setSetupChecked(true);
       setAuthReady(true);
     }
@@ -477,14 +421,16 @@ export default function App() {
     setSyncingFirebase(true);
     setUploadProgress(0);
     try {
-      setMessage({ text: "Comprimindo banco de dados...", type: 'success' });
-      // 1. Get compressed backup from backend Rust
-      const data = await api.getCompressedBackup();
-      
+      setMessage({ text: "Gerando resumo do ERP...", type: 'success' });
+      const summary = await api.exportErpSummary();
+      const jsonBytes = new TextEncoder().encode(JSON.stringify(summary, null, 2));
+      const compressed = await new Response(
+        new Blob([jsonBytes]).stream().pipeThrough(new CompressionStream('gzip'))
+      ).arrayBuffer();
+
       setMessage({ text: "Enviando para o Firebase Cloud Storage...", type: 'success' });
-      // 2. Upload to Firebase Storage
-      const fileName = `natum_backup_${new Date().toISOString().split('T')[0]}.db.gz`;
-      await uploadBackupFile(firebaseUser.uid, new Uint8Array(data), fileName, (progress) => {
+      const fileName = `natum_erp_summary_${new Date().toISOString().split('T')[0]}.json.gz`;
+      await uploadBackupFile(firebaseUser.uid, new Uint8Array(compressed), fileName, (progress) => {
         setUploadProgress(progress);
       });
       
@@ -505,18 +451,18 @@ export default function App() {
   const handleManualBackup = async () => {
     setBackingUpManual(true);
     try {
-      const data = await api.getBackup();
-      const blob = new Blob([new Uint8Array(data)], { type: 'application/octet-stream' });
+      const summary = await api.exportErpSummary();
+      const blob = new Blob([JSON.stringify(summary, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `natum_backup_${new Date().toISOString().split('T')[0]}.db`;
+      a.download = `natum_erp_summary_${new Date().toISOString().split('T')[0]}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      setMessage({ text: "Backup exportado com sucesso!", type: 'success' });
+      setMessage({ text: "Resumo ERP exportado com sucesso!", type: 'success' });
     } catch (e) {
       console.error(e);
-      setMessage({ text: "Erro ao gerar backup manual", type: 'error' });
+      setMessage({ text: "Erro ao gerar exportação", type: 'error' });
     } finally {
       setBackingUpManual(false);
       setTimeout(() => setMessage(null), 4000);
@@ -524,36 +470,16 @@ export default function App() {
   };
 
   const handleManualRestore = async () => {
-    if (!confirm('ATENÇÃO: Restaurar um backup vai SUBSTITUIR todos os dados atuais (Insumos, Lotes, Microbiologia, etc.). Continuar?')) return;
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.db';
-    input.onchange = async (e: any) => {
-      setRestoringManual(true);
-      const file = e.target.files[0];
-      if (!file) {
-        setRestoringManual(false);
-        return;
-      }
-      const buf = await file.arrayBuffer();
-      const data = Array.from(new Uint8Array(buf));
-      try {
-        await api.restoreBackup(data);
-        setMessage({ text: "Backup restaurado com sucesso!", type: 'success' });
-        alert('Backup restaurado com sucesso! O aplicativo precisa ser reiniciado para carregar os novos dados.');
-        window.location.reload();
-      } catch (err) {
-        console.error(err);
-        setMessage({ text: "Erro ao restaurar backup", type: 'error' });
-      } finally {
-        setRestoringManual(false);
-        setTimeout(() => setMessage(null), 4000);
-      }
-    };
-    input.click();
+    alert(
+      'Restauração de arquivo .db não está mais disponível.\n\n' +
+      'Os dados ficam no PostgreSQL (Supabase). Use o painel Supabase para backup/restore completo, ' +
+      'ou "Reset operacional" nas configurações (supervisor) para limpar dados transacionais.'
+    );
   };
 
   const renderContent = () => {
+    const allow = (v: string) => canAccessView(currentUser as AuthUser | null, v);
+
     if (!authReady || !setupChecked) {
       return (
         <div className="flex-1 flex items-center justify-center bg-zinc-50">
@@ -572,7 +498,7 @@ export default function App() {
       );
     }
 
-    if (needsSupervisorSetup && isPrincipalPc()) {
+    if (needsSupervisorSetup) {
       return <SetupSupervisorView onComplete={() => finishSupervisorSetup()} />;
     }
 
@@ -584,7 +510,7 @@ export default function App() {
           fetchSqlConfig={fetchSqlConfig}
           appName={APP_NAME}
           onReconfigureConnection={() =>
-            openConnectionWizard('Reconfigure como Servidor, Terminal ou Desenvolvimento.')
+            openConnectionWizard('Reconfigure o nome deste dispositivo se necessário.')
           }
           onLoginSuccess={() => {
             setCurrentUser(getAuthUser());
@@ -597,6 +523,22 @@ export default function App() {
       return (
         <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Produção">
           <ProducaoView onBackToHub={() => setView('producao_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'producao_bases') {
+      return (
+        <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Gestão de Bases">
+          <ProducaoBasesView onBackToHub={() => setView('producao_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'producao_lotes') {
+      return (
+        <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Lotes de Produção">
+          <ProducaoLotesView onBackToHub={() => setView('producao_hub')} />
         </ErrorBoundary>
       );
     }
@@ -621,14 +563,6 @@ export default function App() {
       return (
         <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Análise Físico-Química">
           <FiscoQuimicaView onBackToHub={() => setView('producao_hub')} />
-        </ErrorBoundary>
-      );
-    }
-
-    if (view === 'compras') {
-      return (
-        <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Compras">
-          <ComprasView mode="all" onBackToHub={() => setView('compras_hub')} />
         </ErrorBoundary>
       );
     }
@@ -719,63 +653,86 @@ export default function App() {
               <p className="text-sm text-zinc-500">Selecione o inventário específico para consulta e movimentações.</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 w-full max-w-5xl">
-              {/* Insumos */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 w-full max-w-5xl">
+              {allow('estoque_materia_prima') && (
               <button 
-                onClick={() => setView('estoque_insumos')}
+                onClick={() => setView('estoque_materia_prima')}
                 className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
               >
                 <div className="space-y-4">
                   <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                    <Boxes className="h-6 w-6" />
+                    <Database className="h-6 w-6" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-zinc-900">Insumos</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Níveis de estoque de matérias-primas químicas, essências, embalagens e materiais de consumo com histórico de movimentações.</p>
+                    <h3 className="text-xl font-bold text-zinc-900">Matéria-Prima</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Insumos químicos e matérias-primas — saldo, movimentações e contagens.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                  Acessar Insumos <ArrowRight className="h-4 w-4" />
+                  Acessar Matéria-Prima <ArrowRight className="h-4 w-4" />
                 </div>
               </button>
+              )}
 
-              {/* Produtos */}
+              {allow('estoque_embalagens') && (
               <button 
-                onClick={() => setView('estoque_produtos')}
+                onClick={() => setView('estoque_embalagens')}
                 className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
               >
                 <div className="space-y-4">
                   <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                    <Boxes className="h-6 w-6" />
+                    <Layers className="h-6 w-6" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-zinc-900">Produtos</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Catálogo de produtos, fórmulas de fabricação, estoque atual, previsões de demanda e histórico de lotes.</p>
+                    <h3 className="text-xl font-bold text-zinc-900">Embalagens</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Frascos, rótulos e tampas — consulta de estoque e histórico.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                  Acessar Produtos <ArrowRight className="h-4 w-4" />
+                  Acessar Embalagens <ArrowRight className="h-4 w-4" />
                 </div>
               </button>
+              )}
 
-              {/* Linha de Produtos */}
+              {allow('estoque_coloracao') && (
               <button 
-                onClick={() => setView('estoque_ativos')}
+                onClick={() => setView('estoque_coloracao')}
                 className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
               >
                 <div className="space-y-4">
                   <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                    <CheckCircle2 className="h-6 w-6" />
+                    <Palette className="h-6 w-6" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-zinc-900">Linha de Produtos</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Defina quais produtos vão ser de quais linhas, quais vão ficar ativos/em lançamento e ajuste overrides de estoque.</p>
+                    <h3 className="text-xl font-bold text-zinc-900">Coloração</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Produtos de coloração — estoque, lotes e movimentações.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                  Acessar Linhas <ArrowRight className="h-4 w-4" />
+                  Acessar Coloração <ArrowRight className="h-4 w-4" />
                 </div>
               </button>
+              )}
+
+              {allow('estoque_apoio') && (
+              <button 
+                onClick={() => setView('estoque_apoio')}
+                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <Tag className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-zinc-900">Material de Apoio</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Materiais de apoio — saldo e rastreabilidade de movimentações.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Acessar Material de Apoio <ArrowRight className="h-4 w-4" />
+                </div>
+              </button>
+              )}
             </div>
           </main>
 
@@ -783,6 +740,38 @@ export default function App() {
             &copy; {new Date().getFullYear()} Nátum Bio Cosméticos. Todos os direitos reservados.
           </footer>
         </div>
+      );
+    }
+
+    if (view === 'estoque_materia_prima') {
+      return (
+        <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro no Estoque de Matéria-Prima">
+          <EstoqueView mode="materia_prima" onBackToHub={() => setView('estoque_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'estoque_embalagens') {
+      return (
+        <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro no Estoque de Embalagens">
+          <EstoqueView mode="embalagens" onBackToHub={() => setView('estoque_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'estoque_coloracao') {
+      return (
+        <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro no Estoque de Coloração">
+          <EstoqueView mode="coloracao" onBackToHub={() => setView('estoque_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'estoque_apoio') {
+      return (
+        <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro no Estoque de Material de Apoio">
+          <EstoqueView mode="apoio" onBackToHub={() => setView('estoque_hub')} />
+        </ErrorBoundary>
       );
     }
 
@@ -802,18 +791,50 @@ export default function App() {
       );
     }
 
-    if (view === 'estoque_ativos') {
+    if (view === 'admin_linha_produtos' || view === 'estoque_ativos') {
       return (
-        <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro no módulo de Linha de Produtos">
-          <ActiveProductsView onBackToHub={() => setView('estoque_hub')} standalone={true} />
+        <ErrorBoundary onReset={() => setView('administrativo')} fallbackTitle="Erro no módulo de Linha de Produtos">
+          <ActiveProductsView onBackToHub={() => setView('administrativo')} standalone={true} />
         </ErrorBoundary>
       );
     }
 
     if (view === 'vendas') {
       return (
-        <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo de Vendas">
+        <ErrorBoundary onReset={() => setView('vendas_hub')} fallbackTitle="Erro no módulo de Vendas">
           <VendasView onBackToHub={() => setView('hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'vendas_online') {
+      return (
+        <ErrorBoundary onReset={() => setView('vendas_hub')} fallbackTitle="Erro no módulo de Vendas Online">
+          <VendasOnlineView onBackToHub={() => setView('hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'controle_qualidade') {
+      return (
+        <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo de Controle de Qualidade">
+          <ControleQualidadeView onBackToHub={() => setView('hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'administrativo') {
+      return (
+        <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo Administrativo">
+          <AdministrativoView onBackToHub={() => setView('hub')} setView={setView} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'expedicao') {
+      return (
+        <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo de Expedição">
+          <ExpedicaoView onBackToHub={() => setView('hub')} />
         </ErrorBoundary>
       );
     }
@@ -829,7 +850,7 @@ export default function App() {
     if (view === 'linha_produtos') {
       return (
         <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo de Linha de Produtos">
-          <ActiveProductsView onBackToHub={() => setView('hub')} standalone={true} />
+          <ActiveProductsView onBackToHub={() => setView('administrativo')} standalone={true} />
         </ErrorBoundary>
       );
     }
@@ -842,18 +863,6 @@ export default function App() {
           setView={setView}
           message={message}
           setMessage={setMessage}
-          firebaseUser={firebaseUser}
-          firebaseInitialized={firebaseInitialized}
-          handleFirebaseLogin={handleFirebaseLogin}
-          handleFirebaseLogout={handleFirebaseLogout}
-          handleFirebaseSync={handleFirebaseSync}
-          syncingFirebase={syncingFirebase}
-          uploadProgress={uploadProgress}
-          firebaseLastSync={firebaseLastSync}
-          handleManualBackup={handleManualBackup}
-          backingUpManual={backingUpManual}
-          handleManualRestore={handleManualRestore}
-          restoringManual={restoringManual}
           sqlHost={sqlHost}
           setSqlHost={setSqlHost}
           sqlPort={sqlPort}
@@ -880,18 +889,6 @@ export default function App() {
           setView={setView}
           message={message}
           setMessage={setMessage}
-          firebaseUser={firebaseUser}
-          firebaseInitialized={firebaseInitialized}
-          handleFirebaseLogin={handleFirebaseLogin}
-          handleFirebaseLogout={handleFirebaseLogout}
-          handleFirebaseSync={handleFirebaseSync}
-          syncingFirebase={syncingFirebase}
-          uploadProgress={uploadProgress}
-          firebaseLastSync={firebaseLastSync}
-          handleManualBackup={handleManualBackup}
-          backingUpManual={backingUpManual}
-          handleManualRestore={handleManualRestore}
-          restoringManual={restoringManual}
           sqlHost={sqlHost}
           setSqlHost={setSqlHost}
           sqlPort={sqlPort}
@@ -930,19 +927,30 @@ export default function App() {
     );
   };
 
+  const showAppShell =
+    Boolean(currentUser) &&
+    authReady &&
+    setupChecked &&
+    !needsAppRestart &&
+    !needsConnectionSetup &&
+    !(needsSupervisorSetup);
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-zinc-50 font-sans text-zinc-900">
-      {currentUser && (
-        <Header
-          view={view}
-          setView={setView}
-          currentUser={currentUser}
-          onLogout={handleLogout}
-          fetchSqlConfig={fetchSqlConfig}
-        />
-      )}
       <div className="flex-1 flex flex-col overflow-hidden relative min-h-0 w-full">
-        {renderContent()}
+        {showAppShell ? (
+          <AppShell
+            view={view}
+            setView={setView}
+            currentUser={currentUser}
+            onLogout={handleLogout}
+            fetchSqlConfig={fetchSqlConfig}
+          >
+            {renderContent()}
+          </AppShell>
+        ) : (
+          renderContent()
+        )}
       </div>
       <FeedbackWidget currentView={view} visible={canSeeFeedbacks(currentUser)} />
     </div>

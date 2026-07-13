@@ -6,6 +6,7 @@ import {
   ArrowUpRight, ArrowDownRight, Truck, DollarSign, Hash, Mail, Info, X
 } from 'lucide-react';
 import { cn } from '../../geral/lib/utils';
+import { useGlobalNavActive } from '../../geral/components/layout/NavShellContext';
 
 
 interface PedidosViewProps {
@@ -54,6 +55,7 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+  const globalNav = useGlobalNavActive();
 
   // Detail drawer
   const [selectedOrder, setSelectedOrder] = useState<PurchaseOrderDetail | null>(null);
@@ -153,10 +155,8 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
 
   return (
     <div className="flex flex-1 h-full bg-zinc-50 font-sans text-zinc-900 overflow-hidden">
-      {/* Sidebar */}
       <div className="w-64 bg-white border-r border-zinc-200 flex flex-col shrink-0">
-
-        {/* Back Button */}
+        {!globalNav && (
         <div className="p-3 border-b border-zinc-100">
           <button
             onClick={onBackToHub}
@@ -166,6 +166,7 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
             Voltar ao Hub
           </button>
         </div>
+        )}
 
         {/* Status Filters */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">

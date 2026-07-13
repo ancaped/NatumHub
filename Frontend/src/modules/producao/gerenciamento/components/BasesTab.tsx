@@ -30,7 +30,7 @@ export function BasesTab({
   const loadBases = async () => {
     setLoading(true);
     try {
-      const res = await apiFetch(`/products?limit=5000&status=bases`);
+      const res = await apiFetch(`/products?limit=5000&categoria=cat_base`);
       if (res.ok) {
         const data = await res.json();
         setBases(data.items || []);
@@ -134,13 +134,6 @@ export function BasesTab({
 
   return (
     <div className="view-container animate-in fade-in duration-200">
-      <div className="view-header">
-        <h2 className="view-title">Gestão de Bases</h2>
-        <p className="view-subtitle">
-          Gerenciamento do estoque de bases, composições e rastreamento de produtos acabados vinculados.
-        </p>
-      </div>
-
       {/* Tabs Nav for Product Lines */}
       <div className="tabs-container">
         {tabOptions.map((opt) => (

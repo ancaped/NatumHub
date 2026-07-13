@@ -128,6 +128,9 @@ export function QuotationManager({ active = false }: { active?: boolean }) {
           <div className="flex items-center justify-center h-full text-zinc-500 flex-col gap-3">
             <ShoppingCart className="h-10 w-10 text-zinc-300" />
             <p>Nenhuma cotação encontrada nesta categoria.</p>
+            <p className="text-xs text-zinc-400 max-w-sm text-center">
+              Crie cotações a partir de Matéria-Prima, Embalagens, Coloração ou Material de Apoio (selecione itens e use Cotar).
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

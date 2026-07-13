@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-12 02:18:51.130905+00",
+  "descricao": "remover essa configuracao de este positivo, deixar apenas um status de conexao com supabase, medindo a qualidade da conexao\n\nremover realeases &  cl, melhorar atualizacoes, ja que agora temos apenas duas builds no github, a principal e a desenvolvedor, somente o supervisor pode escolher a versao desenvolvimento \n\nremover dispositvos/instalacoes, nao faz sentido mais\n\nremover sincronizacao com google cloud por enquanto, depois faremos de outra forma\n\nsinrconizacao erp precisa ser melhorada, e apenas um usuario poderar realizar ela ou deixar no automatico, apenas um usuario alem do supervisor ",
+  "id": "44c9d6b0-5fd6-4d72-8d44-98080d7e20a6",
+  "notas_admin": null,
+  "pagina": "Painel Supervisor > painel supervisor",
+  "prioridade": 100,
+  "resolvido_em": "2026-07-12 06:17:02.953069+00",
+  "solicitante": "Edson",
+  "status": "resolved",
+  "tem_logs": true,
+  "tem_screenshot": false,
+  "tipo": "feedback"
+}

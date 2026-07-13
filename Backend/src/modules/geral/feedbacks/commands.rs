@@ -1,81 +1,44 @@
-use rusqlite::{params, Connection};
+use sqlx::{PgPool, Row};
 use tauri::State;
 
 use crate::DbState;
 use super::models::{
-    Feedback, FeedbackAdminUpdate, FeedbackDetail, FeedbackNote, FeedbackNoteInput,
+    Feedback, FeedbackAdminUpdate, FeedbackDetail, FeedbackNote,
     FeedbackReorderItem, FeedbackSubmitInput,
 };
 
-const FEEDBACK_SELECT: &str = "SELECT id, type, description, page, logs, screenshot, status, createdAt, resolvedAt, requested_by, priority, admin_notes FROM feedbacks";
+const FEEDBACK_SELECT: &str = r#"SELECT id, "type", description, page, logs, screenshot, status, "createdAt", "resolvedAt", requested_by, priority, admin_notes FROM feedbacks"#;
 
-pub fn migrate_feedbacks_schema(conn: &Connection) -> Result<(), String> {
-    let cols: Vec<String> = conn
-        .prepare("PRAGMA table_info(feedbacks)")
-        .map_err(|e| e.to_string())?
-        .query_map([], |row| row.get::<_, String>(1))
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    if !cols.contains(&"requested_by".to_string()) {
-        conn.execute("ALTER TABLE feedbacks ADD COLUMN requested_by TEXT", [])
-            .map_err(|e| e.to_string())?;
+fn map_feedback_row(row: &sqlx::postgres::PgRow) -> Feedback {
+    Feedback {
+        id: row.get(0),
+        feedback_type: row.get(1),
+        description: row.get(2),
+        page: row.get(3),
+        logs: row.get(4),
+        screenshot: row.get(5),
+        status: row.get(6),
+        created_at: row.get(7),
+        resolved_at: row.get(8),
+        requested_by: row.get(9),
+        priority: row.try_get::<i32, _>(10).unwrap_or(100),
+        admin_notes: row.get(11),
     }
-    if !cols.contains(&"priority".to_string()) {
-        conn.execute(
-            "ALTER TABLE feedbacks ADD COLUMN priority INTEGER NOT NULL DEFAULT 100",
-            [],
-        )
+}
+
+async fn fetch_feedback_by_id(pool: &PgPool, id: &str) -> Result<Feedback, String> {
+    let sql = format!(r#"{} WHERE id = $1"#, FEEDBACK_SELECT);
+    let row = sqlx::query(&sql)
+        .bind(id)
+        .fetch_one(pool)
+        .await
         .map_err(|e| e.to_string())?;
-    }
-    if !cols.contains(&"admin_notes".to_string()) {
-        conn.execute("ALTER TABLE feedbacks ADD COLUMN admin_notes TEXT", [])
-            .map_err(|e| e.to_string())?;
-    }
-
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS feedback_notes (
-            id TEXT PRIMARY KEY,
-            feedback_id TEXT NOT NULL,
-            author TEXT NOT NULL,
-            body TEXT NOT NULL,
-            created_at TEXT DEFAULT (datetime('now','localtime')),
-            FOREIGN KEY (feedback_id) REFERENCES feedbacks(id)
-        )",
-        [],
-    )
-    .map_err(|e| e.to_string())?;
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_feedback_notes_fid ON feedback_notes(feedback_id)",
-        [],
-    )
-    .map_err(|e| e.to_string())?;
-
-    Ok(())
+    Ok(map_feedback_row(&row))
 }
 
-fn map_feedback_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Feedback> {
-    Ok(Feedback {
-        id: row.get(0)?,
-        feedback_type: row.get(1)?,
-        description: row.get(2)?,
-        page: row.get(3)?,
-        logs: row.get(4)?,
-        screenshot: row.get(5)?,
-        status: row.get(6)?,
-        created_at: row.get(7)?,
-        resolved_at: row.get(8)?,
-        requested_by: row.get(9)?,
-        priority: row.get::<_, i32>(10).unwrap_or(100),
-        admin_notes: row.get(11)?,
-    })
-}
-
-pub fn get_feedbacks_admin_conn(conn: &Connection) -> Result<Vec<Feedback>, String> {
-    migrate_feedbacks_schema(conn)?;
+pub async fn get_feedbacks_admin_query(pool: PgPool) -> Result<Vec<Feedback>, String> {
     let sql = format!(
-        "{} ORDER BY
+        r#"{} ORDER BY
          CASE status
            WHEN 'in_progress' THEN 0
            WHEN 'queued' THEN 1
@@ -86,24 +49,19 @@ pub fn get_feedbacks_admin_conn(conn: &Connection) -> Result<Vec<Feedback>, Stri
            ELSE 6
          END,
          priority ASC,
-         createdAt DESC",
+         "createdAt" DESC"#,
         FEEDBACK_SELECT
     );
-    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map([], map_feedback_row)
+    let rows = sqlx::query(&sql)
+        .fetch_all(&pool)
+        .await
         .map_err(|e| e.to_string())?;
-    let mut out = Vec::new();
-    for row in rows {
-        out.push(row.map_err(|e| e.to_string())?);
-    }
-    Ok(out)
+    Ok(rows.iter().map(map_feedback_row).collect())
 }
 
 #[tauri::command]
-pub fn get_feedbacks(state: State<DbState>) -> Result<Vec<Feedback>, String> {
-    let conn = state.0.lock().unwrap();
-    get_feedbacks_admin_conn(&conn)
+pub fn get_feedbacks(_state: State<DbState>) -> Result<Vec<Feedback>, String> {
+    Err("Use a API REST (/api/hub/feedbacks/manage)".into())
 }
 
 pub fn get_root_feedbacks_dir() -> std::path::PathBuf {
@@ -210,29 +168,10 @@ pub fn write_feedback_folder(feedback: &Feedback, notes: &[FeedbackNote]) -> Res
     Ok(())
 }
 
-pub fn sync_feedback_md(conn: &Connection) -> Result<(), String> {
-    migrate_feedbacks_schema(conn)?;
-    let mut stmt = conn
-        .prepare(FEEDBACK_SELECT)
-        .map_err(|e| e.to_string())?;
-
-    let rows = stmt
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, String>(6)?,
-                row.get::<_, Option<String>>(7)?,
-                row.get::<_, Option<String>>(8)?,
-                row.get::<_, Option<String>>(9)?,
-                row.get::<_, i32>(10).unwrap_or(100),
-                row.get::<_, Option<String>>(11)?,
-            ))
-        })
+pub async fn sync_feedback_md(pool: PgPool) -> Result<(), String> {
+    let rows = sqlx::query(FEEDBACK_SELECT)
+        .fetch_all(&pool)
+        .await
         .map_err(|e| e.to_string())?;
 
     let mut queue: Vec<(i32, String)> = Vec::new();
@@ -241,21 +180,17 @@ pub fn sync_feedback_md(conn: &Connection) -> Result<(), String> {
     let mut wont_fix: Vec<(i32, String)> = Vec::new();
     let mut resolved: Vec<(i32, String)> = Vec::new();
 
-    for r in rows {
-        let (
-            id,
-            fb_type,
-            desc,
-            page,
-            _logs,
-            _screenshot,
-            status,
-            created,
-            resolved_at,
-            requested_by,
-            priority,
-            admin_notes,
-        ) = r.map_err(|e| e.to_string())?;
+    for row in &rows {
+        let id: String = row.get(0);
+        let fb_type: String = row.get(1);
+        let desc: String = row.get(2);
+        let page: String = row.get(3);
+        let status: String = row.get(6);
+        let created: Option<String> = row.get(7);
+        let resolved_at: Option<String> = row.get(8);
+        let requested_by: Option<String> = row.get(9);
+        let priority: i32 = row.try_get::<i32, _>(10).unwrap_or(100);
+        let admin_notes: Option<String> = row.get(11);
 
         let desc_clean = desc.replace('\n', " ").replace('|', "\\|");
         let page_clean = page.replace('\n', " ").replace('|', "\\|");
@@ -394,100 +329,97 @@ pub fn sync_feedback_md(conn: &Connection) -> Result<(), String> {
     Ok(())
 }
 
-pub fn save_feedback_from_user_conn(
-    conn: &Connection,
+pub async fn save_feedback_from_user_query(
+    pool: PgPool,
     input: &FeedbackSubmitInput,
     requested_by: &str,
 ) -> Result<(), String> {
-    migrate_feedbacks_schema(conn)?;
-    let max_prio: i32 = conn
-        .query_row(
-            "SELECT COALESCE(MAX(priority), 99) FROM feedbacks WHERE status IN ('pending','queued','in_progress')",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap_or(99);
-
-    conn.execute(
-        "INSERT INTO feedbacks (id, type, description, page, logs, screenshot, status, createdAt, requested_by, priority)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', datetime('now','localtime'), ?7, ?8)",
-        params![
-            input.id,
-            input.feedback_type,
-            input.description,
-            input.page,
-            input.logs,
-            input.screenshot,
-            requested_by,
-            max_prio + 1
-        ],
+    let max_prio: i32 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(priority), 99) FROM feedbacks WHERE status IN ('pending','queued','in_progress')",
     )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or(99);
+
+    sqlx::query(
+        r#"INSERT INTO feedbacks (id, "type", description, page, logs, screenshot, status, "createdAt", requested_by, priority)
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending', CURRENT_TIMESTAMP::TEXT, $7, $8)"#,
+    )
+    .bind(&input.id)
+    .bind(&input.feedback_type)
+    .bind(&input.description)
+    .bind(&input.page)
+    .bind(&input.logs)
+    .bind(&input.screenshot)
+    .bind(&requested_by)
+    .bind(max_prio + 1)
+    .execute(&pool)
+    .await
     .map_err(|e| e.to_string())?;
 
-    let fb = conn
-        .query_row(
-            &format!("{} WHERE id = ?1", FEEDBACK_SELECT),
-            params![input.id],
-            map_feedback_row,
-        )
-        .map_err(|e| e.to_string())?;
-
+    let fb = fetch_feedback_by_id(&pool, &input.id).await?;
     let _ = write_feedback_folder(&fb, &[]);
-    let _ = sync_feedback_md(conn);
+    let _ = sync_feedback_md(pool.clone()).await;
     Ok(())
 }
 
-pub fn save_feedback_conn(conn: &Connection, feedback: &Feedback) -> Result<(), String> {
-    migrate_feedbacks_schema(conn)?;
-    conn.execute(
-        "INSERT OR REPLACE INTO feedbacks (id, type, description, page, logs, screenshot, status, createdAt, resolvedAt, requested_by, priority, admin_notes)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-        params![
-            feedback.id,
-            feedback.feedback_type,
-            feedback.description,
-            feedback.page,
-            feedback.logs,
-            feedback.screenshot,
-            feedback.status,
-            feedback.created_at,
-            feedback.resolved_at,
-            feedback.requested_by,
-            feedback.priority,
-            feedback.admin_notes,
-        ],
+pub async fn save_feedback_query(pool: PgPool, feedback: &Feedback) -> Result<(), String> {
+    sqlx::query(
+        r#"INSERT INTO feedbacks (id, "type", description, page, logs, screenshot, status, "createdAt", "resolvedAt", requested_by, priority, admin_notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         ON CONFLICT (id) DO UPDATE SET
+           "type" = EXCLUDED."type",
+           description = EXCLUDED.description,
+           page = EXCLUDED.page,
+           logs = EXCLUDED.logs,
+           screenshot = EXCLUDED.screenshot,
+           status = EXCLUDED.status,
+           "createdAt" = EXCLUDED."createdAt",
+           "resolvedAt" = EXCLUDED."resolvedAt",
+           requested_by = EXCLUDED.requested_by,
+           priority = EXCLUDED.priority,
+           admin_notes = EXCLUDED.admin_notes"#,
     )
+    .bind(&feedback.id)
+    .bind(&feedback.feedback_type)
+    .bind(&feedback.description)
+    .bind(&feedback.page)
+    .bind(&feedback.logs)
+    .bind(&feedback.screenshot)
+    .bind(&feedback.status)
+    .bind(&feedback.created_at)
+    .bind(&feedback.resolved_at)
+    .bind(&feedback.requested_by)
+    .bind(feedback.priority)
+    .bind(&feedback.admin_notes)
+    .execute(&pool)
+    .await
     .map_err(|e| e.to_string())?;
     let _ = write_feedback_folder(feedback, &[]);
-    let _ = sync_feedback_md(conn);
+    let _ = sync_feedback_md(pool.clone()).await;
     Ok(())
 }
 
 #[tauri::command]
-pub fn save_feedback(state: State<DbState>, feedback: Feedback) -> Result<(), String> {
-    let conn = state.0.lock().unwrap();
-    save_feedback_conn(&conn, &feedback)
+pub fn save_feedback(_state: State<DbState>, _feedback: Feedback) -> Result<(), String> {
+    Err("Use a API REST (/api/hub/feedbacks)".into())
 }
 
-pub fn update_feedback_admin_conn(
-    conn: &Connection,
+pub async fn update_feedback_admin_query(
+    pool: PgPool,
     id: &str,
     update: &FeedbackAdminUpdate,
 ) -> Result<(), String> {
-    migrate_feedbacks_schema(conn)?;
-
-    let current_status: String = conn
-        .query_row(
-            "SELECT status FROM feedbacks WHERE id = ?1",
-            params![id],
-            |row| row.get(0),
-        )
+    let current_status: String = sqlx::query_scalar("SELECT status FROM feedbacks WHERE id = $1")
+        .bind(&id)
+        .fetch_one(&pool)
+        .await
         .map_err(|e| e.to_string())?;
 
     if let Some(status) = &update.status {
         let moving_to_queue = status == "queued" || status == "in_progress";
         if current_status == "awaiting_review" && moving_to_queue {
-            let notes = get_feedback_notes_conn(conn, id)?;
+            let notes = get_feedback_notes_query(pool.clone(), id).await?;
             if notes.is_empty() {
                 return Err(
                     "Devolver à fila exige pelo menos uma nota do supervisor.".to_string(),
@@ -495,44 +427,46 @@ pub fn update_feedback_admin_conn(
             }
         }
         if status == "resolved" {
-            conn.execute(
-                "UPDATE feedbacks SET status = ?1, resolvedAt = datetime('now','localtime') WHERE id = ?2",
-                params![status, id],
+            sqlx::query(
+                r#"UPDATE feedbacks SET status = $1, "resolvedAt" = CURRENT_TIMESTAMP::TEXT WHERE id = $2"#,
             )
+            .bind(status)
+            .bind(&id)
+            .execute(&pool)
+            .await
             .map_err(|e| e.to_string())?;
         } else {
-            conn.execute(
-                "UPDATE feedbacks SET status = ?1, resolvedAt = NULL WHERE id = ?2",
-                params![status, id],
+            sqlx::query(
+                r#"UPDATE feedbacks SET status = $1, "resolvedAt" = NULL WHERE id = $2"#,
             )
+            .bind(status)
+            .bind(&id)
+            .execute(&pool)
+            .await
             .map_err(|e| e.to_string())?;
         }
     }
     if let Some(priority) = update.priority {
-        conn.execute(
-            "UPDATE feedbacks SET priority = ?1 WHERE id = ?2",
-            params![priority, id],
-        )
-        .map_err(|e| e.to_string())?;
+        sqlx::query("UPDATE feedbacks SET priority = $1 WHERE id = $2")
+            .bind(priority)
+            .bind(&id)
+            .execute(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
     }
     if let Some(notes) = &update.admin_notes {
-        conn.execute(
-            "UPDATE feedbacks SET admin_notes = ?1 WHERE id = ?2",
-            params![notes, id],
-        )
-        .map_err(|e| e.to_string())?;
+        sqlx::query("UPDATE feedbacks SET admin_notes = $1 WHERE id = $2")
+            .bind(notes)
+            .bind(&id)
+            .execute(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
-    let fb = conn
-        .query_row(
-            &format!("{} WHERE id = ?1", FEEDBACK_SELECT),
-            params![id],
-            map_feedback_row,
-        )
-        .map_err(|e| e.to_string())?;
+    let fb = fetch_feedback_by_id(&pool, id).await?;
 
     if fb.status == "resolved" {
-        let short_id = id.get(0..8).unwrap_or(id);
+        let short_id = id.get(0..8).unwrap_or(&id);
         let folder = get_root_feedbacks_dir().join(format!("feedback_{}", short_id));
         if folder.is_dir() && !folder.join("resolucao.md").exists() {
             let _ = std::fs::write(
@@ -546,84 +480,73 @@ pub fn update_feedback_admin_conn(
         }
     }
 
-    sync_feedback_files_conn(conn, id)?;
+    sync_feedback_files_query(pool.clone(), id).await?;
     Ok(())
 }
 
-pub fn get_feedback_notes_conn(conn: &Connection, feedback_id: &str) -> Result<Vec<FeedbackNote>, String> {
-    migrate_feedbacks_schema(conn)?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, feedback_id, author, body, created_at FROM feedback_notes
-             WHERE feedback_id = ?1 ORDER BY created_at ASC, id ASC",
-        )
-        .map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map(params![feedback_id], |row| {
-            Ok(FeedbackNote {
-                id: row.get(0)?,
-                feedback_id: row.get(1)?,
-                author: row.get(2)?,
-                body: row.get(3)?,
-                created_at: row.get(4)?,
-            })
+pub async fn get_feedback_notes_query(
+    pool: PgPool,
+    feedback_id: &str,
+) -> Result<Vec<FeedbackNote>, String> {
+    let rows = sqlx::query(
+        "SELECT id, feedback_id, author, body, created_at FROM feedback_notes
+         WHERE feedback_id = $1 ORDER BY created_at ASC, id ASC",
+    )
+    .bind(feedback_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(rows
+        .iter()
+        .map(|row| FeedbackNote {
+            id: row.get(0),
+            feedback_id: row.get(1),
+            author: row.get(2),
+            body: row.get(3),
+            created_at: row.get(4),
         })
-        .map_err(|e| e.to_string())?;
-    let mut out = Vec::new();
-    for r in rows {
-        out.push(r.map_err(|e| e.to_string())?);
-    }
-    Ok(out)
+        .collect())
 }
 
-pub fn sync_feedback_files_conn(conn: &Connection, id: &str) -> Result<(), String> {
-    migrate_feedbacks_schema(conn)?;
-    let fb = conn
-        .query_row(
-            &format!("{} WHERE id = ?1", FEEDBACK_SELECT),
-            params![id],
-            map_feedback_row,
-        )
-        .map_err(|e| e.to_string())?;
-    let notes = get_feedback_notes_conn(conn, id)?;
+pub async fn sync_feedback_files_query(pool: PgPool, id: &str) -> Result<(), String> {
+    let fb = fetch_feedback_by_id(&pool, id).await?;
+    let notes = get_feedback_notes_query(pool.clone(), id).await?;
     let _ = write_feedback_folder(&fb, &notes);
-    let _ = sync_feedback_md(conn);
+    let _ = sync_feedback_md(pool.clone()).await;
     Ok(())
 }
 
-pub fn get_feedback_detail_conn(conn: &Connection, id: &str) -> Result<FeedbackDetail, String> {
-    migrate_feedbacks_schema(conn)?;
-    let fb = conn
-        .query_row(
-            &format!("{} WHERE id = ?1", FEEDBACK_SELECT),
-            params![id],
-            map_feedback_row,
-        )
-        .map_err(|e| e.to_string())?;
-    let notes = get_feedback_notes_conn(conn, id)?;
+pub async fn get_feedback_detail_query(pool: PgPool, id: &str) -> Result<FeedbackDetail, String> {
+    let fb = fetch_feedback_by_id(&pool, id).await?;
+    let notes = get_feedback_notes_query(pool.clone(), id).await?;
     Ok(FeedbackDetail { feedback: fb, notes })
 }
 
-pub fn add_feedback_note_conn(
-    conn: &Connection,
+pub async fn add_feedback_note_query(
+    pool: PgPool,
     id: &str,
     author: &str,
     body: &str,
 ) -> Result<FeedbackNote, String> {
-    migrate_feedbacks_schema(conn)?;
     let trimmed = body.trim();
     if trimmed.is_empty() {
         return Err("Nota vazia.".to_string());
     }
 
     let note_id = uuid::Uuid::new_v4().to_string();
-    conn.execute(
-        "INSERT INTO feedback_notes (id, feedback_id, author, body) VALUES (?1, ?2, ?3, ?4)",
-        params![note_id, id, author, trimmed],
+    sqlx::query(
+        "INSERT INTO feedback_notes (id, feedback_id, author, body) VALUES ($1, $2, $3, $4)",
     )
+    .bind(&note_id)
+    .bind(&id)
+    .bind(&author)
+    .bind(trimmed)
+    .execute(&pool)
+    .await
     .map_err(|e| e.to_string())?;
 
-    let notes = get_feedback_notes_conn(conn, id)?;
+    let notes = get_feedback_notes_query(pool.clone(), id).await?;
     let combined: String = notes
         .iter()
         .map(|n| {
@@ -637,13 +560,14 @@ pub fn add_feedback_note_conn(
         .collect::<Vec<_>>()
         .join("\n\n");
 
-    conn.execute(
-        "UPDATE feedbacks SET admin_notes = ?1 WHERE id = ?2",
-        params![combined, id],
-    )
-    .map_err(|e| e.to_string())?;
+    sqlx::query("UPDATE feedbacks SET admin_notes = $1 WHERE id = $2")
+        .bind(&combined)
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    sync_feedback_files_conn(conn, id)?;
+    sync_feedback_files_query(pool.clone(), id).await?;
 
     notes
         .into_iter()
@@ -651,25 +575,25 @@ pub fn add_feedback_note_conn(
         .ok_or_else(|| "Nota não encontrada após insert.".to_string())
 }
 
-pub fn reorder_feedbacks_conn(
-    conn: &Connection,
+pub async fn reorder_feedbacks_query(
+    pool: PgPool,
     items: &[FeedbackReorderItem],
 ) -> Result<(), String> {
-    migrate_feedbacks_schema(conn)?;
     for item in items {
-        conn.execute(
-            "UPDATE feedbacks SET priority = ?1 WHERE id = ?2",
-            params![item.priority, item.id],
-        )
-        .map_err(|e| e.to_string())?;
+        sqlx::query("UPDATE feedbacks SET priority = $1 WHERE id = $2")
+            .bind(item.priority)
+            .bind(&item.id)
+            .execute(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
     }
-    let _ = sync_feedback_md(conn);
+    let _ = sync_feedback_md(pool.clone()).await;
     Ok(())
 }
 
-pub fn resolve_feedback_conn(conn: &Connection, id: &str) -> Result<(), String> {
-    update_feedback_admin_conn(
-        conn,
+pub async fn resolve_feedback_query(pool: PgPool, id: &str) -> Result<(), String> {
+    update_feedback_admin_query(
+        pool,
         id,
         &FeedbackAdminUpdate {
             status: Some("resolved".to_string()),
@@ -677,15 +601,15 @@ pub fn resolve_feedback_conn(conn: &Connection, id: &str) -> Result<(), String> 
             admin_notes: None,
         },
     )
+    .await
 }
 
 #[tauri::command]
-pub fn resolve_feedback(state: State<DbState>, id: String) -> Result<(), String> {
-    let conn = state.0.lock().unwrap();
-    resolve_feedback_conn(&conn, &id)
+pub fn resolve_feedback(_state: State<DbState>, _id: String) -> Result<(), String> {
+    Err("Use a API REST (/api/hub/feedbacks/:id)".into())
 }
 
 // Legacy alias for old get_feedbacks_conn callers
-pub fn get_feedbacks_conn(conn: &Connection) -> Result<Vec<Feedback>, String> {
-    get_feedbacks_admin_conn(conn)
+pub async fn get_feedbacks_query(pool: PgPool) -> Result<Vec<Feedback>, String> {
+    get_feedbacks_admin_query(pool).await
 }

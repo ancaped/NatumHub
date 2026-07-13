@@ -41,13 +41,6 @@ export function InventoryTab({
 }) {
   return (
     <div className="view-container animate-in fade-in duration-200">
-      <div className="view-header">
-        <h2 className="view-title">Gerenciamento de Produção</h2>
-        <p className="view-subtitle">
-          Lista de produtos dinâmica com cálculos baseados em faturamento histórico e limiares de segurança.
-        </p>
-      </div>
-
       {/* Tabs Nav */}
       <div className="tabs-container">
         {tabOptions.map((opt) => (

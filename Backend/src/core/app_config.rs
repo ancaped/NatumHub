@@ -203,9 +203,9 @@ pub fn read_tauri_identifier() -> String {
     "com.natum.hub".to_string()
 }
 
-/// Build de desenvolvimento (`com.natum.hub` = tauri dev, `com.natum.hub.dev` = instalador Dev).
+/// Dev local (`com.natum.hub`) — nunca servidor de produção.
 pub fn is_developer_identifier(identifier: &str) -> bool {
-    identifier == "com.natum.hub" || identifier == "com.natum.hub.dev"
+    identifier == "com.natum.hub"
 }
 
 /// Somente build Estável pode hospedar SQLite, Axum e sync ERP.
@@ -217,10 +217,7 @@ pub fn can_be_principal_server(identifier: &str) -> bool {
 pub fn install_channel_from_identifier(identifier: &str) -> &'static str {
     if identifier.contains(".stable") {
         "stable"
-    } else if identifier.contains(".dev")
-        || is_developer_identifier(identifier)
-        || cfg!(debug_assertions)
-    {
+    } else if is_developer_identifier(identifier) || cfg!(debug_assertions) {
         "dev"
     } else {
         "stable"

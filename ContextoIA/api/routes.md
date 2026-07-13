@@ -23,10 +23,8 @@ Implementação: `Backend/src/lib.rs` + `modules/*/router`. Detalhes multi-usuá
 
 | Método | Rota | Notas |
 |--------|------|-------|
-| GET | `/api/hub/status` | Modo, db size |
-| GET | `/api/hub/principal-device?deviceId=` | Principal registrado |
-| POST | `/api/hub/claim-principal` | Admin — único principal |
-| POST | `/api/hub/client-config` | Admin — persiste JSON local |
+| GET | `/api/hub/status` | Status + db conectado |
+| GET/POST | `/api/hub/client-config` | Config local do dispositivo |
 
 ## Notificações
 
@@ -64,15 +62,16 @@ Doc: [`../feedbacks/README.md`](../feedbacks/README.md)
 
 | Método | Rota | Notas |
 |--------|------|-------|
-| POST | `/api/import/sync` | Admin + **PC principal** — ERP→SQLite |
-| POST | `/api/import/dump` | Admin + principal |
+| POST | `/api/import/sync` | Admin + **PC principal** — ERP→Postgres |
+| POST | `/api/import/dump` | Admin — resumo ERP |
+| POST | `/api/admin/db-reset` | Admin — reset operacional |
 | POST | `/api/import/faturamento` | Multipart Excel |
 | POST | `/api/import/levantamento` | Multipart Excel |
 | POST | `/api/import/kits` | Multipart Excel |
 | GET | `/api/import/history` | |
 | GET | `/api/import/status` | Watcher planilhas |
 
-Sync ERP: [`../erp-import/README.md`](../erp-import/README.md) · `legacy_db::sync_from_sql_server` · backup pré-sync.
+Sync ERP: [`../erp-import/README.md`](../erp-import/README.md) · `legacy_db::sync_from_sql_server` · lock `sync_status`.
 
 ## Produção / estoque (amostra — ver `lib.rs` para lista completa)
 
@@ -82,8 +81,20 @@ Sync ERP: [`../erp-import/README.md`](../erp-import/README.md) · `legacy_db::sy
 | GET/PUT | `/api/configs`, `/api/configs/:prefix` |
 | GET/POST | `/api/overrides`, `/api/overrides/bulk` |
 | GET/POST/DELETE | `/api/historico`, `/api/historico/:id` |
-| GET | `/api/producao/lotes`, `/api/producao/lotes/:n/detalhes` |
+| GET | `/api/producao/lotes`, `/api/producao/lotes/:n`, `/api/producao/lotes/:n/detalhes` |
 | GET | `/api/vendas/pedidos`, `/api/vendas/faltas` |
+
+## Admin / auditoria (supervisor)
+
+| Método | Rota | Notas |
+|--------|------|-------|
+| GET | `/api/admin/db-usage` | Uso do banco |
+| POST | `/api/admin/db-reset` | Reset operacional |
+| GET | `/api/admin/audit/stock/:code` | Hub × ERP ao vivo (estoque/reserva/prod/pedidos) |
+| POST | `/api/admin/audit/stock/:code/refresh` | Re-lê D1/D2/A pontual e grava |
+| POST | `/api/admin/audit/stock/resync-insumos` | Regrava todos os insumos com `nQtdeEstoqueA` |
+
+Regra canônica: [`../../erp-import/ESTOQUE.md`](../../erp-import/ESTOQUE.md).
 
 ## Google backup (principal)
 

@@ -5,6 +5,7 @@ import {
   User, FileSpreadsheet, ChevronRight, Hash, Truck, DollarSign, Info, X, Receipt
 } from 'lucide-react';
 import { cn } from '../../geral/lib/utils';
+import { useGlobalNavActive } from '../../geral/components/layout/NavShellContext';
 
 
 interface NotasFiscaisViewProps {
@@ -44,6 +45,7 @@ interface InvoiceDetail {
 }
 
 export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps) {
+  const globalNav = useGlobalNavActive();
   const [invoices, setInvoices] = useState<InvoiceHeader[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -123,7 +125,7 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
       {/* Sidebar */}
       <div className="w-64 bg-white border-r border-zinc-200 flex flex-col shrink-0">
 
-        {/* Back Button */}
+        {!globalNav && (
         <div className="p-3 border-b border-zinc-100">
           <button
             onClick={onBackToHub}
@@ -133,6 +135,7 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
             Voltar ao Hub
           </button>
         </div>
+        )}
 
         {/* Info panel */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">

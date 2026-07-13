@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-11 12:38:59",
+  "descricao": "quantidade em estoque parece esta sendo importada ou tratada de forma errada, esta diferente do erp, temos que adicionar na documentacao de ia a forma correta de fazer isso, erros com importacao de estoque e etc nao podem acontecer ",
+  "id": "d3e05156-d8d6-41b3-aec8-ef6d8a3c0595",
+  "notas_admin": "[2026-07-11 12:39:36] EdsonFerrari:\nerros nos modulos de compras, verificar em todos, materia prima, embalagens, material de apoio e coloracao",
+  "pagina": "Compras > Matéria-Prima",
+  "prioridade": 100,
+  "resolvido_em": null,
+  "solicitante": "EdsonFerrari",
+  "status": "awaiting_review",
+  "tem_logs": false,
+  "tem_screenshot": false,
+  "tipo": "bug"
+}

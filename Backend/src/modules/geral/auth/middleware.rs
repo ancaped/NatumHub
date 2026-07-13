@@ -34,20 +34,11 @@ pub async fn auth_middleware(
             .into_response();
     };
 
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
+    let pool = state.db.pool();
 
-    let _ = store::init_auth_tables(&conn);
+    let _ = store::init_auth_tables(pool).await;
 
-    match store::resolve_session(&conn, &token) {
+    match store::resolve_session(pool, &token).await {
         Ok(Some(ctx)) => {
             if store::requires_supervisor(&path, &method) && !ctx.role.is_supervisor() {
                 return (
@@ -66,7 +57,7 @@ pub async fn auth_middleware(
             }
 
             if matches!(method.as_str(), "POST" | "PUT" | "DELETE" | "PATCH") {
-                let _ = store::log_audit(&conn, &ctx, &method, &path);
+                let _ = store::log_audit(pool, &ctx, &method, &path).await;
             }
 
             req.extensions_mut().insert(ctx);

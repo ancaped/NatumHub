@@ -1,186 +1,181 @@
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use super::models::HubNotification;
 
-pub fn init_notifications_tables(conn: &Connection) -> Result<(), rusqlite::Error> {
-    conn.execute_batch(
-        "
-        CREATE TABLE IF NOT EXISTS hub_notifications (
-            id          TEXT PRIMARY KEY,
-            module_key  TEXT NOT NULL,
-            kind        TEXT NOT NULL DEFAULT 'info',
-            title       TEXT NOT NULL,
-            message     TEXT NOT NULL,
-            created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            metadata    TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS hub_notification_reads (
-            notification_id TEXT NOT NULL,
-            operator_id     TEXT NOT NULL,
-            read_at         TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (notification_id, operator_id),
-            FOREIGN KEY (notification_id) REFERENCES hub_notifications(id) ON DELETE CASCADE,
-            FOREIGN KEY (operator_id) REFERENCES hub_operators(id) ON DELETE CASCADE
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_hub_notifications_created ON hub_notifications(created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_hub_notifications_module ON hub_notifications(module_key);
-        ",
-    )?;
-    Ok(())
-}
-
-pub fn create_notification(
-    conn: &Connection,
+pub async fn create_notification(
+    pool: &PgPool,
     module_key: &str,
     kind: &str,
     title: &str,
     message: &str,
     metadata: Option<&str>,
-) -> Result<String, rusqlite::Error> {
+) -> Result<String, String> {
     let id = Uuid::new_v4().to_string();
-    conn.execute(
+    sqlx::query(
         "INSERT INTO hub_notifications (id, module_key, kind, title, message, metadata)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![id, module_key, kind, title, message, metadata],
-    )?;
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(&id)
+    .bind(module_key)
+    .bind(kind)
+    .bind(title)
+    .bind(message)
+    .bind(metadata)
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(id)
 }
 
-pub fn list_for_modules(
-    conn: &Connection,
+pub async fn list_for_modules(
+    pool: &PgPool,
     operator_id: &str,
     modules: &[String],
     is_admin: bool,
     limit: i64,
-) -> Result<Vec<HubNotification>, rusqlite::Error> {
-    let mut out = Vec::new();
+) -> Result<Vec<HubNotification>, String> {
     if !is_admin && modules.is_empty() {
-        return Ok(out);
+        return Ok(Vec::new());
     }
 
-    let sql = if is_admin {
-        "SELECT n.id, n.module_key, n.kind, n.title, n.message, n.created_at, n.metadata,
-                CASE WHEN r.notification_id IS NOT NULL THEN 1 ELSE 0 END AS is_read
-         FROM hub_notifications n
-         LEFT JOIN hub_notification_reads r
-           ON r.notification_id = n.id AND r.operator_id = ?1
-         ORDER BY n.created_at DESC
-         LIMIT ?2"
+    let rows = if is_admin {
+        sqlx::query_as::<_, (String, String, String, String, String, String, Option<String>, bool)>(
+            "SELECT n.id, n.module_key, n.kind, n.title, n.message, n.created_at, n.metadata,
+                    (r.notification_id IS NOT NULL) AS is_read
+             FROM hub_notifications n
+             LEFT JOIN hub_notification_reads r
+               ON r.notification_id = n.id AND r.operator_id = $1
+             ORDER BY n.created_at DESC
+             LIMIT $2",
+        )
+        .bind(operator_id)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
     } else {
-        "SELECT n.id, n.module_key, n.kind, n.title, n.message, n.created_at, n.metadata,
-                CASE WHEN r.notification_id IS NOT NULL THEN 1 ELSE 0 END AS is_read
-         FROM hub_notifications n
-         LEFT JOIN hub_notification_reads r
-           ON r.notification_id = n.id AND r.operator_id = ?1
-         WHERE n.module_key IN (
-           SELECT value FROM json_each(?3)
-         )
-         ORDER BY n.created_at DESC
-         LIMIT ?2"
-    };
-
-    if is_admin {
-        let mut stmt = conn.prepare(sql)?;
-        let rows = stmt.query_map(params![operator_id, limit], map_row)?;
-        for row in rows {
-            out.push(row?);
-        }
-    } else {
-        let modules_json = serde_json::to_string(modules).unwrap_or_else(|_| "[]".to_string());
-        let mut stmt = conn.prepare(sql)?;
-        let rows = stmt.query_map(params![operator_id, limit, modules_json], map_row)?;
-        for row in rows {
-            out.push(row?);
-        }
+        sqlx::query_as::<_, (String, String, String, String, String, String, Option<String>, bool)>(
+            "SELECT n.id, n.module_key, n.kind, n.title, n.message, n.created_at, n.metadata,
+                    (r.notification_id IS NOT NULL) AS is_read
+             FROM hub_notifications n
+             LEFT JOIN hub_notification_reads r
+               ON r.notification_id = n.id AND r.operator_id = $1
+             WHERE n.module_key = ANY($3::text[])
+             ORDER BY n.created_at DESC
+             LIMIT $2",
+        )
+        .bind(operator_id)
+        .bind(limit)
+        .bind(modules)
+        .fetch_all(pool)
+        .await
     }
+    .map_err(|e| e.to_string())?;
 
-    Ok(out)
+    Ok(rows
+        .into_iter()
+        .map(
+            |(id, module_key, kind, title, message, created_at, metadata, read)| HubNotification {
+                id,
+                module_key,
+                kind,
+                title,
+                message,
+                created_at,
+                metadata,
+                read,
+            },
+        )
+        .collect())
 }
 
-fn map_row(row: &rusqlite::Row<'_>) -> Result<HubNotification, rusqlite::Error> {
-    Ok(HubNotification {
-        id: row.get(0)?,
-        module_key: row.get(1)?,
-        kind: row.get(2)?,
-        title: row.get(3)?,
-        message: row.get(4)?,
-        created_at: row.get(5)?,
-        metadata: row.get(6)?,
-        read: row.get::<_, i64>(7)? == 1,
-    })
-}
-
-pub fn unread_count(
-    conn: &Connection,
+pub async fn unread_count(
+    pool: &PgPool,
     operator_id: &str,
     modules: &[String],
     is_admin: bool,
-) -> Result<i64, rusqlite::Error> {
+) -> Result<i64, String> {
     if !is_admin && modules.is_empty() {
         return Ok(0);
     }
 
     if is_admin {
-        conn.query_row(
+        sqlx::query_scalar(
             "SELECT COUNT(*) FROM hub_notifications n
              LEFT JOIN hub_notification_reads r
-               ON r.notification_id = n.id AND r.operator_id = ?1
+               ON r.notification_id = n.id AND r.operator_id = $1
              WHERE r.notification_id IS NULL",
-            params![operator_id],
-            |r| r.get(0),
         )
+        .bind(operator_id)
+        .fetch_one(pool)
+        .await
     } else {
-        let modules_json = serde_json::to_string(modules).unwrap_or_else(|_| "[]".to_string());
-        conn.query_row(
+        sqlx::query_scalar(
             "SELECT COUNT(*) FROM hub_notifications n
              LEFT JOIN hub_notification_reads r
-               ON r.notification_id = n.id AND r.operator_id = ?1
+               ON r.notification_id = n.id AND r.operator_id = $1
              WHERE r.notification_id IS NULL
-               AND n.module_key IN (SELECT value FROM json_each(?2))",
-            params![operator_id, modules_json],
-            |r| r.get(0),
+               AND n.module_key = ANY($2::text[])",
         )
+        .bind(operator_id)
+        .bind(modules)
+        .fetch_one(pool)
+        .await
     }
+    .map_err(|e| e.to_string())
 }
 
-pub fn mark_read(
-    conn: &Connection,
+pub async fn mark_read(
+    pool: &PgPool,
     notification_id: &str,
     operator_id: &str,
-) -> Result<(), rusqlite::Error> {
-    conn.execute(
-        "INSERT OR IGNORE INTO hub_notification_reads (notification_id, operator_id, read_at)
-         VALUES (?1, ?2, ?3)",
-        params![notification_id, operator_id, Utc::now().to_rfc3339()],
-    )?;
+) -> Result<(), String> {
+    sqlx::query(
+        "INSERT INTO hub_notification_reads (notification_id, operator_id, read_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(notification_id)
+    .bind(operator_id)
+    .bind(Utc::now().to_rfc3339())
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
-pub fn mark_all_read(
-    conn: &Connection,
+pub async fn mark_all_read(
+    pool: &PgPool,
     operator_id: &str,
     modules: &[String],
     is_admin: bool,
-) -> Result<(), rusqlite::Error> {
+) -> Result<(), String> {
     let now = Utc::now().to_rfc3339();
     if is_admin {
-        conn.execute(
-            "INSERT OR IGNORE INTO hub_notification_reads (notification_id, operator_id, read_at)
-             SELECT n.id, ?1, ?2 FROM hub_notifications n",
-            params![operator_id, now],
-        )?;
+        sqlx::query(
+            "INSERT INTO hub_notification_reads (notification_id, operator_id, read_at)
+             SELECT n.id, $1, $2 FROM hub_notifications n
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(operator_id)
+        .bind(&now)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
     } else if !modules.is_empty() {
-        let modules_json = serde_json::to_string(modules).unwrap_or_else(|_| "[]".to_string());
-        conn.execute(
-            "INSERT OR IGNORE INTO hub_notification_reads (notification_id, operator_id, read_at)
-             SELECT n.id, ?1, ?2 FROM hub_notifications n
-             WHERE n.module_key IN (SELECT value FROM json_each(?3))",
-            params![operator_id, now, modules_json],
-        )?;
+        sqlx::query(
+            "INSERT INTO hub_notification_reads (notification_id, operator_id, read_at)
+             SELECT n.id, $1, $2 FROM hub_notifications n
+             WHERE n.module_key = ANY($3::text[])
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(operator_id)
+        .bind(&now)
+        .bind(modules)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
     }
     Ok(())
 }

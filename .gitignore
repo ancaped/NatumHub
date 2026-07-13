@@ -30,15 +30,27 @@ desktop.ini
 # Tauri dev artifacts
 Backend/WixTools/
 
-# Environment
+# Environment / secrets (nunca versionar)
 .env
 .env.local
+Saves/postgres.env
 Saves/supabase.env
+Saves/*creds*
+Saves/_tmp_*
 Saves/seed_hub_from_sqlite.sql
 Saves/migrate.log
+Saves/client_config.json
 .github_token
 
-# Tauri updater signing (never commit private key)
+# Scripts de probe/diagnóstico local (não versionar)
+Saves/_probe_*.py
+Saves/_compare_*.py
+Saves/_delta_*.py
+Saves/_final_*.py
+Saves/_inv_*.py
+_backup_wip_*/
+
+# Tauri updater signing (privada nunca; pubkey local gerada)
 Backend/natum-hub.key
 Backend/natum-hub.key.pub
 Backend/updater.pubkey

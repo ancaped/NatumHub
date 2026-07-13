@@ -1,6 +1,6 @@
 -- Passo H: Lotes de produção (produto acabado)
 -- Destino: stock_movements (entrada produto)
--- Filtro: dLote >= 2024-01-01
+-- Full/incremental: dLote >= since (floor 2024-01-01 no full; watermark−2d no incremental)
 
 SELECT 
     l.nLote,

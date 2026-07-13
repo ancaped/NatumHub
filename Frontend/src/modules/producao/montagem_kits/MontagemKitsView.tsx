@@ -483,8 +483,16 @@ export default function MontagemKitsView({ onBackToHub }) {
   };
 
   useEffect(() => {
-    fetchProducts();
-  }, [fetchProducts]);
+    // Produtos só quando a aba precisa (evita /products + /kits juntos no open)
+    if (
+      activeSubTab === 'composicao' ||
+      activeSubTab === 'vira_composicao' ||
+      activeSubTab === 'vira_ordens' ||
+      activeSubTab === 'componentes'
+    ) {
+      fetchProducts();
+    }
+  }, [fetchProducts, activeSubTab]);
 
   useEffect(() => {
     if (activeSubTab === 'componentes') {

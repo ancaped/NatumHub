@@ -17,6 +17,7 @@ pub struct Product {
     pub descricao: String,
     pub linha_prefix: String,
     pub base: Option<String>,
+    pub base_codigo: Option<String>,
     pub media_levantamento: f64,
 }
 
@@ -51,6 +52,9 @@ pub struct ProductOverride {
     pub produzir_apenas_kit: Option<i32>,
     pub lancamento_meta_meses: Option<i64>,
     pub lancamento_data_inicio: Option<String>,
+    /// Atualiza `produtos.base_codigo` quando informado (não persiste em overrides).
+    pub base_codigo: Option<String>,
+    pub terceirizado_modo: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -61,6 +65,7 @@ pub struct ProductCalculationResult {
     pub linha_prefix: String,
     pub nome_linha: String,
     pub base: Option<String>,
+    pub base_codigo: Option<String>,
     pub fase: Option<String>,
 
     // Stock fields
@@ -83,6 +88,7 @@ pub struct ProductCalculationResult {
     pub produzir_apenas_kit: Option<i32>,
     pub lancamento_meta_meses: Option<i64>,
     pub lancamento_data_inicio: Option<String>,
+    pub terceirizado_modo: Option<String>,
     pub is_kit_component: Option<bool>,
 
     // Sales Statistics
@@ -122,6 +128,7 @@ pub struct QueryParams {
     pub search: Option<String>,
     pub linha: Option<String>,
     pub status: Option<String>,
+    pub categoria: Option<String>,
     pub base: Option<String>,
     pub page: Option<usize>,
     pub limit: Option<usize>,
@@ -375,6 +382,8 @@ pub struct DbDumpResult {
     pub size_bytes: u64,
     pub tables_copied: Vec<String>,
     pub elapsed_ms: u64,
+    #[serde(default)]
+    pub table_row_counts: std::collections::HashMap<String, i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -437,6 +446,14 @@ pub struct InsumoDetalhesResponse {
     pub category_name: Option<String>,
     pub is_ignored: bool,
     pub current_stock: f64,
+    #[serde(default)]
+    pub reserved_qty: f64,
+    #[serde(default)]
+    pub in_production: f64,
+    #[serde(default)]
+    pub in_orders: f64,
+    #[serde(default)]
+    pub available_qty: f64,
     pub consumption_yoy: Vec<ConsumptionYoYItem>,
     pub monthly_purchases: Vec<MonthlyPurchaseItem>,
     pub monthly_consumption: Vec<MonthlyConsumptionItem>,

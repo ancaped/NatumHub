@@ -1,12 +1,13 @@
 -- Passo A: Produtos acabados + médias mensais de venda (ano corrente)
 -- Destino: produtos, estoque_atual
+-- Estoque: nQtdeEstoque / nQtdeProducao / nPedidos como FLOAT (não truncar decimais)
 
 SELECT 
     p.cCodProd COLLATE Latin1_General_CI_AS as cCodProd,
     p.cNomeProd COLLATE Latin1_General_CI_AS as cNomeProd,
-    CAST(p.nQtdeEstoque AS INT) as nQtdeEstoque,
-    CAST(p.nQtdeProducao AS INT) as nQtdeProducao,
-    CAST(p.nPedidos AS INT) as nPedidos,
+    CAST(p.nQtdeEstoque AS FLOAT) as nQtdeEstoque,
+    CAST(p.nQtdeProducao AS FLOAT) as nQtdeProducao,
+    CAST(p.nPedidos AS FLOAT) as nPedidos,
     p.cBase COLLATE Latin1_General_CI_AS as cBase,
     p.cNomeTipo COLLATE Latin1_General_CI_AS as cNomeTipo,
     CAST(ISNULL(v.M1, 0) AS INT) as M1,

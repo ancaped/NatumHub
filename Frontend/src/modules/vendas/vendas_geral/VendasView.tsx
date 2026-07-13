@@ -7,6 +7,7 @@ import {
   Truck, Info, AlertCircle, CheckCircle2, XCircle
 } from 'lucide-react';
 import { cn } from '../../geral/lib/utils';
+import { useGlobalNavActive } from '../../geral/components/layout/NavShellContext';
 
 
 interface VendasViewProps {
@@ -131,6 +132,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
   }, []);
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'produtos' | 'pedidos' | 'faltas'>('dashboard');
+  const globalNav = useGlobalNavActive();
   const [products, setProducts] = useState<ProductSalesInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -406,10 +408,8 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
 
   return (
     <div className="flex flex-1 h-full bg-zinc-50 font-sans text-zinc-900 overflow-hidden">
-      {/* Sidebar */}
       <div className="w-64 bg-white border-r border-zinc-200 flex flex-col shrink-0">
-        
-        {/* Voltar ao Hub Button */}
+        {!globalNav && (
         <div className="p-2 border-b border-zinc-100">
           <button
             onClick={onBackToHub}
@@ -419,6 +419,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
             Voltar ao Hub
           </button>
         </div>
+        )}
 
         <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
           <button

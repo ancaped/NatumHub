@@ -134,11 +134,13 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
   // Sorting state
   const [sortKey, setSortKey] = useState<string>('sugestao_compra');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [selectedForQuote, setSelectedForQuote] = useState<Set<string>>(new Set());
 
   // Print list
   const [printList, setPrintList] = useState<string[]>([]);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printFilterType, setPrintFilterType] = useState<'needed' | 'list' | 'all'>('needed');
+  const [lastErpStockSync, setLastErpStockSync] = useState<{ at: string; count: number } | null>(null);
 
   useEffect(() => {
     const loadPrintList = () => {
@@ -337,10 +339,21 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
   const loadProducts = async () => {
     setLoading(true);
     try {
-      const res = await apiFetch(`/products?limit=5000&status=${statusFilter}`);
+      const [res, history] = await Promise.all([
+        apiFetch(`/products?limit=5000&status=${statusFilter}`),
+        api.getImportHistory().catch(() => [] as Awaited<ReturnType<typeof api.getImportHistory>>),
+      ]);
       if (res.ok) {
         const data = await res.json();
         setProducts(data.items || []);
+      }
+      const erp = history.find(
+        (h) => h.source === 'ERP' || (h.filename || '').includes('SQL Server')
+      );
+      if (erp?.imported_at) {
+        setLastErpStockSync({ at: erp.imported_at, count: erp.item_count ?? 0 });
+      } else {
+        setLastErpStockSync(null);
       }
     } catch (e) {
       console.error(`Erro ao carregar produtos do tipo ${statusFilter}:`, e);
@@ -501,7 +514,11 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
         suggestion = Math.max(0, Math.round(estoqueIdealQtd - futureStock));
       }
 
-      const urgency = coverageDays < triggerDays ? 'critical' : coverageDays < (triggerDays + 30) ? 'warning' : 'ok';
+      const urgency = coverageDays < triggerDays
+        ? 'critical'
+        : coverageDays < targetDaysVal
+          ? 'warning'
+          : 'ok';
 
       return {
         ...p,
@@ -944,6 +961,20 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     <div className="flex flex-col gap-4 w-full h-[calc(100vh-6.25rem)]">
       {/* Filters & Actions Bar */}
       <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden flex flex-col w-full flex-1">
+        {lastErpStockSync && (
+          <div className="px-4 py-1.5 border-b border-zinc-200 bg-zinc-50/80 text-[11px] text-zinc-600 flex items-center gap-2 shrink-0">
+            <Database className="h-3.5 w-3.5 text-zinc-400" />
+            <span>
+              Estoque ERP — último sync:{' '}
+              <strong className="text-zinc-800">
+                {new Date(lastErpStockSync.at.replace(' ', 'T')).toLocaleString('pt-BR')}
+              </strong>
+            </span>
+            <span className="text-zinc-400 hidden sm:inline">
+              · Se divergir do ERP, rode Sync em Configurações.
+            </span>
+          </div>
+        )}
         <div className="px-4 py-3 border-b border-zinc-200 bg-zinc-50 flex items-center justify-between shrink-0 gap-4 flex-wrap">
           <div className="flex items-center gap-4 flex-wrap">
             {/* Search Input */}
@@ -980,9 +1011,9 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
               className="text-xs border border-zinc-300 rounded-md px-2.5 py-1.5 bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none shadow-sm"
             >
               <option value="">Todos os Status</option>
-              <option value="critical">🔴 Crítico (&lt;30 dias)</option>
-              <option value="warning">🟡 Atenção (30-60 dias)</option>
-              <option value="ok">🟢 OK (&gt;60 dias)</option>
+              <option value="critical">🔴 Crítico (&lt; disparo)</option>
+              <option value="warning">🟡 Atenção (disparo–meta)</option>
+              <option value="ok">🟢 OK (≥ meta)</option>
             </select>
 
             <div className="flex items-center gap-2 border-l border-zinc-300 pl-4">
@@ -1023,6 +1054,32 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
 
           <div className="flex items-center gap-3">
             <span className="text-xs text-zinc-500 font-semibold">{filteredProducts.length} itens</span>
+            <button
+              type="button"
+              disabled={selectedForQuote.size === 0}
+              onClick={async () => {
+                if (selectedForQuote.size === 0) return;
+                const title = prompt('Título para a nova cotação:');
+                if (!title) return;
+                try {
+                  const selected = computedProducts.filter((p) => selectedForQuote.has(p.codigo));
+                  await api.createQuotation(
+                    title,
+                    selected.map((p) => p.codigo),
+                    selected.map((p) => p.sugestao_compra_computed || 0),
+                  );
+                  alert('Cotação criada com sucesso! Abra Compras > Cotações para continuar.');
+                  setSelectedForQuote(new Set());
+                } catch (e) {
+                  console.error(e);
+                  alert('Erro ao criar cotação: ' + (e instanceof Error ? e.message : String(e)));
+                }
+              }}
+              className="text-xs bg-white border border-zinc-300 hover:bg-zinc-50 disabled:opacity-40 text-zinc-800 px-3.5 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed"
+            >
+              <ShoppingCart className="h-3.5 w-3.5" />
+              Cotar ({selectedForQuote.size})
+            </button>
             <button 
               onClick={() => {
                 const neededCount = filteredProducts.filter(p => p.sugestao_compra_computed > 0).length;
@@ -1060,6 +1117,27 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
             <table className="w-full text-left text-xs whitespace-nowrap table-fixed">
               <thead className="bg-zinc-100 sticky top-0 z-10 shadow-sm border-b border-zinc-250">
                 <tr>
+                  <th className="px-2 py-3 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      className="rounded border-zinc-300"
+                      checked={
+                        paginatedProducts.length > 0 &&
+                        paginatedProducts.every((p) => selectedForQuote.has(p.codigo))
+                      }
+                      onChange={() => {
+                        const next = new Set(selectedForQuote);
+                        const allOnPage = paginatedProducts.every((p) => next.has(p.codigo));
+                        if (allOnPage) {
+                          paginatedProducts.forEach((p) => next.delete(p.codigo));
+                        } else {
+                          paginatedProducts.forEach((p) => next.add(p.codigo));
+                        }
+                        setSelectedForQuote(next);
+                      }}
+                      title="Selecionar página para cotação"
+                    />
+                  </th>
                   <th className="px-4 py-3 font-semibold text-zinc-700 cursor-pointer hover:text-zinc-900 w-2/5" onClick={() => toggleSort('descricao')}>
                     <span className="flex items-center gap-1">Ref / Item <SortIcon col="descricao" /></span>
                   </th>
@@ -1095,6 +1173,19 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                         hasSugestao && "bg-amber-50/40 hover:bg-amber-50/60"
                       )}
                     >
+                      <td className="px-2 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          className="rounded border-zinc-300"
+                          checked={selectedForQuote.has(p.codigo)}
+                          onChange={() => {
+                            const next = new Set(selectedForQuote);
+                            if (next.has(p.codigo)) next.delete(p.codigo);
+                            else next.add(p.codigo);
+                            setSelectedForQuote(next);
+                          }}
+                        />
+                      </td>
                       <td className="px-4 py-3 truncate">
                         <div className="font-mono text-[10px] font-bold text-zinc-400">{p.codigo}</div>
                         <div className="font-bold text-zinc-900 truncate" title={p.descricao}>{p.descricao}</div>

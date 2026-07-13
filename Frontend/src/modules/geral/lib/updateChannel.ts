@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { AuthUser } from './auth';
+import { isSupervisor, type AuthUser } from './auth';
 
 export type BuildChannel = 'stable' | 'dev';
 
@@ -35,6 +35,11 @@ function parseBuildChannel(raw: unknown): BuildChannel {
   return 'stable';
 }
 
+function resolveChannelForUser(user: AuthUser | null, requested?: BuildChannel): BuildChannel {
+  if (requested === 'dev' && isSupervisor(user)) return 'dev';
+  return 'stable';
+}
+
 export async function getBuildInfo(): Promise<BuildInfo | null> {
   if (cachedBuildInfo) return cachedBuildInfo;
   try {
@@ -52,11 +57,15 @@ export async function getBuildInfo(): Promise<BuildInfo | null> {
   }
 }
 
-/** Verifica atualização no canal Estável. */
-export async function checkUpdateForUser(user: AuthUser | null): Promise<ChannelUpdateInfo | null> {
+/** Verifica atualização no canal escolhido (dev só para supervisor). */
+export async function checkUpdateForUser(
+  user: AuthUser | null,
+  requested?: BuildChannel
+): Promise<ChannelUpdateInfo | null> {
   if (!user || !isUpdaterEnabled()) return null;
+  const channel = resolveChannelForUser(user, requested);
   try {
-    return await invoke<ChannelUpdateInfo>('check_channel_update', { channel: 'stable' });
+    return await invoke<ChannelUpdateInfo>('check_channel_update', { channel });
   } catch (e) {
     console.error('Erro ao verificar atualização:', e);
     return null;
@@ -66,14 +75,21 @@ export async function checkUpdateForUser(user: AuthUser | null): Promise<Channel
 /** Confirmação dupla antes de instalar. */
 export async function confirmAndInstallUpdate(
   user: AuthUser | null,
-  info: ChannelUpdateInfo
+  info: ChannelUpdateInfo,
+  requested?: BuildChannel
 ): Promise<boolean> {
   if (!user || !info.available || !info.version || !isUpdaterEnabled()) return false;
 
+  const channel = resolveChannelForUser(user, requested);
+  if (channel === 'dev' && !isSupervisor(user)) {
+    return false;
+  }
+
   const build = await getBuildInfo();
+  const channelLabel = channel === 'dev' ? 'Desenvolvedor' : 'Principal';
 
   const msg1 =
-    `Atualização Estável disponível\n` +
+    `Atualização ${channelLabel} disponível\n` +
     `Build: ${build?.productName ?? 'NatumHub'} v${info.currentVersion}\n` +
     `Nova versão: ${info.version}\n\n` +
     (info.body ? `Notas:\n${info.body}\n\n` : '') +
@@ -83,23 +99,26 @@ export async function confirmAndInstallUpdate(
 
   const msg2 =
     `Última confirmação — operador: ${user.displayName}\n` +
-    `Estável → v${info.version}\n\n` +
+    `${channelLabel} → v${info.version}\n\n` +
     `O aplicativo será reiniciado após a instalação. Continuar?`;
 
   if (!confirm(msg2)) return false;
 
-  await invoke('install_channel_update', { channel: 'stable' });
+  await invoke('install_channel_update', { channel });
   return true;
 }
 
-export async function runUpdateCheckFlow(user: AuthUser | null): Promise<'installed' | 'skipped' | 'none' | 'error'> {
+export async function runUpdateCheckFlow(
+  user: AuthUser | null,
+  requested?: BuildChannel
+): Promise<'installed' | 'skipped' | 'none' | 'error'> {
   if (!isUpdaterEnabled()) return 'none';
   try {
-    const info = await checkUpdateForUser(user);
+    const info = await checkUpdateForUser(user, requested);
     if (!info) return 'error';
     if (!info.available) return 'none';
 
-    const installed = await confirmAndInstallUpdate(user, info);
+    const installed = await confirmAndInstallUpdate(user, info, requested);
     if (installed) {
       try {
         const { relaunch } = await import('@tauri-apps/plugin-process');

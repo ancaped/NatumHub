@@ -1,6 +1,7 @@
 /**
- * Configuração de conexão PC Principal / PC Cliente.
- * Persistido em localStorage; no principal também salvo em Saves/client_config.json via Tauri.
+ * Configuração local do dispositivo + URL da API.
+ * Persistido em localStorage e Saves/client_config.json (Tauri).
+ * Com Supabase, todos os PCs usam API local — sem papel Principal/Secundário.
  */
 
 export type AppMode = 'master' | 'client';
@@ -194,17 +195,10 @@ export async function isDeveloperInstall(): Promise<boolean> {
   return build?.isDeveloperInstall ?? false;
 }
 
+/** Migra instalações antigas (modo client / PC secundário) para API local + Supabase. */
 export async function repairDevConnectionIfNeeded(): Promise<boolean> {
-  if (!isDevRuntime()) return false;
   const cfg = loadConnectionConfig();
-  if (cfg.appMode !== 'client') return false;
-
-  const origin = cfg.apiOrigin.replace(/\/$/, '');
-  const isLocal =
-    origin.includes('127.0.0.1') || origin.includes('localhost') || origin === '';
-  const shouldRepair =
-    cfg.installRole === 'development' || (isLocal && cfg.installRole !== 'terminal');
-  if (!shouldRepair) return false;
+  if (cfg.appMode !== 'client' && !cfg.setupLocked) return false;
 
   const fixed = markConnectionSetupCompleted(
     {
@@ -216,7 +210,7 @@ export async function repairDevConnectionIfNeeded(): Promise<boolean> {
       apiPort: cfg.apiPort || DEFAULT_API_PORT,
       setupLocked: false,
     },
-    'development'
+    isDevRuntime() ? 'development' : 'server'
   );
   await saveConfigToTauri(fixed);
   return true;
@@ -251,6 +245,8 @@ export interface HealthCheckResult {
   status?: string;
   error?: string;
   latencyMs?: number;
+  dbProvider?: string;
+  dbHostMasked?: string;
 }
 
 export async function checkServerHealth(apiOrigin?: string): Promise<HealthCheckResult> {
@@ -274,6 +270,8 @@ export async function checkServerHealth(apiOrigin?: string): Promise<HealthCheck
         apiOrigin: origin,
         status: body.status,
         latencyMs,
+        dbProvider: typeof body.dbProvider === 'string' ? body.dbProvider : undefined,
+        dbHostMasked: typeof body.dbHostMasked === 'string' ? body.dbHostMasked : undefined,
       };
     } catch (e: any) {
       return {

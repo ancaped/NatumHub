@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-12 05:53:18.928864+00",
+  "descricao": "processar e salvar lotes nao esta funcionando\n\n",
+  "id": "36b20514-388c-4f62-a4cd-7204f0a590d8",
+  "notas_admin": null,
+  "pagina": "Produção > Microbiologia > Gerar Lote",
+  "prioridade": 101,
+  "resolvido_em": "2026-07-12 06:51:51.252605+00",
+  "solicitante": "Edson",
+  "status": "resolved",
+  "tem_logs": true,
+  "tem_screenshot": false,
+  "tipo": "bug"
+}

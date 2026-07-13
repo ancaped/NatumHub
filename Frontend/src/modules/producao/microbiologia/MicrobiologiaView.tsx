@@ -5,31 +5,24 @@
 
 import React, { useState, useEffect } from 'react';
 import { api } from '../../geral/lib/api';
-import { getAuthUser, logoutOperator } from '../../geral/lib/auth';
+import { getAuthUser } from '../../geral/lib/auth';
 import { format } from 'date-fns';
 import {
-  LayoutDashboard,
   FilePlus,
-  Database,
   History,
-  LogOut,
   Printer,
   Loader2,
   ListChecks,
   Settings,
-  ArrowLeft,
   X,
-  FlaskConical
-} from 'lucide-react';
-import { Product, Report, MicrobioAppConfig as AppConfig } from '../../geral/lib/types';
-import { LAB_NAME, DEPT_NAME, COMPANY_INFO, DEFAULT_TESTS, cn } from '../../geral/lib/microbioUtils';
+} from 'lucide-react';import { Report, MicrobioAppConfig as AppConfig } from '../../geral/lib/types';
+import { LAB_NAME, DEPT_NAME, COMPANY_INFO, DEFAULT_TESTS } from '../../geral/lib/microbioUtils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ReportTemplate } from './components/ReportTemplate';
 
 // Import modular sub-components
 import { ReportCreationFlow } from './components/ReportCreationFlow';
 import AppLayout from '../../geral/components/layout/AppLayout';
-import { ProductManager } from './components/ProductManager';
 import { ReportHistory } from './components/ReportHistory';
 import { SettingsTab } from './components/SettingsTab';
 
@@ -45,7 +38,7 @@ interface MicrobiologiaViewProps {
 export default function MicrobiologiaView({ onBackToHub }: MicrobiologiaViewProps) {
   const [user, setUser] = useState<LocalUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'new' | 'history' | 'products' | 'settings'>('new');
+  const [activeTab, setActiveTab] = useState<'new' | 'history' | 'settings'>('new');
   const [printingReports, setPrintingReports] = useState<Report[] | null>(null);
   const [selectedReportIds, setSelectedReportIds] = useState<Set<string>>(new Set());
 
@@ -53,14 +46,12 @@ export default function MicrobiologiaView({ onBackToHub }: MicrobiologiaViewProp
     const tabLabels: Record<string, string> = {
       new: 'Gerar Lote',
       history: 'Histórico de Laudos',
-      products: 'Cadastro de Produtos',
       settings: 'Configurações'
     };
     (window as any).__current_page__ = tabLabels[activeTab] || activeTab;
   }, [activeTab]);
 
   // Data State
-  const [products, setProducts] = useState<Product[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [config, setConfig] = useState<AppConfig | null>(null);
 
@@ -79,12 +70,10 @@ export default function MicrobiologiaView({ onBackToHub }: MicrobiologiaViewProp
   const fetchData = async () => {
     if (!user) return;
     try {
-      const [prods, reps, conf] = await Promise.all([
-        api.getProducts(),
+      const [reps, conf] = await Promise.all([
         api.getReports(),
         api.getMicrobioConfig()
       ]);
-      setProducts(prods);
       setReports(reps);
 
       if (conf) {
@@ -115,10 +104,7 @@ export default function MicrobiologiaView({ onBackToHub }: MicrobiologiaViewProp
   };
 
   useEffect(() => {
-    fetchData();
-    // Refresh data every 10 seconds to mimic real-time
-    const interval = setInterval(fetchData, 10000);
-    return () => clearInterval(interval);
+    if (user) fetchData();
   }, [user]);
 
   useEffect(() => {
@@ -260,7 +246,7 @@ export default function MicrobiologiaView({ onBackToHub }: MicrobiologiaViewProp
 
         <div className="print:block print-container">
           {printingReports.map((report, idx) => {
-            const product = products.find((p) => p.code === report.productCode) || {
+            const product = {
               code: report.productCode,
               name: report.productName,
               packaging: 'Pote',
@@ -280,7 +266,6 @@ export default function MicrobiologiaView({ onBackToHub }: MicrobiologiaViewProp
   const sidebarItems = [
     { id: 'new', label: 'Gerar Lote', icon: FilePlus },
     { id: 'history', label: 'Histórico', icon: History },
-    { id: 'products', label: 'Biblioteca', icon: Database },
     { id: 'settings', label: 'Configurações', icon: Settings },
   ];
 
@@ -296,20 +281,16 @@ export default function MicrobiologiaView({ onBackToHub }: MicrobiologiaViewProp
   return (
     <AppLayout
       moduleTitle="Análise Microbiológica"
-      moduleSubtitle="NATUM-PRD-01"
       onBackToHub={onBackToHub}
       sidebarItems={sidebarItems}
       activeTab={activeTab}
       onTabChange={(id: any) => setActiveTab(id)}
       headerActions={headerActions}
-      currentUser={user}
-      onLogout={() => logoutOperator().then(() => window.location.reload())}
     >
       <AnimatePresence mode="wait">
         {activeTab === 'new' && (
           <motion.div key="new" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
             <ReportCreationFlow
-              products={products}
               config={config}
               technicianName={technicianName}
               setTechnicianName={setTechnicianName}
@@ -328,11 +309,6 @@ export default function MicrobiologiaView({ onBackToHub }: MicrobiologiaViewProp
               onToggle={toggleReportSelection}
               onRefresh={fetchData}
             />
-          </motion.div>
-        )}
-        {activeTab === 'products' && (
-          <motion.div key="products" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
-            <ProductManager products={products} onRefresh={fetchData} />
           </motion.div>
         )}
         {activeTab === 'settings' && (

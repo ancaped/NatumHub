@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { api } from '../../../geral/lib/api';
 import { Report } from '../../../geral/lib/types';
-import { Search, Trash2, Printer, Loader2, ListChecks, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Search, Trash2, Printer, Loader2, ListChecks, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '../../../geral/lib/microbioUtils';
 import { motion } from 'motion/react';
@@ -149,45 +149,48 @@ export function ReportHistory({ reports, onPrint, selectedIds, onToggle, onRefre
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto font-sans pb-20 px-4 lg:px-6 animate-in fade-in duration-200">
-      <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-zinc-800">Logs de Qualidade</h1>
-          <p className="text-xs text-zinc-500 font-medium">{reports.length} laudos no sistema.</p>
+    <div className="view-container animate-in fade-in duration-200">
+      <div className="view-header">
+        <h2 className="view-title">Histórico de Laudos</h2>
+      </div>
+
+      <div className="toolbar-section">
+        <div className="search-input-wrapper">
+          <Search size={18} />
+          <input
+            type="text"
+            placeholder="Pesquisar laudo, produto ou lote..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="search-input"
+          />
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2 bg-white border border-zinc-300 px-3 py-1.5 rounded-md">
-            <Search className="h-4 w-4 text-zinc-400" />
-            <input
-              type="text"
-              placeholder="Pesquisar laudo, produto ou lote..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="text-xs font-semibold outline-none w-64 bg-transparent text-zinc-900"
-            />
-          </div>
-          <div className="flex items-center gap-2 bg-white border border-zinc-300 px-3 py-1.5 rounded-md">
-            <label className="text-[10px] font-bold text-zinc-500 uppercase">De:</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="text-xs font-semibold outline-none text-zinc-900 bg-white"
-            />
-            <label className="text-[10px] font-bold text-zinc-500 uppercase ml-2">Até:</label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="text-xs font-semibold outline-none text-zinc-900 bg-white"
-            />
-          </div>
-          <button
-            onClick={() => setShowImport(true)}
-            className="bg-white border border-zinc-300 px-4 py-1.5 rounded-md text-sm font-semibold text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
-          >
-            Importar
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="text-[10px] font-bold text-zinc-500 uppercase">De</label>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="search-input w-auto"
+            style={{ paddingLeft: '0.75rem', minWidth: '130px' }}
+          />
+          <label className="text-[10px] font-bold text-zinc-500 uppercase ml-2">Até</label>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="search-input w-auto"
+            style={{ paddingLeft: '0.75rem', minWidth: '130px' }}
+          />
+        </div>
+        <button onClick={() => setShowImport(true)} className="btn-secondary cursor-pointer">
+          Importar
+        </button>
+        {onRefresh && (
+          <button onClick={onRefresh} className="btn-secondary cursor-pointer" title="Atualizar">
+            <RefreshCw size={16} />
           </button>
+        )}
           {selectedList.length > 0 && (
             <div className="flex gap-2">
               <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} className="flex gap-2">
@@ -227,7 +230,6 @@ export function ReportHistory({ reports, onPrint, selectedIds, onToggle, onRefre
               </motion.div>
             </div>
           )}
-        </div>
       </div>
 
       {showImport && (
@@ -259,7 +261,7 @@ export function ReportHistory({ reports, onPrint, selectedIds, onToggle, onRefre
         </div>
       )}
 
-      <div className="bg-white rounded-md border border-zinc-200 shadow-sm overflow-hidden overflow-x-auto">
+      <div className="table-card overflow-x-auto">
         <table className="w-full text-left text-sm whitespace-nowrap">
           <thead className="bg-zinc-50 border-b border-zinc-200 text-[10px] uppercase font-bold text-zinc-500 tracking-wider">
             <tr>

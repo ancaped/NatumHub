@@ -20,6 +20,7 @@ export function FeedbackWidget({ currentView, visible = false }: FeedbackWidgetP
   const [subPage, setSubPage] = useState('');
   const [description, setDescription] = useState('');
   const [screenshot, setScreenshot] = useState<string>('');
+  const [includeScreenshot, setIncludeScreenshot] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
 
@@ -110,10 +111,11 @@ export function FeedbackWidget({ currentView, visible = false }: FeedbackWidgetP
         description,
         page: finalPage,
         logs: getLogs(),
-        screenshot: screenshot || '',
+        screenshot: includeScreenshot && screenshot ? screenshot : '',
       });
       setDescription('');
       setScreenshot('');
+      setIncludeScreenshot(false);
       setSent(true);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -244,34 +246,49 @@ export function FeedbackWidget({ currentView, visible = false }: FeedbackWidgetP
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
-                      Print da Tela
+                    <label className="flex items-center gap-2 text-[11px] font-bold text-zinc-500 uppercase tracking-wider mb-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={includeScreenshot}
+                        onChange={(e) => {
+                          setIncludeScreenshot(e.target.checked);
+                          if (!e.target.checked) setScreenshot('');
+                        }}
+                        className="rounded border-zinc-300"
+                      />
+                      Anexar captura de tela (opcional)
                     </label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={captureScreen}
-                        disabled={loading}
-                        className="flex-1 flex items-center justify-center gap-2 p-2 border border-zinc-200 rounded-lg hover:bg-zinc-50 text-zinc-700 font-semibold text-xs cursor-pointer disabled:opacity-50"
-                      >
-                        <Camera className="h-4 w-4 text-zinc-500" />
-                        <span>{loading ? 'Capturando...' : 'Capturar Tela'}</span>
-                      </button>
-                      <label className="flex-1 cursor-pointer flex items-center justify-center gap-2 p-2 border border-dashed border-zinc-200 rounded-lg hover:bg-zinc-50 text-zinc-700 font-semibold text-xs">
-                        <Upload className="h-4 w-4 text-zinc-400" />
-                        <span>Enviar Arquivo</span>
-                        <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
-                      </label>
-                    </div>
-                    {screenshot && (
-                      <div className="mt-2 relative rounded-lg overflow-hidden border border-zinc-200 bg-zinc-50">
-                        <img src={screenshot} alt="Screenshot" className="w-full object-contain max-h-32" />
-                        <button
-                          onClick={() => setScreenshot('')}
-                          className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 hover:bg-black/80"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
+                    {includeScreenshot && (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={captureScreen}
+                            disabled={loading}
+                            className="flex-1 flex items-center justify-center gap-2 p-2 border border-zinc-200 rounded-lg hover:bg-zinc-50 text-zinc-700 font-semibold text-xs cursor-pointer disabled:opacity-50"
+                          >
+                            <Camera className="h-4 w-4 text-zinc-500" />
+                            <span>{loading ? 'Capturando...' : 'Capturar Tela'}</span>
+                          </button>
+                          <label className="flex-1 cursor-pointer flex items-center justify-center gap-2 p-2 border border-dashed border-zinc-200 rounded-lg hover:bg-zinc-50 text-zinc-700 font-semibold text-xs">
+                            <Upload className="h-4 w-4 text-zinc-400" />
+                            <span>Enviar Arquivo</span>
+                            <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+                          </label>
+                        </div>
+                        {screenshot && (
+                          <div className="mt-2 relative rounded-lg overflow-hidden border border-zinc-200 bg-zinc-50">
+                            <img src={screenshot} alt="Screenshot" className="w-full object-contain max-h-32" />
+                            <button
+                              type="button"
+                              onClick={() => setScreenshot('')}
+                              className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 hover:bg-black/80"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
 

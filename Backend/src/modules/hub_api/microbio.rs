@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{delete, get},
     Json, Router,
 };
 use std::sync::Arc;
@@ -9,66 +9,66 @@ use std::sync::Arc;
 use crate::handlers::AppState;
 use crate::{Product, Report};
 use crate::tauri_commands::*;
-use crate::modules::hub_api::util::{ok_json, ok_status, with_conn, with_conn_mut};
+use crate::modules::hub_api::util::{ok_json, ok_status, with_pool};
 
 async fn get_microbio_config_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match with_conn(&state, get_microbio_config_conn) {
+    match with_pool(&state, |pool| get_microbio_config_query(pool)).await {
         Ok(v) => ok_json(v).into_response(),
         Err(e) => e.into_response(),
     }
 }
 
 async fn save_microbio_config_handler(State(state): State<Arc<AppState>>, Json(config): Json<serde_json::Value>) -> impl IntoResponse {
-    match with_conn(&state, |conn| save_config_microbio_conn(conn, &config)) {
+    match with_pool(&state, |pool| save_config_microbio_query(pool, &config)).await {
         Ok(()) => ok_status().into_response(),
         Err(e) => e.into_response(),
     }
 }
 
 async fn get_products_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match with_conn(&state, get_products_conn) {
+    match with_pool(&state, |pool| get_products_query(pool)).await {
         Ok(v) => ok_json(v).into_response(),
         Err(e) => e.into_response(),
     }
 }
 
 async fn save_product_handler(State(state): State<Arc<AppState>>, Json(product): Json<Product>) -> impl IntoResponse {
-    match with_conn(&state, |conn| save_product_conn(conn, &product)) {
+    match with_pool(&state, |pool| save_product_query(pool, &product)).await {
         Ok(()) => ok_status().into_response(),
         Err(e) => e.into_response(),
     }
 }
 
 async fn delete_product_handler(State(state): State<Arc<AppState>>, Path(code): Path<String>) -> impl IntoResponse {
-    match with_conn(&state, |conn| delete_product_conn(conn, &code)) {
+    match with_pool(&state, |pool| delete_product_query(pool, &code)).await {
         Ok(()) => ok_status().into_response(),
         Err(e) => e.into_response(),
     }
 }
 
 async fn delete_all_products_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match with_conn(&state, delete_all_products_conn) {
+    match with_pool(&state, |pool| delete_all_products_query(pool)).await {
         Ok(()) => ok_status().into_response(),
         Err(e) => e.into_response(),
     }
 }
 
 async fn get_reports_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match with_conn(&state, get_reports_conn) {
+    match with_pool(&state, |pool| get_reports_query(pool)).await {
         Ok(v) => ok_json(v).into_response(),
         Err(e) => e.into_response(),
     }
 }
 
 async fn save_reports_handler(State(state): State<Arc<AppState>>, Json(reports): Json<Vec<Report>>) -> impl IntoResponse {
-    match with_conn_mut(&state, |conn| save_reports_conn(conn, &reports)) {
+    match with_pool(&state, |pool| save_reports_query(pool, &reports)).await {
         Ok(()) => ok_status().into_response(),
         Err(e) => e.into_response(),
     }
 }
 
 async fn delete_report_handler(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> impl IntoResponse {
-    match with_conn(&state, |conn| delete_report_conn(conn, &id)) {
+    match with_pool(&state, |pool| delete_report_query(pool, &id)).await {
         Ok(()) => ok_status().into_response(),
         Err(e) => e.into_response(),
     }

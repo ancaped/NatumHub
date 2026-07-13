@@ -25,7 +25,7 @@ export async function uploadToDrive(dbFile: Blob, fileName: string) {
           // 1. Create file metadata
           const metadata = {
             name: fileName,
-            mimeType: 'application/x-sqlite3'
+            mimeType: 'application/json'
           };
 
           const form = new FormData();

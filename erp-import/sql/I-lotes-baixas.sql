@@ -1,6 +1,6 @@
 -- Passo I: Baixas de insumo em ordens de produção
 -- Destino: lotes_baixas, stock_movements (saída insumo)
--- Filtro: dLog >= 2024-01-01
+-- Full/incremental: dLog >= since (floor 2024-01-01 no full; watermark−2d no incremental)
 
 SELECT 
     b.Registro,

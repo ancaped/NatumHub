@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { api } from '../../../geral/lib/api';
-import { Product, Report, MicrobioAppConfig as AppConfig } from '../../../geral/lib/types';
+import { Report, MicrobioAppConfig as AppConfig } from '../../../geral/lib/types';
+import { loteLookupErrorMessage } from '../../lib/loteLookup';
 import { Plus, X, Save, Loader2 } from 'lucide-react';
-import { cn } from '../../../geral/lib/microbioUtils';
 
 const formatDateBR = (dateStr: string) => {
   try {
@@ -14,8 +14,16 @@ const formatDateBR = (dateStr: string) => {
   }
 };
 
+type LoteEntry = {
+  id: number;
+  batch: string;
+  code: string;
+  productName: string;
+  loading?: boolean;
+  loteStatus?: string;
+};
+
 interface ReportCreationFlowProps {
-  products: Product[];
   config: AppConfig | null;
   technicianName: string;
   setTechnicianName: (v: string) => void;
@@ -25,7 +33,6 @@ interface ReportCreationFlowProps {
 }
 
 export function ReportCreationFlow({
-  products,
   config,
   technicianName,
   setTechnicianName,
@@ -33,98 +40,102 @@ export function ReportCreationFlow({
   setDailyDate,
   onReportGenerated,
 }: ReportCreationFlowProps) {
-  const [entries, setEntries] = useState<{ id: number; code: string; batch: string; loading?: boolean }[]>([
-    { id: Date.now(), code: '', batch: '' },
+  const [entries, setEntries] = useState<LoteEntry[]>([
+    { id: Date.now(), batch: '', code: '', productName: '' },
   ]);
   const [saving, setSaving] = useState(false);
+  const [loteHint, setLoteHint] = useState<string | null>(null);
 
-  // Recommendation: Only products from finished batches (EA - Estoque Atualizado) 
-  // should pass through microbiological testing.
-  
-  const normalizeCode = (code: string) => code.replace(/\./g, '').trim().toLowerCase();
+  const addEntry = () =>
+    setEntries([...entries, { id: Date.now(), batch: '', code: '', productName: '' }]);
 
-  const addEntry = () => setEntries([...entries, { id: Date.now(), code: '', batch: '' }]);
+  const updateEntryBatch = async (id: number, value: string) => {
+    setLoteHint(null);
+    setEntries((prev) =>
+      prev.map((e) =>
+        e.id === id
+          ? { ...e, batch: value, ...(value.trim().length < 3 ? { code: '', productName: '' } : {}) }
+          : e,
+      ),
+    );
 
-  const updateEntry = async (id: number, field: 'code' | 'batch', value: string) => {
-    if (field === 'batch') {
-      const currentEntry = entries.find(e => e.id === id);
-      if (currentEntry) {
-        // If value is long enough, try to fetch
-        if (value.length >= 3 && value !== currentEntry.batch) {
-          // Check if we should fetch
-          setEntries(entries.map(e => e.id === id ? { ...e, batch: value, loading: true } : e));
-          try {
-            const lote = await api.getLoteByNumber(value);
-            if (lote) {
-              // Check status: EA = Estoque Atualizado (Finished)
-              const isFinished = lote.status === 'EA';
-              if (!isFinished) {
-                console.warn(`Aviso: O lote ${value} ainda não está com status EA (Estoque Atualizado). Recomenda-se realizar o teste apenas em lotes finalizados.`);
-              }
-              setEntries(entries.map(e => e.id === id ? { 
-                ...e, 
-                batch: value, 
-                code: lote.productCode, 
-                loading: false 
-              } : e));
-              return;
-            }
-          } catch (err) {
-            console.error("Error fetching lote:", err);
+    const trimmed = value.trim();
+    if (trimmed.length < 3) return;
+
+    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, loading: true } : e)));
+    try {
+      const lote = await api.getLoteByNumber(trimmed);
+      if (lote?.products?.length) {
+        if (lote.status && lote.status !== 'EA') {
+          setLoteHint(
+            `Lote ${trimmed}: status "${lote.statusLabel || lote.status}" — recomendado testar apenas lotes EA.`,
+          );
+        }
+        setEntries((prev) => {
+          const idx = prev.findIndex((e) => e.id === id);
+          if (idx === -1) return prev;
+          const newRows: LoteEntry[] = lote.products.map((p, i) => ({
+            id: Date.now() + i,
+            batch: trimmed,
+            code: p.productCode,
+            productName: p.productDescription,
+            loteStatus: lote.status,
+            loading: false,
+          }));
+          if (lote.products.length > 1) {
+            setLoteHint(
+              `Lote ${trimmed} contém ${lote.products.length} produtos (gramaturas diferentes). Uma linha por produto.`,
+            );
           }
-          setEntries(entries.map(e => e.id === id ? { ...e, batch: value, loading: false } : e));
-          return;
-        }
+          return [...prev.slice(0, idx), ...newRows, ...prev.slice(idx + 1)];
+        });
+        return;
       }
+      setEntries((prev) =>
+        prev.map((e) =>
+          e.id === id ? { ...e, code: '', productName: '', loading: false } : e,
+        ),
+      );
+      setLoteHint(`Lote "${trimmed}" não encontrado. Confira o número ou rode o Sync ERP.`);
+    } catch (err) {
+      console.error('Error fetching lote:', err);
+      setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, loading: false } : e)));
+      setLoteHint(loteLookupErrorMessage(err, trimmed));
     }
-
-    if (field === 'code') {
-      const normalizedInput = normalizeCode(value);
-      if (normalizedInput.length >= 2) {
-        const foundProduct = products.find((p) => normalizeCode(p.code) === normalizedInput);
-        if (foundProduct) {
-          setEntries(entries.map((e) => (e.id === id ? { ...e, code: foundProduct.code } : e)));
-          return;
-        }
-      }
-    }
-    setEntries(entries.map((e) => (e.id === id ? { ...e, [field]: value } : e)));
   };
 
-  const removeEntry = (id: number) => entries.length > 1 && setEntries(entries.filter((e) => e.id !== id));
+  const removeEntry = (id: number) =>
+    entries.length > 1 && setEntries(entries.filter((e) => e.id !== id));
 
   const handleSaveBatch = async () => {
     if (!config) return;
     setSaving(true);
     try {
       let currentNum = config.nextReportNumber;
-      const validEntries = entries.filter((e) => e.code && e.batch && products.some((p) => p.code === e.code));
+      const validEntries = entries.filter((e) => e.batch && e.code && e.productName);
       const generatedReports: Report[] = [];
 
       for (const entry of validEntries) {
-        const product = products.find((p) => p.code === entry.code)!;
         const reportId = `${currentNum}/${config.currentYear % 100}`;
-        const reportData: Report = {
+        generatedReports.push({
           id: reportId.replace('/', '-'),
           reportId,
           reportRawNum: currentNum,
-          productCode: product.code,
-          productName: product.name,
+          productCode: entry.code,
+          productName: entry.productName,
           batch: entry.batch,
           collectionDate: formatDateBR(dailyDate),
           technician: technicianName,
           createdAt: new Date().toISOString(),
-        };
-        generatedReports.push(reportData);
+        });
         currentNum++;
       }
 
       await api.saveReports(generatedReports);
-      const updatedConfig = { ...config, nextReportNumber: currentNum };
-      // Note: saveConfig usually refers to api.saveMicrobioConfig in this context
-      await api.saveMicrobioConfig(updatedConfig);
+      await api.saveMicrobioConfig({ ...config, nextReportNumber: currentNum });
 
-      setEntries([{ id: Date.now(), code: '', batch: '' }]);
+      setEntries([{ id: Date.now(), batch: '', code: '', productName: '' }]);
+      setLoteHint(null);
 
       if (confirm(`${validEntries.length} relatórios gerados! Deseja imprimir todos agora?`)) {
         onReportGenerated(generatedReports);
@@ -137,116 +148,106 @@ export function ReportCreationFlow({
     }
   };
 
+  const validCount = entries.filter((e) => e.code && e.batch).length;
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-20 px-4 lg:px-6 animate-in fade-in duration-200">
-      <div className="bg-white rounded-md border border-zinc-200 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-sm font-bold text-zinc-900 uppercase tracking-tight">Configurações do Lote</h2>
-          <p className="text-xs text-zinc-500">Defina os parâmetros para as amostras processadas.</p>
-        </div>
-        <div className="flex gap-4">
-          <div className="flex flex-col">
+    <div className="view-container animate-in fade-in duration-200">
+      <div className="view-header">
+        <h2 className="view-title">Gerar Laudos</h2>
+      </div>
+
+      {loteHint && (
+        <div className="info-note-card text-sm">{loteHint}</div>
+      )}
+
+      <div className="toolbar-section">
+        <div className="flex flex-wrap gap-4 flex-1">
+          <div className="flex flex-col min-w-[160px]">
             <label className="text-[10px] font-bold uppercase text-zinc-500 mb-1">Data de Coleta</label>
             <input
               type="date"
               value={dailyDate}
               onChange={(e) => setDailyDate(e.target.value)}
-              className="bg-white border border-zinc-300 rounded-md px-3 py-1.5 text-sm font-medium focus:border-zinc-800 focus:ring-1 focus:ring-zinc-800 outline-none text-zinc-900"
+              className="search-input"
+              style={{ paddingLeft: '0.75rem' }}
             />
           </div>
-          <div className="flex flex-col">
+          <div className="flex flex-col flex-1 min-w-[200px]">
             <label className="text-[10px] font-bold uppercase text-zinc-500 mb-1">Técnico Responsável</label>
             <input
               type="text"
               value={technicianName}
               onChange={(e) => setTechnicianName(e.target.value)}
-              className="bg-white border border-zinc-300 rounded-md px-3 py-1.5 text-sm font-medium focus:border-zinc-800 focus:ring-1 focus:ring-zinc-800 outline-none text-zinc-900"
+              className="search-input"
+              style={{ paddingLeft: '0.75rem' }}
             />
           </div>
         </div>
+        {config && (
+          <div className="text-right shrink-0">
+            <span className="text-[10px] font-bold text-zinc-400 uppercase">Próximo laudo</span>
+            <div className="text-sm font-black text-zinc-900">
+              {config.nextReportNumber}/{config.currentYear % 100}
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="space-y-3">
-        <div className="px-4 flex items-center text-[10px] font-bold uppercase text-zinc-400 tracking-widest">
-          <span className="w-48">Número do Lote</span>
-          <span className="w-48 px-4">Código do Item</span>
-          <span className="flex-1 text-center">Descrição do Produto</span>
+      <div className="table-card overflow-hidden">
+        <div className="px-4 py-3 border-b border-zinc-200 bg-zinc-50 flex items-center text-[10px] font-bold uppercase text-zinc-500 tracking-wider gap-4">
+          <span className="w-40">Lote ERP</span>
+          <span className="w-32">Código</span>
+          <span className="flex-1">Produto</span>
+          <span className="w-10" />
         </div>
 
-        {entries.map((entry) => {
-          const product = products.find((p) => p.code === entry.code);
-          return (
-            <div
-              key={entry.id}
-              className="group relative flex flex-col md:flex-row items-center gap-2 rounded-md bg-white p-2 border border-zinc-200 hover:border-zinc-300 transition-colors"
-            >
-              <div className="w-full md:w-48 relative">
+        <div className="divide-y divide-zinc-100">
+          {entries.map((entry) => (
+            <div key={entry.id} className="flex flex-col md:flex-row items-stretch md:items-center gap-2 p-3">
+              <div className="w-full md:w-40 relative">
                 <input
                   value={entry.batch}
-                  onChange={(e) => updateEntry(entry.id, 'batch', e.target.value)}
-                  placeholder="Nº do Lote"
-                  className="w-full bg-white border border-zinc-300 rounded-md px-3 py-2 text-sm font-bold text-zinc-900 focus:outline-none focus:border-zinc-800 focus:ring-1 focus:ring-zinc-800 transition-colors"
+                  onChange={(e) => updateEntryBatch(entry.id, e.target.value)}
+                  placeholder="Nº do lote"
+                  className="search-input font-bold"
+                  style={{ paddingLeft: '0.75rem' }}
                 />
                 {entry.loading && (
-                  <div className="absolute right-2 top-2.5">
-                    <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
-                  </div>
+                  <Loader2 className="h-4 w-4 animate-spin text-zinc-400 absolute right-2 top-2.5" />
                 )}
               </div>
-              <div className="w-full md:w-48">
-                <input
-                  list="codes"
-                  value={entry.code}
-                  onChange={(e) => updateEntry(entry.id, 'code', e.target.value)}
-                  placeholder="Código"
-                  className={cn(
-                    "w-full bg-white border border-zinc-300 rounded-md px-3 py-2 text-sm font-mono font-bold focus:outline-none focus:border-zinc-800 focus:ring-1 focus:ring-zinc-800 transition-colors text-center",
-                    entry.code && !product ? "border-red-300 text-red-600" : "text-zinc-900"
-                  )}
-                />
-                <datalist id="codes">
-                  {products.map((p) => (
-                    <option key={p.code} value={p.code}>
-                      {p.name}
-                    </option>
-                  ))}
-                </datalist>
+              <div className="w-full md:w-32 px-3 py-2 text-sm font-mono font-bold text-zinc-700 bg-zinc-50 border border-zinc-200 rounded-md text-center">
+                {entry.code || '—'}
               </div>
-              <div className="flex-1 w-full px-3 py-2 flex items-center text-sm text-zinc-700 bg-zinc-50 border border-zinc-200 rounded-md truncate">
-                {product ? (
-                  <div className="flex items-center gap-2">
-                    {product.name}
-                    {product.isEa && <span className="bg-emerald-100 text-emerald-700 text-[10px] px-1.5 py-0.5 rounded font-bold">EA</span>}
-                  </div>
-                ) : entry.code ? 'Produto não localizado' : 'Aguardando Lote/Código...'}
+              <div className="flex-1 px-3 py-2 text-sm text-zinc-700 bg-zinc-50 border border-zinc-200 rounded-md truncate" title={entry.productName}>
+                {entry.productName || (entry.batch.trim().length >= 3 ? 'Lote não encontrado' : 'Aguardando lote...')}
               </div>
-              
               <button
                 onClick={() => removeEntry(entry.id)}
-                className="p-2 text-zinc-400 hover:text-red-600 transition-colors shrink-0 cursor-pointer"
+                className="p-2 text-zinc-400 hover:text-red-600 transition-colors shrink-0 cursor-pointer self-end md:self-center"
+                title="Remover linha"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
-          );
-        })}
+          ))}
+        </div>
       </div>
 
-
-      <div className="flex flex-col sm:flex-row gap-3 pt-2">
+      <div className="flex flex-col sm:flex-row gap-3">
         <button
           onClick={addEntry}
-          className="flex items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+          className="btn-secondary flex items-center justify-center gap-2 cursor-pointer"
         >
-          <Plus className="h-4 w-4" /> Item Adicional
+          <Plus className="h-4 w-4" /> Outro Lote
         </button>
         <button
           onClick={handleSaveBatch}
-          disabled={saving || entries.every((e) => !e.code || !e.batch)}
-          className="flex-1 rounded-md bg-zinc-900 px-4 py-2.5 text-white text-sm font-medium flex items-center justify-center gap-2 hover:bg-zinc-800 disabled:bg-zinc-400 transition-colors cursor-pointer"
+          disabled={saving || validCount === 0}
+          className="btn-primary flex-1 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          Processar e Salvar Lote ({entries.filter((e) => e.code && e.batch).length})
+          Processar e Salvar ({validCount})
         </button>
       </div>
     </div>

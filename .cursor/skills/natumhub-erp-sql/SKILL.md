@@ -1,71 +1,54 @@
 ---
 name: natumhub-erp-sql
 description: >-
-  Integração ERP NatumHub: sync SQL Server → SQLite, legacy_db, queries em
-  erp-import/sql, PASSOS, DESTINO-SQLITE, scheduler e settings sql_*.
+  Integração ERP NatumHub: sync SQL Server → PostgreSQL, legacy_db, queries em
+  erp-import/sql, PASSOS, DESTINO-POSTGRES, scheduler e settings sql_*.
   Use quando o usuário pedir sync ERP, importação SQL, legacy_db, query ERP,
-  passo A-N, tabelas destino SQLite, agenda de sync ou conexão SQL Server.
+  passo A-N, tabelas destino Postgres, agenda de sync ou conexão SQL Server.
 ---
 
 # NatumHub — Skill: Integração ERP / SQL
 
 ## Quando usar
 
-Alterar sync ERP, queries SQL Server, mapeamento para SQLite, ou agenda automática.
+Alterar sync ERP, queries SQL Server, mapeamento para PostgreSQL, ou agenda automática.
 
-## Ler primeiro (nesta ordem)
+## Ler primeiro
 
 1. `ContextoIA/erp-import/README.md`
-2. `erp-import/PASSOS.md` — passos A–N
-3. `erp-import/DESTINO-SQLITE.md` — tabelas destino
-4. `erp-import/sql/<passo>.sql` — query específica
-5. Trecho relevante de `Backend/src/core/legacy_db.rs` — **nunca o arquivo inteiro**
+2. `erp-import/PASSOS.md`
+3. `erp-import/DESTINO-POSTGRES.md`
+4. `erp-import/sql/<passo>.sql`
+5. Trecho de `Backend/src/core/legacy_db.rs` — **nunca o arquivo inteiro**
 
-## Onde está o código
+## Código
 
 | Item | Caminho |
 |------|---------|
-| Sync principal | `Backend/src/core/legacy_db.rs` → `sync_from_sql_server` |
-| HTTP trigger | `POST /api/import/sync` → `handlers/imports.rs` |
-| CLI dev | `Backend/src/bin/run_sync.rs` |
-| Scheduler | `modules/geral/configuracoes/erp_sync_scheduler.rs` |
-| Backup pré-sync | `Backend/src/core/db_backup.rs` |
+| Sync | `legacy_db.rs` → `sync_from_sql_server` |
+| HTTP | `POST /api/import/sync` |
+| CLI | `Backend/src/bin/run_sync.rs` |
+| Scheduler | `erp_sync_scheduler.rs` |
+| Lock | tabela `sync_status` |
 
-## Regras críticas
+## Regras
 
-1. **Sync só no PC Principal** (`appMode: master` em `Saves/client_config.json`).
-2. Alterou query no Rust → **atualizar** `erp-import/sql/*.sql` correspondente.
+1. Sync só no **PC Principal** (`appMode: master`).
+2. Alterou Rust → atualizar `erp-import/sql/*.sql`.
 3. Settings: `sql_host`, `sql_port`, `sql_user`, `sql_password`, `sql_database`.
-4. Sync emite notificação (`hub_settings`) — manter se alterar fluxo.
-5. Backup automático antes de sync — não desabilitar sem motivo.
+4. DB: `Saves/postgres.env` (`DATABASE_URL`; legado `supabase.env`).
 
-## Executar sync
+## Executar
 
 | Canal | Como |
 |-------|------|
-| UI | Configurações → Sincronização ERP (admin, principal) |
-| API | `POST /api/import/sync` (Bearer admin) |
-| CLI | `cd Backend && cargo run --bin run_sync` |
+| UI | Configurações → Sync ERP |
+| API | `POST /api/import/sync` |
+| CLI | `cargo run --bin run_sync` |
 
-Agenda: settings `erp_sync_auto_ativo`, `erp_sync_horarios` — ver `ContextoIA/arquitetura/multi_usuario.md`.
+## Checklist alteração
 
-## Workflow de alteração
-
-```
-- [ ] Identificar passo (A–N) em PASSOS.md
-- [ ] Ler .sql + trecho legacy_db.rs do passo
-- [ ] Confirmar tabela destino em DESTINO-SQLITE.md
-- [ ] Editar Rust + espelhar .sql
-- [ ] cargo check
-- [ ] Testar sync (CLI ou API) se possível
-- [ ] Atualizar PASSOS/DESTINO se contrato mudou
-```
-
-## Módulos consumidores
-
-Consultar `PASSOS.md` — cada passo lista quais módulos FE/BE usam os dados importados. Só ler docs desses módulos se necessário.
-
-## Regras gerais
-
-- Secundários (`client`) **não** rodam import — consomem API do master.
-- Respostas em **pt-BR**; SQL/Rust identifiers em inglês/snake_case do projeto.
+- [ ] Passo A–N em PASSOS.md
+- [ ] Tabela destino em DESTINO-POSTGRES.md
+- [ ] Rust + .sql espelhados
+- [ ] `cargo check`

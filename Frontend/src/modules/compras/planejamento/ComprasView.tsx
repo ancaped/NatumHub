@@ -157,7 +157,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
 
   React.useEffect(() => {
     const item = navItems.find(i => i.id === activeTab);
-    const viewId = COMPRAS_MODE_VIEW[mode] || 'compras';
+    const viewId = COMPRAS_MODE_VIEW[mode] || 'compras_materia_prima';
     syncCurrentPageForView(viewId, item?.label);
   }, [activeTab, navItems, mode]);
 

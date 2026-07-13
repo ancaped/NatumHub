@@ -14,12 +14,22 @@ export interface ModuleGroup {
 
 export const MODULE_KEYS = {
   ESTOQUE_INSUMOS: 'estoque_insumos',
+  /** @deprecated alias — use ESTOQUE_MP + ESTOQUE_EMB */
   ESTOQUE_PRODUTOS: 'estoque_produtos',
+  ESTOQUE_MP: 'estoque_materia_prima',
+  ESTOQUE_EMB: 'estoque_embalagens',
+  ESTOQUE_COLOR: 'estoque_coloracao',
+  ESTOQUE_APOIO: 'estoque_apoio',
+  /** @deprecated alias — use ADMIN_LINHA_PRODUTOS */
   ESTOQUE_ATIVOS: 'estoque_ativos',
+  ADMIN_LINHA_PRODUTOS: 'admin_linha_produtos',
   PRODUCAO: 'producao',
+  PRODUCAO_BASES: 'producao_bases',
+  PRODUCAO_LOTES: 'producao_lotes',
   MONTAGEM_KITS: 'montagem_kits',
   MICROBIOLOGIA: 'microbiologia',
   FISCO_QUIMICA: 'fisco_quimica',
+  /** @deprecated removido — use COMPRAS_MP / EMB / COLOR / APOIO */
   COMPRAS: 'compras',
   COMPRAS_MP: 'compras_materia_prima',
   COMPRAS_EMB: 'compras_embalagens',
@@ -30,6 +40,10 @@ export const MODULE_KEYS = {
   COMPRAS_PEDIDOS: 'compras_pedidos',
   COMPRAS_NOTAS: 'compras_notas',
   VENDAS: 'vendas',
+  VENDAS_ONLINE: 'vendas_online',
+  CONTROLE_QUALIDADE: 'controle_qualidade',
+  ADMINISTRATIVO: 'administrativo',
+  EXPEDICAO: 'expedicao',
   FINANCEIRO: 'financeiro',
   CONFIGURACOES: 'hub_settings',
   OPERADORES: 'hub_operadores',
@@ -44,6 +58,9 @@ export const ROLE_OPTIONS = [
   { value: 'compras', label: 'Compras' },
   { value: 'financeiro', label: 'Financeiro' },
   { value: 'vendas', label: 'Vendas' },
+  { value: 'qualidade', label: 'Qualidade' },
+  { value: 'administrativo', label: 'Administrativo' },
+  { value: 'expedicao', label: 'Expedição' },
   { value: 'operador', label: 'Operador (customizado)' },
 ];
 
@@ -54,9 +71,10 @@ export function moduleRegistry(): ModuleGroup[] {
       label: 'Estoque',
       hubView: 'estoque_hub',
       children: [
-        { key: MODULE_KEYS.ESTOQUE_INSUMOS, label: 'Insumos' },
-        { key: MODULE_KEYS.ESTOQUE_PRODUTOS, label: 'Produtos' },
-        { key: MODULE_KEYS.ESTOQUE_ATIVOS, label: 'Linha de Produtos' },
+        { key: MODULE_KEYS.ESTOQUE_MP, label: 'Matéria-Prima' },
+        { key: MODULE_KEYS.ESTOQUE_EMB, label: 'Embalagens' },
+        { key: MODULE_KEYS.ESTOQUE_COLOR, label: 'Coloração' },
+        { key: MODULE_KEYS.ESTOQUE_APOIO, label: 'Material de Apoio' },
       ],
     },
     {
@@ -65,6 +83,8 @@ export function moduleRegistry(): ModuleGroup[] {
       hubView: 'producao_hub',
       children: [
         { key: MODULE_KEYS.PRODUCAO, label: 'Gerenciamento' },
+        { key: MODULE_KEYS.PRODUCAO_BASES, label: 'Gestão de Bases' },
+        { key: MODULE_KEYS.PRODUCAO_LOTES, label: 'Lotes de Produção' },
         { key: MODULE_KEYS.MONTAGEM_KITS, label: 'Montagem de Kits' },
         { key: MODULE_KEYS.MICROBIOLOGIA, label: 'Microbiologia' },
         { key: MODULE_KEYS.FISCO_QUIMICA, label: 'Físico-Química' },
@@ -75,7 +95,6 @@ export function moduleRegistry(): ModuleGroup[] {
       label: 'Compras',
       hubView: 'compras_hub',
       children: [
-        { key: MODULE_KEYS.COMPRAS, label: 'Planejamento Geral' },
         { key: MODULE_KEYS.COMPRAS_MP, label: 'Matéria-Prima' },
         { key: MODULE_KEYS.COMPRAS_EMB, label: 'Embalagens' },
         { key: MODULE_KEYS.COMPRAS_COLOR, label: 'Coloração' },
@@ -89,8 +108,29 @@ export function moduleRegistry(): ModuleGroup[] {
     {
       key: 'vendas',
       label: 'Vendas',
-      hubView: 'vendas',
-      children: [{ key: MODULE_KEYS.VENDAS, label: 'Vendas Geral' }],
+      hubView: 'vendas_hub',
+      children: [
+        { key: MODULE_KEYS.VENDAS, label: 'Vendas Geral' },
+        { key: MODULE_KEYS.VENDAS_ONLINE, label: 'Vendas Online' },
+      ],
+    },
+    {
+      key: 'qualidade',
+      label: 'Qualidade',
+      hubView: 'controle_qualidade',
+      children: [{ key: MODULE_KEYS.CONTROLE_QUALIDADE, label: 'Controle de Qualidade' }],
+    },
+    {
+      key: 'administrativo',
+      label: 'Administrativo',
+      hubView: 'administrativo',
+      children: [{ key: MODULE_KEYS.ADMIN_LINHA_PRODUTOS, label: 'Linha de Produtos' }],
+    },
+    {
+      key: 'expedicao',
+      label: 'Expedição',
+      hubView: 'expedicao',
+      children: [{ key: MODULE_KEYS.EXPEDICAO, label: 'Expedição' }],
     },
     {
       key: 'financeiro',
@@ -115,10 +155,20 @@ export function defaultModulesForRole(role: string): string[] {
     case 'admin':
       return moduleRegistry().flatMap((g) => g.children.map((c) => c.key));
     case 'estoque':
-      return [MODULE_KEYS.ESTOQUE_INSUMOS, MODULE_KEYS.ESTOQUE_PRODUTOS, MODULE_KEYS.ESTOQUE_ATIVOS];
+      return [
+        MODULE_KEYS.ESTOQUE_MP,
+        MODULE_KEYS.ESTOQUE_EMB,
+        MODULE_KEYS.ESTOQUE_COLOR,
+        MODULE_KEYS.ESTOQUE_APOIO,
+      ];
     case 'producao':
     case 'produção':
-      return [MODULE_KEYS.PRODUCAO, MODULE_KEYS.MONTAGEM_KITS];
+      return [
+        MODULE_KEYS.PRODUCAO,
+        MODULE_KEYS.PRODUCAO_BASES,
+        MODULE_KEYS.PRODUCAO_LOTES,
+        MODULE_KEYS.MONTAGEM_KITS,
+      ];
     case 'micro':
     case 'microbiologia':
       return [MODULE_KEYS.MICROBIOLOGIA];
@@ -128,7 +178,6 @@ export function defaultModulesForRole(role: string): string[] {
       return [MODULE_KEYS.FISCO_QUIMICA];
     case 'compras':
       return [
-        MODULE_KEYS.COMPRAS,
         MODULE_KEYS.COMPRAS_MP,
         MODULE_KEYS.COMPRAS_EMB,
         MODULE_KEYS.COMPRAS_COLOR,
@@ -141,7 +190,13 @@ export function defaultModulesForRole(role: string): string[] {
     case 'financeiro':
       return [MODULE_KEYS.FINANCEIRO];
     case 'vendas':
-      return [MODULE_KEYS.VENDAS];
+      return [MODULE_KEYS.VENDAS, MODULE_KEYS.VENDAS_ONLINE];
+    case 'qualidade':
+      return [MODULE_KEYS.CONTROLE_QUALIDADE];
+    case 'administrativo':
+      return [MODULE_KEYS.ADMIN_LINHA_PRODUTOS];
+    case 'expedicao':
+      return [MODULE_KEYS.EXPEDICAO];
     default:
       return [];
   }

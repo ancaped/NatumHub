@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-12 05:51:57.830951+00",
+  "descricao": "Este lote possui 2 produtos. Selecione qual gramatura analisar.\n\nmas, ao analisar nesse caso, analiso apenas o lote da producao, entao, considera os dois itens entende ? ",
+  "id": "ac4a1814-5ffe-40a7-a5f0-9be0ce92e388",
+  "notas_admin": null,
+  "pagina": "Produção > Físico-Química > Registrar Físico-Química",
+  "prioridade": 100,
+  "resolvido_em": "2026-07-12 06:51:28.269447+00",
+  "solicitante": "Edson",
+  "status": "resolved",
+  "tem_logs": false,
+  "tem_screenshot": false,
+  "tipo": "bug"
+}

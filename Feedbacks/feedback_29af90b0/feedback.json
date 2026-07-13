@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-12 05:54:20.714315+00",
+  "descricao": "Remover titulos \nLotes de Produção (ERP)\n\ndeixar sem titulos essa parte central, fazer isso para todas as abas dentro de genrencialmento de produto tbm, ja existe o nome na aba, nao precisa dos titulos ",
+  "id": "29af90b0-07f9-4694-817a-a3da9c28196f",
+  "notas_admin": null,
+  "pagina": "Produção > Lotes de Produção > lotes",
+  "prioridade": 102,
+  "resolvido_em": "2026-07-12 06:52:04.390692+00",
+  "solicitante": "Edson",
+  "status": "resolved",
+  "tem_logs": true,
+  "tem_screenshot": false,
+  "tipo": "feedback"
+}

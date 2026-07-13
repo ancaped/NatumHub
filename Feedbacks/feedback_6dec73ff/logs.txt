@@ -1,0 +1,8 @@
+[2026-07-12T05:52:02.553Z] [ERROR] Failed to fetch data: {"name":"ApiError","status":500,"body":{"error":"error returned from database: column \"reportid\" does not exist"}}
+[2026-07-12T06:05:18.887Z] [ERROR] {"name":"ApiError","status":0}
+[2026-07-12T06:05:40.875Z] [ERROR] Erro ao carregar notas fiscais: {"name":"ApiError","status":0}
+[2026-07-12T06:05:44.434Z] [ERROR] Erro ao carregar notas fiscais: {"name":"ApiError","status":0}
+[2026-07-12T06:05:46.203Z] [ERROR] Erro ao carregar notas fiscais: {"name":"ApiError","status":0}
+[2026-07-12T06:07:35.705Z] [ERROR] Erro ao carregar notas fiscais: {"name":"ApiError","status":0}
+[2026-07-12T06:07:40.143Z] [ERROR] Erro ao carregar notas fiscais: {"name":"ApiError","status":0}
+[2026-07-12T06:07:42.068Z] [ERROR] Erro ao carregar notas fiscais: {"name":"ApiError","status":0}

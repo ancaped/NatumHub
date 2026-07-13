@@ -1,13 +1,11 @@
 import React from 'react';
-import { LayoutDashboard, AlertTriangle, Sliders, CheckCircle2, Info, Database, Check } from 'lucide-react';
+import { LayoutDashboard, AlertTriangle, Sliders, CheckCircle2, Info } from 'lucide-react';
 
 export function DashboardTab({
   stats,
   totalItems,
   bases,
   productsLength,
-  googleStatus,
-  onGoogleSync,
   setCurrentView,
   setSelectedStatus,
   setSelectedBase
@@ -20,13 +18,6 @@ export function DashboardTab({
 
   return (
     <div className="view-container animate-in fade-in duration-200">
-      <div className="view-header">
-        <h2 className="view-title">Painel Geral de Produção</h2>
-        <p className="view-subtitle">
-          Resumo operacional, alertas críticos e saúde global de estoques.
-        </p>
-      </div>
-
       {/* Summary KPIs */}
       <section className="summary-grid">
         <div 
@@ -146,12 +137,6 @@ export function DashboardTab({
             <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px solid hsl(var(--card-border-hsl))' }}>
               <span style={{ color: 'hsl(var(--text-secondary-hsl))' }}>Bases de fragrância ativas:</span>
               <strong style={{ color: 'hsl(var(--text-primary-hsl))' }}>{bases.length} bases mapeadas</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px solid hsl(var(--card-border-hsl))' }}>
-              <span style={{ color: 'hsl(var(--text-secondary-hsl))' }}>Backup Google Cloud:</span>
-              <span style={{ color: googleStatus.authenticated ? 'hsl(var(--success-hsl))' : 'hsl(var(--text-secondary-hsl))', fontWeight: '700' }}>
-                {googleStatus.authenticated ? 'Ativo' : 'Desconectado'}
-              </span>
             </div>
           </div>
         </div>

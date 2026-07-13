@@ -56,26 +56,6 @@ export async function markAllNotificationsRead(): Promise<void> {
   await apiJson('/notifications/read-all', { method: 'POST' });
 }
 
-export interface PrincipalDeviceInfo {
-  deviceId: string;
-  deviceLabel: string;
-  claimedAt?: string | null;
-  hasPrincipal: boolean;
-  isThisDevice: boolean;
-}
-
-export async function fetchPrincipalDevice(localDeviceId: string): Promise<PrincipalDeviceInfo> {
-  const q = encodeURIComponent(localDeviceId);
-  return apiJson<PrincipalDeviceInfo>(`/hub/principal-device?deviceId=${q}`);
-}
-
-export async function claimPrincipalDevice(deviceId: string, deviceLabel?: string): Promise<void> {
-  await apiJson('/hub/claim-principal', {
-    method: 'POST',
-    body: JSON.stringify({ deviceId, deviceLabel }),
-  });
-}
-
 export function kindStyles(kind: string): { dot: string; bg: string; text: string } {
   switch (kind) {
     case 'success':

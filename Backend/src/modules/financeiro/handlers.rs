@@ -5,7 +5,7 @@ use axum::{
     Json,
 };
 use chrono::{Duration, Local, NaiveDate};
-use rusqlite::{params, Connection};
+use sqlx::{PgPool, Row};
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Instant;
@@ -14,7 +14,7 @@ use crate::handlers::AppState;
 use crate::modules::financeiro::client::TinyClient;
 use crate::modules::financeiro::models::{
     deobfuscate_token, obfuscate_token, AccountsPage, AccountsQuery, AgingBucket, AttentionItem,
-    Concentration, FinancialAccount, FlowSummary, HubFinancialSummary, MonthComparison,
+    Concentration, FinancialAccount, FlowSummary, MonthComparison,
     MonthlyFlow, PartyBalance, SparkPoint, StatusResponse, SyncMeta, SyncRequest, SyncResult,
     WeeklyProjection,
 };
@@ -46,8 +46,8 @@ fn parse_date_flexible(d: &str, fallback: NaiveDate) -> NaiveDate {
     }
 }
 
-fn get_tiny_token(db: &crate::core::db::Db) -> Option<String> {
-    match db.get_setting("tiny_api_token") {
+async fn get_tiny_token(db: &crate::core::db::Db) -> Option<String> {
+    match db.get_setting("tiny_api_token").await {
         Ok(Some(t)) => {
             let plain = deobfuscate_token(&t);
             if plain.trim().is_empty() {
@@ -60,29 +60,38 @@ fn get_tiny_token(db: &crate::core::db::Db) -> Option<String> {
     }
 }
 
-fn ensure_indexes(conn: &Connection) {
-    let _ = conn.execute_batch(
-        "
-        CREATE INDEX IF NOT EXISTS idx_tiny_receber_venc ON tiny_contas_receber(data_vencimento);
-        CREATE INDEX IF NOT EXISTS idx_tiny_receber_sit ON tiny_contas_receber(situacao);
-        CREATE INDEX IF NOT EXISTS idx_tiny_receber_nome ON tiny_contas_receber(nome_cliente);
-        CREATE INDEX IF NOT EXISTS idx_tiny_pagar_venc ON tiny_contas_pagar(data_vencimento);
-        CREATE INDEX IF NOT EXISTS idx_tiny_pagar_sit ON tiny_contas_pagar(situacao);
-        CREATE INDEX IF NOT EXISTS idx_tiny_pagar_nome ON tiny_contas_pagar(nome_cliente);
-        ",
-    );
+async fn ensure_indexes(pool: &PgPool) {
+    let stmts = [
+        "CREATE INDEX IF NOT EXISTS idx_tiny_receber_venc ON tiny_contas_receber(data_vencimento)",
+        "CREATE INDEX IF NOT EXISTS idx_tiny_receber_sit ON tiny_contas_receber(situacao)",
+        "CREATE INDEX IF NOT EXISTS idx_tiny_receber_nome ON tiny_contas_receber(nome_cliente)",
+        "CREATE INDEX IF NOT EXISTS idx_tiny_pagar_venc ON tiny_contas_pagar(data_vencimento)",
+        "CREATE INDEX IF NOT EXISTS idx_tiny_pagar_sit ON tiny_contas_pagar(situacao)",
+        "CREATE INDEX IF NOT EXISTS idx_tiny_pagar_nome ON tiny_contas_pagar(nome_cliente)",
+    ];
+    for sql in stmts {
+        let _ = sqlx::query(sql).execute(pool).await;
+    }
 }
 
-fn upsert_accounts(
-    tx: &Connection,
+async fn upsert_accounts(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     table: &str,
     contas: &[crate::modules::financeiro::models::TinyConta],
 ) -> Result<Vec<i64>, String> {
     let mut ids = Vec::with_capacity(contas.len());
     let sql = format!(
-        "INSERT OR REPLACE INTO {} 
-         (id, nome_cliente, historico, numero_doc, data_emissao, data_vencimento, valor, saldo, situacao)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        "INSERT INTO {} (id, nome_cliente, historico, numero_doc, data_emissao, data_vencimento, valor, saldo, situacao)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT(id) DO UPDATE SET
+            nome_cliente = EXCLUDED.nome_cliente,
+            historico = EXCLUDED.historico,
+            numero_doc = EXCLUDED.numero_doc,
+            data_emissao = EXCLUDED.data_emissao,
+            data_vencimento = EXCLUDED.data_vencimento,
+            valor = EXCLUDED.valor,
+            saldo = EXCLUDED.saldo,
+            situacao = EXCLUDED.situacao",
         table
     );
     for conta in contas {
@@ -92,87 +101,80 @@ fn upsert_accounts(
         }
         let em_iso = convert_to_iso_date(&conta.data_emissao_str());
         let ven_iso = convert_to_iso_date(&conta.data_vencimento_str());
-        tx.execute(
-            &sql,
-            params![
-                id,
-                conta.nome_cliente_str(),
-                conta.historico_str(),
-                conta.numero_doc_str(),
-                em_iso,
-                ven_iso,
-                conta.valor_f64(),
-                conta.saldo_f64(),
-                conta.situacao_str()
-            ],
-        )
-        .map_err(|e| format!("Erro ao salvar em {}: {}", table, e))?;
+        sqlx::query(&sql)
+            .bind(id)
+            .bind(conta.nome_cliente_str())
+            .bind(conta.historico_str())
+            .bind(conta.numero_doc_str())
+            .bind(em_iso)
+            .bind(ven_iso)
+            .bind(conta.valor_f64())
+            .bind(conta.saldo_f64())
+            .bind(conta.situacao_str())
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| format!("Erro ao salvar em {}: {}", table, e))?;
         ids.push(id);
     }
     Ok(ids)
 }
 
-/// Remove do intervalo contas que não voltaram na sync (reconciliação).
-fn reconcile_period(
-    tx: &Connection,
+async fn reconcile_period(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     table: &str,
     start_iso: &str,
     end_iso: &str,
     kept_ids: &[i64],
 ) -> Result<usize, String> {
-    // Temp table com IDs mantidos
-    tx.execute("DROP TABLE IF EXISTS _tiny_sync_ids", [])
+    if kept_ids.is_empty() {
+        let result = sqlx::query(&format!(
+            "DELETE FROM {} WHERE data_vencimento >= $1 AND data_vencimento <= $2",
+            table
+        ))
+        .bind(start_iso)
+        .bind(end_iso)
+        .execute(&mut **tx)
+        .await
         .map_err(|e| e.to_string())?;
-    tx.execute("CREATE TEMP TABLE _tiny_sync_ids (id INTEGER PRIMARY KEY)", [])
-        .map_err(|e| e.to_string())?;
-
-    {
-        let mut stmt = tx
-            .prepare("INSERT OR IGNORE INTO _tiny_sync_ids (id) VALUES (?1)")
-            .map_err(|e| e.to_string())?;
-        for id in kept_ids {
-            stmt.execute(params![id]).map_err(|e| e.to_string())?;
-        }
+        return Ok(result.rows_affected() as usize);
     }
 
-    let deleted = tx
-        .execute(
-            &format!(
-                "DELETE FROM {} 
-                 WHERE data_vencimento >= ?1 AND data_vencimento <= ?2
-                   AND id NOT IN (SELECT id FROM _tiny_sync_ids)",
-                table
-            ),
-            params![start_iso, end_iso],
-        )
-        .map_err(|e| e.to_string())?;
+    let deleted = sqlx::query(&format!(
+        "DELETE FROM {}
+         WHERE data_vencimento >= $1 AND data_vencimento <= $2
+           AND id NOT IN (SELECT unnest($3::bigint[]))",
+        table
+    ))
+    .bind(start_iso)
+    .bind(end_iso)
+    .bind(kept_ids)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| e.to_string())?;
 
-    let _ = tx.execute("DROP TABLE IF EXISTS _tiny_sync_ids", []);
-    Ok(deleted)
+    Ok(deleted.rows_affected() as usize)
 }
 
 // 1. GET /api/financeiro/status
 pub async fn get_financial_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let token_configured = get_tiny_token(&state.db).is_some();
+    let pool = state.db.pool();
+    let token_configured = get_tiny_token(&state.db).await.is_some();
 
-    let last_sync = match state.db.get_setting("tiny_financial_last_sync") {
+    let last_sync = match state.db.get_setting("tiny_financial_last_sync").await {
         Ok(Some(date)) => Some(date),
         _ => None,
     };
 
-    let (receivables_count, payables_count) = match state.db.connect() {
-        Ok(conn) => {
-            ensure_indexes(&conn);
-            let r: i64 = conn
-                .query_row("SELECT COUNT(*) FROM tiny_contas_receber", [], |row| row.get(0))
-                .unwrap_or(0);
-            let p: i64 = conn
-                .query_row("SELECT COUNT(*) FROM tiny_contas_pagar", [], |row| row.get(0))
-                .unwrap_or(0);
-            (r, p)
-        }
-        Err(_) => (0, 0),
-    };
+    ensure_indexes(pool).await;
+
+    let receivables_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tiny_contas_receber")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
+    let payables_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tiny_contas_pagar")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
 
     (
         StatusCode::OK,
@@ -193,7 +195,7 @@ pub async fn sync_financial_data(
 ) -> impl IntoResponse {
     let started = Instant::now();
 
-    let token = match get_tiny_token(&state.db) {
+    let token = match get_tiny_token(&state.db).await {
         Some(t) => t,
         None => {
             return (
@@ -249,19 +251,10 @@ pub async fn sync_financial_data(
         }
     };
 
-    let mut conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
-    ensure_indexes(&conn);
+    let pool = state.db.pool();
+    ensure_indexes(pool).await;
 
-    let tx = match conn.transaction() {
+    let mut tx = match pool.begin().await {
         Ok(t) => t,
         Err(e) => {
             return (
@@ -272,7 +265,7 @@ pub async fn sync_financial_data(
         }
     };
 
-    let recv_ids = match upsert_accounts(&tx, "tiny_contas_receber", &receivables) {
+    let recv_ids = match upsert_accounts(&mut tx, "tiny_contas_receber", &receivables).await {
         Ok(ids) => ids,
         Err(e) => {
             return (
@@ -282,7 +275,7 @@ pub async fn sync_financial_data(
                 .into_response();
         }
     };
-    let pay_ids = match upsert_accounts(&tx, "tiny_contas_pagar", &payables) {
+    let pay_ids = match upsert_accounts(&mut tx, "tiny_contas_pagar", &payables).await {
         Ok(ids) => ids,
         Err(e) => {
             return (
@@ -294,12 +287,14 @@ pub async fn sync_financial_data(
     };
 
     let recv_removed = match reconcile_period(
-        &tx,
+        &mut tx,
         "tiny_contas_receber",
         &start_iso,
         &end_iso,
         &recv_ids,
-    ) {
+    )
+    .await
+    {
         Ok(n) => n,
         Err(e) => {
             return (
@@ -309,19 +304,26 @@ pub async fn sync_financial_data(
                 .into_response();
         }
     };
-    let pay_removed =
-        match reconcile_period(&tx, "tiny_contas_pagar", &start_iso, &end_iso, &pay_ids) {
-            Ok(n) => n,
-            Err(e) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({ "error": format!("Reconciliação pagar: {}", e) })),
-                )
-                    .into_response();
-            }
-        };
+    let pay_removed = match reconcile_period(
+        &mut tx,
+        "tiny_contas_pagar",
+        &start_iso,
+        &end_iso,
+        &pay_ids,
+    )
+    .await
+    {
+        Ok(n) => n,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Reconciliação pagar: {}", e) })),
+            )
+                .into_response();
+        }
+    };
 
-    if let Err(e) = tx.commit() {
+    if let Err(e) = tx.commit().await {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("Erro de transação: {}", e) })),
@@ -330,11 +332,12 @@ pub async fn sync_financial_data(
     }
 
     let now_str = Local::now().format("%d/%m/%Y %H:%M:%S").to_string();
-    let _ = state.db.save_setting("tiny_financial_last_sync", &now_str);
+    let _ = state.db.save_setting("tiny_financial_last_sync", &now_str).await;
     let _ = state
         .db
-        .save_setting("tiny_financial_sync_start", &start_iso);
-    let _ = state.db.save_setting("tiny_financial_sync_end", &end_iso);
+        .save_setting("tiny_financial_sync_start", &start_iso)
+        .await;
+    let _ = state.db.save_setting("tiny_financial_sync_end", &end_iso).await;
 
     (
         StatusCode::OK,
@@ -358,17 +361,8 @@ pub async fn get_financial_accounts(
     State(state): State<Arc<AppState>>,
     Query(query): Query<AccountsQuery>,
 ) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
-    ensure_indexes(&conn);
+    let pool = state.db.pool();
+    ensure_indexes(pool).await;
 
     let table_name = if query.tipo == "pagar" {
         "tiny_contas_pagar"
@@ -380,39 +374,18 @@ pub async fn get_financial_accounts(
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
     let offset = (page - 1) * limit;
 
-    let mut where_sql = String::from(" WHERE 1=1");
-    let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-
-    if let Some(ref sit) = query.situacao {
-        if sit != "todos" && !sit.trim().is_empty() {
-            where_sql.push_str(" AND situacao = ?");
-            params_vec.push(Box::new(sit.to_lowercase()));
-        }
-    }
-
-    if let Some(ref search) = query.search {
-        if !search.trim().is_empty() {
-            where_sql.push_str(" AND (nome_cliente LIKE ? OR historico LIKE ? OR numero_doc LIKE ?)");
-            let term = format!("%{}%", search.trim());
-            params_vec.push(Box::new(term.clone()));
-            params_vec.push(Box::new(term.clone()));
-            params_vec.push(Box::new(term));
-        }
-    }
-
-    if let Some(ref start) = query.start_date {
-        if !start.trim().is_empty() {
-            where_sql.push_str(" AND data_vencimento >= ?");
-            params_vec.push(Box::new(start.clone()));
-        }
-    }
-
-    if let Some(ref end) = query.end_date {
-        if !end.trim().is_empty() {
-            where_sql.push_str(" AND data_vencimento <= ?");
-            params_vec.push(Box::new(end.clone()));
-        }
-    }
+    let mut count_qb = sqlx::QueryBuilder::new(format!("SELECT COUNT(*) FROM {}", table_name));
+    count_qb.push(" WHERE 1=1");
+    let mut sums_qb = sqlx::QueryBuilder::new(format!(
+        "SELECT COALESCE(SUM(valor),0), COALESCE(SUM(saldo),0) FROM {}",
+        table_name
+    ));
+    sums_qb.push(" WHERE 1=1");
+    let mut list_qb = sqlx::QueryBuilder::new(format!(
+        "SELECT id, nome_cliente, historico, numero_doc, data_emissao, data_vencimento, valor, saldo, situacao FROM {}",
+        table_name
+    ));
+    list_qb.push(" WHERE 1=1");
 
     let overdue = query
         .overdue
@@ -425,27 +398,54 @@ pub async fn get_financial_accounts(
         .map(|s| s.eq_ignore_ascii_case("true") || s == "1")
         .unwrap_or(false);
 
-    if overdue || only_open {
-        where_sql.push_str(" AND situacao IN ('aberto','parcial')");
-    }
-    if overdue {
-        where_sql.push_str(" AND data_vencimento < date('now','localtime') AND data_vencimento != ''");
-    }
-    if let Some(days) = query.due_within_days {
-        if days > 0 {
-            where_sql.push_str(
-                " AND situacao IN ('aberto','parcial') \
-                 AND data_vencimento >= date('now','localtime') \
-                 AND data_vencimento <= date('now','localtime', ?)",
-            );
-            params_vec.push(Box::new(format!("+{} days", days)));
+    for qb in [&mut count_qb, &mut sums_qb, &mut list_qb] {
+        if let Some(ref sit) = query.situacao {
+            if sit != "todos" && !sit.trim().is_empty() {
+                qb.push(" AND situacao = ");
+                qb.push_bind(sit.to_lowercase());
+            }
+        }
+        if let Some(ref search) = query.search {
+            if !search.trim().is_empty() {
+                let term = format!("%{}%", search.trim());
+                qb.push(" AND (nome_cliente LIKE ");
+                qb.push_bind(term.clone());
+                qb.push(" OR historico LIKE ");
+                qb.push_bind(term.clone());
+                qb.push(" OR numero_doc LIKE ");
+                qb.push_bind(term);
+                qb.push(")");
+            }
+        }
+        if let Some(ref start) = query.start_date {
+            if !start.trim().is_empty() {
+                qb.push(" AND data_vencimento >= ");
+                qb.push_bind(start.clone());
+            }
+        }
+        if let Some(ref end) = query.end_date {
+            if !end.trim().is_empty() {
+                qb.push(" AND data_vencimento <= ");
+                qb.push_bind(end.clone());
+            }
+        }
+        if overdue || only_open {
+            qb.push(" AND situacao IN ('aberto','parcial')");
+        }
+        if overdue {
+            qb.push(" AND data_vencimento < CURRENT_DATE AND data_vencimento != ''");
+        }
+        if let Some(days) = query.due_within_days {
+            if days > 0 {
+                qb.push(format!(
+                    " AND situacao IN ('aberto','parcial') AND data_vencimento >= CURRENT_DATE AND data_vencimento <= (CURRENT_DATE + INTERVAL '{} days')",
+                    days
+                ));
+            }
         }
     }
 
-    let params_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|b| b.as_ref()).collect();
-
-    let count_sql = format!("SELECT COUNT(*) FROM {}{}", table_name, where_sql);
-    let total: i64 = match conn.query_row(&count_sql, params_refs.as_slice(), |row| row.get(0)) {
+    let total: i64 = match count_qb.build_query_scalar().fetch_one(pool).await {
         Ok(t) => t,
         Err(e) => {
             return (
@@ -456,52 +456,20 @@ pub async fn get_financial_accounts(
         }
     };
 
-    let sums_sql = format!(
-        "SELECT COALESCE(SUM(valor),0), COALESCE(SUM(saldo),0) FROM {}{}",
-        table_name, where_sql
-    );
-    let (total_valor, total_saldo): (f64, f64) = conn
-        .query_row(&sums_sql, params_refs.as_slice(), |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })
+    let (total_valor, total_saldo): (f64, f64) = sums_qb
+        .build()
+        .fetch_one(pool)
+        .await
+        .map(|row| (row.get::<f64, _>(0), row.get::<f64, _>(1)))
         .unwrap_or((0.0, 0.0));
 
-    let list_sql = format!(
-        "SELECT id, nome_cliente, historico, numero_doc, data_emissao, data_vencimento, valor, saldo, situacao 
-         FROM {}{} ORDER BY data_vencimento ASC LIMIT ? OFFSET ?",
-        table_name, where_sql
-    );
+    list_qb.push(" ORDER BY data_vencimento ASC LIMIT ");
+    list_qb.push_bind(limit);
+    list_qb.push(" OFFSET ");
+    list_qb.push_bind(offset);
 
-    let mut list_params: Vec<Box<dyn rusqlite::ToSql>> = params_vec;
-    list_params.push(Box::new(limit));
-    list_params.push(Box::new(offset));
-    let list_refs: Vec<&dyn rusqlite::ToSql> = list_params.iter().map(|b| b.as_ref()).collect();
-
-    let mut stmt = match conn.prepare(&list_sql) {
-        Ok(s) => s,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": format!("Erro ao preparar SQL: {}", e) })),
-            )
-                .into_response();
-        }
-    };
-
-    let accounts: Vec<FinancialAccount> = match stmt.query_map(list_refs.as_slice(), |row| {
-        Ok(FinancialAccount {
-            id: row.get(0)?,
-            nome_cliente: row.get(1)?,
-            historico: row.get(2)?,
-            numero_doc: row.get(3)?,
-            data_emissao: row.get(4)?,
-            data_vencimento: row.get(5)?,
-            valor: row.get(6)?,
-            saldo: row.get(7)?,
-            situacao: row.get(8)?,
-        })
-    }) {
-        Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+    let rows = match list_qb.build().fetch_all(pool).await {
+        Ok(r) => r,
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -510,6 +478,21 @@ pub async fn get_financial_accounts(
                 .into_response();
         }
     };
+
+    let accounts: Vec<FinancialAccount> = rows
+        .iter()
+        .map(|row| FinancialAccount {
+            id: crate::core::pg_row::pg_i64(row, 0),
+            nome_cliente: row.get(1),
+            historico: row.get(2),
+            numero_doc: row.get(3),
+            data_emissao: row.get(4),
+            data_vencimento: row.get(5),
+            valor: row.get(6),
+            saldo: row.get(7),
+            situacao: row.get(8),
+        })
+        .collect();
 
     let total_pages = if total == 0 {
         1
@@ -532,98 +515,85 @@ pub async fn get_financial_accounts(
         .into_response()
 }
 
-fn sum_open(conn: &Connection, table: &str) -> f64 {
-    conn.query_row(
-        &format!(
-            "SELECT COALESCE(SUM(saldo), 0.0) FROM {} WHERE situacao IN ('aberto','parcial')",
-            table
-        ),
-        [],
-        |row| row.get(0),
-    )
+async fn sum_open(pool: &PgPool, table: &str) -> f64 {
+    sqlx::query_scalar::<_, f64>(&format!(
+        "SELECT COALESCE(SUM(saldo), 0.0) FROM {} WHERE situacao IN ('aberto','parcial')",
+        table
+    ))
+    .fetch_one(pool)
+    .await
     .unwrap_or(0.0)
 }
 
-fn sum_overdue(conn: &Connection, table: &str, today: &str) -> f64 {
-    conn.query_row(
-        &format!(
-            "SELECT COALESCE(SUM(saldo), 0.0) FROM {} 
-             WHERE situacao IN ('aberto','parcial') AND data_vencimento < ?1 AND data_vencimento != ''",
-            table
-        ),
-        params![today],
-        |row| row.get(0),
-    )
+async fn sum_overdue(pool: &PgPool, table: &str, today: &str) -> f64 {
+    sqlx::query_scalar::<_, f64>(&format!(
+        "SELECT COALESCE(SUM(saldo), 0.0) FROM {}
+         WHERE situacao IN ('aberto','parcial') AND data_vencimento < $1 AND data_vencimento != ''",
+        table
+    ))
+    .bind(today)
+    .fetch_one(pool)
+    .await
     .unwrap_or(0.0)
 }
 
-fn sum_paid(conn: &Connection, table: &str) -> f64 {
-    conn.query_row(
-        &format!(
-            "SELECT COALESCE(SUM(valor - saldo), 0.0) FROM {} WHERE situacao IN ('pago','parcial')",
-            table
-        ),
-        [],
-        |row| row.get(0),
-    )
+async fn sum_paid(pool: &PgPool, table: &str) -> f64 {
+    sqlx::query_scalar::<_, f64>(&format!(
+        "SELECT COALESCE(SUM(valor - saldo), 0.0) FROM {} WHERE situacao IN ('pago','parcial')",
+        table
+    ))
+    .fetch_one(pool)
+    .await
     .unwrap_or(0.0)
 }
 
-fn count_open(conn: &Connection, table: &str) -> i64 {
-    conn.query_row(
-        &format!(
-            "SELECT COUNT(*) FROM {} WHERE situacao IN ('aberto','parcial')",
-            table
-        ),
-        [],
-        |row| row.get(0),
-    )
+async fn count_open(pool: &PgPool, table: &str) -> i64 {
+    sqlx::query_scalar::<_, i64>(&format!(
+        "SELECT COUNT(*) FROM {} WHERE situacao IN ('aberto','parcial')",
+        table
+    ))
+    .fetch_one(pool)
+    .await
     .unwrap_or(0)
 }
 
-fn count_overdue(conn: &Connection, table: &str, today: &str) -> i64 {
-    conn.query_row(
-        &format!(
-            "SELECT COUNT(*) FROM {} WHERE situacao IN ('aberto','parcial') AND data_vencimento < ?1 AND data_vencimento != ''",
-            table
-        ),
-        params![today],
-        |row| row.get(0),
-    )
+async fn count_overdue(pool: &PgPool, table: &str, today: &str) -> i64 {
+    sqlx::query_scalar::<_, i64>(&format!(
+        "SELECT COUNT(*) FROM {} WHERE situacao IN ('aberto','parcial') AND data_vencimento < $1 AND data_vencimento != ''",
+        table
+    ))
+    .bind(today)
+    .fetch_one(pool)
+    .await
     .unwrap_or(0)
 }
 
-fn sum_due_between(conn: &Connection, table: &str, start: &str, end: &str) -> f64 {
-    conn.query_row(
-        &format!(
-            "SELECT COALESCE(SUM(saldo), 0.0) FROM {} 
-             WHERE situacao IN ('aberto','parcial') 
-               AND data_vencimento >= ?1 AND data_vencimento <= ?2",
-            table
-        ),
-        params![start, end],
-        |row| row.get(0),
-    )
+async fn sum_due_between(pool: &PgPool, table: &str, start: &str, end: &str) -> f64 {
+    sqlx::query_scalar::<_, f64>(&format!(
+        "SELECT COALESCE(SUM(saldo), 0.0) FROM {}
+         WHERE situacao IN ('aberto','parcial') AND data_vencimento >= $1 AND data_vencimento <= $2",
+        table
+    ))
+    .bind(start)
+    .bind(end)
+    .fetch_one(pool)
+    .await
     .unwrap_or(0.0)
 }
 
-fn sum_paid_in_month(conn: &Connection, table: &str, ym: &str) -> f64 {
-    // Aproxima: contas com situação pago/parcial cujo vencimento cai no mês
-    // (Tiny listagem não traz data de pagamento na pesquisa)
-    conn.query_row(
-        &format!(
-            "SELECT COALESCE(SUM(CASE WHEN situacao = 'pago' THEN valor WHEN situacao = 'parcial' THEN (valor - saldo) ELSE 0 END), 0.0)
-             FROM {} WHERE strftime('%Y-%m', data_vencimento) = ?1 AND situacao IN ('pago','parcial')",
-            table
-        ),
-        params![ym],
-        |row| row.get(0),
-    )
+async fn sum_paid_in_month(pool: &PgPool, table: &str, ym: &str) -> f64 {
+    sqlx::query_scalar::<_, f64>(&format!(
+        "SELECT COALESCE(SUM(CASE WHEN situacao = 'pago' THEN valor WHEN situacao = 'parcial' THEN (valor - saldo) ELSE 0 END), 0.0)
+         FROM {} WHERE TO_CHAR(data_vencimento::date, 'YYYY-MM') = $1 AND situacao IN ('pago','parcial')",
+        table
+    ))
+    .bind(ym)
+    .fetch_one(pool)
+    .await
     .unwrap_or(0.0)
 }
 
-fn aging_buckets(conn: &Connection, table: &str, today: NaiveDate) -> Vec<AgingBucket> {
-    // buckets por atraso (dias > 0 = atrasado) e futuros
+async fn aging_buckets(pool: &PgPool, table: &str) -> Vec<AgingBucket> {
     let defs: Vec<(&str, i64, Option<i64>, bool)> = vec![
         ("A vencer 0–7d", 0, Some(7), false),
         ("A vencer 8–30d", 8, Some(30), false),
@@ -637,35 +607,66 @@ fn aging_buckets(conn: &Connection, table: &str, today: NaiveDate) -> Vec<AgingB
 
     let mut out = Vec::new();
     for (label, min_d, max_d, overdue) in defs {
-        let mut sql = format!(
-            "SELECT COUNT(*), COALESCE(SUM(saldo),0) FROM {} 
-             WHERE situacao IN ('aberto','parcial') AND data_vencimento != ''",
-            table
-        );
-        // days = julianday(today) - julianday(vencimento) → positivo se atrasado
-        if overdue {
-            sql.push_str(" AND data_vencimento < date('now','localtime')");
-            sql.push_str(" AND CAST(julianday(date('now','localtime')) - julianday(data_vencimento) AS INTEGER) >= ?1");
-            if max_d.is_some() {
-                sql.push_str(" AND CAST(julianday(date('now','localtime')) - julianday(data_vencimento) AS INTEGER) <= ?2");
-            }
-        } else {
-            sql.push_str(" AND data_vencimento >= date('now','localtime')");
-            sql.push_str(" AND CAST(julianday(data_vencimento) - julianday(date('now','localtime')) AS INTEGER) >= ?1");
-            if max_d.is_some() {
-                sql.push_str(" AND CAST(julianday(data_vencimento) - julianday(date('now','localtime')) AS INTEGER) <= ?2");
-            }
-        }
-
-        let (count, saldo): (i64, f64) = if let Some(max) = max_d {
-            conn.query_row(&sql, params![min_d, max], |row| Ok((row.get(0)?, row.get(1)?)))
+        let (count, saldo): (i64, f64) = if overdue {
+            if let Some(max) = max_d {
+                sqlx::query(&format!(
+                    "SELECT COUNT(*), COALESCE(SUM(saldo),0) FROM {}
+                     WHERE situacao IN ('aberto','parcial') AND data_vencimento != ''
+                       AND data_vencimento < CURRENT_DATE
+                       AND (CURRENT_DATE - data_vencimento::date) >= $1
+                       AND (CURRENT_DATE - data_vencimento::date) <= $2",
+                    table
+                ))
+                .bind(min_d)
+                .bind(max)
+                .fetch_one(pool)
+                .await
+                .map(|row| (row.get::<i64, _>(0), row.get::<f64, _>(1)))
                 .unwrap_or((0, 0.0))
-        } else {
-            conn.query_row(&sql, params![min_d], |row| Ok((row.get(0)?, row.get(1)?)))
+            } else {
+                sqlx::query(&format!(
+                    "SELECT COUNT(*), COALESCE(SUM(saldo),0) FROM {}
+                     WHERE situacao IN ('aberto','parcial') AND data_vencimento != ''
+                       AND data_vencimento < CURRENT_DATE
+                       AND (CURRENT_DATE - data_vencimento::date) >= $1",
+                    table
+                ))
+                .bind(min_d)
+                .fetch_one(pool)
+                .await
+                .map(|row| (row.get::<i64, _>(0), row.get::<f64, _>(1)))
                 .unwrap_or((0, 0.0))
+            }
+        } else if let Some(max) = max_d {
+            sqlx::query(&format!(
+                "SELECT COUNT(*), COALESCE(SUM(saldo),0) FROM {}
+                 WHERE situacao IN ('aberto','parcial') AND data_vencimento != ''
+                   AND data_vencimento >= CURRENT_DATE
+                   AND (data_vencimento::date - CURRENT_DATE) >= $1
+                   AND (data_vencimento::date - CURRENT_DATE) <= $2",
+                table
+            ))
+            .bind(min_d)
+            .bind(max)
+            .fetch_one(pool)
+            .await
+            .map(|row| (row.get(0), row.get(1)))
+            .unwrap_or((0, 0.0))
+        } else {
+            sqlx::query(&format!(
+                "SELECT COUNT(*), COALESCE(SUM(saldo),0) FROM {}
+                 WHERE situacao IN ('aberto','parcial') AND data_vencimento != ''
+                   AND data_vencimento >= CURRENT_DATE
+                   AND (data_vencimento::date - CURRENT_DATE) >= $1",
+                table
+            ))
+            .bind(min_d)
+            .fetch_one(pool)
+            .await
+            .map(|row| (row.get(0), row.get(1)))
+            .unwrap_or((0, 0.0))
         };
 
-        let _ = today; // used via SQL date('now')
         out.push(AgingBucket {
             label: label.into(),
             min_days: min_d,
@@ -677,31 +678,28 @@ fn aging_buckets(conn: &Connection, table: &str, today: NaiveDate) -> Vec<AgingB
     out
 }
 
-fn top_parties(conn: &Connection, table: &str, limit: i64) -> Vec<PartyBalance> {
-    let sql = format!(
+async fn top_parties(pool: &PgPool, table: &str, limit: i64) -> Vec<PartyBalance> {
+    let rows = sqlx::query(&format!(
         "SELECT nome_cliente, COUNT(*), COALESCE(SUM(saldo),0)
          FROM {} WHERE situacao IN ('aberto','parcial') AND nome_cliente != ''
-         GROUP BY nome_cliente
-         ORDER BY 3 DESC
-         LIMIT ?1",
+         GROUP BY nome_cliente ORDER BY 3 DESC LIMIT $1",
         table
-    );
-    let mut stmt = match conn.prepare(&sql) {
-        Ok(s) => s,
-        Err(_) => return vec![],
-    };
-    stmt.query_map(params![limit], |row| {
-        Ok(PartyBalance {
-            nome: row.get(0)?,
-            count: row.get(1)?,
-            saldo: row.get(2)?,
+    ))
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    rows.iter()
+        .map(|row| PartyBalance {
+            nome: row.get(0),
+            count: row.get(1),
+            saldo: row.get(2),
         })
-    })
-    .map(|rows| rows.filter_map(|r| r.ok()).collect())
-    .unwrap_or_default()
+        .collect()
 }
 
-fn weekly_projection(conn: &Connection, weeks: i64) -> Vec<WeeklyProjection> {
+async fn weekly_projection(pool: &PgPool, weeks: i64) -> Vec<WeeklyProjection> {
     let today = Local::now().naive_local().date();
     let mut out = Vec::new();
     let mut acumulado = 0.0;
@@ -712,8 +710,8 @@ fn weekly_projection(conn: &Connection, weeks: i64) -> Vec<WeeklyProjection> {
         let start_s = start.format("%Y-%m-%d").to_string();
         let end_s = end.format("%Y-%m-%d").to_string();
 
-        let entradas = sum_due_between(conn, "tiny_contas_receber", &start_s, &end_s);
-        let saidas = sum_due_between(conn, "tiny_contas_pagar", &start_s, &end_s);
+        let entradas = sum_due_between(pool, "tiny_contas_receber", &start_s, &end_s).await;
+        let saidas = sum_due_between(pool, "tiny_contas_pagar", &start_s, &end_s).await;
         let saldo = entradas - saidas;
         acumulado += saldo;
 
@@ -752,9 +750,9 @@ fn previous_month_ym(ym: &str) -> String {
     }
 }
 
-fn concentration(conn: &Connection, table: &str, threshold_pct: f64) -> Concentration {
-    let total_aberto = sum_open(conn, table);
-    let tops = top_parties(conn, table, 3);
+async fn concentration(pool: &PgPool, table: &str, threshold_pct: f64) -> Concentration {
+    let total_aberto = sum_open(pool, table).await;
+    let tops = top_parties(pool, table, 3).await;
     let top3_saldo: f64 = tops.iter().map(|p| p.saldo).sum();
     let pct_top3 = pct(top3_saldo, total_aberto);
     Concentration {
@@ -767,34 +765,33 @@ fn concentration(conn: &Connection, table: &str, threshold_pct: f64) -> Concentr
     }
 }
 
-/// Sparkline: saldo líquido (entradas−saídas por vencimento) nas últimas N semanas.
-fn sparkline_liquido(conn: &Connection, weeks_back: i64) -> Vec<SparkPoint> {
+async fn sparkline_liquido(pool: &PgPool, weeks_back: i64) -> Vec<SparkPoint> {
     let today = Local::now().naive_local().date();
     let mut out = Vec::new();
     for w in (0..weeks_back).rev() {
-        let start = today - Duration::days((w + 1) * 7 - 1) - Duration::days(6);
-        // align: week ending today-ish
         let end = today - Duration::days(w * 7);
         let start = end - Duration::days(6);
         let start_s = start.format("%Y-%m-%d").to_string();
         let end_s = end.format("%Y-%m-%d").to_string();
 
-        let entradas: f64 = conn
-            .query_row(
-                "SELECT COALESCE(SUM(valor),0) FROM tiny_contas_receber
-                 WHERE situacao != 'cancelado' AND data_vencimento >= ?1 AND data_vencimento <= ?2",
-                params![start_s, end_s],
-                |row| row.get(0),
-            )
-            .unwrap_or(0.0);
-        let saidas: f64 = conn
-            .query_row(
-                "SELECT COALESCE(SUM(valor),0) FROM tiny_contas_pagar
-                 WHERE situacao != 'cancelado' AND data_vencimento >= ?1 AND data_vencimento <= ?2",
-                params![start_s, end_s],
-                |row| row.get(0),
-            )
-            .unwrap_or(0.0);
+        let entradas: f64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(valor),0) FROM tiny_contas_receber
+             WHERE situacao != 'cancelado' AND data_vencimento >= $1 AND data_vencimento <= $2",
+        )
+        .bind(&start_s)
+        .bind(&end_s)
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0.0);
+        let saidas: f64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(valor),0) FROM tiny_contas_pagar
+             WHERE situacao != 'cancelado' AND data_vencimento >= $1 AND data_vencimento <= $2",
+        )
+        .bind(&start_s)
+        .bind(&end_s)
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0.0);
 
         out.push(SparkPoint {
             label: format!("{}", end.format("%d/%m")),
@@ -805,92 +802,68 @@ fn sparkline_liquido(conn: &Connection, weeks_back: i64) -> Vec<SparkPoint> {
     out
 }
 
-fn attention_list(
-    conn: &Connection,
+async fn attention_list(
+    pool: &PgPool,
     table: &str,
     tipo: &str,
-    mode: &str, // "overdue" | "due7"
+    mode: &str,
     limit: i64,
 ) -> Vec<AttentionItem> {
     let today = Local::now().naive_local().date();
     let today_s = today.format("%Y-%m-%d").to_string();
     let in_7 = (today + Duration::days(7)).format("%Y-%m-%d").to_string();
 
-    let (sql, order) = if mode == "overdue" {
-        (
-            format!(
-                "SELECT id, nome_cliente, historico, numero_doc, data_vencimento, valor, saldo, situacao
-                 FROM {} WHERE situacao IN ('aberto','parcial')
-                   AND data_vencimento < ?1 AND data_vencimento != ''
-                 ORDER BY data_vencimento ASC LIMIT ?2",
-                table
-            ),
-            true,
-        )
+    let rows = if mode == "overdue" {
+        sqlx::query(&format!(
+            "SELECT id, nome_cliente, historico, numero_doc, data_vencimento, valor, saldo, situacao
+             FROM {} WHERE situacao IN ('aberto','parcial')
+               AND data_vencimento < $1 AND data_vencimento != ''
+             ORDER BY data_vencimento ASC LIMIT $2",
+            table
+        ))
+        .bind(&today_s)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default()
     } else {
-        (
-            format!(
-                "SELECT id, nome_cliente, historico, numero_doc, data_vencimento, valor, saldo, situacao
-                 FROM {} WHERE situacao IN ('aberto','parcial')
-                   AND data_vencimento >= ?1 AND data_vencimento <= ?2
-                 ORDER BY data_vencimento ASC LIMIT ?3",
-                table
-            ),
-            false,
-        )
+        sqlx::query(&format!(
+            "SELECT id, nome_cliente, historico, numero_doc, data_vencimento, valor, saldo, situacao
+             FROM {} WHERE situacao IN ('aberto','parcial')
+               AND data_vencimento >= $1 AND data_vencimento <= $2
+             ORDER BY data_vencimento ASC LIMIT $3",
+            table
+        ))
+        .bind(&today_s)
+        .bind(&in_7)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default()
     };
 
-    let mut out = Vec::new();
-    if order {
-        let mut stmt = match conn.prepare(&sql) {
-            Ok(s) => s,
-            Err(_) => return out,
-        };
-        let rows = stmt.query_map(params![today_s, limit], |row| {
-            let data_vencimento: String = row.get(4)?;
-            let dias = days_between(&data_vencimento, &today_s);
-            Ok(AttentionItem {
-                id: row.get(0)?,
+    rows.iter()
+        .map(|row| {
+            let data_vencimento: String = row.get(4);
+            let dias = if mode == "overdue" {
+                days_between(&data_vencimento, &today_s)
+            } else {
+                -days_between(&today_s, &data_vencimento)
+            };
+            AttentionItem {
+                id: row.get(0),
                 tipo: tipo.into(),
-                nome_cliente: row.get(1)?,
-                historico: row.get(2)?,
-                numero_doc: row.get(3)?,
+                nome_cliente: row.get(1),
+                historico: row.get(2),
+                numero_doc: row.get(3),
                 data_vencimento,
-                valor: row.get(5)?,
-                saldo: row.get(6)?,
-                situacao: row.get(7)?,
+                valor: row.get(5),
+                saldo: row.get(6),
+                situacao: row.get(7),
                 dias,
-            })
-        });
-        if let Ok(rows) = rows {
-            out.extend(rows.filter_map(|r| r.ok()));
-        }
-    } else {
-        let mut stmt = match conn.prepare(&sql) {
-            Ok(s) => s,
-            Err(_) => return out,
-        };
-        let rows = stmt.query_map(params![today_s, in_7, limit], |row| {
-            let data_vencimento: String = row.get(4)?;
-            let dias = days_between(&today_s, &data_vencimento); // days until due (positive)
-            Ok(AttentionItem {
-                id: row.get(0)?,
-                tipo: tipo.into(),
-                nome_cliente: row.get(1)?,
-                historico: row.get(2)?,
-                numero_doc: row.get(3)?,
-                data_vencimento,
-                valor: row.get(5)?,
-                saldo: row.get(6)?,
-                situacao: row.get(7)?,
-                dias: -dias, // negativo = a vencer em N dias
-            })
-        });
-        if let Ok(rows) = rows {
-            out.extend(rows.filter_map(|r| r.ok()));
-        }
-    }
-    out
+            }
+        })
+        .collect()
 }
 
 fn days_between(from_iso: &str, to_iso: &str) -> i64 {
@@ -901,11 +874,11 @@ fn days_between(from_iso: &str, to_iso: &str) -> i64 {
     }
 }
 
-fn build_sync_meta(state: &crate::core::db::Db) -> SyncMeta {
-    let is_configured = get_tiny_token(state).is_some();
-    let last_sync = state.get_setting("tiny_financial_last_sync").ok().flatten();
-    let coverage_start = state.get_setting("tiny_financial_sync_start").ok().flatten();
-    let coverage_end = state.get_setting("tiny_financial_sync_end").ok().flatten();
+async fn build_sync_meta(state: &crate::core::db::Db) -> SyncMeta {
+    let is_configured = get_tiny_token(state).await.is_some();
+    let last_sync = state.get_setting("tiny_financial_last_sync").await.ok().flatten();
+    let coverage_start = state.get_setting("tiny_financial_sync_start").await.ok().flatten();
+    let coverage_end = state.get_setting("tiny_financial_sync_end").await.ok().flatten();
 
     let stale_threshold_days = 2i64;
     let days_since_sync = last_sync.as_ref().and_then(|s| {
@@ -936,25 +909,16 @@ pub async fn get_financial_flow(
     State(state): State<Arc<AppState>>,
     Query(query): Query<SyncRequest>,
 ) -> impl IntoResponse {
-    let conn = match state.db.connect() {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
-    ensure_indexes(&conn);
+    let pool = state.db.pool();
+    ensure_indexes(pool).await;
 
     let today = Local::now().naive_local().date();
     let today_str = today.format("%Y-%m-%d").to_string();
     let ym = today.format("%Y-%m").to_string();
 
-    let start = query.start_date.unwrap_or_else(|| {
-        (today - Duration::days(90)).format("%Y-%m-%d").to_string()
-    });
+    let start = query
+        .start_date
+        .unwrap_or_else(|| (today - Duration::days(90)).format("%Y-%m-%d").to_string());
     let end = query
         .end_date
         .unwrap_or_else(|| (today + Duration::days(180)).format("%Y-%m-%d").to_string());
@@ -962,44 +926,42 @@ pub async fn get_financial_flow(
     let in_7 = (today + Duration::days(7)).format("%Y-%m-%d").to_string();
     let in_30 = (today + Duration::days(30)).format("%Y-%m-%d").to_string();
 
-    let total_receber_aberto = sum_open(&conn, "tiny_contas_receber");
-    let total_receber_atrasado = sum_overdue(&conn, "tiny_contas_receber", &today_str);
-    let total_receber_pago = sum_paid(&conn, "tiny_contas_receber");
-    let total_pagar_aberto = sum_open(&conn, "tiny_contas_pagar");
-    let total_pagar_atrasado = sum_overdue(&conn, "tiny_contas_pagar", &today_str);
-    let total_pagar_pago = sum_paid(&conn, "tiny_contas_pagar");
+    let total_receber_aberto = sum_open(pool, "tiny_contas_receber").await;
+    let total_receber_atrasado = sum_overdue(pool, "tiny_contas_receber", &today_str).await;
+    let total_receber_pago = sum_paid(pool, "tiny_contas_receber").await;
+    let total_pagar_aberto = sum_open(pool, "tiny_contas_pagar").await;
+    let total_pagar_atrasado = sum_overdue(pool, "tiny_contas_pagar", &today_str).await;
+    let total_pagar_pago = sum_paid(pool, "tiny_contas_pagar").await;
 
     let posicao_liquida = total_receber_aberto - total_pagar_aberto;
     let risco_liquido = total_receber_atrasado - total_pagar_atrasado;
 
-    let receber_vencendo_7d =
-        sum_due_between(&conn, "tiny_contas_receber", &today_str, &in_7);
+    let receber_vencendo_7d = sum_due_between(pool, "tiny_contas_receber", &today_str, &in_7).await;
     let receber_vencendo_30d =
-        sum_due_between(&conn, "tiny_contas_receber", &today_str, &in_30);
-    let pagar_vencendo_7d = sum_due_between(&conn, "tiny_contas_pagar", &today_str, &in_7);
-    let pagar_vencendo_30d = sum_due_between(&conn, "tiny_contas_pagar", &today_str, &in_30);
+        sum_due_between(pool, "tiny_contas_receber", &today_str, &in_30).await;
+    let pagar_vencendo_7d = sum_due_between(pool, "tiny_contas_pagar", &today_str, &in_7).await;
+    let pagar_vencendo_30d = sum_due_between(pool, "tiny_contas_pagar", &today_str, &in_30).await;
 
-    // Monthly flow
     let sql_flow = "
         WITH periods AS (
-            SELECT DISTINCT strftime('%Y-%m', data_vencimento) as period FROM tiny_contas_receber WHERE data_vencimento >= ?1 AND data_vencimento <= ?2 AND situacao != 'cancelado'
+            SELECT DISTINCT TO_CHAR(data_vencimento::date, 'YYYY-MM') as period FROM tiny_contas_receber WHERE data_vencimento >= $1 AND data_vencimento <= $2 AND situacao != 'cancelado'
             UNION
-            SELECT DISTINCT strftime('%Y-%m', data_vencimento) as period FROM tiny_contas_pagar WHERE data_vencimento >= ?1 AND data_vencimento <= ?2 AND situacao != 'cancelado'
+            SELECT DISTINCT TO_CHAR(data_vencimento::date, 'YYYY-MM') as period FROM tiny_contas_pagar WHERE data_vencimento >= $1 AND data_vencimento <= $2 AND situacao != 'cancelado'
         ),
         entradas AS (
-            SELECT strftime('%Y-%m', data_vencimento) as period,
+            SELECT TO_CHAR(data_vencimento::date, 'YYYY-MM') as period,
                    SUM(valor) as total,
                    SUM(CASE WHEN situacao = 'pago' THEN valor WHEN situacao = 'parcial' THEN (valor - saldo) ELSE 0.0 END) as pago
             FROM tiny_contas_receber
-            WHERE data_vencimento >= ?1 AND data_vencimento <= ?2 AND situacao != 'cancelado'
+            WHERE data_vencimento >= $1 AND data_vencimento <= $2 AND situacao != 'cancelado'
             GROUP BY 1
         ),
         saidas AS (
-            SELECT strftime('%Y-%m', data_vencimento) as period,
+            SELECT TO_CHAR(data_vencimento::date, 'YYYY-MM') as period,
                    SUM(valor) as total,
                    SUM(CASE WHEN situacao = 'pago' THEN valor WHEN situacao = 'parcial' THEN (valor - saldo) ELSE 0.0 END) as pago
             FROM tiny_contas_pagar
-            WHERE data_vencimento >= ?1 AND data_vencimento <= ?2 AND situacao != 'cancelado'
+            WHERE data_vencimento >= $1 AND data_vencimento <= $2 AND situacao != 'cancelado'
             GROUP BY 1
         )
         SELECT p.period,
@@ -1014,34 +976,35 @@ pub async fn get_financial_flow(
     ";
 
     let mut flow = Vec::new();
-    if let Ok(mut stmt) = conn.prepare(sql_flow) {
-        if let Ok(rows) = stmt.query_map(params![start, end], |row| {
-            let entrada_total: f64 = row.get(1)?;
-            let entrada_paga: f64 = row.get(2)?;
-            let saida_total: f64 = row.get(3)?;
-            let saida_paga: f64 = row.get(4)?;
-            Ok(MonthlyFlow {
-                period: row.get(0)?,
+    if let Ok(rows) = sqlx::query(sql_flow)
+        .bind(&start)
+        .bind(&end)
+        .fetch_all(pool)
+        .await
+    {
+        for row in rows {
+            let entrada_total: f64 = row.get(1);
+            let entrada_paga: f64 = row.get(2);
+            let saida_total: f64 = row.get(3);
+            let saida_paga: f64 = row.get(4);
+            flow.push(MonthlyFlow {
+                period: row.get(0),
                 entrada_total,
                 entrada_paga,
                 saida_total,
                 saida_paga,
                 saldo_periodo: entrada_total - saida_total,
-            })
-        }) {
-            for r in rows.flatten() {
-                flow.push(r);
-            }
+            });
         }
     }
 
     let pct_atraso_receber = pct(total_receber_atrasado, total_receber_aberto);
     let pct_atraso_pagar = pct(total_pagar_atrasado, total_pagar_aberto);
     let ym_prev = previous_month_ym(&ym);
-    let recebido_atual = sum_paid_in_month(&conn, "tiny_contas_receber", &ym);
-    let recebido_anterior = sum_paid_in_month(&conn, "tiny_contas_receber", &ym_prev);
-    let pago_atual = sum_paid_in_month(&conn, "tiny_contas_pagar", &ym);
-    let pago_anterior = sum_paid_in_month(&conn, "tiny_contas_pagar", &ym_prev);
+    let recebido_atual = sum_paid_in_month(pool, "tiny_contas_receber", &ym).await;
+    let recebido_anterior = sum_paid_in_month(pool, "tiny_contas_receber", &ym_prev).await;
+    let pago_atual = sum_paid_in_month(pool, "tiny_contas_pagar", &ym).await;
+    let pago_anterior = sum_paid_in_month(pool, "tiny_contas_pagar", &ym_prev).await;
 
     (
         StatusCode::OK,
@@ -1060,14 +1023,14 @@ pub async fn get_financial_flow(
             receber_vencendo_30d,
             pagar_vencendo_7d,
             pagar_vencendo_30d,
-            qtd_receber_aberto: count_open(&conn, "tiny_contas_receber"),
-            qtd_receber_atrasado: count_overdue(&conn, "tiny_contas_receber", &today_str),
-            qtd_pagar_aberto: count_open(&conn, "tiny_contas_pagar"),
-            qtd_pagar_atrasado: count_overdue(&conn, "tiny_contas_pagar", &today_str),
+            qtd_receber_aberto: count_open(pool, "tiny_contas_receber").await,
+            qtd_receber_atrasado: count_overdue(pool, "tiny_contas_receber", &today_str).await,
+            qtd_pagar_aberto: count_open(pool, "tiny_contas_pagar").await,
+            qtd_pagar_atrasado: count_overdue(pool, "tiny_contas_pagar", &today_str).await,
             recebido_mes_atual: recebido_atual,
             pago_mes_atual: pago_atual,
             valores_sao_aproximados: true,
-            sync_meta: build_sync_meta(&state.db),
+            sync_meta: build_sync_meta(&state.db).await,
             month_comparison: MonthComparison {
                 mes_atual: ym.clone(),
                 mes_anterior: ym_prev,
@@ -1078,18 +1041,18 @@ pub async fn get_financial_flow(
                 liquido_atual: recebido_atual - pago_atual,
                 liquido_anterior: recebido_anterior - pago_anterior,
             },
-            concentration_clientes: concentration(&conn, "tiny_contas_receber", 50.0),
-            concentration_fornecedores: concentration(&conn, "tiny_contas_pagar", 50.0),
-            sparkline_liquido: sparkline_liquido(&conn, 8),
-            attention_receber_atrasado: attention_list(&conn, "tiny_contas_receber", "receber", "overdue", 10),
-            attention_pagar_atrasado: attention_list(&conn, "tiny_contas_pagar", "pagar", "overdue", 10),
-            attention_receber_7d: attention_list(&conn, "tiny_contas_receber", "receber", "due7", 10),
-            attention_pagar_7d: attention_list(&conn, "tiny_contas_pagar", "pagar", "due7", 10),
-            aging_receber: aging_buckets(&conn, "tiny_contas_receber", today),
-            aging_pagar: aging_buckets(&conn, "tiny_contas_pagar", today),
-            top_clientes: top_parties(&conn, "tiny_contas_receber", 8),
-            top_fornecedores: top_parties(&conn, "tiny_contas_pagar", 8),
-            weekly_projection: weekly_projection(&conn, 8),
+            concentration_clientes: concentration(pool, "tiny_contas_receber", 50.0).await,
+            concentration_fornecedores: concentration(pool, "tiny_contas_pagar", 50.0).await,
+            sparkline_liquido: sparkline_liquido(pool, 8).await,
+            attention_receber_atrasado: attention_list(pool, "tiny_contas_receber", "receber", "overdue", 10).await,
+            attention_pagar_atrasado: attention_list(pool, "tiny_contas_pagar", "pagar", "overdue", 10).await,
+            attention_receber_7d: attention_list(pool, "tiny_contas_receber", "receber", "due7", 10).await,
+            attention_pagar_7d: attention_list(pool, "tiny_contas_pagar", "pagar", "due7", 10).await,
+            aging_receber: aging_buckets(pool, "tiny_contas_receber").await,
+            aging_pagar: aging_buckets(pool, "tiny_contas_pagar").await,
+            top_clientes: top_parties(pool, "tiny_contas_receber", 8).await,
+            top_fornecedores: top_parties(pool, "tiny_contas_pagar", 8).await,
+            weekly_projection: weekly_projection(pool, 8).await,
             flow,
         }),
     )
@@ -1113,7 +1076,7 @@ pub async fn save_tiny_token(
     };
 
     let stored = obfuscate_token(token);
-    match state.db.save_setting("tiny_api_token", &stored) {
+    match state.db.save_setting("tiny_api_token", &stored).await {
         Ok(_) => (StatusCode::OK, Json(json!({ "status": "success" }))).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,

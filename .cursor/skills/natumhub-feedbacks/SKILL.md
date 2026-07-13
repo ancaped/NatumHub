@@ -25,7 +25,7 @@ Triagem admin, alterar fluxo de envio, API de feedbacks, ou estrutura de arquivo
 | Papel | Ação |
 |-------|------|
 | Operador | Widget flutuante → envia bug/sugestão |
-| Backend | Grava SQLite + pasta `Feedbacks/feedback_<id>/` |
+| Backend | Grava PostgreSQL + pasta `Feedbacks/feedback_<id>/` |
 | Admin | Perfil → **Gestão de Feedbacks** → aba `hub_feedbacks` |
 | Agente | Lê `feedback.md` + pastas (skill resolve-bugs) |
 

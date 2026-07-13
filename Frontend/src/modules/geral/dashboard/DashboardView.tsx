@@ -2,7 +2,8 @@ import React from 'react';
 import { 
   Boxes, ShoppingCart, Activity, FlaskConical, ArrowRight, ArrowLeft,
   Settings, Database, RefreshCw, Upload, Download, Loader2, Check, X, Globe,
-  FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp, DollarSign
+  FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp, DollarSign,
+  ClipboardCheck, Briefcase, Truck
 } from 'lucide-react';
 import { canAccessView } from '../lib/modules/permissions';
 import type { AuthUser } from '../lib/auth';
@@ -43,63 +44,83 @@ export default function DashboardView({
             <p className="text-sm text-zinc-500">Selecione o inventário específico para consulta e movimentações.</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 w-full max-w-5xl">
-            {allow('estoque_insumos') && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 w-full max-w-5xl">
+            {allow('estoque_materia_prima') && (
             <button 
-              onClick={() => setView('estoque_insumos')}
+              onClick={() => setView('estoque_materia_prima')}
               className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
             >
               <div className="space-y-4">
                 <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                  <Boxes className="h-6 w-6" />
+                  <Database className="h-6 w-6" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-zinc-900">Insumos</h3>
-                  <p className="text-sm text-zinc-500 mt-1">Níveis de estoque de matérias-primas químicas, essências, embalagens e materiais de consumo com histórico de movimentações.</p>
+                  <h3 className="text-xl font-bold text-zinc-900">Matéria-Prima</h3>
+                  <p className="text-sm text-zinc-500 mt-1">Insumos químicos — saldo, movimentações e contagens.</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                Acessar Insumos <ArrowRight className="h-4 w-4" />
+                Acessar Matéria-Prima <ArrowRight className="h-4 w-4" />
               </div>
             </button>
             )}
 
-            {allow('estoque_produtos') && (
+            {allow('estoque_embalagens') && (
             <button 
-              onClick={() => setView('estoque_produtos')}
+              onClick={() => setView('estoque_embalagens')}
               className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
             >
               <div className="space-y-4">
                 <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                  <Boxes className="h-6 w-6" />
+                  <Layers className="h-6 w-6" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-zinc-900">Produtos</h3>
-                  <p className="text-sm text-zinc-500 mt-1">Catálogo de produtos, fórmulas de fabricação, estoque atual, previsões de demanda e histórico de lotes.</p>
+                  <h3 className="text-xl font-bold text-zinc-900">Embalagens</h3>
+                  <p className="text-sm text-zinc-500 mt-1">Frascos, rótulos e tampas — consulta de estoque.</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                Acessar Produtos <ArrowRight className="h-4 w-4" />
+                Acessar Embalagens <ArrowRight className="h-4 w-4" />
               </div>
             </button>
             )}
 
-            {allow('estoque_ativos') && (
+            {allow('estoque_coloracao') && (
             <button 
-              onClick={() => setView('estoque_ativos')}
+              onClick={() => setView('estoque_coloracao')}
               className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
             >
               <div className="space-y-4">
                 <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                  <CheckCircle2 className="h-6 w-6" />
+                  <Palette className="h-6 w-6" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-zinc-900">Linha de Produtos</h3>
-                  <p className="text-sm text-zinc-500 mt-1">Defina quais produtos vão ser de quais linhas, quais vão ficar ativos/em lançamento e ajuste overrides de estoque.</p>
+                  <h3 className="text-xl font-bold text-zinc-900">Coloração</h3>
+                  <p className="text-sm text-zinc-500 mt-1">Produtos de coloração — estoque e lotes.</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                Acessar Linhas <ArrowRight className="h-4 w-4" />
+                Acessar Coloração <ArrowRight className="h-4 w-4" />
+              </div>
+            </button>
+            )}
+
+            {allow('estoque_apoio') && (
+            <button 
+              onClick={() => setView('estoque_apoio')}
+              className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
+            >
+              <div className="space-y-4">
+                <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                  <Tag className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-zinc-900">Material de Apoio</h3>
+                  <p className="text-sm text-zinc-500 mt-1">Materiais de apoio — saldo e movimentações.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                Acessar Material de Apoio <ArrowRight className="h-4 w-4" />
               </div>
             </button>
             )}
@@ -186,9 +207,9 @@ export default function DashboardView({
               </button>
               )}
 
-              {allow('vendas') && (
+              {allow('vendas_hub') && (
               <button 
-                onClick={() => setView('vendas')}
+                onClick={() => setView('vendas_hub')}
                 className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
               >
                 <div className="space-y-4">
@@ -197,7 +218,67 @@ export default function DashboardView({
                   </div>
                   <div>
                     <h3 className="text-xl font-bold text-zinc-900">Vendas</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Estatísticas de vendas, desempenho ano a ano (YoY), histórico por produto e análise de demandas.</p>
+                    <p className="text-sm text-zinc-500 mt-1">Estatísticas de vendas, desempenho YoY e integração futura com marketplaces (Olist).</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Entrar no Módulo <ArrowRight className="h-4 w-4" />
+                </div>
+              </button>
+              )}
+
+              {allow('controle_qualidade') && (
+              <button 
+                onClick={() => setView('controle_qualidade')}
+                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <ClipboardCheck className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-zinc-900">Controle de Qualidade</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Laudos, especificações e rastreabilidade de lotes (em desenvolvimento).</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Entrar no Módulo <ArrowRight className="h-4 w-4" />
+                </div>
+              </button>
+              )}
+
+              {allow('expedicao') && (
+              <button 
+                onClick={() => setView('expedicao')}
+                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <Truck className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-zinc-900">Expedição</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Separação, conferência e despacho de pedidos (em desenvolvimento).</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Entrar no Módulo <ArrowRight className="h-4 w-4" />
+                </div>
+              </button>
+              )}
+
+              {allow('administrativo') && (
+              <button 
+                onClick={() => setView('administrativo')}
+                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <Briefcase className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-zinc-900">Administrativo</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Catálogo mestre: linhas comerciais, status e categorias de produto.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
@@ -260,6 +341,46 @@ export default function DashboardView({
                 </div>
                 <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
                   Acessar Produção <ArrowRight className="h-3 w-3" />
+                </div>
+              </button>
+              )}
+
+              {allow('producao_bases') && (
+              <button 
+                onClick={() => setView('producao_bases')}
+                className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <Database className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-zinc-900">Gestão de Bases</h3>
+                    <p className="text-xs text-zinc-500 mt-1">Composições de bases, produtos vinculados e estoque de intermediários.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Acessar Bases <ArrowRight className="h-3 w-3" />
+                </div>
+              </button>
+              )}
+
+              {allow('producao_lotes') && (
+              <button 
+                onClick={() => setView('producao_lotes')}
+                className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <ClipboardList className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-zinc-900">Lotes de Produção</h3>
+                    <p className="text-xs text-zinc-500 mt-1">Lotes ERP, conferência de pesagem/envase e resolução de erros.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Acessar Lotes <ArrowRight className="h-3 w-3" />
                 </div>
               </button>
               )}

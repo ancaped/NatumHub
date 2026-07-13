@@ -38,13 +38,6 @@ export function KitsTab({
 }) {
   return (
     <div className="view-container animate-in fade-in duration-200">
-      <div className="view-header">
-        <h2 className="view-title">Gestão de Kits e Componentes</h2>
-        <p className="view-subtitle">
-          Relação de kits e acompanhamento de falta de estoque de seus componentes antes da montagem.
-        </p>
-      </div>
-
       {/* Tabs Nav */}
       <div className="tabs-container">
         {tabOptions.map((opt) => (

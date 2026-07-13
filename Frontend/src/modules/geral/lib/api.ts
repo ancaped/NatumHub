@@ -1,11 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
-import { hubJson } from './http';
+import { hubJson, ApiError, apiJson } from './http';
 import type {
   Category, Supplier, Item, Invoice,
   DemandResult, Quotation, QuotationItem, QuotationPrice,
   ImportResult, StockImport, PricePoint, SupplierSpend, CategorySpend,
   ComprasAppConfig, MicrobioAppConfig, Feedback, Product, Report, OnlineOrder, OnlineStore,
-  FiscoQuimicaPattern, FiscoQuimicaAgent, FiscoQuimicaAnalysis, ProductionLote,
+  FiscoQuimicaPattern, FiscoQuimicaAgent, FiscoQuimicaAnalysis, LoteLookup,
   CustomPurchaseConfigRow
 } from './types';
 import type { FeedbackSubmitInput, FeedbackAdminUpdate, FeedbackNote, FeedbackDetail } from './types';
@@ -186,18 +186,18 @@ export const api = {
     return hubJson('microbio/config', { method: 'POST', body: JSON.stringify(config) });
   },
 
-  // === BACKUP (master local — Tauri) ===
-  getBackup(): Promise<number[]> {
-    return invoke('get_backup');
+  // === BACKUP / ADMIN (PostgreSQL via REST) ===
+  exportErpSummary(): Promise<{
+    filename: string;
+    sizeBytes: number;
+    tablesCopied: string[];
+    elapsedMs: number;
+    tableRowCounts: Record<string, number>;
+  }> {
+    return hubJson('import/dump', { method: 'POST' });
   },
-  restoreBackup(data: number[]): Promise<void> {
-    return invoke('restore_backup', { data });
-  },
-  getCompressedBackup(): Promise<number[]> {
-    return invoke('get_compressed_backup');
-  },
-  restoreCompressedBackup(data: number[]): Promise<void> {
-    return invoke('restore_compressed_backup', { data });
+  resetOperationalData(): Promise<{ status: string; message: string }> {
+    return hubJson('admin/db-reset', { method: 'POST' });
   },
 
   // === FEEDBACKS ===
@@ -221,9 +221,6 @@ export const api = {
   },
   reorderFeedbacks(items: { id: string; priority: number }[]): Promise<void> {
     return hubJson('feedbacks/reorder', { method: 'POST', body: JSON.stringify({ items }) });
-  },
-  resetDb(): Promise<void> {
-    return invoke('reset_db');
   },
 
   // === COMPRAS ONLINE ===
@@ -281,8 +278,17 @@ export const api = {
     return hubJson(`fisco/analyses/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
-  getLoteByNumber(loteNumber: string): Promise<ProductionLote | null> {
-    return invoke<ProductionLote | null>('get_lote_by_number', { loteNumber });
+  async getLoteByNumber(loteNumber: string): Promise<LoteLookup | null> {
+    const trimmed = loteNumber.trim();
+    if (trimmed.length < 1) return null;
+    try {
+      return await apiJson<LoteLookup>(`/producao/lotes/${encodeURIComponent(trimmed)}`);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        return null;
+      }
+      throw err;
+    }
   },
 };
 

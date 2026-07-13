@@ -114,13 +114,6 @@ export function LotesTab({
 
   return (
     <div className="view-container animate-in fade-in duration-200">
-      <div className="view-header">
-        <h2 className="view-title">Lotes de Produção (ERP)</h2>
-        <p className="view-subtitle">
-          Histórico completo dos lotes de fabricação industrial sincronizados diretamente com o servidor ERP.
-        </p>
-      </div>
-
       {/* KPI Cards */}
       <section className="summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
         <div className="summary-card abundant">

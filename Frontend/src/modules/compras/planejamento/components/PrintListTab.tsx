@@ -6,14 +6,14 @@ import { cn } from '../../../geral/lib/utils';
 
 const COLUMN_METADATA: Record<string, { label: string; align: 'left' | 'center' | 'right' }> = {
   itemCode: { label: 'Ref / Item', align: 'left' },
-  lastSupplierInvoice: { label: 'Últ. Fornecedor (NF)', align: 'left' },
-  lastSupplierOrder: { label: 'Últ. Fornecedor (Pedido)', align: 'left' },
+  lastSupplierInvoice: { label: 'Últ. NF', align: 'left' },
+  lastSupplierOrder: { label: 'Últ. Pedido', align: 'left' },
   currentStock: { label: 'Estoque', align: 'right' },
   overallAvg: { label: 'Média Mês', align: 'right' },
   futureStockForecast: { label: 'Prev. Futura', align: 'right' },
   estimatedDurationDays: { label: 'Duração Est.', align: 'center' },
-  triggerDays: { label: 'Disparo (dias)', align: 'center' },
-  targetDays: { label: 'Objetivo (dias)', align: 'center' },
+  triggerDays: { label: 'Disp.', align: 'center' },
+  targetDays: { label: 'Obj.', align: 'center' },
   recommendedQty: { label: 'Qtd Recomendada', align: 'right' }
 };
 
@@ -593,7 +593,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
           <strong style="color: #111827; display: block; margin-bottom: 4px; font-size: 9px; text-transform: uppercase;">Nota Explicativa (Metodologia de Cálculo):</strong>
           <ul style="margin: 0; padding-left: 12px; line-height: 1.4;">
             <li style="margin-bottom: 3px;"><strong>Consumo Mês (Média):</strong> Média mensal com o período configurado por item (Tempo de Cálculo da Média), priorizando saídas reais de estoque ou faturamento.</li>
-            <li style="margin-bottom: 3px;"><strong>Disparo / Objetivo:</strong> Dias de cobertura por item conforme regras personalizadas (colunas compactas em dias).</li>
+            <li style="margin-bottom: 3px;"><strong>Disp. / Obj.:</strong> Dias de cobertura (disparo e meta) por item; exibidos de forma compacta (ex.: 45d).</li>
             <li style="margin-bottom: 3px;"><strong>Duração de Estoque:</strong> Calculada como <code style="font-family: monospace;">Estoque Projetado Futuro / Consumo Diário</code>.</li>
             <li><strong>Recomendado:</strong> Quantidade sugerida para atingir o objetivo de cobertura do item.</li>
           </ul>
@@ -917,15 +917,15 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
                         }
                         if (colKey === 'triggerDays') {
                           return (
-                            <td key={colKey} className="px-4 py-2.5 text-center text-xs font-semibold text-zinc-755">
-                              {demand.triggerDays !== undefined ? `${demand.triggerDays} dias` : '-'}
+                            <td key={colKey} className="px-2 py-2.5 text-center text-[11px] font-bold text-zinc-700 tabular-nums">
+                              {demand.triggerDays !== undefined ? `${demand.triggerDays}d` : '-'}
                             </td>
                           );
                         }
                         if (colKey === 'targetDays') {
                           return (
-                            <td key={colKey} className="px-4 py-2.5 text-center text-xs font-semibold text-zinc-755">
-                              {demand.targetDays !== undefined ? `${demand.targetDays} dias` : '-'}
+                            <td key={colKey} className="px-2 py-2.5 text-center text-[11px] font-bold text-zinc-700 tabular-nums">
+                              {demand.targetDays !== undefined ? `${demand.targetDays}d` : '-'}
                             </td>
                           );
                         }

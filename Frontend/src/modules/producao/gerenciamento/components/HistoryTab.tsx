@@ -45,19 +45,12 @@ export function HistoryTab({
       }
     } catch (e) {
       console.error(e);
-      alert("Falha de conexão com o servidor");
+      alert("Falha de conexão com a API");
     }
   };
 
   return (
     <div className="view-container animate-in fade-in duration-200">
-      <div className="view-header">
-        <h2 className="view-title">Histórico de Produção Lançada</h2>
-        <p className="view-subtitle">
-          Lista de lotes industriais definidos por dia. A exclusão de um registro estorna automaticamente o estoque em processo.
-        </p>
-      </div>
-
       {/* Summary KPIs */}
       <section className="summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
         <div className="summary-card saudavel">

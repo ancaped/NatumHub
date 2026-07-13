@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Bell, Wifi, WifiOff, Loader2, CheckCheck } from 'lucide-react';
 import type { AuthUser } from '../../lib/auth';
-import { checkServerHealth, isClientMode, isPrincipalPc } from '../../lib/connectionConfig';
+import { checkServerHealth } from '../../lib/connectionConfig';
 import {
   fetchNotifications,
   fetchUnreadCount,
@@ -79,11 +79,7 @@ export default function NotificationsPanel({ currentUser }: NotificationsPanelPr
     setUnread(0);
   };
 
-  const connectionLabel = isClientMode()
-    ? 'Conexão com PC Principal'
-    : isPrincipalPc()
-      ? 'Servidor local (PC Principal)'
-      : 'Conexão com servidor';
+  const connectionLabel = 'API local';
 
   return (
     <div className="relative" ref={panelRef}>

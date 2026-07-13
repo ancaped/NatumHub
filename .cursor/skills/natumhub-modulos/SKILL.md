@@ -30,8 +30,7 @@ Novo submódulo, nova view no hub, rotas REST de domínio, ou chave em permissõ
 
 ```
 Frontend/src/modules/<area>/<sub>/
-├── <Nome>View.tsx
-└── docs/README.md
+└── <Nome>View.tsx
 ```
 
 - Import em `App.tsx` → tipo `HubView`

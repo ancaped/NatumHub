@@ -15,7 +15,7 @@ pub async fn get_setting_handler(
     State(state): State<Arc<AppState>>,
     Path(key): Path<String>,
 ) -> impl IntoResponse {
-    match state.db.get_setting(&key) {
+    match state.db.get_setting(&key).await {
         Ok(Some(val)) => (StatusCode::OK, Json(json!({ "key": key, "value": val }))).into_response(),
         Ok(None) => (StatusCode::NOT_FOUND, Json(json!({ "error": "Setting not found" }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
@@ -28,7 +28,7 @@ pub async fn save_setting_handler(
     Path(key): Path<String>,
     Json(body): Json<SaveSettingInput>,
 ) -> impl IntoResponse {
-    match state.db.save_setting(&key, &body.value) {
+    match state.db.save_setting(&key, &body.value).await {
         Ok(_) => (StatusCode::OK, Json(json!({ "status": "success" }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     }
@@ -36,7 +36,7 @@ pub async fn save_setting_handler(
 
 // GET /api/import/watch-config
 pub async fn get_watch_config_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match state.db.get_watch_config() {
+    match state.db.get_watch_config().await {
         Ok(cfg) => (StatusCode::OK, Json(cfg)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("Erro ao buscar configuração de pasta: {}", e) }))).into_response(),
@@ -57,7 +57,7 @@ pub async fn save_watch_config_handler(
         threshold_faturamento_dias: cfg.threshold_faturamento_dias,
         ativo: cfg.ativo,
     };
-    match state.db.save_watch_config(&db_cfg) {
+    match state.db.save_watch_config(&db_cfg).await {
         Ok(_) => (StatusCode::OK, Json(json!({ "status": "success" }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("Erro ao salvar configuração: {}", e) }))).into_response(),
@@ -66,10 +66,10 @@ pub async fn save_watch_config_handler(
 
 // GET /api/import/erp-sync-schedule
 pub async fn get_erp_sync_schedule_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match state.db.get_erp_sync_schedule() {
+    match state.db.get_erp_sync_schedule().await {
         Ok(cfg) => {
             let horarios = normalize_schedule_times(&cfg.horarios);
-            let ultima = state.db.get_erp_sync_last_auto_run().ok().flatten();
+            let ultima = state.db.get_erp_sync_last_auto_run().await.ok().flatten();
             let proxima = if cfg.ativo {
                 compute_next_run(&horarios)
             } else {
@@ -110,7 +110,7 @@ pub async fn save_erp_sync_schedule_handler(
         horarios: horarios.clone(),
     };
 
-    match state.db.save_erp_sync_schedule(&normalized) {
+    match state.db.save_erp_sync_schedule(&normalized).await {
         Ok(_) => {
             let proxima = if normalized.ativo {
                 compute_next_run(&horarios)

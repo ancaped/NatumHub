@@ -3,7 +3,7 @@
 ## Fluxo
 
 1. **Operador** envia pelo widget flutuante (canto inferior direito).
-2. Backend grava SQLite + pasta `Feedbacks/feedback_<id>/`.
+2. Backend grava PostgreSQL + pasta `Feedbacks/feedback_<id>/`.
 3. **Admin** triagem em **Perfil → Gestão de Feedbacks** (aba dedicada `hub_feedbacks`, não modal).
 4. **Agente IA** lê [`../../Feedbacks/feedback.md`](../../Feedbacks/feedback.md) e executa pela fila.
 

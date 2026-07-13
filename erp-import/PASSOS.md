@@ -3,7 +3,7 @@
 Cada passo corresponde a um bloco em `legacy_db.rs::sync_from_sql_server`.  
 Query SQL: pasta [`sql/`](sql/).
 
-| Passo | Arquivo SQL | Origem ERP | Destino SQLite | Módulos que usam |
+| Passo | Arquivo SQL | Origem ERP | Destino Postgres | Módulos que usam |
 |-------|-------------|------------|----------------|------------------|
 | **A** | `A-produtos.sql` | `Produtos` + vendas M1–M12 | `produtos`, `estoque_atual` | Produção, Estoque, Compras |
 | **B** | `B-fornecedores.sql` | `Fornecedores` | `suppliers` | Compras, Financeiro |
@@ -34,9 +34,17 @@ Alguns passos limitam volume por janela de tempo **fixa no SQL** (performance):
 | I | Baixas desde 2024-01-01 |
 | K, L | Pedidos compra: últimos 12 meses ou status aberto |
 | M, N | Pedidos venda: últimos 6 meses ou status aberto |
-| **J** | **Sem filtro de data** — histórico completo de VENDAS2 |
+| **J** | `dVenda >= 2024-01-01` no full; incremental usa watermark − 2 dias |
 
 Para alterar janelas, edite a query em `legacy_db.rs` **e** o `.sql` correspondente aqui.
+
+## Sync incremental
+
+- Setting `erp_sync_watermark` (JSON): `cursor`, `last_full_at`, `last_incremental_at`.
+- Sem cursor → primeiro sync é **full**.
+- `POST /api/import/sync` (default) = incremental; `?mode=full` = completo.
+- Cadastros/estoque (A–D, F, G) sempre full; E/H/I/J/K–N em delta.
+- Scheduler automático usa incremental.
 
 ## Dump completo (opcional)
 

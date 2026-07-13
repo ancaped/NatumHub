@@ -194,7 +194,7 @@ export function AprovacaoTab({
       }
     } catch (e) {
       console.error(e);
-      alert("Falha de conexão com o servidor");
+      alert("Falha de conexão com a API");
     } finally {
       setIsSubmitting(false);
     }
@@ -399,13 +399,6 @@ export function AprovacaoTab({
 
   return (
     <div className="view-container animate-in fade-in duration-200">
-      <div className="view-header text-left">
-        <h2 className="view-title">Fila de Aprovação de Produção</h2>
-        <p className="view-subtitle">
-          Revise os produtos selecionados para produção, ajuste quantidades, verifique o consumo de bases e libere ordens vinculadas ao Lote ERP.
-        </p>
-      </div>
-
       {/* Summary KPI Cards */}
       <section className="summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
         <div className="summary-card abundant text-left">

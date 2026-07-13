@@ -8,9 +8,9 @@ use crate::modules::geral::releases::store;
 
 pub fn validate_channel(channel: &str) -> Result<(), String> {
     match channel {
-        "stable" => Ok(()),
+        "stable" | "dev" => Ok(()),
         _ => Err(format!(
-            "Canal de atualização inválido: {channel}. Apenas stable é suportado."
+            "Canal de atualização inválido: {channel}. Use stable ou dev."
         )),
     }
 }
@@ -19,14 +19,16 @@ fn build_channel(app: &AppHandle) -> String {
     store::channel_from_identifier(&app.config().identifier).to_string()
 }
 
-fn resolve_update_channel(_app: &AppHandle, _requested: &str) -> Result<String, String> {
-    Ok("stable".to_string())
+fn resolve_update_channel(_app: &AppHandle, requested: &str) -> Result<String, String> {
+    validate_channel(requested)?;
+    Ok(requested.to_string())
 }
 
 pub fn version_matches_channel(version: &str, channel: &str) -> Result<(), String> {
     let v = version.to_lowercase();
     match channel {
-        "stable" if !v.contains("-alpha") && !v.contains("-beta") => Ok(()),
+        "stable" if !v.contains("-alpha") && !v.contains("-beta") && !v.contains("-dev") => Ok(()),
+        "dev" => Ok(()),
         _ => Err(format!(
             "Versão \"{version}\" não corresponde ao canal \"{channel}\". Atualização bloqueada por segurança."
         )),
@@ -60,9 +62,9 @@ fn read_tauri_conf_endpoints() -> Vec<String> {
     vec![]
 }
 
-/// Prioriza manifest no PC master (LAN); fallback nos endpoints do tauri.conf (GitHub Releases).
-fn resolve_update_endpoints(_app: &AppHandle, _build_channel: &str) -> Result<Vec<url::Url>, String> {
-    let channel = "stable";
+/// Prioriza manifest no servidor local; fallback nos endpoints do tauri.conf (GitHub Releases).
+fn resolve_update_endpoints(_app: &AppHandle, build_channel: &str) -> Result<Vec<url::Url>, String> {
+    let channel = build_channel;
     validate_channel(channel)?;
     let cfg = load_client_config();
     let api_origin = cfg.api_origin.trim_end_matches('/');
@@ -73,6 +75,16 @@ fn resolve_update_endpoints(_app: &AppHandle, _build_channel: &str) -> Result<Ve
 
     for ep in read_tauri_conf_endpoints() {
         if ep.contains("/api/hub/updater-manifest/") {
+            continue;
+        }
+        // Prefer endpoint templates that mention the channel when present
+        if ep.contains("{{channel}}") {
+            let filled = ep.replace("{{channel}}", channel);
+            if let Ok(url) = parse_endpoint(&filled) {
+                if !urls.iter().any(|u| u.as_str() == url.as_str()) {
+                    urls.push(url);
+                }
+            }
             continue;
         }
         if let Ok(url) = parse_endpoint(&ep) {
@@ -129,7 +141,7 @@ pub async fn check_channel_update(
     let use_channel = resolve_update_channel(&app, &channel)?;
     let current_version = app.package_info().version.to_string();
 
-    let endpoints = resolve_update_endpoints(&app, &build)?;
+    let endpoints = resolve_update_endpoints(&app, &use_channel)?;
 
     let updater = app
         .updater_builder()
@@ -166,9 +178,9 @@ pub async fn check_channel_update(
 
 #[tauri::command]
 pub async fn install_channel_update(app: AppHandle, channel: String) -> Result<(), String> {
-    let build = build_channel(&app);
+    let _build = build_channel(&app);
     let use_channel = resolve_update_channel(&app, &channel)?;
-    let endpoints = resolve_update_endpoints(&app, &build)?;
+    let endpoints = resolve_update_endpoints(&app, &use_channel)?;
 
     let updater = app
         .updater_builder()

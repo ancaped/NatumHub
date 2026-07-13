@@ -1,59 +1,51 @@
-# Mapa de pastas do repositório
+# Mapa de pastas
 
-**Não varrer o repo.** Use este mapa + [`../INDEX.md`](../INDEX.md).
+Use com [`../INDEX.md`](../INDEX.md).
 
-## Raiz
+## Raiz (mínimo)
 
 | Caminho | Conteúdo |
 |---------|----------|
-| `Frontend/` | UI React (Vite, Tailwind) |
-| `Backend/` | Rust — Axum, Tauri, domínio |
-| `ContextoIA/` | Documentação para IAs (esta árvore) |
-| `erp-import/` | Queries SQL sync ERP + PASSOS |
-| `Feedbacks/` | Índice e pastas de feedback (`feedback.md`) |
-| `Saves/` | `data.db`, `client_config.json` |
-| `ARCHITECTURE.md` | Guia humano (legado) — preferir `ContextoIA/arquitetura/` |
-| `AGENTS.md` | Entrada rápida para agentes |
+| `Frontend/` | UI React + Vite |
+| `Backend/` | Tauri + Axum (:3001) → PostgreSQL |
+| `Backend/supabase/` | DDL schema |
+| `ContextoIA/` | Docs para agentes |
+| `erp-import/` | Queries SQL Server + PASSOS |
+| `Feedbacks/` | Fila de bugs |
+| `Saves/` | `postgres.env` (ou legado `supabase.env`), `client_config.json` (não versionar secrets) |
+| `scripts/` | Updater / release helpers |
+| `AGENTS.md` | Roteamento de skills |
+| `.cursor/skills/` | Skills NatumHub |
 
 ## Frontend
 
 ```
 Frontend/src/
-├── App.tsx                    # Hub, views, guards de permissão
-└── modules/
-    ├── geral/                 # Auth, config, layout, http, dashboard
-    │   ├── lib/http.ts        # apiFetch, apiJson, hubJson
-    │   ├── lib/auth.ts
-    │   ├── lib/connectionConfig.ts
-    │   └── lib/modules/registry.ts
-    ├── producao/<sub>/        # gerenciamento, microbiologia, fisco_quimica, kits
-    ├── compras/<sub>/         # planejamento, pedidos, notas, online
-    ├── estoque/<sub>/
-    ├── vendas/<sub>/
+├── App.tsx
+└── modules/          # espelha Backend
+    ├── geral/        # auth, config, http, layout
+    ├── producao/
+    ├── compras/
+    ├── estoque/
+    ├── vendas/
     └── financeiro/
 ```
-
-Cada submódulo pode ter `docs/README.md` — ler **só o afetado**.
 
 ## Backend
 
 ```
 Backend/src/
-├── lib.rs                     # Router Axum, setup Tauri, migrations
-├── handlers/                  # Rotas legadas (produção, estoque, import)
+├── lib.rs / main.rs
+├── handlers/         # rotas Axum (produção, import, etc.)
 ├── core/
-│   ├── legacy_db.rs           # sync_from_sql_server (não ler inteiro)
-│   └── docs/
-└── modules/
-    ├── geral/                 # auth, config, notifications, feedbacks, backup
-    ├── compras/
-    ├── producao/
-    ├── estoque/
-    ├── vendas/
-    ├── financeiro/
-    └── hub_api/               # Routers /api/hub/* (microbio, fisco, compras)
+│   ├── pg_db.rs      # pool PostgreSQL
+│   ├── db.rs         # acesso dados
+│   ├── legacy_db.rs  # sync ERP
+│   └── app_config.rs
+├── modules/          # domínio (espelha FE)
+└── bin/
+    ├── run_sync.rs
+    └── regen_feedback_md.rs
 ```
 
-## Convenção espelhada
-
-Frontend e Backend usam a **mesma árvore** `modules/<area>/<sub>/`. Novo módulo: ver [`../modulos/criacao.md`](../modulos/criacao.md).
+Banco operacional = **Supabase/PostgreSQL**, não SQLite local.

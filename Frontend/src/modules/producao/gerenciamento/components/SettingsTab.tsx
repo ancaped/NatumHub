@@ -71,13 +71,6 @@ export function SettingsTab({
   onApplyRecalc
 }) {  return (
     <div className="view-container animate-in fade-in duration-200">
-      <div className="view-header">
-        <h2 className="view-title">Configurações do Sistema</h2>
-        <p className="view-subtitle">
-          Ajuste limiares de linha, parâmetros de conversão global e backups na nuvem.
-        </p>
-      </div>
-
       <div className="settings-grid">
         
         {/* 1. Global Settings Card */}

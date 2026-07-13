@@ -26,7 +26,7 @@ Nova rota, alteração de handler, cliente HTTP frontend, ou debug de auth em AP
 
 - Handlers em `Backend/src/handlers/` (legado) ou `Backend/src/modules/*/handlers.rs`
 - Hub modules: prefixo `/api/hub/...` via `hub_api/mod.rs`
-- State: `Arc<AppState>` + `with_conn` para SQLite
+- State: `Arc<AppState>` com `Db(PgPool)` — sqlx async
 - Auth: `Extension<AuthContext>` — admin via `ctx.role.is_admin()`
 
 ### Frontend
@@ -60,5 +60,5 @@ Demais exigem `Authorization: Bearer <token>`.
 ## Regras
 
 - Preferir REST sobre invoke Tauri (`ContextoIA/api/tauri_commands.md`)
-- Clientes finos dependem 100% da API — rotas devem funcionar sem SQLite local
+- Clientes finos dependem 100% da API — sem banco local
 - Respostas em **pt-BR**

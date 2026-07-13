@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-12 06:48:21.035987+00",
+  "descricao": "relatorio nao esta puxando exato a ultima nf, e sim apenas o nome do fornecedor, assim como nao esta puxando o ultimo pedido, e sim o nome do fornecedor no ultimo pedido, favor corrigir isso e verificar se nos outros modulos precisar corrigir tbm ",
+  "id": "17dec008-bdc1-4c71-8cb2-14674f948f15",
+  "notas_admin": null,
+  "pagina": "Compras > Coloração > Lista",
+  "prioridade": 112,
+  "resolvido_em": null,
+  "solicitante": "Edson",
+  "status": "awaiting_review",
+  "tem_logs": false,
+  "tem_screenshot": false,
+  "tipo": "bug"
+}
