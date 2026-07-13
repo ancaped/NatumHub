@@ -37,7 +37,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE1NERDMEU4MDNCMUJFNQpSV1RsR3p1QUR0eFVDbXNtQ2V3ZTdOUjNGYXdPc04vT2ZyYkVzY3RWcW9hdmpodGw3b1AycnE4NAo=",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU3RjdCNTNBOTY3QUQ1OTYKUldTVzFYcVdPclgzNTBjSjQyL1U2aU5ROUpxdVdZSDE4VjVpTzZvNUpkWW41ZG5XdEtVTGV3S2cK",
       "endpoints": [
         "http://127.0.0.1:3001/api/hub/updater-manifest/stable"
       ]
