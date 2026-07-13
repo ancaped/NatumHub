@@ -73,18 +73,18 @@ jobs:
         run: |
           const fs = require('fs');
           const v = '${{ steps.meta.outputs.version }}';
-          const tauriPath = 'Backend/tauri.conf.json';
+          const tauriPath = 'Backend/NatumHub/tauri.conf.json';
           const tauri = JSON.parse(fs.readFileSync(tauriPath, 'utf8'));
           tauri.version = v;
           fs.writeFileSync(tauriPath, JSON.stringify(tauri, null, 2) + '\n');
-          for (const p of ['Frontend/package.json', 'Backend/package.json']) {
+          for (const p of ['Frontend/package.json', 'Backend/NatumHub/package.json']) {
             const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
             pkg.version = v;
             fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
           }
-          let cargo = fs.readFileSync('Backend/Cargo.toml', 'utf8');
+          let cargo = fs.readFileSync('Backend/NatumHub/Cargo.toml', 'utf8');
           cargo = cargo.replace(/^version = ".*"/m, `version = "${v}"`);
-          fs.writeFileSync('Backend/Cargo.toml', cargo);
+          fs.writeFileSync('Backend/NatumHub/Cargo.toml', cargo);
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -93,7 +93,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             Frontend/package-lock.json
-            Backend/package-lock.json
+            Backend/NatumHub/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -101,7 +101,7 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: Backend
+          workspaces: Backend/NatumHub
 
       - name: Install frontend dependencies
         run: npm ci
@@ -109,7 +109,7 @@ jobs:
 
       - name: Install backend (Tauri CLI) dependencies
         run: npm ci
-        working-directory: Backend
+        working-directory: Backend/NatumHub
 
       - name: Build and release (Tauri)
         uses: tauri-apps/tauri-action@v0
@@ -118,7 +118,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          projectPath: Backend
+          projectPath: Backend/NatumHub
           tagName: ${{ steps.meta.outputs.tag }}
           releaseName: NatumHub ${{ steps.meta.outputs.tag }} (${{ steps.meta.outputs.channel }})
           releaseBody: ${{ steps.meta.outputs.notes }}
@@ -132,8 +132,8 @@ jobs:
         run: |
           $version = "${{ steps.meta.outputs.version }}"
           $patterns = @(
-            "Backend/target/release/bundle/updater/*.sig",
-            "Backend/target/x86_64-pc-windows-msvc/release/bundle/updater/*.sig"
+            "Backend/NatumHub/target/release/bundle/updater/*.sig",
+            "Backend/NatumHub/target/x86_64-pc-windows-msvc/release/bundle/updater/*.sig"
           )
           $sig = $null
           foreach ($p in $patterns) {

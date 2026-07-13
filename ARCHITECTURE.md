@@ -47,29 +47,29 @@ graph TD
 
 Para otimizar o consumo de tokens das IAs de codificação, evite ler todos os arquivos. Consulte apenas os caminhos específicos indicados abaixo:
 
-*   **[`c:\Users\Edson\antigravity\Natum\Frontend\`](file:///c:/Users/Edson/antigravity/Natum/Frontend)**: Frontend do aplicativo unificado.
-    *   **[`src/App.tsx`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/App.tsx)**: Entrada do aplicativo, controle de visualização do Hub e Error Boundaries.
-    *   **[`src/types.ts`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/types.ts)**: Definições de tipos e interfaces TypeScript de todos os módulos.
-    *   **[`src/modules/`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/modules)**: Visões principais de cada módulo.
-        *   [`ProducaoView.jsx`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/modules/ProducaoView.jsx): Tela de Estoque legada, com controle de overrides e alertas de produção.
-        *   [`MicrobiologiaView.tsx`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/modules/MicrobiologiaView.tsx): Fluxo do Laboratório e login dos operadores microbiológicos.
-        *   [`ComprasView.tsx`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/modules/ComprasView.tsx): Estrutura de abas do fluxo de Compras.
-        *   [`FiscoQuimicaView.tsx`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/modules/FiscoQuimicaView.tsx): Registro de pH, Viscosidade, Densidade e Calculadora de Correções.
-        *   [`ComprasOnlineView.tsx`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/modules/ComprasOnlineView.tsx): Interface de compras online integrada.
-    *   **[`src/components/`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/components)**: Componentes reutilizáveis (Demandas, Cotações, Cadastro de Itens, Relatórios, etc.).
-    *   **[`src/index.css`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/index.css)**: Estilos globais e tokens de design (Zinc Aesthetic).
-*   **[`c:\Users\Edson\antigravity\Natum\Backend\NatumHub\`](file:///c:/Users/Edson/antigravity/Natum/Backend/NatumHub)**: Backend em Rust e infraestrutura Tauri.
-    *   **[`src/lib.rs`](file:///c:/Users/Edson/antigravity/Natum/Backend/NatumHub/src/lib.rs)**: Manipuladores Tauri, configurações do servidor Axum integrado, rotas e exportação automática de feedbacks para Markdown.
-    *   **[`src/db.rs`](file:///c:/Users/Edson/antigravity/Natum/Backend/NatumHub/src/db.rs)**: Funções de manipulação e migrações automáticas do banco SQLite.
-    *   **[`src/watcher.rs`](file:///c:/Users/Edson/antigravity/Natum/Backend/NatumHub/src/watcher.rs)**: Watcher automático de planilhas Excel (Faturamento/Levantamento) integradas na pasta de trabalho.
-    *   **[`schema.sql`](file:///c:/Users/Edson/antigravity/Natum/Backend/NatumHub/schema.sql)**: Definições de esquema do banco de dados SQLite.
-    *   **[`tauri.conf.json`](file:///c:/Users/Edson/antigravity/Natum/Backend/NatumHub/tauri.conf.json)**: Configuração de build do Tauri Desktop.
+*   **`Frontend/`** (ex.: `C:\api\Frontend`): Frontend do aplicativo unificado.
+    *   **`src/App.tsx`**: Entrada do aplicativo, controle de visualização do Hub e Error Boundaries.
+    *   **`src/types.ts`**: Definições de tipos e interfaces TypeScript de todos os módulos.
+    *   **`src/modules/`**: Visões principais de cada módulo.
+        *   `ProducaoView.jsx`: Tela de Estoque legada, com controle de overrides e alertas de produção.
+        *   `MicrobiologiaView.tsx`: Fluxo do Laboratório e login dos operadores microbiológicos.
+        *   `ComprasView.tsx`: Estrutura de abas do fluxo de Compras.
+        *   `FiscoQuimicaView.tsx`: Registro de pH, Viscosidade, Densidade e Calculadora de Correções.
+        *   `ComprasOnlineView.tsx`: Interface de compras online integrada.
+    *   **`src/components/`**: Componentes reutilizáveis (Demandas, Cotações, Cadastro de Itens, Relatórios, etc.).
+    *   **`src/index.css`**: Estilos globais e tokens de design (Zinc Aesthetic).
+*   **`Backend/NatumHub/`** (ex.: `C:\api\Backend\NatumHub`): Backend em Rust e infraestrutura Tauri.
+    *   **`src/lib.rs`**: Manipuladores Tauri, configurações do servidor Axum integrado, rotas e exportação automática de feedbacks para Markdown.
+    *   **`src/db.rs`**: Funções de manipulação e migrações automáticas do banco SQLite.
+    *   **`src/watcher.rs`**: Watcher automático de planilhas Excel (Faturamento/Levantamento) integradas na pasta de trabalho.
+    *   **`schema.sql`**: Definições de esquema do banco de dados SQLite.
+    *   **`tauri.conf.json`**: Configuração de build do Tauri Desktop.
 
 ---
 
 ## 3. Banco de Dados Compartilhado (`data.db`)
 
-Para evitar reiniciar a compilação do Tauri continuamente durante o desenvolvimento, o arquivo **`data.db`** é mantido na pasta **`c:\Users\Edson\antigravity\Natum\Backend\data.db`** (fora do diretório de compilação do Tauri).
+Para evitar reiniciar a compilação do Tauri continuamente durante o desenvolvimento, o arquivo **`data.db`** é mantido na pasta **`Backend/data.db`** (ex.: `C:\api\Backend\data.db`, fora do diretório de compilação do Tauri).
 
 ### Tabelas Principais e Relações
 

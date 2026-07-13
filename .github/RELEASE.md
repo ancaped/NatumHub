@@ -6,7 +6,7 @@
 # TAURI_SIGNING_PRIVATE_KEY_PASSWORD (opcional)
 #   Senha da chave, se houver
 #
-# Depois de adicionar a chave privada, copie a chave PÚBLICA para Backend/tauri.conf.json → plugins.updater.pubkey
+# Depois de adicionar a chave privada, copie a chave PÚBLICA para Backend/NatumHub/tauri.conf.json → plugins.updater.pubkey
 #
 # --- Como publicar ---
 #

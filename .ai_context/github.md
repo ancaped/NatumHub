@@ -53,9 +53,10 @@ Se o `git push` retornar erro 401/403, o usuário precisa gerar um novo token:
 ## Estrutura do Projeto
 
 ```
-Natum/
+NatumHub/              # ou C:\api no Windows
 ├── Frontend/          # React + Vite + Tailwind CSS v4
 ├── Backend/           # Tauri + Rust + SQLite + Axum
+│   └── NatumHub/      # App desktop Tauri
 ├── Docs/              # Documentação por módulo
 ├── .ai_context/       # Guias para IAs de codificação
 ├── ARCHITECTURE.md    # Arquitetura geral
