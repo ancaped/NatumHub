@@ -78,10 +78,6 @@ fn bootstrap_postgres_env_from_dev_repo(saves: &PathBuf) {
     }
 }
 
-pub fn data_db_path() -> PathBuf {
-    saves_dir().join("data.db")
-}
-
 pub fn client_config_file() -> PathBuf {
     saves_dir().join("client_config.json")
 }
@@ -283,7 +279,7 @@ pub fn validate_master_mode(config: &ClientConfig) -> Result<(), String> {
     )
 }
 
-/// Cliente remoto sem SQLite/Axum local. Em `tauri dev` + master, mantém servidor local.
+/// Cliente remoto sem Axum/Postgres local. Em `tauri dev` + master, mantém servidor local.
 pub fn effective_is_client_mode(cfg: &ClientConfig) -> bool {
     if cfg.app_mode == AppMode::Client {
         return true;

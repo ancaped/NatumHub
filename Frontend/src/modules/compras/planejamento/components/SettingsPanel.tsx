@@ -30,23 +30,24 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
   // Automatic subcategories rules state
   const [newRuleSubcategoryId, setNewRuleSubcategoryId] = useState('');
   const [newRulePrefix, setNewRulePrefix] = useState('');
+  const [newRuleType, setNewRuleType] = useState<'description' | 'supplier'>('description');
 
   const handleAddAutoRule = () => {
     if (!newRuleSubcategoryId || !newRulePrefix.trim()) return;
     const rules = config.autoSubcategories || [];
     const prefixClean = newRulePrefix.trim();
-    if (rules.some(r => r.prefix.toLowerCase() === prefixClean.toLowerCase())) {
-      alert('Já existe uma regra para este prefixo!');
+    if (rules.some(r => r.prefix.toLowerCase() === prefixClean.toLowerCase() && (r.type || 'description') === newRuleType)) {
+      alert('Já existe uma regra ativa com este valor para esse mesmo tipo!');
       return;
     }
-    const updatedRules = [...rules, { subcategoryId: newRuleSubcategoryId, prefix: prefixClean }];
+    const updatedRules = [...rules, { subcategoryId: newRuleSubcategoryId, prefix: prefixClean, type: newRuleType }];
     setConfig({ ...config, autoSubcategories: updatedRules });
     setNewRulePrefix('');
   };
 
-  const handleRemoveAutoRule = (index: number) => {
+  const handleRemoveAutoRule = (prefixToRemove: string, typeToRemove: string) => {
     const rules = config.autoSubcategories || [];
-    const updatedRules = rules.filter((_, i) => i !== index);
+    const updatedRules = rules.filter(r => !(r.prefix === prefixToRemove && (r.type || 'description') === typeToRemove));
     setConfig({ ...config, autoSubcategories: updatedRules });
   };
 
@@ -438,7 +439,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
             </p>
 
             {/* Form to add a rule */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end bg-zinc-50/50 p-4 rounded-xl border border-zinc-150">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end bg-zinc-50/50 p-4 rounded-xl border border-zinc-150">
               <div className="flex flex-col gap-1.5 text-left">
                 <label className="text-xs font-bold text-zinc-700">Subcategoria Destino</label>
                 <select
@@ -449,18 +450,31 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
                   <option value="">Selecione uma subcategoria...</option>
                   {subcategoriesOnly.map(sub => (
                     <option key={sub.id} value={sub.id}>
-                      {sub.name} ({sub.parentId === 'cat_mp' ? 'Matéria Prima' : sub.parentId === 'cat_emb' ? 'Embalagem' : sub.parentId === 'cat_mat' ? 'Materiais' : sub.parentId === 'cat_coloracao' ? 'Coloração' : sub.parentId === 'cat_apoio' ? 'Material de Apoio' : 'Outro'})
+                      {sub.name}
                     </option>
                   ))}
                 </select>
               </div>
               <div className="flex flex-col gap-1.5 text-left">
-                <label className="text-xs font-bold text-zinc-700">Prefixo do Insumo (Inicia com)</label>
+                <label className="text-xs font-bold text-zinc-700">Classificar por</label>
+                <select
+                  value={newRuleType}
+                  onChange={e => setNewRuleType(e.target.value as any)}
+                  className="text-sm border border-zinc-300 rounded-lg px-3 py-2 bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                >
+                  <option value="description">Prefixo da Descrição</option>
+                  <option value="supplier">Nome do Fornecedor</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5 text-left">
+                <label className="text-xs font-bold text-zinc-700">
+                  {newRuleType === 'supplier' ? 'Nome do Fornecedor (Contém)' : 'Prefixo do Insumo (Inicia com)'}
+                </label>
                 <input
                   type="text"
                   value={newRulePrefix}
                   onChange={e => setNewRulePrefix(e.target.value)}
-                  placeholder="Ex: Bouquet, Essência, Frasco..."
+                  placeholder={newRuleType === 'supplier' ? "Ex: Adria, Basf, Clariant..." : "Ex: Bouquet, Essência, Frasco..."}
                   className="text-sm border border-zinc-300 rounded-lg px-3 py-2 bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none"
                 />
               </div>
@@ -476,35 +490,47 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
 
             {/* List of rules */}
             <div className="space-y-2">
-              <h4 className="text-xs font-extrabold text-zinc-900 uppercase tracking-wider text-left">Regras Ativas</h4>
-              {!config.autoSubcategories || config.autoSubcategories.length === 0 ? (
-                <p className="text-xs text-zinc-400 italic py-2 text-left">Nenhuma regra de categorização automática criada. Crie e depois clique em "Salvar e Aplicar".</p>
-              ) : (
-                <div className="border border-zinc-150 rounded-xl overflow-hidden divide-y divide-zinc-150">
-                  {config.autoSubcategories.map((rule, idx) => {
-                    const sub = categories.find(c => c.id === rule.subcategoryId);
-                    return (
-                      <div key={idx} className="flex items-center justify-between p-3 bg-white hover:bg-zinc-50/50 transition-colors">
-                        <div className="text-left">
-                          <span className="text-xs font-bold text-zinc-900">
-                            Itens iniciando com <strong className="text-zinc-950 font-extrabold px-1.5 py-0.5 bg-zinc-100 border border-zinc-200 rounded text-[11px] font-mono">"{rule.prefix}"</strong>
-                          </span>
-                          <span className="text-xs text-zinc-500 ml-2">
-                            → mover para a subcategoria: <strong className="text-zinc-800">{sub ? sub.name : rule.subcategoryId}</strong>
-                          </span>
+              <h4 className="text-xs font-extrabold text-zinc-900 uppercase tracking-wider text-left">Regras Ativas deste Módulo</h4>
+              {(() => {
+                const filteredRules = (config.autoSubcategories || []).filter(rule => 
+                  subcategoriesOnly.some(sub => sub.id === rule.subcategoryId)
+                );
+
+                if (filteredRules.length === 0) {
+                  return <p className="text-xs text-zinc-400 italic py-2 text-left">Nenhuma regra de categorização automática ativa neste módulo. Crie acima e depois clique em "Salvar e Aplicar".</p>;
+                }
+
+                return (
+                  <div className="border border-zinc-150 rounded-xl overflow-hidden divide-y divide-zinc-150">
+                    {filteredRules.map((rule, idx) => {
+                      const sub = categories.find(c => c.id === rule.subcategoryId);
+                      const rType = rule.type || 'description';
+                      return (
+                        <div key={idx} className="flex items-center justify-between p-3 bg-white hover:bg-zinc-50/50 transition-colors">
+                          <div className="text-left">
+                            <span className="text-xs font-bold text-zinc-900">
+                              {rType === 'supplier' ? 'Fornecedores contendo ' : 'Itens iniciando com '}
+                              <strong className="text-zinc-950 font-extrabold px-1.5 py-0.5 bg-zinc-100 border border-zinc-200 rounded text-[11px] font-mono">
+                                "{rule.prefix}"
+                              </strong>
+                            </span>
+                            <span className="text-xs text-zinc-500 ml-2">
+                              → mover para a subcategoria: <strong className="text-zinc-800">{sub ? sub.name : rule.subcategoryId}</strong>
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleRemoveAutoRule(rule.prefix, rType)}
+                            className="p-1 text-zinc-400 hover:text-red-500 rounded-lg hover:bg-red-50/50 transition-colors cursor-pointer"
+                            title="Remover regra"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
                         </div>
-                        <button
-                          onClick={() => handleRemoveAutoRule(idx)}
-                          className="p-1 text-zinc-400 hover:text-red-500 rounded-lg hover:bg-red-50/50 transition-colors cursor-pointer"
-                          title="Remover regra"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>

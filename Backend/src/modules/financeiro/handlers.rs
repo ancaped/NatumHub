@@ -851,7 +851,7 @@ async fn attention_list(
                 -days_between(&today_s, &data_vencimento)
             };
             AttentionItem {
-                id: row.get(0),
+                id: crate::core::pg_row::pg_i64(row, 0),
                 tipo: tipo.into(),
                 nome_cliente: row.get(1),
                 historico: row.get(2),

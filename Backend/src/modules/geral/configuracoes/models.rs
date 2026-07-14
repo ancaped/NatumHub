@@ -8,7 +8,7 @@ pub struct WatchConfig {
     pub ativo: bool,
 }
 
-/// Horários diários (HH:MM) para sync automático ERP → SQLite no master.
+/// Horários diários (HH:MM) para sync automático ERP → PostgreSQL no master.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ErpSyncScheduleConfig {
     pub ativo: bool,

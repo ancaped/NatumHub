@@ -48,4 +48,4 @@ Backend/src/
     └── regen_feedback_md.rs
 ```
 
-Banco operacional = **Supabase/PostgreSQL**, não SQLite local.
+Banco operacional = **PostgreSQL** no PC Principal (`Saves/postgres.env`). Terminais sem banco local.

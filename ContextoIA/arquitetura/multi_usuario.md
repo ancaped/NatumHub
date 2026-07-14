@@ -11,7 +11,7 @@ Terminais (client) ──HTTP──► PC Principal Axum :3001 ──► Postgre
 |-------|----------------|
 | **PC Principal** (`appMode: master`) | Sobe Axum `:3001`, exige `Saves/postgres.env`, sync ERP, backups, serve updater |
 | **Terminal** (`appMode: client`) | Só UI; `apiOrigin` aponta para o master; **sem** Postgres local |
-| Banco | PostgreSQL no master |
+| Banco | PostgreSQL **obrigatório** no master (`Saves/postgres.env`) — não SQLite |
 | Cadastro de usuários | **Somente supervisor** |
 | Login | Nome digitado + senha (sem listar operadores) |
 

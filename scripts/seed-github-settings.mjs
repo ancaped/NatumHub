@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 /**
- * Grava settings de release GitHub no PostgreSQL (sync de manifests no app).
+ * Grava settings de release GitHub no PostgreSQL operacional do Hub
+ * (`Saves/postgres.env`). Esse é o mesmo banco do app no PC Principal —
+ * não é um Postgres “só para updater”.
+ *
  * Token: GH_TOKEN, .github_token ou `gh auth token`
  */
 import { execSync } from 'child_process';

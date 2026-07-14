@@ -126,6 +126,21 @@ struct InvoiceRow {
     fornec_name: Option<String>,
     supplier_id: Option<String>,
     date_str: Option<String>,
+    cfop: Option<String>,
+    icms_value: f64,
+    ipi_value: f64,
+    freight_value: f64,
+    entry_date: Option<String>,
+    carrier_name: Option<String>,
+    supplier_cnpj: Option<String>,
+    payment_installments: Option<String>,
+    fte_number: Option<String>,
+    fte_value: f64,
+    fte_carrier_name: Option<String>,
+    fte_carrier_cnpj: Option<String>,
+    fte_issue_date: Option<String>,
+    fte_entry_date: Option<String>,
+    fte_cif_fob: Option<String>,
 }
 
 struct ConsumptionRow {
@@ -691,7 +706,33 @@ SELECT
     CAST(c.VALOR_TOTAL AS FLOAT) as VALOR_TOTAL,
     f.RAZAO_SOCIAL COLLATE Latin1_General_CI_AS as RAZAO_SOCIAL,
     c.nCodFornec,
-    f.DATA_EMISSAO
+    f.DATA_EMISSAO,
+    c.CFOP COLLATE Latin1_General_CI_AS as CFOP,
+    CAST(c.VALOR_ICMS_PROD AS FLOAT) as VALOR_ICMS,
+    CAST(c.VALOR_IPI AS FLOAT) as VALOR_IPI,
+    CAST(f.VALOR_FRETE AS FLOAT) as VALOR_FRETE,
+    f.T_RAZAO_SOCIAL COLLATE Latin1_General_CI_AS as TRANSPORTADORA,
+    f.CNPJ_CPF COLLATE Latin1_General_CI_AS as CNPJ_FORNEC,
+    f.DATA_SAIDA as DATA_ENTRADA,
+    f.DUP1_NUMERO COLLATE Latin1_General_CI_AS as D1_NUM,
+    f.DUP1_VENC as D1_VENC,
+    CAST(f.DUP1_VALOR AS FLOAT) as D1_VAL,
+    f.DUP2_NUMERO COLLATE Latin1_General_CI_AS as D2_NUM,
+    f.DUP2_VENC as D2_VENC,
+    CAST(f.DUP2_VALOR AS FLOAT) as D2_VAL,
+    f.DUP3_NUMERO COLLATE Latin1_General_CI_AS as D3_NUM,
+    f.DUP3_VENC as D3_VENC,
+    CAST(f.DUP3_VALOR AS FLOAT) as D3_VAL,
+    f.DUP4_NUMERO COLLATE Latin1_General_CI_AS as D4_NUM,
+    f.DUP4_VENC as D4_VENC,
+    CAST(f.DUP4_VALOR AS FLOAT) as D4_VAL,
+    f.F_Conhecimento COLLATE Latin1_General_CI_AS as FTE_NUM,
+    CAST(f.F_Valor_Doc_Fiscal AS FLOAT) as FTE_VALOR,
+    f.F_Transportadora COLLATE Latin1_General_CI_AS as FTE_CARRIER_NAME,
+    f.F_CNPJ COLLATE Latin1_General_CI_AS as FTE_CARRIER_CNPJ,
+    f.F_Data_Emissao as FTE_ISSUE_DATE,
+    f.F_Data_Entrada as FTE_ENTRY_DATE,
+    f.F_CIF_FOB COLLATE Latin1_General_CI_AS as FTE_CIF_FOB
 FROM COMPRAS2 c WITH (NOLOCK)
 LEFT JOIN COMPRAS1 f WITH (NOLOCK) ON c.nCodFornec = f.nCodFornec AND c.NOTA = f.NOTA
 WHERE f.DATA_EMISSAO >= '{since_dt}'
@@ -710,7 +751,33 @@ SELECT
     CAST(c.VALOR_TOTAL AS FLOAT) as VALOR_TOTAL,
     f.RAZAO_SOCIAL COLLATE Latin1_General_CI_AS as RAZAO_SOCIAL,
     c.nCodFornec,
-    f.DATA_EMISSAO
+    f.DATA_EMISSAO,
+    c.CFOP COLLATE Latin1_General_CI_AS as CFOP,
+    CAST(c.VALOR_ICMS_PROD AS FLOAT) as VALOR_ICMS,
+    CAST(c.VALOR_IPI AS FLOAT) as VALOR_IPI,
+    CAST(f.VALOR_FRETE AS FLOAT) as VALOR_FRETE,
+    f.T_RAZAO_SOCIAL COLLATE Latin1_General_CI_AS as TRANSPORTADORA,
+    f.CNPJ_CPF COLLATE Latin1_General_CI_AS as CNPJ_FORNEC,
+    f.DATA_SAIDA as DATA_ENTRADA,
+    f.DUP1_NUMERO COLLATE Latin1_General_CI_AS as D1_NUM,
+    f.DUP1_VENC as D1_VENC,
+    CAST(f.DUP1_VALOR AS FLOAT) as D1_VAL,
+    f.DUP2_NUMERO COLLATE Latin1_General_CI_AS as D2_NUM,
+    f.DUP2_VENC as D2_VENC,
+    CAST(f.DUP2_VALOR AS FLOAT) as D2_VAL,
+    f.DUP3_NUMERO COLLATE Latin1_General_CI_AS as D3_NUM,
+    f.DUP3_VENC as D3_VENC,
+    CAST(f.DUP3_VALOR AS FLOAT) as D3_VAL,
+    f.DUP4_NUMERO COLLATE Latin1_General_CI_AS as D4_NUM,
+    f.DUP4_VENC as D4_VENC,
+    CAST(f.DUP4_VALOR AS FLOAT) as D4_VAL,
+    f.F_Conhecimento COLLATE Latin1_General_CI_AS as FTE_NUM,
+    CAST(f.F_Valor_Doc_Fiscal AS FLOAT) as FTE_VALOR,
+    f.F_Transportadora COLLATE Latin1_General_CI_AS as FTE_CARRIER_NAME,
+    f.F_CNPJ COLLATE Latin1_General_CI_AS as FTE_CARRIER_CNPJ,
+    f.F_Data_Emissao as FTE_ISSUE_DATE,
+    f.F_Data_Entrada as FTE_ENTRY_DATE,
+    f.F_CIF_FOB COLLATE Latin1_General_CI_AS as FTE_CIF_FOB
 FROM COMPRAS2 c WITH (NOLOCK)
 LEFT JOIN COMPRAS1 f WITH (NOLOCK) ON c.nCodFornec = f.nCodFornec AND c.NOTA = f.NOTA
 WHERE f.DATA_EMISSAO >= DATEADD(month, -48, GETDATE())
@@ -730,6 +797,87 @@ WHERE f.DATA_EMISSAO >= DATEADD(month, -48, GETDATE())
         let supplier_id = if cod_fornec == 0 { None } else { Some(cod_fornec.to_string()) };
         let data_emissao: Option<NaiveDateTime> = row.get(9);
         let date_str = data_emissao.map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string());
+        
+        let cfop = row.get::<&str, _>(10).map(|s| s.trim().to_string());
+        let icms_value = row.get::<f64, _>(11).unwrap_or(0.0);
+        let ipi_value = row.get::<f64, _>(12).unwrap_or(0.0);
+        let freight_value = row.get::<f64, _>(13).unwrap_or(0.0);
+        let carrier_name = row.get::<&str, _>(14).map(|s| s.trim().to_string());
+        let supplier_cnpj = row.get::<&str, _>(15).map(|s| s.trim().to_string());
+        
+        let data_entrada: Option<NaiveDateTime> = row.get(16);
+        let entry_date = data_entrada.map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string());
+
+        // Processa as duplicatas para gerar um JSON estruturado
+        let mut installments = Vec::new();
+        
+        // DUP1
+        let d1_num = row.get::<&str, _>(17).unwrap_or("").trim().to_string();
+        let d1_venc: Option<NaiveDateTime> = row.get(18);
+        let d1_val = row.get::<f64, _>(19).unwrap_or(0.0);
+        if !d1_num.is_empty() && d1_val > 0.0 {
+            installments.push(serde_json::json!({
+                "numero": d1_num,
+                "vencimento": d1_venc.map(|dt| dt.format("%Y-%m-%d").to_string()),
+                "valor": d1_val
+            }));
+        }
+
+        // DUP2
+        let d2_num = row.get::<&str, _>(20).unwrap_or("").trim().to_string();
+        let d2_venc: Option<NaiveDateTime> = row.get(21);
+        let d2_val = row.get::<f64, _>(22).unwrap_or(0.0);
+        if !d2_num.is_empty() && d2_val > 0.0 {
+            installments.push(serde_json::json!({
+                "numero": d2_num,
+                "vencimento": d2_venc.map(|dt| dt.format("%Y-%m-%d").to_string()),
+                "valor": d2_val
+            }));
+        }
+
+        // DUP3
+        let d3_num = row.get::<&str, _>(23).unwrap_or("").trim().to_string();
+        let d3_venc: Option<NaiveDateTime> = row.get(24);
+        let d3_val = row.get::<f64, _>(25).unwrap_or(0.0);
+        if !d3_num.is_empty() && d3_val > 0.0 {
+            installments.push(serde_json::json!({
+                "numero": d3_num,
+                "vencimento": d3_venc.map(|dt| dt.format("%Y-%m-%d").to_string()),
+                "valor": d3_val
+            }));
+        }
+
+        // DUP4
+        let d4_num = row.get::<&str, _>(26).unwrap_or("").trim().to_string();
+        let d4_venc: Option<NaiveDateTime> = row.get(27);
+        let d4_val = row.get::<f64, _>(28).unwrap_or(0.0);
+        if !d4_num.is_empty() && d4_val > 0.0 {
+            installments.push(serde_json::json!({
+                "numero": d4_num,
+                "vencimento": d4_venc.map(|dt| dt.format("%Y-%m-%d").to_string()),
+                "valor": d4_val
+            }));
+        }
+
+        let payment_installments = if installments.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_string(&installments).unwrap_or_default())
+        };
+
+        let fte_number = row.get::<&str, _>(29).map(|s| s.trim().to_string());
+        let fte_value = row.get::<f64, _>(30).unwrap_or(0.0);
+        let fte_carrier_name = row.get::<&str, _>(31).map(|s| s.trim().to_string());
+        let fte_carrier_cnpj = row.get::<&str, _>(32).map(|s| s.trim().to_string());
+        
+        let fte_issue_dt: Option<NaiveDateTime> = row.get(33);
+        let fte_issue_date = fte_issue_dt.map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string());
+
+        let fte_entry_dt: Option<NaiveDateTime> = row.get(34);
+        let fte_entry_date = fte_entry_dt.map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string());
+
+        let fte_cif_fob = row.get::<&str, _>(35).map(|s| s.trim().to_string());
+
         invoices_list.push(InvoiceRow {
             nota,
             code: code.trim().to_string(),
@@ -741,6 +889,21 @@ WHERE f.DATA_EMISSAO >= DATEADD(month, -48, GETDATE())
             fornec_name: row.get(7).map(|s: &str| s.trim().to_string()),
             supplier_id,
             date_str,
+            cfop,
+            icms_value,
+            ipi_value,
+            freight_value,
+            entry_date,
+            carrier_name,
+            supplier_cnpj,
+            payment_installments,
+            fte_number,
+            fte_value,
+            fte_carrier_name,
+            fte_carrier_cnpj,
+            fte_issue_date,
+            fte_entry_date,
+            fte_cif_fob,
         });
     }
 
@@ -752,7 +915,7 @@ SELECT
     CAST(SUM(b.nQtde) AS FLOAT) as TotalQtd,
     CAST(SUM(b.nQtde) / 12.0 AS FLOAT) as MediaMensal
 FROM Lotes_Baixas b WITH (NOLOCK)
-WHERE YEAR(b.dLog) IN (2024, 2025, 2026)
+WHERE YEAR(b.dLog) >= YEAR(GETDATE()) - 5
   AND b.cReferencia IS NOT NULL AND b.cReferencia <> ''
 GROUP BY b.cReferencia, YEAR(b.dLog);
     ";
@@ -1589,6 +1752,21 @@ WHERE {so2_date_filter};
         let mut inv_sup_names: Vec<Option<String>> = Vec::new();
         let mut inv_sup_ids: Vec<Option<String>> = Vec::new();
         let mut inv_dates: Vec<Option<String>> = Vec::new();
+        let mut inv_cfops: Vec<Option<String>> = Vec::new();
+        let mut inv_icms_values: Vec<f64> = Vec::new();
+        let mut inv_ipi_values: Vec<f64> = Vec::new();
+        let mut inv_freight_values: Vec<f64> = Vec::new();
+        let mut inv_entry_dates: Vec<Option<String>> = Vec::new();
+        let mut inv_carrier_names: Vec<Option<String>> = Vec::new();
+        let mut inv_supplier_cnpjs: Vec<Option<String>> = Vec::new();
+        let mut inv_payment_installments: Vec<Option<String>> = Vec::new();
+        let mut inv_fte_numbers: Vec<Option<String>> = Vec::new();
+        let mut inv_fte_values: Vec<f64> = Vec::new();
+        let mut inv_fte_carrier_names: Vec<Option<String>> = Vec::new();
+        let mut inv_fte_carrier_cnpjs: Vec<Option<String>> = Vec::new();
+        let mut inv_fte_issue_dates: Vec<Option<String>> = Vec::new();
+        let mut inv_fte_entry_dates: Vec<Option<String>> = Vec::new();
+        let mut inv_fte_cif_fobs: Vec<Option<String>> = Vec::new();
 
         for inv in &invoices_list {
             inv_ids.push(Uuid::new_v4().to_string());
@@ -1602,6 +1780,21 @@ WHERE {so2_date_filter};
             inv_sup_names.push(inv.fornec_name.clone());
             inv_sup_ids.push(inv.supplier_id.clone());
             inv_dates.push(inv.date_str.clone());
+            inv_cfops.push(inv.cfop.clone());
+            inv_icms_values.push(inv.icms_value);
+            inv_ipi_values.push(inv.ipi_value);
+            inv_freight_values.push(inv.freight_value);
+            inv_entry_dates.push(inv.entry_date.clone());
+            inv_carrier_names.push(inv.carrier_name.clone());
+            inv_supplier_cnpjs.push(inv.supplier_cnpj.clone());
+            inv_payment_installments.push(inv.payment_installments.clone());
+            inv_fte_numbers.push(inv.fte_number.clone());
+            inv_fte_values.push(inv.fte_value);
+            inv_fte_carrier_names.push(inv.fte_carrier_name.clone());
+            inv_fte_carrier_cnpjs.push(inv.fte_carrier_cnpj.clone());
+            inv_fte_issue_dates.push(inv.fte_issue_date.clone());
+            inv_fte_entry_dates.push(inv.fte_entry_date.clone());
+            inv_fte_cif_fobs.push(inv.fte_cif_fob.clone());
             count_invoices += 1;
         }
 
@@ -1609,10 +1802,17 @@ WHERE {so2_date_filter};
             let end = (chunk_start + PROD_CHUNK).min(inv_ids.len());
             sqlx::query(
                 r#"
-                INSERT INTO invoices (id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date)
+                INSERT INTO invoices (
+                    id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, 
+                    supplier_name, supplier_id, invoice_date,
+                    cfop, icms_value, ipi_value, freight_value, entry_date, carrier_name, supplier_cnpj, payment_installments,
+                    fte_number, fte_value, fte_carrier_name, fte_carrier_cnpj, fte_issue_date, fte_entry_date, fte_cif_fob
+                )
                 SELECT * FROM UNNEST(
                     $1::text[], $2::text[], $3::text[], $4::text[], $5::text[],
-                    $6::float8[], $7::float8[], $8::float8[], $9::text[], $10::text[], $11::text[]
+                    $6::float8[], $7::float8[], $8::float8[], $9::text[], $10::text[], $11::text[],
+                    $12::text[], $13::float8[], $14::float8[], $15::float8[], $16::text[], $17::text[], $18::text[], $19::text[],
+                    $20::text[], $21::float8[], $22::text[], $23::text[], $24::text[], $25::text[], $26::text[]
                 )
                 "#,
             )
@@ -1627,6 +1827,21 @@ WHERE {so2_date_filter};
             .bind(&inv_sup_names[chunk_start..end])
             .bind(&inv_sup_ids[chunk_start..end])
             .bind(&inv_dates[chunk_start..end])
+            .bind(&inv_cfops[chunk_start..end])
+            .bind(&inv_icms_values[chunk_start..end])
+            .bind(&inv_ipi_values[chunk_start..end])
+            .bind(&inv_freight_values[chunk_start..end])
+            .bind(&inv_entry_dates[chunk_start..end])
+            .bind(&inv_carrier_names[chunk_start..end])
+            .bind(&inv_supplier_cnpjs[chunk_start..end])
+            .bind(&inv_payment_installments[chunk_start..end])
+            .bind(&inv_fte_numbers[chunk_start..end])
+            .bind(&inv_fte_values[chunk_start..end])
+            .bind(&inv_fte_carrier_names[chunk_start..end])
+            .bind(&inv_fte_carrier_cnpjs[chunk_start..end])
+            .bind(&inv_fte_issue_dates[chunk_start..end])
+            .bind(&inv_fte_entry_dates[chunk_start..end])
+            .bind(&inv_fte_cif_fobs[chunk_start..end])
             .execute(&mut *tx)
             .await?;
             if end % 800 == 0 || end == inv_ids.len() {

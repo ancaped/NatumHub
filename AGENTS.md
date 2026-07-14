@@ -53,4 +53,7 @@ Múltiplas skills podem aplicar (ex.: bug no sync ERP → `natumhub-resolve-bugs
 
 ## Stack (lembrete)
 
-Tauri 2 + React + Rust Axum (:3001) + PostgreSQL (Supabase) · Auth operador (Bearer) · Supervisor cadastra usuários.
+Tauri 2 + React + Rust Axum (:3001) + **PostgreSQL** (`Saves/postgres.env` no PC Principal) · Auth operador (Bearer) · Supervisor cadastra usuários.
+
+**PC Principal precisa de PostgreSQL** (banco operacional). Terminais só falam com a API. **Não** usar SQLite/`data.db`. Instalação: `ContextoIA/devops/`.
+

@@ -18,7 +18,7 @@ Espelho local de **contas a pagar** e **contas a receber** do Tiny ERP, com dash
 | Método | Path | Descrição |
 |--------|------|-----------|
 | GET | `/api/financeiro/status` | Token configurado, última sync, contagens |
-| POST | `/api/financeiro/token` | Salva token (ofuscado no SQLite) |
+| POST | `/api/financeiro/token` | Salva token (ofuscado no Postgres `settings`) |
 | POST | `/api/financeiro/sync` | Baixa período + reconcilia IDs |
 | GET | `/api/financeiro/contas` | Lista paginada (`tipo`, filtros, `page`, `limit`) |
 | GET | `/api/financeiro/fluxo` | Dashboard completo (totais, aging, tops, semanas) |
@@ -42,4 +42,4 @@ No intervalo de vencimento da sync:
 
 ## Segurança
 
-Token nunca é re-enviado ao frontend após salvar. Ofuscação local não substitui vault corporativo; protege leitura casual do `data.db`.
+Token nunca é re-enviado ao frontend após salvar. Ofuscação local não substitui vault corporativo; protege leitura casual da tabela `settings`.

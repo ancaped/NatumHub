@@ -1,15 +1,13 @@
 # Importação ERP — guia para IAs
 
-Sync **SQL Server → PostgreSQL (Supabase)**. Doc operacional: [`../../erp-import/`](../../erp-import/).
+Sync **SQL Server → PostgreSQL** no PC Principal. Doc operacional: [`../../erp-import/`](../../erp-import/).
 
 ## Popular dados
 
 | O quê | Como |
 |-------|------|
-| Hub (operadores/settings) | `Saves/seed_hub_from_sqlite.sql` no SQL Editor **ou** setup do app |
+| Hub (supervisor / operadores) | Setup do app na 1ª abertura |
 | Cadastros / estoque / pedidos | `cargo run --bin run_sync` ou `POST /api/import/sync` |
-
-**Não** dump massivo do `data.db` via pooler.
 
 ## Código
 

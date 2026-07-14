@@ -42,7 +42,7 @@ No Tailwind v4, as classes são geradas dentro do seletor `:where()`. Isso faz c
 
 ## 3. Prevenção de Telas em Branco (Null Safety)
 
-Se o React tentar renderizar ou tratar um campo que seja `null` (comum em bancos SQLite flexíveis), a tela inteira falhará e ficará branca.
+Se o React tentar renderizar ou tratar um campo que seja `null` (comum em colunas nullable do Postgres), a tela inteira falhará e ficará branca.
 *   **Mecanismo 1: Fallback nas Cadeias de Texto**:
     Antes de chamar métodos de string (como `.toLowerCase()`, `.split()` ou `.includes()`), assegure-se de injetar uma string vazia como fallback:
     ```typescript

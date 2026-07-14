@@ -6,6 +6,7 @@ Binários **não** ficam commitados aqui. Gerados pelo CI / build local.
 
 | Passo | Doc |
 |-------|-----|
+| **Se o instalador .exe falhar** | [`ContextoIA/devops/instalacao_via_repositorio.md`](../ContextoIA/devops/instalacao_via_repositorio.md) |
 | Postgres no master | [`ContextoIA/devops/instalacao_postgres_master.md`](../ContextoIA/devops/instalacao_postgres_master.md) |
 | App no master | [`ContextoIA/devops/instalacao_app_master.md`](../ContextoIA/devops/instalacao_app_master.md) |
 | App nos terminais | [`ContextoIA/devops/instalacao_app_terminal.md`](../ContextoIA/devops/instalacao_app_terminal.md) |

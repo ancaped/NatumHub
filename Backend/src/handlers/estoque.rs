@@ -405,7 +405,8 @@ pub async fn get_product_detalhes(
     let mut recent_invoices = Vec::new();
     let code_clean = code.replace('.', "");
     if let Ok(rows) = sqlx::query(
-        "SELECT invoice_number, quantity, unit_price, total_value, supplier_name, invoice_date
+        "SELECT invoice_number, quantity, unit_price, total_value, supplier_name, invoice_date,
+                cfop, COALESCE(icms_value, 0.0), COALESCE(ipi_value, 0.0), COALESCE(freight_value, 0.0), entry_date, carrier_name, supplier_cnpj, payment_installments
          FROM invoices
          WHERE (item_code = $1 OR item_code = $2) AND invoice_date::timestamp <= NOW()
          ORDER BY invoice_date DESC LIMIT 15",
@@ -423,6 +424,14 @@ pub async fn get_product_detalhes(
                 total_value: row.get(3),
                 supplier_name: row.get(4),
                 invoice_date: row.get(5),
+                cfop: row.get(6),
+                icms_value: row.get(7),
+                ipi_value: row.get(8),
+                freight_value: row.get(9),
+                entry_date: row.get(10),
+                carrier_name: row.get(11),
+                supplier_cnpj: row.get(12),
+                payment_installments: row.get(13),
             });
         }
     }

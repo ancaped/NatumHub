@@ -473,6 +473,8 @@ pub struct InsumoDetalhesResponse {
     pub last_received_doc: Option<String>,
     pub products_used_in: Vec<InsumoUsedInProductItem>,
     pub pending_orders: Vec<PendingPurchaseOrderInfo>,
+    #[serde(default)]
+    pub all_orders: Vec<PendingPurchaseOrderInfo>,
     pub quotations: Vec<InsumoQuotationItem>,
     pub open_production_orders: Vec<OpenProductionOrderItem>,
     pub consumed_since_last_received: Option<f64>,
@@ -536,6 +538,14 @@ pub struct InsumoInvoiceItem {
     pub total_value: f64,
     pub supplier_name: String,
     pub invoice_date: String,
+    pub cfop: Option<String>,
+    pub icms_value: f64,
+    pub ipi_value: f64,
+    pub freight_value: f64,
+    pub entry_date: Option<String>,
+    pub carrier_name: Option<String>,
+    pub supplier_cnpj: Option<String>,
+    pub payment_installments: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

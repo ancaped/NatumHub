@@ -88,7 +88,8 @@ pub async fn save_supplier_query(pool: PgPool, supplier: &Supplier) -> Result<()
 
 pub async fn get_supplier_history_query(pool: PgPool, id: &str) -> Result<serde_json::Value, String> {
     let inv_rows = sqlx::query(
-        "SELECT id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date
+        "SELECT id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date,
+                cfop, COALESCE(icms_value, 0.0), COALESCE(ipi_value, 0.0), COALESCE(freight_value, 0.0), entry_date, carrier_name, supplier_cnpj, payment_installments
          FROM invoices WHERE supplier_id = $1 ORDER BY invoice_date DESC",
     )
     .bind(id)
@@ -110,6 +111,14 @@ pub async fn get_supplier_history_query(pool: PgPool, id: &str) -> Result<serde_
             supplier_name: row.get(8),
             supplier_id: row.get(9),
             invoice_date: row.get(10),
+            cfop: row.get(11),
+            icms_value: row.get(12),
+            ipi_value: row.get(13),
+            freight_value: row.get(14),
+            entry_date: row.get(15),
+            carrier_name: row.get(16),
+            supplier_cnpj: row.get(17),
+            payment_installments: row.get(18),
         })
         .collect();
 

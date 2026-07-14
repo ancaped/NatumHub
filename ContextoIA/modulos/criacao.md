@@ -67,7 +67,7 @@ Criar `docs/README.md` em FE e BE com:
 
 - Propósito em 1 parágrafo
 - Rotas REST (método + path)
-- Tabelas SQLite usadas
+- Tabelas PostgreSQL usadas
 - Link para [`../ContextoIA/INDEX.md`](../../ContextoIA/INDEX.md) se IA precisar de contexto global
 
 ## 7. Validar

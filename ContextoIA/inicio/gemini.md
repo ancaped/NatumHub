@@ -4,7 +4,18 @@
 
 ## Stack
 
-Tauri 2 + React + Axum :3001 + **PostgreSQL** via `Saves/postgres.env` (hoje costuma ser Supabase; preparado para local — ver [banco-dados/migracao_postgres.md](../banco-dados/migracao_postgres.md)). Sync ERP: SQL Server → Postgres (`legacy_db.rs`).
+Tauri 2 + React + Axum `:3001` + **PostgreSQL** via `Saves/postgres.env`.
+
+Sync ERP: SQL Server → Postgres (`legacy_db.rs`) — **somente no PC Principal**.
+
+## Papéis de máquina
+
+| Papel | Precisa de |
+|-------|------------|
+| **PC Principal** (`master`) | PostgreSQL + `postgres.env` + app (API) + acesso SQL Server p/ sync |
+| **Terminal** (`client`) | Só o app apontando `apiOrigin` → master |
+
+**Errado:** dizer que o app “usa só SQLite (`data.db`)”. Isso é legado e **não** é o runtime atual.
 
 ## Onde codar
 
@@ -21,12 +32,15 @@ Sempre `apiJson` / `hubJson` de `geral/lib/http.ts`. Nunca `fetch` cru para `/ap
 
 ## Rede / auth
 
-- Todos os PCs: API local + Supabase. Sem escolha Principal/Terminal.
-- 1ª vez: setup supervisor (única conta que cadastra usuários).
+- Wizard: **PC Principal** ou **Terminal**.
+- Master exige Postgres (`DATABASE_URL` em `postgres.env`).
+- 1ª vez no master: setup supervisor (única conta que cadastra usuários).
 - Config: `Saves/client_config.json` + `connectionConfig.ts`.
+- Instalação: [`../devops/`](../devops/README.md).
 
 ## Checklist entrega
 
 - [ ] Escopo mínimo
-- [ ] `cargo check` + `npm run build`
+- [ ] `cargo check --lib` + `npm run build`
 - [ ] Atualizar doc **só se** contrato API/schema mudou
+- [ ] Não reintroduzir SQLite / `data.db` / `rusqlite`

@@ -125,7 +125,66 @@ pub use crate::modules::compras::planejamento::commands::{
     get_auto_ignored_ingredients_query,
 };
 
+
 // === AXUM SERVER RUNNER (PRODUCAO BACKEND) ===
+
+async fn repair_corrupted_data_if_needed(pool: &sqlx::PgPool) {
+    println!("[Startup] Checking for corrupted invoice/purchase order data...");
+    
+    // Verifica se a tabela invoices existe para evitar erros na primeira inicialização antes do schema
+    let table_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+            SELECT 1 FROM information_schema.tables 
+            WHERE table_schema = 'public' AND table_name = 'invoices'
+        )"
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(false);
+
+    if !table_exists {
+        return;
+    }
+
+    // Verifica se existem dados corrompidos (onde o número da NF é igual a um nome de fornecedor)
+    let is_corrupted: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+            SELECT 1 FROM invoices 
+            WHERE invoice_number IN (SELECT name FROM suppliers)
+            LIMIT 1
+        )"
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(false);
+
+    if is_corrupted {
+        println!("[Startup] WARNING: Corrupted data detected (supplier name in invoice_number). Resetting local tables to force full ERP sync...");
+        
+        let mut tx = match pool.begin().await {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("[Startup] Failed to start transaction for data repair: {}", e);
+                return;
+            }
+        };
+
+        // Limpa as tabelas de cache para forçar a sincronização limpa
+        let _ = sqlx::query("TRUNCATE TABLE invoices").execute(&mut *tx).await;
+        let _ = sqlx::query("TRUNCATE TABLE purchase_orders CASCADE").execute(&mut *tx).await;
+        let _ = sqlx::query("TRUNCATE TABLE purchase_order_items").execute(&mut *tx).await;
+        let _ = sqlx::query("DELETE FROM nf_import_control").execute(&mut *tx).await;
+
+        if let Err(e) = tx.commit().await {
+            eprintln!("[Startup] Failed to commit data repair transaction: {}", e);
+        } else {
+            println!("[Startup] Reset successful. Local caches will be repopulated correctly on the next ERP sync.");
+        }
+    } else {
+        println!("[Startup] Invoice and purchase order data checks passed.");
+    }
+}
+
 fn start_axum_server() {
     tauri::async_runtime::spawn(async move {
         let cfg = core::app_config::load_client_config();
@@ -153,6 +212,12 @@ fn start_axum_server() {
             }
         };
         let db = core::db::Db::new(pool.clone());
+
+        // Chamada da rotina de auto-reparação em background
+        let pool_clone = pool.clone();
+        tauri::async_runtime::spawn(async move {
+            repair_corrupted_data_if_needed(&pool_clone).await;
+        });
 
         let _ = modules::geral::auth::store::init_auth_tables(&pool).await;
         modules::geral::hub::updater_manifest::seed_manifests_from_repo_root();

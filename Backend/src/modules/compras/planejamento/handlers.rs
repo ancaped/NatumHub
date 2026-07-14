@@ -263,6 +263,14 @@ pub struct InvoiceDetailResponse {
     pub supplier_name: Option<String>,
     pub total_value: f64,
     pub items: Vec<Invoice>,
+    pub cfop: Option<String>,
+    pub icms_value: f64,
+    pub ipi_value: f64,
+    pub freight_value: f64,
+    pub entry_date: Option<String>,
+    pub carrier_name: Option<String>,
+    pub supplier_cnpj: Option<String>,
+    pub payment_installments: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -347,7 +355,8 @@ pub async fn get_invoice_detail(
     let pool = state.db.pool().clone();
 
     let mut query = "
-        SELECT id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date 
+        SELECT id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date,
+               cfop, COALESCE(icms_value, 0.0), COALESCE(ipi_value, 0.0), COALESCE(freight_value, 0.0), entry_date, carrier_name, supplier_cnpj, payment_installments
         FROM invoices 
         WHERE invoice_number = $1
     "
@@ -381,6 +390,14 @@ pub async fn get_invoice_detail(
                 supplier_name: row.get(8),
                 supplier_id: row.get(9),
                 invoice_date: row.get(10),
+                cfop: row.get(11),
+                icms_value: row.get(12),
+                ipi_value: row.get(13),
+                freight_value: row.get(14),
+                entry_date: row.get(15),
+                carrier_name: row.get(16),
+                supplier_cnpj: row.get(17),
+                payment_installments: row.get(18),
             })
             .collect(),
         Err(e) => {
@@ -400,7 +417,7 @@ pub async fn get_invoice_detail(
             .into_response();
     }
 
-    let first = &items[0];
+    let first = items[0].clone();
     let total_value: f64 = items.iter().map(|it| it.total_value).sum();
 
     let detail = InvoiceDetailResponse {
@@ -410,6 +427,14 @@ pub async fn get_invoice_detail(
         supplier_name: first.supplier_name.clone(),
         total_value,
         items,
+        cfop: first.cfop.clone(),
+        icms_value: first.icms_value,
+        ipi_value: first.ipi_value,
+        freight_value: first.freight_value,
+        entry_date: first.entry_date.clone(),
+        carrier_name: first.carrier_name.clone(),
+        supplier_cnpj: first.supplier_cnpj.clone(),
+        payment_installments: first.payment_installments.clone(),
     };
 
     (StatusCode::OK, Json(detail)).into_response()
@@ -429,7 +454,9 @@ pub async fn get_item_extra_info(
     let mut lotes = Vec::new();
 
     if let Ok(rows) = sqlx::query(
-        "SELECT id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date FROM invoices WHERE item_code = $1 OR item_code = $2 ORDER BY invoice_date DESC LIMIT 10",
+        "SELECT id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date,
+                cfop, COALESCE(icms_value, 0.0), COALESCE(ipi_value, 0.0), COALESCE(freight_value, 0.0), entry_date, carrier_name, supplier_cnpj, payment_installments
+         FROM invoices WHERE item_code = $1 OR item_code = $2 ORDER BY invoice_date DESC LIMIT 10",
     )
     .bind(&code)
     .bind(&code_clean)
@@ -450,6 +477,14 @@ pub async fn get_item_extra_info(
                 supplier_name: row.get(8),
                 supplier_id: row.get(9),
                 invoice_date: row.get(10),
+                cfop: row.get(11),
+                icms_value: row.get(12),
+                ipi_value: row.get(13),
+                freight_value: row.get(14),
+                entry_date: row.get(15),
+                carrier_name: row.get(16),
+                supplier_cnpj: row.get(17),
+                payment_installments: row.get(18),
             })
             .collect();
     }
@@ -705,7 +740,8 @@ pub async fn get_insumo_detalhes(
 
     let mut recent_invoices = Vec::new();
     if let Ok(rows) = sqlx::query(
-        "SELECT invoice_number, quantity, unit_price, total_value, supplier_name, invoice_date 
+        "SELECT invoice_number, quantity, unit_price, total_value, supplier_name, invoice_date,
+                cfop, COALESCE(icms_value, 0.0), COALESCE(ipi_value, 0.0), COALESCE(freight_value, 0.0), entry_date, carrier_name, supplier_cnpj, payment_installments
          FROM invoices 
          WHERE (item_code = $1 OR item_code = $2) AND invoice_date::date <= CURRENT_DATE
          ORDER BY invoice_date DESC LIMIT 15",
@@ -724,6 +760,14 @@ pub async fn get_insumo_detalhes(
                 total_value: row.get(3),
                 supplier_name: row.get(4),
                 invoice_date: row.get(5),
+                cfop: row.get(6),
+                icms_value: row.get(7),
+                ipi_value: row.get(8),
+                freight_value: row.get(9),
+                entry_date: row.get(10),
+                carrier_name: row.get(11),
+                supplier_cnpj: row.get(12),
+                payment_installments: row.get(13),
             })
             .collect();
     }
@@ -853,6 +897,32 @@ pub async fn get_insumo_detalhes(
     .await
     {
         pending_orders = rows
+            .iter()
+            .map(|row| PendingPurchaseOrderInfo {
+                n_pedido: row.get(0),
+                d_pedido: row.get(1),
+                c_nome_f: row.get(2),
+                n_qtde: row.get(3),
+                n_chegou: row.get(4),
+                n_preco: row.get(5),
+            })
+            .collect();
+    }
+
+    let mut all_orders = Vec::new();
+    if let Ok(rows) = sqlx::query(
+        "SELECT po.n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, poi.n_preco 
+         FROM purchase_order_items poi
+         INNER JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
+         WHERE (poi.c_referencia = $1 OR poi.c_referencia = $2)
+         ORDER BY po.d_pedido DESC LIMIT 100",
+    )
+    .bind(&code)
+    .bind(&code_clean)
+    .fetch_all(&pool)
+    .await
+    {
+        all_orders = rows
             .iter()
             .map(|row| PendingPurchaseOrderInfo {
                 n_pedido: row.get(0),
@@ -1073,6 +1143,7 @@ pub async fn get_insumo_detalhes(
         last_received_doc,
         products_used_in,
         pending_orders,
+        all_orders,
         quotations,
         open_production_orders,
         consumed_since_last_received,

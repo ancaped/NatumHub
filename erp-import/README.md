@@ -2,7 +2,7 @@
 
 Guia IA: [`ContextoIA/erp-import/README.md`](../ContextoIA/erp-import/README.md)
 
-Sync **SQL Server (ERP)** → **PostgreSQL (Supabase)**. Esta é a forma canônica de popular dados operacionais.
+Sync **SQL Server (ERP)** → **PostgreSQL** (no PC Principal). Forma canônica de popular dados operacionais.
 
 ## Código
 
@@ -16,8 +16,8 @@ Sync **SQL Server (ERP)** → **PostgreSQL (Supabase)**. Esta é a forma canôni
 ## Arquitetura
 
 ```
-SQL Server ERP → PC Master (Axum) → Supabase PostgreSQL
-Terminais (client) → HTTP → PC Master
+SQL Server ERP → PC Principal (Axum) → PostgreSQL (Saves/postgres.env)
+Terminais (client) → HTTP → PC Principal
 ```
 
 - Sync **somente** no PC Principal (`appMode: master`).
@@ -26,11 +26,9 @@ Terminais (client) → HTTP → PC Master
 
 ## Bootstrap (primeira vez)
 
-1. Schema já no Supabase (`001_natumhub_schema.sql`).
-2. Seed hub (login/settings): cole `Saves/seed_hub_from_sqlite.sql` no SQL Editor — **ou** crie o supervisor pelo setup do app.
-3. `cargo run --bin run_sync` no master (com SQL Server acessível).
-
-**Não** migrar `data.db` inteiro pelo pooler.
+1. Schema no Postgres do master (`Backend/supabase/001_*.sql` …).
+2. Criar supervisor pelo setup do app (1ª abertura).
+3. `cargo run --bin run_sync` no master (com SQL Server acessível) **ou** sync pelo painel.
 
 ## Documentação
 

@@ -58,7 +58,7 @@ pub fn value_to_opt_string(v: &serde_json::Value) -> Option<String> {
     }
 }
 
-/// Ofuscação leve do token (XOR + base64). Não é vault — apenas evita texto legível no SQLite.
+/// Ofuscação leve do token (XOR + base64). Não é vault — apenas evita texto legível em `settings`.
 const TOKEN_OBFUSCATE_KEY: &[u8] = b"NatumHub-Tiny-Token-v1-2026";
 const TOKEN_PREFIX: &str = "enc1:";
 

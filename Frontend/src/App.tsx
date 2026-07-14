@@ -487,8 +487,8 @@ export default function App() {
   const handleManualRestore = async () => {
     alert(
       'Restauração de arquivo .db não está mais disponível.\n\n' +
-      'Os dados ficam no PostgreSQL (Supabase). Use o painel Supabase para backup/restore completo, ' +
-      'ou "Reset operacional" nas configurações (supervisor) para limpar dados transacionais.'
+      'Os dados ficam no PostgreSQL do PC Principal. Use o painel de backup Postgres nas configurações, ' +
+      'ou "Reset operacional" (supervisor) para limpar dados transacionais.'
     );
   };
 

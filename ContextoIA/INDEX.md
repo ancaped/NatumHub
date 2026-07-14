@@ -23,7 +23,8 @@
 | Bugs | Mencionar [`../Feedbacks/feedback.md`](../Feedbacks/feedback.md) (playbook) + skill `natumhub-resolve-bugs` |
 | Feedbacks | Skill `natumhub-feedbacks` + [feedbacks/README.md](feedbacks/README.md) |
 | UI | [ui/style_and_ux_guide.md](ui/style_and_ux_guide.md) |
-| Releases / instalador | [../.github/RELEASE.md](../.github/RELEASE.md) · [devops/](devops/README.md) |
+| Releases / instalador | [../.github/RELEASE.md](../.github/RELEASE.md) · [devops/](devops/README.md) · **sem .exe:** [devops/instalacao_via_repositorio.md](devops/instalacao_via_repositorio.md) |
+| Instalar via repo (master/clientes) | [devops/instalacao_via_repositorio.md](devops/instalacao_via_repositorio.md) |
 
 ## Código-chave
 
@@ -39,6 +40,7 @@ Saves/postgres.env
 ## Regras
 
 1. Escopo mínimo; pt-BR nas respostas.
-2. Após edits: `cargo check` + `npm run build`.
-3. Dados = PostgreSQL; sync ERP via `run_sync` / `POST /api/import/sync`.
-4. Não recriar docs por módulo — só ContextoIA / erp-import se contrato mudar.
+2. Após edits: `cargo check --lib` + `npm run build`.
+3. Dados = **PostgreSQL** no PC Principal (`Saves/postgres.env`). Sync ERP via `run_sync` / `POST /api/import/sync`.
+4. **Não** afirmar que o app usa SQLite/`data.db` — isso é legado.
+5. Não recriar docs por módulo — só ContextoIA / erp-import se contrato mudar.

@@ -33,6 +33,14 @@ interface InvoiceItem {
   supplierName: string | null;
   supplierId: string | null;
   invoiceDate: string | null;
+  cfop: string | null;
+  icmsValue: number;
+  ipiValue: number;
+  freightValue: number;
+  entryDate: string | null;
+  carrierName: string | null;
+  supplierCnpj: string | null;
+  paymentInstallments: string | null;
 }
 
 interface InvoiceDetail {
@@ -42,6 +50,14 @@ interface InvoiceDetail {
   supplierName: string | null;
   totalValue: number;
   items: InvoiceItem[];
+  cfop: string | null;
+  icmsValue: number;
+  ipiValue: number;
+  freightValue: number;
+  entryDate: string | null;
+  carrierName: string | null;
+  supplierCnpj: string | null;
+  paymentInstallments: string | null;
 }
 
 export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps) {
@@ -297,14 +313,55 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
                     <p className="text-sm font-extrabold text-zinc-900">{formatCurrency(selectedInvoice.totalValue)}</p>
                   </div>
                   <div className="space-y-0.5">
-                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Cód. Fornecedor</span>
-                    <p className="text-xs font-mono font-bold text-zinc-700">{selectedInvoice.supplierId || '-'}</p>
+                    <span className="text-[10px] text-zinc-400 font-bold uppercase">CNPJ Fornecedor</span>
+                    <p className="text-xs font-mono font-bold text-zinc-700">{selectedInvoice.supplierCnpj || '-'}</p>
                   </div>
                   <div className="space-y-0.5">
                     <span className="text-[10px] text-zinc-400 font-bold uppercase">Data Emissão</span>
                     <p className="text-xs font-semibold text-zinc-700">{formatDate(selectedInvoice.invoiceDate)}</p>
                   </div>
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Data de Entrada</span>
+                    <p className="text-xs font-semibold text-zinc-700">{formatDate(selectedInvoice.entryDate)}</p>
+                  </div>
+                  {selectedInvoice.freightValue > 0 && (
+                    <div className="space-y-0.5">
+                      <span className="text-[10px] text-zinc-400 font-bold uppercase">Frete</span>
+                      <p className="text-xs font-bold text-emerald-700">{formatCurrency(selectedInvoice.freightValue)}</p>
+                    </div>
+                  )}
+                  {selectedInvoice.carrierName && (
+                    <div className="space-y-0.5 col-span-2">
+                      <span className="text-[10px] text-zinc-400 font-bold uppercase">Transportadora</span>
+                      <p className="text-xs font-medium text-zinc-700 truncate">{selectedInvoice.carrierName}</p>
+                    </div>
+                  )}
                 </div>
+
+                {/* Contas a Pagar / Duplicatas */}
+                {(() => {
+                  let installments: { numero: string; vencimento: string | null; valor: number }[] = [];
+                  if (selectedInvoice.paymentInstallments) {
+                    try {
+                      installments = JSON.parse(selectedInvoice.paymentInstallments);
+                    } catch {}
+                  }
+                  if (installments.length === 0) return null;
+                  return (
+                    <div className="px-6 py-4 border-b border-zinc-100 bg-zinc-50/10 shrink-0">
+                      <h4 className="text-xs font-bold text-zinc-800 uppercase tracking-wider mb-2">Contas a Pagar / Parcelas</h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {installments.map((inst, i) => (
+                          <div key={i} className="bg-zinc-50 border border-zinc-200/60 p-2.5 rounded-lg shadow-sm">
+                            <div className="text-[10px] text-zinc-400 font-mono">Parc. {inst.numero}</div>
+                            <div className="text-xs font-extrabold text-zinc-900 mt-0.5">{formatCurrency(inst.valor)}</div>
+                            <div className="text-[10px] text-zinc-500 mt-0.5">Venc: {formatDate(inst.vencimento)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Items list */}
                 <div className="flex-1 overflow-y-auto p-6 space-y-4">
@@ -320,9 +377,16 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
                       <div key={item.id || index} className="bg-white border border-zinc-150 rounded-xl p-4 shadow-sm space-y-2 hover:border-zinc-300 transition-colors">
                         <div className="flex items-start justify-between">
                           <div className="flex-1 min-w-0">
-                            <p className="font-bold text-zinc-800 text-sm truncate">
-                              {item.description || 'Produto Sem Descrição'}
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <p className="font-bold text-zinc-800 text-sm truncate">
+                                {item.description || 'Produto Sem Descrição'}
+                              </p>
+                              {item.cfop && (
+                                <span className="px-1.5 py-0.5 bg-zinc-100 border border-zinc-250 text-zinc-650 rounded text-[9px] font-mono">
+                                  CFOP {item.cfop}
+                                </span>
+                              )}
+                            </div>
                             <p className="text-[10px] font-mono text-zinc-400 mt-0.5">
                               Cód. Item: {item.itemCode}
                             </p>
@@ -344,6 +408,22 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
                             <p className="font-extrabold text-zinc-900">{formatCurrency(item.totalValue)}</p>
                           </div>
                         </div>
+
+                        {/* Impostos do Item */}
+                        {(item.icmsValue > 0 || item.ipiValue > 0) && (
+                          <div className="flex gap-4 pt-1.5 border-t border-zinc-100/50 mt-1">
+                            {item.icmsValue > 0 && (
+                              <span className="text-[10px] text-zinc-500">
+                                ICMS: <strong className="text-zinc-700">{formatCurrency(item.icmsValue)}</strong>
+                              </span>
+                            )}
+                            {item.ipiValue > 0 && (
+                              <span className="text-[10px] text-zinc-500">
+                                IPI: <strong className="text-zinc-700">{formatCurrency(item.ipiValue)}</strong>
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

@@ -2,7 +2,7 @@ import { apiFetch } from '../../../geral/lib/http';
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../geral/lib/api';
 import { DemandResult, Category, Item } from '../../../geral/lib/types';
-import { AlertCircle, ArrowDownToLine, Package, Filter, CheckCircle2, ShoppingCart, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, TrendingUp, BarChart3, FileText, ChevronRight, X, Info, RefreshCw, Database, Factory, Printer, PlusCircle, Settings } from 'lucide-react';
+import { AlertCircle, ArrowDownToLine, Package, Filter, CheckCircle2, ShoppingCart, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, TrendingUp, BarChart3, FileText, ChevronRight, X, Info, RefreshCw, Database, Factory, Printer, PlusCircle, Settings, Layers } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
 
 interface InsumoDetalhes {
@@ -49,6 +49,14 @@ interface InsumoDetalhes {
     quantity: number;
   }[];
   pendingOrders: {
+    nPedido: number;
+    dPedido: string | null;
+    cNomeF: string | null;
+    nQtde: number;
+    nChegou: number;
+    nPreco: number;
+  }[];
+  allOrders?: {
     nPedido: number;
     dPedido: string | null;
     cNomeF: string | null;
@@ -115,7 +123,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   const [details, setDetails] = useState<InsumoDetalhes | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
-  const [drawerTab, setDrawerTab] = useState<'visao_geral' | 'consumo' | 'pedidos' | 'producao' | 'cotacoes' | 'configuracoes'>('visao_geral');
+  const [drawerTab, setDrawerTab] = useState<'visao_geral' | 'consumo' | 'pedidos' | 'historico_pedidos' | 'producao' | 'configuracoes' | 'semelhantes'>('visao_geral');
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [tempNotes, setTempNotes] = useState('');
   
@@ -385,11 +393,14 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
       setDrawerTab('visao_geral');
       setIsEditingNotes(false);
       setTempNotes('');
-      setSimilarItems([]);
       setSimilarSearch('');
+      api.getSimilarItems(selectedItemCode)
+        .then(data => setSimilarItems(data))
+        .catch(err => console.error("Erro ao carregar semelhantes:", err));
     } else {
       setDetails(null);
       setItemConfig(null);
+      setSimilarItems([]);
     }
   }, [selectedItemCode]);
 
@@ -1068,13 +1079,14 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
             {/* Drawer Tab Navigation */}
             <div className="flex border-b border-zinc-200 bg-zinc-50 shrink-0">
               {([
-                { id: 'visao_geral' as const, label: 'Visão Geral', icon: Info },
-                { id: 'consumo' as const, label: 'Consumo', icon: BarChart3 },
-                { id: 'pedidos' as const, label: 'Pedidos', icon: Clock },
-                { id: 'producao' as const, label: 'Produção', icon: Factory },
-                { id: 'cotacoes' as const, label: 'Cotações', icon: ShoppingCart },
-                { id: 'configuracoes' as const, label: 'Configurações', icon: Settings },
-              ]).map(tab => (
+                { id: 'visao_geral' as const, label: 'Visão Geral', icon: Info, show: true },
+                { id: 'consumo' as const, label: 'Consumo', icon: BarChart3, show: true },
+                { id: 'pedidos' as const, label: 'Pedidos Abertos', icon: Clock, show: true },
+                { id: 'historico_pedidos' as const, label: 'Histórico de Pedidos', icon: FileText, show: true },
+                { id: 'producao' as const, label: 'Produção', icon: Factory, show: true },
+                { id: 'semelhantes' as const, label: '', icon: Layers, show: similarItems.length > 0 },
+                { id: 'configuracoes' as const, label: 'Configurações', icon: Settings, show: true },
+              ]).filter(t => t.show).map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => setDrawerTab(tab.id)}
@@ -1457,57 +1469,49 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                   </>
                 )}
 
-                {/* ===== TAB: Cotações ===== */}
-                {drawerTab === 'cotacoes' && (
+                {/* ===== TAB: Histórico de Pedidos ===== */}
+                {drawerTab === 'historico_pedidos' && (
                   <>
                     <div className="space-y-3">
                       <div className="flex items-center gap-2 border-b border-zinc-105 pb-2">
-                        <ShoppingCart className="h-4 w-4 text-zinc-650" />
-                        <h4 className="font-extrabold text-sm text-zinc-900">Histórico de Cotações</h4>
+                        <FileText className="h-4 w-4 text-zinc-650" />
+                        <h4 className="font-extrabold text-sm text-zinc-900">Histórico de Pedidos de Compra (Últimos 100)</h4>
                       </div>
-                      {!details.quotations || details.quotations.length === 0 ? (
+                      {!details.allOrders || details.allOrders.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-12 text-zinc-400">
-                          <ShoppingCart className="h-8 w-8 text-zinc-300 mb-2" />
-                          <p className="text-sm font-medium">Nenhuma cotação registrada</p>
-                          <p className="text-xs mt-0.5">Este insumo não possui cotações no histórico.</p>
+                          <FileText className="h-8 w-8 text-zinc-300 mb-2" />
+                          <p className="text-sm font-medium">Nenhum pedido de compra registrado</p>
+                          <p className="text-xs mt-0.5">Este insumo não possui histórico de pedidos.</p>
                         </div>
                       ) : (
                         <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
                           <table className="w-full text-left text-xs whitespace-nowrap">
                             <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
                               <tr>
-                                <th className="px-4 py-3">Cotação</th>
-                                <th className="px-4 py-3">Status</th>
-                                <th className="px-4 py-3">Data Criação</th>
-                                <th className="px-4 py-3 text-right">Qtd Recomendada</th>
-                                <th className="px-4 py-3 text-right">Qtd Aprovada</th>
+                                <th className="px-4 py-3">Pedido</th>
+                                <th className="px-4 py-3">Data</th>
+                                <th className="px-4 py-3">Fornecedor</th>
+                                <th className="px-4 py-3 text-right">Qtd Pedida</th>
+                                <th className="px-4 py-3 text-right">Qtd Recebida</th>
+                                <th className="px-4 py-3 text-right">Preço Unit.</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-100 text-[11px]">
-                              {details.quotations.map((q, idx) => (
-                                <tr key={`${q.id}-${idx}`} className="hover:bg-zinc-50/50 transition-colors">
-                                  <td className="px-4 py-2.5 font-bold text-zinc-700 truncate max-w-[150px]" title={q.title}>
-                                    {q.title}
+                              {details.allOrders.map((po, idx) => (
+                                <tr key={`${po.nPedido}-${idx}`} className="hover:bg-zinc-50/50 transition-colors">
+                                  <td className="px-4 py-2.5 font-bold text-zinc-700">#{po.nPedido}</td>
+                                  <td className="px-4 py-2.5 text-zinc-500">{formatDate(po.dPedido)}</td>
+                                  <td className="px-4 py-2.5 font-semibold text-zinc-800 max-w-[150px] truncate" title={po.cNomeF || ''}>
+                                    {po.cNomeF || '-'}
                                   </td>
-                                  <td className="px-4 py-2.5">
-                                    <span className={cn(
-                                      "px-2 py-0.5 rounded-full text-[9px] font-bold uppercase",
-                                      q.status === 'draft' && "bg-zinc-100 text-zinc-650",
-                                      q.status === 'pending_demand_approval' && "bg-amber-100 text-amber-800",
-                                      q.status === 'quoting' && "bg-blue-100 text-blue-800",
-                                      q.status === 'quoted' && "bg-purple-100 text-purple-800",
-                                      q.status === 'approved' && "bg-emerald-100 text-emerald-800",
-                                      q.status === 'ordered' && "bg-teal-100 text-teal-800",
-                                    )}>
-                                      {q.status}
-                                    </span>
+                                  <td className="px-4 py-2.5 text-right text-zinc-800">
+                                    {po.nQtde.toLocaleString('pt-BR')}
                                   </td>
-                                  <td className="px-4 py-2.5 text-zinc-500">{formatDate(q.createdAt)}</td>
-                                  <td className="px-4 py-2.5 text-right font-medium text-zinc-805">
-                                    {q.recommendedQty.toLocaleString('pt-BR')}
+                                  <td className="px-4 py-2.5 text-right font-bold text-emerald-600">
+                                    {po.nChegou.toLocaleString('pt-BR')}
                                   </td>
-                                  <td className="px-4 py-2.5 text-right font-bold text-zinc-950">
-                                    {q.finalQty ? q.finalQty.toLocaleString('pt-BR') : q.approvedQty ? q.approvedQty.toLocaleString('pt-BR') : '-'}
+                                  <td className="px-4 py-2.5 text-right text-zinc-900 font-bold">
+                                    {formatCurrency(po.nPreco)}
                                   </td>
                                 </tr>
                               ))}
@@ -1606,6 +1610,139 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       )}
                     </div>
                   </>
+                )}
+                {/* ===== TAB: Semelhantes ===== */}
+                {drawerTab === 'semelhantes' && (
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-2 border-b border-zinc-200 pb-2">
+                      <Layers className="h-4 w-4 text-zinc-650" />
+                      <h4 className="font-extrabold text-sm text-zinc-900">Insumos Semelhantes Combinados</h4>
+                    </div>
+
+                    <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4">
+                      <p className="text-xs text-zinc-505 leading-relaxed">
+                        Exibindo a projeção consolidada (estoque, consumo e pedidos) do item atual somado aos semelhantes cadastrados.
+                      </p>
+                    </div>
+
+                    {(() => {
+                      const currentDemand = demands.find(d => d.itemCode === selectedItemCode);
+                      const similarDemands = similarItems
+                        .map(sim => demands.find(d => d.itemCode === sim.code))
+                        .filter((d): d is DemandResult => !!d);
+
+                      if (!currentDemand) {
+                        return <div className="text-sm text-zinc-400 text-center">Nenhum dado de demanda disponível para o item.</div>;
+                      }
+
+                      const totalEstoque = currentDemand.currentStock + similarDemands.reduce((acc, s) => acc + s.currentStock, 0);
+                      const totalMedia = currentDemand.overallAvg + similarDemands.reduce((acc, s) => acc + s.overallAvg, 0);
+                      const totalPedidos = currentDemand.inOrders + similarDemands.reduce((acc, s) => acc + s.inOrders, 0);
+                      const totalFuturo = currentDemand.futureStockForecast + similarDemands.reduce((acc, s) => acc + s.futureStockForecast, 0);
+                      const totalReservado = (currentDemand.reservedQty || 0) + similarDemands.reduce((acc, s) => acc + (s.reservedQty || 0), 0);
+                      
+                      const mediaDiariaCombinada = totalMedia / 30.0;
+                      const duracaoCombinada = mediaDiariaCombinada <= 0 ? 9999 : Math.round(totalFuturo / mediaDiariaCombinada);
+
+                      return (
+                        <div className="space-y-4">
+                          <div className="bg-white border border-zinc-200 rounded-xl shadow-sm overflow-hidden">
+                            <table className="w-full text-left text-xs whitespace-nowrap">
+                              <thead className="bg-zinc-50 border-b border-zinc-200 font-semibold text-zinc-600">
+                                <tr>
+                                  <th className="px-4 py-3">Código / Descrição</th>
+                                  <th className="px-4 py-3 text-right">Estoque</th>
+                                  <th className="px-4 py-3 text-right">Média Mês</th>
+                                  <th className="px-4 py-3 text-right">Pedidos</th>
+                                  <th className="px-4 py-3 text-right">Prev. Futura</th>
+                                  <th className="px-4 py-3 text-center">Duração</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-zinc-150">
+                                {/* Item Principal */}
+                                <tr className="bg-zinc-50/50">
+                                  <td className="px-4 py-3">
+                                    <div className="font-mono text-zinc-500">{currentDemand.itemCode}</div>
+                                    <div className="font-bold text-zinc-800 truncate max-w-[220px]" title={currentDemand.description}>{currentDemand.description}</div>
+                                    <span className="px-1.5 py-0.2 bg-zinc-900 text-white rounded text-[8px] font-bold uppercase mt-1 inline-block">Principal</span>
+                                  </td>
+                                  <td className="px-4 py-3 text-right font-medium">{currentDemand.currentStock.toLocaleString('pt-BR')} {currentDemand.unit}</td>
+                                  <td className="px-4 py-3 text-right font-medium">{currentDemand.overallAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {currentDemand.unit}</td>
+                                  <td className="px-4 py-3 text-right text-zinc-500">+{currentDemand.inOrders.toLocaleString('pt-BR')}</td>
+                                  <td className="px-4 py-3 text-right font-bold text-zinc-900">{currentDemand.futureStockForecast.toLocaleString('pt-BR')}</td>
+                                  <td className="px-4 py-3 text-center">
+                                    <span className={cn(
+                                      "px-2 py-0.5 rounded text-[10px] font-bold",
+                                      currentDemand.urgency === 'critical' ? "bg-red-100 text-red-800" :
+                                      currentDemand.urgency === 'warning' ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
+                                    )}>
+                                      {currentDemand.estimatedDurationDays === 9999 ? '∞' : `${currentDemand.estimatedDurationDays}d`}
+                                    </span>
+                                  </td>
+                                </tr>
+
+                                {/* Semelhantes */}
+                                {similarDemands.map(sim => (
+                                  <tr key={sim.itemCode} className="hover:bg-zinc-50/30">
+                                    <td className="px-4 py-3">
+                                      <div className="font-mono text-zinc-400">{sim.itemCode}</div>
+                                      <div className="font-semibold text-zinc-700 truncate max-w-[220px]" title={sim.description}>{sim.description}</div>
+                                    </td>
+                                    <td className="px-4 py-3 text-right text-zinc-650">{sim.currentStock.toLocaleString('pt-BR')} {sim.unit}</td>
+                                    <td className="px-4 py-3 text-right text-zinc-650">{sim.overallAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {sim.unit}</td>
+                                    <td className="px-4 py-3 text-right text-zinc-500">+{sim.inOrders.toLocaleString('pt-BR')}</td>
+                                    <td className="px-4 py-3 text-right font-semibold text-zinc-800">{sim.futureStockForecast.toLocaleString('pt-BR')}</td>
+                                    <td className="px-4 py-3 text-center">
+                                      <span className={cn(
+                                        "px-2 py-0.5 rounded text-[10px] font-bold",
+                                        sim.urgency === 'critical' ? "bg-red-100/60 text-red-800/80" :
+                                        sim.urgency === 'warning' ? "bg-amber-100/60 text-amber-800/80" : "bg-emerald-100/60 text-emerald-800/80"
+                                      )}>
+                                        {sim.estimatedDurationDays === 9999 ? '∞' : `${sim.estimatedDurationDays}d`}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+
+                                {/* Total Combinado */}
+                                <tr className="bg-zinc-900 text-white font-bold border-t border-zinc-800 text-sm">
+                                  <td className="px-4 py-4 uppercase tracking-wider text-[10px]">Total Combinado</td>
+                                  <td className="px-4 py-4 text-right">{totalEstoque.toLocaleString('pt-BR')} {currentDemand.unit}</td>
+                                  <td className="px-4 py-4 text-right">{totalMedia.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {currentDemand.unit}</td>
+                                  <td className="px-4 py-4 text-right text-zinc-400">+{totalPedidos.toLocaleString('pt-BR')}</td>
+                                  <td className="px-4 py-4 text-right text-emerald-400">{totalFuturo.toLocaleString('pt-BR')}</td>
+                                  <td className="px-4 py-4 text-center">
+                                    <span className={cn(
+                                      "px-2 py-1 rounded text-xs font-bold text-white shadow-sm",
+                                      duracaoCombinada < 45 ? "bg-red-600" : duracaoCombinada < 75 ? "bg-amber-600" : "bg-emerald-600"
+                                    )}>
+                                      {duracaoCombinada === 9999 ? '∞' : `${duracaoCombinada} dias`}
+                                    </span>
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Info Card de Resumo Combinado */}
+                          <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-5 space-y-4 shadow-sm text-xs">
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-1">
+                                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block">Estoque Físico Conjunto</span>
+                                <p className="text-base font-extrabold text-zinc-900">{totalEstoque.toLocaleString('pt-BR')} {currentDemand.unit}</p>
+                                <p className="text-[10px] text-zinc-450">({totalReservado} reservado para ordens de produção)</p>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block">Média de Consumo Conjunta</span>
+                                <p className="text-base font-extrabold text-zinc-900">{(mediaDiariaCombinada * 30.0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {currentDemand.unit} / mês</p>
+                                <p className="text-[10px] text-zinc-450">({mediaDiariaCombinada.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} diários)</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 )}
 
 

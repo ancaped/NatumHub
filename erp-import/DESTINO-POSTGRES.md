@@ -1,6 +1,6 @@
 # Mapeamento ERP → PostgreSQL
 
-Banco centralizado no **PostgreSQL** (hoje Supabase; preparado para local). Schema: `Backend/supabase/001_natumhub_schema.sql`. Migração: `ContextoIA/banco-dados/migracao_postgres.md`.
+Banco centralizado no **PostgreSQL** do PC Principal (`Saves/postgres.env`). Schema: `Backend/supabase/001_natumhub_schema.sql`. Migração: `ContextoIA/banco-dados/migracao_postgres.md`.
 
 ## Cadastro e estoque
 

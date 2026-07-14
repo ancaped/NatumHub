@@ -36,7 +36,7 @@ Alterar sync ERP, queries SQL Server, mapeamento para PostgreSQL, ou agenda auto
 1. Sync só no **PC Principal** (`appMode: master`).
 2. Alterou Rust → atualizar `erp-import/sql/*.sql`.
 3. Settings: `sql_host`, `sql_port`, `sql_user`, `sql_password`, `sql_database`.
-4. DB: `Saves/postgres.env` (`DATABASE_URL`; legado `supabase.env`).
+4. DB: `Saves/postgres.env` (`DATABASE_URL`). Postgres **obrigatório** no master (não SQLite).
 
 ## Executar
 

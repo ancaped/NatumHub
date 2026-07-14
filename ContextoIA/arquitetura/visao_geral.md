@@ -1,6 +1,6 @@
 # Visão geral — NatumHub
 
-ERP desktop Nátum Cosméticos: **Tauri 2 + React + Axum + PostgreSQL (Supabase)**.
+ERP desktop Nátum Cosméticos: **Tauri 2 + React + Axum + PostgreSQL**.
 
 ## Módulos
 
@@ -14,10 +14,12 @@ ERP desktop Nátum Cosméticos: **Tauri 2 + React + Axum + PostgreSQL (Supabase)
 ## Diagrama
 
 ```
-React (FE) ──Bearer──► Axum :3001 ──► Supabase PostgreSQL
-                           ▲
-SQL Server ERP ──sync──────┘
+React (FE) ──Bearer──► Axum :3001 (PC Principal) ──► PostgreSQL (local ou remoto)
+                              ▲
+SQL Server ERP ──sync─────────┘
 Terminais (client) ──HTTP──► PC Principal
 ```
 
-Detalhes rede: [multi_usuario.md](multi_usuario.md).
+- Dados do Hub: **PostgreSQL** (`Saves/postgres.env`) — **não** SQLite.
+- Sync ERP só no master.
+- Detalhes rede: [multi_usuario.md](multi_usuario.md) · instalação: [../devops/](../devops/README.md).

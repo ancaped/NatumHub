@@ -93,6 +93,7 @@ pub async fn save_compras_config_query(
                     rule.get("subcategoryId").and_then(|s| s.as_str()),
                     rule.get("prefix").and_then(|p| p.as_str()),
                 ) {
+                    let rule_type = rule.get("type").and_then(|t| t.as_str()).unwrap_or("description");
                     let parent_id: Option<String> = sqlx::query_scalar(
                         "SELECT parent_id FROM categories WHERE id = $1",
                     )
@@ -105,43 +106,87 @@ pub async fn save_compras_config_query(
                     if let Some(parent) = parent_id {
                         if parent == "cat_coloracao" || parent == "cat_apoio" {
                             let query = if parent == "cat_coloracao" {
-                                "
-                                INSERT INTO overrides_produtos (codigo, categoria_produto)
-                                SELECT p.codigo, $1 FROM produtos p
-                                LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
-                                WHERE (p.descricao LIKE $2 OR p.codigo LIKE $2)
-                                  AND (op.categoria_produto IS NULL OR op.categoria_produto = 'cat_coloracao' OR op.categoria_produto = 'cat_apoio')
-                                  AND p.codigo LIKE '1.34.%'
-                                ON CONFLICT(codigo) DO UPDATE SET categoria_produto = EXCLUDED.categoria_produto"
+                                if rule_type == "supplier" {
+                                    "
+                                    INSERT INTO overrides_produtos (codigo, categoria_produto)
+                                    SELECT p.codigo, $1 FROM produtos p
+                                    LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
+                                    WHERE p.codigo IN (SELECT DISTINCT item_code FROM invoices WHERE supplier_name ILIKE $2)
+                                      AND (op.categoria_produto IS NULL OR op.categoria_produto = 'cat_coloracao' OR op.categoria_produto = 'cat_apoio')
+                                      AND p.codigo LIKE '1.34.%'
+                                    ON CONFLICT(codigo) DO UPDATE SET categoria_produto = EXCLUDED.categoria_produto"
+                                } else {
+                                    "
+                                    INSERT INTO overrides_produtos (codigo, categoria_produto)
+                                    SELECT p.codigo, $1 FROM produtos p
+                                    LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
+                                    WHERE (p.descricao LIKE $2 OR p.codigo LIKE $2)
+                                      AND (op.categoria_produto IS NULL OR op.categoria_produto = 'cat_coloracao' OR op.categoria_produto = 'cat_apoio')
+                                      AND p.codigo LIKE '1.34.%'
+                                    ON CONFLICT(codigo) DO UPDATE SET categoria_produto = EXCLUDED.categoria_produto"
+                                }
                             } else {
-                                "
-                                INSERT INTO overrides_produtos (codigo, categoria_produto)
-                                SELECT p.codigo, $1 FROM produtos p
-                                LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
-                                WHERE (p.descricao LIKE $2 OR p.codigo LIKE $2)
-                                  AND (op.categoria_produto IS NULL OR op.categoria_produto = 'cat_coloracao' OR op.categoria_produto = 'cat_apoio')
-                                  AND p.codigo LIKE '1.30.%'
-                                ON CONFLICT(codigo) DO UPDATE SET categoria_produto = EXCLUDED.categoria_produto"
+                                if rule_type == "supplier" {
+                                    "
+                                    INSERT INTO overrides_produtos (codigo, categoria_produto)
+                                    SELECT p.codigo, $1 FROM produtos p
+                                    LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
+                                    WHERE p.codigo IN (SELECT DISTINCT item_code FROM invoices WHERE supplier_name ILIKE $2)
+                                      AND (op.categoria_produto IS NULL OR op.categoria_produto = 'cat_coloracao' OR op.categoria_produto = 'cat_apoio')
+                                      AND p.codigo LIKE '1.30.%'
+                                    ON CONFLICT(codigo) DO UPDATE SET categoria_produto = EXCLUDED.categoria_produto"
+                                } else {
+                                    "
+                                    INSERT INTO overrides_produtos (codigo, categoria_produto)
+                                    SELECT p.codigo, $1 FROM produtos p
+                                    LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
+                                    WHERE (p.descricao LIKE $2 OR p.codigo LIKE $2)
+                                      AND (op.categoria_produto IS NULL OR op.categoria_produto = 'cat_coloracao' OR op.categoria_produto = 'cat_apoio')
+                                      AND p.codigo LIKE '1.30.%'
+                                    ON CONFLICT(codigo) DO UPDATE SET categoria_produto = EXCLUDED.categoria_produto"
+                                }
                             };
-                            let like_pattern = format!("{}%", prefix);
+                            let like_pattern = if rule_type == "supplier" {
+                                format!("%{}%", prefix)
+                            } else {
+                                format!("{}%", prefix)
+                            };
                             let _ = sqlx::query(query)
                                 .bind(sub_id)
                                 .bind(&like_pattern)
                                 .execute(&pool)
                                 .await;
                         } else {
-                            let like_pattern = format!("{}%", prefix);
-                            let _ = sqlx::query(
-                                "UPDATE items SET category_id = $1
-                                 WHERE description LIKE $2
-                                   AND category_id = $3
-                                   AND (manual_category IS NULL OR manual_category = 0)",
-                            )
-                            .bind(sub_id)
-                            .bind(&like_pattern)
-                            .bind(&parent)
-                            .execute(&pool)
-                            .await;
+                            if rule_type == "supplier" {
+                                let like_pattern = format!("%{}%", prefix);
+                                let _ = sqlx::query(
+                                    "UPDATE items SET category_id = $1
+                                     WHERE code IN (
+                                         SELECT DISTINCT item_code FROM invoices 
+                                         WHERE supplier_name ILIKE $2
+                                     )
+                                     AND category_id = $3
+                                     AND (manual_category IS NULL OR manual_category = 0)",
+                                )
+                                .bind(sub_id)
+                                .bind(&like_pattern)
+                                .bind(&parent)
+                                .execute(&pool)
+                                .await;
+                            } else {
+                                let like_pattern = format!("{}%", prefix);
+                                let _ = sqlx::query(
+                                    "UPDATE items SET category_id = $1
+                                     WHERE description LIKE $2
+                                       AND category_id = $3
+                                       AND (manual_category IS NULL OR manual_category = 0)",
+                                )
+                                .bind(sub_id)
+                                .bind(&like_pattern)
+                                .bind(&parent)
+                                .execute(&pool)
+                                .await;
+                            }
                         }
                     }
                 }
@@ -397,8 +442,11 @@ pub async fn import_invoices_query(
             Some(supplier_id.as_str())
         };
         let res = sqlx::query(
-            "INSERT INTO invoices (id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+            "INSERT INTO invoices (
+                id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date,
+                cfop, icms_value, ipi_value, freight_value, entry_date, carrier_name, supplier_cnpj, payment_installments
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL, 0.0, 0.0, 0.0, NULL, NULL, NULL, NULL)",
         )
         .bind(&inv_id)
         .bind(inv_number)

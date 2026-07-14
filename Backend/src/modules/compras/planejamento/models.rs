@@ -58,7 +58,7 @@ pub struct Consumption {
     pub monthly_avg: f64,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Invoice {
     pub id: String,
@@ -72,6 +72,14 @@ pub struct Invoice {
     pub supplier_name: Option<String>,
     pub supplier_id: Option<String>,
     pub invoice_date: Option<String>,
+    pub cfop: Option<String>,
+    pub icms_value: f64,
+    pub ipi_value: f64,
+    pub freight_value: f64,
+    pub entry_date: Option<String>,
+    pub carrier_name: Option<String>,
+    pub supplier_cnpj: Option<String>,
+    pub payment_installments: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
