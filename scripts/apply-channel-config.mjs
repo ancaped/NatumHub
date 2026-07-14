@@ -44,12 +44,14 @@ if (tauri.app?.windows?.[0]) {
 
 const repo = process.env.GITHUB_REPOSITORY || 'ancaped/NatumHub';
 const tag = getArg('tag') || process.env.RELEASE_TAG || '';
-const port = process.env.API_PORT || '3001';
 
-const endpoints = [`http://127.0.0.1:${port}/api/hub/updater-manifest/${channel}`];
-if (tag) {
-  endpoints.push(`https://github.com/${repo}/releases/download/${tag}/updater-${channel}.json`);
-}
+// O plugin updater do Tauri exige HTTPS em todos os endpoints — nunca incluir
+// o endpoint local http://127.0.0.1 aqui, mesmo como fallback de dev.
+const endpoints = [
+  tag
+    ? `https://github.com/${repo}/releases/download/${tag}/updater-${channel}.json`
+    : `https://github.com/${repo}/releases/latest/download/updater-${channel}.json`,
+];
 
 if (tauri.plugins?.updater) {
   tauri.plugins.updater.endpoints = endpoints;
