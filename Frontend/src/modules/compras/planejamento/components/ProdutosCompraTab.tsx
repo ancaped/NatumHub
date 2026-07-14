@@ -539,6 +539,16 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
 
     if (initialCategoryFilter) {
       result = result.filter(p => p.categoria_produto === initialCategoryFilter);
+    } else {
+      const parentCatId = statusFilter === 'coloracao' ? 'cat_coloracao' : 'cat_apoio';
+      const childCategoryIds = new Set(
+        categories
+          .filter(c => c.parentId === parentCatId)
+          .map(c => c.id)
+      );
+      if (childCategoryIds.size > 0) {
+        result = result.filter(p => !p.categoria_produto || !childCategoryIds.has(p.categoria_produto));
+      }
     }
 
     if (searchTerm.trim()) {
@@ -591,7 +601,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     });
 
     return result;
-  }, [computedProducts, searchTerm, selectedLine, urgencyFilter, sortKey, sortDir, initialCategoryFilter]);
+  }, [computedProducts, searchTerm, selectedLine, urgencyFilter, sortKey, sortDir, initialCategoryFilter, categories, statusFilter]);
 
   const paginatedProducts = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
