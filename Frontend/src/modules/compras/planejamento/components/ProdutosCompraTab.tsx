@@ -749,15 +749,19 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
       minute: '2-digit'
     });
 
+    const isColor = statusFilter === 'coloracao';
+
     const rowsHtml = itemsToPrint.map(p => `
       <tr>
         <td style="font-family: monospace; font-size: 10px;">${p.codigo}</td>
         <td style="text-align: left; font-weight: 500; font-size: 10px;">${p.descricao}</td>
-        <td>${p.nome_linha || '-'}</td>
+        ${isColor ? '' : `<td>${p.nome_linha || '-'}</td>`}
         <td style="text-align: right;">${p.estoque.toLocaleString('pt-BR')} un</td>
         <td style="text-align: right;">${(p.media_vendas || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} un</td>
+        ${isColor ? '' : `
         <td style="text-align: center; font-size: 9px;">${(p as any).trigger_days_computed ?? '-'}d</td>
         <td style="text-align: center; font-size: 9px;">${(p as any).target_days_computed ?? '-'}d</td>
+        `}
         <td style="text-align: right;">${(p.faltas_ativas || 0).toLocaleString('pt-BR')} un</td>
         <td style="text-align: right;">${(p.pedidos_compra_aberto || 0).toLocaleString('pt-BR')} un</td>
         <td style="text-align: right; font-weight: ${p.cobertura_dias_computed < 60 ? 'bold' : 'normal'};">
@@ -899,11 +903,13 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
             <tr>
               <th style="width: 80px;">Código</th>
               <th>Descrição</th>
-              <th>Linha</th>
+              ${isColor ? '' : '<th>Linha</th>'}
               <th style="width: 70px; text-align: right;">Estoque Físico</th>
               <th style="width: 70px; text-align: right;">Média Vendas</th>
+              ${isColor ? '' : `
               <th style="width: 50px; text-align: center;">Disparo</th>
               <th style="width: 50px; text-align: center;">Objetivo</th>
+              `}
               <th style="width: 70px; text-align: right;">Faltas Vendas</th>
               <th style="width: 70px; text-align: right;">Em Trânsito</th>
               <th style="width: 70px; text-align: right;">Duração Est.</th>
@@ -919,7 +925,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
           <strong style="color: #111827; display: block; margin-bottom: 4px; font-size: 9px; text-transform: uppercase;">Nota Explicativa (Metodologia de Cálculo):</strong>
           <ul style="margin: 0; padding-left: 12px; line-height: 1.4;">
             <li style="margin-bottom: 3px;"><strong>Média Vendas:</strong> Média mensal com período configurado por item (saídas/faturamento nos últimos N meses).</li>
-            <li style="margin-bottom: 3px;"><strong>Disparo / Objetivo:</strong> Dias de cobertura por item (configuração personalizada).</li>
+            ${isColor ? '' : '<li style="margin-bottom: 3px;"><strong>Disparo / Objetivo:</strong> Dias de cobertura por item (configuração personalizada).</li>'}
             <li style="margin-bottom: 3px;"><strong>Duração Estimada:</strong> Calculada como <code style="font-family: monospace;">(Estoque Físico + Em Trânsito - Faltas de Venda) / Consumo Diário</code>.</li>
             <li><strong>Recomendado:</strong> Sugestão de compras expressa por: <code style="font-family: monospace;">Estoque Ideal + Faltas de Venda - Estoque Físico - Em Trânsito</code>.</li>
           </ul>
