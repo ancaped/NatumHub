@@ -6,6 +6,12 @@ authors = ["Natum"]
 edition = "2021"
 rust-version = "1.77.2"
 default-run = "natum-hub"
+# Utilitários em src/bin/ (muitos SQLite legado) não entram no build do app/release.
+autobins = false
+
+[[bin]]
+name = "natum-hub"
+path = "src/main.rs"
 
 [lib]
 name = "app_lib"
