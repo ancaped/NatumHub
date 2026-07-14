@@ -29,6 +29,8 @@ export function getModuleTitle(view: string): string {
       return 'Compras > Material de Apoio';
     case 'compras_quotations':
       return 'Compras > Cotações';
+    case 'compras_simulation':
+      return 'Compras > Simulador';
     case 'compras_online':
       return 'Compras > Compras Online';
     case 'compras_pedidos':

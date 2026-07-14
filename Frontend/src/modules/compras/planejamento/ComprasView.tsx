@@ -9,7 +9,8 @@ import ItemRegistry from './components/ItemRegistry';
 import { ProdutosCompraTab } from './components/ProdutosCompraTab';
 import { PrintListTab } from './components/PrintListTab';
 import { SolicitationTab } from './components/SolicitationTab';
-import { Package, ShoppingCart, Users, BarChart3, Settings, Database, Boxes, ArrowLeft, Palette, Tag, Layers, Printer, ClipboardList, EyeOff } from 'lucide-react';
+import { SimulationTab } from './components/SimulationTab';
+import { Package, ShoppingCart, Users, BarChart3, Settings, Database, Boxes, ArrowLeft, Palette, Tag, Layers, Printer, ClipboardList, EyeOff, Calculator } from 'lucide-react';
 import { cn } from '../../geral/lib/utils';
 import { api } from '../../geral/lib/api';
 import { Category } from '../../geral/lib/types';
@@ -109,6 +110,11 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
         ];
+      case 'simulation':
+        return [
+          { id: 'sim_products', label: 'Produtos a Simular', icon: ClipboardList },
+          { id: 'sim_requirements', label: 'Insumos Mapeados', icon: Boxes },
+        ];
       default:
         return [
           { id: 'demands', label: 'Demandas', icon: Package },
@@ -134,6 +140,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
     if (mode === 'coloracao') return 'coloracao';
     if (mode === 'apoio') return 'apoio';
     if (mode === 'quotations') return 'quotations';
+    if (mode === 'simulation') return 'sim_products';
     return 'demands';
   }, [mode]);
 
@@ -151,6 +158,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
       case 'coloracao': return 'Coloração';
       case 'apoio': return 'Material de Apoio';
       case 'quotations': return 'Cotações';
+      case 'simulation': return 'Simulador';
       default: return 'Insumos & MP';
     }
   }, [mode]);
@@ -175,6 +183,10 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           <div className={activeTab !== 'demands' ? 'hidden' : ''}>
             <DemandTable active={activeTab === 'demands'} mode={mode === 'materia_prima' ? 'materia_prima' : mode === 'embalagens' ? 'embalagens' : 'all'} />
           </div>
+        )}
+
+        {mode === 'simulation' && (
+          <SimulationTab active={true} activeTab={activeTab} />
         )}
         
         {navItems.some(i => i.id === 'print_list') && (

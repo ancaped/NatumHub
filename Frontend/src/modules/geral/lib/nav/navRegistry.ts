@@ -22,6 +22,7 @@ import {
   Truck,
   Wrench,
   Warehouse,
+  Calculator,
 } from 'lucide-react';
 import type { AuthUser } from '../auth';
 import { canAccessView } from '../modules/permissions';
@@ -67,6 +68,7 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   compras_online: Globe,
   compras_pedidos: ClipboardList,
   compras_notas: FileText,
+  compras_simulation: Calculator,
   producao: Package,
   montagem_kits: Layers,
   microbiologia: FlaskConical,

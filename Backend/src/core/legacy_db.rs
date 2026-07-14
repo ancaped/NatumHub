@@ -1727,18 +1727,12 @@ WHERE {so2_date_filter};
     // Write Invoices em lote
     eprintln!("[ERP Sync] Gravando invoices ({})...", invoices_list.len());
     let mut count_invoices = 0;
-    if mode == SyncMode::Full {
-        sqlx::query("DELETE FROM invoices")
-            .execute(&mut *tx)
-            .await?;
-    } else {
-        sqlx::query(
-            "DELETE FROM invoices WHERE COALESCE(invoice_date, '') >= $1",
-        )
-        .bind(&since)
-        .execute(&mut *tx)
-        .await?;
-    }
+    sqlx::query(
+        "DELETE FROM invoices WHERE COALESCE(invoice_date, '') >= $1",
+    )
+    .bind(&since)
+    .execute(&mut *tx)
+    .await?;
 
     {
         let mut inv_ids: Vec<String> = Vec::new();
@@ -2167,23 +2161,14 @@ WHERE {so2_date_filter};
         sales_order_items_list.len()
     );
     let mut count_pos = 0;
-    if mode == SyncMode::Full {
-        sqlx::query("DELETE FROM purchase_order_items")
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM purchase_orders")
-            .execute(&mut *tx)
-            .await?;
-    } else {
-        let registros: Vec<i32> = pedido_cpa1_list.iter().map(|p| p.n_registro).collect();
-        if !registros.is_empty() {
-            sqlx::query(
-                "DELETE FROM purchase_order_items WHERE n_pedido_registro = ANY($1)",
-            )
-            .bind(&registros)
-            .execute(&mut *tx)
-            .await?;
-        }
+    let registros: Vec<i32> = pedido_cpa1_list.iter().map(|p| p.n_registro).collect();
+    if !registros.is_empty() {
+        sqlx::query(
+            "DELETE FROM purchase_order_items WHERE n_pedido_registro = ANY($1)",
+        )
+        .bind(&registros)
+        .execute(&mut *tx)
+        .await?;
     }
 
     {
@@ -2323,14 +2308,7 @@ WHERE {so2_date_filter};
     }
 
     let mut count_sales_orders = 0;
-    if mode == SyncMode::Full {
-        sqlx::query("DELETE FROM sales_order_items")
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM sales_orders")
-            .execute(&mut *tx)
-            .await?;
-    } else if !sales_orders_list.is_empty() {
+    if !sales_orders_list.is_empty() {
         let so_ped: Vec<i32> = sales_orders_list.iter().map(|s| s.n_pedido).collect();
         let so_dp: Vec<String> = sales_orders_list.iter().map(|s| s.d_pedido.clone()).collect();
         sqlx::query(

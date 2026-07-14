@@ -37,6 +37,7 @@ pub const MODULE_COMPRAS_ONLINE: &str = "compras_online";
 pub const MODULE_COMPRAS_PEDIDOS: &str = "compras_pedidos";
 pub const MODULE_COMPRAS_NOTAS: &str = "compras_notas";
 pub const MODULE_COMPRAS_ALMOX: &str = "compras_almoxarifado";
+pub const MODULE_COMPRAS_SIMULATION: &str = "compras_simulation";
 
 pub const MODULE_VENDAS: &str = "vendas";
 pub const MODULE_VENDAS_ONLINE: &str = "vendas_online";
@@ -77,6 +78,7 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_COMPRAS_PEDIDOS,
     MODULE_COMPRAS_NOTAS,
     MODULE_COMPRAS_ALMOX,
+    MODULE_COMPRAS_SIMULATION,
     MODULE_VENDAS,
     MODULE_VENDAS_ONLINE,
     MODULE_CONTROLE_QUALIDADE,
@@ -156,6 +158,7 @@ pub fn module_registry() -> Vec<ModuleGroup> {
                 leaf(MODULE_COMPRAS_PEDIDOS, "Pedidos"),
                 leaf(MODULE_COMPRAS_NOTAS, "Notas Fiscais"),
                 leaf(MODULE_COMPRAS_ALMOX, "Almoxarifado"),
+                leaf(MODULE_COMPRAS_SIMULATION, "Simulador"),
             ],
         },
         ModuleGroup {

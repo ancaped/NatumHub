@@ -9,6 +9,7 @@ function viewToModuleKey(view: string): string | null {
   if (view === 'estoque_hub' || view === 'almoxarifado_hub' || view === 'producao_hub' || view === 'compras_hub' || view === 'vendas_hub') return null;
   if (view === 'linha_produtos' || view === 'estoque_ativos') return 'admin_linha_produtos';
   if (view === 'admin_linha_produtos') return 'admin_linha_produtos';
+  if (view === 'compras_simulation') return 'compras_materia_prima';
   if (ALL_KEYS.has(view)) return view;
   return null;
 }

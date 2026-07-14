@@ -449,7 +449,7 @@ impl Db {
                 .await
                 .map_err(|e| e.to_string())?;
                 sqlx::query(
-                    "UPDATE estoque_atual SET estoque = MAX(0, estoque - $1) WHERE codigo = $2",
+                    "UPDATE estoque_atual SET estoque = GREATEST(0.0, estoque - $1) WHERE codigo = $2",
                 )
                 .bind(entry.quantidade)
                 .bind(b_code)
@@ -487,7 +487,7 @@ impl Db {
                 .map_err(|e| e.to_string())?;
 
             sqlx::query(
-                "UPDATE estoque_atual SET producao = MAX(0, producao - $1) WHERE codigo = $2",
+                "UPDATE estoque_atual SET producao = GREATEST(0.0, producao - $1) WHERE codigo = $2",
             )
             .bind(qty)
             .bind(&codigo)

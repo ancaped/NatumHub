@@ -46,6 +46,7 @@ export const MODULE_KEYS = {
   COMPRAS_PEDIDOS: 'compras_pedidos',
   COMPRAS_NOTAS: 'compras_notas',
   COMPRAS_ALMOX: 'compras_almoxarifado',
+  COMPRAS_SIMULATION: 'compras_simulation',
   VENDAS: 'vendas',
   VENDAS_ONLINE: 'vendas_online',
   CONTROLE_QUALIDADE: 'controle_qualidade',
@@ -124,6 +125,7 @@ export function moduleRegistry(): ModuleGroup[] {
         { key: MODULE_KEYS.COMPRAS_PEDIDOS, label: 'Pedidos' },
         { key: MODULE_KEYS.COMPRAS_NOTAS, label: 'Notas Fiscais' },
         { key: MODULE_KEYS.COMPRAS_ALMOX, label: 'Almoxarifado' },
+        { key: MODULE_KEYS.COMPRAS_SIMULATION, label: 'Simulador' },
       ],
     },
     {
