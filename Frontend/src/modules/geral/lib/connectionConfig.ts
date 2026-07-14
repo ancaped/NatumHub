@@ -1,7 +1,7 @@
 /**
  * Configuração local do dispositivo + URL da API.
  * Persistido em localStorage e Saves/client_config.json (Tauri).
- * Com Supabase, todos os PCs usam API local — sem papel Principal/Secundário.
+ * PC Principal = master (API+Postgres). Terminal = client (API remota).
  */
 
 export type AppMode = 'master' | 'client';
@@ -195,25 +195,9 @@ export async function isDeveloperInstall(): Promise<boolean> {
   return build?.isDeveloperInstall ?? false;
 }
 
-/** Migra instalações antigas (modo client / PC secundário) para API local + Supabase. */
+/** Legacy no-op: terminais (`client`) são válidos e não devem ser forçados a master. */
 export async function repairDevConnectionIfNeeded(): Promise<boolean> {
-  const cfg = loadConnectionConfig();
-  if (cfg.appMode !== 'client' && !cfg.setupLocked) return false;
-
-  const fixed = markConnectionSetupCompleted(
-    {
-      ...cfg,
-      appMode: 'master',
-      isSyncMaster: true,
-      apiOrigin: `http://127.0.0.1:${DEFAULT_API_PORT}`,
-      apiBindHost: cfg.apiBindHost || '0.0.0.0',
-      apiPort: cfg.apiPort || DEFAULT_API_PORT,
-      setupLocked: false,
-    },
-    isDevRuntime() ? 'development' : 'server'
-  );
-  await saveConfigToTauri(fixed);
-  return true;
+  return false;
 }
 
 export async function syncConfigFromTauri(): Promise<ClientConfig> {

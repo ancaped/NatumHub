@@ -177,7 +177,6 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
             { id: 'PARCIAL' as StatusFilter, label: 'Parcial', icon: AlertTriangle },
             { id: 'ATRASADO' as StatusFilter, label: 'Atrasados', icon: AlertTriangle },
             { id: 'FECHADO' as StatusFilter, label: 'Concluídos', icon: CheckCircle2 },
-            { id: 'CANCELADO' as StatusFilter, label: 'Cancelados', icon: X },
           ]).map(tab => (
             <button
               key={tab.id}
@@ -215,12 +214,7 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
         <header className="h-16 bg-white border-b border-zinc-200 flex items-center justify-between px-8 shrink-0">
-          <div>
-            <h2 className="text-xl font-bold tracking-tight text-zinc-900">Controle de Pedidos de Compra</h2>
-            <p className="text-xs text-zinc-500 mt-0.5">
-              Acompanhe pedidos enviados aos fornecedores, status de entregas e quantidades recebidas.
-            </p>
-          </div>
+          <div />
           <button
             onClick={loadOrders}
             className="flex items-center gap-2 px-4 py-2 bg-zinc-100 hover:bg-zinc-200 rounded-xl text-xs font-bold text-zinc-700 transition-all cursor-pointer border border-zinc-200"

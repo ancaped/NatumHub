@@ -14,6 +14,7 @@ Backend/gen/
 *.db-wal
 *.db-shm
 Saves/backups/
+Saves/pg-backups/
 
 # Logs and OS files
 *.log
@@ -35,6 +36,7 @@ Backend/WixTools/
 .env.local
 Saves/postgres.env
 Saves/supabase.env
+Saves/*.dump
 Saves/*creds*
 Saves/_tmp_*
 Saves/seed_hub_from_sqlite.sql

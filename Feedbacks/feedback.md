@@ -1,46 +1,114 @@
-# Feedback e Relatórios — NatumHub
+# NatumHub — Playbook de Feedbacks (agentes IA)
 
-> Gerado automaticamente. **Agentes IA:** priorize a **Fila** (menor `Prio` primeiro). Status: triagem → fila → em aberto (conferência) → finalizado.
+> **Gatilho:** `@Feedbacks/feedback.md` ou “resolver a fila”.  
+> Fonte de dados = **PostgreSQL** (tabelas abaixo). **Não** use pastas `Feedbacks/feedback_<id>/`.
 
-## 📋 Fila (agentes IA)
+Skill: `natumhub-resolve-bugs` · Doc: `ContextoIA/feedbacks/README.md`
 
-Status `queued` ou `in_progress`, ordenados por prioridade.
+---
 
-| Prio | ID | Solicitante | Data/Hora | Tipo | Página | Status | Descrição | Notas admin | Pasta |
-| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 111 | `0a1b4d5f` | Edson | 2026-07-12 06:45:52.68973+00 | 🔵 Sugestão | Compras > coloracao/materiaprima/embalagens/materialdeapapoio | queued | mudar as os padroes de status, permanecer com as mesmas cores, mas como agora o tempo de meta e disparo podem variar de item a item, entao nao faz mais sentido usar status definidos em dias, certo ?  | - | [📁](./feedback_0a1b4d5f/) |
-| 112 | `17dec008` | Edson | 2026-07-12 06:48:21.035987+00 | 🔴 Bug | Compras > Coloração > Lista | queued | relatorio nao esta puxando exato a ultima nf, e sim apenas o nome do fornecedor, assim como nao esta puxando o ultimo pedido, e sim o nome do fornecedor no ultimo pedido, favor corrigir isso e verificar se nos outros modulos precisar corrigir tbm  | - | [📁](./feedback_17dec008/) |
-| 113 | `f6fb0462` | Edson | 2026-07-12 06:50:09.055818+00 | 🔵 Sugestão | Compras > Coloração > Lista | queued | condensar as informacoes de Disparo dias e Objetivos dias para que ocupe o menor espaco possivel por item no relatório quando for selecionando para aparecer, fazer isso nos outros modulos tbm  | - | [📁](./feedback_f6fb0462/) |
+## Onde estão os feedbacks (caminho certo)
 
-## 🟡 Triagem
+| O quê | Onde |
+|-------|------|
+| Tabelas | `public.feedbacks` e `public.feedback_notes` |
+| Conexão (dev neste PC) | Arquivo **`C:\api\Saves\postgres.env`** → linha `DATABASE_URL=...` |
+| Conexão (app instalado / PC Principal) | **`%LOCALAPPDATA%\NatumHub\Saves\postgres.env`** (Estável) ou **`%LOCALAPPDATA%\NatumHub Dev\Saves\postgres.env`** (Dev) |
+| Espelho opcional (lista) | `C:\api\Feedbacks\feedback_index.md` — **não** é a fonte da verdade |
 
-_Nenhum item em triagem._
+### Como o agente acessa (obrigatório)
 
-## 🔵 Em aberto (conferência supervisor)
+1. Ler `DATABASE_URL` de `C:\api\Saves\postgres.env` (neste workspace).
+2. Consultar/alterar via **psql**, script, ou MCP Supabase `execute_sql` **se** o projeto remoto for o mesmo banco. Neste repo a produção atual é **Postgres local** (`127.0.0.1:5432/natumhub`).
+3. Exemplo PowerShell:
 
-_Nenhum aguardando conferência._
+```powershell
+# Lê a URL e lista a fila
+$u = (Get-Content C:\api\Saves\postgres.env | Where-Object { $_ -match '^DATABASE_URL=' }) -replace '^DATABASE_URL=',''
+# psql $u -c "SELECT id, priority, status, LEFT(description,80) FROM feedbacks WHERE status IN ('queued','in_progress') ORDER BY priority;"
+```
 
-## ⛔ Reprovados
+**IDs:** use o UUID completo da coluna `feedbacks.id` (a UI mostra só 8 caracteres).
 
-_Nenhum._
+---
 
-## 🟢 Finalizados
+## Objetivo
 
-| Prio | ID | Solicitante | Data/Hora | Tipo | Página | Resolvido em | Pasta |
-| ---: | --- | --- | --- | --- | --- | --- | --- |
-| 100 | `ac4a1814` | Edson | 2026-07-12 05:51:57.830951+00 | 🔴 Bug | Produção > Físico-Química > Registrar Físico-Química | 2026-07-12 06:51:28.269447+00 | [📁](./feedback_ac4a1814/) |
-| 100 | `d10fc358` | Edson | 2026-07-12 02:43:55.716352+00 | 🔵 Sugestão | Produção > Gerenciamento > Dashboard | 2026-07-12 06:16:21.812127+00 | [📁](./feedback_d10fc358/) |
-| 100 | `44c9d6b0` | Edson | 2026-07-12 02:18:51.130905+00 | 🔵 Sugestão | Painel Supervisor > painel supervisor | 2026-07-12 06:17:02.953069+00 | [📁](./feedback_44c9d6b0/) |
-| 101 | `1fba1edc` | Edson | 2026-07-12 02:19:17.801942+00 | 🔴 Bug | Painel Supervisor > painel supervisor | 2026-07-12 06:16:41.980851+00 | [📁](./feedback_1fba1edc/) |
-| 101 | `36b20514` | Edson | 2026-07-12 05:53:18.928864+00 | 🔴 Bug | Produção > Microbiologia > Gerar Lote | 2026-07-12 06:51:51.252605+00 | [📁](./feedback_36b20514/) |
-| 102 | `63a98b8d` | Edson | 2026-07-12 02:19:33.378904+00 | 🔴 Bug | Painel Supervisor > painel supervisor | 2026-07-12 06:16:50.757758+00 | [📁](./feedback_63a98b8d/) |
-| 102 | `29af90b0` | Edson | 2026-07-12 05:54:20.714315+00 | 🔵 Sugestão | Produção > Lotes de Produção > lotes | 2026-07-12 06:52:04.390692+00 | [📁](./feedback_29af90b0/) |
-| 103 | `3758fa2a` | Edson | 2026-07-12 05:56:09.468186+00 | 🔴 Bug | Produção > Lotes de Produção > lotes | 2026-07-12 06:52:17.17112+00 | [📁](./feedback_3758fa2a/) |
-| 104 | `11783b03` | Edson | 2026-07-12 05:57:06.434423+00 | 🔵 Sugestão | Produção > Lotes de Produção > lotes | 2026-07-12 06:52:25.145768+00 | [📁](./feedback_11783b03/) |
-| 105 | `0c8c10dc` | Edson | 2026-07-12 05:58:39.405061+00 | 🔴 Bug | Administrativo > Linha de Produtos | 2026-07-12 06:52:33.378031+00 | [📁](./feedback_0c8c10dc/) |
-| 106 | `245c8e35` | Edson | 2026-07-12 05:59:48.873891+00 | 🔵 Sugestão | Administrativo > Linha de Produtos | 2026-07-12 06:52:43.31825+00 | [📁](./feedback_245c8e35/) |
-| 107 | `d8db210d` | Edson | 2026-07-12 06:01:49.824312+00 | 🔴 Bug | Administrativo > Administrativo/linhas de produtos, configuracoes | 2026-07-12 06:53:02.328226+00 | [📁](./feedback_d8db210d/) |
-| 108 | `921baaad` | Edson | 2026-07-12 06:04:37.802434+00 | 🔵 Sugestão | Compras > Coloração > Configurações | 2026-07-12 06:53:32.091518+00 | [📁](./feedback_921baaad/) |
-| 109 | `9b3f30a4` | Edson | 2026-07-12 06:05:11.756697+00 | 🔵 Sugestão | Compras > Planejamento > Demandas | 2026-07-12 06:54:05.675105+00 | [📁](./feedback_9b3f30a4/) |
-| 110 | `6dec73ff` | Edson | 2026-07-12 06:08:02.499216+00 | 🔵 Sugestão | Compras > Cotações | 2026-07-12 06:53:50.127089+00 | [📁](./feedback_6dec73ff/) |
+Itens em **Fila** (`queued` / `in_progress`) → corrigir código → **nota** em `feedback_notes` (author=`IA`) → status **`awaiting_review`** (aba Em aberto).  
+Supervisor finaliza com `resolved`. **Agente nunca marca `resolved`.**
 
+## Fluxo
+
+```
+1. SELECT fila (SQL abaixo)
+2. Um item (menor priority) — ou o ID pedido
+3. Ler description, page, logs, screenshot, admin_notes + notes
+4. Fix mínimo no código
+5. cargo check --lib  +  npm run build (Frontend)
+6. INSERT feedback_notes + UPDATE awaiting_review
+7. Responder em pt-BR
+```
+
+---
+
+## SQL
+
+```sql
+-- Fila
+SELECT id, priority, type, description, page, logs,
+       CASE WHEN length(screenshot) > 0 THEN true ELSE false END AS has_screenshot,
+       admin_notes, requested_by, status, "createdAt"
+FROM feedbacks
+WHERE status IN ('queued', 'in_progress')
+ORDER BY priority ASC, "createdAt" ASC
+LIMIT 20;
+
+-- Detalhe
+SELECT id, type, description, page, logs, screenshot, status, priority,
+       admin_notes, requested_by, "createdAt"
+FROM feedbacks WHERE id = $<uuid>;
+
+SELECT id, author, body, created_at
+FROM feedback_notes WHERE feedback_id = $<uuid>
+ORDER BY created_at ASC;
+
+-- Fechar trabalho do agente
+INSERT INTO feedback_notes (id, feedback_id, author, body)
+VALUES (gen_random_uuid()::text, $<uuid>, 'IA', $<texto>);
+
+UPDATE feedbacks
+SET status = 'awaiting_review'
+WHERE id = $<uuid> AND status IN ('queued', 'in_progress');
+```
+
+### Template da nota
+
+```text
+Resolução — YYYY-MM-DD HH:MM
+Causa: …
+Correção: …
+Arquivos: …
+Validação: cargo check ✓ · npm run build ✓
+```
+
+---
+
+## Status
+
+| Status | Aba | Quem |
+|--------|-----|------|
+| `pending` | Triagem | Supervisor |
+| `queued` / `in_progress` | Fila | **IA** |
+| `awaiting_review` | Em aberto | Supervisor |
+| `resolved` | Finalizados | Supervisor |
+| `wont_fix` | Reprovados | Supervisor |
+
+Menor `priority` = mais urgente.
+
+---
+
+## Regras
+
+- Sem pastas `feedback_<id>/` nem `resolucao.md`.
+- FE HTTP: `apiFetch` / `apiJson` / `hubJson`.
+- pt-BR, escopo mínimo.

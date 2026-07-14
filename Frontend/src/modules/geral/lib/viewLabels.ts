@@ -37,6 +37,8 @@ export function getModuleTitle(view: string): string {
       return 'Compras > Notas Fiscais';
     case 'estoque_hub':
       return 'Estoque';
+    case 'almoxarifado_hub':
+      return 'Almoxarifado';
     case 'estoque_insumos':
       return 'Estoque > Insumos (legado)';
     case 'estoque_produtos':
@@ -49,6 +51,20 @@ export function getModuleTitle(view: string): string {
       return 'Estoque > Coloração';
     case 'estoque_apoio':
       return 'Estoque > Material de Apoio';
+    case 'estoque_itens':
+      return 'Almoxarifado > Itens';
+    case 'estoque_almoxarifado':
+      return 'Almoxarifado > Almoxarifado';
+    case 'estoque_supermercado':
+      return 'Almoxarifado > Supermercado';
+    case 'estoque_pecas':
+      return 'Almoxarifado > Peças de Reposição';
+    case 'estoque_equipamentos':
+      return 'Almoxarifado > Equipamentos';
+    case 'estoque_manutencoes':
+      return 'Almoxarifado > Manutenções';
+    case 'compras_almoxarifado':
+      return 'Compras > Almoxarifado';
     case 'admin_linha_produtos':
     case 'estoque_ativos':
       return 'Administrativo > Linha de Produtos';

@@ -1,5 +1,7 @@
 # Releases e instalador NatumHub
 
+Instalação em fábrica (Postgres, master, terminais, Tailscale): [`ContextoIA/devops/`](../ContextoIA/devops/README.md).
+
 ## Dois canais
 
 | Canal | Identifier | Instalador | Quem atualiza |

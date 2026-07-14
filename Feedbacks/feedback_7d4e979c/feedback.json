@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-14 03:39:43.632022+00",
+  "descricao": "estou fazendo uma serie de feedbacks de pequenos refinos e ajustes visuais\n\nficha tecnica e consumo, mudar esse nome e colocar apenas detalhes do insumo, \n\nAba configuracoes, deixar apenas o ícone\n\n\n\n",
+  "id": "7d4e979c-efed-42fe-8e77-d2342a3d7409",
+  "notas_admin": null,
+  "pagina": "Compras > Matéria-Prima",
+  "prioridade": 116,
+  "resolvido_em": null,
+  "solicitante": "EdsonFerrari",
+  "status": "queued",
+  "tem_logs": false,
+  "tem_screenshot": false,
+  "tipo": "bug"
+}

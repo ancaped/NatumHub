@@ -301,7 +301,7 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
           {/* Detail Header */}
           <div className="px-6 py-4 border-b border-zinc-150 flex justify-between items-start bg-zinc-50/50 shrink-0">
             <div className="min-w-0 flex-1">
-              <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">Ficha Técnica & Consumo</span>
+              <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">Detalhes do Insumo</span>
               <h3 className="font-extrabold text-zinc-900 text-base mt-0.5 truncate">
                 {details?.description || 'Carregando...'}
               </h3>
@@ -488,7 +488,7 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
                       {monthlyDataForYear.map((m) => (
                         <div key={m.monthKey} className="group relative flex flex-col justify-end h-full">
                           {/* Tooltip */}
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-zinc-900 text-white text-[9px] font-bold py-1 px-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-md">
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-zinc-900 text-white text-[9px] font-bold py-1 px-1.5 rounded whitespace-nowrap z-10 pointer-events-none shadow-md">
                             {m.qty.toLocaleString('pt-BR')} {details.unit}
                           </div>
                           {/* Bar */}

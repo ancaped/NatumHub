@@ -81,9 +81,11 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE TABLE IF NOT EXISTS kit_composicao (
     kit_codigo TEXT,
     componente_codigo TEXT,
+    quantidade NUMERIC(12,4) NOT NULL DEFAULT 1.0,
+    fator_proporcao_qtd NUMERIC(12,4) DEFAULT 1.0,
+    fator_proporcao_kits INTEGER DEFAULT 1,
     PRIMARY KEY (kit_codigo, componente_codigo),
-    FOREIGN KEY (kit_codigo) REFERENCES produtos(codigo) ON DELETE CASCADE,
-    FOREIGN KEY (componente_codigo) REFERENCES produtos(codigo) ON DELETE CASCADE
+    FOREIGN KEY (kit_codigo) REFERENCES produtos(codigo) ON DELETE CASCADE
 );
 
 -- Tabela de Histórico de Produção Lançada

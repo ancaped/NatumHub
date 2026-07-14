@@ -12,6 +12,9 @@ export interface Feedback {
   requestedBy?: string;
   priority?: number;
   adminNotes?: string;
+  hasLogs?: boolean;
+  hasScreenshot?: boolean;
+  notesCount?: number;
 }
 
 export interface FeedbackNote {

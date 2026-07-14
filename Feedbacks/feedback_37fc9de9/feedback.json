@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-14 03:43:51.404761+00",
+  "descricao": "Regras de Subcategoria Automática (Por Prefixo)\nesta mostrando de todos os modulos de compra, deixar apenas dos modulos respectivos, exemplo, estamos em materia prima, mostrar regras automaticas apenas de materia prima\n\nadicionar mais opcoes de classificacao automatica, por exemplo, classificar por fornecedor, fazer isso em todos os modulos de compra ",
+  "id": "37fc9de9-a651-45e4-86e9-65d3155369f2",
+  "notas_admin": null,
+  "pagina": "Compras > Matéria-Prima > Configurações",
+  "prioridade": 118,
+  "resolvido_em": null,
+  "solicitante": "EdsonFerrari",
+  "status": "queued",
+  "tem_logs": false,
+  "tem_screenshot": false,
+  "tipo": "bug"
+}

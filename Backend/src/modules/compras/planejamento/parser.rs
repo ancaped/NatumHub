@@ -245,15 +245,15 @@ pub async fn parse_kits_excel<P: AsRef<Path>>(
                 "".to_string()
             };
 
-            let quantidade: i64 = if row.len() > 4 {
+            let quantidade: f64 = if row.len() > 4 {
                 match &row[4] {
-                    calamine::Data::Float(f) => *f as i64,
-                    calamine::Data::Int(i) => *i,
-                    calamine::Data::String(s) => s.trim().parse::<i64>().unwrap_or(1),
-                    _ => 1,
+                    calamine::Data::Float(f) => *f,
+                    calamine::Data::Int(i) => *i as f64,
+                    calamine::Data::String(s) => s.trim().replace(',', ".").parse::<f64>().unwrap_or(1.0),
+                    _ => 1.0,
                 }
             } else {
-                1
+                1.0
             };
 
             if kit_code.is_empty() || comp_code.is_empty() {
@@ -288,8 +288,8 @@ pub async fn parse_kits_excel<P: AsRef<Path>>(
             .await?;
 
             sqlx::query(
-                "INSERT INTO kit_composicao (kit_codigo, componente_codigo, quantidade) VALUES ($1, $2, $3)
-                 ON CONFLICT(kit_codigo, componente_codigo) DO UPDATE SET quantidade = EXCLUDED.quantidade",
+                "INSERT INTO kit_composicao (kit_codigo, componente_codigo, quantidade, fator_proporcao_qtd, fator_proporcao_kits) VALUES ($1, $2, $3::numeric, 1.0, 1)
+                 ON CONFLICT(kit_codigo, componente_codigo) DO UPDATE SET quantidade = EXCLUDED.quantidade, fator_proporcao_qtd = 1.0, fator_proporcao_kits = 1",
             )
             .bind(&kit_code)
             .bind(&comp_code)

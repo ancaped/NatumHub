@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 | --- | --- |
-| **Status** | `queued` |
+| **Status** | `resolved` |
 | **Prioridade** | 111 (menor = mais urgente) |
 | **Solicitante** | Edson |
 | **Data/Hora** | 2026-07-12 06:45:52.68973+00 |

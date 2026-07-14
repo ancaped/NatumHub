@@ -1,15 +1,57 @@
 use axum::{
-    extract::{Multipart, Path, State},
+    extract::{Multipart, Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     Json,
 };
+use serde::Deserialize;
 use serde_json::json;
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
 
 use crate::handlers::AppState;
 use crate::models::NewKitComposicao;
+
+#[derive(Debug, Deserialize)]
+pub struct KitComponentSearchQuery {
+    pub q: Option<String>,
+    pub limit: Option<i64>,
+}
+
+// GET /api/kits/component-candidates?q=
+pub async fn search_kit_component_candidates(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<KitComponentSearchQuery>,
+) -> impl IntoResponse {
+    let term = q.q.unwrap_or_default();
+    if term.trim().is_empty() {
+        return (StatusCode::OK, Json(json!({ "items": [] }))).into_response();
+    }
+    match state
+        .db
+        .search_kit_component_candidates(&term, q.limit.unwrap_or(20))
+        .await
+    {
+        Ok(rows) => {
+            let items: Vec<_> = rows
+                .into_iter()
+                .map(|(codigo, descricao, fonte)| {
+                    json!({
+                        "codigo": codigo,
+                        "descricao": descricao,
+                        "fonte": fonte,
+                    })
+                })
+                .collect();
+            (StatusCode::OK, Json(json!({ "items": items }))).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Erro ao buscar componentes: {}", e) })),
+        )
+            .into_response(),
+    }
+}
 
 // GET /api/kits/composicao
 pub async fn list_kit_composicao(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -35,10 +77,22 @@ pub async fn add_kit_composicao_handler(
         )
             .into_response();
     }
-    let qty = if body.quantidade < 1 { 1 } else { body.quantidade };
+    if body.quantidade <= 0.0 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "A quantidade deve ser maior que zero." })),
+        )
+            .into_response();
+    }
     match state
         .db
-        .add_kit_composicao(&body.kit_codigo, &body.componente_codigo, qty)
+        .add_kit_composicao(
+            &body.kit_codigo,
+            &body.componente_codigo,
+            body.quantidade,
+            body.fator_proporcao_qtd,
+            body.fator_proporcao_kits,
+        )
         .await
     {
         Ok(_) => (StatusCode::CREATED, Json(json!({ "status": "success" }))).into_response(),
@@ -219,7 +273,7 @@ pub async fn create_kit_order(
     let status = payload.status.unwrap_or_else(|| "PENDING".to_string());
     let qty_assembled = payload.quantity_assembled.unwrap_or(payload.quantity);
 
-    match sqlx::query_scalar::<_, i64>(
+    match sqlx::query(
         "INSERT INTO kit_assembly_orders (
             order_number, kit_product_code, kit_product_description, quantity, status,
             created_at, assembled_by, checked_by, observations, erp_launched, components_lotes,
@@ -241,11 +295,14 @@ pub async fn create_kit_order(
     .fetch_one(pool)
     .await
     {
-        Ok(last_id) => (
-            StatusCode::CREATED,
-            Json(json!({ "id": last_id, "message": "Ordem de montagem criada" })),
-        )
-            .into_response(),
+        Ok(row) => {
+            let last_id = crate::core::pg_row::pg_i64(&row, 0);
+            (
+                StatusCode::CREATED,
+                Json(json!({ "id": last_id, "message": "Ordem de montagem criada" })),
+            )
+                .into_response()
+        }
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": format!("Erro ao criar ordem de montagem: {}", e) })),
@@ -552,7 +609,7 @@ pub async fn create_vira_order(
     let status = payload.status.unwrap_or_else(|| "PENDING".to_string());
     let qty_assembled = payload.quantity_assembled.unwrap_or(payload.quantity);
 
-    let last_id: i64 = match sqlx::query_scalar(
+    let last_id: i64 = match sqlx::query(
         "INSERT INTO vira_ordens (
             order_number, de_produto_codigo, de_produto_descricao,
             para_produto_codigo, para_produto_descricao, quantity, status,
@@ -575,7 +632,7 @@ pub async fn create_vira_order(
     .fetch_one(pool)
     .await
     {
-        Ok(id) => id,
+        Ok(row) => crate::core::pg_row::pg_i64(&row, 0),
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,

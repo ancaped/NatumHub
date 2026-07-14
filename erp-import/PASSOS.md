@@ -30,13 +30,15 @@ Alguns passos limitam volume por janela de tempo **fixa no SQL** (performance):
 |-------|--------|
 | E | NF compra últimos 48 meses |
 | F | Consumo anos 2024–2026 |
-| H | Lotes desde 2024-01-01 |
-| I | Baixas desde 2024-01-01 |
-| K, L | Pedidos compra: últimos 12 meses ou status aberto |
-| M, N | Pedidos venda: últimos 6 meses ou status aberto |
-| **J** | `dVenda >= 2024-01-01` no full; incremental usa watermark − 2 dias |
+| H | Lotes desde o piso (`erp_sync_history_floor`; padrão 2024-01-01; `all` = histórico completo) |
+| I | Baixas desde o piso |
+| K, L | Pedidos compra: desde o piso ou status aberto |
+| M, N | Pedidos venda: desde o piso ou status aberto |
+| **J** | `dVenda >= piso` no full; incremental usa watermark − 2 dias |
 
-Para alterar janelas, edite a query em `legacy_db.rs` **e** o `.sql` correspondente aqui.
+Setting supervisor **`erp_sync_history_floor`**: `YYYY-MM-DD` ou `all` (floor `1900-01-01`).
+
+Para alterar janelas especiais, edite a query em `legacy_db.rs` **e** o `.sql` correspondente aqui.
 
 ## Sync incremental
 

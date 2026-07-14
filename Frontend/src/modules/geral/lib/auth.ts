@@ -275,6 +275,12 @@ export async function updateOperator(
   return mapOperator(raw);
 }
 
+export async function deleteOperator(id: string): Promise<void> {
+  await apiJson(`/auth/operators/manage/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function loginOperator(displayName: string, password: string): Promise<LoginResult> {
   const { deviceId, deviceLabel } = deviceContext();
   const res = await apiJson<{

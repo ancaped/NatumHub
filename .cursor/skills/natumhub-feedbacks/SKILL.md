@@ -2,41 +2,44 @@
 name: natumhub-feedbacks
 description: >-
   Gerencia o sistema de feedbacks do NatumHub: triagem admin, prioridades,
-  status, widget de envio, API /api/hub/feedbacks e arquivos em Feedbacks/.
-  Use quando o usuário pedir feedback, triagem, gestão de reports, prioridade
-  ou alterações no FeedbackWidget/FeedbacksAdminView.
+  status, widget de envio, API /api/hub/feedbacks e tabelas PostgreSQL
+  feedbacks/feedback_notes. Use quando o usuário pedir feedback, triagem,
+  gestão de reports, prioridade ou alterações no FeedbackWidget/FeedbacksAdminView.
 ---
 
 # NatumHub — Skill: Feedbacks
 
 ## Quando usar
 
-Triagem admin, alterar fluxo de envio, API de feedbacks, ou estrutura de arquivos `Feedbacks/`.  
+Triagem admin, alterar fluxo de envio, API de feedbacks, ou schema das tabelas de feedback.  
 **Para corrigir bugs da fila**, use a skill `natumhub-resolve-bugs`.
 
 ## Ler primeiro
 
 1. `ContextoIA/feedbacks/README.md`
-2. `Feedbacks/feedback.md` (índice vivo)
-3. Código: `Backend/src/modules/geral/feedbacks/`, `Frontend/src/modules/geral/components/FeedbackWidget.tsx`, `Frontend/src/modules/geral/feedbacks/FeedbacksAdminView.tsx`
+2. Código: `Backend/src/modules/geral/feedbacks/`, `Frontend/src/modules/geral/components/FeedbackWidget.tsx`, `Frontend/src/modules/geral/feedbacks/FeedbacksAdminView.tsx`
 
 ## Fluxo do sistema
 
 | Papel | Ação |
 |-------|------|
 | Operador | Widget flutuante → envia bug/sugestão |
-| Backend | Grava PostgreSQL + pasta `Feedbacks/feedback_<id>/` |
-| Admin | Perfil → **Gestão de Feedbacks** → aba `hub_feedbacks` |
-| Agente | Lê `feedback.md` + pastas (skill resolve-bugs) |
+| Backend | Grava **só PostgreSQL** (`feedbacks`) |
+| Admin | Perfil → **Gestão de Feedbacks** |
+| Agente | SQL na fila → nota de resolução → `awaiting_review` |
+| Supervisor | Aba **Em aberto** → Finalizar (`resolved`) ou devolver |
+
+**Não** criar pastas `Feedbacks/feedback_<id>/`.
 
 ## Status e prioridade
 
-| Status | Uso |
+| Status | Aba |
 |--------|-----|
-| `pending` | Aguardando triagem |
-| `queued` / `in_progress` | Fila de execução |
-| `wont_fix` | Não resolver |
-| `resolved` | Concluído |
+| `pending` | Triagem |
+| `queued` / `in_progress` | Fila |
+| `awaiting_review` | Em aberto (conferência) |
+| `wont_fix` | Reprovados |
+| `resolved` | Finalizados |
 
 Prioridade: **menor número = mais urgente**.
 
@@ -53,30 +56,18 @@ Prioridade: **menor número = mais urgente**.
 
 Frontend: `api.submitFeedback`, `getFeedbacksManage`, `getFeedbackDetail`, `updateFeedback`, `addFeedbackNote`, `reorderFeedbacks` em `geral/lib/api.ts`.
 
-## Arquivos gerados por feedback
-
-```
-Feedbacks/feedback_<id>/
-├── feedback.json
-├── triagem.md
-├── notas_historico.md
-├── logs.txt
-├── screenshot.png
-└── resolucao.md   # ao resolver
-```
-
-`sync_feedback_md` regenera `Feedbacks/feedback.md` — não editar manualmente o índice.
-
 ## Regras
 
-- Solicitante vem de `AuthContext.display_name` no submit — não pedir ao operador.
+- Fonte de verdade = banco. Playbook do agente: `Feedbacks/feedback.md`. Espelho opcional: `Feedbacks/feedback_index.md`.
+- Solicitante vem de `AuthContext.display_name` no submit.
 - Gestão admin: **somente** `role === 'admin'`.
+- `awaiting_review` exige nota em `feedback_notes`.
 - Após mudanças: `cargo check` + `npm run build`.
 - Escopo mínimo; respostas em **pt-BR**.
 
 ## Checklist de entrega
 
-- [ ] Status/prioridade refletem em `feedback.md` e pasta do ID
+- [ ] Status/prioridade refletem no Postgres (e no painel admin)
 - [ ] Admin panel só no dropdown do perfil
 - [ ] Widget sem lista/resolver (só envio)
 - [ ] Doc atualizada se contrato API mudou (`ContextoIA/feedbacks/`)

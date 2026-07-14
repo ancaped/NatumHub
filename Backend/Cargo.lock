@@ -2399,7 +2399,7 @@ dependencies = [
 
 [[package]]
 name = "natum-hub"
-version = "0.0.11"
+version = "0.0.12"
 dependencies = [
  "anyhow",
  "argon2",
@@ -3305,7 +3305,9 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
+ "futures-util",
  "h2",
  "http",
  "http-body",

@@ -5,9 +5,9 @@
   "notas_admin": null,
   "pagina": "Compras > coloracao/materiaprima/embalagens/materialdeapapoio",
   "prioridade": 111,
-  "resolvido_em": null,
+  "resolvido_em": "2026-07-14 04:00:06.457087+00",
   "solicitante": "Edson",
-  "status": "awaiting_review",
+  "status": "resolved",
   "tem_logs": false,
   "tem_screenshot": false,
   "tipo": "feedback"

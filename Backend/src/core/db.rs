@@ -2,7 +2,7 @@ use sqlx::postgres::PgPool;
 use sqlx::Row;
 use std::collections::{HashMap, HashSet};
 
-use crate::core::pg_row::{pg_i64, pg_opt_i32, pg_opt_i64};
+use crate::core::pg_row::{pg_f64, pg_i64, pg_opt_f64, pg_opt_i32, pg_opt_i64};
 use crate::models::{BulkOverrideRequest, LineConfig, ProductOverride};
 
 pub struct Db {
@@ -357,20 +357,24 @@ impl Db {
         Ok(())
     }
 
-    pub async fn get_kit_composition(&self) -> Result<HashMap<String, Vec<(String, i64)>>, String> {
+    pub async fn get_kit_composition(
+        &self,
+    ) -> Result<HashMap<String, Vec<(String, f64, Option<f64>, Option<i32>)>>, String> {
         let rows = sqlx::query(
-            "SELECT kit_codigo, componente_codigo, COALESCE(quantidade, 1) FROM kit_composicao",
+            "SELECT kit_codigo, componente_codigo, COALESCE(quantidade, 1)::float8, fator_proporcao_qtd::float8, fator_proporcao_kits FROM kit_composicao",
         )
         .fetch_all(&self.pool)
         .await
         .map_err(|e| e.to_string())?;
 
-        let mut map: HashMap<String, Vec<(String, i64)>> = HashMap::new();
+        let mut map: HashMap<String, Vec<(String, f64, Option<f64>, Option<i32>)>> = HashMap::new();
         for row in rows {
             let kit: String = row.get(0);
             let comp: String = row.get(1);
-            let qty = pg_i64(&row, 2);
-            map.entry(kit).or_default().push((comp, qty));
+            let qty = pg_f64(&row, 2);
+            let fat_qtd = pg_opt_f64(&row, 3);
+            let fat_kits = pg_opt_i32(&row, 4);
+            map.entry(kit).or_default().push((comp, qty, fat_qtd, fat_kits));
         }
         Ok(map)
     }
@@ -645,12 +649,23 @@ impl Db {
     pub async fn get_kit_composition_full(
         &self,
     ) -> Result<Vec<crate::models::KitComposicaoRow>, String> {
+        // Componente pode ser produto acabado (produtos) ou embalagem/insumo (items).
         let rows = sqlx::query(
-            "SELECT kc.kit_codigo, pk.descricao as kit_desc, kc.componente_codigo, pc.descricao as comp_desc, COALESCE(kc.quantidade, 1) as quantidade
+            "SELECT kc.kit_codigo,
+                    COALESCE(pk.descricao, kc.kit_codigo) as kit_desc,
+                    kc.componente_codigo,
+                    COALESCE(pc.descricao, i.description, kc.componente_codigo) as comp_desc,
+                    COALESCE(kc.quantidade, 1)::float8 as quantidade,
+                    kc.fator_proporcao_qtd::float8,
+                    kc.fator_proporcao_kits
              FROM kit_composicao kc
-             JOIN produtos pk ON TRIM(REPLACE(kc.kit_codigo, '\"', '')) = TRIM(REPLACE(pk.codigo, '\"', ''))
-             JOIN produtos pc ON TRIM(REPLACE(kc.componente_codigo, '\"', '')) = TRIM(REPLACE(pc.codigo, '\"', ''))
-             ORDER BY pk.descricao, pc.descricao",
+             LEFT JOIN produtos pk
+               ON TRIM(REPLACE(kc.kit_codigo, '\"', '')) = TRIM(REPLACE(pk.codigo, '\"', ''))
+             LEFT JOIN produtos pc
+               ON TRIM(REPLACE(kc.componente_codigo, '\"', '')) = TRIM(REPLACE(pc.codigo, '\"', ''))
+             LEFT JOIN items i
+               ON TRIM(REPLACE(kc.componente_codigo, '\"', '')) = TRIM(REPLACE(i.code, '\"', ''))
+             ORDER BY COALESCE(pk.descricao, kc.kit_codigo), COALESCE(pc.descricao, i.description, kc.componente_codigo)",
         )
         .fetch_all(&self.pool)
         .await
@@ -663,24 +678,108 @@ impl Db {
                 kit_descricao: row.get(1),
                 componente_codigo: row.get(2),
                 componente_descricao: row.get(3),
-                quantidade: pg_i64(&row, 4),
+                quantidade: pg_f64(&row, 4),
+                fator_proporcao_qtd: pg_opt_f64(&row, 5),
+                fator_proporcao_kits: pg_opt_i32(&row, 6),
             })
             .collect())
+    }
+
+    /// Busca candidatos a componente de kit em produtos e items (embalagens/insumos).
+    pub async fn search_kit_component_candidates(
+        &self,
+        q: &str,
+        limit: i64,
+    ) -> Result<Vec<(String, String, String)>, String> {
+        let term = q.trim();
+        if term.is_empty() {
+            return Ok(Vec::new());
+        }
+        let like = format!("%{}%", term.replace('%', "\\%").replace('_', "\\_"));
+        let lim = limit.clamp(1, 40);
+        let rows = sqlx::query(
+            "SELECT codigo, descricao, fonte FROM (
+                SELECT TRIM(REPLACE(codigo, '\"', '')) AS codigo,
+                       descricao,
+                       'produto'::text AS fonte,
+                       0 AS ord
+                FROM produtos
+                WHERE TRIM(REPLACE(codigo, '\"', '')) ILIKE $1 ESCAPE '\\'
+                   OR descricao ILIKE $1 ESCAPE '\\'
+                UNION ALL
+                SELECT TRIM(REPLACE(code, '\"', '')) AS codigo,
+                       description AS descricao,
+                       'item'::text AS fonte,
+                       1 AS ord
+                FROM items
+                WHERE TRIM(REPLACE(code, '\"', '')) ILIKE $1 ESCAPE '\\'
+                   OR description ILIKE $1 ESCAPE '\\'
+             ) t
+             ORDER BY
+               CASE WHEN LOWER(codigo) = LOWER($2) THEN 0
+                    WHEN LOWER(codigo) LIKE LOWER($2) || '%' THEN 1
+                    ELSE 2 END,
+               ord,
+               descricao
+             LIMIT $3",
+        )
+        .bind(&like)
+        .bind(term)
+        .bind(lim)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let codigo: String = row.get(0);
+                let descricao: String = row.get(1);
+                let fonte: String = row.get(2);
+                (codigo, descricao, fonte)
+            })
+            .collect())
+    }
+
+    pub async fn kit_component_exists(&self, codigo: &str) -> Result<bool, String> {
+        let code = codigo.trim().replace('"', "");
+        let ok: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM produtos WHERE TRIM(REPLACE(codigo, '\"', '')) = $1)
+             OR EXISTS(SELECT 1 FROM items WHERE TRIM(REPLACE(code, '\"', '')) = $1)",
+        )
+        .bind(&code)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+        Ok(ok)
     }
 
     pub async fn add_kit_composicao(
         &self,
         kit_codigo: &str,
         componente_codigo: &str,
-        quantidade: i64,
+        quantidade: f64,
+        fator_proporcao_qtd: Option<f64>,
+        fator_proporcao_kits: Option<i32>,
     ) -> Result<(), String> {
+        if !self.kit_component_exists(componente_codigo).await? {
+            return Err(format!(
+                "Componente '{}' não encontrado em produtos nem em items (embalagens/insumos).",
+                componente_codigo.trim()
+            ));
+        }
         sqlx::query(
-            "INSERT INTO kit_composicao (kit_codigo, componente_codigo, quantidade) VALUES ($1, $2, $3)
-             ON CONFLICT(kit_codigo, componente_codigo) DO UPDATE SET quantidade = EXCLUDED.quantidade",
+            "INSERT INTO kit_composicao (kit_codigo, componente_codigo, quantidade, fator_proporcao_qtd, fator_proporcao_kits) VALUES ($1, $2, $3::numeric, $4::numeric, $5::int4)
+             ON CONFLICT(kit_codigo, componente_codigo) DO UPDATE SET
+                quantidade = EXCLUDED.quantidade,
+                fator_proporcao_qtd = EXCLUDED.fator_proporcao_qtd,
+                fator_proporcao_kits = EXCLUDED.fator_proporcao_kits",
         )
         .bind(kit_codigo)
         .bind(componente_codigo)
         .bind(quantidade)
+        .bind(fator_proporcao_qtd)
+        .bind(fator_proporcao_kits)
         .execute(&self.pool)
         .await
         .map_err(|e| e.to_string())?;

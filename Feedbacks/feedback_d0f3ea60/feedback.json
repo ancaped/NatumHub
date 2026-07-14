@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-14 03:54:24.297934+00",
+  "descricao": "remover esse titulo e descricao :Ordens de Montagem de Kits\nGerencie e acompanhe a montagem de kits comerciais.",
+  "id": "d0f3ea60-c556-412e-a6f8-44fcaf594806",
+  "notas_admin": null,
+  "pagina": "Produção > Montagem de Kits > Módulo de Compras > Notas Fiscais",
+  "prioridade": 123,
+  "resolvido_em": null,
+  "solicitante": "EdsonFerrari",
+  "status": "queued",
+  "tem_logs": true,
+  "tem_screenshot": false,
+  "tipo": "bug"
+}

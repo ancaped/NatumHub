@@ -889,8 +889,8 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 <option value="warning">🟡 Atenção (disparo–meta)</option>
                 <option value="ok">🟢 OK (≥ meta)</option>
               </select>
-              <div className="flex items-center gap-2 border-l border-zinc-300 pl-4">
-                <span className="text-sm text-zinc-650">Disparo:</span>
+              <div className="flex items-center gap-1 border-l border-zinc-300 pl-4">
+                <span className="text-xs text-zinc-500 font-semibold shrink-0">Disp./Obj.:</span>
                 <input
                   type="number"
                   value={tempTriggerDays}
@@ -902,12 +902,11 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       (e.target as HTMLInputElement).blur();
                     }
                   }}
-                  className="w-14 text-sm border border-zinc-300 rounded-md px-2 py-1.5 focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                  placeholder="Disp"
+                  title="Ponto de Disparo (dias)"
+                  className="w-11 text-xs border border-zinc-300 rounded-md px-1.5 py-1 focus:ring-1 focus:ring-zinc-900 focus:outline-none text-center"
                 />
-                <span className="text-xs text-zinc-500">dias</span>
-              </div>
-              <div className="flex items-center gap-2 pl-2">
-                <span className="text-sm text-zinc-650">Objetivo:</span>
+                <span className="text-zinc-400 text-xs">/</span>
                 <input
                   type="number"
                   value={tempTargetDays}
@@ -919,9 +918,11 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       (e.target as HTMLInputElement).blur();
                     }
                   }}
-                  className="w-14 text-sm border border-zinc-300 rounded-md px-2 py-1.5 focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                  placeholder="Obj"
+                  title="Objetivo (dias)"
+                  className="w-11 text-xs border border-zinc-300 rounded-md px-1.5 py-1 focus:ring-1 focus:ring-zinc-900 focus:outline-none text-center"
                 />
-                <span className="text-xs text-zinc-500">dias</span>
+                <span className="text-[10px] text-zinc-400">d</span>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -1049,7 +1050,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
               <div className="px-6 py-5 border-b border-zinc-200 bg-zinc-50/50 flex justify-between items-start shrink-0">
                 <div className="min-w-0 flex-1 text-left">
                   <span className="px-2 py-0.5 bg-zinc-900 text-white rounded text-[9px] font-bold uppercase tracking-wider">
-                    Ficha Técnica & Consumo
+                    Detalhes do Insumo
                   </span>
                   <h3 className="font-bold text-zinc-900 text-lg mt-1 truncate">
                     {details?.description || 'Carregando...'}

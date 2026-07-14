@@ -1,17 +1,21 @@
 # Auth, rede e notificações
 
-## Modelo atual
+## Modelo de produção
 
-Todos os PCs usam **API local (Axum :3001)** + **PostgreSQL central** (hoje Supabase; preparado para local — ver [migracao_postgres.md](../banco-dados/migracao_postgres.md)).
+```
+Terminais (client) ──HTTP──► PC Principal Axum :3001 ──► PostgreSQL local
+                                      └── sync ERP / backups / manifests
+```
 
-Não há mais escolha “PC Principal vs Terminal” no setup. Concorrência de sync ERP: tabela `sync_status`.
-
-| | Comportamento |
-|--|----------------|
-| API Axum | Sobe em todo app (master local) |
-| Banco | PostgreSQL (`Saves/postgres.env`; legado `supabase.env`) |
+| Papel | Comportamento |
+|-------|----------------|
+| **PC Principal** (`appMode: master`) | Sobe Axum `:3001`, exige `Saves/postgres.env`, sync ERP, backups, serve updater |
+| **Terminal** (`appMode: client`) | Só UI; `apiOrigin` aponta para o master; **sem** Postgres local |
+| Banco | PostgreSQL no master |
 | Cadastro de usuários | **Somente supervisor** |
-| Sync ERP / SQL / backup | Painel supervisor |
+| Login | Nome digitado + senha (sem listar operadores) |
+
+Instalação: [`../devops/`](../devops/README.md). Tailscale opcional: [`../devops/tailscale.md`](../devops/tailscale.md).
 
 `deviceId` / `deviceLabel` identificam a instalação (`DispositivosPanel`).
 
@@ -21,16 +25,17 @@ Tabelas: `hub_operators`, `hub_operator_modules`, `hub_sessions`, `hub_audit_log
 
 | Rota | Auth |
 |------|------|
-| `GET /api/health`, `/api/auth/login`, `/api/auth/operators`, `/api/auth/session`, `/api/auth/setup-status`, `/api/auth/setup-supervisor` | Pública / setup |
+| `GET /api/health`, `/api/auth/login`, `/api/auth/setup-status`, `/api/auth/setup-supervisor` | Pública / setup |
+| `GET /api/auth/operators` | Pública (legado; login **não** usa) |
 | Demais `/api/*` | Bearer |
 
-Supervisor-only (POST/PUT/DELETE): `/api/auth/operators/manage/*`, devices, sync ERP, dump, erp-sync-schedule, `admin/db-reset`.
+Supervisor-only: `GET/POST/PUT/DELETE /api/auth/operators/manage`, devices, sync ERP, dump, backups.
 
 ## Fluxo 1ª execução
 
-1. Wizard: nome do dispositivo → API local.
-2. Se não há supervisor com senha → `SetupSupervisorView`.
-3. Login; supervisor cadastra demais operadores em Configurações.
+1. Wizard: **PC Principal** ou **Terminal** (+ URL da API se terminal).
+2. Master: se não há supervisor com senha → `SetupSupervisorView`.
+3. Login com nome + senha; supervisor gerencia operadores (criar / desativar / **excluir**).
 
 ## Notificações
 
@@ -38,4 +43,4 @@ Supervisor-only (POST/PUT/DELETE): `/api/auth/operators/manage/*`, devices, sync
 
 ## Sync ERP automático
 
-Settings `erp_sync_auto_ativo`, `erp_sync_horarios`. Scheduler em qualquer PC; lock `sync_status` evita corrida.
+Só no master. Agenda em settings + `erp_sync_scheduler`.

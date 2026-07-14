@@ -199,6 +199,34 @@ pub async fn update_operator(
     }
 }
 
+pub async fn delete_operator(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Extension(ctx): Extension<AuthContext>,
+) -> impl IntoResponse {
+    if !ctx.role.is_admin() && !ctx.role.is_supervisor() {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "Apenas o supervisor pode excluir operadores." })),
+        )
+            .into_response();
+    }
+
+    let pool = state.db.pool();
+    if let Err(e) = store::init_auth_tables(pool).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response();
+    }
+
+    match store::delete_operator(pool, &id, &ctx.operator_id).await {
+        Ok(()) => (StatusCode::OK, Json(json!({ "status": "success" }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
 pub async fn list_devices_manage(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let pool = state.db.pool();
 
@@ -307,9 +335,9 @@ pub async fn login(
             )
                 .into_response()
         }
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": e })),
+        Err(_) => (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "Nome ou senha inválidos." })),
         )
             .into_response(),
     }

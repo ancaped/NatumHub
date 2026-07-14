@@ -48,7 +48,7 @@ Filtradas por `module_key` ∩ permissões do operador.
 | POST | `/api/hub/feedbacks/:id/notes` | Admin — nova nota |
 | POST | `/api/hub/feedbacks/reorder` | Admin — reordenar fila |
 
-Doc: [`../feedbacks/README.md`](../feedbacks/README.md)
+Doc: [`../feedbacks/README.md`](../feedbacks/README.md) — fila e resolução via PostgreSQL (sem pastas por ID).
 
 ## Settings / config ERP
 
@@ -77,18 +77,37 @@ Sync ERP: [`../erp-import/README.md`](../erp-import/README.md) · `legacy_db::sy
 
 | Método | Rota |
 |--------|------|
-| GET | `/api/products`, `/api/kits`, `/api/kits/composicao` |
+| GET | `/api/products`, `/api/kits`, `/api/kits/composicao`, `/api/kits/component-candidates` |
 | GET/PUT | `/api/configs`, `/api/configs/:prefix` |
 | GET/POST | `/api/overrides`, `/api/overrides/bulk` |
 | GET/POST/DELETE | `/api/historico`, `/api/historico/:id` |
 | GET | `/api/producao/lotes`, `/api/producao/lotes/:n`, `/api/producao/lotes/:n/detalhes` |
 | GET | `/api/vendas/pedidos`, `/api/vendas/faltas` |
 
+## Almoxarifado / Estoque ops
+
+Hub `almoxarifado_hub`. Doc: [`../modulos/almoxarifado.md`](../modulos/almoxarifado.md)
+
+| Método | Rota | Notas |
+|--------|------|-------|
+| GET | `/api/almox/items` | `?section=&onlyActive=` |
+| GET | `/api/almox/items/search` | qualquer item ERP |
+| POST | `/api/almox/items/link` | vínculo ERP (não supermercado) |
+| POST | `/api/almox/items/local` | só supermercado (`APP_*`) |
+| GET/PUT | `/api/almox/items/:code` / `…/config` | |
+| GET/POST | `/api/almox/movements` | pack/totalPaid no Super |
+| GET/POST/PUT | `/api/almox/equipments` | |
+| GET/POST/PUT | `/api/almox/maintenances` | |
+| GET/POST | `/api/almox/demands` | compras |
+
 ## Admin / auditoria (supervisor)
 
 | Método | Rota | Notas |
 |--------|------|-------|
 | GET | `/api/admin/db-usage` | Uso do banco |
+| GET | `/api/admin/pg-backup` | Status/config backup Postgres local |
+| POST | `/api/admin/pg-backup/config` | Salvar retenção / pasta (supervisor) |
+| POST | `/api/admin/pg-backup/run?tier=` | Backup manual (`hourly`/`daily`/`weekly`/`monthly`) |
 | POST | `/api/admin/db-reset` | Reset operacional |
 | GET | `/api/admin/audit/stock/:code` | Hub × ERP ao vivo (estoque/reserva/prod/pedidos) |
 | POST | `/api/admin/audit/stock/:code/refresh` | Re-lê D1/D2/A pontual e grava |

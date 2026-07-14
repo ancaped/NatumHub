@@ -1,0 +1,14 @@
+{
+  "criado_em": "2026-07-14 03:41:47.509152+00",
+  "descricao": "quanto eu adicionar um insumo semelhente ao insumo, trazer dados desses insumo semelhante, como previsao de estoque futuro, previsao de estoque dos dois juntos, medias juntos e etc\n\nfazer uma aba separada para eles, apenas quando tiver configurado que tenha semelhantes, quanto nao tiver, nao precisa mostrar a aba , e a aba vai mostrar apenas um icone , fazer isso em todos os modulos de compras ",
+  "id": "66a37077-d2a7-4316-9596-0cb959c8539e",
+  "notas_admin": null,
+  "pagina": "Compras > Matéria-Prima",
+  "prioridade": 117,
+  "resolvido_em": null,
+  "solicitante": "EdsonFerrari",
+  "status": "queued",
+  "tem_logs": false,
+  "tem_screenshot": false,
+  "tipo": "bug"
+}

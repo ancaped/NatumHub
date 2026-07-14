@@ -3,7 +3,7 @@ import {
   Boxes, ShoppingCart, Activity, FlaskConical, ArrowRight, ArrowLeft,
   Settings, Database, RefreshCw, Upload, Download, Loader2, Check, X, Globe,
   FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp, DollarSign,
-  ClipboardCheck, Briefcase, Truck
+  ClipboardCheck, Briefcase, Truck, Warehouse
 } from 'lucide-react';
 import { canAccessView } from '../lib/modules/permissions';
 import type { AuthUser } from '../lib/auth';
@@ -159,6 +159,26 @@ export default function DashboardView({
                   <div>
                     <h3 className="text-xl font-bold text-zinc-900">Estoque</h3>
                     <p className="text-sm text-zinc-500 mt-1">Níveis de insumos, matérias-primas, produtos acabados, formulações e histórico de movimentações.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Entrar no Módulo <ArrowRight className="h-4 w-4" />
+                </div>
+              </button>
+              )}
+
+              {allow('almoxarifado_hub') && (
+              <button 
+                onClick={() => setView('almoxarifado_hub')}
+                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <Warehouse className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-zinc-900">Almoxarifado</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Consumíveis, supermercado, peças, equipamentos e manutenções.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
@@ -533,6 +553,15 @@ export default function DashboardView({
                   <div><h3 className="text-lg font-bold text-zinc-900">Notas Fiscais</h3><p className="text-xs text-zinc-500 mt-1">Consulte o histórico de Notas Fiscais de compra recebidas e detalhe os itens e valores de cada lançamento.</p></div>
                 </div>
                 <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar Notas <ArrowRight className="h-3 w-3" /></div>
+              </button>
+              )}
+              {allow('compras_almoxarifado') && (
+              <button onClick={() => setView('compras_almoxarifado')} className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Warehouse className="h-5 w-5" /></div>
+                  <div><h3 className="text-lg font-bold text-zinc-900">Almoxarifado</h3><p className="text-xs text-zinc-500 mt-1">Demandas locais de materiais do almox (abaixo do mínimo), marcar pedido e receber gerando entrada.</p></div>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar Almoxarifado <ArrowRight className="h-3 w-3" /></div>
               </button>
               )}
             </div>

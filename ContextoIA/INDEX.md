@@ -17,12 +17,13 @@
 | Rotas REST | Skill `natumhub-api` + [api/routes.md](api/routes.md) |
 | Sync ERP | Skill `natumhub-erp-sql` + [../erp-import/README.md](../erp-import/README.md) |
 | Novo módulo | Skill `natumhub-modulos` + [modulos/criacao.md](modulos/criacao.md) |
+| Almoxarifado | [modulos/almoxarifado.md](modulos/almoxarifado.md) · mobile [api/mobile_roadmap.md](api/mobile_roadmap.md) |
 | Schema DB | [banco-dados/database_blueprint.md](banco-dados/database_blueprint.md) + `Backend/supabase/` |
 | Migração Postgres | [banco-dados/migracao_postgres.md](banco-dados/migracao_postgres.md) |
-| Bugs | Skill `natumhub-resolve-bugs` + [../Feedbacks/feedback.md](../Feedbacks/feedback.md) |
+| Bugs | Mencionar [`../Feedbacks/feedback.md`](../Feedbacks/feedback.md) (playbook) + skill `natumhub-resolve-bugs` |
 | Feedbacks | Skill `natumhub-feedbacks` + [feedbacks/README.md](feedbacks/README.md) |
 | UI | [ui/style_and_ux_guide.md](ui/style_and_ux_guide.md) |
-| Releases / instalador | [../.github/RELEASE.md](../.github/RELEASE.md) |
+| Releases / instalador | [../.github/RELEASE.md](../.github/RELEASE.md) · [devops/](devops/README.md) |
 
 ## Código-chave
 

@@ -394,6 +394,30 @@ pub async fn get_import_status(State(state): State<Arc<AppState>>) -> impl IntoR
     }
 }
 
+/// GET /api/import/sync-lock — se há sync ERP em andamento hoje.
+pub async fn get_sync_lock_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match crate::core::pg_db::daily_sync_lock_status(state.db.pool()).await {
+        Ok(body) => (StatusCode::OK, Json(body)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response(),
+    }
+}
+
+/// POST /api/import/sync-lock/release — libera lock órfão (supervisor).
+pub async fn release_sync_lock(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match crate::core::pg_db::force_release_daily_sync(state.db.pool()).await {
+        Ok(()) => (StatusCode::OK, Json(json!({ "status": "success" }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response(),
+    }
+}
+
 // POST /api/import/dump
 pub async fn trigger_db_dump(
     State(state): State<Arc<AppState>>,

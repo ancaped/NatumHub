@@ -1,6 +1,9 @@
 # Schema PostgreSQL — NatumHub
 
 DDL canônico: `001_natumhub_schema.sql` (Postgres puro; funciona em Supabase ou servidor local).
+Almoxarifado: `002_almoxarifado.sql`, `003_estoque_ops.sql`, `004_almox_erp_super.sql` — aplicar com owner; `GRANT` ao role da API (`natum_app`). O app **não** cria DDL em runtime.
+Kits: `005_kit_composicao.sql` (`fator_proporcao_qtd` / `fator_proporcao_kits`; `quantidade` NUMERIC).
+`006_kit_composicao_item_fk.sql` — remove FK de componente→produtos (permite embalagem/insumo de `items`).
 
 ## Configuração
 

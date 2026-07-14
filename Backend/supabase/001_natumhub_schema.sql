@@ -60,8 +60,11 @@ CREATE TABLE IF NOT EXISTS settings (
 
 CREATE TABLE IF NOT EXISTS kit_composicao (
     kit_codigo TEXT NOT NULL REFERENCES produtos(codigo) ON DELETE CASCADE,
-    componente_codigo TEXT NOT NULL REFERENCES produtos(codigo) ON DELETE CASCADE,
-    quantidade INTEGER NOT NULL DEFAULT 1,
+    -- componente: produto acabado ou item ERP (embalagem/insumo) — sem FK só em produtos
+    componente_codigo TEXT NOT NULL,
+    quantidade NUMERIC(12,4) NOT NULL DEFAULT 1.0,
+    fator_proporcao_qtd NUMERIC(12,4) DEFAULT 1.0,
+    fator_proporcao_kits INTEGER DEFAULT 1,
     PRIMARY KEY (kit_codigo, componente_codigo)
 );
 

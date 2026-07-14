@@ -21,6 +21,7 @@ pub async fn init_auth_tables(pool: &PgPool) -> Result<(), String> {
     migrate_estoque_submodules(pool).await?;
     migrate_channels_to_stable(pool).await?;
     migrate_supervisor_role(pool).await?;
+    migrate_kit_composicao_schema(pool).await?;
     let _ = ensure_supervisor_password_ready(pool).await;
     Ok(())
 }
@@ -98,6 +99,50 @@ async fn migrate_supervisor_role(pool: &PgPool) -> Result<(), String> {
             .await
             .map_err(|e| e.to_string())?;
         }
+    }
+    Ok(())
+}
+
+/// Confere colunas de proporção em kit_composicao (DDL fica em Backend/supabase/005_kit_composicao.sql —
+/// o role da app em geral não tem ALTER TABLE).
+async fn migrate_kit_composicao_schema(pool: &PgPool) -> Result<(), String> {
+    let _ = sqlx::query(
+        "ALTER TABLE kit_composicao ALTER COLUMN quantidade TYPE NUMERIC(12,4) USING COALESCE(quantidade, 1)::numeric(12,4)",
+    )
+    .execute(pool)
+    .await;
+
+    let _ = sqlx::query(
+        "ALTER TABLE kit_composicao ADD COLUMN IF NOT EXISTS fator_proporcao_qtd NUMERIC(12,4) DEFAULT 1.0",
+    )
+    .execute(pool)
+    .await;
+
+    let _ = sqlx::query(
+        "ALTER TABLE kit_composicao ADD COLUMN IF NOT EXISTS fator_proporcao_kits INTEGER DEFAULT 1",
+    )
+    .execute(pool)
+    .await;
+
+    let ok: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'kit_composicao' AND column_name = 'fator_proporcao_qtd'
+         ) AND EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'kit_composicao' AND column_name = 'fator_proporcao_kits'
+         )",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    if !ok {
+        return Err(
+            "Tabela kit_composicao sem fator_proporcao_qtd/fator_proporcao_kits. \
+             Aplique Backend/supabase/005_kit_composicao.sql no Postgres."
+                .into(),
+        );
     }
     Ok(())
 }
@@ -727,24 +772,17 @@ pub async fn create_session(
 
     let operator = find_operator_by_name(pool, name)
         .await?
-        .ok_or_else(|| {
-            format!(
-                "Operador \"{}\" não cadastrado. Peça ao supervisor para criar seu acesso.",
-                name
-            )
-        })?;
+        .ok_or_else(|| "Nome ou senha inválidos.".to_string())?;
 
     let hash = operator_password_hash(pool, &operator.id).await?;
     match hash {
         Some(h) if !h.is_empty() => {
             if !verify_password(password, &h) {
-                return Err("Senha incorreta.".to_string());
+                return Err("Nome ou senha inválidos.".to_string());
             }
         }
         _ => {
-            return Err(
-                "Senha não definida para este operador. Peça ao supervisor para configurar.".to_string(),
-            );
+            return Err("Nome ou senha inválidos.".to_string());
         }
     }
 
@@ -973,6 +1011,58 @@ pub async fn update_operator(
         .ok_or_else(|| "Operador não encontrado.".to_string())
 }
 
+/// Remove operador permanentemente (encerra sessões). Bloqueia autoexclusão e último supervisor.
+pub async fn delete_operator(
+    pool: &PgPool,
+    id: &str,
+    requester_id: &str,
+) -> Result<(), String> {
+    if id == requester_id {
+        return Err("Você não pode excluir sua própria conta.".to_string());
+    }
+
+    let target = find_operator_by_id(pool, id)
+        .await?
+        .ok_or_else(|| "Operador não encontrado.".to_string())?;
+
+    let is_supervisor_role = target.role == "supervisor" || target.role == "admin";
+    if is_supervisor_role && target.active {
+        let other_supervisors: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM hub_operators WHERE role IN ('supervisor', 'admin') AND active = 1 AND id != $1",
+        )
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+        if other_supervisors == 0 {
+            return Err("Não é possível excluir o último supervisor ativo.".to_string());
+        }
+    }
+
+    sqlx::query("DELETE FROM hub_sessions WHERE operator_id = $1")
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Limpa módulos vinculados se existir tabela
+    let _ = sqlx::query("DELETE FROM hub_operator_modules WHERE operator_id = $1")
+        .bind(id)
+        .execute(pool)
+        .await;
+
+    let res = sqlx::query("DELETE FROM hub_operators WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if res.rows_affected() == 0 {
+        return Err("Operador não encontrado.".to_string());
+    }
+    Ok(())
+}
+
 pub async fn revoke_session(pool: &PgPool, token: &str) -> Result<(), String> {
     sqlx::query("DELETE FROM hub_sessions WHERE token = $1")
         .bind(token)
@@ -1066,6 +1156,12 @@ pub fn requires_supervisor(path: &str, method: &str) -> bool {
     if path.starts_with("/api/admin/db-usage") {
         return matches!(method, "GET");
     }
+    if path == "/api/admin/pg-backup" {
+        return matches!(method, "GET");
+    }
+    if path.starts_with("/api/admin/pg-backup/") {
+        return matches!(method, "POST");
+    }
     if path == "/api/admin/audit/stock/resync-insumos" {
         return matches!(method, "POST");
     }
@@ -1107,6 +1203,20 @@ pub fn requires_module(path: &str, method: &str) -> Option<&'static str> {
     if path.starts_with("/api/financeiro") {
         return Some(super::modules_registry::MODULE_FINANCEIRO);
     }
+    if path.starts_with("/api/almox/demands") {
+        return Some(super::modules_registry::MODULE_COMPRAS_ALMOX);
+    }
+    if path.starts_with("/api/almox/equipments") {
+        return Some(super::modules_registry::MODULE_ESTOQUE_EQUIPAMENTOS);
+    }
+    if path.starts_with("/api/almox/maintenances") {
+        return Some(super::modules_registry::MODULE_ESTOQUE_MANUTENCOES);
+    }
+    // Writes em /api/almox: liberados no middleware se tiver qualquer módulo ops;
+    // handlers validam a section específica.
+    if path.starts_with("/api/almox") {
+        return None;
+    }
     None
 }
 
@@ -1119,6 +1229,20 @@ pub fn has_write_access(ctx: &AuthContext, path: &str, method: &str) -> bool {
     }
     if path.starts_with("/api/hub/compras") {
         return ctx.modules.iter().any(|m| m.starts_with("compras"));
+    }
+    if path.starts_with("/api/almox") && !path.starts_with("/api/almox/demands") {
+        use super::modules_registry::*;
+        return ctx.modules.iter().any(|m| {
+            matches!(
+                m.as_str(),
+                MODULE_ESTOQUE_ITENS
+                    | MODULE_ESTOQUE_ALMOX
+                    | MODULE_ESTOQUE_SUPERMERCADO
+                    | MODULE_ESTOQUE_PECAS
+                    | MODULE_ESTOQUE_EQUIPAMENTOS
+                    | MODULE_ESTOQUE_MANUTENCOES
+            )
+        });
     }
     if let Some(required) = requires_module(path, method) {
         return ctx.has_module(required);

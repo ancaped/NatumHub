@@ -17,8 +17,10 @@ import FiscoQuimicaView from './modules/producao/fisco_quimica/FiscoQuimicaView'
 import ComprasView from './modules/compras/planejamento/ComprasView';
 import ComprasOnlineView from './modules/compras/compras_online/ComprasOnlineView';
 import EstoqueView from './modules/estoque/estoque_geral/EstoqueView';
+import EstoqueOpsView from './modules/estoque/ops/EstoqueOpsView';
 import PedidosView from './modules/compras/controle_pedidos/PedidosView';
 import NotasFiscaisView from './modules/compras/notas_fiscais/NotasFiscaisView';
+import ComprasAlmoxarifadoView from './modules/compras/almoxarifado/ComprasAlmoxarifadoView';
 import ActiveProductsView from './modules/administrativo/linha_produtos/ActiveProductsView';
 import VendasView from './modules/vendas/vendas_geral/VendasView';
 import VendasOnlineView from './modules/vendas/vendas_online/VendasOnlineView';
@@ -32,7 +34,7 @@ import { syncCurrentPageForView } from './modules/geral/lib/viewLabels';
 import { 
   Boxes, ShoppingCart, Activity, FlaskConical, ArrowRight, ArrowLeft,
   Settings, Database, RefreshCw, Upload, Download, Loader2, Check, X, Globe,
-  FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp
+  FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp, Warehouse
 } from 'lucide-react';
 import { APP_NAME } from './modules/geral/lib/utils';
 import { api, localAuth } from './modules/geral/lib/api';
@@ -57,7 +59,7 @@ import {
   getApiOrigin,
 } from './modules/geral/lib/connectionConfig';
 
-type HubView = 'hub' | 'producao_hub' | 'producao' | 'producao_bases' | 'producao_lotes' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'estoque_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'controle_qualidade' | 'administrativo' | 'admin_linha_produtos' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro';
+type HubView = 'hub' | 'producao_hub' | 'producao' | 'producao_bases' | 'producao_lotes' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'compras_almoxarifado' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'controle_qualidade' | 'administrativo' | 'admin_linha_produtos' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro';
 
 export default function App() {
   const [view, setView] = useState<HubView>('hub');
@@ -191,6 +193,13 @@ export default function App() {
 
   const handleSyncSqlDatabase = async (mode: 'incremental' | 'full' = 'incremental') => {
     setSyncingSql(true);
+    setMessage({
+      text:
+        mode === 'full'
+          ? 'Sync completo iniciado… histórico completo pode levar vários minutos. Não feche o app.'
+          : 'Sincronização ERP iniciada… aguarde.',
+      type: 'success',
+    });
     try {
       const qs = mode === 'full' ? '?mode=full' : '?mode=incremental';
       const data = await apiJson<{ message?: string; error?: string }>(`/import/sync${qs}`, {
@@ -199,10 +208,16 @@ export default function App() {
       setMessage({ text: data.message || 'Sincronização realizada com sucesso!', type: 'success' });
     } catch (e: any) {
       console.error(e);
-      setMessage({ text: e?.message || 'Erro ao sincronizar com o banco de dados', type: 'error' });
+      const status = e?.status;
+      const raw = e?.message || 'Erro ao sincronizar com o banco de dados';
+      const text =
+        status === 409 || String(raw).includes('já em andamento')
+          ? 'Já existe um sync ERP em andamento. Aguarde terminar (histórico completo demora) ou use “Liberar lock” se travou.'
+          : raw;
+      setMessage({ text, type: 'error' });
     } finally {
       setSyncingSql(false);
-      setTimeout(() => setMessage(null), 6000);
+      setTimeout(() => setMessage(null), 10000);
     }
   };
 
@@ -631,6 +646,14 @@ export default function App() {
       );
     }
 
+    if (view === 'compras_almoxarifado') {
+      return (
+        <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo Compras Almoxarifado">
+          <ComprasAlmoxarifadoView onBackToHub={() => setView('compras_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
     if (view === 'estoque_hub') {
       return (
         <div className="flex-1 flex flex-col justify-between overflow-y-auto bg-zinc-50 font-sans text-zinc-900">
@@ -743,6 +766,147 @@ export default function App() {
       );
     }
 
+    if (view === 'almoxarifado_hub') {
+      const openOps = () =>
+        setView(
+          allow('estoque_itens')
+            ? 'estoque_itens'
+            : allow('estoque_almoxarifado')
+              ? 'estoque_almoxarifado'
+              : allow('estoque_supermercado')
+                ? 'estoque_supermercado'
+                : allow('estoque_pecas')
+                  ? 'estoque_pecas'
+                  : allow('estoque_equipamentos')
+                    ? 'estoque_equipamentos'
+                    : 'estoque_manutencoes'
+        );
+      return (
+        <div className="flex-1 flex flex-col justify-between overflow-y-auto bg-zinc-50 font-sans text-zinc-900">
+          <main className="flex-1 flex flex-col items-center justify-center p-6 max-w-6xl w-full mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="flex items-center gap-3 self-start mb-4">
+              <button
+                onClick={() => setView('hub')}
+                className="bg-white border border-zinc-200 hover:bg-zinc-150 p-2 rounded-xl text-zinc-650 hover:text-zinc-900 transition-all cursor-pointer shadow-sm"
+                title="Voltar ao Início"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+              <div>
+                <h1 className="font-bold text-lg tracking-tight">Almoxarifado</h1>
+                <p className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">
+                  Consumíveis, supermercado, peças e manutenções
+                </p>
+              </div>
+            </div>
+            <div className="text-center space-y-2">
+              <h2 className="text-3xl font-extrabold tracking-tight text-zinc-900">Módulos do Almoxarifado</h2>
+              <p className="text-sm text-zinc-500">Selecione a área operacional.</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-4 w-full max-w-5xl">
+              {allow('estoque_itens') && (
+                <button onClick={() => setView('estoque_itens')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Boxes className="h-6 w-6" /></div>
+                    <div>
+                      <h3 className="text-xl font-bold text-zinc-900">Itens</h3>
+                      <p className="text-sm text-zinc-500 mt-1">Catálogo unificado dos itens monitorados.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+              {allow('estoque_almoxarifado') && (
+                <button onClick={() => setView('estoque_almoxarifado')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Warehouse className="h-6 w-6" /></div>
+                    <div>
+                      <h3 className="text-xl font-bold text-zinc-900">Almoxarifado</h3>
+                      <p className="text-sm text-zinc-500 mt-1">Bobinas, stretch, caixas — vínculo com ERP.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+              {allow('estoque_supermercado') && (
+                <button onClick={() => setView('estoque_supermercado')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Warehouse className="h-6 w-6" /></div>
+                    <div>
+                      <h3 className="text-xl font-bold text-zinc-900">Supermercado</h3>
+                      <p className="text-sm text-zinc-500 mt-1">Famílias locais, comprovantes e média por unidade padrão.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+              {allow('estoque_pecas') && (
+                <button onClick={() => setView('estoque_pecas')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Settings className="h-6 w-6" /></div>
+                    <div>
+                      <h3 className="text-xl font-bold text-zinc-900">Peças</h3>
+                      <p className="text-sm text-zinc-500 mt-1">Reposição com vida útil e próxima troca.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+              {allow('estoque_equipamentos') && (
+                <button onClick={() => setView('estoque_equipamentos')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Database className="h-6 w-6" /></div>
+                    <div>
+                      <h3 className="text-xl font-bold text-zinc-900">Equipamentos</h3>
+                      <p className="text-sm text-zinc-500 mt-1">Parque de máquinas e vínculos com peças.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+              {allow('estoque_manutencoes') && (
+                <button onClick={() => setView('estoque_manutencoes')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><ClipboardList className="h-6 w-6" /></div>
+                    <div>
+                      <h3 className="text-xl font-bold text-zinc-900">Manutenções</h3>
+                      <p className="text-sm text-zinc-500 mt-1">Ordens preventivas, corretivas e preditivas.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+              {!allow('estoque_itens') &&
+                !allow('estoque_almoxarifado') &&
+                !allow('estoque_supermercado') &&
+                !allow('estoque_pecas') &&
+                !allow('estoque_equipamentos') &&
+                !allow('estoque_manutencoes') && (
+                  <p className="text-sm text-zinc-400 col-span-full text-center py-8">Sem permissão para submódulos.</p>
+                )}
+            </div>
+            {(allow('estoque_itens') ||
+              allow('estoque_almoxarifado') ||
+              allow('estoque_supermercado') ||
+              allow('estoque_pecas') ||
+              allow('estoque_equipamentos') ||
+              allow('estoque_manutencoes')) && (
+              <button
+                type="button"
+                onClick={openOps}
+                className="text-xs font-semibold text-zinc-500 hover:text-zinc-900 underline"
+              >
+                Abrir painel unificado (sidebar)
+              </button>
+            )}
+          </main>
+          <footer className="w-full text-center py-6 text-xs text-zinc-400 border-t border-zinc-200/50 bg-white/50">
+            &copy; {new Date().getFullYear()} Nátum Bio Cosméticos. Todos os direitos reservados.
+          </footer>
+        </div>
+      );
+    }
+
     if (view === 'estoque_materia_prima') {
       return (
         <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro no Estoque de Matéria-Prima">
@@ -771,6 +935,37 @@ export default function App() {
       return (
         <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro no Estoque de Material de Apoio">
           <EstoqueView mode="apoio" onBackToHub={() => setView('estoque_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (
+      view === 'estoque_itens' ||
+      view === 'estoque_almoxarifado' ||
+      view === 'estoque_supermercado' ||
+      view === 'estoque_pecas' ||
+      view === 'estoque_equipamentos' ||
+      view === 'estoque_manutencoes'
+    ) {
+      const opsMode =
+        view === 'estoque_itens'
+          ? 'itens'
+          : view === 'estoque_almoxarifado'
+            ? 'almoxarifado'
+            : view === 'estoque_supermercado'
+              ? 'supermercado'
+              : view === 'estoque_pecas'
+                ? 'pecas'
+                : view === 'estoque_equipamentos'
+                  ? 'equipamentos'
+                  : 'manutencoes';
+      return (
+        <ErrorBoundary onReset={() => setView('almoxarifado_hub')} fallbackTitle="Erro no Almoxarifado">
+          <EstoqueOpsView
+            mode={opsMode}
+            onBackToHub={() => setView('almoxarifado_hub')}
+            setView={(v) => setView(v as HubView)}
+          />
         </ErrorBoundary>
       );
     }

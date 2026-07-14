@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Boxes, User, AlertCircle, Loader2, Lock } from 'lucide-react';
-import { loginOperator, fetchOperators, type OperatorOption } from '../lib/auth';
+import { loginOperator } from '../lib/auth';
 import { getApiOrigin, checkServerHealth } from '../lib/connectionConfig';
 
 interface LoginViewProps {
@@ -22,53 +22,44 @@ export default function LoginView({
   onLoginSuccess,
   onReconfigureConnection,
 }: LoginViewProps) {
-  const [operators, setOperators] = useState<OperatorOption[]>([]);
-  const [loadingOps, setLoadingOps] = useState(true);
-  const [selectedOperator, setSelectedOperator] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [checkingApi, setCheckingApi] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  const loadOperators = async () => {
-    setLoadingOps(true);
-    setLoadError(null);
-    try {
-      const health = await checkServerHealth();
-      if (!health.ok) {
-        setLoadError(
-          health.error ||
-            `API inacessível em ${getApiOrigin()}. Reinicie o app ou verifique a configuração.`
-        );
-        setOperators([]);
-        return;
-      }
-      const list = await fetchOperators();
-      setOperators(list);
-      if (list.length > 0) {
-        setSelectedOperator(list[0].displayName);
-      } else {
-        setLoadError(
-          'Nenhum operador ativo. Na primeira execução, conclua o setup do supervisor; depois só o supervisor cadastra usuários.'
-        );
-      }
-    } catch (e: unknown) {
-      setOperators([]);
-      const msg = e instanceof Error ? e.message : 'Erro ao carregar operadores';
-      setLoadError(msg);
-    } finally {
-      setLoadingOps(false);
-    }
-  };
-
   useEffect(() => {
-    loadOperators();
+    let cancelled = false;
+    (async () => {
+      setCheckingApi(true);
+      setLoadError(null);
+      try {
+        const health = await checkServerHealth();
+        if (cancelled) return;
+        if (!health.ok) {
+          setLoadError(
+            health.error ||
+              `API inacessível em ${getApiOrigin()}. Verifique o PC Principal ou a configuração.`
+          );
+        }
+      } catch (e: unknown) {
+        if (!cancelled) {
+          setLoadError(e instanceof Error ? e.message : 'Erro ao verificar a API');
+        }
+      } finally {
+        if (!cancelled) setCheckingApi(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedOperator.trim()) {
-      setErrorMsg('Selecione um operador cadastrado.');
+    if (!displayName.trim()) {
+      setErrorMsg('Informe seu nome de operador.');
       return;
     }
     if (!password.trim()) {
@@ -80,15 +71,15 @@ export default function LoginView({
     setErrorMsg(null);
 
     try {
-      await loginOperator(selectedOperator, password);
+      await loginOperator(displayName.trim(), password);
       fetchSqlConfig();
       if (onLoginSuccess) {
         onLoginSuccess();
       } else {
         window.location.reload();
       }
-    } catch (err: any) {
-      setErrorMsg(err?.message || 'Não foi possível entrar. Verifique usuário e senha.');
+    } catch {
+      setErrorMsg('Nome ou senha inválidos.');
     } finally {
       setSubmitting(false);
     }
@@ -121,26 +112,18 @@ export default function LoginView({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1">
-              <User className="h-3 w-3" /> Operador
+              <User className="h-3 w-3" /> Nome
             </label>
-            {loadingOps ? (
-              <div className="mt-2 flex items-center gap-2 text-sm text-zinc-400">
-                <Loader2 className="h-4 w-4 animate-spin" /> Carregando…
-              </div>
-            ) : (
-              <select
-                value={selectedOperator}
-                onChange={(e) => setSelectedOperator(e.target.value)}
-                className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-sm bg-zinc-50"
-                disabled={submitting || operators.length === 0}
-              >
-                {operators.map((op) => (
-                  <option key={op.id} value={op.displayName}>
-                    {op.displayName}
-                  </option>
-                ))}
-              </select>
-            )}
+            <input
+              type="text"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              autoComplete="username"
+              placeholder="Seu nome de operador"
+              className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-sm bg-zinc-50"
+              disabled={submitting || checkingApi}
+              autoFocus
+            />
           </div>
 
           <div>
@@ -152,17 +135,21 @@ export default function LoginView({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-sm bg-zinc-50"
-              disabled={submitting}
+              disabled={submitting || checkingApi}
               autoComplete="current-password"
             />
           </div>
 
           <button
             type="submit"
-            disabled={submitting || loadingOps || operators.length === 0}
+            disabled={submitting || checkingApi || Boolean(loadError)}
             className="w-full bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-sm py-3 rounded-xl disabled:opacity-60 cursor-pointer"
           >
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Entrar'}
+            {submitting || checkingApi ? (
+              <Loader2 className="h-4 w-4 animate-spin mx-auto" />
+            ) : (
+              'Entrar'
+            )}
           </button>
         </form>
 

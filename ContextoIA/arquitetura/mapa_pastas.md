@@ -11,7 +11,7 @@ Use com [`../INDEX.md`](../INDEX.md).
 | `Backend/supabase/` | DDL schema |
 | `ContextoIA/` | Docs para agentes |
 | `erp-import/` | Queries SQL Server + PASSOS |
-| `Feedbacks/` | Fila de bugs |
+| `Feedbacks/` | `feedback.md` = playbook IA; `feedback_index.md` = espelho opcional do DB |
 | `Saves/` | `postgres.env` (ou legado `supabase.env`), `client_config.json` (não versionar secrets) |
 | `scripts/` | Updater / release helpers |
 | `AGENTS.md` | Roteamento de skills |

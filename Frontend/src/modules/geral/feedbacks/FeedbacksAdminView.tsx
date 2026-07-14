@@ -2,9 +2,10 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Bug, MessageSquare, ChevronUp, ChevronDown, Loader2,
   RefreshCw, RotateCcw, Send, ClipboardList, ListChecks, Inbox, Ban, CheckCircle2, ArrowLeft, Search,
+  Image as ImageIcon, Terminal, Sparkles, UserRound, X,
 } from 'lucide-react';
 import { api } from '../lib/api';
-import type { Feedback, FeedbackDetail } from '../lib/types';
+import type { Feedback, FeedbackDetail, FeedbackNote } from '../lib/types';
 import { cn } from '../lib/utils';
 import type { AuthUser } from '../lib/auth';
 import { isSupervisor } from '../lib/auth';
@@ -21,7 +22,7 @@ type TypeFilter = 'all' | 'bug' | 'feedback';
 const FILTER_HINTS: Partial<Record<FilterTab, string>> = {
   pending: 'Novos reports do usuário. Supervisor aprova para a fila ou reprova.',
   queue: 'Aprovados ou devolvidos de Em aberto (com nota). Agentes IA corrigem aqui.',
-  review: 'Correção feita pelo agente — supervisor confere e finaliza ou devolve à fila.',
+  review: 'Correção feita pelo agente — confira a nota da IA, imagem e logs antes de finalizar.',
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -51,6 +52,30 @@ function statusColor(status: string): string {
   return 'bg-orange-100 text-orange-800';
 }
 
+function isAiAuthor(author: string): boolean {
+  const a = (author || '').trim().toLowerCase();
+  return a === 'ia' || a === 'ai' || a.includes('agente') || a.startsWith('cursor') || a.includes('composer');
+}
+
+function noteRole(author: string): 'ia' | 'supervisor' {
+  return isAiAuthor(author) ? 'ia' : 'supervisor';
+}
+
+function screenshotSrc(raw: string): string {
+  if (!raw) return '';
+  if (raw.startsWith('data:') || raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('blob:')) {
+    return raw;
+  }
+  return `data:image/png;base64,${raw}`;
+}
+
+function latestAiNote(notes: FeedbackNote[]): FeedbackNote | null {
+  for (let i = notes.length - 1; i >= 0; i -= 1) {
+    if (isAiAuthor(notes[i].author)) return notes[i];
+  }
+  return null;
+}
+
 function FeedbackListItem({
   f,
   selected,
@@ -60,6 +85,9 @@ function FeedbackListItem({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const hasShot = Boolean(f.hasScreenshot || f.screenshot);
+  const hasLogs = Boolean(f.hasLogs || f.logs?.trim());
+  const notesCount = f.notesCount ?? 0;
   return (
     <button
       type="button"
@@ -76,6 +104,15 @@ function FeedbackListItem({
           <MessageSquare className="h-3.5 w-3.5 text-blue-500 shrink-0" />
         )}
         <span className="text-[10px] font-mono text-zinc-500">{f.id.substring(0, 8)}</span>
+        <span className="flex items-center gap-1 ml-1 text-zinc-400">
+          {hasShot && <ImageIcon className="h-3 w-3" />}
+          {hasLogs && <Terminal className="h-3 w-3" />}
+          {notesCount > 0 && (
+            <span className="text-[9px] font-bold tabular-nums">
+              {notesCount} nota{notesCount === 1 ? '' : 's'}
+            </span>
+          )}
+        </span>
         <span className={cn('text-[9px] font-bold px-1.5 py-0.5 rounded-full ml-auto', statusColor(f.status))}>
           {STATUS_LABELS[f.status] || f.status}
         </span>
@@ -83,6 +120,37 @@ function FeedbackListItem({
       <p className="text-xs font-semibold text-zinc-800 line-clamp-2">{f.description}</p>
       <p className="text-[10px] text-zinc-400 mt-1">{f.requestedBy || '-'} · {formatDateTime(f.createdAt)}</p>
     </button>
+  );
+}
+
+function NoteCard({ n }: { n: FeedbackNote }) {
+  const role = noteRole(n.author);
+  return (
+    <div
+      className={cn(
+        'rounded-xl border px-3 py-2.5',
+        role === 'ia' ? 'border-violet-200 bg-violet-50/80' : 'border-zinc-200 bg-white'
+      )}
+    >
+      <div className="flex items-center gap-2 mb-1">
+        {role === 'ia' ? (
+          <Sparkles className="h-3.5 w-3.5 text-violet-600 shrink-0" />
+        ) : (
+          <UserRound className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
+        )}
+        <span
+          className={cn(
+            'text-[9px] font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded-full',
+            role === 'ia' ? 'bg-violet-200 text-violet-900' : 'bg-zinc-200 text-zinc-700'
+          )}
+        >
+          {role === 'ia' ? 'IA' : 'Supervisor'}
+        </span>
+        <span className="text-[10px] font-bold text-zinc-500 truncate">{n.author}</span>
+        <span className="text-[10px] text-zinc-400 ml-auto shrink-0">{formatDateTime(n.createdAt)}</span>
+      </div>
+      <p className="text-sm text-zinc-800 whitespace-pre-wrap leading-relaxed">{n.body}</p>
+    </div>
   );
 }
 
@@ -119,6 +187,14 @@ function FeedbackDetailPanel({
   onFinalize: () => void;
   onReturnToQueue: () => void;
 }) {
+  const [shotOpen, setShotOpen] = useState(false);
+  const [logsOpen, setLogsOpen] = useState(true);
+
+  useEffect(() => {
+    setShotOpen(false);
+    setLogsOpen(true);
+  }, [detail?.id]);
+
   if (detailLoading && !detail) {
     return (
       <div className="flex justify-center py-20">
@@ -131,16 +207,22 @@ function FeedbackDetailPanel({
       <div className="h-full flex flex-col items-center justify-center text-zinc-400 gap-2 py-16">
         <ClipboardList className="h-12 w-12 opacity-30" />
         <p className="text-sm font-semibold">Selecione um feedback na lista</p>
-        <p className="text-xs text-center max-w-xs">Triagem, fila, conferência e notas para agentes IA.</p>
+        <p className="text-xs text-center max-w-xs">Contexto completo: descrição, screenshot, logs e notas da IA.</p>
       </div>
     );
   }
 
+  const notes = detail.notes || [];
+  const aiResolution = latestAiNote(notes);
+  const shot = screenshotSrc(detail.screenshot || '');
+  const hasLogs = Boolean(detail.logs?.trim());
+  const hasShot = Boolean(shot);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
             {detail.feedbackType === 'bug' ? (
               <Bug className="h-5 w-5 text-red-500" />
             ) : (
@@ -150,6 +232,21 @@ function FeedbackDetailPanel({
             <span className={cn('text-xs font-bold px-2 py-0.5 rounded-full', statusColor(detail.status))}>
               {STATUS_LABELS[detail.status] || detail.status}
             </span>
+            {hasShot && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-full">
+                <ImageIcon className="h-3 w-3" /> Screenshot
+              </span>
+            )}
+            {hasLogs && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-full">
+                <Terminal className="h-3 w-3" /> Logs
+              </span>
+            )}
+            {notes.length > 0 && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-full">
+                {notes.length} nota{notes.length === 1 ? '' : 's'}
+              </span>
+            )}
           </div>
           <h2 className="text-lg font-extrabold text-zinc-900 whitespace-pre-wrap">{detail.description}</h2>
         </div>
@@ -219,14 +316,71 @@ function FeedbackDetailPanel({
         {[
           ['Solicitante', detail.requestedBy || '-'],
           ['Data/Hora', formatDateTime(detail.createdAt)],
-          ['Página', detail.page],
-          ['Pasta', `feedback_${detail.id.substring(0, 8)}/`],
+          ['Página', detail.page || '-'],
+          ['Prioridade', String(detail.priority ?? 100)],
         ].map(([label, val]) => (
           <div key={label} className="bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2.5">
             <span className="text-[9px] font-bold text-zinc-400 uppercase">{label}</span>
             <p className="text-xs font-semibold text-zinc-800 mt-0.5 break-words">{val}</p>
           </div>
         ))}
+      </div>
+
+      {aiResolution && (
+        <div className="rounded-2xl border border-violet-300 bg-violet-50 p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-violet-700" />
+            <h3 className="text-xs font-extrabold text-violet-900 uppercase tracking-wider">
+              Resolução da IA
+            </h3>
+            <span className="text-[10px] text-violet-600 ml-auto">{formatDateTime(aiResolution.createdAt)}</span>
+          </div>
+          <p className="text-sm text-zinc-900 whitespace-pre-wrap leading-relaxed">{aiResolution.body}</p>
+        </div>
+      )}
+
+      <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <ImageIcon className="h-4 w-4 text-zinc-600" />
+          <h3 className="text-xs font-extrabold text-zinc-900 uppercase tracking-wider">Screenshot</h3>
+        </div>
+        {hasShot ? (
+          <button
+            type="button"
+            onClick={() => setShotOpen(true)}
+            className="block w-full cursor-zoom-in"
+            title="Ampliar"
+          >
+            <img
+              src={shot}
+              alt="Screenshot do report"
+              className="max-w-full max-h-[28rem] rounded-lg border border-zinc-200 bg-white object-contain mx-auto"
+            />
+          </button>
+        ) : (
+          <p className="text-xs text-zinc-400 italic">Nenhum screenshot anexado neste feedback.</p>
+        )}
+      </div>
+
+      <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4 space-y-3">
+        <button
+          type="button"
+          onClick={() => setLogsOpen((v) => !v)}
+          className="flex items-center gap-2 w-full text-left cursor-pointer"
+        >
+          <Terminal className="h-4 w-4 text-zinc-600" />
+          <h3 className="text-xs font-extrabold text-zinc-900 uppercase tracking-wider">Logs do console</h3>
+          <span className="text-[10px] text-zinc-400 ml-auto">{logsOpen ? 'Ocultar' : 'Mostrar'}</span>
+        </button>
+        {logsOpen && (
+          hasLogs ? (
+            <pre className="text-[10px] overflow-x-auto max-h-72 whitespace-pre-wrap font-mono bg-zinc-900 text-zinc-100 p-3 rounded-lg">
+              {detail.logs}
+            </pre>
+          ) : (
+            <p className="text-xs text-zinc-400 italic">Nenhum log capturado neste feedback.</p>
+          )
+        )}
       </div>
 
       <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4 space-y-4">
@@ -276,26 +430,28 @@ function FeedbackDetailPanel({
       </div>
 
       <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4 space-y-4">
-        <h3 className="text-xs font-extrabold text-zinc-900 uppercase tracking-wider">Notas do administrador</h3>
-        <div className="space-y-3 max-h-64 overflow-y-auto">
-          {detail.notes.length === 0 ? (
+        <div>
+          <h3 className="text-xs font-extrabold text-zinc-900 uppercase tracking-wider">Histórico de notas</h3>
+          <p className="text-[10px] text-zinc-500 mt-1">Notas da IA (resolução) e do supervisor — tudo no banco.</p>
+        </div>
+        <div className="space-y-3 max-h-80 overflow-y-auto">
+          {notes.length === 0 ? (
             <p className="text-xs text-zinc-400 italic">Nenhuma nota ainda.</p>
           ) : (
-            detail.notes.map((n) => (
-              <div key={n.id} className="border-l-2 border-zinc-300 pl-3 py-1 bg-white rounded-r-lg pr-2">
-                <p className="text-[10px] font-bold text-zinc-500">
-                  {n.author} · {formatDateTime(n.createdAt)}
-                </p>
-                <p className="text-sm text-zinc-800 whitespace-pre-wrap mt-0.5">{n.body}</p>
-              </div>
-            ))
+            [...notes].reverse().map((n) => <NoteCard key={n.id} n={n} />)
           )}
         </div>
+        {detail.adminNotes?.trim() && notes.length === 0 && (
+          <div className="border border-dashed border-zinc-300 rounded-xl p-3 bg-white">
+            <p className="text-[9px] font-bold text-zinc-400 uppercase mb-1">Notas legadas (admin_notes)</p>
+            <p className="text-sm text-zinc-700 whitespace-pre-wrap">{detail.adminNotes}</p>
+          </div>
+        )}
         <div className="flex gap-2">
           <textarea
             value={noteDraft}
             onChange={(e) => setNoteDraft(e.target.value)}
-            placeholder="Nova nota (histórico permanente)..."
+            placeholder="Nova nota do supervisor (devolução, conferência, etc.)..."
             rows={3}
             className="flex-1 px-3 py-2 text-sm border border-zinc-200 rounded-xl resize-none focus:outline-none focus:ring-1 focus:ring-zinc-900 bg-white"
           />
@@ -310,17 +466,32 @@ function FeedbackDetailPanel({
         </div>
       </div>
 
-      {detail.logs?.trim() && (
-        <details className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4">
-          <summary className="text-xs font-extrabold text-zinc-900 uppercase cursor-pointer">Logs do console</summary>
-          <pre className="mt-3 text-[10px] text-zinc-600 overflow-x-auto max-h-48 whitespace-pre-wrap font-mono bg-white p-3 rounded-lg border border-zinc-100">{detail.logs}</pre>
-        </details>
-      )}
+      <div className="rounded-xl border border-zinc-100 bg-zinc-50/50 px-3 py-2">
+        <p className="text-[9px] font-bold text-zinc-400 uppercase">ID completo</p>
+        <p className="text-[11px] font-mono text-zinc-600 break-all">{detail.id}</p>
+      </div>
 
-      {detail.screenshot && (
-        <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4">
-          <h3 className="text-xs font-extrabold text-zinc-900 uppercase mb-3">Screenshot</h3>
-          <img src={detail.screenshot} alt="Screenshot" className="max-w-full max-h-96 rounded-lg border border-zinc-200" />
+      {shotOpen && hasShot && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+          onClick={() => setShotOpen(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <button
+            type="button"
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/90 text-zinc-800 cursor-pointer"
+            onClick={() => setShotOpen(false)}
+            aria-label="Fechar"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <img
+            src={shot}
+            alt="Screenshot ampliado"
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
     </div>
@@ -388,8 +559,12 @@ export default function FeedbacksAdminView({ currentUser, setView }: FeedbacksAd
   }, [currentUser, loadList]);
 
   useEffect(() => {
-    if (selectedId) loadDetail(selectedId);
-    else setDetail(null);
+    if (selectedId) {
+      setNoteDraft('');
+      loadDetail(selectedId);
+    } else {
+      setDetail(null);
+    }
   }, [selectedId, loadDetail]);
 
   const counts = useMemo(() => ({
@@ -467,6 +642,23 @@ export default function FeedbacksAdminView({ currentUser, setView }: FeedbacksAd
   };
 
   const handleSendToReview = async () => {
+    if (!detail?.notes?.length && !noteDraft.trim()) {
+      alert(
+        'Enviar para Em aberto exige uma nota de resolução. Escreva o comentário abaixo e envie antes (ou com o envio).',
+      );
+      return;
+    }
+    if (noteDraft.trim()) {
+      setSaving(true);
+      try {
+        await api.addFeedbackNote(selectedId!, noteDraft.trim());
+        setNoteDraft('');
+      } catch (e: unknown) {
+        alert('Erro ao adicionar nota: ' + (e instanceof Error ? e.message : String(e)));
+        setSaving(false);
+        return;
+      }
+    }
     await updateItem({ status: 'awaiting_review' });
   };
 
@@ -542,7 +734,7 @@ export default function FeedbacksAdminView({ currentUser, setView }: FeedbacksAd
   return (
     <AppLayout
       moduleTitle="Gestão de Feedbacks"
-      moduleSubtitle="Triagem, fila e conferência para agentes IA"
+      moduleSubtitle="Triagem, fila e conferência — contexto, logs, imagens e notas da IA"
       onBackToHub={() => setView('hub')}
       sidebarItems={sidebarItems}
       activeTab={filter}
@@ -550,7 +742,10 @@ export default function FeedbacksAdminView({ currentUser, setView }: FeedbacksAd
       headerActions={
         <button
           type="button"
-          onClick={loadList}
+          onClick={() => {
+            loadList();
+            if (selectedId) loadDetail(selectedId);
+          }}
           disabled={loading}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-zinc-200 rounded-lg hover:bg-zinc-50 cursor-pointer disabled:opacity-50 bg-white"
         >
@@ -607,7 +802,6 @@ export default function FeedbacksAdminView({ currentUser, setView }: FeedbacksAd
         </div>
 
         <div className="flex-1 flex flex-col lg:flex-row gap-4 min-h-0 overflow-hidden">
-          {/* Lista — área principal (esquerda) */}
           <section
             className={cn(
               'flex flex-col min-h-0 bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden',
@@ -659,7 +853,6 @@ export default function FeedbacksAdminView({ currentUser, setView }: FeedbacksAd
             </div>
           </section>
 
-          {/* Detalhe — área principal (direita) */}
           <section
             className={cn(
               'flex flex-col min-h-0 bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex-1',
@@ -674,7 +867,7 @@ export default function FeedbacksAdminView({ currentUser, setView }: FeedbacksAd
               >
                 <ArrowLeft className="h-4 w-4" /> Lista
               </button>
-              <h2 className="text-xs font-extrabold text-zinc-900 uppercase tracking-wider">Detalhe</h2>
+              <h2 className="text-xs font-extrabold text-zinc-900 uppercase tracking-wider">Detalhe / contexto</h2>
             </div>
             <div className="flex-1 overflow-y-auto p-4 lg:p-6">
               <FeedbackDetailPanel

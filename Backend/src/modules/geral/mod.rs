@@ -5,6 +5,7 @@ pub mod acesso;
 pub mod hub;
 pub mod auth;
 pub mod notifications;
+pub mod postgres_bootstrap;
 pub mod releases;
 pub mod updater;
 
@@ -15,6 +16,9 @@ pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
         .route("/api/import/watch-config", axum::routing::get(configuracoes::handlers::get_watch_config_handler).post(configuracoes::handlers::save_watch_config_handler))
         .route("/api/import/erp-sync-schedule", axum::routing::get(configuracoes::handlers::get_erp_sync_schedule_handler).post(configuracoes::handlers::save_erp_sync_schedule_handler))
         .route("/api/admin/db-usage", axum::routing::get(configuracoes::admin_handlers::get_db_usage))
+        .route("/api/admin/pg-backup", axum::routing::get(configuracoes::admin_handlers::get_pg_backup_status))
+        .route("/api/admin/pg-backup/config", axum::routing::post(configuracoes::admin_handlers::save_pg_backup_config))
+        .route("/api/admin/pg-backup/run", axum::routing::post(configuracoes::admin_handlers::run_pg_backup_now))
         .route("/api/admin/db-reset", axum::routing::post(configuracoes::admin_handlers::reset_operational_data))
         .route("/api/admin/audit/stock/resync-insumos", axum::routing::post(configuracoes::admin_handlers::resync_insumo_stocks))
         .route("/api/admin/audit/stock/:code", axum::routing::get(configuracoes::admin_handlers::audit_stock))

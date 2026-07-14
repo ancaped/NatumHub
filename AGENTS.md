@@ -13,7 +13,7 @@ Skills em **`.cursor/skills/`** — **leia o `SKILL.md` correspondente imediatam
 | Skill | Arquivo | Use quando o usuário ou a tarefa envolver… |
 |-------|---------|---------------------------------------------|
 | **natumhub-feedbacks** | [`.cursor/skills/natumhub-feedbacks/SKILL.md`](.cursor/skills/natumhub-feedbacks/SKILL.md) | Triagem admin, widget de feedback, prioridade, status, gestão de reports, `FeedbacksAdminPanel` |
-| **natumhub-resolve-bugs** | [`.cursor/skills/natumhub-resolve-bugs/SKILL.md`](.cursor/skills/natumhub-resolve-bugs/SKILL.md) | Resolver bug, executar fila, corrigir feedback, analisar `Feedbacks/feedback.md`, preencher `resolucao.md` |
+| **natumhub-resolve-bugs** | [`.cursor/skills/natumhub-resolve-bugs/SKILL.md`](.cursor/skills/natumhub-resolve-bugs/SKILL.md) | Resolver bug, executar fila, corrigir feedback, consultar Postgres (`feedbacks`), nota + `awaiting_review` |
 | **natumhub-modulos** | [`.cursor/skills/natumhub-modulos/SKILL.md`](.cursor/skills/natumhub-modulos/SKILL.md) | Novo módulo/submódulo, `module_key`, permissões, view no hub, registry FE/BE |
 | **natumhub-erp-sql** | [`.cursor/skills/natumhub-erp-sql/SKILL.md`](.cursor/skills/natumhub-erp-sql/SKILL.md) | Sync ERP, SQL Server, `legacy_db`, `erp-import/sql`, passos A–N, agenda de sync |
 | **natumhub-api** | [`.cursor/skills/natumhub-api/SKILL.md`](.cursor/skills/natumhub-api/SKILL.md) | Nova rota REST, endpoint Axum, `apiJson`/`hubJson`, auth 401/403 |
@@ -22,7 +22,7 @@ Skills em **`.cursor/skills/`** — **leia o `SKILL.md` correspondente imediatam
 
 ```
 Feedback / triagem admin     → natumhub-feedbacks
-Corrigir bug da fila         → natumhub-resolve-bugs  (+ ler Feedbacks/feedback.md)
+Corrigir bug da fila         → mencionar Feedbacks/feedback.md  (+ skill natumhub-resolve-bugs)
 Criar tela ou módulo novo    → natumhub-modulos
 Importação ou query ERP      → natumhub-erp-sql
 Rota HTTP ou cliente API     → natumhub-api
@@ -45,8 +45,9 @@ Múltiplas skills podem aplicar (ex.: bug no sync ERP → `natumhub-resolve-bugs
 | Sync ERP (referência) | `ContextoIA/erp-import/README.md` → `erp-import/` |
 | Schema PostgreSQL | `ContextoIA/banco-dados/database_blueprint.md` + `Backend/supabase/` |
 | Criar módulo (referência) | `ContextoIA/modulos/criacao.md` |
-| Feedbacks (referência) | `ContextoIA/feedbacks/README.md` |
-| Bugs pendentes (fila viva) | `Feedbacks/feedback.md` |
+| Feedbacks (referência) | `ContextoIA/feedbacks/README.md` · playbook `Feedbacks/feedback.md` |
+| Bugs pendentes (fila) | Playbook [`Feedbacks/feedback.md`](Feedbacks/feedback.md) · dados no Postgres |
+| Instalação / updates | `ContextoIA/devops/` · `.github/RELEASE.md` |
 
 ---
 

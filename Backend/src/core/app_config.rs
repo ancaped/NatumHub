@@ -21,19 +21,61 @@ pub fn resolve_repo_root() -> Option<PathBuf> {
     None
 }
 
-/// Pasta Saves — sempre caminho absoluto quando possível (independe do CWD do processo).
+/// Pasta Saves — caminho absoluto.
+/// - Dev/repo: `<repo>/Saves`
+/// - Instalado: `%LOCALAPPDATA%/NatumHub/Saves` (gravável; não usa Program Files)
 pub fn saves_dir() -> PathBuf {
     if let Some(root) = resolve_repo_root() {
         return root.join("Saves");
     }
-    if let Ok(cwd) = std::env::current_dir() {
-        for candidate in [cwd.join("Saves"), cwd.join("../Saves"), cwd.join("../../Saves")] {
-            if candidate.join("data.db").exists() {
-                return candidate;
-            }
+
+    let app_folder = {
+        let id = read_tauri_identifier();
+        if id.contains(".dev") || is_developer_identifier(&id) {
+            "NatumHub Dev"
+        } else {
+            "NatumHub"
+        }
+    };
+
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        let dir = PathBuf::from(local).join(app_folder).join("Saves");
+        let _ = fs::create_dir_all(&dir);
+        // Mesmo PC de desenvolvimento: se ainda não há env, tenta copiar do repo conhecido.
+        bootstrap_postgres_env_from_dev_repo(&dir);
+        return dir;
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let dir = parent.join("Saves");
+            let _ = fs::create_dir_all(&dir);
+            return dir;
         }
     }
+
     PathBuf::from(LEGACY_SAVES_REL)
+}
+
+fn bootstrap_postgres_env_from_dev_repo(saves: &PathBuf) {
+    let dest = saves.join("postgres.env");
+    if dest.exists() {
+        return;
+    }
+    for candidate in [
+        PathBuf::from(r"C:\api\Saves\postgres.env"),
+        PathBuf::from(r"C:\api\Saves\supabase.env"),
+    ] {
+        if candidate.exists() {
+            let _ = fs::copy(&candidate, &dest);
+            eprintln!(
+                "Copiado {} → {} (bootstrap 1ª execução)",
+                candidate.display(),
+                dest.display()
+            );
+            break;
+        }
+    }
 }
 
 pub fn data_db_path() -> PathBuf {
@@ -190,14 +232,12 @@ pub fn is_principal_pc() -> bool {
     is_sync_master()
 }
 
-/// Lê `identifier` do `tauri.conf.json` (build atual).
+/// Lê `identifier` embutido no binário (tauri.conf.json no momento do build).
 pub fn read_tauri_identifier() -> String {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json");
-    if let Ok(raw) = fs::read_to_string(&path) {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
-            if let Some(id) = json.get("identifier").and_then(|v| v.as_str()) {
-                return id.to_string();
-            }
+    const RAW: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"));
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(RAW) {
+        if let Some(id) = json.get("identifier").and_then(|v| v.as_str()) {
+            return id.to_string();
         }
     }
     "com.natum.hub".to_string()
@@ -208,9 +248,9 @@ pub fn is_developer_identifier(identifier: &str) -> bool {
     identifier == "com.natum.hub"
 }
 
-/// Somente build Estável pode hospedar SQLite, Axum e sync ERP.
+/// Instalações Estável (e Dev para testes) podem ser PC Principal.
 pub fn can_be_principal_server(identifier: &str) -> bool {
-    identifier.contains(".stable")
+    identifier.contains(".stable") || identifier.contains(".dev") || is_developer_identifier(identifier)
 }
 
 /// Canal de instalação: apenas `"stable"` ou `"dev"`.

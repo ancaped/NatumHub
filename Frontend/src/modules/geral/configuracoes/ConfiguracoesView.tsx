@@ -7,6 +7,7 @@ import ConexaoServidorPanel from './ConexaoServidorPanel';
 import OperadoresPanel from './OperadoresPanel';
 import CanaisAtualizacaoPanel from './CanaisAtualizacaoPanel';
 import PostgresUsagePanel from './PostgresUsagePanel';
+import PostgresBackupPanel from './PostgresBackupPanel';
 import { apiJson, getSetting, setSetting } from '../lib/http';
 import { isSupervisor, type AuthUser } from '../lib/auth';
 
@@ -75,6 +76,16 @@ export default function ConfiguracoesView({
   const [salesPedidosDays, setSalesPedidosDays] = useState<number>(90);
   const [loadingSalesPedidos, setLoadingSalesPedidos] = useState(false);
   const [savingSalesPedidos, setSavingSalesPedidos] = useState(false);
+  /** `2024-01-01` (padrão) ou `all` (histórico completo) */
+  const [historyFloor, setHistoryFloor] = useState<string>('2024-01-01');
+  const [loadingHistoryFloor, setLoadingHistoryFloor] = useState(false);
+  const [savingHistoryFloor, setSavingHistoryFloor] = useState(false);
+  const [syncLock, setSyncLock] = useState<{
+    running: boolean;
+    ageSeconds?: number;
+    status?: string | null;
+  } | null>(null);
+  const [releasingLock, setReleasingLock] = useState(false);
 
   const fetchErpSchedule = async () => {
     if (!canEditInfra) return;
@@ -103,14 +114,37 @@ export default function ConfiguracoesView({
     let cancelled = false;
     (async () => {
       setLoadingSalesPedidos(true);
+      setLoadingHistoryFloor(true);
       try {
-        const v = await getSetting('sales_faltas_days_limit');
+        const [v, floor] = await Promise.all([
+          getSetting('sales_faltas_days_limit'),
+          getSetting('erp_sync_history_floor'),
+        ]);
         if (!cancelled && v != null && v !== '') {
           const n = Number(v);
           if (!Number.isNaN(n)) setSalesPedidosDays(n);
         }
+        if (!cancelled) {
+          const f = (floor || '').trim();
+          if (
+            f === 'all' ||
+            f === 'completo' ||
+            f === 'full' ||
+            f === 'historico' ||
+            f.startsWith('1900')
+          ) {
+            setHistoryFloor('all');
+          } else if (/^\d{4}-\d{2}-\d{2}/.test(f)) {
+            setHistoryFloor(f.slice(0, 10));
+          } else {
+            setHistoryFloor('2024-01-01');
+          }
+        }
       } finally {
-        if (!cancelled) setLoadingSalesPedidos(false);
+        if (!cancelled) {
+          setLoadingSalesPedidos(false);
+          setLoadingHistoryFloor(false);
+        }
       }
     })();
     return () => {
@@ -118,6 +152,78 @@ export default function ConfiguracoesView({
     };
   }, [canEditInfra]);
 
+  useEffect(() => {
+    if (!canEditInfra) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const lock = await apiJson<{
+          running?: boolean;
+          ageSeconds?: number;
+          status?: string | null;
+        }>('/import/sync-lock');
+        if (!cancelled) {
+          setSyncLock({
+            running: Boolean(lock.running),
+            ageSeconds: lock.ageSeconds,
+            status: lock.status,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    void tick();
+    const id = window.setInterval(tick, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [canEditInfra]);
+
+  const handleReleaseSyncLock = async () => {
+    if (
+      !confirm(
+        'Liberar o lock só se o sync travou de verdade. Se ainda estiver rodando, pode corromper o progresso. Continuar?'
+      )
+    ) {
+      return;
+    }
+    setReleasingLock(true);
+    try {
+      await apiJson('/import/sync-lock/release', { method: 'POST' });
+      setMessage({ text: 'Lock de sync liberado. Pode tentar sincronizar de novo.', type: 'success' });
+      setSyncLock({ running: false, ageSeconds: 0, status: null });
+    } catch (e: unknown) {
+      setMessage({
+        text: e instanceof Error ? e.message : 'Erro ao liberar lock',
+        type: 'error',
+      });
+    } finally {
+      setReleasingLock(false);
+      setTimeout(() => setMessage(null), 5000);
+    }
+  };
+
+  const handleSaveHistoryFloor = async () => {
+    setSavingHistoryFloor(true);
+    try {
+      await setSetting('erp_sync_history_floor', historyFloor);
+      setMessage({
+        text:
+          historyFloor === 'all'
+            ? 'Janela de sync: histórico completo. Use Sync completo para reimportar.'
+            : `Janela de sync: desde ${historyFloor}. Use Sync completo para reimportar.`,
+        type: 'success',
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erro ao salvar janela histórica';
+      setMessage({ text: msg, type: 'error' });
+    } finally {
+      setSavingHistoryFloor(false);
+      setTimeout(() => setMessage(null), 4500);
+    }
+  };
   const handleSaveSalesPedidosDays = async () => {
     setSavingSalesPedidos(true);
     try {
@@ -200,7 +306,7 @@ export default function ConfiguracoesView({
           <div className="bg-violet-50 border border-violet-100 rounded-2xl px-5 py-4">
             <h2 className="font-black text-sm text-violet-900">Painel Supervisor</h2>
             <p className="text-xs text-violet-800/90 mt-1">
-              PostgreSQL, atualizações, operadores e sincronização ERP.
+              PostgreSQL, backups locais, atualizações, operadores e sincronização ERP.
             </p>
           </div>
         )}
@@ -228,6 +334,7 @@ export default function ConfiguracoesView({
         {supervisorMode && canEditInfra && (
           <>
             <PostgresUsagePanel setMessage={setMessage} />
+            <PostgresBackupPanel setMessage={setMessage} />
             <CanaisAtualizacaoPanel currentUser={currentUser} setMessage={setMessage} />
             <OperadoresPanel currentUser={currentUser} setMessage={setMessage} />
           </>
@@ -313,8 +420,77 @@ export default function ConfiguracoesView({
               <p className="font-bold text-zinc-800">O que a sincronização importa:</p>
               <p>Produtos, insumos, fornecedores, notas fiscais de compra, movimentações, fórmulas, pedidos de compra e pedidos de venda do ERP NATUM.</p>
               <p className="text-zinc-500">
-                Depois do primeiro sync, o botão normal é <strong>incremental</strong> (só o delta desde o watermark). Use <strong>Sync completo</strong> só quando precisar reprocessar o histórico.
+                Depois do primeiro sync, o botão normal é <strong>incremental</strong> (só o delta desde o watermark). Use <strong>Sync completo</strong> só quando precisar reprocessar o histórico na janela configurada abaixo.
               </p>
+            </div>
+
+            {(syncingSql || syncLock?.running) && (
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-3 space-y-2">
+                <div className="flex items-center gap-2 text-indigo-900 text-xs font-bold">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                  Sync ERP em andamento
+                  {typeof syncLock?.ageSeconds === 'number' && syncLock.ageSeconds > 0
+                    ? ` · ${Math.floor(syncLock.ageSeconds / 60)} min`
+                    : ''}
+                </div>
+                <p className="text-[11px] text-indigo-800/90 leading-relaxed">
+                  Com histórico completo isso pode demorar bastante. O botão fica em “Sincronizando…” até a API responder.
+                  Se clicou de novo e “nada aconteceu”, o sync anterior ainda está rodando.
+                </p>
+                {syncLock?.running && !syncingSql && (
+                  <button
+                    type="button"
+                    onClick={handleReleaseSyncLock}
+                    disabled={releasingLock}
+                    className="text-[11px] font-bold text-rose-700 underline cursor-pointer disabled:opacity-50"
+                  >
+                    {releasingLock ? 'Liberando…' : 'Liberar lock (somente se travou)'}
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className="rounded-xl border border-zinc-150 bg-white px-3 py-3 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-[11px] font-bold text-zinc-800">Janela histórica do sync completo</p>
+                  <p className="text-[10px] text-zinc-500">
+                    Afeta passos datados (lotes, vendas, pedidos, NFs…). Incremental continua pelo watermark.
+                  </p>
+                </div>
+              </div>
+              {loadingHistoryFloor ? (
+                <div className="flex items-center gap-2 text-xs text-zinc-500 py-1">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Carregando...
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row sm:items-end gap-2">
+                  <div className="flex-1">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
+                      Importar dados desde
+                    </label>
+                    <select
+                      value={historyFloor}
+                      onChange={(e) => setHistoryFloor(e.target.value)}
+                      className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-zinc-950 focus:outline-none bg-white text-zinc-800 font-semibold"
+                    >
+                      <option value="2024-01-01">01/01/2024 (padrão, mais rápido)</option>
+                      <option value="2020-01-01">01/01/2020</option>
+                      <option value="2015-01-01">01/01/2015</option>
+                      <option value="all">Histórico completo (todo o ERP)</option>
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSaveHistoryFloor}
+                    disabled={savingHistoryFloor}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900 text-white hover:bg-zinc-800 cursor-pointer disabled:opacity-50"
+                  >
+                    {savingHistoryFloor ? 'Salvando...' : 'Salvar janela'}
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="space-y-3.5 text-left">
@@ -403,9 +579,13 @@ export default function ConfiguracoesView({
                 <button
                   type="button"
                   onClick={() => {
+                    const windowLabel =
+                      historyFloor === 'all'
+                        ? 'o histórico completo do ERP'
+                        : `a janela desde ${historyFloor}`;
                     if (
                       !confirm(
-                        'Sync completo reprocessa o histórico desde 2024. Pode demorar vários minutos. Continuar?'
+                        `Sync completo reprocessa ${windowLabel}. Pode demorar vários minutos. Continuar?`
                       )
                     ) {
                       return;

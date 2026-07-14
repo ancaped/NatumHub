@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Users, Plus, Loader2, Check, X, Shield, ChevronDown, ChevronUp, Save, UserX,
+  Users, Plus, Loader2, Check, X, Shield, ChevronDown, ChevronUp, Save, UserX, Trash2,
 } from 'lucide-react';
 import {
   fetchOperatorsManage,
   createOperator,
   updateOperator,
+  deleteOperator,
   isSupervisor,
   type AuthUser,
   type OperatorDetail,
@@ -195,6 +196,29 @@ export default function OperadoresPanel({
     }
   };
 
+  const handleDelete = async (op: OperatorDetail) => {
+    if (currentUser?.id === op.id) {
+      setMessage({ text: 'Você não pode excluir sua própria conta.', type: 'error' });
+      return;
+    }
+    const ok = window.confirm(
+      `Excluir permanentemente o operador "${op.displayName}"?\nSessões ativas serão encerradas. Esta ação não pode ser desfeita.`
+    );
+    if (!ok) return;
+    setSaving(true);
+    try {
+      await deleteOperator(op.id);
+      setMessage({ text: 'Operador excluído.', type: 'success' });
+      if (expandedId === op.id) setExpandedId(null);
+      await load();
+    } catch (e: any) {
+      setMessage({ text: e?.message || 'Erro ao excluir operador', type: 'error' });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setMessage(null), 4000);
+    }
+  };
+
   const renderModuleCheckboxes = (
     form: FormState,
     formKey: 'new' | string,
@@ -359,7 +383,7 @@ export default function OperadoresPanel({
           <div>
             <h3 className="font-black text-sm tracking-tight">Gestão de Operadores</h3>
             <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
-              Até 5 usuários · permissões por módulo
+              Permissões por módulo · desativar ou excluir
             </p>
           </div>
         </div>
@@ -458,7 +482,16 @@ export default function OperadoresPanel({
                 {isExpanded && form && (
                   <div className="px-4 pb-4 border-t border-zinc-100 pt-4 space-y-4">
                     {renderModuleCheckboxes(form, op.id, () => {})}
-                    <div className="flex gap-2 justify-end">
+                    <div className="flex gap-2 justify-between flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(op)}
+                        disabled={saving || isSelf}
+                        className="flex items-center gap-1.5 border border-rose-200 text-rose-700 text-xs font-bold px-4 py-2 rounded-xl hover:bg-rose-50 disabled:opacity-50 cursor-pointer"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Excluir
+                      </button>
                       <button
                         onClick={() => handleSave(op.id)}
                         disabled={saving}
@@ -480,7 +513,7 @@ export default function OperadoresPanel({
 
           <p className="text-[10px] text-zinc-400 flex items-start gap-1.5 pt-2">
             <UserX className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-            Operadores só conseguem entrar se estiverem cadastrados aqui. Desativar encerra sessões ativas.
+            Operadores só entram com nome e senha cadastrados. Desativar encerra sessões; Excluir remove o cadastro.
           </p>
         </div>
       )}

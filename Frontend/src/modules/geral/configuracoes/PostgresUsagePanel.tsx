@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { HardDrive, Loader2, RefreshCw } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
+import { Database, HardDrive, Loader2, RefreshCw } from 'lucide-react';
 import { apiJson } from '../lib/http';
 
 interface TableUsage {
@@ -39,6 +40,7 @@ function providerLabel(provider?: string): string {
 export default function PostgresUsagePanel({ setMessage }: PostgresUsagePanelProps) {
   const [data, setData] = useState<DbUsagePayload | null>(null);
   const [loading, setLoading] = useState(false);
+  const [bootstrapping, setBootstrapping] = useState(false);
 
   const load = useCallback(async (toast = false) => {
     setLoading(true);
@@ -71,6 +73,27 @@ export default function PostgresUsagePanel({ setMessage }: PostgresUsagePanelPro
     void load(false);
   }, [load]);
 
+  const installLocalPg = async () => {
+    setBootstrapping(true);
+    try {
+      const result = await invoke<{ message: string }>('hub_bootstrap_local_postgres');
+      setMessage({
+        text: result.message || 'PostgreSQL local pronto. Reinicie se a API estiver offline.',
+        type: 'success',
+      });
+      setTimeout(() => setMessage(null), 8000);
+      void load(false);
+    } catch (e: unknown) {
+      setMessage({
+        text: typeof e === 'string' ? e : e instanceof Error ? e.message : 'Falha no bootstrap Postgres',
+        type: 'error',
+      });
+      setTimeout(() => setMessage(null), 8000);
+    } finally {
+      setBootstrapping(false);
+    }
+  };
+
   const showFreeTier = data?.provider === 'supabase' && data.percentOfFreeTier != null;
   const pct = Math.min(100, Math.max(0, data?.percentOfFreeTier ?? 0));
   const barColor =
@@ -91,15 +114,31 @@ export default function PostgresUsagePanel({ setMessage }: PostgresUsagePanelPro
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => load(true)}
-          disabled={loading}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-zinc-200 bg-white hover:bg-zinc-50 cursor-pointer disabled:opacity-50"
-        >
-          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          Atualizar
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => void installLocalPg()}
+            disabled={bootstrapping || loading}
+            title="Só no NatumHub Dev / tauri dev"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-teal-200 bg-teal-50 text-teal-900 hover:bg-teal-100 cursor-pointer disabled:opacity-50"
+          >
+            {bootstrapping ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Database className="h-3.5 w-3.5" />
+            )}
+            {bootstrapping ? 'Instalando…' : 'Instalar PG (Dev)'}
+          </button>
+          <button
+            type="button"
+            onClick={() => load(true)}
+            disabled={loading || bootstrapping}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-zinc-200 bg-white hover:bg-zinc-50 cursor-pointer disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Atualizar
+          </button>
+        </div>
       </div>
 
       {data ? (

@@ -234,8 +234,13 @@ pub struct KitComponentDetail {
     pub producao_recomendada: i64,
     pub status: String,
     pub status_label: String,
-    pub quantidade: i64,
+    pub quantidade: f64,
+    pub fator_proporcao_qtd: Option<f64>,
+    pub fator_proporcao_kits: Option<i32>,
     pub necessita_producao: bool,
+    /// `produto` | `item` (embalagem/insumo ERP)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fonte: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -338,18 +343,22 @@ pub struct KitComposicaoRow {
     pub kit_descricao: String,
     pub componente_codigo: String,
     pub componente_descricao: String,
-    pub quantidade: i64,
+    pub quantidade: f64,
+    pub fator_proporcao_qtd: Option<f64>,
+    pub fator_proporcao_kits: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NewKitComposicao {
     pub kit_codigo: String,
     pub componente_codigo: String,
-    #[serde(default = "default_quantidade")]
-    pub quantidade: i64,
+    #[serde(default = "default_quantidade_f64")]
+    pub quantidade: f64,
+    pub fator_proporcao_qtd: Option<f64>,
+    pub fator_proporcao_kits: Option<i32>,
 }
 
-fn default_quantidade() -> i64 { 1 }
+fn default_quantidade_f64() -> f64 { 1.0 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]

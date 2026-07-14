@@ -20,6 +20,90 @@ use crate::handlers::AppState;
 // Helper cross-imports
 use crate::handlers::imports::clean_product_code;
 
+/// Estoque de componentes que existem em `items` (embalagem/insumo), não em produtos.
+async fn load_item_kit_component_stocks(
+    pool: &PgPool,
+    codes: &[String],
+) -> HashMap<String, (String, i64, i64, i64)> {
+    let mut out = HashMap::new();
+    if codes.is_empty() {
+        return out;
+    }
+    let rows = sqlx::query(
+        r#"
+        SELECT TRIM(REPLACE(i.code, '"', '')) AS code,
+               i.description,
+               COALESCE(s.stock_qty, e.estoque::float8, 0)::float8 AS estoque,
+               COALESCE(s.in_production, e.producao::float8, 0)::float8 AS producao,
+               COALESCE(s.in_orders, e.pedidos_aberto::float8, 0)::float8 AS pedidos
+        FROM items i
+        LEFT JOIN estoque_atual e
+          ON TRIM(REPLACE(e.codigo, '"', '')) = TRIM(REPLACE(i.code, '"', ''))
+        LEFT JOIN LATERAL (
+            SELECT stock_qty, in_production, in_orders
+            FROM stock_snapshots
+            WHERE TRIM(REPLACE(item_code, '"', '')) = TRIM(REPLACE(i.code, '"', ''))
+            ORDER BY snapshot_date DESC, id DESC
+            LIMIT 1
+        ) s ON true
+        WHERE TRIM(REPLACE(i.code, '"', '')) = ANY($1)
+        "#,
+    )
+    .bind(codes)
+    .fetch_all(pool)
+    .await;
+
+    let Ok(rows) = rows else {
+        return out;
+    };
+
+    for row in rows {
+        let code: String = row.get(0);
+        let desc: String = row.get(1);
+        let estoque = row.get::<f64, _>(2).floor() as i64;
+        let producao = row.get::<f64, _>(3).floor() as i64;
+        let pedidos = row.get::<f64, _>(4).floor() as i64;
+        out.insert(code, (desc, estoque, producao, pedidos));
+    }
+    out
+}
+
+fn kit_component_from_item(
+    code: &str,
+    desc: &str,
+    estoque: i64,
+    producao: i64,
+    pedidos: i64,
+    qty: f64,
+    fat_qtd: Option<f64>,
+    fat_kits: Option<i32>,
+) -> KitComponentDetail {
+    let efp = estoque + producao - pedidos;
+    let (status, status_label) = if efp <= 0 {
+        ("critico", "Sem estoque")
+    } else if efp < 10 {
+        ("atencao", "Estoque baixo")
+    } else {
+        ("saudavel", "Estoque OK")
+    };
+    KitComponentDetail {
+        codigo: code.to_string(),
+        descricao: desc.to_string(),
+        estoque,
+        producao,
+        pedidos_aberto: pedidos,
+        estoque_futuro_com_producao: efp,
+        producao_recomendada: 0,
+        status: status.to_string(),
+        status_label: status_label.to_string(),
+        quantidade: qty,
+        fator_proporcao_qtd: fat_qtd,
+        fator_proporcao_kits: fat_kits,
+        necessita_producao: false,
+        fonte: Some("item".into()),
+    }
+}
+
 
 
 
@@ -221,7 +305,7 @@ pub async fn fetch_calculation_data(state: &Db) -> anyhow::Result<(
 
 pub fn post_process_kit_only_production(
     computed: &mut [ProductCalculationResult],
-    kit_composition: &HashMap<String, Vec<(String, i64)>>,
+    kit_composition: &HashMap<String, Vec<(String, f64, Option<f64>, Option<i32>)>>,
 ) {
     // 1. Build a map of product code -> index in computed slice
     let mut code_to_idx = HashMap::new();
@@ -232,7 +316,7 @@ pub fn post_process_kit_only_production(
     // 2. Build a map of component -> list of parent kits
     let mut component_to_kits: HashMap<String, Vec<String>> = HashMap::new();
     for (kit_code, components) in kit_composition {
-        for (comp, _qty) in components {
+        for (comp, _qty, _fq, _fk) in components {
             component_to_kits.entry(comp.clone()).or_default().push(kit_code.clone());
         }
     }
@@ -284,7 +368,7 @@ pub async fn list_products(
 
     let mut kit_components_set = std::collections::HashSet::new();
     for components in kit_composition.values() {
-        for (comp, _qty) in components {
+        for (comp, _qty, _fq, _fk) in components {
             kit_components_set.insert(comp.clone());
         }
     }
@@ -771,12 +855,27 @@ pub async fn list_kits(
         .map(|p| (clean_product_code(&p.codigo), p.clone()))
         .collect();
 
+    // Insumos/embalagens da composição (não estão em produtos)
+    let mut item_codes: Vec<String> = Vec::new();
+    for comps in kit_composition.values() {
+        for (c, _, _, _) in comps {
+            let code = clean_product_code(c);
+            if !computed_map.contains_key(&code) && !item_codes.contains(&code) {
+                item_codes.push(code);
+            }
+        }
+    }
+    let item_stocks = load_item_kit_component_stocks(pool, &item_codes).await;
+
     // 4. Build results for each kit
     let mut kit_results = Vec::new();
 
     for (raw_kit_code, raw_components_codes) in &kit_composition {
         let kit_code = clean_product_code(raw_kit_code);
-        let components_with_qty: Vec<(String, i64)> = raw_components_codes.iter().map(|(c, q)| (clean_product_code(c), *q)).collect();
+        let components_with_qty: Vec<(String, f64, Option<f64>, Option<i32>)> = raw_components_codes
+            .iter()
+            .map(|(c, q, fq, fk)| (clean_product_code(c), *q, *fq, *fk))
+            .collect();
 
         // Find kit calculation details
         let mut kit_calc = match computed_map.get(&kit_code) {
@@ -856,19 +955,12 @@ pub async fn list_kits(
         let mut min_stock: Option<i64> = None;
         let mut critical_components = Vec::new();
 
-        for (comp_code, comp_qty) in &components_with_qty {
-            if let Some(comp_calc) = computed_map.get(comp_code) {
-                // Record minimum stock based on future stock with production (EFP)
-                min_stock = Some(match min_stock {
-                    Some(m) => std::cmp::min(m, comp_calc.estoque_futuro_com_producao),
-                    None => comp_calc.estoque_futuro_com_producao,
-                });
-
+        for (comp_code, comp_qty, fat_qtd, fat_kits) in &components_with_qty {
+            let detail = if let Some(comp_calc) = computed_map.get(comp_code) {
                 if comp_calc.producao_recomendada > 0 {
                     critical_components.push(comp_code.clone());
                 }
-
-                components_detail.push(KitComponentDetail {
+                Some(KitComponentDetail {
                     codigo: clean_product_code(&comp_calc.codigo),
                     descricao: comp_calc.descricao.clone(),
                     estoque: comp_calc.estoque,
@@ -879,8 +971,53 @@ pub async fn list_kits(
                     status: comp_calc.status.clone(),
                     status_label: comp_calc.status_label.clone(),
                     quantidade: *comp_qty,
+                    fator_proporcao_qtd: *fat_qtd,
+                    fator_proporcao_kits: *fat_kits,
                     necessita_producao: comp_calc.producao_recomendada > 0,
+                    fonte: Some("produto".into()),
+                })
+            } else if let Some((desc, est, prod, ped)) = item_stocks.get(comp_code) {
+                Some(kit_component_from_item(
+                    comp_code,
+                    desc,
+                    *est,
+                    *prod,
+                    *ped,
+                    *comp_qty,
+                    *fat_qtd,
+                    *fat_kits,
+                ))
+            } else {
+                // Mantém o vínculo mesmo sem cadastro (não some da UI)
+                Some(KitComponentDetail {
+                    codigo: comp_code.clone(),
+                    descricao: format!("{} (sem cadastro)", comp_code),
+                    estoque: 0,
+                    producao: 0,
+                    pedidos_aberto: 0,
+                    estoque_futuro_com_producao: 0,
+                    producao_recomendada: 0,
+                    status: "critico".into(),
+                    status_label: "Sem cadastro".into(),
+                    quantidade: *comp_qty,
+                    fator_proporcao_qtd: *fat_qtd,
+                    fator_proporcao_kits: *fat_kits,
+                    necessita_producao: false,
+                    fonte: None,
+                })
+            };
+
+            if let Some(detail) = detail {
+                let possible_from_comp = if *comp_qty > 0.0 {
+                    (detail.estoque_futuro_com_producao as f64 / *comp_qty).floor() as i64
+                } else {
+                    detail.estoque_futuro_com_producao
+                };
+                min_stock = Some(match min_stock {
+                    Some(m) => std::cmp::min(m, possible_from_comp),
+                    None => possible_from_comp,
                 });
+                components_detail.push(detail);
             }
         }
 

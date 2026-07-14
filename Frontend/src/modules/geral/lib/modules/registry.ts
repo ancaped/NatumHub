@@ -20,6 +20,12 @@ export const MODULE_KEYS = {
   ESTOQUE_EMB: 'estoque_embalagens',
   ESTOQUE_COLOR: 'estoque_coloracao',
   ESTOQUE_APOIO: 'estoque_apoio',
+  ESTOQUE_ITENS: 'estoque_itens',
+  ESTOQUE_ALMOX: 'estoque_almoxarifado',
+  ESTOQUE_SUPERMERCADO: 'estoque_supermercado',
+  ESTOQUE_PECAS: 'estoque_pecas',
+  ESTOQUE_EQUIPAMENTOS: 'estoque_equipamentos',
+  ESTOQUE_MANUTENCOES: 'estoque_manutencoes',
   /** @deprecated alias — use ADMIN_LINHA_PRODUTOS */
   ESTOQUE_ATIVOS: 'estoque_ativos',
   ADMIN_LINHA_PRODUTOS: 'admin_linha_produtos',
@@ -39,6 +45,7 @@ export const MODULE_KEYS = {
   COMPRAS_ONLINE: 'compras_online',
   COMPRAS_PEDIDOS: 'compras_pedidos',
   COMPRAS_NOTAS: 'compras_notas',
+  COMPRAS_ALMOX: 'compras_almoxarifado',
   VENDAS: 'vendas',
   VENDAS_ONLINE: 'vendas_online',
   CONTROLE_QUALIDADE: 'controle_qualidade',
@@ -78,6 +85,19 @@ export function moduleRegistry(): ModuleGroup[] {
       ],
     },
     {
+      key: 'almoxarifado',
+      label: 'Almoxarifado',
+      hubView: 'almoxarifado_hub',
+      children: [
+        { key: MODULE_KEYS.ESTOQUE_ITENS, label: 'Itens' },
+        { key: MODULE_KEYS.ESTOQUE_ALMOX, label: 'Almoxarifado' },
+        { key: MODULE_KEYS.ESTOQUE_SUPERMERCADO, label: 'Supermercado' },
+        { key: MODULE_KEYS.ESTOQUE_PECAS, label: 'Peças de Reposição' },
+        { key: MODULE_KEYS.ESTOQUE_EQUIPAMENTOS, label: 'Equipamentos' },
+        { key: MODULE_KEYS.ESTOQUE_MANUTENCOES, label: 'Manutenções' },
+      ],
+    },
+    {
       key: 'producao',
       label: 'Produção',
       hubView: 'producao_hub',
@@ -103,6 +123,7 @@ export function moduleRegistry(): ModuleGroup[] {
         { key: MODULE_KEYS.COMPRAS_ONLINE, label: 'Compras Online' },
         { key: MODULE_KEYS.COMPRAS_PEDIDOS, label: 'Pedidos' },
         { key: MODULE_KEYS.COMPRAS_NOTAS, label: 'Notas Fiscais' },
+        { key: MODULE_KEYS.COMPRAS_ALMOX, label: 'Almoxarifado' },
       ],
     },
     {
@@ -160,6 +181,12 @@ export function defaultModulesForRole(role: string): string[] {
         MODULE_KEYS.ESTOQUE_EMB,
         MODULE_KEYS.ESTOQUE_COLOR,
         MODULE_KEYS.ESTOQUE_APOIO,
+        MODULE_KEYS.ESTOQUE_ITENS,
+        MODULE_KEYS.ESTOQUE_ALMOX,
+        MODULE_KEYS.ESTOQUE_SUPERMERCADO,
+        MODULE_KEYS.ESTOQUE_PECAS,
+        MODULE_KEYS.ESTOQUE_EQUIPAMENTOS,
+        MODULE_KEYS.ESTOQUE_MANUTENCOES,
       ];
     case 'producao':
     case 'produção':
@@ -186,6 +213,7 @@ export function defaultModulesForRole(role: string): string[] {
         MODULE_KEYS.COMPRAS_ONLINE,
         MODULE_KEYS.COMPRAS_PEDIDOS,
         MODULE_KEYS.COMPRAS_NOTAS,
+        MODULE_KEYS.COMPRAS_ALMOX,
       ];
     case 'financeiro':
       return [MODULE_KEYS.FINANCEIRO];

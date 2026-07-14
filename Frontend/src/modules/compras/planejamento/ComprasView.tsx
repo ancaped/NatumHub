@@ -67,7 +67,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
-          { id: 'settings', label: 'Configurações', icon: Settings },
+          { id: 'settings', label: 'Configurações', icon: Settings, iconOnly: true },
         ];
       case 'embalagens':
         return [
@@ -78,7 +78,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
-          { id: 'settings', label: 'Configurações', icon: Settings },
+          { id: 'settings', label: 'Configurações', icon: Settings, iconOnly: true },
         ];
       case 'coloracao':
         return [
@@ -89,7 +89,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
-          { id: 'settings', label: 'Configurações', icon: Settings },
+          { id: 'settings', label: 'Configurações', icon: Settings, iconOnly: true },
         ];
       case 'apoio':
         return [
@@ -100,7 +100,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
-          { id: 'settings', label: 'Configurações', icon: Settings },
+          { id: 'settings', label: 'Configurações', icon: Settings, iconOnly: true },
         ];
       case 'quotations':
         return [
@@ -123,7 +123,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
-          { id: 'settings', label: 'Configurações', icon: Settings },
+          { id: 'settings', label: 'Configurações', icon: Settings, iconOnly: true },
         ];
     }
   }, [mode, categories, pinnedSubs]);

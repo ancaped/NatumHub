@@ -1,15 +1,27 @@
 import { apiFetch } from '../../geral/lib/http';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   ArrowLeft, Search, RefreshCw, Layers, ClipboardList, PlusCircle, Trash2, 
   CheckCircle2, Printer, X, Eye, CheckCircle, ExternalLink, Calendar, User, FileText, Settings, AlertTriangle,
-  UploadCloud
+  UploadCloud, Plus
 } from 'lucide-react';
-
+import KitCompositionDrawer from '../components/KitCompositionDrawer';
+import { api } from '../../geral/lib/api';
+import { Category } from '../../geral/lib/types';
+import {
+  formatQtyPerKitLabel,
+  kitComponentNeedQty,
+  kitOrderComponentNeed,
+} from '../lib/kitComponentQty';
 
 export default function MontagemKitsView({ onBackToHub }) {
   const [activeSubTab, setActiveSubTab] = useState('ordens'); // 'ordens', 'componentes' ou 'composicao'
   const [loading, setLoading] = useState(false);
+
+  // States: Drawer de Composição de Kits
+  const [selectedDrawerKitCode, setSelectedDrawerKitCode] = useState('');
+  const [selectedDrawerKitDesc, setSelectedDrawerKitDesc] = useState('');
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   // States: Composição de Kits Comerciais
   const [kitComposicao, setKitComposicao] = useState([]);
@@ -18,7 +30,12 @@ export default function MontagemKitsView({ onBackToHub }) {
   const [kitCompNewComp, setKitCompNewComp] = useState('');
   const [kitCompNewQty, setKitCompNewQty] = useState(1);
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [uploadingKitsConfig, setUploadingKitsConfig] = useState(false);
+
+  // States: Compor Novo Kit Modal
+  const [isNewKitModalOpen, setIsNewKitModalOpen] = useState(false);
+  const [newKitSearch, setNewKitSearch] = useState('');
 
   // States: Componentes e Alertas (Listagem de Kits)
   const [kits, setKits] = useState([]);
@@ -189,13 +206,17 @@ export default function MontagemKitsView({ onBackToHub }) {
 
   const fetchProducts = useCallback(async () => {
     try {
-      const res = await apiFetch(`/products?limit=5000&show_hidden=true`);
-      if (res.ok) {
-        const data = await res.json();
+      const [prodsRes, catsData] = await Promise.all([
+        apiFetch(`/products?limit=5000&show_hidden=true`),
+        api.getCategories().catch(() => [])
+      ]);
+      if (prodsRes.ok) {
+        const data = await prodsRes.json();
         setProducts(data.items || []);
       }
+      setCategories(catsData || []);
     } catch (e) {
-      console.error("Error fetching products:", e);
+      console.error("Error fetching products and categories:", e);
     }
   }, []);
 
@@ -499,6 +520,7 @@ export default function MontagemKitsView({ onBackToHub }) {
       fetchKits();
     } else if (activeSubTab === 'composicao') {
       fetchKitComposicao();
+      fetchKits();
     } else if (activeSubTab === 'vira_ordens') {
       fetchViraOrders();
     } else if (activeSubTab === 'vira_composicao') {
@@ -507,6 +529,60 @@ export default function MontagemKitsView({ onBackToHub }) {
       fetchOrders();
     }
   }, [activeSubTab, fetchKits, fetchOrders, fetchKitComposicao, fetchViraOrders, fetchViraComposicao]);
+
+  // Lista Mestre unificada de Kits Montáveis
+  const masterKitsList = useMemo(() => {
+    const map = new Map();
+    
+    // 1. Identificar categorias de Kit cadastradas no banco
+    const kitCategoryIds = categories
+      .filter(c => {
+        const name = (c.name || '').toLowerCase();
+        return name === 'kits' || name === 'kit';
+      })
+      .map(c => c.id);
+
+    // 2. Adicionar produtos categorizados como kits
+    products.forEach(p => {
+      const isKit = p.categoria_produto === 'kit' || (p.categoria_produto && kitCategoryIds.includes(p.categoria_produto));
+      if (isKit && p.codigo) {
+        map.set(p.codigo, {
+          codigo: p.codigo,
+          descricao: p.descricao || 'Kit Montável',
+          estoque: p.estoque || 0,
+          pedidos_aberto: p.pedidos_aberto || 0
+        });
+      }
+    });
+
+    // 3. Adicionar kits do endpoint /kits (para manter compatibilidade de cálculo de estoque montável)
+    kits.forEach(k => {
+      if (k.codigo) {
+        map.set(k.codigo, k);
+      }
+    });
+
+    // 4. Adicionar kits preexistentes em kitComposicao que possam não estar categorizados
+    kitComposicao.forEach(kc => {
+      if (kc.kit_codigo && !map.has(kc.kit_codigo)) {
+        map.set(kc.kit_codigo, {
+          codigo: kc.kit_codigo,
+          descricao: kc.kit_descricao || 'Kit Montável',
+          estoque: 0,
+          pedidos_aberto: 0
+        });
+      }
+    });
+
+    const list = Array.from(map.values()).sort((a, b) => (a.codigo || '').localeCompare(b.codigo || ''));
+    if (!kitCompSearch.trim()) return list;
+    const q = kitCompSearch.trim().toLowerCase();
+    return list.filter(k => 
+      (k.codigo || '').toLowerCase().includes(q) || 
+      (k.descricao || '').toLowerCase().includes(q)
+    );
+  }, [categories, products, kits, kitComposicao, kitCompSearch]);
+
 
   const toggleKitExpanded = (code) => {
     setExpandedKits(prev => 
@@ -546,13 +622,25 @@ export default function MontagemKitsView({ onBackToHub }) {
 
     setSubmittingNewOrder(true);
     try {
-      // Map lotes to JSON string
-      const lotesList = selectedKitObj?.componentes?.map(comp => ({
-        code: comp.codigo,
-        description: comp.descricao,
-        expected_qty: comp.quantidade || 1,
-        lote: newComponentLotes[comp.codigo] || ""
-      })) || [];
+      const kitQty = parseFloat(String(newKitQty)) || 0;
+      const lotesList = selectedKitObj?.componentes?.map(comp => {
+        const perKit = Number(comp.quantidade) || 1;
+        const need = kitComponentNeedQty(
+          perKit,
+          kitQty,
+          comp.fator_proporcao_qtd,
+          comp.fator_proporcao_kits,
+        );
+        return {
+          code: comp.codigo,
+          description: comp.descricao,
+          expected_qty: perKit,
+          fator_proporcao_qtd: comp.fator_proporcao_qtd ?? null,
+          fator_proporcao_kits: comp.fator_proporcao_kits ?? null,
+          need_qty: need,
+          lote: newComponentLotes[comp.codigo] || "",
+        };
+      }) || [];
 
       const payload = {
         orderNumber: newOrderNumber,
@@ -594,7 +682,7 @@ export default function MontagemKitsView({ onBackToHub }) {
     // Auto-update used quantities for all components based on the new kit quantity
     const newUsedQties = { ...editComponentUsedQty };
     componentsList.forEach(item => {
-      newUsedQties[item.code] = numVal * (item.expected_qty || 1);
+      newUsedQties[item.code] = kitOrderComponentNeed(item, numVal);
     });
     setEditComponentUsedQty(newUsedQties);
   };
@@ -614,9 +702,15 @@ export default function MontagemKitsView({ onBackToHub }) {
     try {
       if (order.componentsLotes) {
         const list = JSON.parse(order.componentsLotes);
+        const kitsMounted = order.quantityAssembled !== null && order.quantityAssembled !== undefined
+          ? order.quantityAssembled
+          : order.quantity;
         list.forEach(item => {
           parsedLotes[item.code] = item.lote || "";
-          parsedUsedQties[item.code] = item.used_qty !== undefined ? item.used_qty : (item.expected_qty * (order.quantityAssembled || order.quantity));
+          parsedUsedQties[item.code] =
+            item.used_qty !== undefined
+              ? item.used_qty
+              : kitOrderComponentNeed(item, kitsMounted);
         });
       }
     } catch (e) {
@@ -639,7 +733,11 @@ export default function MontagemKitsView({ onBackToHub }) {
           list = originalList.map(item => ({
             ...item,
             lote: editComponentLotes[item.code] || "",
-            used_qty: editComponentUsedQty[item.code] !== undefined ? parseFloat(editComponentUsedQty[item.code]) : (item.expected_qty * editQuantityAssembled)
+            used_qty:
+              editComponentUsedQty[item.code] !== undefined
+                ? parseFloat(editComponentUsedQty[item.code])
+                : kitOrderComponentNeed(item, parseFloat(editQuantityAssembled) || 0),
+            need_qty: kitOrderComponentNeed(item, selectedOrder.quantity || 0),
           }));
         }
       } catch (err) {
@@ -821,18 +919,28 @@ export default function MontagemKitsView({ onBackToHub }) {
                       if (printingOrder.componentsLotes) {
                         const list = JSON.parse(printingOrder.componentsLotes);
                         return list.map(item => {
-                          const expectedQty = parseFloat(item.expected_qty) || 0;
-                          const finalExpectedQty = expectedQty > 0 ? expectedQty : 1;
-                          const usedQty = item.used_qty !== undefined ? parseFloat(item.used_qty) : (finalExpectedQty * (printingOrder.quantityAssembled || printingOrder.quantity));
+                          const kitQty = printingOrder.quantity || 0;
+                          const kitDone = printingOrder.quantityAssembled || printingOrder.quantity || 0;
+                          const plannedNeed = kitOrderComponentNeed(item, kitQty);
+                          const usedQty =
+                            item.used_qty !== undefined
+                              ? parseFloat(item.used_qty)
+                              : kitOrderComponentNeed(item, kitDone);
                           return (
                             <tr key={item.code} className="hover:bg-zinc-50/20">
                               <td className="py-2 font-mono font-bold text-zinc-900">{item.code}</td>
                               <td className="py-2 font-semibold text-zinc-800">{item.description}</td>
-                              <td className="py-2 text-center font-bold text-zinc-500">{finalExpectedQty.toFixed(0)}</td>
-                              <td className="py-2 text-center font-bold text-zinc-500">{(finalExpectedQty * printingOrder.quantity).toFixed(0)} un</td>
+                              <td className="py-2 text-center font-bold text-zinc-500">
+                                {formatQtyPerKitLabel(
+                                  item.expected_qty,
+                                  item.fator_proporcao_qtd,
+                                  item.fator_proporcao_kits,
+                                )}
+                              </td>
+                              <td className="py-2 text-center font-bold text-zinc-500">{plannedNeed} un</td>
                               <td className="py-2 text-center font-black text-zinc-900">
                                 {printingOrder.status === 'COMPLETED' || item.used_qty !== undefined ? (
-                                  `${usedQty.toFixed(0)} un`
+                                  `${usedQty} un`
                                 ) : (
                                   <div className="border-b border-dashed border-zinc-400 h-4 w-12 mx-auto"></div>
                                 )}
@@ -1037,22 +1145,7 @@ export default function MontagemKitsView({ onBackToHub }) {
         <div className="print:hidden flex-1 flex flex-col overflow-hidden relative">
           <main className="flex-1 overflow-y-auto p-6 flex flex-col">
             <div className="flex items-center justify-between mb-6 no-print">
-              <div>
-                <h2 className="text-xl font-bold tracking-tight text-zinc-900">
-                  {activeSubTab === 'ordens' && 'Ordens de Montagem de Kits'}
-                  {activeSubTab === 'componentes' && 'Componentes e Alertas de Estoque'}
-                  {activeSubTab === 'composicao' && 'Composição de Kits Comerciais'}
-                  {activeSubTab === 'vira_ordens' && 'Ordens de Conversão de Produto'}
-                  {activeSubTab === 'vira_composicao' && 'Composição de Conversões de Produto'}
-                </h2>
-                <p className="text-xs text-zinc-500 mt-0.5">
-                  {activeSubTab === 'ordens' && 'Gerencie e acompanhe a montagem de kits comerciais.'}
-                  {activeSubTab === 'componentes' && 'Verifique a disponibilidade de componentes individuais para montagem.'}
-                  {activeSubTab === 'composicao' && 'Gerencie a relação de componentes que compõem cada kit comercial.'}
-                  {activeSubTab === 'vira_ordens' && 'Gerencie a conversão, reetiquetagem e reenvase de produtos acabados.'}
-                  {activeSubTab === 'vira_composicao' && 'Vincule a relação de produtos origem/destino para ordens de conversão.'}
-                </p>
-              </div>
+              <div />
               <div className="flex items-center gap-3">
                 {activeSubTab === 'ordens' && (
                   <button 
@@ -1394,8 +1487,19 @@ export default function MontagemKitsView({ onBackToHub }) {
                                         {k.componentes?.map(comp => (
                                           <tr key={comp.codigo} className="border-b border-zinc-100 last:border-none">
                                             <td className="py-2.5 font-bold text-zinc-800">{comp.codigo}</td>
-                                            <td className="py-2.5 text-zinc-700">{comp.descricao}</td>
-                                            <td className="py-2.5 text-center font-bold text-zinc-900">{comp.quantidade}</td>
+                                            <td className="py-2.5 text-zinc-700">
+                                              <span className="block">{comp.descricao}</span>
+                                              {comp.fonte === 'item' && (
+                                                <span className="text-[9px] font-bold uppercase tracking-wide text-amber-700">embalagem/insumo</span>
+                                              )}
+                                            </td>
+                                            <td className="py-2.5 text-center font-bold text-zinc-900">
+                                              {formatQtyPerKitLabel(
+                                                Number(comp.quantidade) || 1,
+                                                comp.fator_proporcao_qtd,
+                                                comp.fator_proporcao_kits,
+                                              )}
+                                            </td>
                                             <td className="py-2.5 text-right font-bold text-zinc-900">{comp.estoque} un</td>
                                             <td className="py-2.5 text-right text-zinc-500">{comp.producao} un</td>
                                             <td className="py-2.5 text-right text-zinc-500">{comp.pedidos_aberto} un</td>
@@ -1405,7 +1509,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                                                   ? 'bg-rose-50 text-rose-700' 
                                                   : 'bg-zinc-100 text-zinc-450'
                                               }`}>
-                                                {comp.necessita_producao ? 'Sim' : 'Não'}
+                                                {comp.fonte === 'item' ? '—' : (comp.necessita_producao ? 'Sim' : 'Não')}
                                               </span>
                                             </td>
                                           </tr>
@@ -1430,147 +1534,121 @@ export default function MontagemKitsView({ onBackToHub }) {
         {/* TAB 3: COMPOSIÇÃO DE KITS */}
         {activeSubTab === 'composicao' && (
           <div className="space-y-4 animate-in fade-in duration-200 flex-1 flex flex-col overflow-hidden">
-            {/* Form to add a new relation & spreadsheet import */}
-            <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-5 space-y-4 shrink-0">
-              <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-                
-                {/* Add relation Form */}
-                <form onSubmit={handleAddKitComposicao} className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-zinc-400 uppercase">Código do Kit</label>
-                    <input
-                      type="text"
-                      placeholder="Ex: 2.11.064"
-                      value={kitCompNewKit}
-                      onChange={(e) => setKitCompNewKit(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold"
-                      list="produtos-list"
-                      required
-                    />
-                    {getKitNamePreview() && (
-                      <div className="text-[10px] text-zinc-550 font-semibold truncate max-w-xs">{getKitNamePreview()}</div>
-                    )}
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-zinc-400 uppercase">Código do Componente</label>
-                    <input
-                      type="text"
-                      placeholder="Ex: 70.12.010"
-                      value={kitCompNewComp}
-                      onChange={(e) => setKitCompNewComp(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold"
-                      list="produtos-list"
-                      required
-                    />
-                    {getCompNamePreview() && (
-                      <div className="text-[10px] text-zinc-550 font-semibold truncate max-w-xs">{getCompNamePreview()}</div>
-                    )}
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-zinc-400 uppercase">Qtd/Kit</label>
-                    <input
-                      type="number"
-                      min="1"
-                      placeholder="Qtd"
-                      value={kitCompNewQty}
-                      onChange={(e) => setKitCompNewQty(parseInt(e.target.value) || 1)}
-                      className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold"
-                      required
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-colors cursor-pointer h-[36px]"
-                  >
-                    Vincular Componente
-                  </button>
-                </form>
-
-                {/* Excel import */}
-                <div className="shrink-0 flex items-center">
-                  <label className="bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5 h-[36px]">
-                    <UploadCloud className="w-4 h-4 text-zinc-500" />
-                    {uploadingKitsConfig ? 'Enviando...' : 'Importar Excel (.xlsx)'}
-                    <input
-                      type="file"
-                      accept=".xlsx"
-                      className="hidden"
-                      onChange={handleUploadKitsConfig}
-                      disabled={uploadingKitsConfig}
-                    />
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            {/* Table of Composition */}
-            <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col flex-1">
-              {/* Search Bar inside Table Panel */}
-              <div className="p-4 border-b border-zinc-100 flex items-center shrink-0">
-                <div className="relative w-72">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+            {/* Toolbar com importação Excel e busca */}
+            <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-5 flex flex-col md:flex-row items-center justify-between gap-4 shrink-0">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className="relative w-full max-w-md">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                   <input
                     type="text"
-                    placeholder="Buscar por Kit ou Componente..."
+                    placeholder="Buscar kit por código ou descrição..."
                     value={kitCompSearch}
                     onChange={(e) => setKitCompSearch(e.target.value)}
-                    className="w-full pl-9 pr-4 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-medium"
+                    className="w-full pl-9 pr-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-900 text-xs font-medium transition-all"
                   />
                 </div>
               </div>
 
-              {/* Scrollable Table Wrapper */}
-              <div className="overflow-y-auto flex-1">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500 sticky top-0 z-10">
-                    <tr>
-                      <th className="px-6 py-3">Código do Kit</th>
-                      <th className="px-6 py-3">Descrição do Kit</th>
-                      <th className="px-6 py-3">Código do Componente</th>
-                      <th className="px-6 py-3">Descrição do Componente</th>
-                      <th className="px-6 py-3 text-center">Qtd/Kit</th>
-                      <th className="px-6 py-3 text-center w-28">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-100">
-                    {kitComposicao.filter(row => 
-                      (row.kit_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase()) || 
-                      (row.kit_descricao || '').toLowerCase().includes(kitCompSearch.toLowerCase()) ||
-                      (row.componente_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase()) ||
-                      (row.componente_descricao || '').toLowerCase().includes(kitCompSearch.toLowerCase())
-                    ).length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="p-8 text-center text-zinc-455 font-bold">
-                          Nenhuma relação de composição de kits encontrada.
-                        </td>
-                      </tr>
-                    ) : (
-                      kitComposicao.filter(row => 
-                        (row.kit_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase()) || 
-                        (row.kit_descricao || '').toLowerCase().includes(kitCompSearch.toLowerCase()) ||
-                        (row.componente_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase()) ||
-                        (row.componente_descricao || '').toLowerCase().includes(kitCompSearch.toLowerCase())
-                      ).map((row) => (
-                        <tr key={`${row.kit_codigo}-${row.componente_codigo}`} className="hover:bg-zinc-50/50 transition-colors">
-                          <td className="px-6 py-3 font-mono font-bold text-zinc-800">{row.kit_codigo}</td>
-                          <td className="px-6 py-3 font-bold text-zinc-900">{row.kit_descricao}</td>
-                          <td className="px-6 py-3 font-mono text-zinc-650">{row.componente_codigo}</td>
-                          <td className="px-6 py-3 text-zinc-700">{row.componente_descricao}</td>
-                          <td className="px-6 py-3 text-center font-bold text-zinc-900">{row.quantidade}</td>
-                          <td className="px-6 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+              {/* Excel import & Compor Novo Kit */}
+              <div className="shrink-0 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsNewKitModalOpen(true)}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5 h-[36px]"
+                >
+                  <Plus className="w-4 h-4" />
+                  Compor Novo Kit
+                </button>
+
+                <label className="bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5 h-[36px]">
+                  <UploadCloud className="w-4 h-4 text-zinc-500" />
+                  {uploadingKitsConfig ? 'Importando...' : 'Importar Excel (.xlsx)'}
+                  <input
+                    type="file"
+                    accept=".xlsx"
+                    className="hidden"
+                    onChange={handleUploadKitsConfig}
+                    disabled={uploadingKitsConfig}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Lista Mestre-Detalhe dos Kits Montáveis */}
+            <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col flex-1">
+              <div className="px-6 py-3.5 bg-zinc-50 border-b border-zinc-200 flex items-center justify-between text-xs font-bold text-zinc-600">
+                <span>Catálogo de Kits Montáveis ({masterKitsList.length})</span>
+                <span className="text-[11px] text-zinc-400 font-normal">Clique em um kit para gerenciar seus insumos/proporções</span>
+              </div>
+
+              <div className="overflow-y-auto flex-1 p-4">
+                {masterKitsList.length === 0 ? (
+                  <div className="p-12 text-center text-zinc-400 font-bold space-y-2">
+                    <Layers className="w-8 h-8 mx-auto text-zinc-300" />
+                    <p>Nenhum kit encontrado.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                    {masterKitsList.map((kit) => {
+                      const kitItems = kitComposicao.filter(row => row.kit_codigo === kit.codigo);
+                      const compCount = kitItems.length;
+                      return (
+                        <div
+                          key={kit.codigo}
+                          onClick={() => {
+                            setSelectedDrawerKitCode(kit.codigo);
+                            setSelectedDrawerKitDesc(kit.descricao);
+                            setIsDrawerOpen(true);
+                          }}
+                          className="p-4 bg-white border border-zinc-200 hover:border-zinc-900 rounded-2xl shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between gap-4 group relative overflow-hidden"
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-xs font-extrabold px-2.5 py-1 bg-zinc-100 group-hover:bg-zinc-900 group-hover:text-white text-zinc-900 rounded-lg transition-colors">
+                                {kit.codigo}
+                              </span>
+                              {compCount > 0 ? (
+                                <span className="px-2.5 py-1 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-full font-bold text-[11px] inline-flex items-center gap-1">
+                                  <Layers className="w-3.5 h-3.5 text-emerald-600" />
+                                  {compCount} {compCount === 1 ? 'insumo' : 'insumos'}
+                                </span>
+                              ) : (
+                                <span className="px-2.5 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-full font-bold text-[11px] inline-flex items-center gap-1 animate-pulse">
+                                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                  Sem composição
+                                </span>
+                              )}
+                            </div>
+
+                            <h4 className="text-sm font-bold text-zinc-900 line-clamp-2 leading-snug">
+                              {kit.descricao}
+                            </h4>
+                          </div>
+
+                          <div className="pt-3 border-t border-zinc-100 flex items-center justify-between text-xs">
+                            <div className="text-[11px] text-zinc-500 font-medium">
+                              {compCount > 0 ? (
+                                <span className="text-zinc-600">
+                                  Insumos ativos vinculados
+                                </span>
+                              ) : (
+                                <span className="text-amber-600 font-semibold">
+                                  Configure a estrutura do kit
+                                </span>
+                              )}
+                            </div>
                             <button
-                              onClick={() => handleDeleteKitComposicao(row.kit_codigo, row.componente_codigo)}
-                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-150 transition-colors cursor-pointer inline-flex items-center justify-center"
-                              title="Desvincular componente do kit"
+                              type="button"
+                              className="px-3 py-1.5 bg-zinc-100 group-hover:bg-zinc-900 text-zinc-700 group-hover:text-white rounded-xl font-bold transition-all inline-flex items-center gap-1.5 shadow-xs"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              Ver / Editar
                             </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1960,21 +2038,39 @@ export default function MontagemKitsView({ onBackToHub }) {
                   </p>
                   
                   <div className="space-y-2.5 max-h-48 overflow-y-auto pr-1">
-                    {selectedKitObj.componentes.map(comp => (
+                    {selectedKitObj.componentes.map(comp => {
+                      const kitQty = parseFloat(String(newKitQty)) || 0;
+                      const need = kitComponentNeedQty(
+                        Number(comp.quantidade) || 1,
+                        kitQty,
+                        comp.fator_proporcao_qtd,
+                        comp.fator_proporcao_kits,
+                      );
+                      return (
                       <div key={comp.codigo} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-150 pb-2 last:border-none">
                         <div className="flex-1 truncate">
                           <span className="font-bold text-zinc-900 text-[11px] block truncate">{comp.descricao}</span>
-                          <span className="text-[9px] text-zinc-500">REF: {comp.codigo} | Qtd/Kit: {comp.quantidade || 1} un | Nec: {(comp.quantidade || 1) * newKitQty} un</span>
+                          <span className="text-[9px] text-zinc-500">
+                            REF: {comp.codigo} |{' '}
+                            {formatQtyPerKitLabel(
+                              Number(comp.quantidade) || 1,
+                              comp.fator_proporcao_qtd,
+                              comp.fator_proporcao_kits,
+                            )}{' '}
+                            | Nec: <strong className="text-zinc-800">{need} un</strong>
+                            {comp.fonte === 'item' ? ' · embalagem/insumo' : ''}
+                          </span>
                         </div>
                         <input
                           type="text"
-                          placeholder="Lote do produto..."
+                          placeholder={comp.fonte === 'item' ? 'Lote / lote embalagem…' : 'Lote do produto...'}
                           value={newComponentLotes[comp.codigo] || ''}
                           onChange={(e) => setNewComponentLotes({ ...newComponentLotes, [comp.codigo]: e.target.value })}
                           className="border border-zinc-350 bg-white rounded-lg px-2.5 py-1.5 text-xs w-full sm:w-44 focus:outline-none"
                         />
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -2136,12 +2232,28 @@ export default function MontagemKitsView({ onBackToHub }) {
                         </p>
                         
                         <div className="space-y-2.5 max-h-48 overflow-y-auto pr-1">
-                          {list.map(item => (
+                          {list.map(item => {
+                            const planned = kitOrderComponentNeed(item, selectedOrder.quantity || 0);
+                            const used =
+                              editComponentUsedQty[item.code] !== undefined
+                                ? editComponentUsedQty[item.code]
+                                : kitOrderComponentNeed(
+                                    item,
+                                    parseFloat(editQuantityAssembled) || selectedOrder.quantity || 0,
+                                  );
+                            return (
                             <div key={item.code} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-150 pb-2 last:border-none">
                               <div className="flex-1 truncate">
                                 <span className="font-bold text-zinc-900 text-[11px] block truncate">{item.description}</span>
                                 <span className="text-[9px] text-zinc-555">
-                                  REF: {item.code} | Qtd p/ Kit: {item.expected_qty.toFixed(0)} un | Nec Programada: {(item.expected_qty * selectedOrder.quantity).toFixed(0)} un
+                                  REF: {item.code} |{' '}
+                                  {formatQtyPerKitLabel(
+                                    item.expected_qty,
+                                    item.fator_proporcao_qtd,
+                                    item.fator_proporcao_kits,
+                                  )}{' '}
+                                  | Nec: <strong>{planned} un</strong>
+                                  {editStatus === 'COMPLETED' ? ` | Usada: ${used} un` : ''}
                                 </span>
                               </div>
                               <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -2161,14 +2273,22 @@ export default function MontagemKitsView({ onBackToHub }) {
                                     type="number"
                                     step="any"
                                     placeholder="Qtd..."
-                                    value={editComponentUsedQty[item.code] !== undefined ? editComponentUsedQty[item.code] : (item.expected_qty * editQuantityAssembled)}
+                                    value={
+                                      editComponentUsedQty[item.code] !== undefined
+                                        ? editComponentUsedQty[item.code]
+                                        : kitOrderComponentNeed(
+                                            item,
+                                            parseFloat(editQuantityAssembled) || 0,
+                                          )
+                                    }
                                     onChange={(e) => setEditComponentUsedQty({ ...editComponentUsedQty, [item.code]: e.target.value })}
                                     className="border border-zinc-300 bg-white rounded-lg px-2.5 py-1 text-xs w-20 focus:outline-none font-semibold text-zinc-900"
                                   />
                                 </div>
                               </div>
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     );
@@ -2451,6 +2571,131 @@ export default function MontagemKitsView({ onBackToHub }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      <KitCompositionDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+        kitCodigo={selectedDrawerKitCode}
+        kitDescricao={selectedDrawerKitDesc}
+        onCompositionUpdated={() => {
+          fetchKitComposicao();
+          fetchKits();
+        }}
+      />
+
+      {/* MODAL: SELECIONAR NOVO KIT PARA COMPOSIÇÃO */}
+      {isNewKitModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[85vh] overflow-hidden flex flex-col">
+            <div className="flex justify-between items-center border-b border-zinc-150 pb-3 shrink-0">
+              <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-2">
+                <PlusCircle className="h-5 w-5 text-emerald-600 animate-pulse" />
+                Definir Composição para Novo Kit
+              </h3>
+              <button 
+                onClick={() => { setIsNewKitModalOpen(false); setNewKitSearch(''); }}
+                className="p-1.5 hover:bg-zinc-100 rounded-full text-zinc-450 hover:text-zinc-900 cursor-pointer transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-3 flex-1 flex flex-col overflow-hidden">
+              <p className="text-xs text-zinc-500 font-medium">
+                Pesquise e selecione qualquer produto cadastrado no sistema para iniciar a definição da sua composição (estrutura de insumos).
+              </p>
+
+              <div className="relative shrink-0">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <input
+                  type="text"
+                  placeholder="Pesquise por código ou descrição do produto..."
+                  value={newKitSearch}
+                  onChange={(e) => setNewKitSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-900 text-xs font-semibold text-zinc-900"
+                />
+              </div>
+
+              <div className="flex-1 overflow-y-auto border border-zinc-200 rounded-xl divide-y divide-zinc-100">
+                {products
+                  .filter(p => {
+                    if (!newKitSearch.trim()) return false;
+                    const q = newKitSearch.toLowerCase();
+                    return (
+                      (p.codigo || '').toLowerCase().includes(q) ||
+                      (p.descricao || '').toLowerCase().includes(q)
+                    );
+                  })
+                  .slice(0, 50)
+                  .map(p => {
+                    const isAlreadyKit = kitComposicao.some(kc => kc.kit_codigo === p.codigo);
+                    return (
+                      <button
+                        key={p.codigo}
+                        type="button"
+                        onClick={() => {
+                          setSelectedDrawerKitCode(p.codigo);
+                          setSelectedDrawerKitDesc(p.descricao);
+                          setIsDrawerOpen(true);
+                          setIsNewKitModalOpen(false);
+                          setNewKitSearch('');
+                        }}
+                        className="w-full text-left p-3 hover:bg-zinc-50 flex items-center justify-between gap-3 transition-colors cursor-pointer"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-[11px] font-bold bg-zinc-100 text-zinc-700 px-2 py-0.5 rounded-md border border-zinc-200">
+                              {p.codigo}
+                            </span>
+                            <span className="text-xs font-bold text-zinc-950 truncate">
+                              {p.descricao}
+                            </span>
+                          </div>
+                        </div>
+                        {isAlreadyKit ? (
+                          <span className="text-[10px] font-bold text-zinc-400 shrink-0">
+                            Já possui composição
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-md shrink-0">
+                            Iniciar composição
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                {newKitSearch.trim() && products.filter(p => {
+                  const q = newKitSearch.toLowerCase();
+                  return (
+                    (p.codigo || '').toLowerCase().includes(q) ||
+                    (p.descricao || '').toLowerCase().includes(q)
+                  );
+                }).length === 0 && (
+                  <div className="p-8 text-center text-zinc-400 font-bold text-xs">
+                    Nenhum produto encontrado com essa busca.
+                  </div>
+                )}
+                {!newKitSearch.trim() && (
+                  <div className="p-8 text-center text-zinc-450 font-bold text-xs space-y-1">
+                    <Search className="w-5 h-5 text-zinc-350 mx-auto" />
+                    <p>Comece a digitar para pesquisar produtos.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-zinc-150 flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => { setIsNewKitModalOpen(false); setNewKitSearch(''); }}
+                className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1,31 +1,60 @@
 ---
 name: natumhub-resolve-bugs
 description: >-
-  Resolve bugs do NatumHub a partir da fila em Feedbacks/feedback.md: lê logs,
-  screenshot, triagem.md, corrige código FE/BE e preenche resolucao.md.
-  Use quando o usuário pedir resolver bug, corrigir feedback, executar fila,
-  trabalhar em item da fila de execução ou analisar report pendente.
+  Resolve bugs do NatumHub a partir da fila no PostgreSQL (feedbacks com status
+  queued/in_progress): lê logs/screenshot no banco, corrige código FE/BE, grava
+  nota de resolução e marca awaiting_review (Em aberto). Use quando o usuário
+  pedir resolver bug, corrigir feedback, executar fila ou analisar report pendente.
 ---
 
 # NatumHub — Skill: Resolver Bugs
 
 ## Quando usar
 
-Executar correções a partir da **fila de feedbacks** ou de um report específico.
+Executar correções a partir da **fila de feedbacks no banco** (ou ID pedido pelo usuário).
 
 ## Workflow (obrigatório)
 
 ```
-- [ ] 1. Ler Feedbacks/feedback.md → seção "Fila de execução"
-- [ ] 2. Escolher item de menor Prio (ou ID pedido pelo usuário)
-- [ ] 3. Abrir Feedbacks/feedback_<id>/ — feedback.json, triagem.md, logs.txt, screenshot.png
+- [ ] 1. Consultar Postgres: status IN ('queued','in_progress') ORDER BY priority ASC
+- [ ] 2. Escolher menor priority (ou ID pedido)
+- [ ] 3. Ler description, page, logs, screenshot, admin_notes + feedback_notes
 - [ ] 4. Reproduzir mentalmente: página, logs, descrição
 - [ ] 5. Localizar código (mapa: ContextoIA/arquitetura/mapa_pastas.md)
 - [ ] 6. Fix mínimo — seguir convenções do módulo vizinho
 - [ ] 7. cargo check + npm run build
-- [ ] 8. Preencher Feedbacks/feedback_<id>/resolucao.md
-- [ ] 9. Informar admin para marcar resolved (ou documentar no PR)
+- [ ] 8. INSERT em feedback_notes com o texto de resolução (author = 'IA')
+- [ ] 9. UPDATE feedbacks SET status = 'awaiting_review' (vai para Em aberto)
+- [ ] 10. Informar o usuário: item em Em aberto para conferencia/finalização
 ```
+
+**Não** marcar `resolved` — isso é do supervisor na aba Em aberto.  
+**Não** usar pastas `Feedbacks/feedback_<id>/` nem `resolucao.md`.
+
+## SQL de referência
+
+```sql
+-- Fila
+SELECT id, priority, type AS feedback_type, description, page, logs,
+       LEFT(screenshot, 80) AS screenshot_preview, admin_notes, requested_by
+FROM feedbacks
+WHERE status IN ('queued', 'in_progress')
+ORDER BY priority ASC, "createdAt" ASC
+LIMIT 20;
+
+-- Fechar trabalho do agente (após INSERT da nota)
+UPDATE feedbacks
+SET status = 'awaiting_review'
+WHERE id = $1 AND status IN ('queued', 'in_progress');
+```
+
+Acesso obrigatório ao banco:
+1. Ler `DATABASE_URL` em `C:\api\Saves\postgres.env` (workspace)
+2. Tabelas `feedbacks` / `feedback_notes`
+3. Playbook: `Feedbacks/feedback.md`
+
+Instalado: `%LOCALAPPDATA%\NatumHub\Saves\postgres.env`  
+Detalhes: `ContextoIA/feedbacks/README.md`.
 
 ## Leitura dirigida (economia de tokens)
 
@@ -49,21 +78,19 @@ Executar correções a partir da **fila de feedbacks** ou de um report específi
 | Secundário sem dados | Client mode | `connectionConfig.ts`, API remota |
 | Sync falhou | SQL/ERP | skill `natumhub-erp-sql` |
 
-## Template resolucao.md
+## Template da nota de resolução (`feedback_notes.body`)
 
-```markdown
-# Resolução — Feedback <id>
-
-**Data:** YYYY-MM-DD HH:MM
-**Causa:** [1–2 frases]
-**Correção:** [o que mudou]
-**Arquivos:** [lista]
-**Validação:** cargo check ✓ · npm run build ✓
+```text
+Resolução — <data>
+Causa: …
+Correção: …
+Arquivos: …
+Validação: cargo check ✓ · npm run build ✓
 ```
 
 ## Regras
 
 - Um bug por vez quando possível — diff focado.
-- Não marcar `resolved` no DB via hack — admin usa painel ou API PUT.
-- Se `wont_fix`: documentar motivo em `resolucao.md` e parar.
+- Após o fix: nota + `awaiting_review` (Em aberto). Nunca `resolved` pelo agente.
+- Se `wont_fix`: documentar motivo em nota e parar (só admin deve setar esse status).
 - Respostas ao usuário em **pt-BR**.

@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 /// Status do feedback na triagem admin.
-/// pending → queued/in_progress → awaiting_review → resolved | wont_fix
+/// pending → queued/in_progress → awaiting_review (Em aberto) → resolved | wont_fix
+/// Fonte de verdade: Postgres. Agente grava nota em feedback_notes e move para awaiting_review.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Feedback {
@@ -20,6 +21,14 @@ pub struct Feedback {
     pub priority: i32,
     #[serde(default)]
     pub admin_notes: Option<String>,
+    /// Presente na listagem admin (sem payload pesado).
+    #[serde(default)]
+    pub has_logs: bool,
+    #[serde(default)]
+    pub has_screenshot: bool,
+    /// Quantidade de notas em `feedback_notes` (listagem).
+    #[serde(default)]
+    pub notes_count: i32,
 }
 
 fn default_priority() -> i32 {

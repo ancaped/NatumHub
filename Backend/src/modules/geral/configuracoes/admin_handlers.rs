@@ -1,14 +1,18 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     Json,
 };
+use serde::Deserialize;
 use serde_json::json;
 use sqlx::Row;
 use std::sync::Arc;
 
 use crate::handlers::AppState;
+use crate::modules::geral::configuracoes::pg_backup::{
+    self, BackupTier, PgBackupConfig,
+};
 
 /// GET /api/admin/db-usage — tamanho do banco e top tabelas (supervisor).
 pub async fn get_db_usage(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -16,6 +20,76 @@ pub async fn get_db_usage(State(state): State<Arc<AppState>>) -> impl IntoRespon
         Ok(payload) => (StatusCode::OK, Json(payload)).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response(),
+    }
+}
+
+/// GET /api/admin/pg-backup — status + config de backup Postgres local.
+pub async fn get_pg_backup_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match pg_backup::build_status(&state).await {
+        Ok(body) => (StatusCode::OK, Json(body)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response(),
+    }
+}
+
+/// POST /api/admin/pg-backup/config — salva retenção e pasta local.
+pub async fn save_pg_backup_config(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<PgBackupConfig>,
+) -> impl IntoResponse {
+    match pg_backup::save_config(&state, body).await {
+        Ok(cfg) => (
+            StatusCode::OK,
+            Json(json!({
+                "status": "success",
+                "config": cfg,
+                "pastaEfetiva": pg_backup::resolve_backup_root(&cfg).display().to_string(),
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": e })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PgBackupRunQuery {
+    /// hourly | daily | weekly | monthly (padrão: daily)
+    pub tier: Option<String>,
+}
+
+/// POST /api/admin/pg-backup/run — dispara backup manual agora.
+pub async fn run_pg_backup_now(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<PgBackupRunQuery>,
+) -> impl IntoResponse {
+    let tier = match q.tier.as_deref().unwrap_or("daily").to_ascii_lowercase().as_str() {
+        "hourly" => BackupTier::Hourly,
+        "weekly" => BackupTier::Weekly,
+        "monthly" => BackupTier::Monthly,
+        _ => BackupTier::Daily,
+    };
+    match pg_backup::run_manual(&state, tier).await {
+        Ok(path) => (
+            StatusCode::OK,
+            Json(json!({
+                "status": "success",
+                "tier": tier.as_str(),
+                "path": path.display().to_string(),
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
             Json(json!({ "error": e })),
         )
             .into_response(),

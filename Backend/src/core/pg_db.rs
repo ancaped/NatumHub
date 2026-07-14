@@ -173,6 +173,7 @@ pub async fn create_pool() -> Result<PgPool, String> {
 /// Libera locks `em_andamento` velhos (crash / kill mid-sync).
 async fn reclaim_stale_sync_locks(pool: &PgPool) -> Result<(), String> {
     let today = Local::now().date_naive();
+    // Full history pode passar de 1h — mas 3h órfão = crash.
     sqlx::query(
         "DELETE FROM sync_status
          WHERE status = 'em_andamento'
@@ -185,6 +186,55 @@ async fn reclaim_stale_sync_locks(pool: &PgPool) -> Result<(), String> {
     .execute(pool)
     .await
     .map_err(|e| format!("Erro ao limpar sync antigo: {e}"))?;
+    Ok(())
+}
+
+/// Snapshot do lock diário (painel supervisor / FE).
+pub async fn daily_sync_lock_status(pool: &PgPool) -> Result<serde_json::Value, String> {
+    reclaim_stale_sync_locks(pool).await?;
+    let today = Local::now().date_naive();
+    let row = sqlx::query(
+        "SELECT status,
+                to_char(inicio AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS started_at,
+                EXTRACT(EPOCH FROM (NOW() - COALESCE(inicio, NOW())))::float8 AS age_secs
+         FROM sync_status WHERE data_sync = $1",
+    )
+    .bind(today)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("Erro ao ler sync_status: {e}"))?;
+
+    match row {
+        Some(r) => {
+            let status: String = r.get("status");
+            let started_at: Option<String> = r.try_get("started_at").ok().flatten();
+            let age: f64 = r.try_get("age_secs").unwrap_or(0.0);
+            Ok(serde_json::json!({
+                "running": status == "em_andamento",
+                "status": status,
+                "startedAt": started_at,
+                "ageSeconds": age.round() as i64,
+                "date": today.format("%Y-%m-%d").to_string(),
+            }))
+        }
+        None => Ok(serde_json::json!({
+            "running": false,
+            "status": null,
+            "startedAt": null,
+            "ageSeconds": 0,
+            "date": today.format("%Y-%m-%d").to_string(),
+        })),
+    }
+}
+
+/// Força liberação do lock (supervisor) quando o sync travou.
+pub async fn force_release_daily_sync(pool: &PgPool) -> Result<(), String> {
+    let today = Local::now().date_naive();
+    sqlx::query("DELETE FROM sync_status WHERE data_sync = $1")
+        .bind(today)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Erro ao forçar liberação do sync: {e}"))?;
     Ok(())
 }
 

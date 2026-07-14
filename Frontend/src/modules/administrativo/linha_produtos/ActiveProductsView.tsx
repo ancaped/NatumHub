@@ -3,11 +3,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ArrowLeft, Search, CheckCircle2, RefreshCw, X, ShieldAlert,
   Edit, Info, Check, Filter, Layers, ListFilter, AlertTriangle, HelpCircle,
-  Database, Trash2, Plus, Loader2, Settings, Rocket, GraduationCap, UploadCloud
+  Database, Trash2, Plus, PlusCircle, Loader2, Settings, Rocket, GraduationCap, UploadCloud
 } from 'lucide-react';
 import { cn } from '../../geral/lib/utils';
 import { Category, PRODUCT_LINE_STATUSES, GraduationCandidate } from '../../geral/lib/types';
 import { api } from '../../geral/lib/api';
+import KitCompositionDrawer from '../../producao/components/KitCompositionDrawer';
 
 
 interface ProductOverride {
@@ -67,6 +68,7 @@ interface ActiveProductsViewProps {
 
 export default function ActiveProductsView({ onBackToHub, standalone = false }: ActiveProductsViewProps) {
   const [products, setProducts] = useState<ProductResult[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [configs, setConfigs] = useState<LineConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -112,6 +114,62 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const [kitCompSearch, setKitCompSearch] = useState('');
   const [uploadingKitsConfig, setUploadingKitsConfig] = useState(false);
 
+  // States: Drawer de Composição de Kits
+  const [selectedDrawerKitCode, setSelectedDrawerKitCode] = useState('');
+  const [selectedDrawerKitDesc, setSelectedDrawerKitDesc] = useState('');
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  // States: Compor Novo Kit Modal
+  const [isNewKitModalOpen, setIsNewKitModalOpen] = useState(false);
+  const [newKitSearch, setNewKitSearch] = useState('');
+
+  // Lista Mestre unificada de Kits Montáveis
+  const masterKitsList = useMemo(() => {
+    const map = new Map<string, { codigo: string; descricao: string; status?: string; categoria?: string }>();
+    
+    // 1. Identificar categorias de Kit cadastradas no banco
+    const kitCategoryIds = categories
+      .filter(c => {
+        const name = (c.name || '').toLowerCase();
+        return name === 'kits' || name === 'kit';
+      })
+      .map(c => c.id);
+
+    // 2. Adicionar produtos com a categoria de Kits
+    products.forEach(p => {
+      const isKit = p.categoria_produto === 'kit' || (p.categoria_produto && kitCategoryIds.includes(p.categoria_produto));
+      if (isKit && p.codigo) {
+        map.set(p.codigo, {
+          codigo: p.codigo,
+          descricao: p.descricao || 'Kit Montável',
+          status: p.status_produto,
+          categoria: p.categoria_produto
+        });
+      }
+    });
+
+    // 3. Adicionar composições existentes para não ocultar nada preexistente
+    kitComposicao.forEach(kc => {
+      if (kc.kit_codigo && !map.has(kc.kit_codigo)) {
+        map.set(kc.kit_codigo, {
+          codigo: kc.kit_codigo,
+          descricao: kc.kit_descricao || 'Kit Montável',
+          status: 'Ativo',
+          categoria: 'kit'
+        });
+      }
+    });
+
+    const list = Array.from(map.values()).sort((a, b) => (a.codigo || '').localeCompare(b.codigo || ''));
+    if (!kitCompSearch.trim()) return list;
+    const q = kitCompSearch.trim().toLowerCase();
+    return list.filter(k => 
+      (k.codigo || '').toLowerCase().includes(q) || 
+      (k.descricao || '').toLowerCase().includes(q)
+    );
+  }, [categories, products, kitComposicao, kitCompSearch]);
+
+
   // Reset selections when active tab changes
   useEffect(() => {
     setSelectedCodes(new Set());
@@ -135,7 +193,6 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const [allOverrides, setAllOverrides] = useState<ProductOverride[]>([]);
 
   // Category & Ignored status configuration states
-  const [categories, setCategories] = useState<Category[]>([]);
   const [configNewCatName, setConfigNewCatName] = useState('');
   const [configNewCatParent, setConfigNewCatParent] = useState('');
   const [configIgnoredStatuses, setConfigIgnoredStatuses] = useState<string[]>([]);
@@ -903,22 +960,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
       <div className="flex-1 flex flex-col overflow-hidden relative">
         <main className="flex-1 overflow-y-auto p-6 flex flex-col">
           <div className="flex items-center justify-between mb-6 no-print">
-            <div>
-              <h2 className="text-xl font-bold tracking-tight text-zinc-900">
-                {activeAtivosTab === 'status' && 'Status dos Produtos'}
-                {activeAtivosTab === 'linhas' && 'Definição de Linhas'}
-                {activeAtivosTab === 'kits' && 'Composição de Kits Comerciais'}
-                {activeAtivosTab === 'overrides' && 'Audit de Overrides'}
-                {activeAtivosTab === 'configuracoes' && 'Configurações'}
-              </h2>
-              <p className="text-xs text-zinc-500 mt-0.5">
-                {activeAtivosTab === 'status' && 'Configure status, categorias e regras individuais por produto acabado.'}
-                {activeAtivosTab === 'linhas' && 'Gerencie multiplicadores de estoque ideal e segurança para cada linha.'}
-                {activeAtivosTab === 'kits' && 'Gerencie a relação entre os kits comerciais e seus componentes individuais.'}
-                {activeAtivosTab === 'overrides' && 'Visualize todos os overrides manuais ativos e limpe-os de forma centralizada.'}
-                {activeAtivosTab === 'configuracoes' && 'Gerencie categorias, subcategorias e status ignorados.'}
-              </p>
-            </div>
+            <div />
             <button 
               onClick={loadData}
               className="p-2 bg-white border border-zinc-200 hover:bg-zinc-50 rounded-xl text-zinc-650 transition-colors flex items-center gap-1.5 text-xs font-semibold shadow-sm cursor-pointer active:scale-98"
@@ -1105,13 +1147,27 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                               <td className="px-4 py-2.5 max-w-[200px] truncate text-zinc-500 font-medium" title={p.observacao || undefined}>
                                 {p.observacao || '-'}
                               </td>
-                              <td className="px-4 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                              <td className="px-4 py-2.5 text-center flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
                                 <button
                                   onClick={() => handleOpenEdit(p)}
                                   className="p-1.5 hover:bg-zinc-150 text-zinc-400 hover:text-zinc-800 rounded-lg transition-colors cursor-pointer"
+                                  title="Editar Produto"
                                 >
                                   <Edit className="w-4 h-4" />
                                 </button>
+                                {(p.categoria_produto === 'kit' || (p.descricao || '').toLowerCase().includes('kit') || (p.codigo || '').startsWith('2.11.')) && (
+                                  <button
+                                    onClick={() => {
+                                      setSelectedDrawerKitCode(p.codigo);
+                                      setSelectedDrawerKitDesc(p.descricao);
+                                      setIsDrawerOpen(true);
+                                    }}
+                                    className="p-1.5 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-colors cursor-pointer"
+                                    title="Gerenciar Composição do Kit"
+                                  >
+                                    <Layers className="w-4 h-4" />
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           );
@@ -1290,148 +1346,124 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
           {activeAtivosTab === 'kits' && (
             <div className="flex-1 flex flex-col space-y-4 overflow-hidden">
               <span className="text-xs font-bold text-zinc-455 shrink-0">
-                Gerencie a relação de componentes que compõem cada Kit comercial da Natum.
+                Catálogo mestre dos Kits comerciais e montáveis da Natum com suporte a insumos fracionários.
               </span>
 
-              {/* Form to add a new relation & spreadsheet import */}
-              <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-5 space-y-4 shrink-0">
-                <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-                  
-                  {/* Add relation Form */}
-                  <form onSubmit={handleAddKitComposicao} className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-zinc-400 uppercase">Código do Kit</label>
-                      <input
-                        type="text"
-                        placeholder="Ex: 2.11.064"
-                        value={kitCompNewKit}
-                        onChange={(e) => setKitCompNewKit(e.target.value)}
-                        className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold"
-                        required
-                      />
-                      {getKitNamePreview() && (
-                        <div className="text-[10px] text-zinc-550 font-semibold truncate max-w-xs">{getKitNamePreview()}</div>
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-zinc-400 uppercase">Código do Componente</label>
-                      <input
-                        type="text"
-                        placeholder="Ex: 70.12.010"
-                        value={kitCompNewComp}
-                        onChange={(e) => setKitCompNewComp(e.target.value)}
-                        className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold"
-                        required
-                      />
-                      {getCompNamePreview() && (
-                        <div className="text-[10px] text-zinc-550 font-semibold truncate max-w-xs">{getCompNamePreview()}</div>
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-zinc-400 uppercase">Qtd/Kit</label>
-                      <input
-                        type="number"
-                        min="1"
-                        placeholder="Qtd"
-                        value={kitCompNewQty}
-                        onChange={(e) => setKitCompNewQty(parseInt(e.target.value) || 1)}
-                        className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold"
-                        required
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      className="w-full bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-colors cursor-pointer h-[36px]"
-                    >
-                      Vincular Componente
-                    </button>
-                  </form>
-
-                  {/* Excel import */}
-                  <div className="shrink-0 flex items-center">
-                    <label className="bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5 h-[36px]">
-                      <UploadCloud className="w-4 h-4 text-zinc-500" />
-                      {uploadingKitsConfig ? 'Enviando...' : 'Importar Excel (.xlsx)'}
-                      <input
-                        type="file"
-                        accept=".xlsx"
-                        className="hidden"
-                        onChange={handleUploadKitsConfig}
-                        disabled={uploadingKitsConfig}
-                      />
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              {/* Table of Composition */}
-              <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col flex-1">
-                {/* Search Bar inside Table Panel */}
-                <div className="p-4 border-b border-zinc-100 flex items-center shrink-0">
-                  <div className="relative w-72">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+              {/* Toolbar com importação Excel e busca */}
+              <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-5 flex flex-col md:flex-row items-center justify-between gap-4 shrink-0">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className="relative w-full max-w-md">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                     <input
                       type="text"
-                      placeholder="Buscar por Kit ou Componente..."
+                      placeholder="Buscar kit por código ou descrição..."
                       value={kitCompSearch}
                       onChange={(e) => setKitCompSearch(e.target.value)}
-                      className="w-full pl-9 pr-4 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-medium"
+                      className="w-full pl-9 pr-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-900 text-xs font-medium transition-all"
                     />
                   </div>
                 </div>
 
-                {/* Scrollable Table Wrapper */}
-                <div className="overflow-y-auto flex-1">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500 sticky top-0 z-10">
-                      <tr>
-                        <th className="px-6 py-3">Código do Kit</th>
-                        <th className="px-6 py-3">Descrição do Kit</th>
-                        <th className="px-6 py-3">Código do Componente</th>
-                        <th className="px-6 py-3">Descrição do Componente</th>
-                        <th className="px-6 py-3 text-center">Qtd/Kit</th>
-                        <th className="px-6 py-3 text-center w-28">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-100">
-                      {kitComposicao.filter(row => 
-                        (row.kit_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase()) || 
-                        (row.kit_descricao || '').toLowerCase().includes(kitCompSearch.toLowerCase()) || 
-                        (row.componente_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase()) || 
-                        (row.componente_descricao || '').toLowerCase().includes(kitCompSearch.toLowerCase())
-                      ).length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="p-8 text-center text-zinc-400">
-                            Nenhuma relação de composição de kits encontrada.
-                          </td>
-                        </tr>
-                      ) : (
-                        kitComposicao.filter(row => 
-                          (row.kit_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase()) || 
-                          (row.kit_descricao || '').toLowerCase().includes(kitCompSearch.toLowerCase()) || 
-                          (row.componente_codigo || '').toLowerCase().includes(kitCompSearch.toLowerCase()) || 
-                          (row.componente_descricao || '').toLowerCase().includes(kitCompSearch.toLowerCase())
-                        ).map((row) => (
-                          <tr key={`${row.kit_codigo}-${row.componente_codigo}`} className="hover:bg-zinc-50/50 transition-colors">
-                            <td className="px-6 py-3 font-mono font-bold text-zinc-800">{row.kit_codigo}</td>
-                            <td className="px-6 py-3 font-bold text-zinc-900">{row.kit_descricao}</td>
-                            <td className="px-6 py-3 font-mono text-zinc-650">{row.componente_codigo}</td>
-                            <td className="px-6 py-3 text-zinc-700">{row.componente_descricao}</td>
-                            <td className="px-6 py-3 text-center font-bold text-zinc-900">{row.quantidade}</td>
-                            <td className="px-6 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                {/* Excel import & Compor Novo Kit */}
+                <div className="shrink-0 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsNewKitModalOpen(true)}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5 h-[36px]"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Compor Novo Kit
+                  </button>
+
+                  <label className="bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5 h-[36px]">
+                    <UploadCloud className="w-4 h-4 text-zinc-500" />
+                    {uploadingKitsConfig ? 'Importando...' : 'Importar Excel (.xlsx)'}
+                    <input
+                      type="file"
+                      accept=".xlsx"
+                      className="hidden"
+                      onChange={handleUploadKitsConfig}
+                      disabled={uploadingKitsConfig}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Lista Mestre-Detalhe dos Kits Montáveis */}
+              <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col flex-1">
+                <div className="px-6 py-3.5 bg-zinc-50 border-b border-zinc-200 flex items-center justify-between text-xs font-bold text-zinc-600">
+                  <span>Catálogo de Kits Montáveis ({masterKitsList.length})</span>
+                  <span className="text-[11px] text-zinc-400 font-normal">Clique em um kit para gerenciar seus insumos/proporções</span>
+                </div>
+
+                <div className="overflow-y-auto flex-1 p-4">
+                  {masterKitsList.length === 0 ? (
+                    <div className="p-12 text-center text-zinc-400 font-bold space-y-2">
+                      <Layers className="w-8 h-8 mx-auto text-zinc-300" />
+                      <p>Nenhum kit encontrado no catálogo.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                      {masterKitsList.map((kit) => {
+                        const kitItems = kitComposicao.filter(row => row.kit_codigo === kit.codigo);
+                        const compCount = kitItems.length;
+                        return (
+                          <div
+                            key={kit.codigo}
+                            onClick={() => {
+                              setSelectedDrawerKitCode(kit.codigo);
+                              setSelectedDrawerKitDesc(kit.descricao);
+                              setIsDrawerOpen(true);
+                            }}
+                            className="p-4 bg-white border border-zinc-200 hover:border-zinc-900 rounded-2xl shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between gap-4 group relative overflow-hidden"
+                          >
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-mono text-xs font-extrabold px-2.5 py-1 bg-zinc-100 group-hover:bg-zinc-900 group-hover:text-white text-zinc-900 rounded-lg transition-colors">
+                                  {kit.codigo}
+                                </span>
+                                {compCount > 0 ? (
+                                  <span className="px-2.5 py-1 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-full font-bold text-[11px] inline-flex items-center gap-1">
+                                    <Layers className="w-3.5 h-3.5 text-emerald-600" />
+                                    {compCount} {compCount === 1 ? 'insumo' : 'insumos'}
+                                  </span>
+                                ) : (
+                                  <span className="px-2.5 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-full font-bold text-[11px] inline-flex items-center gap-1 animate-pulse">
+                                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                    Sem composição
+                                  </span>
+                                )}
+                              </div>
+
+                              <h4 className="text-sm font-bold text-zinc-900 line-clamp-2 leading-snug">
+                                {kit.descricao}
+                              </h4>
+                            </div>
+
+                            <div className="pt-3 border-t border-zinc-100 flex items-center justify-between text-xs">
+                              <div className="text-[11px] text-zinc-500 font-medium">
+                                {compCount > 0 ? (
+                                  <span className="text-zinc-600">
+                                    Insumos ativos vinculados
+                                  </span>
+                                ) : (
+                                  <span className="text-amber-600 font-semibold">
+                                    Configure a estrutura do kit
+                                  </span>
+                                )}
+                              </div>
                               <button
-                                onClick={() => handleDeleteKitComposicao(row.kit_codigo, row.componente_codigo)}
-                                className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-150 transition-colors cursor-pointer inline-flex items-center justify-center"
-                                title="Desvincular componente do kit"
+                                type="button"
+                                className="px-3 py-1.5 bg-zinc-100 group-hover:bg-zinc-900 text-zinc-700 group-hover:text-white rounded-xl font-bold transition-all inline-flex items-center gap-1.5 shadow-xs"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                Ver / Editar
                               </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -2263,6 +2295,130 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
           </form>
         )}
       </div>
+
+      <KitCompositionDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+        kitCodigo={selectedDrawerKitCode}
+        kitDescricao={selectedDrawerKitDesc}
+        onCompositionUpdated={() => {
+          fetchKitComposicao();
+        }}
+      />
+
+      {/* MODAL: SELECIONAR NOVO KIT PARA COMPOSIÇÃO */}
+      {isNewKitModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[85vh] overflow-hidden flex flex-col">
+            <div className="flex justify-between items-center border-b border-zinc-150 pb-3 shrink-0">
+              <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-2">
+                <PlusCircle className="h-5 w-5 text-emerald-600 animate-pulse" />
+                Definir Composição para Novo Kit
+              </h3>
+              <button 
+                onClick={() => { setIsNewKitModalOpen(false); setNewKitSearch(''); }}
+                className="p-1.5 hover:bg-zinc-100 rounded-full text-zinc-450 hover:text-zinc-900 cursor-pointer transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-3 flex-1 flex flex-col overflow-hidden">
+              <p className="text-xs text-zinc-500 font-medium">
+                Pesquise e selecione qualquer produto cadastrado no sistema para iniciar a definição da sua composição (estrutura de insumos).
+              </p>
+
+              <div className="relative shrink-0">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <input
+                  type="text"
+                  placeholder="Pesquise por código ou descrição do produto..."
+                  value={newKitSearch}
+                  onChange={(e) => setNewKitSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-900 text-xs font-semibold text-zinc-900"
+                />
+              </div>
+
+              <div className="flex-1 overflow-y-auto border border-zinc-200 rounded-xl divide-y divide-zinc-100">
+                {products
+                  .filter(p => {
+                    if (!newKitSearch.trim()) return false;
+                    const q = newKitSearch.toLowerCase();
+                    return (
+                      (p.codigo || '').toLowerCase().includes(q) ||
+                      (p.descricao || '').toLowerCase().includes(q)
+                    );
+                  })
+                  .slice(0, 50)
+                  .map(p => {
+                    const isAlreadyKit = kitComposicao.some(kc => kc.kit_codigo === p.codigo);
+                    return (
+                      <button
+                        key={p.codigo}
+                        type="button"
+                        onClick={() => {
+                          setSelectedDrawerKitCode(p.codigo);
+                          setSelectedDrawerKitDesc(p.descricao);
+                          setIsDrawerOpen(true);
+                          setIsNewKitModalOpen(false);
+                          setNewKitSearch('');
+                        }}
+                        className="w-full text-left p-3 hover:bg-zinc-50 flex items-center justify-between gap-3 transition-colors cursor-pointer"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-[11px] font-bold bg-zinc-100 text-zinc-700 px-2 py-0.5 rounded-md border border-zinc-200">
+                              {p.codigo}
+                            </span>
+                            <span className="text-xs font-bold text-zinc-950 truncate">
+                              {p.descricao}
+                            </span>
+                          </div>
+                        </div>
+                        {isAlreadyKit ? (
+                          <span className="text-[10px] font-bold text-zinc-400 shrink-0">
+                            Já possui composição
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-md shrink-0">
+                            Iniciar composição
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                {newKitSearch.trim() && products.filter(p => {
+                  const q = newKitSearch.toLowerCase();
+                  return (
+                    (p.codigo || '').toLowerCase().includes(q) ||
+                    (p.descricao || '').toLowerCase().includes(q)
+                  );
+                }).length === 0 && (
+                  <div className="p-8 text-center text-zinc-400 font-bold text-xs">
+                    Nenhum produto encontrado com essa busca.
+                  </div>
+                )}
+                {!newKitSearch.trim() && (
+                  <div className="p-8 text-center text-zinc-450 font-bold text-xs space-y-1">
+                    <Search className="w-5 h-5 text-zinc-350 mx-auto" />
+                    <p>Comece a digitar para pesquisar produtos.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-zinc-150 flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => { setIsNewKitModalOpen(false); setNewKitSearch(''); }}
+                className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

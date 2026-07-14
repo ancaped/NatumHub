@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   ClipboardList,
+  Cog,
   DollarSign,
   FileText,
   FlaskConical,
@@ -15,9 +16,12 @@ import {
   Palette,
   ShoppingCart,
   ShoppingBag,
+  Store,
   Tag,
   TrendingUp,
   Truck,
+  Wrench,
+  Warehouse,
 } from 'lucide-react';
 import type { AuthUser } from '../auth';
 import { canAccessView } from '../modules/permissions';
@@ -28,6 +32,7 @@ export const TOP_NAV_GROUP_KEYS = [
   'compras',
   'producao',
   'estoque',
+  'almoxarifado',
   'vendas',
   'qualidade',
   'expedicao',
@@ -72,6 +77,13 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   estoque_embalagens: Layers,
   estoque_coloracao: Palette,
   estoque_apoio: Tag,
+  estoque_itens: Boxes,
+  estoque_almoxarifado: Warehouse,
+  estoque_supermercado: Store,
+  estoque_pecas: Cog,
+  estoque_equipamentos: Wrench,
+  estoque_manutencoes: ClipboardList,
+  compras_almoxarifado: Warehouse,
   admin_linha_produtos: CheckCircle2,
   estoque_ativos: CheckCircle2,
   vendas: TrendingUp,
@@ -82,7 +94,7 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   financeiro: DollarSign,
 };
 
-const DEPRECATED_HUB_VIEWS = new Set(['compras_hub', 'producao_hub', 'estoque_hub', 'vendas_hub']);
+const DEPRECATED_HUB_VIEWS = new Set(['compras_hub', 'producao_hub', 'estoque_hub', 'almoxarifado_hub', 'vendas_hub']);
 
 export function isDeprecatedHubView(view: string): boolean {
   return DEPRECATED_HUB_VIEWS.has(view);

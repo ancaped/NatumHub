@@ -54,3 +54,19 @@ pub fn pg_i32(row: &PgRow, idx: usize) -> i32 {
 pub fn pg_opt_i32(row: &PgRow, idx: usize) -> Option<i32> {
     pg_opt_i64(row, idx).map(|v| v as i32)
 }
+
+pub fn pg_opt_f64(row: &PgRow, idx: usize) -> Option<f64> {
+    if let Ok(Some(v)) = row.try_get::<Option<f64>, _>(idx) {
+        return Some(v);
+    }
+    if let Ok(Some(v)) = row.try_get::<Option<i32>, _>(idx) {
+        return Some(v as f64);
+    }
+    if let Ok(Some(v)) = row.try_get::<Option<i64>, _>(idx) {
+        return Some(v as f64);
+    }
+    if let Ok(None) = row.try_get::<Option<f64>, _>(idx) {
+        return None;
+    }
+    None
+}

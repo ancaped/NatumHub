@@ -12,7 +12,7 @@ use crate::modules::compras::planejamento::parser::get_linha_prefix;
 /// Modo de sincronização ERP.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SyncMode {
-    /// Rebuild da janela histórica (desde 2024-01-01 nas tabelas transacionais).
+    /// Rebuild da janela histórica (piso configurável; padrão desde 2024-01-01).
     Full,
     /// Delta desde watermark − overlap (2 dias). Escalona para Full se não houver cursor.
     Incremental,
@@ -34,7 +34,11 @@ impl SyncMode {
     }
 }
 
-const HISTORY_FLOOR: &str = "2024-01-01";
+/// Piso padrão do sync completo (tabelas transacionais). Sobrescrito por `erp_sync_history_floor`.
+const HISTORY_FLOOR_DEFAULT: &str = "2024-01-01";
+/// Quando a opção "histórico completo" está ativa.
+const HISTORY_FLOOR_ALL: &str = "1900-01-01";
+const HISTORY_FLOOR_SETTING: &str = "erp_sync_history_floor";
 const OVERLAP_DAYS: i64 = 2;
 const WATERMARK_KEY: &str = "erp_sync_watermark";
 
@@ -275,7 +279,11 @@ fn parse_ymd(s: &str) -> Option<NaiveDate> {
     }
 }
 
-fn resolve_sync_window(requested: SyncMode, wm: &ErpSyncWatermark) -> (SyncMode, String) {
+fn resolve_sync_window(
+    requested: SyncMode,
+    wm: &ErpSyncWatermark,
+    floor_ymd: &str,
+) -> (SyncMode, String) {
     let has_cursor = wm
         .cursor
         .as_ref()
@@ -288,19 +296,51 @@ fn resolve_sync_window(requested: SyncMode, wm: &ErpSyncWatermark) -> (SyncMode,
         SyncMode::Incremental => SyncMode::Full,
     };
 
-    let floor = parse_ymd(HISTORY_FLOOR).unwrap_or_else(|| NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
+    let floor = parse_ymd(floor_ymd).unwrap_or_else(|| {
+        NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()
+    });
+    let floor_str = floor.format("%Y-%m-%d").to_string();
 
     let since = match effective {
-        SyncMode::Full => HISTORY_FLOOR.to_string(),
+        SyncMode::Full => floor_str,
         SyncMode::Incremental => {
-            let cursor = parse_ymd(wm.cursor.as_deref().unwrap_or(HISTORY_FLOOR)).unwrap_or(floor);
+            let cursor =
+                parse_ymd(wm.cursor.as_deref().unwrap_or(floor_ymd)).unwrap_or(floor);
             let with_overlap = cursor - Duration::days(OVERLAP_DAYS);
-            let since_date = if with_overlap < floor { floor } else { with_overlap };
+            let since_date = if with_overlap < floor {
+                floor
+            } else {
+                with_overlap
+            };
             since_date.format("%Y-%m-%d").to_string()
         }
     };
 
     (effective, since)
+}
+
+/// Lê `erp_sync_history_floor`: data `YYYY-MM-DD`, ou `all`/`completo` para histórico sem corte 2024.
+async fn load_history_floor(pool: &PgPool) -> String {
+    let raw: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = $1")
+        .bind(HISTORY_FLOOR_SETTING)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+
+    match raw.as_deref().map(str::trim) {
+        None | Some("") => HISTORY_FLOOR_DEFAULT.to_string(),
+        Some("all") | Some("completo") | Some("full") | Some("historico") => {
+            HISTORY_FLOOR_ALL.to_string()
+        }
+        Some(ymd) => {
+            if parse_ymd(ymd).is_some() {
+                ymd.chars().take(10).collect()
+            } else {
+                HISTORY_FLOOR_DEFAULT.to_string()
+            }
+        }
+    }
 }
 
 fn sql_datetime_since(since_ymd: &str) -> String {
@@ -408,13 +448,15 @@ pub async fn connect_sql_server(pool: &PgPool) -> anyhow::Result<Client<tokio_ut
 pub async fn sync_from_sql_server(pool: &PgPool, requested: SyncMode) -> anyhow::Result<SyncResult> {
     // Queries SQL e mapeamento documentados em ../../erp-import/ (raiz do projeto).
     let wm = load_watermark(pool).await;
-    let (mode, since) = resolve_sync_window(requested, &wm);
+    let history_floor = load_history_floor(pool).await;
+    let (mode, since) = resolve_sync_window(requested, &wm, &history_floor);
     let since_dt = sql_datetime_since(&since);
     eprintln!(
-        "[ERP Sync] solicitado={} efetivo={} since={}",
+        "[ERP Sync] solicitado={} efetivo={} since={} (floor={})",
         requested.as_str(),
         mode.as_str(),
-        since
+        since,
+        history_floor
     );
 
     let mut client = connect_sql_server(pool).await?;
@@ -944,12 +986,9 @@ WHERE v2.dVenda >= '{since_dt}'
         });
     }
 
-    // K. Query PedidoCpa1 (Purchase Orders Header)
-    let po_date_filter = if mode == SyncMode::Incremental {
-        format!("dPedido >= '{since_dt}' OR (cStatus <> 'T' AND cStatus IS NOT NULL)")
-    } else {
-        "dPedido >= DATEADD(month, -12, GETDATE()) OR (cStatus <> 'T' AND cStatus IS NOT NULL)".to_string()
-    };
+    // K. Query PedidoCpa1 (Purchase Orders Header) — piso histórico + pedidos abertos
+    let po_date_filter =
+        format!("dPedido >= '{since_dt}' OR (cStatus <> 'T' AND cStatus IS NOT NULL)");
     let query_pedido_cpa1 = format!(
         "
 SELECT 
@@ -995,11 +1034,8 @@ WHERE {po_date_filter};
         });
     }
 
-    let po2_date_filter = if mode == SyncMode::Incremental {
-        format!("p1.dPedido >= '{since_dt}' OR (p1.cStatus <> 'T' AND p1.cStatus IS NOT NULL)")
-    } else {
-        "p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1.cStatus IS NOT NULL)".to_string()
-    };
+    let po2_date_filter =
+        format!("p1.dPedido >= '{since_dt}' OR (p1.cStatus <> 'T' AND p1.cStatus IS NOT NULL)");
     let query_pedido_cpa2 = format!(
         "
 SELECT 
@@ -1044,12 +1080,10 @@ WHERE ({po2_date_filter});
         });
     }
 
-    // M. Query Sales Orders Header (Pedidos1)
-    let so_date_filter = if mode == SyncMode::Incremental {
-        format!("dPedido >= '{since_dt}' OR (CSTATUS NOT IN ('FT', 'CA') AND CSTATUS IS NOT NULL)")
-    } else {
-        "dPedido >= DATEADD(month, -6, GETDATE()) OR (CSTATUS NOT IN ('FT', 'CA') AND CSTATUS IS NOT NULL)".to_string()
-    };
+    // M. Query Sales Orders Header (Pedidos1) — piso histórico + pedidos abertos
+    let so_date_filter = format!(
+        "dPedido >= '{since_dt}' OR (CSTATUS NOT IN ('FT', 'CA') AND CSTATUS IS NOT NULL)"
+    );
     let query_sales_order1 = format!(
         "
 SELECT 
@@ -1090,11 +1124,9 @@ WHERE {so_date_filter};
     }
 
     // N. Query Sales Order Items (Pedidos2)
-    let so2_date_filter = if mode == SyncMode::Incremental {
-        format!("p1.dPedido >= '{since_dt}' OR (p1.CSTATUS NOT IN ('FT', 'CA') AND p1.CSTATUS IS NOT NULL)")
-    } else {
-        "p1.dPedido >= DATEADD(month, -6, GETDATE()) OR (p1.CSTATUS NOT IN ('FT', 'CA') AND p1.CSTATUS IS NOT NULL)".to_string()
-    };
+    let so2_date_filter = format!(
+        "p1.dPedido >= '{since_dt}' OR (p1.CSTATUS NOT IN ('FT', 'CA') AND p1.CSTATUS IS NOT NULL)"
+    );
     let query_sales_order2 = format!(
         "
 SELECT 

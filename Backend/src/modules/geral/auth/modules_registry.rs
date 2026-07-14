@@ -9,6 +9,12 @@ pub const MODULE_ESTOQUE_MP: &str = "estoque_materia_prima";
 pub const MODULE_ESTOQUE_EMB: &str = "estoque_embalagens";
 pub const MODULE_ESTOQUE_COLOR: &str = "estoque_coloracao";
 pub const MODULE_ESTOQUE_APOIO: &str = "estoque_apoio";
+pub const MODULE_ESTOQUE_ITENS: &str = "estoque_itens";
+pub const MODULE_ESTOQUE_ALMOX: &str = "estoque_almoxarifado";
+pub const MODULE_ESTOQUE_SUPERMERCADO: &str = "estoque_supermercado";
+pub const MODULE_ESTOQUE_PECAS: &str = "estoque_pecas";
+pub const MODULE_ESTOQUE_EQUIPAMENTOS: &str = "estoque_equipamentos";
+pub const MODULE_ESTOQUE_MANUTENCOES: &str = "estoque_manutencoes";
 /// Legado — use [`MODULE_ADMIN_LINHA_PRODUTOS`].
 pub const MODULE_ESTOQUE_ATIVOS: &str = "estoque_ativos";
 pub const MODULE_ADMIN_LINHA_PRODUTOS: &str = "admin_linha_produtos";
@@ -30,6 +36,7 @@ pub const MODULE_COMPRAS_COT: &str = "compras_quotations";
 pub const MODULE_COMPRAS_ONLINE: &str = "compras_online";
 pub const MODULE_COMPRAS_PEDIDOS: &str = "compras_pedidos";
 pub const MODULE_COMPRAS_NOTAS: &str = "compras_notas";
+pub const MODULE_COMPRAS_ALMOX: &str = "compras_almoxarifado";
 
 pub const MODULE_VENDAS: &str = "vendas";
 pub const MODULE_VENDAS_ONLINE: &str = "vendas_online";
@@ -48,6 +55,12 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_ESTOQUE_EMB,
     MODULE_ESTOQUE_COLOR,
     MODULE_ESTOQUE_APOIO,
+    MODULE_ESTOQUE_ITENS,
+    MODULE_ESTOQUE_ALMOX,
+    MODULE_ESTOQUE_SUPERMERCADO,
+    MODULE_ESTOQUE_PECAS,
+    MODULE_ESTOQUE_EQUIPAMENTOS,
+    MODULE_ESTOQUE_MANUTENCOES,
     MODULE_ADMIN_LINHA_PRODUTOS,
     MODULE_PRODUCAO,
     MODULE_PRODUCAO_BASES,
@@ -63,6 +76,7 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_COMPRAS_ONLINE,
     MODULE_COMPRAS_PEDIDOS,
     MODULE_COMPRAS_NOTAS,
+    MODULE_COMPRAS_ALMOX,
     MODULE_VENDAS,
     MODULE_VENDAS_ONLINE,
     MODULE_CONTROLE_QUALIDADE,
@@ -103,6 +117,19 @@ pub fn module_registry() -> Vec<ModuleGroup> {
             ],
         },
         ModuleGroup {
+            key: "almoxarifado".into(),
+            label: "Almoxarifado".into(),
+            hub_view: "almoxarifado_hub".into(),
+            children: vec![
+                leaf(MODULE_ESTOQUE_ITENS, "Itens"),
+                leaf(MODULE_ESTOQUE_ALMOX, "Almoxarifado"),
+                leaf(MODULE_ESTOQUE_SUPERMERCADO, "Supermercado"),
+                leaf(MODULE_ESTOQUE_PECAS, "Peças de Reposição"),
+                leaf(MODULE_ESTOQUE_EQUIPAMENTOS, "Equipamentos"),
+                leaf(MODULE_ESTOQUE_MANUTENCOES, "Manutenções"),
+            ],
+        },
+        ModuleGroup {
             key: "producao".into(),
             label: "Produção".into(),
             hub_view: "producao_hub".into(),
@@ -128,6 +155,7 @@ pub fn module_registry() -> Vec<ModuleGroup> {
                 leaf(MODULE_COMPRAS_ONLINE, "Compras Online"),
                 leaf(MODULE_COMPRAS_PEDIDOS, "Pedidos"),
                 leaf(MODULE_COMPRAS_NOTAS, "Notas Fiscais"),
+                leaf(MODULE_COMPRAS_ALMOX, "Almoxarifado"),
             ],
         },
         ModuleGroup {
@@ -194,6 +222,12 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
             MODULE_ESTOQUE_EMB,
             MODULE_ESTOQUE_COLOR,
             MODULE_ESTOQUE_APOIO,
+            MODULE_ESTOQUE_ITENS,
+            MODULE_ESTOQUE_ALMOX,
+            MODULE_ESTOQUE_SUPERMERCADO,
+            MODULE_ESTOQUE_PECAS,
+            MODULE_ESTOQUE_EQUIPAMENTOS,
+            MODULE_ESTOQUE_MANUTENCOES,
         ]
         .into_iter()
         .map(String::from)
@@ -218,6 +252,7 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
             MODULE_COMPRAS_ONLINE,
             MODULE_COMPRAS_PEDIDOS,
             MODULE_COMPRAS_NOTAS,
+            MODULE_COMPRAS_ALMOX,
         ]
         .into_iter()
         .map(String::from)
@@ -239,6 +274,7 @@ pub fn view_to_module_key(view: &str) -> Option<&str> {
     match view {
         "hub" => None,
         "estoque_hub" => None,
+        "almoxarifado_hub" => None,
         "producao_hub" => None,
         "compras_hub" => None,
         "vendas_hub" => None,

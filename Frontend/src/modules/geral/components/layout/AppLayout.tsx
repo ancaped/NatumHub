@@ -8,6 +8,7 @@ export interface SidebarItem {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: number | string;
+  iconOnly?: boolean;
 }
 
 interface AppLayoutProps {
@@ -45,16 +46,18 @@ function SidebarNav({
               onTabChange(item.id);
               onItemClick?.();
             }}
+            title={item.iconOnly ? item.label : undefined}
             className={cn(
-              'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all border cursor-pointer',
+              'w-full flex items-center gap-3 rounded-xl text-sm font-semibold transition-all border cursor-pointer',
+              item.iconOnly ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5',
               isActive
                 ? 'bg-zinc-900 text-white border-zinc-900 shadow-sm'
                 : 'text-zinc-650 border-transparent hover:bg-zinc-50 hover:text-zinc-900'
             )}
           >
             <Icon className={cn('h-4.5 w-4.5 shrink-0', isActive ? 'text-white' : 'text-zinc-400')} />
-            <span className="truncate">{item.label}</span>
-            {item.badge !== undefined && item.badge !== 0 && (
+            {!item.iconOnly && <span className="truncate">{item.label}</span>}
+            {!item.iconOnly && item.badge !== undefined && item.badge !== 0 && (
               <span
                 className={cn(
                   'ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full border',

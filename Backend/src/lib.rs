@@ -19,6 +19,7 @@ pub mod modules {
         }
     }
     pub mod compras;
+    pub mod estoque;
     pub mod financeiro;
     pub mod hub_api;
 }
@@ -133,7 +134,24 @@ fn start_axum_server() {
             return;
         }
 
-        let pool = core::pg_db::create_pool().await.expect("PostgreSQL required");
+        let pool = match core::pg_db::create_pool().await {
+            Ok(p) => p,
+            Err(e) => {
+                // Tenta subir Postgres portável Dev antes de desistir
+                let _ = modules::geral::postgres_bootstrap::ensure_embedded_running();
+                match core::pg_db::create_pool().await {
+                    Ok(p) => p,
+                    Err(e2) => {
+                        eprintln!(
+                            "Axum não iniciado — PostgreSQL indisponível: {e} / {e2}\n\
+                             No NatumHub Dev use o botão «Instalar PostgreSQL» no wizard, ou coloque DATABASE_URL em {}.",
+                            core::pg_db::postgres_env_path().display()
+                        );
+                        return;
+                    }
+                }
+            }
+        };
         let db = core::db::Db::new(pool.clone());
 
         let _ = modules::geral::auth::store::init_auth_tables(&pool).await;
@@ -144,6 +162,11 @@ fn start_axum_server() {
         let scheduler_state = state.clone();
         tauri::async_runtime::spawn(async move {
             modules::geral::configuracoes::erp_sync_scheduler::start_erp_sync_scheduler(scheduler_state).await;
+        });
+
+        let backup_state = state.clone();
+        tauri::async_runtime::spawn(async move {
+            modules::geral::configuracoes::pg_backup::start_pg_backup_scheduler(backup_state).await;
         });
 
         use tower_http::cors::{Any, CorsLayer};
@@ -157,6 +180,7 @@ fn start_axum_server() {
         let app = Router::new()
             .route("/api/products", get(handlers::list_products))
             .route("/api/kits", get(handlers::list_kits))
+            .route("/api/kits/component-candidates", get(handlers::search_kit_component_candidates))
             .route("/api/kits/composicao", get(handlers::list_kit_composicao).post(handlers::add_kit_composicao_handler))
             .route("/api/kits/composicao/upload", post(handlers::upload_kit_composicao))
             .route("/api/kits/composicao/:kit/:comp", delete(handlers::delete_kit_composicao_handler))
@@ -177,6 +201,8 @@ fn start_axum_server() {
             .route("/api/import/levantamento", post(handlers::import_levantamento))
             .route("/api/import/kits", post(handlers::import_kits))
             .route("/api/import/sync", post(handlers::trigger_db_sync))
+            .route("/api/import/sync-lock", get(handlers::get_sync_lock_status))
+            .route("/api/import/sync-lock/release", post(handlers::release_sync_lock))
             .route("/api/import/dump", post(handlers::trigger_db_dump))
             .route("/api/import/history", get(handlers::get_import_history))
             .route("/api/import/status", get(handlers::get_import_status))
@@ -191,6 +217,7 @@ fn start_axum_server() {
             .route("/api/producao/recalcular/preview", get(handlers::preview_recalculation))
             .route("/api/producao/recalcular/ajustar", post(handlers::apply_recalculation_adjustment))
             .merge(modules::compras::router())
+            .merge(modules::estoque::router())
             .merge(modules::financeiro::router())
             .route("/api/historico", get(handlers::list_producao).post(handlers::add_producao))
             .route("/api/historico/:id", delete(handlers::delete_producao))
@@ -222,16 +249,9 @@ fn start_axum_server() {
 // === RUN TAURI APP ===
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let _cfg = core::app_config::load_client_config();
+    let cfg = core::app_config::load_client_config();
     let _install_id = core::app_config::read_tauri_identifier();
-
-    let pg_pool = tauri::async_runtime::block_on(async {
-        core::pg_db::create_pool().await.expect("PostgreSQL obrigatório (Saves/postgres.env)")
-    });
-
-    let _ = tauri::async_runtime::block_on(
-        modules::geral::feedbacks::commands::sync_feedback_md(pg_pool.clone()),
-    );
+    let is_client = cfg.app_mode == core::app_config::AppMode::Client;
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -250,12 +270,41 @@ pub fn run() {
             modules::geral::updater::commands::install_channel_update,
             modules::compras::compras_online::commands::upload_order_receipt,
             modules::compras::compras_online::commands::open_receipt_file,
-        ])
-        .manage(PgPoolState(pg_pool));
+            modules::geral::postgres_bootstrap::commands::hub_bootstrap_local_postgres,
+        ]);
 
-    builder
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    if is_client {
+        println!("Modo terminal: sem pool Postgres local; API remota em {}", cfg.api_origin);
+        builder
+            .run(tauri::generate_context!())
+            .expect("error while running tauri application");
+        return;
+    }
+
+    // PC Principal: tenta subir Postgres embutido (Dev) e conectar sem derrubar a UI.
+    let _ = modules::geral::postgres_bootstrap::ensure_embedded_running();
+    match tauri::async_runtime::block_on(core::pg_db::create_pool()) {
+        Ok(pg_pool) => {
+            let _ = tauri::async_runtime::block_on(
+                modules::geral::feedbacks::commands::sync_feedback_md(pg_pool.clone()),
+            );
+            builder
+                .manage(PgPoolState(pg_pool))
+                .run(tauri::generate_context!())
+                .expect("error while running tauri application");
+        }
+        Err(e) => {
+            eprintln!(
+                "PostgreSQL indisponível ao iniciar: {e}\n\
+                 Crie {} e reinicie (ver ContextoIA/devops/instalacao_postgres_master.md).",
+                core::pg_db::postgres_env_path().display()
+            );
+            // Ainda abre a UI (wizard / reconfigurar). Axum só sobe se o pool existir no spawn.
+            builder
+                .run(tauri::generate_context!())
+                .expect("error while running tauri application");
+        }
+    }
 }
 
 #[tauri::command]

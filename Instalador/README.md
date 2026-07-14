@@ -1,25 +1,34 @@
 # Instalador NatumHub
 
-Esta pasta contém os arquivos relacionados ao instalador e executáveis do NatumHub.
+Binários **não** ficam commitados aqui. Gerados pelo CI / build local.
 
-## Estrutura
+## Produção (comece por aqui)
 
+| Passo | Doc |
+|-------|-----|
+| Postgres no master | [`ContextoIA/devops/instalacao_postgres_master.md`](../ContextoIA/devops/instalacao_postgres_master.md) |
+| App no master | [`ContextoIA/devops/instalacao_app_master.md`](../ContextoIA/devops/instalacao_app_master.md) |
+| App nos terminais | [`ContextoIA/devops/instalacao_app_terminal.md`](../ContextoIA/devops/instalacao_app_terminal.md) |
+| Tailscale | [`ContextoIA/devops/tailscale.md`](../ContextoIA/devops/tailscale.md) |
+| Releases / updates | [`.github/RELEASE.md`](../.github/RELEASE.md) |
+
+**End users não precisam de Rust/Node.** Só o `.exe` NSIS (+ Postgres no master).
+
+## Gerar instalador (máquina de build)
+
+Ver [`.github/RELEASE.md`](../.github/RELEASE.md):
+
+```bash
+cd Backend
+npm ci
+cd ../Frontend && npm ci && cd ../Backend
+npm run build:stable   # ou build:dev
 ```
-Instalador/
-├── README.md           # Este arquivo
-└── (executáveis)       # Gerados pelo `cargo tauri build`
-```
 
-## Como Gerar o Instalador
+Saída típica: bundle NSIS `*_x64-setup.exe`.
 
-1. Execute `cargo tauri build` na raiz do projeto
-2. Os arquivos serão gerados em `Backend/target/release/bundle/`
-3. Copie o instalador NSIS (`.exe`) para esta pasta
+## Updates
 
-## Atualização Automática
-
-O NatumHub utiliza o **Tauri Updater** integrado com **GitHub Releases** para atualizações automáticas:
-
-- Ao iniciar o app, ele verifica se há uma nova versão no GitHub
-- Se houver, o usuário é notificado e pode atualizar com um clique
-- A versão é definida em `Cargo.toml` e `tauri.conf.json`
+1. Tag/release no GitHub (CI assina e publica manifests).
+2. No **PC Principal**: sincronizar manifests (Configurações → Atualizações).
+3. Terminais e master atualizam in-app via API do master.

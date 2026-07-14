@@ -174,12 +174,7 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
         <header className="h-16 bg-white border-b border-zinc-200 flex items-center justify-between px-8 shrink-0">
-          <div>
-            <h2 className="text-xl font-bold tracking-tight text-zinc-900">Histórico de Notas Fiscais de Compra</h2>
-            <p className="text-xs text-zinc-500 mt-0.5">
-              Consulte lançamentos fiscais, itens faturados, fornecedores e valores unitários praticados.
-            </p>
-          </div>
+          <div />
           <button
             onClick={loadInvoices}
             className="flex items-center gap-2 px-4 py-2 bg-zinc-100 hover:bg-zinc-200 rounded-xl text-xs font-bold text-zinc-700 transition-all cursor-pointer border border-zinc-200"
