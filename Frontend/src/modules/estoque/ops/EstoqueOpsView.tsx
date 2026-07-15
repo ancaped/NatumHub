@@ -4,6 +4,7 @@ import {
   Boxes,
   ClipboardList,
   Cog,
+  History,
   Loader2,
   Plus,
   RefreshCw,
@@ -111,7 +112,8 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
   });
 
   const section = sectionForMode(mode);
-  const isItemsMode = mode === 'itens' || !!section;
+  const isMov = mode === 'movimentacoes';
+  const isItemsMode = (mode === 'itens' || !!section) && !isMov;
   const isEquip = mode === 'equipamentos';
   const isMaint = mode === 'manutencoes';
   const isSupermercado = section === 'supermercado';
@@ -151,6 +153,8 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
         await loadEquipments();
       } else if (isMaint) {
         await Promise.all([loadMaintenances(), loadEquipments()]);
+      } else if (isMov) {
+        await loadMovements();
       } else {
         await Promise.all([loadItems(), loadMovements()]);
       }
@@ -159,7 +163,7 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [isEquip, isMaint, loadEquipments, loadItems, loadMaintenances, loadMovements]);
+  }, [isEquip, isMaint, isMov, loadEquipments, loadItems, loadMaintenances, loadMovements]);
 
   useEffect(() => {
     refresh();
@@ -182,6 +186,14 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
         (i.section || '').toLowerCase().includes(term)
     );
   }, [items, q]);
+
+  const localStats = useMemo(() => {
+    const total = filteredItems.length;
+    const belowMin = filteredItems.filter(i => i.belowMin).length;
+    const inactive = filteredItems.filter(i => !i.active).length;
+    const totalQty = filteredItems.reduce((acc, i) => acc + i.qtyOnHand, 0);
+    return { total, belowMin, inactive, totalQty };
+  }, [filteredItems]);
 
   const searchErp = async () => {
     if (!erpQ.trim()) return;
@@ -425,6 +437,7 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
     { id: 'pecas', label: 'Peças', icon: Cog },
     { id: 'equipamentos', label: 'Equipamentos', icon: Wrench },
     { id: 'manutencoes', label: 'Manutenções', icon: ClipboardList },
+    { id: 'movimentacoes', label: 'Movimentações', icon: History },
   ];
 
   const titleByMode: Record<EstoqueOpsMode, string> = {
@@ -434,6 +447,7 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
     pecas: 'Peças de reposição',
     equipamentos: 'Equipamentos',
     manutencoes: 'Manutenções',
+    movimentacoes: 'Histórico de movimentações',
   };
 
   return (
@@ -500,6 +514,25 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
 
         {isItemsMode && (
           <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-xs">
+                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Itens catalogados</p>
+                <p className="text-xl font-extrabold text-zinc-900 mt-1">{localStats.total}</p>
+              </div>
+              <div className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-xs">
+                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Abaixo do mínimo</p>
+                <p className={`text-xl font-extrabold mt-1 ${localStats.belowMin > 0 ? 'text-red-650' : 'text-emerald-600'}`}>{localStats.belowMin}</p>
+              </div>
+              <div className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-xs">
+                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Saldo total físico</p>
+                <p className="text-xl font-extrabold text-zinc-900 mt-1">{localStats.totalQty.toLocaleString('pt-BR')}</p>
+              </div>
+              <div className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-xs">
+                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Itens inativos</p>
+                <p className="text-xl font-extrabold text-zinc-950 mt-1">{localStats.inactive}</p>
+              </div>
+            </div>
+
             <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
@@ -593,92 +626,306 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
         )}
 
         {isEquip && (
-          <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {loading ? (
-              <div className="flex items-center justify-center gap-2 py-16 text-zinc-400 text-sm">
+              <div className="col-span-full flex items-center justify-center gap-2 py-16 text-zinc-400 text-sm bg-white border border-zinc-200 rounded-2xl">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Carregando…
               </div>
             ) : equipments.length === 0 ? (
-              <p className="text-sm text-zinc-400 px-4 py-10 text-center">
-                Nenhum equipamento cadastrado.
-              </p>
+              <div className="col-span-full bg-white border border-zinc-200 rounded-2xl py-10 text-center">
+                <p className="text-sm text-zinc-400">Nenhum equipamento cadastrado.</p>
+              </div>
             ) : (
-              <div className="divide-y divide-zinc-100">
-                {equipments.map((eq) => (
-                  <button
+              equipments.map((eq) => {
+                const statusColor = 
+                  eq.status === 'em_operacao' || eq.status === 'ativo'
+                    ? 'border-emerald-250 bg-emerald-50 text-emerald-700'
+                    : eq.status === 'em_manutencao'
+                      ? 'border-amber-250 bg-amber-50 text-amber-700'
+                      : 'border-red-250 bg-red-50 text-red-650';
+
+                const statusLabel = 
+                  eq.status === 'em_operacao' || eq.status === 'ativo'
+                    ? 'Em operação'
+                    : eq.status === 'em_manutencao'
+                      ? 'Em manutenção'
+                      : 'Parado';
+
+                return (
+                  <div
                     key={eq.id}
-                    type="button"
-                    onClick={() => openEqEdit(eq)}
-                    className="w-full text-left px-4 py-3.5 hover:bg-zinc-50 transition-colors cursor-pointer flex justify-between gap-3"
+                    className="bg-white border border-zinc-200 rounded-2xl p-5 hover:border-zinc-400 hover:shadow-md transition-all flex flex-col justify-between"
                   >
                     <div>
-                      <p className="font-bold text-sm text-zinc-900">{eq.name}</p>
-                      <p className="text-[11px] font-mono text-zinc-400 mt-0.5">
-                        {eq.code}
-                        {eq.sector ? ` · ${eq.sector}` : ''}
-                        {(eq.pecaCodes || []).length > 0
-                          ? ` · ${eq.pecaCodes.length} peça(s)`
-                          : ''}
-                      </p>
+                      <div className="flex items-start justify-between gap-2 mb-3">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${statusColor}`}>
+                          {statusLabel}
+                        </span>
+                        <span className="text-[10px] font-mono font-bold text-zinc-400 bg-zinc-50 px-2 py-0.5 rounded border border-zinc-150">
+                          {eq.code}
+                        </span>
+                      </div>
+                      
+                      <h3 className="font-bold text-base text-zinc-900">
+                        {eq.name}
+                      </h3>
+                      
+                      {eq.sector && (
+                        <p className="text-xs text-zinc-500 font-semibold mt-1">
+                          Setor: {eq.sector}
+                        </p>
+                      )}
+                      
+                      {eq.notes && (
+                        <p className="text-xs text-zinc-400 mt-2 italic bg-zinc-50 p-2.5 rounded-xl border border-zinc-100">
+                          {eq.notes}
+                        </p>
+                      )}
+
+                      {eq.maintenanceIntervalDays && (
+                        <p className="text-xs text-zinc-650 mt-3 font-semibold">
+                          Preventiva a cada: {eq.maintenanceIntervalDays} dias
+                        </p>
+                      )}
+                      
+                      {eq.nextMaintenanceAt && (
+                        <p className="text-[11px] text-zinc-500 mt-1 font-semibold">
+                          Próxima preventiva: {new Date(eq.nextMaintenanceAt).toLocaleDateString('pt-BR')}
+                        </p>
+                      )}
                     </div>
-                    <span className="px-2 py-0.5 h-fit rounded-full text-[10px] font-bold uppercase border bg-zinc-100 text-zinc-700 border-zinc-200 capitalize">
-                      {eq.status}
-                    </span>
-                  </button>
-                ))}
-              </div>
+                    
+                    <div className="mt-4 pt-3 border-t border-zinc-100 flex items-center justify-between">
+                      <span className="text-[11px] text-zinc-400 font-semibold">
+                        {(eq.pecaCodes || []).length} peça(s) associada(s)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => openEqEdit(eq)}
+                        className="text-[11px] font-bold px-3 py-1.5 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-800 cursor-pointer"
+                      >
+                        Editar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
             )}
           </div>
         )}
 
         {isMaint && (
-          <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {loading ? (
-              <div className="flex items-center justify-center gap-2 py-16 text-zinc-400 text-sm">
+              <div className="col-span-full flex items-center justify-center gap-2 py-16 text-zinc-400 text-sm bg-white border border-zinc-200 rounded-2xl">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Carregando…
               </div>
             ) : maintenances.length === 0 ? (
-              <p className="text-sm text-zinc-400 px-4 py-10 text-center">
-                Nenhuma manutenção registrada.
-              </p>
+              <div className="col-span-full bg-white border border-zinc-200 rounded-2xl py-10 text-center">
+                <p className="text-sm text-zinc-400">Nenhuma manutenção registrada.</p>
+              </div>
             ) : (
-              <div className="divide-y divide-zinc-100">
-                {maintenances.map((m) => (
+              maintenances.map((m) => {
+                const statusColor = 
+                  m.status === 'concluida'
+                    ? 'border-emerald-250 bg-emerald-50 text-emerald-700'
+                    : m.status === 'em_andamento'
+                      ? 'border-amber-250 bg-amber-50 text-amber-700'
+                      : 'border-zinc-200 bg-zinc-100 text-zinc-700';
+
+                const statusLabel = 
+                  m.status === 'concluida'
+                    ? 'Concluída'
+                    : m.status === 'em_andamento'
+                      ? 'Em andamento'
+                      : 'Pendente';
+
+                const kindColor =
+                  m.kind === 'corretiva'
+                    ? 'bg-red-50 text-red-650 border-red-100'
+                    : m.kind === 'preventiva'
+                      ? 'bg-blue-50 text-blue-700 border-blue-100'
+                      : 'bg-purple-50 text-purple-700 border-purple-100';
+
+                return (
                   <div
                     key={m.id}
-                    className="px-4 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    className="bg-white border border-zinc-200 rounded-2xl p-5 hover:border-zinc-300 transition-all flex flex-col justify-between shadow-xs"
                   >
                     <div>
-                      <p className="font-bold text-sm text-zinc-900">
-                        {m.equipmentName || m.equipmentCode || m.equipmentId}
-                      </p>
-                      <p className="text-[11px] text-zinc-500 mt-0.5 capitalize">
-                        {m.kind} · {new Date(m.occurredAt).toLocaleString('pt-BR')}
-                        {m.itemCode ? ` · peça ${m.itemCode}` : ''}
-                        {m.technician ? ` · ${m.technician}` : ''}
-                      </p>
+                      <div className="flex items-start justify-between gap-2 mb-3">
+                        <div className="flex gap-2">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${statusColor}`}>
+                            {statusLabel}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${kindColor}`}>
+                            {m.kind}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-zinc-400 font-semibold">
+                          {new Date(m.occurredAt).toLocaleDateString('pt-BR')}
+                        </span>
+                      </div>
+
+                      <h3 className="font-bold text-base text-zinc-950">
+                        {m.equipmentName || m.equipmentCode || 'Máquina não identificada'}
+                      </h3>
+                      
+                      {m.technician && (
+                        <p className="text-xs text-zinc-650 font-semibold mt-1">
+                          Técnico: <span className="text-zinc-900 font-bold">{m.technician}</span>
+                        </p>
+                      )}
+
+                      {m.itemCode && (
+                        <p className="text-xs text-zinc-650 font-semibold mt-1">
+                          Peça Utilizada:{' '}
+                          <span className="text-zinc-900 font-bold">
+                            {m.itemDescription || m.itemCode} ({m.quantity} un)
+                          </span>
+                        </p>
+                      )}
+
+                      {m.cost != null && m.cost > 0 && (
+                        <p className="text-xs text-zinc-950 font-extrabold mt-2">
+                          Custo:{' '}
+                          {m.cost.toLocaleString('pt-BR', {
+                            style: 'currency',
+                            currency: 'BRL',
+                          })}
+                        </p>
+                      )}
+
+                      {m.notes && (
+                        <p className="text-xs text-zinc-400 mt-2 bg-zinc-50 p-2.5 rounded-xl border border-zinc-100 italic">
+                          {m.notes}
+                        </p>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border bg-zinc-100 text-zinc-700 border-zinc-200 capitalize">
-                        {m.status}
-                      </span>
-                      {m.status !== 'concluida' && (
+
+                    {m.status !== 'concluida' && (
+                      <div className="mt-4 pt-3 border-t border-zinc-100 flex justify-end">
                         <button
                           type="button"
                           disabled={busy}
                           onClick={() => updateMaintStatus(m.id, 'concluida')}
-                          className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-zinc-900 text-white cursor-pointer disabled:opacity-50"
+                          className="text-xs font-bold px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
                         >
-                          Concluir
+                          Concluir Manutenção
                         </button>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
+                );
+              })
             )}
+          </div>
+        )}
+
+        {isMov && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Buscar por código, descrição, motivo ou documento…"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-zinc-200 text-sm bg-white"
+                />
+              </div>
+            </div>
+
+            <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
+              {loading ? (
+                <div className="flex items-center justify-center gap-2 py-16 text-zinc-400 text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Carregando…
+                </div>
+              ) : movements.length === 0 ? (
+                <p className="text-sm text-zinc-400 px-4 py-10 text-center">
+                  Nenhum movimento registrado.
+                </p>
+              ) : (
+                <div className="divide-y divide-zinc-150">
+                  {movements
+                    .filter((m) => {
+                      const term = q.trim().toLowerCase();
+                      if (!term) return true;
+                      return (
+                        m.itemCode.toLowerCase().includes(term) ||
+                        (m.itemDescription || '').toLowerCase().includes(term) ||
+                        (m.reason || '').toLowerCase().includes(term) ||
+                        (m.documentRef || '').toLowerCase().includes(term)
+                      );
+                    })
+                    .map((m) => {
+                      const isEntrada = m.movementType === 'entrada';
+                      const isSaida = m.movementType === 'saida';
+                      const badgeColor = isEntrada
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : isSaida
+                          ? 'border-red-200 bg-red-50 text-red-650'
+                          : 'border-zinc-200 bg-zinc-150 text-zinc-700';
+
+                      return (
+                        <div
+                          key={m.id}
+                          className="px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-zinc-50/50 transition-colors"
+                        >
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${badgeColor}`}>
+                                {m.movementType}
+                              </span>
+                              <span className="text-xs font-bold text-zinc-900 truncate">
+                                {m.itemDescription || m.itemCode}
+                              </span>
+                              <span className="text-[10px] font-mono text-zinc-400 bg-zinc-50 px-1.5 py-0.5 rounded border border-zinc-100">
+                                {m.itemCode}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-zinc-500">
+                              <span>{new Date(m.occurredAt).toLocaleString('pt-BR')}</span>
+                              {m.reason && (
+                                <>
+                                  <span>·</span>
+                                  <span className="italic text-zinc-650">Motivo: {m.reason}</span>
+                                </>
+                              )}
+                              {m.documentRef && (
+                                <>
+                                  <span>·</span>
+                                  <span className="font-mono text-[10px] text-zinc-400">Doc: {m.documentRef}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-4 shrink-0 sm:text-right sm:flex-col sm:gap-1">
+                            <span className={`text-sm font-extrabold ${isEntrada ? 'text-emerald-700' : isSaida ? 'text-red-650' : 'text-zinc-900'}`}>
+                              {isEntrada ? '+' : isSaida ? '-' : ''}
+                              {m.quantity.toLocaleString('pt-BR')}
+                            </span>
+                            {m.unitCost != null && m.unitCost > 0 && (
+                              <span className="text-[10px] text-zinc-400 font-semibold">
+                                Custo: {m.unitCost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </span>
+                            )}
+                            {m.totalPaid != null && m.totalPaid > 0 && (
+                              <span className="text-[10px] text-zinc-500 font-bold">
+                                Total: {m.totalPaid.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

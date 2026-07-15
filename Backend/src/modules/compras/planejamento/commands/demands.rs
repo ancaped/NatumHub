@@ -264,6 +264,7 @@ fn build_demand_result(
     period_by_config_key: &HashMap<String, i32>,
     fat_map: &HashMap<String, [i64; 12]>,
     lead_time_map: &HashMap<String, i32>,
+    override_period: Option<i32>,
 ) -> Result<DemandResult, String> {
     let code: String = row.get(0);
     let desc: String = row.get(1);
@@ -344,14 +345,18 @@ fn build_demand_result(
     };
 
     let cat_id_ref = cat_id.as_deref();
-    let resolved_period = resolve_periodo_media(
-        &code,
-        cat_id_ref,
-        item_configs,
-        subcat_configs,
-        cat_parent_map,
-        period_by_config_key,
-    );
+    let resolved_period = if let Some(op) = override_period {
+        op
+    } else {
+        resolve_periodo_media(
+            &code,
+            cat_id_ref,
+            item_configs,
+            subcat_configs,
+            cat_parent_map,
+            period_by_config_key,
+        )
+    };
     let sum_qty = sum_movements_for_period(monthly_movements, &code, resolved_period);
 
     let overall_avg = if sum_qty > 0.0 {
@@ -494,6 +499,7 @@ pub async fn get_demands_query(
     pool: PgPool,
     category_id: Option<String>,
     target_days: i32,
+    override_period: Option<i32>,
 ) -> Result<Vec<DemandResult>, String> {
     let mut custom_configs: Vec<TempConfig> = Vec::new();
     if let Ok(rows) = sqlx::query(
@@ -952,6 +958,7 @@ pub async fn get_demands_query(
             &period_by_config_key,
             &fat_map,
             &lead_time_map,
+            override_period,
         )?;
         if !auto_ignored.contains_key(&item.item_code) {
             results.push(item);

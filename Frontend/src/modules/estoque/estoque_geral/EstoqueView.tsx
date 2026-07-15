@@ -11,6 +11,7 @@ import { cn } from '../../geral/lib/utils';
 import { useGlobalNavActive } from '../../geral/components/layout/NavShellContext';
 import { StockMovement, FormulationLine, DbDumpResult } from '../../geral/lib/types';
 import { InsumoDivergenciasTab } from './components/InsumoDivergenciasTab';
+import { ProdutoContagemTab } from './components/ProdutoContagemTab';
 
 type EstoqueMode = 'materia_prima' | 'embalagens' | 'coloracao' | 'apoio' | 'insumos' | 'produtos';
 type DataKind = 'insumos' | 'produtos';
@@ -632,15 +633,7 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initi
                   </p>
                 </div>
               ) : activeTab === 'produtos' && produtosSubTab === 'contagens' ? (
-                <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-zinc-200 rounded-2xl shadow-sm space-y-4 max-w-2xl mx-auto mt-12 animate-in fade-in duration-300">
-                  <div className="bg-zinc-50 p-4 rounded-full text-zinc-650 border border-zinc-150">
-                    <Calendar className="h-10 w-10 text-zinc-500" />
-                  </div>
-                  <h3 className="text-xl font-bold text-zinc-900">Contagens Programadas (Produtos)</h3>
-                  <p className="text-sm text-zinc-500 leading-relaxed max-w-md">
-                    Esta funcionalidade está programada para uma futura atualização. Permitirá o planejamento e controle de inventários rotativos físicos do almoxarifado de produtos acabados.
-                  </p>
-                </div>
+                <ProdutoContagemTab active={true} />
               ) : (
                 <div className="space-y-6">
               {/* Controls bar */}

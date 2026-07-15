@@ -3,8 +3,8 @@ import {
   Search, RefreshCw, X, ShieldAlert,
   CheckCircle2, Info, Receipt, ClipboardList, Layers
 } from 'lucide-react';
-import { cn } from '../../geral/lib/utils';
-import { apiFetch } from '../../geral/lib/http';
+import { cn } from '../../../geral/lib/utils';
+import { apiFetch } from '../../../geral/lib/http';
 
 type Scope = 'all' | 'mp' | 'emb';
 type DrawerTab = 'visao_geral' | 'movimentacoes' | 'lotes' | 'notas';
@@ -129,6 +129,7 @@ export function InsumoDivergenciasTab({
   const [resolveObs, setResolveObs] = useState('');
   const [resolveType, setResolveType] = useState('BAIXA_ANOMALA');
   const [saving, setSaving] = useState(false);
+  const [drawerSearch, setDrawerSearch] = useState('');
 
   useEffect(() => {
     if (lockedScope) setScope(lockedScope);
@@ -183,6 +184,7 @@ export function InsumoDivergenciasTab({
     if (selectedCode) {
       loadDetail(selectedCode);
       setDrawerTab('visao_geral');
+      setDrawerSearch('');
     } else {
       setDetail(null);
     }
@@ -542,25 +544,74 @@ export function InsumoDivergenciasTab({
                   )}
 
                   {drawerTab === 'movimentacoes' && (
-                    <div className="space-y-2">
+                    <div className="space-y-4">
+                      {/* Local Search Input inside the Drawer */}
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
+                        <input
+                          value={drawerSearch}
+                          onChange={e => setDrawerSearch(e.target.value)}
+                          placeholder="Filtrar movimentos (acerto, manual, doc, OP, etc)..."
+                          className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-zinc-200 bg-zinc-50 focus:bg-white focus:outline-none transition-all"
+                        />
+                      </div>
+
                       {(detail.movements || []).length === 0 ? (
-                        <p className="text-sm text-zinc-500">Sem movimentações importadas para este código.</p>
+                        <p className="text-xs text-zinc-400 italic">Sem movimentações importadas para este código.</p>
                       ) : (
-                        detail.movements.map(m => (
-                          <div key={m.id} className="border border-zinc-200 rounded-xl px-3 py-2.5">
-                            <div className="flex justify-between gap-2">
-                              <span className="text-[10px] font-bold uppercase text-zinc-500">{m.label}</span>
-                              <span className="text-[10px] text-zinc-400 font-mono">{m.date}</span>
-                            </div>
-                            <div className="flex justify-between items-baseline mt-1">
-                              <span className="text-xs font-mono text-zinc-600">Doc {m.documentNumber || '—'}</span>
-                              <span className="text-sm font-extrabold tabular-nums">
-                                {m.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
-                              </span>
-                            </div>
-                            {m.details && <p className="text-[10px] text-zinc-500 mt-1 line-clamp-2">{m.details}</p>}
-                          </div>
-                        ))
+                        <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                          {detail.movements
+                            .filter(m => {
+                              const term = drawerSearch.trim().toLowerCase();
+                              if (!term) return true;
+                              return (
+                                m.label.toLowerCase().includes(term) ||
+                                (m.documentNumber || '').toLowerCase().includes(term) ||
+                                (m.details || '').toLowerCase().includes(term) ||
+                                m.movementType.toLowerCase().includes(term)
+                              );
+                            })
+                            .map(m => {
+                              // Define badge style
+                              let badgeColor = 'bg-zinc-50 text-zinc-650 border-zinc-150';
+                              const kind = m.sourceKind || '';
+                              if (kind === 'acerto_entrada' || kind === 'acerto_saida') {
+                                badgeColor = 'bg-purple-50 text-purple-700 border-purple-200';
+                              } else if (kind.startsWith('inventario')) {
+                                badgeColor = 'bg-indigo-50 text-indigo-700 border-indigo-200';
+                              } else if (kind === 'entrada') {
+                                badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                              } else if (kind === 'saida') {
+                                if (m.label.toLowerCase().includes('op')) {
+                                  badgeColor = 'bg-amber-50 text-amber-800 border-amber-200';
+                                } else {
+                                  badgeColor = 'bg-zinc-100 text-zinc-700 border-zinc-250';
+                                }
+                              }
+
+                              return (
+                                <div key={m.id} className="border border-zinc-200 rounded-xl px-3 py-2.5 bg-white hover:bg-zinc-50/50 transition-colors">
+                                  <div className="flex justify-between items-center gap-2">
+                                    <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase border ${badgeColor}`}>
+                                      {m.label}
+                                    </span>
+                                    <span className="text-[10px] text-zinc-450 font-medium">{new Date(m.date).toLocaleString('pt-BR')}</span>
+                                  </div>
+                                  <div className="flex justify-between items-baseline mt-2">
+                                    <span className="text-xs font-mono text-zinc-400">Doc: {m.documentNumber || '—'}</span>
+                                    <span className="text-sm font-extrabold text-zinc-900 tabular-nums">
+                                      {m.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
+                                    </span>
+                                  </div>
+                                  {m.details && (
+                                    <p className="text-[10px] text-zinc-500 mt-1.5 bg-zinc-50 p-1.5 rounded-lg border border-zinc-100 italic">
+                                      {m.details}
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                        </div>
                       )}
                     </div>
                   )}

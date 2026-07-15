@@ -22,4 +22,12 @@ pub fn router() -> Router<Arc<AppState>> {
             post(handlers::save_insumo_divergencia_resolution)
                 .delete(handlers::delete_insumo_divergencia_resolution),
         )
+        .route(
+            "/api/estoque/produtos/:code/contagem",
+            post(handlers::save_product_count),
+        )
+        .route(
+            "/api/estoque/produtos/:code/contagem/historico",
+            get(handlers::get_product_count_history),
+        )
 }

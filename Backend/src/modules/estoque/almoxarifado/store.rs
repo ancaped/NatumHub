@@ -1556,3 +1556,106 @@ pub async fn update_maintenance(
         .find(|m| m.id == id)
         .ok_or_else(|| "Manutenção não encontrada.".into())
 }
+
+pub async fn get_dashboard_stats(pool: &PgPool) -> Result<AlmoxDashboardStats, String> {
+    ensure_tables(pool).await?;
+
+    let item_counts = sqlx::query(
+        r#"
+        SELECT 
+            COUNT(*)::bigint AS total,
+            COUNT(*) FILTER (WHERE c.section = 'almoxarifado')::bigint AS total_almox,
+            COUNT(*) FILTER (WHERE c.section = 'supermercado')::bigint AS total_supermercado,
+            COUNT(*) FILTER (WHERE c.section = 'pecas')::bigint AS total_pecas,
+            COUNT(*) FILTER (WHERE c.section = 'almoxarifado' AND COALESCE(b.qty_on_hand, 0) < COALESCE(c.min_qty, 0) AND COALESCE(c.min_qty, 0) > 0.0)::bigint AS below_almox,
+            COUNT(*) FILTER (WHERE c.section = 'supermercado' AND COALESCE(b.qty_on_hand, 0) < COALESCE(c.min_qty, 0) AND COALESCE(c.min_qty, 0) > 0.0)::bigint AS below_super,
+            COUNT(*) FILTER (WHERE c.section = 'pecas' AND COALESCE(b.qty_on_hand, 0) < COALESCE(c.min_qty, 0) AND COALESCE(c.min_qty, 0) > 0.0)::bigint AS below_pecas
+        FROM almox_item_config c
+        INNER JOIN items i ON c.item_code = i.code
+        LEFT JOIN almox_balances b ON b.item_code = i.code
+        WHERE COALESCE(i.is_ignored, 0) = 0 AND COALESCE(c.active, 0) = 1
+        "#
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let total_items: i64 = item_counts.get("total");
+    let total_almox_items: i64 = item_counts.get("total_almox");
+    let total_supermercado_items: i64 = item_counts.get("total_supermercado");
+    let total_pecas_items: i64 = item_counts.get("total_pecas");
+    let almox_below_min: i64 = item_counts.get("below_almox");
+    let supermercado_below_min: i64 = item_counts.get("below_super");
+    let pecas_below_min: i64 = item_counts.get("below_pecas");
+
+    let equip_counts = sqlx::query(
+        r#"
+        SELECT
+            COUNT(*)::bigint AS total,
+            COUNT(*) FILTER (WHERE status = 'em_operacao' OR status = 'ativo')::bigint AS in_op,
+            COUNT(*) FILTER (WHERE status = 'em_manutencao')::bigint AS in_maint,
+            COUNT(*) FILTER (WHERE status = 'parado')::bigint AS stopped
+        FROM estoque_equipamentos
+        "#
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let total_equipments: i64 = equip_counts.get("total");
+    let equipments_in_operation: i64 = equip_counts.get("in_op");
+    let equipments_in_maintenance: i64 = equip_counts.get("in_maint");
+    let equipments_stopped: i64 = equip_counts.get("stopped");
+
+    let open_maintenances: i64 = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM estoque_manutencoes WHERE status IN ('pendente', 'em_andamento')"
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let pieces = sqlx::query(
+        r#"
+        SELECT p.next_exchange_at, p.expires_at 
+        FROM estoque_peca_meta p
+        INNER JOIN almox_item_config c ON c.item_code = p.item_code
+        INNER JOIN items i ON c.item_code = i.code
+        WHERE COALESCE(i.is_ignored, 0) = 0 AND COALESCE(c.active, 0) = 1
+        "#
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut pecas_overdue = 0;
+    let mut pecas_due_soon = 0;
+
+    for row in pieces {
+        let next_ex: Option<String> = row.get(0);
+        let expires: Option<String> = row.get(1);
+        if let Some(status) = exchange_status(next_ex.as_deref(), expires.as_deref()) {
+            if status == "overdue" {
+                pecas_overdue += 1;
+            } else if status == "due_soon" {
+                pecas_due_soon += 1;
+            }
+        }
+    }
+
+    Ok(AlmoxDashboardStats {
+        total_items,
+        total_almox_items,
+        total_supermercado_items,
+        total_pecas_items,
+        almox_below_min,
+        supermercado_below_min,
+        pecas_below_min,
+        pecas_overdue,
+        pecas_due_soon,
+        total_equipments,
+        equipments_in_operation,
+        equipments_in_maintenance,
+        equipments_stopped,
+        open_maintenances,
+    })
+}

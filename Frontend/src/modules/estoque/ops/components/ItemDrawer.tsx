@@ -355,6 +355,27 @@ export default function ItemDrawer({
                 )}
               </div>
 
+              {(() => {
+                const percent = item.idealQty > 0 ? Math.min(100, Math.max(0, (item.qtyOnHand / item.idealQty) * 100)) : 0;
+                const isBelowMin = item.minQty > 0 && item.qtyOnHand < item.minQty;
+                const barColor = isBelowMin ? 'bg-red-500' : percent < 75 ? 'bg-amber-500' : 'bg-emerald-500';
+                return (
+                  <div className="bg-zinc-50 border border-zinc-150 rounded-2xl p-5 space-y-3">
+                    <div className="flex items-center justify-between text-xs font-bold text-zinc-500">
+                      <span className="uppercase tracking-wider">Saúde do Estoque</span>
+                      <span>{percent.toFixed(0)}% do Ideal</span>
+                    </div>
+                    <div className="w-full h-3 bg-zinc-250 rounded-full overflow-hidden">
+                      <div className={`h-full ${barColor} transition-all duration-500`} style={{ width: `${percent}%` }}></div>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] text-zinc-400 font-bold uppercase tracking-wider pt-1">
+                      <span>Crítico ({item.minQty.toLocaleString('pt-BR')} {item.unit})</span>
+                      <span>Ideal ({item.idealQty.toLocaleString('pt-BR')} {item.unit})</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {item.notes && (
                 <div className="rounded-2xl border border-zinc-100 bg-amber-50/40 px-4 py-3">
                   <p className="text-[10px] font-bold uppercase text-zinc-400 mb-1">Notas</p>

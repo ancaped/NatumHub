@@ -4,7 +4,8 @@ export type EstoqueOpsMode =
   | 'supermercado'
   | 'pecas'
   | 'equipamentos'
-  | 'manutencoes';
+  | 'manutencoes'
+  | 'movimentacoes';
 
 export interface AlmoxOpsItem {
   code: string;
@@ -105,6 +106,7 @@ export const MODE_TO_VIEW: Record<EstoqueOpsMode, string> = {
   pecas: 'estoque_pecas',
   equipamentos: 'estoque_equipamentos',
   manutencoes: 'estoque_manutencoes',
+  movimentacoes: 'estoque_movimentacoes',
 };
 
 export const VIEW_TO_MODE: Record<string, EstoqueOpsMode> = {
@@ -114,6 +116,7 @@ export const VIEW_TO_MODE: Record<string, EstoqueOpsMode> = {
   estoque_pecas: 'pecas',
   estoque_equipamentos: 'equipamentos',
   estoque_manutencoes: 'manutencoes',
+  estoque_movimentacoes: 'movimentacoes',
 };
 
 export const SECTION_LABELS: Record<string, string> = {

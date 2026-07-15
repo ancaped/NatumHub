@@ -18,6 +18,7 @@ import ComprasView from './modules/compras/planejamento/ComprasView';
 import ComprasOnlineView from './modules/compras/compras_online/ComprasOnlineView';
 import EstoqueView from './modules/estoque/estoque_geral/EstoqueView';
 import EstoqueOpsView from './modules/estoque/ops/EstoqueOpsView';
+import PrevisaoUsoView from './modules/estoque/previsao_uso/PrevisaoUsoView';
 import PedidosView from './modules/compras/controle_pedidos/PedidosView';
 import NotasFiscaisView from './modules/compras/notas_fiscais/NotasFiscaisView';
 import ComprasAlmoxarifadoView from './modules/compras/almoxarifado/ComprasAlmoxarifadoView';
@@ -71,9 +72,15 @@ export default function App() {
   const [needsAppRestart, setNeedsAppRestart] = useState(false);
   const [restartMessage, setRestartMessage] = useState('');
   const [setupChecked, setSetupChecked] = useState(false);
+  const [almoxStats, setAlmoxStats] = useState<any>(null);
 
   useEffect(() => {
     syncCurrentPageForView(view);
+    if (view === 'almoxarifado_hub') {
+      apiJson('/almox/dashboard/stats')
+        .then(setAlmoxStats)
+        .catch((err) => console.error('Erro ao carregar estatísticas do almoxarifado:', err));
+    }
   }, [view]);
   
   // Firebase states
@@ -784,6 +791,46 @@ export default function App() {
                 </div>
               </button>
               )}
+
+              {allow('estoque_produtos') && (
+              <button 
+                onClick={() => setView('estoque_produtos')}
+                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <Boxes className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-zinc-900">Produtos Acabados</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Cosméticos finais — estoque, produção de lotes e contagens físicas.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Acessar Produtos Acabados <ArrowRight className="h-4 w-4" />
+                </div>
+              </button>
+              )}
+
+              {allow('estoque_previsao_uso') && (
+              <button 
+                onClick={() => setView('estoque_previsao_uso')}
+                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <TrendingUp className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-zinc-900">Previsão de Uso</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Planejamento de consumo de insumos por média customizada e relatórios.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Acessar Previsão de Uso <ArrowRight className="h-4 w-4" />
+                </div>
+              </button>
+              )}
             </div>
           </main>
 
@@ -838,7 +885,12 @@ export default function App() {
                     <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Boxes className="h-6 w-6" /></div>
                     <div>
                       <h3 className="text-xl font-bold text-zinc-900">Itens</h3>
-                      <p className="text-sm text-zinc-500 mt-1">Catálogo unificado dos itens monitorados.</p>
+                      <p className="text-sm text-zinc-500 mt-1">
+                        {almoxStats 
+                          ? `${almoxStats.totalItems} itens catalogados no total.` 
+                          : 'Catálogo unificado dos itens monitorados.'
+                        }
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
@@ -846,11 +898,21 @@ export default function App() {
               )}
               {allow('estoque_almoxarifado') && (
                 <button onClick={() => setView('estoque_almoxarifado')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
+                  {almoxStats && almoxStats.almoxBelowMin > 0 && (
+                    <span className="absolute top-4 right-4 bg-red-50 text-red-650 border border-red-200 text-[10px] font-bold px-2.5 py-1 rounded-full">
+                      {almoxStats.almoxBelowMin} abaixo do mín
+                    </span>
+                  )}
                   <div className="space-y-4">
                     <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Warehouse className="h-6 w-6" /></div>
                     <div>
                       <h3 className="text-xl font-bold text-zinc-900">Almoxarifado</h3>
-                      <p className="text-sm text-zinc-500 mt-1">Bobinas, stretch, caixas — vínculo com ERP.</p>
+                      <p className="text-sm text-zinc-500 mt-1">
+                        {almoxStats 
+                          ? `${almoxStats.totalAlmoxItems} itens de consumo monitorados.` 
+                          : 'Bobinas, stretch, caixas — vínculo com ERP.'
+                        }
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
@@ -858,11 +920,21 @@ export default function App() {
               )}
               {allow('estoque_supermercado') && (
                 <button onClick={() => setView('estoque_supermercado')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
+                  {almoxStats && almoxStats.supermercadoBelowMin > 0 && (
+                    <span className="absolute top-4 right-4 bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold px-2.5 py-1 rounded-full">
+                      {almoxStats.supermercadoBelowMin} abaixo do mín
+                    </span>
+                  )}
                   <div className="space-y-4">
                     <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Warehouse className="h-6 w-6" /></div>
                     <div>
                       <h3 className="text-xl font-bold text-zinc-900">Supermercado</h3>
-                      <p className="text-sm text-zinc-500 mt-1">Famílias locais, comprovantes e média por unidade padrão.</p>
+                      <p className="text-sm text-zinc-500 mt-1">
+                        {almoxStats 
+                          ? `${almoxStats.totalSupermercadoItems} famílias locais ativas.` 
+                          : 'Famílias locais, comprovantes e média por unidade padrão.'
+                        }
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
@@ -870,11 +942,21 @@ export default function App() {
               )}
               {allow('estoque_pecas') && (
                 <button onClick={() => setView('estoque_pecas')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
+                  {almoxStats && (almoxStats.pecasOverdue > 0 || almoxStats.pecasDueSoon > 0) && (
+                    <span className="absolute top-4 right-4 bg-red-50 text-red-650 border border-red-200 text-[10px] font-bold px-2.5 py-1 rounded-full">
+                      {almoxStats.pecasOverdue > 0 ? `${almoxStats.pecasOverdue} vencida(s)` : `${almoxStats.pecasDueSoon} troca próxima`}
+                    </span>
+                  )}
                   <div className="space-y-4">
                     <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Settings className="h-6 w-6" /></div>
                     <div>
                       <h3 className="text-xl font-bold text-zinc-900">Peças</h3>
-                      <p className="text-sm text-zinc-500 mt-1">Reposição com vida útil e próxima troca.</p>
+                      <p className="text-sm text-zinc-500 mt-1">
+                        {almoxStats 
+                          ? `${almoxStats.totalPecasItems} peças de reposição cadastradas.` 
+                          : 'Reposição com vida útil e próxima troca.'
+                        }
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
@@ -882,11 +964,21 @@ export default function App() {
               )}
               {allow('estoque_equipamentos') && (
                 <button onClick={() => setView('estoque_equipamentos')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
+                  {almoxStats && (almoxStats.equipmentsInMaintenance > 0 || almoxStats.equipmentsStopped > 0) && (
+                    <span className="absolute top-4 right-4 bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold px-2.5 py-1 rounded-full">
+                      {almoxStats.equipmentsStopped > 0 ? `${almoxStats.equipmentsStopped} parado(s)` : `${almoxStats.equipmentsInMaintenance} em manut.`}
+                    </span>
+                  )}
                   <div className="space-y-4">
                     <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Database className="h-6 w-6" /></div>
                     <div>
                       <h3 className="text-xl font-bold text-zinc-900">Equipamentos</h3>
-                      <p className="text-sm text-zinc-500 mt-1">Parque de máquinas e vínculos com peças.</p>
+                      <p className="text-sm text-zinc-500 mt-1">
+                        {almoxStats 
+                          ? `${almoxStats.totalEquipments} máquinas no parque.` 
+                          : 'Parque de máquinas e vínculos com peças.'
+                        }
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
@@ -894,31 +986,43 @@ export default function App() {
               )}
               {allow('estoque_manutencoes') && (
                 <button onClick={() => setView('estoque_manutencoes')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
+                  {almoxStats && almoxStats.openMaintenances > 0 && (
+                    <span className="absolute top-4 right-4 bg-zinc-100 text-zinc-700 border border-zinc-200 text-[10px] font-bold px-2.5 py-1 rounded-full">
+                      {almoxStats.openMaintenances} em aberto
+                    </span>
+                  )}
                   <div className="space-y-4">
                     <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><ClipboardList className="h-6 w-6" /></div>
                     <div>
                       <h3 className="text-xl font-bold text-zinc-900">Manutenções</h3>
-                      <p className="text-sm text-zinc-500 mt-1">Ordens preventivas, corretivas e preditivas.</p>
+                      <p className="text-sm text-zinc-500 mt-1">
+                        {almoxStats && almoxStats.openMaintenances > 0 
+                          ? `${almoxStats.openMaintenances} ordens de manutenção ativas.` 
+                          : 'Ordens preventivas, corretivas e preditivas.'
+                        }
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
                 </button>
               )}
-              {!allow('estoque_itens') &&
+            </div>
+            {!allow('estoque_itens') &&
                 !allow('estoque_almoxarifado') &&
                 !allow('estoque_supermercado') &&
                 !allow('estoque_pecas') &&
                 !allow('estoque_equipamentos') &&
-                !allow('estoque_manutencoes') && (
+                !allow('estoque_manutencoes') &&
+                !allow('estoque_movimentacoes') && (
                   <p className="text-sm text-zinc-400 col-span-full text-center py-8">Sem permissão para submódulos.</p>
                 )}
-            </div>
             {(allow('estoque_itens') ||
               allow('estoque_almoxarifado') ||
               allow('estoque_supermercado') ||
               allow('estoque_pecas') ||
               allow('estoque_equipamentos') ||
-              allow('estoque_manutencoes')) && (
+              allow('estoque_manutencoes') ||
+              allow('estoque_movimentacoes')) && (
               <button
                 type="button"
                 onClick={openOps}
@@ -973,7 +1077,8 @@ export default function App() {
       view === 'estoque_supermercado' ||
       view === 'estoque_pecas' ||
       view === 'estoque_equipamentos' ||
-      view === 'estoque_manutencoes'
+      view === 'estoque_manutencoes' ||
+      view === 'estoque_movimentacoes'
     ) {
       const opsMode =
         view === 'estoque_itens'
@@ -986,7 +1091,9 @@ export default function App() {
                 ? 'pecas'
                 : view === 'estoque_equipamentos'
                   ? 'equipamentos'
-                  : 'manutencoes';
+                  : view === 'estoque_manutencoes'
+                    ? 'manutencoes'
+                    : 'movimentacoes';
       return (
         <ErrorBoundary onReset={() => setView('almoxarifado_hub')} fallbackTitle="Erro no Almoxarifado">
           <EstoqueOpsView
@@ -1022,6 +1129,14 @@ export default function App() {
       return (
         <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro no módulo de Estoque de Produtos">
           <EstoqueView mode="produtos" onBackToHub={() => setView('estoque_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'estoque_previsao_uso') {
+      return (
+        <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro na Previsão de Uso de Insumos">
+          <PrevisaoUsoView onBackToHub={() => setView('estoque_hub')} />
         </ErrorBoundary>
       );
     }

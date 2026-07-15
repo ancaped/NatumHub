@@ -36,6 +36,7 @@ struct DemandsQuery {
     category_id: Option<String>,
     #[serde(default = "default_target_days")]
     target_days: i32,
+    override_period: Option<i32>,
 }
 
 fn default_target_days() -> i32 {
@@ -255,7 +256,7 @@ async fn import_item_observations_handler(State(state): State<Arc<AppState>>, Js
 // --- Demands & Custom Configs ---
 
 async fn get_demands_handler(State(state): State<Arc<AppState>>, Query(q): Query<DemandsQuery>) -> impl IntoResponse {
-    match with_pool(&state, |pool| get_demands_query(pool, q.category_id, q.target_days)).await {
+    match with_pool(&state, |pool| get_demands_query(pool, q.category_id, q.target_days, q.override_period)).await {
         Ok(v) => ok_json(v).into_response(),
         Err(e) => e.into_response(),
     }

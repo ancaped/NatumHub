@@ -22,6 +22,7 @@ pub mod modules {
     pub mod estoque;
     pub mod financeiro;
     pub mod hub_api;
+    pub mod expedicao;
 }
 
 pub mod handlers;
@@ -284,6 +285,7 @@ fn start_axum_server() {
             .merge(modules::compras::router())
             .merge(modules::estoque::router())
             .merge(modules::financeiro::router())
+            .merge(modules::expedicao::router())
             .route("/api/historico", get(handlers::list_producao).post(handlers::add_producao))
             .route("/api/historico/:id", delete(handlers::delete_producao))
             .route("/api/historico/:id/lote", put(handlers::update_producao_lote))

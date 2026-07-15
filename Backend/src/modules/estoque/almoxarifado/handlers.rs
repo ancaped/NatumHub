@@ -541,3 +541,20 @@ pub async fn update_maintenance(
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
     }
 }
+
+pub async fn get_dashboard_stats(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+) -> impl IntoResponse {
+    if !has_any_ops(&ctx) {
+        return deny_module();
+    }
+    match store::get_dashboard_stats(state.db.pool()).await {
+        Ok(stats) => (StatusCode::OK, Json(stats)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response(),
+    }
+}

@@ -277,3 +277,22 @@ pub struct UpdateMaintenanceRequest {
     pub notes: Option<String>,
     pub completed_at: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlmoxDashboardStats {
+    pub total_items: i64,
+    pub total_almox_items: i64,
+    pub total_supermercado_items: i64,
+    pub total_pecas_items: i64,
+    pub almox_below_min: i64,
+    pub supermercado_below_min: i64,
+    pub pecas_below_min: i64,
+    pub pecas_overdue: i64,
+    pub pecas_due_soon: i64,
+    pub total_equipments: i64,
+    pub equipments_in_operation: i64,
+    pub equipments_in_maintenance: i64,
+    pub equipments_stopped: i64,
+    pub open_maintenances: i64,
+}

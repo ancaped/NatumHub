@@ -20,12 +20,14 @@ export const MODULE_KEYS = {
   ESTOQUE_EMB: 'estoque_embalagens',
   ESTOQUE_COLOR: 'estoque_coloracao',
   ESTOQUE_APOIO: 'estoque_apoio',
+  ESTOQUE_PREVISAO_USO: 'estoque_previsao_uso',
   ESTOQUE_ITENS: 'estoque_itens',
   ESTOQUE_ALMOX: 'estoque_almoxarifado',
   ESTOQUE_SUPERMERCADO: 'estoque_supermercado',
   ESTOQUE_PECAS: 'estoque_pecas',
   ESTOQUE_EQUIPAMENTOS: 'estoque_equipamentos',
   ESTOQUE_MANUTENCOES: 'estoque_manutencoes',
+  ESTOQUE_MOVIMENTACOES: 'estoque_movimentacoes',
   /** @deprecated alias — use ADMIN_LINHA_PRODUTOS */
   ESTOQUE_ATIVOS: 'estoque_ativos',
   ADMIN_LINHA_PRODUTOS: 'admin_linha_produtos',
@@ -83,6 +85,8 @@ export function moduleRegistry(): ModuleGroup[] {
         { key: MODULE_KEYS.ESTOQUE_EMB, label: 'Embalagens' },
         { key: MODULE_KEYS.ESTOQUE_COLOR, label: 'Coloração' },
         { key: MODULE_KEYS.ESTOQUE_APOIO, label: 'Material de Apoio' },
+        { key: MODULE_KEYS.ESTOQUE_PRODUTOS, label: 'Produtos Acabados' },
+        { key: MODULE_KEYS.ESTOQUE_PREVISAO_USO, label: 'Previsão de Uso' },
       ],
     },
     {
@@ -96,6 +100,7 @@ export function moduleRegistry(): ModuleGroup[] {
         { key: MODULE_KEYS.ESTOQUE_PECAS, label: 'Peças de Reposição' },
         { key: MODULE_KEYS.ESTOQUE_EQUIPAMENTOS, label: 'Equipamentos' },
         { key: MODULE_KEYS.ESTOQUE_MANUTENCOES, label: 'Manutenções' },
+        { key: MODULE_KEYS.ESTOQUE_MOVIMENTACOES, label: 'Movimentações' },
       ],
     },
     {
@@ -187,8 +192,10 @@ export function defaultModulesForRole(role: string): string[] {
         MODULE_KEYS.ESTOQUE_ALMOX,
         MODULE_KEYS.ESTOQUE_SUPERMERCADO,
         MODULE_KEYS.ESTOQUE_PECAS,
-        MODULE_KEYS.ESTOQUE_EQUIPAMENTOS,
         MODULE_KEYS.ESTOQUE_MANUTENCOES,
+        MODULE_KEYS.ESTOQUE_MOVIMENTACOES,
+        MODULE_KEYS.ESTOQUE_PRODUTOS,
+        MODULE_KEYS.ESTOQUE_PREVISAO_USO,
       ];
     case 'producao':
     case 'produção':

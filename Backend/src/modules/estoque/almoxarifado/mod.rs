@@ -11,6 +11,7 @@ use crate::handlers::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
+        .route("/api/almox/dashboard/stats", get(handlers::get_dashboard_stats))
         .route("/api/almox/items", get(handlers::list_items))
         .route("/api/almox/items/search", get(handlers::search_catalog))
         .route("/api/almox/items/link", post(handlers::link_erp_item))
