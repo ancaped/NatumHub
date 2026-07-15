@@ -30,7 +30,7 @@ export function canAccessView(user: AuthUser | null, view: string): boolean {
   if (view === 'hub') return true;
 
   const modules = user.modules ?? [];
-  if (view === 'estoque_insumos') {
+  if (view === 'estoque_insumos' || view === 'estoque_divergencias') {
     return modules.some((m) =>
       ['estoque_insumos', 'estoque_materia_prima', 'estoque_embalagens'].includes(m)
     );
