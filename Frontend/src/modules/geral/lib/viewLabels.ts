@@ -53,6 +53,8 @@ export function getModuleTitle(view: string): string {
       return 'Estoque > Coloração';
     case 'estoque_apoio':
       return 'Estoque > Material de Apoio';
+    case 'estoque_divergencias':
+      return 'Estoque > Divergências';
     case 'estoque_itens':
       return 'Almoxarifado > Itens';
     case 'estoque_almoxarifado':

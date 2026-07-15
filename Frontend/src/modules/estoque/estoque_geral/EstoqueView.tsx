@@ -18,6 +18,8 @@ type DataKind = 'insumos' | 'produtos';
 interface EstoqueViewProps {
   mode: EstoqueMode;
   onBackToHub: () => void;
+  /** Abre direto em Divergências / Relatórios quando informado. */
+  initialInsumosSubTab?: 'todas' | 'mp' | 'emb' | 'mat' | 'relatorios' | 'contagens';
 }
 
 function activeTabForMode(mode: EstoqueMode): DataKind {
@@ -144,16 +146,22 @@ const MODE_CONFIGS: Record<EstoqueMode, { title: string; subtitle: string; icon:
   },
 };
 
-export default function EstoqueView({ mode = 'materia_prima', onBackToHub }: EstoqueViewProps) {
+export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initialInsumosSubTab }: EstoqueViewProps) {
   const globalNav = useGlobalNavActive();
   const activeTab = activeTabForMode(mode);
   const lockedSub = lockedInsumosSubTab(mode);
-  const [insumosSubTab, setInsumosSubTab] = useState<'todas' | 'mp' | 'emb' | 'mat' | 'relatorios' | 'contagens'>(lockedSub ?? 'todas');
+  const [insumosSubTab, setInsumosSubTab] = useState<'todas' | 'mp' | 'emb' | 'mat' | 'relatorios' | 'contagens'>(
+    initialInsumosSubTab ?? lockedSub ?? 'todas'
+  );
   const [produtosSubTab, setProdutosSubTab] = useState<'todos' | 'relatorios' | 'contagens'>('todos');
 
   useEffect(() => {
+    if (initialInsumosSubTab) {
+      setInsumosSubTab(initialInsumosSubTab);
+      return;
+    }
     if (lockedSub) setInsumosSubTab(lockedSub);
-  }, [lockedSub]);
+  }, [lockedSub, initialInsumosSubTab]);
 
   const config = MODE_CONFIGS[mode];
   const ModeIcon = config.icon;
@@ -411,9 +419,11 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub }: Est
         </div>
         )}
 
-        {/* Navigation Tabs */}
-        {activeTab === 'insumos' && mode === 'insumos' ? (
+        {/* Navigation Tabs — Divergências visível em MP / Emb / Insumos (não só mode=insumos) */}
+        {activeTab === 'insumos' ? (
           <div className="p-2 border-b border-zinc-100 space-y-1">
+            {mode === 'insumos' ? (
+              <>
             <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
               Categorias
             </div>
@@ -457,6 +467,26 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub }: Est
               <Boxes className="h-4 w-4 text-purple-450" />
               Materiais & Consumo
             </button>
+              </>
+            ) : (
+              <>
+            <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+              Catálogo
+            </div>
+            <button
+              onClick={() => setInsumosSubTab(lockedSub ?? 'todas')}
+              className={cn(
+                "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
+                (insumosSubTab === 'mp' || insumosSubTab === 'emb' || insumosSubTab === 'todas' || insumosSubTab === 'mat')
+                  ? "bg-zinc-100 text-zinc-900 font-bold"
+                  : "text-zinc-650 hover:bg-zinc-50"
+              )}
+            >
+              {mode === 'embalagens' ? <Boxes className="h-4 w-4" /> : <Database className="h-4 w-4" />}
+              {mode === 'embalagens' ? 'Lista de Embalagens' : 'Lista de Matéria-Prima'}
+            </button>
+              </>
+            )}
 
             <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-wider pt-2">
               Operação de Estoque
