@@ -433,33 +433,26 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
 
   const mainFilteredDemands = useMemo(() => {
     if (activeMainTab === 'ALL') return demands;
-    const allowedCategoryIds = new Set<string>();
+    // Aba principal: só itens da categoria raiz (não repetir subcategorias).
+    // Com selectedCategory: só aquela subcategoria/categoria.
     if (selectedCategory) {
-      allowedCategoryIds.add(selectedCategory);
-    } else {
-      allowedCategoryIds.add(activeMainTab);
-      categories
-        .filter(c => c.parentId === activeMainTab)
-        .forEach(c => allowedCategoryIds.add(c.id));
+      return demands.filter(d => d.categoryId === selectedCategory);
     }
-    return demands.filter(d => d.categoryId && allowedCategoryIds.has(d.categoryId));
-  }, [demands, activeMainTab, selectedCategory, categories]);
+    return demands.filter(d => d.categoryId === activeMainTab);
+  }, [demands, activeMainTab, selectedCategory]);
 
   const filteredDemands = useMemo(() => {
     let result = demands;
     if (activeMainTab !== 'ALL') {
-      const allowedCategoryIds = new Set<string>();
       if (selectedCategory) {
-        allowedCategoryIds.add(selectedCategory);
+        result = result.filter(d => d.categoryId === selectedCategory);
       } else {
-        allowedCategoryIds.add(activeMainTab);
-        categories
-          .filter(c => c.parentId === activeMainTab)
-          .forEach(c => allowedCategoryIds.add(c.id));
+        // Categoria principal do módulo: ocultar itens já associados a subcategoria
+        result = result.filter(d => d.categoryId === activeMainTab);
       }
-      result = result.filter(d => d.categoryId && allowedCategoryIds.has(d.categoryId));
+    } else if (selectedCategory) {
+      result = result.filter(d => d.categoryId === selectedCategory);
     }
-    if (selectedCategory) result = result.filter(d => d.categoryId === selectedCategory);
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter(d => (d.itemCode || '').toLowerCase().includes(q) || (d.description || '').toLowerCase().includes(q));
@@ -472,7 +465,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
       return sortDir === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
     });
     return result;
-  }, [demands, activeMainTab, selectedCategory, categories, search, urgencyFilter, sortKey, sortDir]);
+  }, [demands, activeMainTab, selectedCategory, search, urgencyFilter, sortKey, sortDir]);
 
   const paginatedDemands = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -889,7 +882,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 <div className="flex items-center gap-2">
                   <Filter className="h-4 w-4 text-zinc-500" />
                   <select value={selectedCategory || ''} onChange={e => setSelectedCategory(e.target.value || null)} className="text-sm border border-zinc-300 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none">
-                    <option value="">{activeMainTab === 'ALL' ? 'Todas as Categorias' : 'Todas as Subcategorias'}</option>
+                    <option value="">{activeMainTab === 'ALL' ? 'Todas as Categorias' : 'Somente categoria principal'}</option>
                     {filteredSubcategories.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
                   </select>
                 </div>
