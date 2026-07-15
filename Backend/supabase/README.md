@@ -3,6 +3,7 @@
 DDL canônico: `001_natumhub_schema.sql` (Postgres puro; local ou Supabase).
 Almoxarifado: `002_almoxarifado.sql`, `003_estoque_ops.sql`, `004_almox_erp_super.sql` — aplicar com owner; `GRANT` ao role da API. O app **não** cria DDL em runtime.
 Kits: `005_kit_composicao.sql`, `006_kit_composicao_item_fk.sql`.
+Divergências de insumos: `009_insumo_stock_divergencias.sql`.
 
 ## Configuração
 
