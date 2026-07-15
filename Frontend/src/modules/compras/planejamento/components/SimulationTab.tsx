@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiFetch } from '../../../geral/lib/http';
 import { api } from '../../../geral/lib/api';
-import { DemandResult, FormulationLine } from '../../../geral/lib/types';
+import { DemandResult, FormulationLine, Category } from '../../../geral/lib/types';
 import { 
   Search, Calculator, Trash2, Plus, Minus, Printer, 
   AlertTriangle, Check, Layers, Boxes, ShieldAlert,
@@ -21,9 +21,12 @@ interface SimulationTabProps {
   activeTab: string;
 }
 
+type InsumoCategoryLabel = 'Matéria-Prima' | 'Embalagem' | 'Outros';
+
 export function SimulationTab({ active = false, activeTab }: SimulationTabProps) {
   const [allProducts, setAllProducts] = useState<any[]>([]);
   const [demands, setDemands] = useState<DemandResult[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchProduct, setSearchProduct] = useState('');
   const [selectedLine, setSelectedLine] = useState('ALL');
@@ -72,9 +75,10 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
   const loadInitialData = async () => {
     setLoading(true);
     try {
-      const [prodRes, demandList] = await Promise.all([
+      const [prodRes, demandList, cats] = await Promise.all([
         apiFetch('/products?limit=5000&show_hidden=true'),
         api.getDemands().catch(() => [] as DemandResult[]),
+        api.getCategories().catch(() => [] as Category[]),
       ]);
       
       if (prodRes.ok) {
@@ -82,12 +86,41 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
         setAllProducts(data.items || []);
       }
       setDemands(demandList || []);
+      setCategories(cats || []);
     } catch (e) {
       console.error('Failed to load simulation initial data:', e);
     } finally {
       setLoading(false);
     }
   };
+
+  const resolveRootCategory = useCallback((catId: string | null | undefined) => {
+    if (!catId) return null;
+    let current = catId;
+    const visited = new Set<string>([current]);
+    while (true) {
+      const cat = categories.find(c => c.id === current);
+      if (cat && cat.parentId && !visited.has(cat.parentId)) {
+        current = cat.parentId;
+        visited.add(current);
+      } else {
+        break;
+      }
+    }
+    return current;
+  }, [categories]);
+
+  /** Classifica insumo pela categoria raiz (subcategorias como Fragrâncias → Matéria-Prima). */
+  const classifyInsumoCategory = useCallback((catId: string | null | undefined): InsumoCategoryLabel => {
+    const root = resolveRootCategory(catId);
+    if (root === 'cat_mp') return 'Matéria-Prima';
+    if (root === 'cat_emb') return 'Embalagem';
+    // Fallback legado: ids/nomes com mp/emb embutidos
+    const raw = (catId || '').toLowerCase();
+    if (raw.includes('mp') || raw.includes('materia')) return 'Matéria-Prima';
+    if (raw.includes('emb') || raw.includes('embalagem')) return 'Embalagem';
+    return 'Outros';
+  }, [resolveRootCategory]);
 
   const fetchFormulationIfNeeded = async (productCode: string) => {
     if (formulations[productCode] || fetchingFormulations[productCode]) return;
@@ -238,15 +271,8 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
         const demandItem = demandsByCode[key] || demandsByCode[normKey];
         const unit = demandItem?.unit || 'un';
         
-        let category = 'Outros';
-        const catId = demandItem?.categoryId || '';
-        if (catId.includes('mp') || catId.includes('materia')) {
-          category = 'Matéria-Prima';
-        } else if (catId.includes('emb') || catId.includes('embalagem')) {
-          category = 'Embalagem';
-        } else if (demandItem?.categoryName) {
-          category = demandItem.categoryName;
-        }
+        let category = classifyInsumoCategory(demandItem?.categoryId);
+        // Fallback visual: se não há vínculo em demandas, mantém Outros
 
         const totalNeeded = simProd.quantity * line.quantity;
 
@@ -297,7 +323,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
 
     // Sort by code
     return list.sort((a, b) => a.code.localeCompare(b.code));
-  }, [simulatedProducts, formulations, demandsByCode, insumoTypeFilter, searchInsumo, onlyDeficit]);
+  }, [simulatedProducts, formulations, demandsByCode, insumoTypeFilter, searchInsumo, onlyDeficit, classifyInsumoCategory]);
 
   // Summary Metrics
   const summary = useMemo(() => {
@@ -326,13 +352,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
       const normCode = code.replace(/\./g, '');
       const d = demandsByCode[code] || demandsByCode[normCode];
       
-      let category = 'Outros';
-      const catId = d?.categoryId || '';
-      if (catId.includes('mp') || catId.includes('materia')) {
-        category = 'Matéria-Prima';
-      } else if (catId.includes('emb') || catId.includes('embalagem')) {
-        category = 'Embalagem';
-      }
+      const category = classifyInsumoCategory(d?.categoryId);
 
       if (category === 'Matéria-Prima') mpCount++;
       if (category === 'Embalagem') embCount++;
@@ -349,7 +369,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
       embCount,
       deficitCount
     };
-  }, [simulatedProducts, formulations, demandsByCode]);
+  }, [simulatedProducts, formulations, demandsByCode, classifyInsumoCategory]);
 
   // Print Report matches layout of PrintListTab.tsx
   const handlePrint = () => {

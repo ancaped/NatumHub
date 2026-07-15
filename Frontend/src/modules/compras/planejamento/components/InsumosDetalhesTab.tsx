@@ -129,28 +129,22 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
   }, [categories, parentCategoryFilter]);
 
   const filteredItems = useMemo(() => {
-    const allowedCategoryIds = new Set<string>();
-    if (parentCategoryFilter) {
-      categories.forEach(c => {
-        if (c.parentId === parentCategoryFilter) {
-          allowedCategoryIds.add(c.id);
-        }
-      });
-    }
-
     return items.filter(i => {
-      const matchesSearch = 
+      const matchesSearch =
         (i.description || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (i.code || '').toLowerCase().includes(searchTerm.toLowerCase());
-      
-      const matchesCategory = 
-        selectedCategory === 'ALL'
-          ? (!parentCategoryFilter || (i.categoryId && allowedCategoryIds.has(i.categoryId)))
-          : i.categoryId === selectedCategory;
+
+      let matchesCategory = true;
+      if (selectedCategory !== 'ALL') {
+        matchesCategory = i.categoryId === selectedCategory;
+      } else if (parentCategoryFilter) {
+        // Visão geral do módulo: só itens da categoria principal (não repetir subcategorias)
+        matchesCategory = i.categoryId === parentCategoryFilter;
+      }
 
       return matchesSearch && matchesCategory;
     });
-  }, [items, searchTerm, selectedCategory, parentCategoryFilter, categories]);
+  }, [items, searchTerm, selectedCategory, parentCategoryFilter]);
 
   // Compute available years dynamically from all historical data
   const availableYears = useMemo(() => {
