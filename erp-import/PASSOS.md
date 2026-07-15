@@ -21,6 +21,9 @@ Query SQL: pasta [`sql/`](sql/).
 | **L** | `L-pedidos-compra-itens.sql` | `PedidoCpa2` | `purchase_order_items` | Compras (pedidos) |
 | **M** | `M-pedidos-venda-cab.sql` | `Pedidos1` | `sales_orders` | Vendas |
 | **N** | `N-pedidos-venda-itens.sql` | `Pedidos2` | `sales_order_items` | Vendas |
+| **O** | `O-movimentos-insumos.sql` (+ discovery) | Kardex/acertos insumos (quando mapeado) | `stock_movements` tipos extras | Estoque → Divergências |
+
+Discovery de tipos: [`MOVIMENTOS-INSUMOS.md`](MOVIMENTOS-INSUMOS.md) · [`sql/O-discover-movimentos-insumos.sql`](sql/O-discover-movimentos-insumos.sql).
 
 ## Filtros embutidos nas queries (não configuráveis na UI)
 

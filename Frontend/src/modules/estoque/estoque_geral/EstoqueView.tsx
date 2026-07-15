@@ -10,6 +10,7 @@ import {
 import { cn } from '../../geral/lib/utils';
 import { useGlobalNavActive } from '../../geral/components/layout/NavShellContext';
 import { StockMovement, FormulationLine, DbDumpResult } from '../../geral/lib/types';
+import { InsumoDivergenciasTab } from './components/InsumoDivergenciasTab';
 
 type EstoqueMode = 'materia_prima' | 'embalagens' | 'coloracao' | 'apoio' | 'insumos' | 'produtos';
 type DataKind = 'insumos' | 'produtos';
@@ -477,8 +478,8 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub }: Est
                 insumosSubTab === 'contagens' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
               )}
             >
-              <Calendar className="h-4 w-4 text-zinc-450" />
-              Contagens Programadas
+              <AlertTriangle className="h-4 w-4 text-zinc-450" />
+              Divergências
             </button>
           </div>
         ) : (
@@ -586,15 +587,10 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub }: Est
                   </p>
                 </div>
               ) : activeTab === 'insumos' && insumosSubTab === 'contagens' ? (
-                <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-zinc-200 rounded-2xl shadow-sm space-y-4 max-w-2xl mx-auto mt-12 animate-in fade-in duration-300">
-                  <div className="bg-zinc-50 p-4 rounded-full text-zinc-650 border border-zinc-150">
-                    <Calendar className="h-10 w-10 text-zinc-500" />
-                  </div>
-                  <h3 className="text-xl font-bold text-zinc-900">Contagens Programadas (Insumos)</h3>
-                  <p className="text-sm text-zinc-500 leading-relaxed max-w-md">
-                    Esta funcionalidade está programada para uma futura atualização. Permitirá o agendamento de inventários periódicos (cíclicos), registro de divergências físico-contábil, e geração automática de acertos e relatórios de auditoria.
-                  </p>
-                </div>
+                <InsumoDivergenciasTab
+                  active={true}
+                  lockedScope={lockedSub === 'mp' || lockedSub === 'emb' ? lockedSub : null}
+                />
               ) : activeTab === 'produtos' && produtosSubTab === 'relatorios' ? (
                 <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-zinc-200 rounded-2xl shadow-sm space-y-4 max-w-2xl mx-auto mt-12 animate-in fade-in duration-300">
                   <div className="bg-zinc-50 p-4 rounded-full text-zinc-650 border border-zinc-150">

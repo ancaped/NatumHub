@@ -182,6 +182,16 @@ struct LoteBaixaRow {
     n_qtde_ref: f64,
 }
 
+/// Passo O — movimentos extras de insumos (acertos/inventário). Preencher SQL real via erp-import.
+struct ExtraInsumoMovRow {
+    ref_code: String,
+    qty: f64,
+    date_str: String,
+    mov_type: String,
+    document: String,
+    details: String,
+}
+
 struct VendaRow {
     venda: i32,
     prod_code: String,
@@ -1113,6 +1123,66 @@ WHERE b.dLog >= '{since_dt}'
         });
     }
 
+    // O. Movimentos extras de insumos (acertos / inventário) — query placeholder até discovery
+    // Ver erp-import/sql/O-movimentos-insumos.sql e MOVIMENTOS-INSUMOS.md
+    let query_extra_insumo = format!(
+        "
+SELECT
+    CAST(NULL AS varchar(40)) AS cReferencia,
+    CAST(0 AS FLOAT) AS nQtde,
+    CAST(NULL AS varchar(30)) AS dMov,
+    CAST(NULL AS varchar(40)) AS cTipo,
+    CAST(NULL AS varchar(40)) AS cDocumento,
+    CAST(NULL AS nvarchar(200)) AS cDetalhes
+WHERE 1 = 0 AND '{since_dt}' IS NOT NULL;
+"
+    );
+    println!("Step O: Querying movimentos extras de insumos (placeholder até discovery)");
+    let mut extra_insumo_list: Vec<ExtraInsumoMovRow> = Vec::new();
+    match client.query(query_extra_insumo, &[]).await {
+        Ok(stream) => {
+            if let Ok(rows) = stream.into_first_result().await {
+                for row in rows {
+                    let ref_code: &str = row.get(0).unwrap_or("");
+                    let d_mov: Option<&str> = row.get(2);
+                    let c_tipo: &str = row.get(3).unwrap_or("");
+                    if ref_code.is_empty() || d_mov.is_none() || c_tipo.is_empty() {
+                        continue;
+                    }
+                    let mut mov_type = c_tipo.trim().to_lowercase();
+                    if mov_type.contains("acerto") && mov_type.contains("entrada") {
+                        mov_type = "acerto_entrada".into();
+                    } else if mov_type.contains("acerto") {
+                        mov_type = "acerto_saida".into();
+                    } else if mov_type.contains("invent") && mov_type.contains("entrada") {
+                        mov_type = "inventario_entrada".into();
+                    } else if mov_type.contains("invent") {
+                        mov_type = "inventario_saida".into();
+                    } else if mov_type.contains("entrada") {
+                        mov_type = "entrada".into();
+                    } else {
+                        mov_type = "saida".into();
+                    }
+                    extra_insumo_list.push(ExtraInsumoMovRow {
+                        ref_code: ref_code.trim().to_string(),
+                        qty: row.get(1).unwrap_or(0.0),
+                        date_str: d_mov.unwrap().to_string(),
+                        mov_type,
+                        document: row.get::<&str, _>(4).unwrap_or("").trim().to_string(),
+                        details: row
+                            .get::<&str, _>(5)
+                            .unwrap_or("")
+                            .trim()
+                            .to_string(),
+                    });
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("[ERP Sync] Step O skipped (esperado até mapear tabela): {e}");
+        }
+    }
+
     // J. Query Vendas (full desde 2024; incremental desde watermark)
     let query_vendas = format!(
         "
@@ -1945,7 +2015,11 @@ WHERE {so2_date_filter};
 
     // Write Stock Movements (Unified) — TRUNCATE/janela + INSERT em lote (UNNEST)
     let mut count_movements = 0;
-    let mov_total_est = invoices_list.len() + lotes_baixas_list.len() + lotes_list.len() + vendas_list.len();
+    let mov_total_est = invoices_list.len()
+        + lotes_baixas_list.len()
+        + lotes_list.len()
+        + vendas_list.len()
+        + extra_insumo_list.len();
     eprintln!(
         "[ERP Sync] Gravando movimentações (~{mov_total_est} linhas, mode={})...",
         mode.as_str()
@@ -2022,17 +2096,27 @@ WHERE {so2_date_filter};
     let mut lb_qref: Vec<f64> = Vec::new();
 
     for b in &lotes_baixas_list {
+        let just = b.just.as_deref().unwrap_or("");
+        let just_l = just.to_lowercase();
+        let is_acerto = just_l.contains("acerto")
+            || just_l.contains("ajuste")
+            || just_l.contains("invent");
         let details = format!(
             "OP: {} | Usuário: {} | Justificativa: {}",
             b.lote,
             b.user.as_deref().unwrap_or(""),
-            b.just.as_deref().unwrap_or("")
+            just
         );
+        let movement_type = if is_acerto {
+            "acerto_saida".to_string()
+        } else {
+            "saida".to_string()
+        };
         mov_batch.push(MovInsert {
             id: Uuid::new_v4().to_string(),
             item_code: b.ref_code.clone(),
             item_type: "insumo".to_string(),
-            movement_type: "saida".to_string(),
+            movement_type,
             quantity: b.qty,
             date: b.date_str.clone(),
             document_number: b.lote.to_string(),
@@ -2055,6 +2139,33 @@ WHERE {so2_date_filter};
         lb_just.push(b.just.clone());
         lb_prod.push(b.prod_code.clone());
         lb_qref.push(b.n_qtde_ref);
+    }
+
+    for x in &extra_insumo_list {
+        let item_type = if x.ref_code.starts_with("9.15.") {
+            "insumo"
+        } else {
+            "material"
+        };
+        let details = if x.details.is_empty() {
+            format!("[ERP-O] {}", x.mov_type)
+        } else {
+            format!("[ERP-O] {} | {}", x.mov_type, x.details)
+        };
+        mov_batch.push(MovInsert {
+            id: Uuid::new_v4().to_string(),
+            item_code: x.ref_code.clone(),
+            item_type: item_type.to_string(),
+            movement_type: x.mov_type.clone(),
+            quantity: x.qty,
+            date: x.date_str.clone(),
+            document_number: x.document.clone(),
+            details,
+        });
+        count_movements += 1;
+        if mov_batch.len() >= MOV_BATCH {
+            flush_stock_movements(&mut tx, &mut mov_batch).await?;
+        }
     }
 
     const LB_CHUNK: usize = 500;
