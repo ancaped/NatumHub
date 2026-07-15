@@ -7,6 +7,7 @@ Frontend/dist/
 Backend/target/
 Backend/target-migrate/
 Backend/gen/
+Backend/C:/
 
 # Database (legado local — não versionar)
 *.db
