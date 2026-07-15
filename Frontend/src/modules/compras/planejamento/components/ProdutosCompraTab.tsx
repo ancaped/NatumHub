@@ -538,7 +538,19 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     let result = computedProducts;
 
     if (initialCategoryFilter) {
+      // Aba de subcategoria: só itens associados a ela
       result = result.filter(p => p.categoria_produto === initialCategoryFilter);
+    } else {
+      // Aba principal (Coloração / Apoio): não repetir itens já em subcategoria
+      const rootId = statusFilter === 'coloracao' ? 'cat_coloracao' : 'cat_apoio';
+      const subcategoryIds = new Set(
+        categories.filter((c) => c.parentId === rootId).map((c) => c.id as string)
+      );
+      result = result.filter((p) => {
+        const cat = p.categoria_produto;
+        if (!cat || cat === rootId) return true;
+        return !subcategoryIds.has(cat);
+      });
     }
 
     if (searchTerm.trim()) {
@@ -591,7 +603,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     });
 
     return result;
-  }, [computedProducts, searchTerm, selectedLine, urgencyFilter, sortKey, sortDir, initialCategoryFilter]);
+  }, [computedProducts, searchTerm, selectedLine, urgencyFilter, sortKey, sortDir, initialCategoryFilter, categories, statusFilter]);
 
   const paginatedProducts = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
