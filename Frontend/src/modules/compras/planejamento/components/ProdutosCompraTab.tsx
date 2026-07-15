@@ -1892,10 +1892,10 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                       >
                         <option value="">Sem Categoria</option>
                         {categories
-                          .filter(c => c.id === 'cat_coloracao' || c.id === 'cat_apoio' || c.parentId === 'cat_coloracao' || c.parentId === 'cat_apoio')
+                          .filter(c => c.parentId === (statusFilter === 'coloracao' ? 'cat_coloracao' : 'cat_apoio'))
                           .map(cat => (
                             <option key={cat.id} value={cat.id}>
-                              {cat.parentId ? `${cat.parentId === 'cat_coloracao' ? 'Coloração' : 'Apoio'} > ${cat.name}` : cat.name}
+                              {cat.name}
                             </option>
                           ))
                         }
