@@ -6,7 +6,8 @@ const ALL_KEYS = new Set(moduleRegistry().flatMap((g) => g.children.map((c) => c
 
 function viewToModuleKey(view: string): string | null {
   if (view === 'hub') return null;
-  if (view === 'estoque_hub' || view === 'almoxarifado_hub' || view === 'producao_hub' || view === 'compras_hub' || view === 'vendas_hub') return null;
+  if (view === 'estoque_hub' || view === 'almoxarifado_hub' || view === 'producao_hub' || view === 'compras_hub' || view === 'vendas_hub' || view === 'qualidade_hub' || view === 'expedicao_hub') return null;
+  if (view === 'expedicao') return 'expedicao_ecommerce';
   if (view === 'linha_produtos' || view === 'estoque_ativos') return 'admin_linha_produtos';
   if (view === 'admin_linha_produtos') return 'admin_linha_produtos';
   if (view === 'compras_simulation') return 'compras_materia_prima';
@@ -30,7 +31,7 @@ export function canAccessView(user: AuthUser | null, view: string): boolean {
   if (view === 'hub') return true;
 
   const modules = user.modules ?? [];
-  if (view === 'estoque_insumos' || view === 'estoque_divergencias') {
+  if (view === 'estoque_insumos') {
     return modules.some((m) =>
       ['estoque_insumos', 'estoque_materia_prima', 'estoque_embalagens'].includes(m)
     );
@@ -42,7 +43,17 @@ export function canAccessView(user: AuthUser | null, view: string): boolean {
   }
 
   const key = viewToModuleKey(view);
-  if (key) return modules.includes(key);
+  if (key) {
+    if (key === 'expedicao_ecommerce') {
+      return modules.some((m) => ['expedicao_ecommerce', 'expedicao'].includes(m));
+    }
+    if (key === 'expedicao_separacao') {
+      return modules.some((m) =>
+        ['expedicao_separacao', 'expedicao_ecommerce', 'expedicao'].includes(m)
+      );
+    }
+    return modules.includes(key);
+  }
   return hubVisible(modules, view);
 }
 

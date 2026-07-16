@@ -58,7 +58,7 @@ pub struct Consumption {
     pub monthly_avg: f64,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Invoice {
     pub id: String,
@@ -80,6 +80,28 @@ pub struct Invoice {
     pub carrier_name: Option<String>,
     pub supplier_cnpj: Option<String>,
     pub payment_installments: Option<String>,
+    #[serde(default)]
+    pub fte_number: Option<String>,
+    #[serde(default)]
+    pub fte_value: f64,
+    #[serde(default)]
+    pub fte_carrier_name: Option<String>,
+    #[serde(default)]
+    pub fte_carrier_cnpj: Option<String>,
+    #[serde(default)]
+    pub fte_issue_date: Option<String>,
+    #[serde(default)]
+    pub fte_entry_date: Option<String>,
+    #[serde(default)]
+    pub fte_cif_fob: Option<String>,
+    #[serde(default)]
+    pub fte_serie: Option<String>,
+    #[serde(default)]
+    pub fte_cfop: Option<String>,
+    #[serde(default)]
+    pub fte_natureza: Option<String>,
+    #[serde(default)]
+    pub fte_icms_value: f64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

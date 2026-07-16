@@ -61,6 +61,22 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
         "011_ecommerce_orders.sql",
         include_str!("../../../../supabase/011_ecommerce_orders.sql"),
     ),
+    (
+        "012_extend_fte_details.sql",
+        include_str!("../../../../supabase/012_extend_fte_details.sql"),
+    ),
+    (
+        "013_almox_movement_sector.sql",
+        include_str!("../../../../supabase/013_almox_movement_sector.sql"),
+    ),
+    (
+        "014_ecommerce_lookups.sql",
+        include_str!("../../../../supabase/014_ecommerce_lookups.sql"),
+    ),
+    (
+        "015_reembalagem_packaging.sql",
+        include_str!("../../../../supabase/015_reembalagem_packaging.sql"),
+    ),
 ];
 
 #[derive(Debug, Serialize)]

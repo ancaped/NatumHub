@@ -36,14 +36,14 @@ Backend/src/modules/<area>/<sub>/
 ├── mod.rs
 ├── models.rs               # (opcional)
 ├── handlers.rs             # Rotas Axum
-├── commands.rs             # (opcional) lógica + Tauri invoke legado
-└── docs/README.md
+└── commands.rs             # (opcional)
 ```
 
 1. Criar módulo Rust e exportar em `Backend/src/modules/<area>/mod.rs`.
 2. Registrar router em `lib.rs` ou `hub_api/mod.rs` (prefixo `/api/...` ou `/api/hub/...`).
 3. Rotas protegidas passam pelo middleware em `geral/auth/middleware.rs`.
-4. Se precisar de tabelas novas: migration em `lib.rs` + documentar em `banco-dados/database_blueprint.md`.
+4. Se precisar de tabelas novas: migration em `Backend/supabase/` + anotar em `banco-dados/database_blueprint.md`.
+5. **Não** criar `docs/` por módulo.
 
 ## 4. Permissões e operadores
 
@@ -61,16 +61,7 @@ notifications::notify(state, "module_key", "success", "Título", "Mensagem").awa
 
 `module_key` deve existir no registry para filtragem correta.
 
-## 6. Docs do módulo
-
-Criar `docs/README.md` em FE e BE com:
-
-- Propósito em 1 parágrafo
-- Rotas REST (método + path)
-- Tabelas PostgreSQL usadas
-- Link para [`../ContextoIA/INDEX.md`](../../ContextoIA/INDEX.md) se IA precisar de contexto global
-
-## 7. Validar
+## 6. Validar
 
 ```bash
 cd Backend && cargo check

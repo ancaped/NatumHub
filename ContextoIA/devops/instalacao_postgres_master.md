@@ -83,5 +83,3 @@ Em desenvolvimento no repositório: `C:\api\Saves\postgres.env`. Reinicie o Natu
 1. Suba o NatumHub como **PC Principal**.
 2. Health da API deve reportar DB ok.
 3. Setup do supervisor na primeira vez.
-
-Migração a partir de Supabase: [`../banco-dados/migracao_postgres.md`](../banco-dados/migracao_postgres.md).

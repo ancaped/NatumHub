@@ -2,7 +2,7 @@
 name: natumhub-modulos
 description: >-
   Cria ou estende módulos do NatumHub com espelhamento Frontend/Backend:
-  registry, permissões, App.tsx, rotas Axum, docs e notificações.
+  registry, permissões, App.tsx, rotas Axum e notificações.
   Use quando o usuário pedir novo módulo, submódulo, tela no hub, module_key,
   permissão de operador, registrar view ou adicionar área ao NatumHub.
 ---
@@ -43,12 +43,12 @@ Frontend/src/modules/<area>/<sub>/
 ```
 Backend/src/modules/<area>/<sub>/
 ├── mod.rs, handlers.rs [, models.rs, commands.rs]
-└── docs/README.md
 ```
 
 - Export em `modules/<area>/mod.rs`
 - Router em `lib.rs` ou `hub_api/mod.rs`
 - Middleware auth já global — rotas admin explícitas no handler
+- **Não** criar `docs/` por módulo — só `ContextoIA/` se contrato mudar
 
 ### 4. Banco (se necessário)
 

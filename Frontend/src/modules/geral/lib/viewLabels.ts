@@ -16,7 +16,7 @@ export function getModuleTitle(view: string): string {
     case 'fisco_quimica':
       return 'Produção > Físico-Química';
     case 'montagem_kits':
-      return 'Produção > Montagem de Kits';
+      return 'Produção > Kits';
     case 'compras_hub':
       return 'Compras';
     case 'compras_materia_prima':
@@ -53,8 +53,6 @@ export function getModuleTitle(view: string): string {
       return 'Estoque > Coloração';
     case 'estoque_apoio':
       return 'Estoque > Material de Apoio';
-    case 'estoque_divergencias':
-      return 'Estoque > Divergências';
     case 'estoque_itens':
       return 'Almoxarifado > Itens';
     case 'estoque_almoxarifado':
@@ -78,12 +76,27 @@ export function getModuleTitle(view: string): string {
       return 'Vendas';
     case 'vendas_online':
       return 'Vendas > Vendas Online';
+    case 'qualidade_hub':
+      return 'Qualidade';
     case 'controle_qualidade':
       return 'Qualidade > Controle de Qualidade';
+    case 'qualidade_pops':
+      return 'Qualidade > POPs';
+    case 'qualidade_treinamentos':
+      return 'Qualidade > Treinamentos';
+    case 'qualidade_temperatura':
+      return 'Qualidade > Temperatura';
+    case 'qualidade_limpeza':
+      return 'Qualidade > Limpeza';
+    case 'qualidade_recebimento_mp':
+      return 'Qualidade > Recebimento MP';
     case 'administrativo':
       return 'Administrativo';
-    case 'expedicao':
+    case 'expedicao_hub':
       return 'Expedição';
+    case 'expedicao_ecommerce':
+    case 'expedicao':
+      return 'Expedição > E-commerce';
     case 'linha_produtos':
       return 'Administrativo > Linha de Produtos';
     case 'financeiro':

@@ -6,7 +6,7 @@ Implementação: `Backend/src/lib.rs` + `modules/*/router`. Detalhes multi-usuá
 
 ## Rotas públicas
 
-`/api/health` · `/api/auth/login` · `/api/auth/operators` · `/api/auth/session` · `/login` · `GET /api/hub/client-config` · `/api/google/callback`
+`/api/health` · `/api/auth/login` · `/api/auth/operators` · `/api/auth/session` · `/login` · `GET /api/hub/client-config`
 
 ## Auth operador
 
@@ -54,7 +54,7 @@ Doc: [`../feedbacks/README.md`](../feedbacks/README.md) — fila e resolução v
 
 | Método | Rota | Notas |
 |--------|------|-------|
-| GET/POST | `/api/settings/:key` | sql_*, firebase_*, etc. |
+| GET/POST | `/api/settings/:key` | sql_*, erp_*, etc. |
 | GET/POST | `/api/import/watch-config` | Pasta planilhas |
 | GET/POST | `/api/import/erp-sync-schedule` | POST admin — horários sync auto |
 
@@ -115,12 +115,9 @@ Hub `almoxarifado_hub`. Doc: [`../modulos/almoxarifado.md`](../modulos/almoxarif
 
 Regra canônica: [`../../erp-import/ESTOQUE.md`](../../erp-import/ESTOQUE.md).
 
-## Google backup (principal)
+## Backup
 
-| Método | Rota |
-|--------|------|
-| GET | `/api/google/status`, `/api/google/auth-url` |
-| POST | `/api/google/config`, `/api/google/sync` |
+Backup operacional = **PostgreSQL local** (`/api/admin/pg-backup*`). Sem Firebase/Google Drive.
 
 ## Módulos via `/api/hub/*`
 

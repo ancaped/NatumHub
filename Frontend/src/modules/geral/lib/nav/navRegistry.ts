@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
+  BookOpen,
   Boxes,
   Briefcase,
   CheckCircle2,
@@ -11,13 +12,17 @@ import {
   FileText,
   FlaskConical,
   Globe,
+  GraduationCap,
   Layers,
   Package,
+  PackageCheck,
   Palette,
   ShoppingCart,
   ShoppingBag,
+  Sparkles,
   Store,
   Tag,
+  Thermometer,
   TrendingUp,
   Truck,
   Wrench,
@@ -91,12 +96,18 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   vendas: TrendingUp,
   vendas_online: ShoppingBag,
   controle_qualidade: ClipboardCheck,
+  qualidade_pops: BookOpen,
+  qualidade_treinamentos: GraduationCap,
+  qualidade_temperatura: Thermometer,
+  qualidade_limpeza: Sparkles,
+  qualidade_recebimento_mp: PackageCheck,
   administrativo: Briefcase,
+  expedicao_ecommerce: Globe,
   expedicao: Truck,
   financeiro: DollarSign,
 };
 
-const DEPRECATED_HUB_VIEWS = new Set(['compras_hub', 'producao_hub', 'estoque_hub', 'almoxarifado_hub', 'vendas_hub']);
+const DEPRECATED_HUB_VIEWS = new Set(['compras_hub', 'producao_hub', 'estoque_hub', 'almoxarifado_hub', 'vendas_hub', 'qualidade_hub', 'expedicao_hub']);
 
 export function isDeprecatedHubView(view: string): boolean {
   return DEPRECATED_HUB_VIEWS.has(view);

@@ -2,58 +2,39 @@
 
 Leia **`ContextoIA/INDEX.md`** antes de explorar o código.
 
-Idioma das respostas: **pt-BR**. Escopo mínimo; validar com `cargo check` e `npm run build`.
+Idioma: **pt-BR**. Escopo mínimo; `cargo check --lib` + `npm run build`. Melhor parte = nenhuma parte.
 
----
+## Skills (`.cursor/skills/`)
 
-## Skills do projeto (especialidades)
-
-Skills em **`.cursor/skills/`** — **leia o `SKILL.md` correspondente imediatamente** quando a tarefa combinar com os gatilhos abaixo.
-
-| Skill | Arquivo | Use quando o usuário ou a tarefa envolver… |
-|-------|---------|---------------------------------------------|
-| **natumhub-feedbacks** | [`.cursor/skills/natumhub-feedbacks/SKILL.md`](.cursor/skills/natumhub-feedbacks/SKILL.md) | Triagem admin, widget de feedback, prioridade, status, gestão de reports, `FeedbacksAdminPanel` |
-| **natumhub-resolve-bugs** | [`.cursor/skills/natumhub-resolve-bugs/SKILL.md`](.cursor/skills/natumhub-resolve-bugs/SKILL.md) | Resolver bug, executar fila, corrigir feedback, consultar Postgres (`feedbacks`), nota + `awaiting_review` |
-| **natumhub-modulos** | [`.cursor/skills/natumhub-modulos/SKILL.md`](.cursor/skills/natumhub-modulos/SKILL.md) | Novo módulo/submódulo, `module_key`, permissões, view no hub, registry FE/BE |
-| **natumhub-erp-sql** | [`.cursor/skills/natumhub-erp-sql/SKILL.md`](.cursor/skills/natumhub-erp-sql/SKILL.md) | Sync ERP, SQL Server, `legacy_db`, `erp-import/sql`, passos A–N, agenda de sync |
-| **natumhub-api** | [`.cursor/skills/natumhub-api/SKILL.md`](.cursor/skills/natumhub-api/SKILL.md) | Nova rota REST, endpoint Axum, `apiJson`/`hubJson`, auth 401/403 |
-
-### Roteamento rápido
+| Skill | Quando |
+|-------|--------|
+| `natumhub-feedbacks` | Triagem / widget / API feedbacks |
+| `natumhub-resolve-bugs` | Corrigir fila Postgres → `awaiting_review` |
+| `natumhub-modulos` | Novo módulo / `module_key` / view |
+| `natumhub-erp-sql` | Sync ERP / `erp-import` / `legacy_db` |
+| `natumhub-api` | Rota REST / `apiJson` / auth |
 
 ```
-Feedback / triagem admin     → natumhub-feedbacks
-Corrigir bug da fila         → mencionar Feedbacks/feedback.md  (+ skill natumhub-resolve-bugs)
-Criar tela ou módulo novo    → natumhub-modulos
-Importação ou query ERP      → natumhub-erp-sql
-Rota HTTP ou cliente API     → natumhub-api
-Tarefa genérica / dúvida     → ContextoIA/inicio/gemini.md
+Feedbacks admin     → natumhub-feedbacks
+Fila de bugs        → Feedbacks/feedback.md + natumhub-resolve-bugs
+Módulo novo         → natumhub-modulos
+Sync ERP            → natumhub-erp-sql
+Rota HTTP           → natumhub-api
+Genérico            → ContextoIA/inicio/gemini.md
 ```
 
-Múltiplas skills podem aplicar (ex.: bug no sync ERP → `natumhub-resolve-bugs` + `natumhub-erp-sql`).
+## Docs
 
----
+| Tema | Onde |
+|------|------|
+| Índice | `ContextoIA/INDEX.md` |
+| Auth / rede | `ContextoIA/arquitetura/multi_usuario.md` |
+| API | `ContextoIA/api/routes.md` |
+| ERP | `erp-import/` |
+| Schema | `ContextoIA/banco-dados/database_blueprint.md` + `Backend/supabase/` |
+| Bugs | `Feedbacks/feedback.md` |
+| Instalação | `ContextoIA/devops/` · `.github/RELEASE.md` |
 
-## Mapa de documentação
+## Stack
 
-| Tema | Caminho |
-|------|---------|
-| Índice IA | `ContextoIA/INDEX.md` |
-| Playbook | `ContextoIA/inicio/gemini.md` |
-| Arquitetura | `ContextoIA/arquitetura/` |
-| Auth / rede / notificações | `ContextoIA/arquitetura/multi_usuario.md` |
-| API REST (referência) | `ContextoIA/api/routes.md` |
-| Sync ERP (referência) | `ContextoIA/erp-import/README.md` → `erp-import/` |
-| Schema PostgreSQL | `ContextoIA/banco-dados/database_blueprint.md` + `Backend/supabase/` |
-| Criar módulo (referência) | `ContextoIA/modulos/criacao.md` |
-| Feedbacks (referência) | `ContextoIA/feedbacks/README.md` · playbook `Feedbacks/feedback.md` |
-| Bugs pendentes (fila) | Playbook [`Feedbacks/feedback.md`](Feedbacks/feedback.md) · dados no Postgres |
-| Instalação / updates | `ContextoIA/devops/` · `.github/RELEASE.md` |
-
----
-
-## Stack (lembrete)
-
-Tauri 2 + React + Rust Axum (:3001) + **PostgreSQL** (`Saves/postgres.env` no PC Principal) · Auth operador (Bearer) · Supervisor cadastra usuários.
-
-**PC Principal precisa de PostgreSQL** (banco operacional). Terminais só falam com a API. **Não** usar SQLite/`data.db`. Instalação: `ContextoIA/devops/`.
-
+Tauri 2 + React + Axum `:3001` + **PostgreSQL** (`Saves/postgres.env` no PC Principal). Terminais só falam com a API. **Não** SQLite/`data.db`.

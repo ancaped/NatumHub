@@ -119,6 +119,7 @@ pub async fn get_supplier_history_query(pool: PgPool, id: &str) -> Result<serde_
             carrier_name: row.get(16),
             supplier_cnpj: row.get(17),
             payment_installments: row.get(18),
+            ..Default::default()
         })
         .collect();
 

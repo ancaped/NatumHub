@@ -26,6 +26,11 @@ import ActiveProductsView from './modules/administrativo/linha_produtos/ActivePr
 import VendasView from './modules/vendas/vendas_geral/VendasView';
 import VendasOnlineView from './modules/vendas/vendas_online/VendasOnlineView';
 import ControleQualidadeView from './modules/qualidade/controle/ControleQualidadeView';
+import QualidadePopsView from './modules/qualidade/pops/QualidadePopsView';
+import QualidadeTreinamentosView from './modules/qualidade/treinamentos/QualidadeTreinamentosView';
+import QualidadeTemperaturaView from './modules/qualidade/temperatura/QualidadeTemperaturaView';
+import QualidadeLimpezaView from './modules/qualidade/limpeza/QualidadeLimpezaView';
+import QualidadeRecebimentoMpView from './modules/qualidade/recebimento_mp/QualidadeRecebimentoMpView';
 import AdministrativoView from './modules/administrativo/AdministrativoView';
 import ExpedicaoView from './modules/expedicao/ExpedicaoView';
 import FinanceiroView from './modules/financeiro/FinanceiroView';
@@ -34,22 +39,15 @@ import { FeedbackWidget } from './modules/geral/components/FeedbackWidget';
 import { syncCurrentPageForView } from './modules/geral/lib/viewLabels';
 import { 
   Boxes, ShoppingCart, Activity, FlaskConical, ArrowRight, ArrowLeft,
-  Settings, Database, RefreshCw, Upload, Download, Loader2, Check, X, Globe,
-  FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp, Warehouse, AlertTriangle
+  Settings, Database, Loader2, Globe,
+  FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp, Warehouse,
+  Truck, ClipboardCheck, BookOpen, GraduationCap, Thermometer, Sparkles, PackageCheck,
 } from 'lucide-react';
 import { APP_NAME } from './modules/geral/lib/utils';
-import { api, localAuth } from './modules/geral/lib/api';
+import { localAuth } from './modules/geral/lib/api';
 import { clearAuthSession, getAuthUser, validateSession, fetchSetupStatus, canSeeFeedbacks, type AuthUser } from './modules/geral/lib/auth';
 import { canAccessView } from './modules/geral/lib/modules/permissions';
-import { apiFetch, apiJson, getSetting, getSettings, setSetting, setSettings } from './modules/geral/lib/http';
-import { 
-  initializeFirebase, 
-  isFirebaseInitialized, 
-  loginWithGoogle, 
-  logoutFirebase, 
-  uploadBackupFile 
-} from './modules/geral/acesso/firebase';
-import { getRedirectResult } from 'firebase/auth';
+import { apiJson, getSettings, setSettings } from './modules/geral/lib/http';
 
 import { runUpdateCheckFlow } from './modules/geral/lib/updateChannel';
 import {
@@ -60,7 +58,7 @@ import {
   getApiOrigin,
 } from './modules/geral/lib/connectionConfig';
 
-type HubView = 'hub' | 'producao_hub' | 'producao' | 'producao_bases' | 'producao_lotes' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'compras_almoxarifado' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_divergencias' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'controle_qualidade' | 'administrativo' | 'admin_linha_produtos' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro';
+type HubView = 'hub' | 'producao_hub' | 'producao' | 'producao_bases' | 'producao_lotes' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'compras_almoxarifado' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'qualidade_hub' | 'controle_qualidade' | 'qualidade_pops' | 'qualidade_treinamentos' | 'qualidade_temperatura' | 'qualidade_limpeza' | 'qualidade_recebimento_mp' | 'administrativo' | 'admin_linha_produtos' | 'expedicao_hub' | 'expedicao_ecommerce' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro';
 
 export default function App() {
   const [view, setView] = useState<HubView>('hub');
@@ -83,16 +81,6 @@ export default function App() {
     }
   }, [view]);
   
-  // Firebase states
-  const [firebaseConfigStr, setFirebaseConfigStr] = useState('');
-  const [firebaseUser, setFirebaseUser] = useState<any>(null);
-  const [firebaseInitialized, setFirebaseInitialized] = useState(false);
-  const [syncingFirebase, setSyncingFirebase] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [firebaseLastSync, setFirebaseLastSync] = useState('Nunca sincronizado');
-  const [savingGoogle, setSavingGoogle] = useState(false);
-  const [backingUpManual, setBackingUpManual] = useState(false);
-  const [restoringManual, setRestoringManual] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // SQL Server — defaults vazios; valores reais vêm de settings (nunca hardcode no FE)
@@ -103,65 +91,6 @@ export default function App() {
   const [sqlDatabase, setSqlDatabase] = useState('');
   const [savingSql, setSavingSql] = useState(false);
   const [syncingSql, setSyncingSql] = useState(false);
-
-  const fetchFirebaseConfig = async () => {
-    try {
-      let customConfig = undefined;
-      try {
-        const cfg = await getSetting('firebase_config');
-        if (cfg) {
-          setFirebaseConfigStr(cfg);
-          try {
-            customConfig = JSON.parse(cfg);
-          } catch (jsonErr) {
-            console.error("Erro ao fazer parse da configuração do Firebase:", jsonErr);
-          }
-        }
-      } catch (e) {
-        console.error("Erro ao buscar firebase_config do backend:", e);
-      }
-
-      try {
-        const { auth } = await initializeFirebase(customConfig);
-        setFirebaseInitialized(true);
-        
-        // Process redirect results if reloaded after redirect login (only sets firebaseUser)
-        try {
-          const redirectResult = await getRedirectResult(auth);
-          if (redirectResult && redirectResult.user) {
-            console.log("Login via redirect bem-sucedido:", redirectResult.user.email);
-            setFirebaseUser(redirectResult.user);
-            setMessage({ text: `Conectado com sucesso como: ${redirectResult.user.email}`, type: 'success' });
-            setTimeout(() => setMessage(null), 5000);
-          }
-        } catch (err: any) {
-          console.error("Error in getRedirectResult:", err);
-          if (err.code === 'auth/unauthorized-domain') {
-            setMessage({ 
-              text: `Erro: O domínio '${window.location.hostname}' não está autorizado no Console do Firebase. Adicione este domínio em Authentication -> Settings -> Authorized Domains.`, 
-              type: 'error' 
-            });
-            setTimeout(() => setMessage(null), 8000);
-          }
-        }
-
-        // Listen to auth changes (only manages firebaseUser for backup operations)
-        auth.onAuthStateChanged((user: any) => {
-          setFirebaseUser(user);
-        });
-      } catch (err) {
-        console.warn("Firebase não inicializado com a chave fornecida:", err);
-        setFirebaseInitialized(false);
-      }
-      
-      const lastSync = await getSetting('firebase_last_sync');
-      if (lastSync) {
-        setFirebaseLastSync(lastSync);
-      }
-    } catch (e) {
-      console.error("Erro ao carregar configurações do Firebase:", e);
-    }
-  };
 
   const fetchSqlConfig = async () => {
     try {
@@ -249,7 +178,6 @@ export default function App() {
   const finishSupervisorSetup = async () => {
     setNeedsSupervisorSetup(false);
     setCurrentUser(getAuthUser());
-    fetchFirebaseConfig();
     fetchSqlConfig();
   };
 
@@ -317,7 +245,6 @@ export default function App() {
         return;
       }
 
-      fetchFirebaseConfig();
       fetchSqlConfig();
       const online = await waitForServerHealth(25000);
       if (cancelled) return;
@@ -368,135 +295,8 @@ export default function App() {
     };
   }, []);
 
-  const handleSaveFirebaseConfig = async () => {
-    setSavingGoogle(true);
-    try {
-      // Validate JSON
-      JSON.parse(firebaseConfigStr);
-      
-      await setSetting('firebase_config', firebaseConfigStr);
-      setMessage({ text: "Configuração do Firebase salva com sucesso!", type: 'success' });
-      await fetchFirebaseConfig();
-    } catch (e) {
-      console.error(e);
-      setMessage({ text: "Configuração inválida. Certifique-se de que é um JSON válido.", type: 'error' });
-    } finally {
-      setSavingGoogle(false);
-      setTimeout(() => setMessage(null), 4000);
-    }
-  };
-
-  const handleFirebaseLogin = () => {
-    // Show a helpful message in the UI while waiting for the browser OAuth
-    setMessage({ 
-      text: "Por favor, realize o login na janela do navegador que foi aberta. Este aplicativo será conectado automaticamente.", 
-      type: 'success' 
-    });
-
-    loginWithGoogle()
-      .then((user) => {
-        setFirebaseUser(user);
-        setMessage({ text: `Conectado com sucesso como: ${user.email}`, type: 'success' });
-      })
-      .catch((e: any) => {
-        console.error(e);
-        if (e.code === 'auth/unauthorized-domain') {
-          setMessage({ 
-            text: `Erro: O domínio '${window.location.hostname}' (ou protocolo) não está autorizado no Console do seu projeto Firebase. Adicione-o em Authentication -> Settings -> Authorized Domains nas configurações do Firebase.`, 
-            type: 'error' 
-          });
-        } else {
-          setMessage({ text: `Erro no login com Google: ${e.message}`, type: 'error' });
-        }
-      })
-      .finally(() => {
-        setTimeout(() => setMessage(null), 8000);
-      });
-  };
-
-  const handleFirebaseLogout = async () => {
-    try {
-      if (isFirebaseInitialized()) {
-        try {
-          await logoutFirebase();
-        } catch (e) {}
-      }
-      setFirebaseUser(null);
-      setMessage({ text: "Desconectado do Google com sucesso.", type: 'success' });
-    } catch (e: any) {
-      console.error(e);
-      setMessage({ text: "Erro ao desconectar.", type: 'error' });
-    }
-  };
-
   const handleLogout = async () => {
     await localAuth.signOut();
-  };
-
-
-  const handleFirebaseSync = async () => {
-    if (!firebaseUser) {
-      setMessage({ text: "Faça login com o Google primeiro.", type: 'error' });
-      setTimeout(() => setMessage(null), 4000);
-      return;
-    }
-    setSyncingFirebase(true);
-    setUploadProgress(0);
-    try {
-      setMessage({ text: "Gerando resumo do ERP...", type: 'success' });
-      const summary = await api.exportErpSummary();
-      const jsonBytes = new TextEncoder().encode(JSON.stringify(summary, null, 2));
-      const compressed = await new Response(
-        new Blob([jsonBytes]).stream().pipeThrough(new CompressionStream('gzip'))
-      ).arrayBuffer();
-
-      setMessage({ text: "Enviando para o Firebase Cloud Storage...", type: 'success' });
-      const fileName = `natum_erp_summary_${new Date().toISOString().split('T')[0]}.json.gz`;
-      await uploadBackupFile(firebaseUser.uid, new Uint8Array(compressed), fileName, (progress) => {
-        setUploadProgress(progress);
-      });
-      
-      const now = new Date().toLocaleString();
-      // 3. Save last sync timestamp
-      await setSetting('firebase_last_sync', now);
-      setFirebaseLastSync(now);
-      setMessage({ text: "Backup realizado com sucesso no Firebase!", type: 'success' });
-    } catch (e: any) {
-      console.error(e);
-      setMessage({ text: `Erro na sincronização: ${e.message || e}`, type: 'error' });
-    } finally {
-      setSyncingFirebase(false);
-      setTimeout(() => setMessage(null), 4000);
-    }
-  };
-
-  const handleManualBackup = async () => {
-    setBackingUpManual(true);
-    try {
-      const summary = await api.exportErpSummary();
-      const blob = new Blob([JSON.stringify(summary, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `natum_erp_summary_${new Date().toISOString().split('T')[0]}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setMessage({ text: "Resumo ERP exportado com sucesso!", type: 'success' });
-    } catch (e) {
-      console.error(e);
-      setMessage({ text: "Erro ao gerar exportação", type: 'error' });
-    } finally {
-      setBackingUpManual(false);
-      setTimeout(() => setMessage(null), 4000);
-    }
-  };
-
-  const handleManualRestore = async () => {
-    alert(
-      'Restauração de arquivo .db não está mais disponível.\n\n' +
-      'Os dados ficam no PostgreSQL do PC Principal. Use o painel de backup Postgres nas configurações, ' +
-      'ou "Reset operacional" (supervisor) para limpar dados transacionais.'
-    );
   };
 
   const renderContent = () => {
@@ -567,7 +367,7 @@ export default function App() {
 
     if (view === 'montagem_kits') {
       return (
-        <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Montagem de Kits">
+        <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Kits">
           <MontagemKitsView onBackToHub={() => setView('producao_hub')} />
         </ErrorBoundary>
       );
@@ -768,26 +568,6 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
                   Acessar Material de Apoio <ArrowRight className="h-4 w-4" />
-                </div>
-              </button>
-              )}
-
-              {(allow('estoque_materia_prima') || allow('estoque_embalagens') || allow('estoque_insumos')) && (
-              <button 
-                onClick={() => setView('estoque_divergencias')}
-                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
-              >
-                <div className="space-y-4">
-                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                    <AlertTriangle className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-zinc-900">Divergências</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Auditoria de insumos — Hub × ERP, NFs, baixas de OP e acertos.</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                  Acessar Divergências <ArrowRight className="h-4 w-4" />
                 </div>
               </button>
               )}
@@ -1105,18 +885,6 @@ export default function App() {
       );
     }
 
-    if (view === 'estoque_divergencias') {
-      return (
-        <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro no módulo de Divergências de Estoque">
-          <EstoqueView
-            mode="insumos"
-            initialInsumosSubTab="contagens"
-            onBackToHub={() => setView('estoque_hub')}
-          />
-        </ErrorBoundary>
-      );
-    }
-
     if (view === 'estoque_insumos') {
       return (
         <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro no módulo de Estoque de Insumos">
@@ -1167,9 +935,131 @@ export default function App() {
 
     if (view === 'controle_qualidade') {
       return (
-        <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo de Controle de Qualidade">
-          <ControleQualidadeView onBackToHub={() => setView('hub')} />
+        <ErrorBoundary onReset={() => setView('qualidade_hub')} fallbackTitle="Erro no módulo de Controle de Qualidade">
+          <ControleQualidadeView onBackToHub={() => setView('qualidade_hub')} />
         </ErrorBoundary>
+      );
+    }
+
+    if (view === 'qualidade_pops') {
+      return (
+        <ErrorBoundary onReset={() => setView('qualidade_hub')} fallbackTitle="Erro no módulo POPs">
+          <QualidadePopsView onBackToHub={() => setView('qualidade_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'qualidade_treinamentos') {
+      return (
+        <ErrorBoundary onReset={() => setView('qualidade_hub')} fallbackTitle="Erro no módulo Treinamentos">
+          <QualidadeTreinamentosView onBackToHub={() => setView('qualidade_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'qualidade_temperatura') {
+      return (
+        <ErrorBoundary onReset={() => setView('qualidade_hub')} fallbackTitle="Erro no módulo Temperatura">
+          <QualidadeTemperaturaView onBackToHub={() => setView('qualidade_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'qualidade_limpeza') {
+      return (
+        <ErrorBoundary onReset={() => setView('qualidade_hub')} fallbackTitle="Erro no módulo Limpeza">
+          <QualidadeLimpezaView onBackToHub={() => setView('qualidade_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'qualidade_recebimento_mp') {
+      return (
+        <ErrorBoundary onReset={() => setView('qualidade_hub')} fallbackTitle="Erro no módulo Recebimento MP">
+          <QualidadeRecebimentoMpView onBackToHub={() => setView('qualidade_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'qualidade_hub') {
+      return (
+        <div className="flex-1 flex flex-col justify-between overflow-y-auto bg-zinc-50 font-sans text-zinc-900">
+          <main className="flex-1 flex flex-col items-center justify-center p-6 max-w-6xl w-full mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="flex items-center gap-3 self-start mb-4">
+              <button
+                onClick={() => setView('hub')}
+                className="bg-white border border-zinc-200 hover:bg-zinc-150 p-2 rounded-xl text-zinc-650 hover:text-zinc-900 transition-all cursor-pointer shadow-sm"
+                title="Voltar ao Início"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+              <div>
+                <h1 className="font-bold text-lg tracking-tight">Qualidade Hub</h1>
+                <p className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">BPF, POPs e rastreabilidade auditável</p>
+              </div>
+            </div>
+            <div className="text-center space-y-2">
+              <h2 className="text-3xl font-extrabold tracking-tight text-zinc-900">Módulos de Qualidade</h2>
+              <p className="text-sm text-zinc-500">Selecione a área de controle e conformidade.</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-4 w-full max-w-5xl">
+              {allow('controle_qualidade') && (
+                <button onClick={() => setView('controle_qualidade')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><ClipboardCheck className="h-6 w-6" /></div>
+                    <div><h3 className="text-xl font-bold text-zinc-900">Controle de Qualidade</h3><p className="text-sm text-zinc-500 mt-1">Visão geral, laudos e rastreabilidade de lotes.</p></div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+              {allow('qualidade_pops') && (
+                <button onClick={() => setView('qualidade_pops')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><BookOpen className="h-6 w-6" /></div>
+                    <div><h3 className="text-xl font-bold text-zinc-900">POPs</h3><p className="text-sm text-zinc-500 mt-1">Procedimentos operacionais padrão versionados.</p></div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+              {allow('qualidade_treinamentos') && (
+                <button onClick={() => setView('qualidade_treinamentos')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><GraduationCap className="h-6 w-6" /></div>
+                    <div><h3 className="text-xl font-bold text-zinc-900">Treinamentos</h3><p className="text-sm text-zinc-500 mt-1">Capacitação e reciclagem BPF.</p></div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+              {allow('qualidade_temperatura') && (
+                <button onClick={() => setView('qualidade_temperatura')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Thermometer className="h-6 w-6" /></div>
+                    <div><h3 className="text-xl font-bold text-zinc-900">Temperatura</h3><p className="text-sm text-zinc-500 mt-1">Monitoramento de áreas críticas.</p></div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+              {allow('qualidade_limpeza') && (
+                <button onClick={() => setView('qualidade_limpeza')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Sparkles className="h-6 w-6" /></div>
+                    <div><h3 className="text-xl font-bold text-zinc-900">Limpeza</h3><p className="text-sm text-zinc-500 mt-1">Higienização de áreas e equipamentos.</p></div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+              {allow('qualidade_recebimento_mp') && (
+                <button onClick={() => setView('qualidade_recebimento_mp')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><PackageCheck className="h-6 w-6" /></div>
+                    <div><h3 className="text-xl font-bold text-zinc-900">Recebimento MP</h3><p className="text-sm text-zinc-500 mt-1">Inspeção de matérias-primas na entrada.</p></div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+            </div>
+          </main>
+        </div>
       );
     }
 
@@ -1181,10 +1071,47 @@ export default function App() {
       );
     }
 
-    if (view === 'expedicao') {
+    if (view === 'expedicao_hub') {
       return (
-        <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo de Expedição">
-          <ExpedicaoView onBackToHub={() => setView('hub')} />
+        <div className="flex-1 flex flex-col justify-between overflow-y-auto bg-zinc-50 font-sans text-zinc-900">
+          <main className="flex-1 flex flex-col items-center justify-center p-6 max-w-6xl w-full mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="flex items-center gap-3 self-start mb-4">
+              <button
+                onClick={() => setView('hub')}
+                className="bg-white border border-zinc-200 hover:bg-zinc-150 p-2 rounded-xl text-zinc-650 hover:text-zinc-900 transition-all cursor-pointer shadow-sm"
+                title="Voltar ao Início"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+              <div>
+                <h1 className="font-bold text-lg tracking-tight">Expedição Hub</h1>
+                <p className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">Separação, conferência e despacho</p>
+              </div>
+            </div>
+            <div className="text-center space-y-2">
+              <h2 className="text-3xl font-extrabold tracking-tight text-zinc-900">Módulos de Expedição</h2>
+              <p className="text-sm text-zinc-500">Selecione o fluxo de expedição.</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 w-full max-w-3xl">
+              {allow('expedicao_ecommerce') && (
+                <button onClick={() => setView('expedicao_ecommerce')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Globe className="h-6 w-6" /></div>
+                    <div><h3 className="text-xl font-bold text-zinc-900">E-commerce</h3><p className="text-sm text-zinc-500 mt-1">Pedidos online, cadastros, separação e envio.</p></div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar E-commerce <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+            </div>
+          </main>
+        </div>
+      );
+    }
+
+    if (view === 'expedicao_ecommerce' || view === 'expedicao') {
+      return (
+        <ErrorBoundary onReset={() => setView('expedicao_hub')} fallbackTitle="Erro no módulo de Expedição E-commerce">
+          <ExpedicaoView onBackToHub={() => setView('expedicao_hub')} />
         </ErrorBoundary>
       );
     }

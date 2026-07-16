@@ -60,3 +60,6 @@ Backend/updater.pubkey
 
 # Runtime updater manifests (seeded on server)
 Saves/updater-manifests/
+
+# Espelho opcional gerado pelo app (fonte = Postgres)
+Feedbacks/feedback_index.md

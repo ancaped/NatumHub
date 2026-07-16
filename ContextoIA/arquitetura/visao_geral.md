@@ -22,4 +22,4 @@ Terminais (client) ──HTTP──► PC Principal
 
 - Dados do Hub: **PostgreSQL** (`Saves/postgres.env`) — **não** SQLite.
 - Sync ERP só no master.
-- Detalhes rede: [multi_usuario.md](multi_usuario.md) · instalação: [../devops/](../devops/README.md).
+- Detalhes rede: [multi_usuario.md](multi_usuario.md) · instalação: [../devops/instalacao_via_repositorio.md](../devops/instalacao_via_repositorio.md).

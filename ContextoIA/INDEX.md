@@ -13,18 +13,17 @@
 | Tarefa | Ler |
 |--------|-----|
 | Auth / dispositivos | [arquitetura/multi_usuario.md](arquitetura/multi_usuario.md) |
-| Visão / pastas | [arquitetura/visao_geral.md](arquitetura/visao_geral.md) · [mapa_pastas.md](arquitetura/mapa_pastas.md) |
+| Visão / pastas | [arquitetura/mapa_pastas.md](arquitetura/mapa_pastas.md) · [visao_geral.md](arquitetura/visao_geral.md) |
 | Rotas REST | Skill `natumhub-api` + [api/routes.md](api/routes.md) |
 | Sync ERP | Skill `natumhub-erp-sql` + [../erp-import/README.md](../erp-import/README.md) |
 | Novo módulo | Skill `natumhub-modulos` + [modulos/criacao.md](modulos/criacao.md) |
-| Almoxarifado | [modulos/almoxarifado.md](modulos/almoxarifado.md) · mobile [api/mobile_roadmap.md](api/mobile_roadmap.md) |
+| Almoxarifado | [modulos/almoxarifado.md](modulos/almoxarifado.md) |
+| Linha / bases | [modulos/linha_produtos_bases.md](modulos/linha_produtos_bases.md) |
 | Schema DB | [banco-dados/database_blueprint.md](banco-dados/database_blueprint.md) + `Backend/supabase/` |
-| Migração Postgres | [banco-dados/migracao_postgres.md](banco-dados/migracao_postgres.md) |
-| Bugs | Mencionar [`../Feedbacks/feedback.md`](../Feedbacks/feedback.md) (playbook) + skill `natumhub-resolve-bugs` |
-| Feedbacks | Skill `natumhub-feedbacks` + [feedbacks/README.md](feedbacks/README.md) |
+| Bugs | [`../Feedbacks/feedback.md`](../Feedbacks/feedback.md) + skill `natumhub-resolve-bugs` |
+| Feedbacks (UI/API) | Skill `natumhub-feedbacks` |
 | UI | [ui/style_and_ux_guide.md](ui/style_and_ux_guide.md) |
-| Releases / instalador | [../.github/RELEASE.md](../.github/RELEASE.md) · [devops/](devops/README.md) · **sem .exe:** [devops/instalacao_via_repositorio.md](devops/instalacao_via_repositorio.md) |
-| Instalar via repo (master/clientes) | [devops/instalacao_via_repositorio.md](devops/instalacao_via_repositorio.md) |
+| Instalação / release | [devops/](devops/) · [../.github/RELEASE.md](../.github/RELEASE.md) |
 
 ## Código-chave
 
@@ -41,6 +40,6 @@ Saves/postgres.env
 
 1. Escopo mínimo; pt-BR nas respostas.
 2. Após edits: `cargo check --lib` + `npm run build`.
-3. Dados = **PostgreSQL** no PC Principal (`Saves/postgres.env`). Sync ERP via `run_sync` / `POST /api/import/sync`.
-4. **Não** afirmar que o app usa SQLite/`data.db` — isso é legado.
-5. Não recriar docs por módulo — só ContextoIA / erp-import se contrato mudar.
+3. Dados = **PostgreSQL** (`Saves/postgres.env`). Sync ERP: `run_sync` / `POST /api/import/sync`.
+4. **Não** SQLite/`data.db`. **Não** recriar `docs/` por módulo.
+5. Melhor parte = nenhuma parte: não adicionar arquivo se um existente cobre.

@@ -4,7 +4,7 @@ pub mod store;
 
 use std::sync::Arc;
 use axum::{
-    routing::{get, post, put},
+    routing::{get, post, put, delete},
     Router,
 };
 use crate::handlers::AppState;
@@ -28,6 +28,18 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/api/almox/items/:code/seed-from-erp",
             post(handlers::seed_from_erp),
+        )
+        .route(
+            "/api/almox/items/:code/consumption",
+            get(handlers::get_item_consumption),
+        )
+        .route(
+            "/api/almox/fotos/:entity_type/:entity_id",
+            get(handlers::list_fotos).post(handlers::add_foto),
+        )
+        .route(
+            "/api/almox/fotos/:id",
+            delete(handlers::delete_foto),
         )
         .route(
             "/api/almox/movements",

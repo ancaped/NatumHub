@@ -84,6 +84,8 @@ pub struct CreateMovementRequest {
     pub document_ref: Option<String>,
     pub occurred_at: Option<String>,
     pub allow_negative: Option<bool>,
+    /// Setor destino (saídas de almoxarifado/peças)
+    pub sector: Option<String>,
     /// Supermercado — compra detalhada
     pub variant_label: Option<String>,
     pub pack_label: Option<String>,
@@ -112,6 +114,7 @@ pub struct AlmoxMovementRow {
     pub pack_count: Option<f64>,
     pub content_per_pack: Option<f64>,
     pub total_paid: Option<f64>,
+    pub sector: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -241,6 +244,7 @@ pub struct MaintenanceRow {
     pub equipment_name: Option<String>,
     pub kind: String,
     pub status: String,
+    pub routine: Option<String>,
     pub item_code: Option<String>,
     pub item_description: Option<String>,
     pub quantity: f64,
@@ -259,6 +263,7 @@ pub struct CreateMaintenanceRequest {
     pub equipment_id: String,
     pub kind: String,
     pub status: Option<String>,
+    pub routine: Option<String>,
     pub item_code: Option<String>,
     pub quantity: Option<f64>,
     pub technician: Option<String>,
@@ -272,6 +277,7 @@ pub struct CreateMaintenanceRequest {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateMaintenanceRequest {
     pub status: Option<String>,
+    pub routine: Option<String>,
     pub technician: Option<String>,
     pub cost: Option<f64>,
     pub notes: Option<String>,
@@ -295,4 +301,43 @@ pub struct AlmoxDashboardStats {
     pub equipments_in_maintenance: i64,
     pub equipments_stopped: i64,
     pub open_maintenances: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EstoqueFotoRow {
+    pub id: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub photo_data: String,
+    pub notes: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddFotoRequest {
+    pub photo_data: String,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlmoxConsumptionData {
+    pub consumption_yoy: Vec<ConsumptionYoYItem>,
+    pub monthly_consumption: Vec<MonthlyConsumptionItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumptionYoYItem {
+    pub year: i32,
+    pub quantity: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonthlyConsumptionItem {
+    pub month: String,
+    pub quantity: f64,
 }

@@ -3,7 +3,7 @@
 > **Gatilho:** `@Feedbacks/feedback.md` ou “resolver a fila”.  
 > Fonte de dados = **PostgreSQL** (tabelas abaixo). **Não** use pastas `Feedbacks/feedback_<id>/`.
 
-Skill: `natumhub-resolve-bugs` · Doc: `ContextoIA/feedbacks/README.md`
+Skill: `natumhub-resolve-bugs`
 
 ---
 
@@ -14,7 +14,6 @@ Skill: `natumhub-resolve-bugs` · Doc: `ContextoIA/feedbacks/README.md`
 | Tabelas | `public.feedbacks` e `public.feedback_notes` |
 | Conexão (dev neste PC) | Arquivo **`C:\api\Saves\postgres.env`** → linha `DATABASE_URL=...` |
 | Conexão (app instalado / PC Principal) | **`%LOCALAPPDATA%\NatumHub\Saves\postgres.env`** (Estável) ou **`%LOCALAPPDATA%\NatumHub Dev\Saves\postgres.env`** (Dev) |
-| Espelho opcional (lista) | `C:\api\Feedbacks\feedback_index.md` — **não** é a fonte da verdade |
 
 ### Como o agente acessa (obrigatório)
 

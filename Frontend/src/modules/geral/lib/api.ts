@@ -186,16 +186,7 @@ export const api = {
     return hubJson('microbio/config', { method: 'POST', body: JSON.stringify(config) });
   },
 
-  // === BACKUP / ADMIN (PostgreSQL via REST) ===
-  exportErpSummary(): Promise<{
-    filename: string;
-    sizeBytes: number;
-    tablesCopied: string[];
-    elapsedMs: number;
-    tableRowCounts: Record<string, number>;
-  }> {
-    return hubJson('import/dump', { method: 'POST' });
-  },
+  // === ADMIN (PostgreSQL via REST) ===
   resetOperationalData(): Promise<{ status: string; message: string }> {
     return hubJson('admin/db-reset', { method: 'POST' });
   },

@@ -545,11 +545,21 @@ pub async fn delete_vira_composicao(
 }
 
 async fn fetch_vira_orders(pool: &PgPool) -> Result<Vec<crate::models::ViraOrder>, String> {
+    // Garante colunas de reembalagem (015) sem exigir bootstrap completo
+    let _ = sqlx::query(
+        "ALTER TABLE vira_ordens ADD COLUMN IF NOT EXISTS packaging_deductions TEXT",
+    )
+    .execute(pool)
+    .await;
+    let _ = sqlx::query("ALTER TABLE vira_ordens ADD COLUMN IF NOT EXISTS motivo TEXT")
+        .execute(pool)
+        .await;
+
     let rows = sqlx::query(
         "SELECT id, order_number, de_produto_codigo, de_produto_descricao,
                 para_produto_codigo, para_produto_descricao, quantity, status,
                 created_at, completed_at, assembled_by, checked_by, observations,
-                erp_launched, quantity_assembled
+                erp_launched, quantity_assembled, packaging_deductions, motivo
          FROM vira_ordens
          ORDER BY id DESC",
     )
@@ -584,6 +594,8 @@ async fn fetch_vira_orders(pool: &PgPool) -> Result<Vec<crate::models::ViraOrder
                         .flatten()
                         .map(|v| v as f64)
                 }),
+            packaging_deductions: row.try_get(15).ok().flatten(),
+            motivo: row.try_get(16).ok().flatten(),
         })
         .collect())
 }
@@ -613,8 +625,9 @@ pub async fn create_vira_order(
         "INSERT INTO vira_ordens (
             order_number, de_produto_codigo, de_produto_descricao,
             para_produto_codigo, para_produto_descricao, quantity, status,
-            created_at, assembled_by, checked_by, observations, erp_launched, quantity_assembled
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12)
+            created_at, assembled_by, checked_by, observations, erp_launched, quantity_assembled,
+            packaging_deductions, motivo
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12, $13, $14)
          RETURNING id",
     )
     .bind(&payload.order_number)
@@ -629,6 +642,8 @@ pub async fn create_vira_order(
     .bind(&payload.checked_by)
     .bind(&payload.observations)
     .bind(qty_assembled)
+    .bind(&payload.packaging_deductions)
+    .bind(&payload.motivo)
     .fetch_one(pool)
     .await
     {
@@ -636,7 +651,7 @@ pub async fn create_vira_order(
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({ "error": format!("Erro ao criar ordem de vira: {}", e) })),
+                Json(json!({ "error": format!("Erro ao criar ordem de reembalagem: {}", e) })),
             )
                 .into_response();
         }
@@ -710,6 +725,16 @@ pub async fn update_vira_order(
         separated.push_bind_unseparated(quantity_assembled);
         has_set = true;
     }
+    if let Some(ref packaging_deductions) = payload.packaging_deductions {
+        separated.push("packaging_deductions = ");
+        separated.push_bind_unseparated(packaging_deductions);
+        has_set = true;
+    }
+    if let Some(ref motivo) = payload.motivo {
+        separated.push("motivo = ");
+        separated.push_bind_unseparated(motivo);
+        has_set = true;
+    }
 
     if !has_set {
         return (
@@ -725,7 +750,7 @@ pub async fn update_vira_order(
     match qb.build().execute(pool).await {
         Ok(_) => (
             StatusCode::OK,
-            Json(json!({ "message": "Ordem de vira atualizada" })),
+            Json(json!({ "message": "Ordem de reembalagem atualizada" })),
         )
             .into_response(),
         Err(e) => (

@@ -16,7 +16,7 @@ Tauri 2 + React + Axum + **PostgreSQL**.
 
 **Não** usa SQLite (`data.db`) no dia a dia. Postgres no master **não** é só para o updater — é o banco operacional.
 
-Instalação: [ContextoIA/devops/](ContextoIA/devops/README.md) · **sem instalador .exe:** [instalacao_via_repositorio.md](ContextoIA/devops/instalacao_via_repositorio.md).
+Instalação: [ContextoIA/devops/](ContextoIA/devops/instalacao_via_repositorio.md) · Postgres master: [instalacao_postgres_master.md](ContextoIA/devops/instalacao_postgres_master.md).
 
 ## Estrutura
 
@@ -27,7 +27,7 @@ Instalação: [ContextoIA/devops/](ContextoIA/devops/README.md) · **sem instala
 | `Backend/supabase/` | Schema SQL |
 | `erp-import/` | Sync SQL Server → Postgres |
 | `ContextoIA/` | Docs IA |
-| `Feedbacks/` | Fila de bugs |
+| `Feedbacks/` | Playbook `feedback.md` (dados no Postgres) |
 | `Saves/` | `postgres.env`, `client_config.json` (secrets fora do git) |
 | `scripts/` | Release / updater |
 

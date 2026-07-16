@@ -13,6 +13,8 @@ import {
   Warehouse,
   Wrench,
   X,
+  Camera,
+  Trash2,
 } from 'lucide-react';
 import { apiJson } from '../../geral/lib/http';
 import AppLayout from '../../geral/components/layout/AppLayout';
@@ -67,6 +69,8 @@ function exchangeBadge(status?: string | null) {
 }
 
 export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
+  const [submodule] = useState<EstoqueOpsMode>(mode);
+  const [activeTab, setActiveTab] = useState<string>(mode);
   const [items, setItems] = useState<AlmoxOpsItem[]>([]);
   const [movements, setMovements] = useState<AlmoxMovement[]>([]);
   const [equipments, setEquipments] = useState<Equipment[]>([]);
@@ -98,11 +102,55 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
     pecaCodes: '',
   });
 
+  const [todasPecas, setTodasPecas] = useState<AlmoxOpsItem[]>([]);
+  const loadTodasPecas = async () => {
+    try {
+      const res = await apiJson<{ items: AlmoxOpsItem[] }>(`/almox/items?section=pecas`);
+      setTodasPecas(res.items ?? []);
+    } catch (e) {
+      console.error("Erro ao carregar peças para seleção:", e);
+    }
+  };
+
+  useEffect(() => {
+    if (eqModal) {
+      void loadTodasPecas();
+    }
+  }, [eqModal]);
+
+  const [eqFotoDrawer, setEqFotoDrawer] = useState<Equipment | null>(null);
+  const [eqFotos, setEqFotos] = useState<{ id: string; photoData: string; notes?: string | null; createdAt: string }[]>([]);
+  const [eqFotosLoading, setEqFotosLoading] = useState(false);
+  const [newEqFotoNotes, setNewEqFotoNotes] = useState('');
+
+  useEffect(() => {
+    if (eqFotoDrawer) {
+      setEqFotosLoading(true);
+      apiJson<{ fotos: any[] }>(`/almox/fotos/equipment/${encodeURIComponent(eqFotoDrawer.id)}`)
+        .then((res) => {
+          setEqFotos(res.fotos ?? []);
+        })
+        .catch((e) => {
+          console.error("Erro ao carregar fotos do equipamento:", e);
+        })
+        .finally(() => {
+          setEqFotosLoading(false);
+        });
+    } else {
+      setEqFotos([]);
+    }
+  }, [eqFotoDrawer]);
+
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [batchText, setBatchText] = useState('');
+  const [batchResult, setBatchResult] = useState<string | null>(null);
+
   const [mtModal, setMtModal] = useState(false);
   const [mtForm, setMtForm] = useState({
     equipmentId: '',
     kind: 'preventiva',
     status: 'aberta',
+    routine: '',
     itemCode: '',
     quantity: '1',
     technician: '',
@@ -111,11 +159,11 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
     consumeStock: false,
   });
 
-  const section = sectionForMode(mode);
-  const isMov = mode === 'movimentacoes';
-  const isItemsMode = (mode === 'itens' || !!section) && !isMov;
-  const isEquip = mode === 'equipamentos';
-  const isMaint = mode === 'manutencoes';
+  const section = sectionForMode(submodule);
+  const isMov = activeTab === 'movimentacoes';
+  const isItemsMode = (activeTab === 'itens' || activeTab === 'almoxarifado' || activeTab === 'supermercado' || activeTab === 'pecas') && !isMov;
+  const isEquip = activeTab === 'equipamentos';
+  const isMaint = activeTab === 'manutencoes';
   const isSupermercado = section === 'supermercado';
   /** Almoxarifado / Peças (e catálogo de seções ERP): só vínculo ERP */
   const canLinkErp = !!section && !isSupermercado;
@@ -153,8 +201,6 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
         await loadEquipments();
       } else if (isMaint) {
         await Promise.all([loadMaintenances(), loadEquipments()]);
-      } else if (isMov) {
-        await loadMovements();
       } else {
         await Promise.all([loadItems(), loadMovements()]);
       }
@@ -163,7 +209,7 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [isEquip, isMaint, isMov, loadEquipments, loadItems, loadMaintenances, loadMovements]);
+  }, [isEquip, isMaint, loadEquipments, loadItems, loadMaintenances, loadMovements]);
 
   useEffect(() => {
     refresh();
@@ -173,7 +219,7 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
     setSelected(null);
     setQ('');
     setShowAdd(false);
-  }, [mode]);
+  }, [activeTab]);
 
   const filteredItems = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -384,6 +430,7 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
           equipmentId: mtForm.equipmentId,
           kind: mtForm.kind,
           status: mtForm.status,
+          routine: mtForm.routine.trim() || null,
           itemCode: mtForm.itemCode.trim() || null,
           quantity: mtForm.itemCode ? Number(mtForm.quantity) || 1 : null,
           technician: mtForm.technician.trim() || null,
@@ -397,6 +444,7 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
         equipmentId: '',
         kind: 'preventiva',
         status: 'aberta',
+        routine: '',
         itemCode: '',
         quantity: '1',
         technician: '',
@@ -410,6 +458,102 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleAddEqFoto = (file: File) => {
+    if (!eqFotoDrawer) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const base64 = e.target?.result as string;
+      if (!base64) return;
+      setError(null);
+      try {
+        const res = await apiJson<{ foto: any }>(`/almox/fotos/equipment/${encodeURIComponent(eqFotoDrawer.id)}`, {
+          method: 'POST',
+          body: JSON.stringify({
+            photoData: base64,
+            notes: newEqFotoNotes.trim() || null,
+          }),
+        });
+        setEqFotos((prev) => [res.foto, ...prev]);
+        setNewEqFotoNotes('');
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Erro ao salvar foto do equipamento');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDeleteEqFoto = async (id: string) => {
+    setError(null);
+    try {
+      await apiJson(`/almox/fotos/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      setEqFotos((prev) => prev.filter((f) => f.id !== id));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erro ao excluir foto');
+    }
+  };
+
+  const handleBatchImport = async () => {
+    if (!batchText.trim()) return;
+    setBusy(true);
+    setBatchResult('Processando importação...');
+    setError(null);
+    const lines = batchText.split('\n');
+    let successCount = 0;
+    let failCount = 0;
+    const errors: string[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      const parts = line.split(/\t|,|;/).map((p) => p.trim());
+      if (parts.length < 3) {
+        failCount++;
+        errors.push(`Linha ${i + 1}: colunas insuficientes (esperado itemCode, tipo, quantidade)`);
+        continue;
+      }
+
+      const itemCode = parts[0];
+      const movementTypeRaw = parts[1].toLowerCase();
+      const movementType = movementTypeRaw.includes('ent') || movementTypeRaw.includes('in') ? 'entrada' : 'saida';
+      const quantity = Number(parts[2].replace(',', '.'));
+      const unitCost = parts[3] ? Number(parts[3].replace(',', '.')) : null;
+      const reason = parts[4] || 'Importação em lote';
+
+      if (!itemCode || isNaN(quantity) || quantity <= 0) {
+        failCount++;
+        errors.push(`Linha ${i + 1}: dados inválidos para código de item ou quantidade.`);
+        continue;
+      }
+
+      try {
+        await apiJson('/almox/movements', {
+          method: 'POST',
+          body: JSON.stringify({
+            itemCode,
+            movementType,
+            quantity,
+            unitCost,
+            reason,
+          }),
+        });
+        successCount++;
+      } catch (err: any) {
+        failCount++;
+        errors.push(`Linha ${i + 1} (${itemCode}): ${err.message || 'Erro de API'}`);
+      }
+    }
+
+    setBatchResult(
+      `Sucesso: ${successCount} movimentação(ões). Falhas: ${failCount}.\n` +
+      (errors.length > 0 ? `Detalhes dos erros:\n${errors.join('\n')}` : '')
+    );
+    setBusy(false);
+    await loadMovements();
   };
 
   const updateMaintStatus = async (id: string, status: string) => {
@@ -430,17 +574,38 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
     }
   };
 
-  const sidebarItems = [
-    { id: 'itens', label: 'Itens', icon: Boxes },
-    { id: 'almoxarifado', label: 'Almoxarifado', icon: Warehouse },
-    { id: 'supermercado', label: 'Supermercado', icon: Store },
-    { id: 'pecas', label: 'Peças', icon: Cog },
-    { id: 'equipamentos', label: 'Equipamentos', icon: Wrench },
-    { id: 'manutencoes', label: 'Manutenções', icon: ClipboardList },
-    { id: 'movimentacoes', label: 'Movimentações', icon: History },
-  ];
+  const sidebarItems = useMemo(() => {
+    if (submodule === 'almoxarifado') {
+      return [
+        { id: 'almoxarifado', label: 'Itens', icon: Warehouse },
+        { id: 'movimentacoes', label: 'Movimentações', icon: History },
+      ];
+    }
+    if (submodule === 'supermercado') {
+      return [
+        { id: 'supermercado', label: 'Itens', icon: Store },
+        { id: 'movimentacoes', label: 'Movimentações', icon: History },
+      ];
+    }
+    if (submodule === 'pecas') {
+      return [
+        { id: 'pecas', label: 'Peças de Reposição', icon: Cog },
+        { id: 'movimentacoes', label: 'Movimentações', icon: History },
+      ];
+    }
+    if (submodule === 'equipamentos' || submodule === 'manutencoes') {
+      return [
+        { id: 'equipamentos', label: 'Equipamentos', icon: Wrench },
+        { id: 'manutencoes', label: 'Manutenções', icon: ClipboardList },
+      ];
+    }
+    return [
+      { id: 'itens', label: 'Todos os Itens', icon: Boxes },
+      { id: 'movimentacoes', label: 'Todas as Movimentações', icon: History },
+    ];
+  }, [submodule]);
 
-  const titleByMode: Record<EstoqueOpsMode, string> = {
+  const titleByTab: Record<string, string> = {
     itens: 'Catálogo operacional',
     almoxarifado: 'Almoxarifado',
     supermercado: 'Supermercado',
@@ -453,11 +618,11 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
   return (
     <AppLayout
       moduleTitle="Almoxarifado & Ops"
-      moduleSubtitle={titleByMode[mode]}
+      moduleSubtitle={titleByTab[activeTab] || 'Histórico'}
       onBackToHub={onBackToHub}
       sidebarItems={sidebarItems}
-      activeTab={mode}
-      onTabChange={(id) => setView(MODE_TO_VIEW[id as EstoqueOpsMode] || MODE_TO_VIEW.itens)}
+      activeTab={activeTab}
+      onTabChange={(id) => setActiveTab(id)}
       headerActions={
         <div className="flex gap-2">
           {(canLinkErp || canCreateLocal) && (
@@ -700,13 +865,23 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
                       <span className="text-[11px] text-zinc-400 font-semibold">
                         {(eq.pecaCodes || []).length} peça(s) associada(s)
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => openEqEdit(eq)}
-                        className="text-[11px] font-bold px-3 py-1.5 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-800 cursor-pointer"
-                      >
-                        Editar
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEqFotoDrawer(eq)}
+                          className="text-[11px] font-bold px-2.5 py-1.5 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-800 inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <Camera className="h-3.5 w-3.5 text-zinc-450" />
+                          Fotos
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEqEdit(eq)}
+                          className="text-[11px] font-bold px-3 py-1.5 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-800 cursor-pointer"
+                        >
+                          Editar
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -769,8 +944,13 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
                         </span>
                       </div>
 
-                      <h3 className="font-bold text-base text-zinc-950">
-                        {m.equipmentName || m.equipmentCode || 'Máquina não identificada'}
+                      <h3 className="font-bold text-base text-zinc-950 flex items-center justify-between">
+                        <span>{m.equipmentName || m.equipmentCode || 'Máquina não identificada'}</span>
+                        {m.routine && (
+                          <span className="px-2 py-0.5 bg-zinc-150 border border-zinc-200 rounded-lg text-[9px] font-extrabold uppercase text-zinc-700 tracking-wider">
+                            {m.routine}
+                          </span>
+                        )}
                       </h3>
                       
                       {m.technician && (
@@ -836,6 +1016,18 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
                   className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-zinc-200 text-sm bg-white"
                 />
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setBatchText('');
+                  setBatchResult(null);
+                  setShowBatchModal(true);
+                }}
+                className="px-4 py-2.5 rounded-xl bg-zinc-900 text-white text-xs font-bold shadow-sm hover:bg-zinc-800 transition-all cursor-pointer inline-flex items-center gap-1.5 shrink-0"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Lançamento em Lote (CSV/Planilha)
+              </button>
             </div>
 
             <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-sm">
@@ -852,6 +1044,10 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
                 <div className="divide-y divide-zinc-150">
                   {movements
                     .filter((m) => {
+                      if (submodule !== 'itens' && submodule !== 'movimentacoes') {
+                        const itemExists = items.some((it) => it.code === m.itemCode);
+                        if (!itemExists) return false;
+                      }
                       const term = q.trim().toLowerCase();
                       if (!term) return true;
                       return (
@@ -889,6 +1085,12 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
                             </div>
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-zinc-500">
                               <span>{new Date(m.occurredAt).toLocaleString('pt-BR')}</span>
+                              {m.sector && (
+                                <>
+                                  <span>·</span>
+                                  <span>Setor: {m.sector}</span>
+                                </>
+                              )}
                               {m.reason && (
                                 <>
                                   <span>·</span>
@@ -1159,17 +1361,55 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
                   />
                 </label>
               </div>
-              <label className="block space-y-1">
+              <div className="space-y-1">
                 <span className="text-[10px] font-bold uppercase text-zinc-400">
-                  Códigos de peças (vírgula)
+                  Vincular peças de reposição (Opcional)
                 </span>
+                {todasPecas.length === 0 ? (
+                  <p className="text-xs text-zinc-400 italic">Nenhuma peça cadastrada no módulo de Peças.</p>
+                ) : (
+                  <div className="border border-zinc-200 rounded-xl p-3 max-h-40 overflow-y-auto space-y-1.5 bg-zinc-50/50">
+                    {todasPecas.map((p) => {
+                      const currentCodes = eqForm.pecaCodes
+                        .split(',')
+                        .map((c) => c.trim())
+                        .filter(Boolean);
+                      const isChecked = currentCodes.includes(p.code);
+
+                      const togglePeca = (code: string) => {
+                        let newCodes;
+                        if (isChecked) {
+                          newCodes = currentCodes.filter((c) => c !== code);
+                        } else {
+                          newCodes = [...currentCodes, code];
+                        }
+                        setEqForm((f) => ({ ...f, pecaCodes: newCodes.join(', ') }));
+                      };
+
+                      return (
+                        <label key={p.code} className="flex items-start gap-2 text-xs font-semibold text-zinc-700 hover:text-zinc-950 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => togglePeca(p.code)}
+                            className="rounded border-zinc-300 mt-0.5"
+                          />
+                          <div className="min-w-0">
+                            <span className="font-bold text-zinc-900">{p.description}</span>
+                            <span className="text-[10px] text-zinc-400 font-mono ml-1.5">({p.code})</span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
                 <input
                   value={eqForm.pecaCodes}
                   onChange={(e) => setEqForm((f) => ({ ...f, pecaCodes: e.target.value }))}
-                  placeholder="EX: P001, P002"
-                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                  placeholder="Ou digite códigos separados por vírgula. Ex: P001, P002"
+                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm mt-1.5"
                 />
-              </label>
+              </div>
               <label className="block space-y-1">
                 <span className="text-[10px] font-bold uppercase text-zinc-400">Notas</span>
                 <textarea
@@ -1250,6 +1490,22 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
                   </select>
                 </label>
               </div>
+              <label className="block space-y-1">
+                <span className="text-[10px] font-bold uppercase text-zinc-400">
+                  Rotina Específica (Opcional)
+                </span>
+                <select
+                  value={mtForm.routine}
+                  onChange={(e) => setMtForm((f) => ({ ...f, routine: e.target.value }))}
+                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                >
+                  <option value="">Nenhuma / Outra</option>
+                  <option value="calibragem">Calibração / Calibragem</option>
+                  <option value="limpeza">Limpeza</option>
+                  <option value="lubrificacao">Lubrificação</option>
+                  <option value="inspecao">Inspeção Geral</option>
+                </select>
+              </label>
               <div className="grid grid-cols-2 gap-3">
                 <label className="space-y-1">
                   <span className="text-[10px] font-bold uppercase text-zinc-400">
@@ -1317,6 +1573,159 @@ export default function EstoqueOpsView({ onBackToHub, mode, setView }: Props) {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {eqFotoDrawer && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-end">
+          <div className="absolute inset-0 cursor-pointer" onClick={() => setEqFotoDrawer(null)} />
+          <div className="relative w-full max-w-xl bg-white h-full shadow-2xl flex flex-col z-10 p-6 space-y-4 overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-zinc-150 pb-3">
+              <div>
+                <h3 className="font-bold text-zinc-900 text-lg">Fotos do Equipamento</h3>
+                <p className="text-xs text-zinc-500 font-mono mt-0.5">{eqFotoDrawer.name} ({eqFotoDrawer.code})</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEqFotoDrawer(null)}
+                className="p-1.5 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-zinc-50 border border-dashed border-zinc-250 rounded-2xl p-4 flex flex-col items-center justify-center space-y-3">
+              <input
+                type="text"
+                placeholder="Legenda para a foto do equipamento (opcional)"
+                value={newEqFotoNotes}
+                onChange={(e) => setNewEqFotoNotes(e.target.value)}
+                className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-700 shadow-sm focus:border-zinc-400 focus:outline-none"
+              />
+              
+              <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-900 text-white text-xs font-bold shadow-md cursor-pointer hover:bg-zinc-800 transition-all">
+                <Camera className="h-4 w-4" />
+                Adicionar foto do equipamento
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleAddEqFoto(file);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+
+            {eqFotosLoading ? (
+              <div className="flex items-center justify-center py-10 text-zinc-400 text-xs">
+                <Loader2 className="h-5 w-5 animate-spin mr-2" /> Carregando fotos...
+              </div>
+            ) : eqFotos.length === 0 ? (
+              <p className="text-center py-10 text-xs text-zinc-400">Nenhuma foto adicionada para este equipamento.</p>
+            ) : (
+              <div className="grid grid-cols-1 gap-4">
+                {eqFotos.map((f) => (
+                  <div key={f.id} className="relative rounded-2xl border border-zinc-150 overflow-hidden bg-zinc-50 shadow-sm flex flex-col group">
+                    <div className="relative aspect-video w-full overflow-hidden bg-zinc-900 flex items-center justify-center">
+                      <img
+                        src={f.photoData}
+                        alt={f.notes || "Foto do equipamento"}
+                        className="w-full h-full object-cover group-hover:scale-102 transition-all duration-300"
+                      />
+                    </div>
+                    <div className="p-3 flex-1 flex flex-col justify-between space-y-2">
+                      {f.notes ? (
+                        <p className="text-xs text-zinc-700 font-medium">{f.notes}</p>
+                      ) : (
+                        <p className="text-[10px] text-zinc-400 italic">Sem legenda</p>
+                      )}
+                      <div className="flex justify-between items-center text-[10px] text-zinc-400 font-bold border-t border-zinc-100 pt-2 shrink-0">
+                        <span>Adicionada em: {f.createdAt ? f.createdAt.slice(0, 10).split('-').reverse().join('/') : ''}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteEqFoto(f.id)}
+                          className="text-red-500 hover:text-red-700 flex items-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Excluir
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showBatchModal && (
+        <div className="fixed inset-0 z-50 bg-black/35 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl border border-zinc-200 overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-5 py-4 border-b border-zinc-100 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-zinc-900">Lançamento em Lote</h3>
+                <p className="text-xs text-zinc-400 mt-0.5">Cole os dados formatados em planilha (TSV/CSV) ou digite linha a linha.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBatchModal(false)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:bg-zinc-100 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            
+            <div className="p-5 space-y-4 flex-1 overflow-y-auto flex flex-col">
+              <p className="text-xs text-zinc-655 bg-zinc-50 border border-zinc-150 rounded-xl p-3">
+                <span className="font-bold text-zinc-950">Instruções de Formato:</span>
+                <br />
+                Cada linha deve conter: <code className="font-mono bg-zinc-200 px-1 py-0.5 rounded text-[10.5px]">Código_Item [TAB ou vírgula] Tipo(entrada/saida) [TAB ou vírgula] Quantidade [TAB ou vírgula] Custo_Unitário (opcional) [TAB ou vírgula] Motivo (opcional)</code>.
+                <br />
+                <span className="font-bold text-zinc-950 mt-1.5 block">Exemplo TSV:</span>
+                <code className="block font-mono bg-zinc-200/60 p-2 rounded text-[10px] whitespace-pre mt-1">
+                  APP_MARGARINA500G{"\t"}entrada{"\t"}10{"\t"}6.50{"\t"}Compra Semanal{"\n"}
+                  APP_DETERGENTE{"\t"}saida{"\t"}2{"\t"}{"\t"}Uso na cozinha
+                </code>
+              </p>
+
+              <textarea
+                value={batchText}
+                onChange={(e) => setBatchText(e.target.value)}
+                placeholder="Cole as colunas de sua planilha aqui..."
+                rows={10}
+                className="w-full flex-1 rounded-xl border border-zinc-250 p-3 text-xs font-mono focus:border-zinc-400 focus:outline-none bg-zinc-50/50"
+              />
+
+              {batchResult && (
+                <div className="rounded-xl border border-zinc-200 bg-zinc-100 p-3 text-xs font-mono whitespace-pre-wrap max-h-40 overflow-y-auto text-zinc-800">
+                  {batchResult}
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-4 border-t border-zinc-100 bg-zinc-50/80 flex justify-end gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowBatchModal(false)}
+                className="px-4 py-2 rounded-xl border border-zinc-200 hover:bg-zinc-50 text-zinc-700 text-xs font-bold cursor-pointer"
+              >
+                Fechar
+              </button>
+              <button
+                type="button"
+                disabled={busy || !batchText.trim()}
+                onClick={handleBatchImport}
+                className="px-4 py-2 rounded-xl bg-zinc-900 text-white text-xs font-bold disabled:opacity-50 cursor-pointer inline-flex items-center gap-1.5"
+              >
+                {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Importar movimentações
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </AppLayout>

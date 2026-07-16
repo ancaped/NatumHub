@@ -52,8 +52,16 @@ export const MODULE_KEYS = {
   VENDAS: 'vendas',
   VENDAS_ONLINE: 'vendas_online',
   CONTROLE_QUALIDADE: 'controle_qualidade',
+  QUALIDADE_POPS: 'qualidade_pops',
+  QUALIDADE_TREINAMENTOS: 'qualidade_treinamentos',
+  QUALIDADE_TEMPERATURA: 'qualidade_temperatura',
+  QUALIDADE_LIMPEZA: 'qualidade_limpeza',
+  QUALIDADE_RECEBIMENTO_MP: 'qualidade_recebimento_mp',
   ADMINISTRATIVO: 'administrativo',
+  /** @deprecated alias — use EXPEDICAO_ECOMMERCE */
   EXPEDICAO: 'expedicao',
+  EXPEDICAO_ECOMMERCE: 'expedicao_ecommerce',
+  EXPEDICAO_SEPARACAO: 'expedicao_separacao',
   FINANCEIRO: 'financeiro',
   CONFIGURACOES: 'hub_settings',
   OPERADORES: 'hub_operadores',
@@ -111,7 +119,7 @@ export function moduleRegistry(): ModuleGroup[] {
         { key: MODULE_KEYS.PRODUCAO, label: 'Gerenciamento' },
         { key: MODULE_KEYS.PRODUCAO_BASES, label: 'Gestão de Bases' },
         { key: MODULE_KEYS.PRODUCAO_LOTES, label: 'Lotes de Produção' },
-        { key: MODULE_KEYS.MONTAGEM_KITS, label: 'Montagem de Kits' },
+        { key: MODULE_KEYS.MONTAGEM_KITS, label: 'Kits' },
         { key: MODULE_KEYS.MICROBIOLOGIA, label: 'Microbiologia' },
         { key: MODULE_KEYS.FISCO_QUIMICA, label: 'Físico-Química' },
       ],
@@ -145,8 +153,15 @@ export function moduleRegistry(): ModuleGroup[] {
     {
       key: 'qualidade',
       label: 'Qualidade',
-      hubView: 'controle_qualidade',
-      children: [{ key: MODULE_KEYS.CONTROLE_QUALIDADE, label: 'Controle de Qualidade' }],
+      hubView: 'qualidade_hub',
+      children: [
+        { key: MODULE_KEYS.CONTROLE_QUALIDADE, label: 'Controle de Qualidade' },
+        { key: MODULE_KEYS.QUALIDADE_POPS, label: 'POPs' },
+        { key: MODULE_KEYS.QUALIDADE_TREINAMENTOS, label: 'Treinamentos' },
+        { key: MODULE_KEYS.QUALIDADE_TEMPERATURA, label: 'Temperatura' },
+        { key: MODULE_KEYS.QUALIDADE_LIMPEZA, label: 'Limpeza' },
+        { key: MODULE_KEYS.QUALIDADE_RECEBIMENTO_MP, label: 'Recebimento MP' },
+      ],
     },
     {
       key: 'administrativo',
@@ -157,8 +172,8 @@ export function moduleRegistry(): ModuleGroup[] {
     {
       key: 'expedicao',
       label: 'Expedição',
-      hubView: 'expedicao',
-      children: [{ key: MODULE_KEYS.EXPEDICAO, label: 'Expedição' }],
+      hubView: 'expedicao_hub',
+      children: [{ key: MODULE_KEYS.EXPEDICAO_ECOMMERCE, label: 'E-commerce' }],
     },
     {
       key: 'financeiro',
@@ -229,11 +244,18 @@ export function defaultModulesForRole(role: string): string[] {
     case 'vendas':
       return [MODULE_KEYS.VENDAS, MODULE_KEYS.VENDAS_ONLINE];
     case 'qualidade':
-      return [MODULE_KEYS.CONTROLE_QUALIDADE];
+      return [
+        MODULE_KEYS.CONTROLE_QUALIDADE,
+        MODULE_KEYS.QUALIDADE_POPS,
+        MODULE_KEYS.QUALIDADE_TREINAMENTOS,
+        MODULE_KEYS.QUALIDADE_TEMPERATURA,
+        MODULE_KEYS.QUALIDADE_LIMPEZA,
+        MODULE_KEYS.QUALIDADE_RECEBIMENTO_MP,
+      ];
     case 'administrativo':
       return [MODULE_KEYS.ADMIN_LINHA_PRODUTOS];
     case 'expedicao':
-      return [MODULE_KEYS.EXPEDICAO];
+      return [MODULE_KEYS.EXPEDICAO_ECOMMERCE];
     default:
       return [];
   }

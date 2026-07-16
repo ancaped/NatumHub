@@ -36,7 +36,7 @@ Sempre `apiJson` / `hubJson` de `geral/lib/http.ts`. Nunca `fetch` cru para `/ap
 - Master exige Postgres (`DATABASE_URL` em `postgres.env`).
 - 1ª vez no master: setup supervisor (única conta que cadastra usuários).
 - Config: `Saves/client_config.json` + `connectionConfig.ts`.
-- Instalação: [`../devops/`](../devops/README.md).
+- Instalação: [`../devops/instalacao_via_repositorio.md`](../devops/instalacao_via_repositorio.md).
 
 ## Checklist entrega
 

@@ -558,3 +558,68 @@ pub async fn get_dashboard_stats(
             .into_response(),
     }
 }
+
+pub async fn list_fotos(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path((entity_type, entity_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    if !has_any_ops(&ctx) {
+        return deny_module();
+    }
+    match store::list_fotos(state.db.pool(), &entity_type, &entity_id).await {
+        Ok(items) => (StatusCode::OK, Json(json!({ "fotos": items }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+pub async fn add_foto(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path((entity_type, entity_id)): Path<(String, String)>,
+    Json(body): Json<AddFotoRequest>,
+) -> impl IntoResponse {
+    if !has_any_ops(&ctx) {
+        return deny_module();
+    }
+    match store::add_foto(
+        state.db.pool(),
+        &entity_type,
+        &entity_id,
+        &body.photo_data,
+        body.notes.as_deref(),
+    )
+    .await
+    {
+        Ok(item) => (StatusCode::OK, Json(json!({ "foto": item }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+pub async fn delete_foto(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if !has_any_ops(&ctx) {
+        return deny_module();
+    }
+    match store::delete_foto(state.db.pool(), &id).await {
+        Ok(_) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+pub async fn get_item_consumption(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    if !has_any_ops(&ctx) {
+        return deny_module();
+    }
+    match store::get_item_consumption(state.db.pool(), &code).await {
+        Ok(c) => (StatusCode::OK, Json(c)).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}

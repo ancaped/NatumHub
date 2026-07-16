@@ -271,6 +271,17 @@ pub struct InvoiceDetailResponse {
     pub carrier_name: Option<String>,
     pub supplier_cnpj: Option<String>,
     pub payment_installments: Option<String>,
+    pub fte_number: Option<String>,
+    pub fte_value: f64,
+    pub fte_carrier_name: Option<String>,
+    pub fte_carrier_cnpj: Option<String>,
+    pub fte_issue_date: Option<String>,
+    pub fte_entry_date: Option<String>,
+    pub fte_cif_fob: Option<String>,
+    pub fte_serie: Option<String>,
+    pub fte_cfop: Option<String>,
+    pub fte_natureza: Option<String>,
+    pub fte_icms_value: f64,
 }
 
 #[derive(serde::Deserialize)]
@@ -356,7 +367,9 @@ pub async fn get_invoice_detail(
 
     let mut query = "
         SELECT id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, supplier_name, supplier_id, invoice_date,
-               cfop, COALESCE(icms_value, 0.0), COALESCE(ipi_value, 0.0), COALESCE(freight_value, 0.0), entry_date, carrier_name, supplier_cnpj, payment_installments
+               cfop, COALESCE(icms_value, 0.0), COALESCE(ipi_value, 0.0), COALESCE(freight_value, 0.0), entry_date, carrier_name, supplier_cnpj, payment_installments,
+               fte_number, COALESCE(fte_value, 0.0), fte_carrier_name, fte_carrier_cnpj, fte_issue_date, fte_entry_date, fte_cif_fob,
+               fte_serie, fte_cfop, fte_natureza, COALESCE(fte_icms_value, 0.0)
         FROM invoices 
         WHERE invoice_number = $1
     "
@@ -398,6 +411,17 @@ pub async fn get_invoice_detail(
                 carrier_name: row.get(16),
                 supplier_cnpj: row.get(17),
                 payment_installments: row.get(18),
+                fte_number: row.get(19),
+                fte_value: row.get(20),
+                fte_carrier_name: row.get(21),
+                fte_carrier_cnpj: row.get(22),
+                fte_issue_date: row.get(23),
+                fte_entry_date: row.get(24),
+                fte_cif_fob: row.get(25),
+                fte_serie: row.get(26),
+                fte_cfop: row.get(27),
+                fte_natureza: row.get(28),
+                fte_icms_value: row.get(29),
             })
             .collect(),
         Err(e) => {
@@ -419,6 +443,8 @@ pub async fn get_invoice_detail(
 
     let first = items[0].clone();
     let total_value: f64 = items.iter().map(|it| it.total_value).sum();
+    let icms_value: f64 = items.iter().map(|it| it.icms_value).sum();
+    let ipi_value: f64 = items.iter().map(|it| it.ipi_value).sum();
 
     let detail = InvoiceDetailResponse {
         invoice_number: first.invoice_number.clone(),
@@ -428,13 +454,24 @@ pub async fn get_invoice_detail(
         total_value,
         items,
         cfop: first.cfop.clone(),
-        icms_value: first.icms_value,
-        ipi_value: first.ipi_value,
+        icms_value,
+        ipi_value,
         freight_value: first.freight_value,
         entry_date: first.entry_date.clone(),
         carrier_name: first.carrier_name.clone(),
         supplier_cnpj: first.supplier_cnpj.clone(),
         payment_installments: first.payment_installments.clone(),
+        fte_number: first.fte_number.clone(),
+        fte_value: first.fte_value,
+        fte_carrier_name: first.fte_carrier_name.clone(),
+        fte_carrier_cnpj: first.fte_carrier_cnpj.clone(),
+        fte_issue_date: first.fte_issue_date.clone(),
+        fte_entry_date: first.fte_entry_date.clone(),
+        fte_cif_fob: first.fte_cif_fob.clone(),
+        fte_serie: first.fte_serie.clone(),
+        fte_cfop: first.fte_cfop.clone(),
+        fte_natureza: first.fte_natureza.clone(),
+        fte_icms_value: first.fte_icms_value,
     };
 
     (StatusCode::OK, Json(detail)).into_response()
@@ -485,6 +522,7 @@ pub async fn get_item_extra_info(
                 carrier_name: row.get(16),
                 supplier_cnpj: row.get(17),
                 payment_installments: row.get(18),
+                ..Default::default()
             })
             .collect();
     }

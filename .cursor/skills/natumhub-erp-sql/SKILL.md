@@ -15,7 +15,7 @@ Alterar sync ERP, queries SQL Server, mapeamento para PostgreSQL, ou agenda auto
 
 ## Ler primeiro
 
-1. `ContextoIA/erp-import/README.md`
+1. `erp-import/README.md`
 2. `erp-import/PASSOS.md`
 3. `erp-import/DESTINO-POSTGRES.md`
 4. `erp-import/sql/<passo>.sql`

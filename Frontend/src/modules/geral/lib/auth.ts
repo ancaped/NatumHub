@@ -1,6 +1,5 @@
 /**
  * Autenticação local de operadores (sem Google/Firebase).
- * Firebase permanece exclusivo para backup na nuvem no PC master.
  */
 
 import { apiJson } from './http';

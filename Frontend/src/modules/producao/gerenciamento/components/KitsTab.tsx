@@ -259,18 +259,26 @@ export function KitsTab({
                                 <thead>
                                   <tr>
                                     <th style={{ width: '15%' }}>REF Componente</th>
-                                    <th style={{ width: '45%' }}>Descrição do Componente</th>
+                                    <th style={{ width: '35%' }}>Descrição do Componente</th>
                                     <th className="numeric-col" style={{ width: '10%' }}>Estoque</th>
                                     <th className="numeric-col" style={{ width: '10%' }}>Produção</th>
                                     <th className="numeric-col" style={{ width: '10%' }}>Pedidos</th>
                                     <th style={{ width: '10%' }}>Necessita Prod.</th>
+                                    <th style={{ width: '10%', textAlign: 'center' }}>Produzir</th>
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {k.componentes.map((comp) => (
                                     <tr key={comp.codigo}>
                                       <td className="comp-code">{comp.codigo}</td>
-                                      <td className="comp-desc">{comp.descricao}</td>
+                                      <td className="comp-desc">
+                                        {comp.descricao}
+                                        {comp.fonte === 'item' && (
+                                          <span className="status-badge" style={{ marginLeft: '6px', padding: '0px 4px', fontSize: '0.6rem', backgroundColor: '#f4f4f5', color: '#71717a' }}>
+                                            embalagem/insumo
+                                          </span>
+                                        )}
+                                      </td>
                                       <td className="numeric-col">{comp.estoque}</td>
                                       <td className="numeric-col">{comp.producao}</td>
                                       <td className="numeric-col">{comp.pedidos_aberto}</td>
@@ -283,6 +291,28 @@ export function KitsTab({
                                           <span className="status-badge saudavel" style={{ padding: '1px 4px', fontSize: '0.65rem' }}>
                                             Suficiente
                                           </span>
+                                        )}
+                                      </td>
+                                      <td style={{ textAlign: 'center' }}>
+                                        {comp.fonte === 'item' ? (
+                                          <span style={{ color: '#a3a3a3', fontSize: '0.65rem' }}>—</span>
+                                        ) : (
+                                          <button
+                                            onClick={() => onLaunchProduct(comp)}
+                                            className="action-btn cursor-pointer"
+                                            style={{ 
+                                              color: 'rgb(22, 163, 74)', 
+                                              border: 'none', 
+                                              background: 'transparent',
+                                              padding: 0,
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'center'
+                                            }}
+                                            title={`Lançar lote de produção para ${comp.descricao}`}
+                                          >
+                                            <PlusCircle size={14} />
+                                          </button>
                                         )}
                                       </td>
                                     </tr>

@@ -1,2 +1,0 @@
-[2026-07-12T02:13:04.011Z] [ERROR] Internal React error: Expected static flag was missing. Please notify the React team.
-[2026-07-12T02:15:21.487Z] [ERROR] {"name":"ApiError","status":500,"body":{"error":"Falha ao sincronizar com o banco de dados NATUM: error returned from database: permission denied to set parameter \"session_replication_role\". Certifique-se de que está conectado à rede local do servidor."}}

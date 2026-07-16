@@ -1,8 +1,7 @@
 # Esquema NatumHub (PostgreSQL)
 
 > **Canônico:** `Backend/supabase/001_natumhub_schema.sql`  
-> Conexão: `Saves/postgres.env` (`DATABASE_URL`; legado `supabase.env`)  
-> Migração Supabase → local: [migracao_postgres.md](migracao_postgres.md)
+> Conexão: `Saves/postgres.env` (`DATABASE_URL`)
 
 Tabelas principais (referência rápida):
 

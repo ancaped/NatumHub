@@ -704,6 +704,10 @@ pub struct ViraOrder {
     pub observations: Option<String>,
     pub erp_launched: i32,
     pub quantity_assembled: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packaging_deductions: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub motivo: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -718,6 +722,8 @@ pub struct CreateViraOrderRequest {
     pub checked_by: Option<String>,
     pub observations: Option<String>,
     pub quantity_assembled: Option<f64>,
+    pub packaging_deductions: Option<String>,
+    pub motivo: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -730,6 +736,8 @@ pub struct UpdateViraOrderRequest {
     pub observations: Option<String>,
     pub erp_launched: Option<i32>,
     pub quantity_assembled: Option<f64>,
+    pub packaging_deductions: Option<String>,
+    pub motivo: Option<String>,
 }
 
 

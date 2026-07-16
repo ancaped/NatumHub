@@ -42,9 +42,18 @@ pub const MODULE_COMPRAS_SIMULATION: &str = "compras_simulation";
 pub const MODULE_VENDAS: &str = "vendas";
 pub const MODULE_VENDAS_ONLINE: &str = "vendas_online";
 pub const MODULE_CONTROLE_QUALIDADE: &str = "controle_qualidade";
+pub const MODULE_QUALIDADE_POPS: &str = "qualidade_pops";
+pub const MODULE_QUALIDADE_TREINAMENTOS: &str = "qualidade_treinamentos";
+pub const MODULE_QUALIDADE_TEMPERATURA: &str = "qualidade_temperatura";
+pub const MODULE_QUALIDADE_LIMPEZA: &str = "qualidade_limpeza";
+pub const MODULE_QUALIDADE_RECEBIMENTO_MP: &str = "qualidade_recebimento_mp";
 /// Placeholder legado — hub Administrativo usa filhos (`admin_linha_produtos`, …).
 pub const MODULE_ADMINISTRATIVO: &str = "administrativo";
+/// Legado — use [`MODULE_EXPEDICAO_ECOMMERCE`].
 pub const MODULE_EXPEDICAO: &str = "expedicao";
+pub const MODULE_EXPEDICAO_ECOMMERCE: &str = "expedicao_ecommerce";
+/// Acesso somente à aba Expedição (marcar enviado / separação).
+pub const MODULE_EXPEDICAO_SEPARACAO: &str = "expedicao_separacao";
 pub const MODULE_FINANCEIRO: &str = "financeiro";
 pub const MODULE_CONFIGURACOES: &str = "hub_settings";
 pub const MODULE_OPERADORES: &str = "hub_operadores";
@@ -82,8 +91,15 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_VENDAS,
     MODULE_VENDAS_ONLINE,
     MODULE_CONTROLE_QUALIDADE,
+    MODULE_QUALIDADE_POPS,
+    MODULE_QUALIDADE_TREINAMENTOS,
+    MODULE_QUALIDADE_TEMPERATURA,
+    MODULE_QUALIDADE_LIMPEZA,
+    MODULE_QUALIDADE_RECEBIMENTO_MP,
     MODULE_ADMINISTRATIVO,
     MODULE_EXPEDICAO,
+    MODULE_EXPEDICAO_ECOMMERCE,
+    MODULE_EXPEDICAO_SEPARACAO,
     MODULE_FINANCEIRO,
     MODULE_CONFIGURACOES,
     MODULE_OPERADORES,
@@ -173,8 +189,15 @@ pub fn module_registry() -> Vec<ModuleGroup> {
         ModuleGroup {
             key: "qualidade".into(),
             label: "Qualidade".into(),
-            hub_view: "controle_qualidade".into(),
-            children: vec![leaf(MODULE_CONTROLE_QUALIDADE, "Controle de Qualidade")],
+            hub_view: "qualidade_hub".into(),
+            children: vec![
+                leaf(MODULE_CONTROLE_QUALIDADE, "Controle de Qualidade"),
+                leaf(MODULE_QUALIDADE_POPS, "POPs"),
+                leaf(MODULE_QUALIDADE_TREINAMENTOS, "Treinamentos"),
+                leaf(MODULE_QUALIDADE_TEMPERATURA, "Temperatura"),
+                leaf(MODULE_QUALIDADE_LIMPEZA, "Limpeza"),
+                leaf(MODULE_QUALIDADE_RECEBIMENTO_MP, "Recebimento MP"),
+            ],
         },
         ModuleGroup {
             key: "administrativo".into(),
@@ -185,8 +208,8 @@ pub fn module_registry() -> Vec<ModuleGroup> {
         ModuleGroup {
             key: "expedicao".into(),
             label: "Expedição".into(),
-            hub_view: "expedicao".into(),
-            children: vec![leaf(MODULE_EXPEDICAO, "Expedição")],
+            hub_view: "expedicao_hub".into(),
+            children: vec![leaf(MODULE_EXPEDICAO_ECOMMERCE, "E-commerce")],
         },
         ModuleGroup {
             key: "financeiro".into(),
@@ -265,9 +288,19 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
             .into_iter()
             .map(String::from)
             .collect(),
-        "qualidade" => vec![MODULE_CONTROLE_QUALIDADE.to_string()],
+        "qualidade" => vec![
+            MODULE_CONTROLE_QUALIDADE,
+            MODULE_QUALIDADE_POPS,
+            MODULE_QUALIDADE_TREINAMENTOS,
+            MODULE_QUALIDADE_TEMPERATURA,
+            MODULE_QUALIDADE_LIMPEZA,
+            MODULE_QUALIDADE_RECEBIMENTO_MP,
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect(),
         "administrativo" => vec![MODULE_ADMIN_LINHA_PRODUTOS.to_string()],
-        "expedicao" => vec![MODULE_EXPEDICAO.to_string()],
+        "expedicao" => vec![MODULE_EXPEDICAO_ECOMMERCE.to_string()],
         _ => vec![],
     }
 }
@@ -281,6 +314,9 @@ pub fn view_to_module_key(view: &str) -> Option<&str> {
         "producao_hub" => None,
         "compras_hub" => None,
         "vendas_hub" => None,
+        "qualidade_hub" => None,
+        "expedicao_hub" => None,
+        "expedicao" => Some(MODULE_EXPEDICAO_ECOMMERCE),
         "linha_produtos" | "estoque_ativos" => Some(MODULE_ADMIN_LINHA_PRODUTOS),
         other => {
             if ALL_MODULE_KEYS.contains(&other) {
@@ -325,6 +361,8 @@ pub fn normalize_modules(modules: &[String]) -> Vec<String> {
         } else if m == MODULE_ESTOQUE_PRODUTOS {
             out.push(MODULE_ESTOQUE_COLOR.to_string());
             out.push(MODULE_ESTOQUE_APOIO.to_string());
+        } else if m == MODULE_EXPEDICAO {
+            out.push(MODULE_EXPEDICAO_ECOMMERCE.to_string());
         } else if ALL_MODULE_KEYS.contains(&m.as_str()) {
             out.push(m.clone());
         }
@@ -341,6 +379,17 @@ fn module_grants_view(modules: &[String], key: &str) -> bool {
         }),
         MODULE_ESTOQUE_PRODUTOS => modules.iter().any(|m| {
             m == MODULE_ESTOQUE_PRODUTOS || m == MODULE_ESTOQUE_COLOR || m == MODULE_ESTOQUE_APOIO
+        }),
+        MODULE_EXPEDICAO_ECOMMERCE => modules.iter().any(|m| {
+            m == MODULE_EXPEDICAO_ECOMMERCE || m == MODULE_EXPEDICAO
+        }),
+        MODULE_EXPEDICAO_SEPARACAO => modules.iter().any(|m| {
+            m == MODULE_EXPEDICAO_SEPARACAO
+                || m == MODULE_EXPEDICAO_ECOMMERCE
+                || m == MODULE_EXPEDICAO
+        }),
+        MODULE_EXPEDICAO => modules.iter().any(|m| {
+            m == MODULE_EXPEDICAO || m == MODULE_EXPEDICAO_ECOMMERCE
         }),
         other => modules.iter().any(|m| m == other),
     }

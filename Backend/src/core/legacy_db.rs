@@ -141,6 +141,10 @@ struct InvoiceRow {
     fte_issue_date: Option<String>,
     fte_entry_date: Option<String>,
     fte_cif_fob: Option<String>,
+    fte_serie: Option<String>,
+    fte_cfop: Option<String>,
+    fte_natureza: Option<String>,
+    fte_icms_value: f64,
 }
 
 struct ConsumptionRow {
@@ -742,7 +746,11 @@ SELECT
     f.F_CNPJ COLLATE Latin1_General_CI_AS as FTE_CARRIER_CNPJ,
     f.F_Data_Emissao as FTE_ISSUE_DATE,
     f.F_Data_Entrada as FTE_ENTRY_DATE,
-    f.F_CIF_FOB COLLATE Latin1_General_CI_AS as FTE_CIF_FOB
+    f.F_CIF_FOB COLLATE Latin1_General_CI_AS as FTE_CIF_FOB,
+    f.F_Serie COLLATE Latin1_General_CI_AS as FTE_SERIE,
+    f.F_CFOP COLLATE Latin1_General_CI_AS as FTE_CFOP,
+    f.F_Natureza COLLATE Latin1_General_CI_AS as FTE_NATUREZA,
+    CAST(f.F_Valor_ICMS AS FLOAT) as FTE_ICMS
 FROM COMPRAS2 c WITH (NOLOCK)
 LEFT JOIN COMPRAS1 f WITH (NOLOCK) ON c.nCodFornec = f.nCodFornec AND c.NOTA = f.NOTA
 WHERE f.DATA_EMISSAO >= '{since_dt}'
@@ -787,7 +795,11 @@ SELECT
     f.F_CNPJ COLLATE Latin1_General_CI_AS as FTE_CARRIER_CNPJ,
     f.F_Data_Emissao as FTE_ISSUE_DATE,
     f.F_Data_Entrada as FTE_ENTRY_DATE,
-    f.F_CIF_FOB COLLATE Latin1_General_CI_AS as FTE_CIF_FOB
+    f.F_CIF_FOB COLLATE Latin1_General_CI_AS as FTE_CIF_FOB,
+    f.F_Serie COLLATE Latin1_General_CI_AS as FTE_SERIE,
+    f.F_CFOP COLLATE Latin1_General_CI_AS as FTE_CFOP,
+    f.F_Natureza COLLATE Latin1_General_CI_AS as FTE_NATUREZA,
+    CAST(f.F_Valor_ICMS AS FLOAT) as FTE_ICMS
 FROM COMPRAS2 c WITH (NOLOCK)
 LEFT JOIN COMPRAS1 f WITH (NOLOCK) ON c.nCodFornec = f.nCodFornec AND c.NOTA = f.NOTA
 WHERE f.DATA_EMISSAO >= DATEADD(month, -48, GETDATE())
@@ -875,10 +887,10 @@ WHERE f.DATA_EMISSAO >= DATEADD(month, -48, GETDATE())
             Some(serde_json::to_string(&installments).unwrap_or_default())
         };
 
-        let fte_number = row.get::<&str, _>(29).map(|s| s.trim().to_string());
+        let fte_number = row.get::<&str, _>(29).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
         let fte_value = row.get::<f64, _>(30).unwrap_or(0.0);
-        let fte_carrier_name = row.get::<&str, _>(31).map(|s| s.trim().to_string());
-        let fte_carrier_cnpj = row.get::<&str, _>(32).map(|s| s.trim().to_string());
+        let fte_carrier_name = row.get::<&str, _>(31).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let fte_carrier_cnpj = row.get::<&str, _>(32).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
         
         let fte_issue_dt: Option<NaiveDateTime> = row.get(33);
         let fte_issue_date = fte_issue_dt.map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string());
@@ -886,7 +898,11 @@ WHERE f.DATA_EMISSAO >= DATEADD(month, -48, GETDATE())
         let fte_entry_dt: Option<NaiveDateTime> = row.get(34);
         let fte_entry_date = fte_entry_dt.map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string());
 
-        let fte_cif_fob = row.get::<&str, _>(35).map(|s| s.trim().to_string());
+        let fte_cif_fob = row.get::<&str, _>(35).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let fte_serie = row.get::<&str, _>(36).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let fte_cfop = row.get::<&str, _>(37).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let fte_natureza = row.get::<&str, _>(38).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let fte_icms_value = row.get::<f64, _>(39).unwrap_or(0.0);
 
         invoices_list.push(InvoiceRow {
             nota,
@@ -914,6 +930,10 @@ WHERE f.DATA_EMISSAO >= DATEADD(month, -48, GETDATE())
             fte_issue_date,
             fte_entry_date,
             fte_cif_fob,
+            fte_serie,
+            fte_cfop,
+            fte_natureza,
+            fte_icms_value,
         });
     }
 
@@ -1831,6 +1851,10 @@ WHERE {so2_date_filter};
         let mut inv_fte_issue_dates: Vec<Option<String>> = Vec::new();
         let mut inv_fte_entry_dates: Vec<Option<String>> = Vec::new();
         let mut inv_fte_cif_fobs: Vec<Option<String>> = Vec::new();
+        let mut inv_fte_series: Vec<Option<String>> = Vec::new();
+        let mut inv_fte_cfops: Vec<Option<String>> = Vec::new();
+        let mut inv_fte_naturezas: Vec<Option<String>> = Vec::new();
+        let mut inv_fte_icms_values: Vec<f64> = Vec::new();
 
         for inv in &invoices_list {
             inv_ids.push(Uuid::new_v4().to_string());
@@ -1859,6 +1883,10 @@ WHERE {so2_date_filter};
             inv_fte_issue_dates.push(inv.fte_issue_date.clone());
             inv_fte_entry_dates.push(inv.fte_entry_date.clone());
             inv_fte_cif_fobs.push(inv.fte_cif_fob.clone());
+            inv_fte_series.push(inv.fte_serie.clone());
+            inv_fte_cfops.push(inv.fte_cfop.clone());
+            inv_fte_naturezas.push(inv.fte_natureza.clone());
+            inv_fte_icms_values.push(inv.fte_icms_value);
             count_invoices += 1;
         }
 
@@ -1870,13 +1898,15 @@ WHERE {so2_date_filter};
                     id, invoice_number, item_code, description, unit, quantity, unit_price, total_value, 
                     supplier_name, supplier_id, invoice_date,
                     cfop, icms_value, ipi_value, freight_value, entry_date, carrier_name, supplier_cnpj, payment_installments,
-                    fte_number, fte_value, fte_carrier_name, fte_carrier_cnpj, fte_issue_date, fte_entry_date, fte_cif_fob
+                    fte_number, fte_value, fte_carrier_name, fte_carrier_cnpj, fte_issue_date, fte_entry_date, fte_cif_fob,
+                    fte_serie, fte_cfop, fte_natureza, fte_icms_value
                 )
                 SELECT * FROM UNNEST(
                     $1::text[], $2::text[], $3::text[], $4::text[], $5::text[],
                     $6::float8[], $7::float8[], $8::float8[], $9::text[], $10::text[], $11::text[],
                     $12::text[], $13::float8[], $14::float8[], $15::float8[], $16::text[], $17::text[], $18::text[], $19::text[],
-                    $20::text[], $21::float8[], $22::text[], $23::text[], $24::text[], $25::text[], $26::text[]
+                    $20::text[], $21::float8[], $22::text[], $23::text[], $24::text[], $25::text[], $26::text[],
+                    $27::text[], $28::text[], $29::text[], $30::float8[]
                 )
                 "#,
             )
@@ -1906,6 +1936,10 @@ WHERE {so2_date_filter};
             .bind(&inv_fte_issue_dates[chunk_start..end])
             .bind(&inv_fte_entry_dates[chunk_start..end])
             .bind(&inv_fte_cif_fobs[chunk_start..end])
+            .bind(&inv_fte_series[chunk_start..end])
+            .bind(&inv_fte_cfops[chunk_start..end])
+            .bind(&inv_fte_naturezas[chunk_start..end])
+            .bind(&inv_fte_icms_values[chunk_start..end])
             .execute(&mut *tx)
             .await?;
             if end % 800 == 0 || end == inv_ids.len() {

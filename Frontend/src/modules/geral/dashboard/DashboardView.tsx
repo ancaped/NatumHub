@@ -3,7 +3,7 @@ import {
   Boxes, ShoppingCart, Activity, FlaskConical, ArrowRight, ArrowLeft,
   Settings, Database, RefreshCw, Upload, Download, Loader2, Check, X, Globe,
   FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp, DollarSign,
-  ClipboardCheck, Briefcase, Truck, Warehouse, Calculator, AlertTriangle
+  ClipboardCheck, Briefcase, Truck, Warehouse, Calculator
 } from 'lucide-react';
 import { canAccessView } from '../lib/modules/permissions';
 import type { AuthUser } from '../lib/auth';
@@ -121,26 +121,6 @@ export default function DashboardView({
               </div>
               <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
                 Acessar Material de Apoio <ArrowRight className="h-4 w-4" />
-              </div>
-            </button>
-            )}
-
-            {(allow('estoque_materia_prima') || allow('estoque_embalagens') || allow('estoque_insumos')) && (
-            <button
-              onClick={() => setView('estoque_divergencias')}
-              className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
-            >
-              <div className="space-y-4">
-                <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                  <AlertTriangle className="h-6 w-6" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-zinc-900">Divergências</h3>
-                  <p className="text-sm text-zinc-500 mt-1">Auditoria de insumos — Hub × ERP, NFs, baixas de OP e acertos.</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                Acessar Divergências <ArrowRight className="h-4 w-4" />
               </div>
             </button>
             )}
@@ -267,9 +247,9 @@ export default function DashboardView({
               </button>
               )}
 
-              {allow('controle_qualidade') && (
+              {allow('qualidade_hub') && (
               <button 
-                onClick={() => setView('controle_qualidade')}
+                onClick={() => setView('qualidade_hub')}
                 className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
               >
                 <div className="space-y-4">
@@ -277,8 +257,8 @@ export default function DashboardView({
                     <ClipboardCheck className="h-6 w-6" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-zinc-900">Controle de Qualidade</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Laudos, especificações e rastreabilidade de lotes (em desenvolvimento).</p>
+                    <h3 className="text-xl font-bold text-zinc-900">Qualidade</h3>
+                    <p className="text-sm text-zinc-500 mt-1">BPF, POPs, treinamentos e rastreabilidade auditável.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
@@ -287,9 +267,9 @@ export default function DashboardView({
               </button>
               )}
 
-              {allow('expedicao') && (
+              {allow('expedicao_hub') && (
               <button 
-                onClick={() => setView('expedicao')}
+                onClick={() => setView('expedicao_hub')}
                 className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
               >
                 <div className="space-y-4">
@@ -298,7 +278,7 @@ export default function DashboardView({
                   </div>
                   <div>
                     <h3 className="text-xl font-bold text-zinc-900">Expedição</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Separação, conferência e despacho de pedidos (em desenvolvimento).</p>
+                    <p className="text-sm text-zinc-500 mt-1">E-commerce, separação, conferência e despacho de pedidos.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
@@ -475,7 +455,7 @@ export default function DashboardView({
                     <Layers className="h-5 w-5" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-zinc-900">Montagem de Kits</h3>
+                    <h3 className="text-lg font-bold text-zinc-900">Kits</h3>
                     <p className="text-xs text-zinc-500 mt-1">Acompanhe falta de componentes, gere ordens de montagem, controle lotes individuais e imprima fichas de produção.</p>
                   </div>
                 </div>

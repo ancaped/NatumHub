@@ -15,7 +15,7 @@ Terminais (client) ──HTTP──► PC Principal Axum :3001 ──► Postgre
 | Cadastro de usuários | **Somente supervisor** |
 | Login | Nome digitado + senha (sem listar operadores) |
 
-Instalação: [`../devops/`](../devops/README.md). Tailscale opcional: [`../devops/tailscale.md`](../devops/tailscale.md).
+Instalação: [`../devops/instalacao_via_repositorio.md`](../devops/instalacao_via_repositorio.md). Tailscale opcional: [`../devops/tailscale.md`](../devops/tailscale.md).
 
 `deviceId` / `deviceLabel` identificam a instalação (`DispositivosPanel`).
 

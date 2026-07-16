@@ -59,6 +59,6 @@ Demais exigem `Authorization: Bearer <token>`.
 
 ## Regras
 
-- Preferir REST sobre invoke Tauri (`ContextoIA/api/tauri_commands.md`)
+- Preferir REST sobre invoke Tauri
 - Clientes finos dependem 100% da API — sem banco local
 - Respostas em **pt-BR**

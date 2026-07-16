@@ -46,6 +46,7 @@ export interface AlmoxMovement {
   packCount?: number | null;
   contentPerPack?: number | null;
   totalPaid?: number | null;
+  sector?: string | null;
 }
 
 export interface ItemStats {
@@ -89,6 +90,7 @@ export interface Maintenance {
   equipmentName?: string | null;
   kind: string;
   status: string;
+  routine?: string | null;
   itemCode?: string | null;
   itemDescription?: string | null;
   quantity: number;

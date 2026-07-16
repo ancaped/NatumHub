@@ -146,12 +146,6 @@ export default function ProducaoView({
   const [expandedKits, setExpandedKits] = useState([]);
   const [uploadingKits, setUploadingKits] = useState(false);
 
-  // Google Drive Sync State
-  const [googleStatus, setGoogleStatus] = useState({ configured: false, authenticated: false, client_id: '', last_sync: 'Nunca sincronizado' });
-  const [clientId, setClientId] = useState('');
-  const [clientSecret, setClientSecret] = useState('');
-  const [syncingGoogle, setSyncingGoogle] = useState(false);
-
   // Production History States
   const [historyRecords, setHistoryRecords] = useState([]);
   const [historySearch, setHistorySearch] = useState('');
@@ -262,8 +256,12 @@ export default function ProducaoView({
     }
 
     // 1. Find the base product in the current products list
-    if (launchingProduct.base) {
-      const baseNameUpper = launchingProduct.base.trim().toUpperCase();
+    const productBase = launchingProduct.base || 
+      products.find(p => p.codigo === launchingProduct.codigo)?.base || 
+      allProducts.find(p => p.codigo === launchingProduct.codigo)?.base;
+
+    if (productBase) {
+      const baseNameUpper = productBase.trim().toUpperCase();
       const baseExpanded = baseNameUpper
         .replace("SH ", "SHAMPOO ")
         .replace("COND ", "CONDICIONADOR ")
@@ -303,7 +301,7 @@ export default function ProducaoView({
       .catch(err => console.error("Error fetching similar products:", err))
       .finally(() => setSimilarLoading(false));
 
-  }, [launchingProduct, products]);
+  }, [launchingProduct, products, allProducts]);
 
   // New Line Creation States
   const [showAddLineForm, setShowAddLineForm] = useState(false);
@@ -1366,77 +1364,8 @@ export default function ProducaoView({
     }
   };
 
-  const fetchGoogleStatus = async () => {
-    try {
-      const res = await apiFetch(`/google/status`);
-      if (res.ok) {
-        const data = await res.json();
-        setGoogleStatus(data);
-        if (data.client_id) setClientId(data.client_id);
-      }
-    } catch (e) {
-      console.error("Error fetching Google status:", e);
-    }
-  };
-
-  const handleSaveGoogleConfig = async () => {
-    try {
-      const res = await apiFetch(`/google/config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        showToast(data.message || "Credenciais salvas com sucesso!", "success");
-        fetchGoogleStatus();
-      } else {
-        showToast(data.error || "Erro ao salvar credenciais", "error");
-      }
-    } catch (e) {
-      console.error(e);
-      showToast("Falha de conexão com a API do Google Config", "error");
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    try {
-      const res = await apiFetch(`/google/auth-url`);
-      const data = await res.json();
-      if (res.ok && data.url) {
-        window.open(data.url, '_blank');
-        showToast("Link de login do Google aberto no navegador", "info");
-      } else {
-        showToast(data.error || "Configure o Client ID antes de fazer login", "error");
-      }
-    } catch (e) {
-      console.error(e);
-      showToast("Erro ao requisitar link de autenticação", "error");
-    }
-  };
-
-  const handleGoogleSync = async () => {
-    setSyncingGoogle(true);
-    try {
-      const res = await apiFetch(`/google/sync`, { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        showToast(data.message || "Sincronização realizada com sucesso!", "success");
-        fetchGoogleStatus();
-      } else {
-        showToast(data.error || "Falha na sincronização. Verifique o login.", "error");
-      }
-    } catch (e) {
-      console.error(e);
-      showToast("Erro ao tentar sincronizar com o Google Drive", "error");
-    } finally {
-      setSyncingGoogle(false);
-    }
-  };
-
   useEffect(() => {
     fetchConfigs();
-    fetchGoogleStatus();
     fetchAllProducts();
     fetchImportStatus();
     fetchImportHistory();
@@ -1470,6 +1399,7 @@ export default function ProducaoView({
   const gerenciamentoSidebarItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'inventory', label: 'Gerenciamento de Produção', icon: Table },
+    { id: 'kits', label: 'Gerenciamento de Kits', icon: Layers },
     { id: 'aprovacao', label: 'Aprovação de Produção', icon: ClipboardCheck, badge: productionApprovalList.length },
     { id: 'history', label: 'Histórico de Produção', icon: History },
     { id: 'ignored_items', label: 'Produtos Suspensos', icon: EyeOff },
@@ -1622,6 +1552,49 @@ export default function ProducaoView({
               }}
               onEditOverrides={openEditModal}
               onRefresh={fetchProducts}
+              productionApprovalList={productionApprovalList}
+              onToggleApprovalList={handleToggleApprovalList}
+            />
+          )}
+
+          {/* VIEW: KITS MANAGEMENT */}
+          {currentView === 'kits' && (
+            <KitsTab
+              kits={kits}
+              configs={configs}
+              kitsActiveTab={kitsActiveTab}
+              setKitsActiveTab={setKitsActiveTab}
+              kitsSearch={kitsSearch}
+              setKitsSearch={setKitsSearch}
+              kitsSelectedStatus={kitsSelectedStatus}
+              setKitsSelectedStatus={setKitsSelectedStatus}
+              kitsPage={kitsPage}
+              setKitsPage={setKitsPage}
+              kitsTotalPages={kitsTotalPages}
+              kitsTotalItems={kitsTotalItems}
+              limitPerPage={limitPerPage}
+              showHidden={showHidden}
+              kitSortField={kitSortField}
+              setKitSortField={setKitSortField}
+              kitSortDir={kitSortDir}
+              setKitSortDir={setKitSortDir}
+              onLaunchProduct={(p) => {
+                setLaunchingProduct(p);
+                setLaunchQty(p.producao_recomendada > 0 ? p.producao_recomendada : 100);
+                const today = new Date();
+                const yyyy = today.getFullYear();
+                const mm = String(today.getMonth() + 1).padStart(2, '0');
+                const dd = String(today.getDate()).padStart(2, '0');
+                setLaunchDate(`${yyyy}-${mm}-${dd}`);
+              }}
+              onEditOverrides={openEditModal}
+              onRefresh={fetchKits}
+              loading={loading}
+              tabOptions={tabOptions}
+              toggleSort={toggleSort}
+              SortIcon={SortIcon}
+              expandedKits={expandedKits}
+              toggleKitExpanded={toggleKitExpanded}
               productionApprovalList={productionApprovalList}
               onToggleApprovalList={handleToggleApprovalList}
             />

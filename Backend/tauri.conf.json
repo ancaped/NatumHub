@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' tauri:; connect-src 'self' tauri: http: https://*.googleapis.com https://*.firebaseapp.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://ui-avatars.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval';"
+      "csp": "default-src 'self' tauri:; connect-src 'self' tauri: http: https://ui-avatars.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval';"
     }
   },
   "bundle": {

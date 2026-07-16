@@ -2,50 +2,22 @@
 
 Use com [`../INDEX.md`](../INDEX.md).
 
-## Raiz (mínimo)
-
 | Caminho | Conteúdo |
 |---------|----------|
 | `Frontend/` | UI React + Vite |
-| `Backend/` | Tauri + Axum (:3001) → PostgreSQL |
-| `Backend/supabase/` | DDL schema |
+| `Backend/` | Tauri + Axum `:3001` → PostgreSQL |
+| `Backend/supabase/` | DDL |
 | `ContextoIA/` | Docs para agentes |
 | `erp-import/` | Queries SQL Server + PASSOS |
-| `Feedbacks/` | `feedback.md` = playbook IA; `feedback_index.md` = espelho opcional do DB |
-| `Saves/` | `postgres.env` (ou legado `supabase.env`), `client_config.json` (não versionar secrets) |
-| `scripts/` | Updater / release helpers |
-| `AGENTS.md` | Roteamento de skills |
+| `Feedbacks/feedback.md` | Playbook de bugs (dados no Postgres) |
+| `Saves/` | `postgres.env`, `client_config.json` (não versionar secrets) |
+| `scripts/` | Release / updater |
+| `AGENTS.md` | Skills |
 | `.cursor/skills/` | Skills NatumHub |
 
-## Frontend
-
 ```
-Frontend/src/
-├── App.tsx
-└── modules/          # espelha Backend
-    ├── geral/        # auth, config, http, layout
-    ├── producao/
-    ├── compras/
-    ├── estoque/
-    ├── vendas/
-    └── financeiro/
+Frontend/src/modules/<area>/<sub>/   ↔   Backend/src/modules/<area>/<sub>/
+Backend/src/bin/run_sync.rs
 ```
 
-## Backend
-
-```
-Backend/src/
-├── lib.rs / main.rs
-├── handlers/         # rotas Axum (produção, import, etc.)
-├── core/
-│   ├── pg_db.rs      # pool PostgreSQL
-│   ├── db.rs         # acesso dados
-│   ├── legacy_db.rs  # sync ERP
-│   └── app_config.rs
-├── modules/          # domínio (espelha FE)
-└── bin/
-    ├── run_sync.rs
-    └── regen_feedback_md.rs
-```
-
-Banco operacional = **PostgreSQL** no PC Principal (`Saves/postgres.env`). Terminais sem banco local.
+Backup = Postgres local (`pg_backup`). Sem nuvem.

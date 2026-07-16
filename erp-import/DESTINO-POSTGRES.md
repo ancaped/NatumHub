@@ -1,6 +1,6 @@
 # Mapeamento ERP → PostgreSQL
 
-Banco centralizado no **PostgreSQL** do PC Principal (`Saves/postgres.env`). Schema: `Backend/supabase/001_natumhub_schema.sql`. Migração: `ContextoIA/banco-dados/migracao_postgres.md`.
+Banco centralizado no **PostgreSQL** do PC Principal (`Saves/postgres.env`). Schema: `Backend/supabase/001_natumhub_schema.sql`.
 
 ## Cadastro e estoque
 
@@ -49,7 +49,7 @@ O módulo **Vendas** lê principalmente `stock_movements` filtrados por saídas 
 
 | Postgres | Conteúdo |
 |--------|----------|
-| `settings` | sql_*, firebase_*, etc. |
+| `settings` | sql_*, erp_*, etc. |
 | `hub_operators` | Operadores locais |
 | `hub_operator_modules` | Permissões por módulo |
 | `hub_sessions` | Sessões Bearer |

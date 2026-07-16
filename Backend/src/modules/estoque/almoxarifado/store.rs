@@ -66,6 +66,50 @@ pub async fn ensure_tables(pool: &PgPool) -> Result<(), String> {
         );
     }
 
+    // 013 — sector + sequência de código local (idempotente)
+    sqlx::query("ALTER TABLE almox_movements ADD COLUMN IF NOT EXISTS sector TEXT")
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS almox_local_code_seq (
+          id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+          next_val INT NOT NULL DEFAULT 1
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    sqlx::query(
+        "INSERT INTO almox_local_code_seq (id, next_val) VALUES (1, 1) ON CONFLICT (id) DO NOTHING",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS estoque_fotos (
+          id TEXT PRIMARY KEY,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          photo_data TEXT NOT NULL,
+          notes TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP::TEXT
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query("ALTER TABLE estoque_manutencoes ADD COLUMN IF NOT EXISTS routine TEXT")
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
     Ok(())
 }
 
@@ -504,7 +548,20 @@ pub async fn create_local_item(
     } else {
         req.unit.trim().to_string()
     };
-    let code = format!("APP_{}", &Uuid::new_v4().to_string().replace('-', "")[..10].to_uppercase());
+
+    // Código curto local APP_#### (sequência numérica, sem colidir com ERP)
+    let next: i32 = sqlx::query_scalar(
+        r#"
+        UPDATE almox_local_code_seq
+        SET next_val = next_val + 1
+        WHERE id = 1
+        RETURNING next_val - 1
+        "#,
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    let code = format!("APP_{:04}", next);
     let now = now_iso();
 
     sqlx::query(
@@ -709,8 +766,8 @@ pub async fn create_movement(
         INSERT INTO almox_movements
           (id, item_code, movement_type, quantity, unit_cost, reason, document_ref, operator_id,
            occurred_at, created_at, demand_id,
-           variant_label, pack_label, pack_count, content_per_pack, total_paid)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+           variant_label, pack_label, pack_count, content_per_pack, total_paid, sector)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
         "#,
     )
     .bind(&id)
@@ -729,6 +786,7 @@ pub async fn create_movement(
     .bind(pack_count)
     .bind(content_per_pack)
     .bind(total_paid)
+    .bind(req.sector.as_deref())
     .execute(&mut *tx)
     .await
     .map_err(|e| e.to_string())?;
@@ -785,6 +843,7 @@ pub async fn create_movement(
         pack_count,
         content_per_pack,
         total_paid,
+        sector: req.sector.clone(),
     })
 }
 
@@ -804,7 +863,8 @@ pub async fn list_movements(
                m.movement_type,
                m.quantity, m.unit_cost, m.reason, m.document_ref, m.operator_id,
                m.occurred_at, m.created_at, m.demand_id,
-               m.variant_label, m.pack_label, m.pack_count, m.content_per_pack, m.total_paid
+               m.variant_label, m.pack_label, m.pack_count, m.content_per_pack, m.total_paid,
+               m.sector
         FROM almox_movements m
         LEFT JOIN items i ON i.code = m.item_code
         LEFT JOIN almox_item_config c ON c.item_code = m.item_code
@@ -843,6 +903,7 @@ pub async fn list_movements(
             pack_count: r.try_get("pack_count").ok(),
             content_per_pack: r.try_get("content_per_pack").ok(),
             total_paid: r.try_get("total_paid").ok(),
+            sector: r.try_get("sector").ok(),
         })
         .collect())
 }
@@ -950,6 +1011,7 @@ pub async fn seed_from_erp(pool: &PgPool, code: &str, operator_id: Option<&str>)
         document_ref: Some("seed-erp".into()),
         occurred_at: None,
         allow_negative: Some(false),
+        sector: None,
         variant_label: None,
         pack_label: None,
         pack_count: None,
@@ -1167,6 +1229,7 @@ pub async fn receive_demand(
             document_ref: Some(id.to_string()),
             occurred_at: None,
             allow_negative: Some(false),
+            sector: None,
             variant_label: None,
             pack_label: None,
             pack_count: None,
@@ -1386,6 +1449,7 @@ pub async fn list_maintenances(
             equipment_name: r.try_get("equipment_name").ok(),
             kind: r.try_get("kind").unwrap_or_default(),
             status: r.try_get("status").unwrap_or_default(),
+            routine: r.try_get("routine").ok(),
             item_code: r.try_get("item_code").ok(),
             item_description: r.try_get("item_description").ok(),
             quantity: r.try_get("quantity").unwrap_or(0.0),
@@ -1428,15 +1492,16 @@ pub async fn create_maintenance(
     sqlx::query(
         r#"
         INSERT INTO estoque_manutencoes
-          (id, equipment_id, kind, status, item_code, quantity, technician, cost, notes,
+          (id, equipment_id, kind, status, routine, item_code, quantity, technician, cost, notes,
            occurred_at, created_by, created_at, updated_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
         "#,
     )
     .bind(&id)
     .bind(&req.equipment_id)
     .bind(&kind)
     .bind(&status)
+    .bind(req.routine.as_deref())
     .bind(req.item_code.as_deref())
     .bind(qty)
     .bind(req.technician.as_deref())
@@ -1464,6 +1529,7 @@ pub async fn create_maintenance(
                         document_ref: Some(id.clone()),
                         occurred_at: Some(occurred.to_string()),
                         allow_negative: None,
+                        sector: None,
                         variant_label: None,
                         pack_label: None,
                         pack_count: None,
@@ -1512,16 +1578,18 @@ pub async fn update_maintenance(
         r#"
         UPDATE estoque_manutencoes SET
           status = COALESCE($2, status),
-          technician = COALESCE($3, technician),
-          cost = COALESCE($4, cost),
-          notes = COALESCE($5, notes),
-          completed_at = COALESCE($6, completed_at),
-          updated_at = $7
+          routine = COALESCE($3, routine),
+          technician = COALESCE($4, technician),
+          cost = COALESCE($5, cost),
+          notes = COALESCE($6, notes),
+          completed_at = COALESCE($7, completed_at),
+          updated_at = $8
         WHERE id = $1
         "#,
     )
     .bind(id)
     .bind(status.as_deref())
+    .bind(req.routine.as_deref())
     .bind(req.technician.as_deref())
     .bind(req.cost)
     .bind(req.notes.as_deref())
@@ -1555,6 +1623,195 @@ pub async fn update_maintenance(
         .into_iter()
         .find(|m| m.id == id)
         .ok_or_else(|| "Manutenção não encontrada.".into())
+}
+
+pub async fn list_fotos(
+    pool: &PgPool,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<EstoqueFotoRow>, String> {
+    ensure_tables(pool).await?;
+    let rows = sqlx::query(
+        r#"
+        SELECT id, entity_type, entity_id, photo_data, notes, created_at
+        FROM estoque_fotos
+        WHERE entity_type = $1 AND entity_id = $2
+        ORDER BY created_at DESC
+        "#,
+    )
+    .bind(entity_type)
+    .bind(entity_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let out = rows
+        .into_iter()
+        .map(|r| EstoqueFotoRow {
+            id: r.try_get("id").unwrap_or_default(),
+            entity_type: r.try_get("entity_type").unwrap_or_default(),
+            entity_id: r.try_get("entity_id").unwrap_or_default(),
+            photo_data: r.try_get("photo_data").unwrap_or_default(),
+            notes: r.try_get("notes").ok(),
+            created_at: r.try_get("created_at").unwrap_or_default(),
+        })
+        .collect();
+
+    Ok(out)
+}
+
+pub async fn add_foto(
+    pool: &PgPool,
+    entity_type: &str,
+    entity_id: &str,
+    photo_data: &str,
+    notes: Option<&str>,
+) -> Result<EstoqueFotoRow, String> {
+    ensure_tables(pool).await?;
+    let id = Uuid::new_v4().to_string();
+    let now = now_iso();
+
+    sqlx::query(
+        r#"
+        INSERT INTO estoque_fotos (id, entity_type, entity_id, photo_data, notes, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        "#,
+    )
+    .bind(&id)
+    .bind(entity_type)
+    .bind(entity_id)
+    .bind(photo_data)
+    .bind(notes)
+    .bind(&now)
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(EstoqueFotoRow {
+        id,
+        entity_type: entity_type.to_string(),
+        entity_id: entity_id.to_string(),
+        photo_data: photo_data.to_string(),
+        notes: notes.map(|s| s.to_string()),
+        created_at: now,
+    })
+}
+
+pub async fn delete_foto(pool: &PgPool, id: &str) -> Result<(), String> {
+    ensure_tables(pool).await?;
+    sqlx::query("DELETE FROM estoque_fotos WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub async fn get_item_consumption(
+    pool: &PgPool,
+    code: &str,
+) -> Result<AlmoxConsumptionData, String> {
+    ensure_tables(pool).await?;
+
+    let local_yoy = sqlx::query(
+        r#"
+        SELECT COALESCE(SUBSTRING(occurred_at, 1, 4)::int, 0) AS year,
+               SUM(quantity) AS quantity
+        FROM almox_movements
+        WHERE item_code = $1 AND movement_type = 'saida'
+        GROUP BY year
+        ORDER BY year DESC
+        "#,
+    )
+    .bind(code)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let local_monthly = sqlx::query(
+        r#"
+        SELECT SUBSTRING(occurred_at, 1, 7) AS month,
+               SUM(quantity) AS quantity
+        FROM almox_movements
+        WHERE item_code = $1 AND movement_type = 'saida'
+        GROUP BY month
+        ORDER BY month DESC
+        LIMIT 24
+        "#,
+    )
+    .bind(code)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut yoy_map: std::collections::HashMap<i32, f64> = local_yoy
+        .into_iter()
+        .map(|r| (r.try_get::<i32, _>("year").unwrap_or(0), r.try_get::<f64, _>("quantity").unwrap_or(0.0)))
+        .collect();
+
+    let mut monthly_map: std::collections::HashMap<String, f64> = local_monthly
+        .into_iter()
+        .map(|r| (r.try_get::<String, _>("month").unwrap_or_default(), r.try_get::<f64, _>("quantity").unwrap_or(0.0)))
+        .collect();
+
+    if !code.starts_with("APP_") {
+        let erp_yoy = sqlx::query(
+            r#"
+            SELECT year, COALESCE(SUM(quantity), 0.0) AS quantity
+            FROM consumption
+            WHERE item_code = $1
+            GROUP BY year
+            "#,
+        )
+        .bind(code)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+        for r in erp_yoy {
+            let yr: i32 = r.try_get("year").unwrap_or(0);
+            let qty: f64 = r.try_get("quantity").unwrap_or(0.0);
+            *yoy_map.entry(yr).or_insert(0.0) += qty;
+        }
+
+        let erp_monthly = sqlx::query(
+            r#"
+            SELECT year, month, COALESCE(SUM(quantity), 0.0) AS quantity
+            FROM consumption
+            WHERE item_code = $1
+            GROUP BY year, month
+            "#,
+        )
+        .bind(code)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+        for r in erp_monthly {
+            let yr: i32 = r.try_get("year").unwrap_or(0);
+            let mth: i32 = r.try_get("month").unwrap_or(0);
+            let qty: f64 = r.try_get("quantity").unwrap_or(0.0);
+            let month_str = format!("{:04}-{:02}", yr, mth);
+            *monthly_map.entry(month_str).or_insert(0.0) += qty;
+        }
+    }
+
+    let mut consumption_yoy: Vec<ConsumptionYoYItem> = yoy_map
+        .into_iter()
+        .map(|(year, quantity)| ConsumptionYoYItem { year, quantity })
+        .collect();
+    consumption_yoy.sort_by(|a, b| b.year.cmp(&a.year));
+
+    let mut monthly_consumption: Vec<MonthlyConsumptionItem> = monthly_map
+        .into_iter()
+        .map(|(month, quantity)| MonthlyConsumptionItem { month, quantity })
+        .collect();
+    monthly_consumption.sort_by(|a, b| b.month.cmp(&a.month));
+
+    Ok(AlmoxConsumptionData {
+        consumption_yoy,
+        monthly_consumption,
+    })
 }
 
 pub async fn get_dashboard_stats(pool: &PgPool) -> Result<AlmoxDashboardStats, String> {

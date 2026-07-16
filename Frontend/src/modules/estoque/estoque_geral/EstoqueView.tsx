@@ -10,7 +10,6 @@ import {
 import { cn } from '../../geral/lib/utils';
 import { useGlobalNavActive } from '../../geral/components/layout/NavShellContext';
 import { StockMovement, FormulationLine, DbDumpResult } from '../../geral/lib/types';
-import { InsumoDivergenciasTab } from './components/InsumoDivergenciasTab';
 import { ProdutoContagemTab } from './components/ProdutoContagemTab';
 
 type EstoqueMode = 'materia_prima' | 'embalagens' | 'coloracao' | 'apoio' | 'insumos' | 'produtos';
@@ -19,8 +18,7 @@ type DataKind = 'insumos' | 'produtos';
 interface EstoqueViewProps {
   mode: EstoqueMode;
   onBackToHub: () => void;
-  /** Abre direto em Divergências / Relatórios quando informado. */
-  initialInsumosSubTab?: 'todas' | 'mp' | 'emb' | 'mat' | 'relatorios' | 'contagens';
+  initialInsumosSubTab?: 'todas' | 'mp' | 'emb' | 'mat' | 'relatorios';
 }
 
 function activeTabForMode(mode: EstoqueMode): DataKind {
@@ -151,7 +149,7 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initi
   const globalNav = useGlobalNavActive();
   const activeTab = activeTabForMode(mode);
   const lockedSub = lockedInsumosSubTab(mode);
-  const [insumosSubTab, setInsumosSubTab] = useState<'todas' | 'mp' | 'emb' | 'mat' | 'relatorios' | 'contagens'>(
+  const [insumosSubTab, setInsumosSubTab] = useState<'todas' | 'mp' | 'emb' | 'mat' | 'relatorios'>(
     initialInsumosSubTab ?? lockedSub ?? 'todas'
   );
   const [produtosSubTab, setProdutosSubTab] = useState<'todos' | 'relatorios' | 'contagens'>('todos');
@@ -420,7 +418,7 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initi
         </div>
         )}
 
-        {/* Navigation Tabs — Divergências visível em MP / Emb / Insumos (não só mode=insumos) */}
+        {/* Navigation Tabs — catálogo / operação de estoque */}
         {activeTab === 'insumos' ? (
           <div className="p-2 border-b border-zinc-100 space-y-1">
             {mode === 'insumos' ? (
@@ -501,16 +499,6 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initi
             >
               <FileText className="h-4 w-4 text-zinc-450" />
               Relatórios de Estoque
-            </button>
-            <button
-              onClick={() => setInsumosSubTab('contagens')}
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                insumosSubTab === 'contagens' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
-              )}
-            >
-              <AlertTriangle className="h-4 w-4 text-zinc-450" />
-              Divergências
             </button>
           </div>
         ) : (
@@ -617,11 +605,6 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initi
                     Esta funcionalidade está programada para uma futura atualização. Aqui você poderá consultar o histórico completo de movimentações físicas, giro de estoque médio mensal, projeção futura por categoria e curva ABC de insumos.
                   </p>
                 </div>
-              ) : activeTab === 'insumos' && insumosSubTab === 'contagens' ? (
-                <InsumoDivergenciasTab
-                  active={true}
-                  lockedScope={lockedSub === 'mp' || lockedSub === 'emb' ? lockedSub : null}
-                />
               ) : activeTab === 'produtos' && produtosSubTab === 'relatorios' ? (
                 <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-zinc-200 rounded-2xl shadow-sm space-y-4 max-w-2xl mx-auto mt-12 animate-in fade-in duration-300">
                   <div className="bg-zinc-50 p-4 rounded-full text-zinc-650 border border-zinc-150">
