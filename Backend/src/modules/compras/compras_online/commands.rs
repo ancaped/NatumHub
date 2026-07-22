@@ -145,39 +145,45 @@ pub async fn delete_online_store_query(pool: PgPool, id: &str) -> Result<(), Str
     Ok(())
 }
 
-use tauri::State;
-use crate::DbState;
+#[cfg(feature = "desktop")]
+#[allow(dead_code)]
+mod _tauri_stubs {
+    use super::*;
+    use tauri::State;
+    use crate::DbState;
 
-#[tauri::command]
-pub fn get_online_orders(_state: State<DbState>) -> Result<Vec<OnlineOrder>, String> {
-    Err("Use a API REST (/api/hub/compras/online-orders)".into())
+    #[tauri::command]
+    pub fn get_online_orders(_state: State<DbState>) -> Result<Vec<OnlineOrder>, String> {
+        Err("Use a API REST (/api/hub/compras/online-orders)".into())
+    }
+
+    #[tauri::command]
+    pub fn save_online_order(_state: State<DbState>, _order: OnlineOrder) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/compras/online-orders)".into())
+    }
+
+    #[tauri::command]
+    pub fn delete_online_order(_state: State<DbState>, _id: String) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/compras/online-orders/:id)".into())
+    }
+
+    #[tauri::command]
+    pub fn get_online_stores(_state: State<DbState>) -> Result<Vec<OnlineStore>, String> {
+        Err("Use a API REST (/api/hub/compras/online-stores)".into())
+    }
+
+    #[tauri::command]
+    pub fn save_online_store(_state: State<DbState>, _store: OnlineStore) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/compras/online-stores)".into())
+    }
+
+    #[tauri::command]
+    pub fn delete_online_store(_state: State<DbState>, _id: String) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/compras/online-stores/:id)".into())
+    }
 }
 
-#[tauri::command]
-pub fn save_online_order(_state: State<DbState>, _order: OnlineOrder) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/compras/online-orders)".into())
-}
-
-#[tauri::command]
-pub fn delete_online_order(_state: State<DbState>, _id: String) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/compras/online-orders/:id)".into())
-}
-
-#[tauri::command]
-pub fn get_online_stores(_state: State<DbState>) -> Result<Vec<OnlineStore>, String> {
-    Err("Use a API REST (/api/hub/compras/online-stores)".into())
-}
-
-#[tauri::command]
-pub fn save_online_store(_state: State<DbState>, _store: OnlineStore) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/compras/online-stores)".into())
-}
-
-#[tauri::command]
-pub fn delete_online_store(_state: State<DbState>, _id: String) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/compras/online-stores/:id)".into())
-}
-
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub fn upload_order_receipt(id: String, filename: String, data: Vec<u8>) -> Result<String, String> {
     let receipts_dir = std::path::Path::new("../receipts");
@@ -191,6 +197,7 @@ pub fn upload_order_receipt(id: String, filename: String, data: Vec<u8>) -> Resu
     Ok(abs_path.to_string_lossy().to_string())
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub fn open_receipt_file(path: String) -> Result<(), String> {
     std::process::Command::new("cmd")

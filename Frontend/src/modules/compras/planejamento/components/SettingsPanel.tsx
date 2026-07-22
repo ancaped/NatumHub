@@ -4,8 +4,10 @@ import { api } from '../../../geral/lib/api';
 import { Category, ComprasAppConfig, Item } from '../../../geral/lib/types';
 import { Settings, FolderTree, Plus, Trash2, X, Save, Package, Search, Link, Unlink } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
+import { getAuthUser, isSupervisor } from '../../../geral/lib/auth';
 
 export function SettingsPanel({ mode = 'all', active = false }: { mode?: string; active?: boolean }) {
+  const canConfig = isSupervisor(getAuthUser());
   const [config, setConfig] = useState<ComprasAppConfig>({ targetDays: 90, itemOverrides: {} });
   const [activeSettingTab, setActiveSettingTab] = useState<'geral' | 'categorias' | 'regras'>('geral');
   const [categories, setCategories] = useState<Category[]>([]);
@@ -33,6 +35,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
   const [newRuleType, setNewRuleType] = useState<'description' | 'supplier'>('description');
 
   const handleAddAutoRule = () => {
+    if (!canConfig) return;
     if (!newRuleSubcategoryId || !newRulePrefix.trim()) return;
     const rules = config.autoSubcategories || [];
     const prefixClean = newRulePrefix.trim();
@@ -46,12 +49,14 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
   };
 
   const handleRemoveAutoRule = (prefixToRemove: string, typeToRemove: string) => {
+    if (!canConfig) return;
     const rules = config.autoSubcategories || [];
     const updatedRules = rules.filter(r => !(r.prefix === prefixToRemove && (r.type || 'description') === typeToRemove));
     setConfig({ ...config, autoSubcategories: updatedRules });
   };
 
   const handleApplyAutoRules = async () => {
+    if (!canConfig) return;
     setSaving(true);
     try {
       const configKey = mode === 'coloracao' ? 'compras_coloracao' : mode === 'apoio' ? 'compras_apoio' : 'compras_main';
@@ -97,6 +102,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
   }, [active]);
 
   const togglePinSubcategory = (catId: string) => {
+    if (!canConfig) return;
     let updated: string[];
     if (pinnedSubs.includes(catId)) {
       updated = pinnedSubs.filter(id => id !== catId);
@@ -154,6 +160,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
   };
 
   const saveConfig = async () => {
+    if (!canConfig) return;
     setSaving(true);
     try {
       const configKey = mode === 'coloracao' ? 'compras_coloracao' : mode === 'apoio' ? 'compras_apoio' : 'compras_main';
@@ -165,6 +172,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
   };
 
   const handleAddCategory = async () => {
+    if (!canConfig) return;
     if (!newCatName.trim()) return;
     try {
       const parentId = 
@@ -187,6 +195,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
   };
 
   const handleDeleteCategory = async (id: string) => {
+    if (!canConfig) return;
     if (!confirm('Excluir esta categoria? Os itens serão movidos para "Sem Categoria".')) return;
     try {
       await api.deleteCategory(id);
@@ -203,6 +212,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
   };
 
   const handleBatchRemoveFromCategory = async () => {
+    if (!canConfig) return;
     if (subSelectedItems.size === 0 || !selectedSubcategory) return;
     if (!confirm(`Desassociar os ${subSelectedItems.size} insumos selecionados de "${selectedSubcategory.name}"?`)) return;
     
@@ -217,6 +227,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
   };
 
   const handleBatchAssignToCategory = async () => {
+    if (!canConfig) return;
     if (modalSelectedItems.size === 0 || !selectedSubcategory) return;
     
     try {
@@ -288,6 +299,12 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
 
   return (
     <div className="space-y-6 w-full pb-10">
+      {!canConfig && (
+        <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 text-sm text-amber-800">
+          Apenas supervisor/administrador pode alterar configurações, categorias, regras e atalhos do menu.
+        </div>
+      )}
+      <div className={cn(!canConfig && "pointer-events-none opacity-60")}>
       {/* Navegação de Abas Internas */}
       <div className="flex border-b border-zinc-200 bg-white rounded-xl shadow-xs p-1 gap-1 shrink-0 flex-wrap">
         {([
@@ -865,6 +882,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

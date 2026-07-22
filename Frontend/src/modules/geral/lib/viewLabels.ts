@@ -72,6 +72,8 @@ export function getModuleTitle(view: string): string {
       return 'Administrativo > Linha de Produtos';
     case 'admin_produtos_ativos_relatorios':
       return 'Administrativo > Relatórios · Produtos Ativos';
+    case 'admin_funcionarios':
+      return 'Administrativo > Funcionários';
     case 'vendas':
       return 'Vendas > Vendas Geral';
     case 'vendas_hub':
@@ -92,6 +94,8 @@ export function getModuleTitle(view: string): string {
       return 'Qualidade > Limpeza';
     case 'qualidade_recebimento_mp':
       return 'Qualidade > Recebimento MP';
+    case 'qualidade_documentacao':
+      return 'Qualidade > Documentação';
     case 'administrativo':
       return 'Administrativo';
     case 'expedicao_hub':
@@ -109,6 +113,8 @@ export function getModuleTitle(view: string): string {
       return 'Painel Supervisor';
     case 'hub_feedbacks':
       return 'Gestão de Feedbacks';
+    case 'mapa_arquitetura':
+      return 'Mapa operacional';
     default:
       return '';
   }

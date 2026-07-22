@@ -1,12 +1,12 @@
 # API REST Axum — referência compacta
 
-Servidor: **`:3001`** · Auth: `Authorization: Bearer <token>` (exceto rotas públicas abaixo).
+Servidor: **`:3001`** (API + SPA do Hub) · Clientes: `http://natumhub.local:3001` · Auth: `Authorization: Bearer <token>` (exceto rotas públicas abaixo).
 
 Implementação: `Backend/src/lib.rs` + `modules/*/router`. Detalhes multi-usuário: [`../arquitetura/multi_usuario.md`](../arquitetura/multi_usuario.md).
 
 ## Rotas públicas
 
-`/api/health` · `/api/auth/login` · `/api/auth/operators` · `/api/auth/session` · `/login` · `GET /api/hub/client-config`
+`/` (SPA) · assets estáticos · `/login` · `/mapa` · `/api/health` · `/api/auth/login` · `/api/auth/operators` · `/api/auth/session` · `/api/auth/setup-status` · `/api/auth/setup-supervisor` · `GET /api/hub/client-config` · `GET /api/hub/public-config`
 
 ## Auth operador
 
@@ -25,6 +25,7 @@ Implementação: `Backend/src/lib.rs` + `modules/*/router`. Detalhes multi-usuá
 |--------|------|-------|
 | GET | `/api/hub/status` | Status + db conectado |
 | GET/POST | `/api/hub/client-config` | Config local do dispositivo |
+| GET | `/api/hub/public-config` | Hint de URL (`natumhub.local`) |
 
 ## Notificações
 
@@ -112,6 +113,23 @@ Hub `almoxarifado_hub`. Doc: [`../modulos/almoxarifado.md`](../modulos/almoxarif
 | GET | `/api/admin/audit/stock/:code` | Hub × ERP ao vivo (estoque/reserva/prod/pedidos) |
 | POST | `/api/admin/audit/stock/:code/refresh` | Re-lê D1/D2/A pontual e grava |
 | POST | `/api/admin/audit/stock/resync-insumos` | Regrava todos os insumos com `nQtdeEstoqueA` |
+
+## Mapa operacional (supervisor)
+
+| Método | Rota | Notas |
+|--------|------|-------|
+| GET | `/api/mapa/snapshot` | groups+modules+edges+routes+tasks+activity |
+| PUT | `/api/mapa/layout` | posições em lote (drag) |
+| PUT | `/api/mapa/modules/:key` | purpose/detail/hints |
+| POST | `/api/mapa/modules` | módulo planned + task |
+| POST | `/api/mapa/edges` | conexão |
+| GET/POST | `/api/mapa/tasks` | fila |
+| PATCH | `/api/mapa/tasks/:id` | status done |
+| GET | `/api/mapa/tasks/export.md` | export task.md |
+| GET/POST | `/api/mapa/activity` | registro |
+| POST | `/api/mapa/resync-scan` | reimporta rotas do `mapa-app.json` |
+
+Tabelas: `018_mapa_hub.sql`. UI Hub: view `mapa_arquitetura`. Browser: **`http://127.0.0.1:3001/mapa`** (login igual ao Hub).
 
 Regra canônica: [`../../erp-import/ESTOQUE.md`](../../erp-import/ESTOQUE.md).
 

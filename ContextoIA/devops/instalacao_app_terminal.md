@@ -1,28 +1,40 @@
-# Instalar NatumHub — Terminal
+# Acessar NatumHub — Terminal (navegador)
 
-Terminais **não** precisam de PostgreSQL, Rust, Node nem SQL Server.
+Terminais **não** precisam de PostgreSQL, Rust, Node, SQL Server nem instalador `.exe`.
 
-## 1. Instalador
+## 1. Hosts / DNS
 
-Mesmo NSIS da release (**stable** para o chão de fábrica): `NatumHub_*_x64-setup.exe`.
+No PC do terminal (admin), edite `C:\Windows\System32\drivers\etc\hosts` e adicione:
 
-## 2. Wizard
+```text
+<IP-DO-PC-PRINCIPAL>  natumhub.local
+```
 
-1. Abra o app → **Terminal**.
-2. Informe a URL da API do PC Principal, por exemplo:
-   - LAN: `http://192.168.0.10:3001`
-   - Tailscale: `http://pc-master:3001` ou `http://100.x.x.x:3001`
-3. O app testa o health; se falhar, corrija rede/firewall.
-4. Login com **nome + senha** (cadastrado pelo supervisor no master).
+Exemplo: `192.168.0.10  natumhub.local`
+
+(Alternativa: DNS interno da empresa apontando `natumhub.local` para o master.)
+
+## 2. Abrir o Hub
+
+No navegador (Chrome/Edge):
+
+```text
+http://natumhub.local:3001
+```
+
+A UI e a API ficam na mesma origem. Faça login com **nome + senha** (cadastrado pelo supervisor no master).
+
+Teste rápido da API: `http://natumhub.local:3001/api/health`
 
 ## 3. Comportamento
 
-- Modo `client`: não sobe Axum local; não exige `postgres.env`.
-- Toda conversa HTTP vai para o master.
-- Updates in-app usam os manifests servidos pelo master.
+- Sem app instalado: só o navegador.
+- Atualizações: o master faz `git pull` em `main` + rebuild do Frontend; no terminal basta **recarregar a página**.
+- Não há aba de atualizações GitHub.
 
-## 4. Reconfigurar
+## 4. Rede
 
-Na tela de login: **Reconfigurar dispositivo** (volta ao wizard).
+- O PC Principal precisa ter firewall liberando **TCP 3001**.
+- Se não estiver na mesma LAN, use [Tailscale](tailscale.md) e aponte `natumhub.local` (ou use o hostname MagicDNS) para o IP do master.
 
-Ver também: [tailscale.md](tailscale.md) · [instalacao_app_master.md](instalacao_app_master.md).
+Ver também: [instalacao_app_master.md](instalacao_app_master.md) · [multi_usuario.md](../arquitetura/multi_usuario.md).

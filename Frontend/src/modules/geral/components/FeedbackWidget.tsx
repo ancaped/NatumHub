@@ -3,7 +3,7 @@ import { Bug, MessageSquare, X, Upload, Camera } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import { api } from '../lib/api';
 import { getLogs } from '../lib/logInterceptor';
-import { cn } from '../lib/utils';
+import { cn, randomId } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { buildFeedbackPagePath, splitFeedbackPagePath } from '../lib/viewLabels';
 
@@ -106,7 +106,7 @@ export function FeedbackWidget({ currentView, visible = false }: FeedbackWidgetP
         ? `${module} > ${subPage.trim()}`
         : (module || buildFeedbackPagePath(currentView));
       await api.submitFeedback({
-        id: crypto.randomUUID(),
+        id: randomId(),
         feedbackType: type,
         description,
         page: finalPage,

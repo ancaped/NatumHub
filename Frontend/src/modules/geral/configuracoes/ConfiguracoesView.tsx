@@ -5,9 +5,9 @@ import {
 
 import ConexaoServidorPanel from './ConexaoServidorPanel';
 import OperadoresPanel from './OperadoresPanel';
-import CanaisAtualizacaoPanel from './CanaisAtualizacaoPanel';
 import PostgresUsagePanel from './PostgresUsagePanel';
 import PostgresBackupPanel from './PostgresBackupPanel';
+import AuditoriaPanel from './AuditoriaPanel';
 import { apiJson, getSetting, setSetting } from '../lib/http';
 import { isSupervisor, type AuthUser } from '../lib/auth';
 
@@ -335,8 +335,8 @@ export default function ConfiguracoesView({
           <>
             <PostgresUsagePanel setMessage={setMessage} />
             <PostgresBackupPanel setMessage={setMessage} />
-            <CanaisAtualizacaoPanel currentUser={currentUser} setMessage={setMessage} />
             <OperadoresPanel currentUser={currentUser} setMessage={setMessage} />
+            <AuditoriaPanel setMessage={setMessage} />
           </>
         )}
 

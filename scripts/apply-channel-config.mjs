@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Aplica identifier/productName/endpoints por canal antes do build Tauri.
- * Uso: node scripts/apply-channel-config.mjs --channel stable|dev [--tag v0.0.12]
+ * Aplica identifier/productName por canal antes do build Tauri.
+ * Uso: node scripts/apply-channel-config.mjs --channel stable|dev
  */
 import fs from 'fs';
 import path from 'path';
@@ -27,7 +27,7 @@ function getArg(name) {
 
 const channel = getArg('channel') || 'stable';
 if (!CHANNELS[channel]) {
-  console.error('Canal inválido. Use: --channel stable|dev [--tag v0.0.12]');
+  console.error('Canal inválido. Use: --channel stable|dev');
   process.exit(1);
 }
 
@@ -41,20 +41,12 @@ tauri.productName = cfg.productName;
 if (tauri.app?.windows?.[0]) {
   tauri.app.windows[0].title = cfg.windowTitle;
 }
-
-const repo = process.env.GITHUB_REPOSITORY || 'ancaped/NatumHub';
-const tag = getArg('tag') || process.env.RELEASE_TAG || '';
-const port = process.env.API_PORT || '3001';
-
-const endpoints = [`http://127.0.0.1:${port}/api/hub/updater-manifest/${channel}`];
-if (tag) {
-  endpoints.push(`https://github.com/${repo}/releases/download/${tag}/updater-${channel}.json`);
-}
-
 if (tauri.plugins?.updater) {
-  tauri.plugins.updater.endpoints = endpoints;
+  delete tauri.plugins.updater;
+  if (Object.keys(tauri.plugins).length === 0) delete tauri.plugins;
 }
+tauri.bundle = tauri.bundle || {};
+tauri.bundle.createUpdaterArtifacts = false;
 
 fs.writeFileSync(tauriPath, JSON.stringify(tauri, null, 2) + '\n');
 console.log(`Canal ${channel}: ${cfg.identifier} / ${cfg.productName}`);
-console.log('Updater endpoints:', endpoints.join(', '));

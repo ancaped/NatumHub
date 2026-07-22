@@ -6,10 +6,8 @@
     "tauri": "npx tauri",
     "tauri:dev": "npx tauri dev",
     "tauri:build": "npx tauri build",
-    "build:stable": "node ../scripts/apply-channel-config.mjs --channel stable && node ../scripts/apply-updater-pubkey.mjs && npx tauri build",
-    "build:dev": "node ../scripts/apply-channel-config.mjs --channel dev && node ../scripts/apply-updater-pubkey.mjs && npx tauri build",
-    "setup:release": "node ../scripts/setup-release.mjs",
-    "seed:github": "node ../scripts/seed-github-settings.mjs",
+    "build:stable": "node ../scripts/apply-channel-config.mjs --channel stable && npx tauri build",
+    "build:dev": "node ../scripts/apply-channel-config.mjs --channel dev && npx tauri build",
     "tauri:clean": "cargo sweep --time 30"
   },
   "devDependencies": {

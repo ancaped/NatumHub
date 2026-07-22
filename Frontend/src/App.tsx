@@ -6,6 +6,7 @@ import RestartRequiredView from './modules/geral/acesso/RestartRequiredView';
 import DashboardView from './modules/geral/dashboard/DashboardView';
 import ConfiguracoesView from './modules/geral/configuracoes/ConfiguracoesView';
 import FeedbacksAdminView from './modules/geral/feedbacks/FeedbacksAdminView';
+import MapaArquiteturaView from './modules/geral/mapa/MapaArquiteturaView';
 import AppShell from './modules/geral/components/layout/AppShell';
 
 import ProducaoView from './modules/producao/gerenciamento/ProducaoView';
@@ -24,6 +25,7 @@ import NotasFiscaisView from './modules/compras/notas_fiscais/NotasFiscaisView';
 import ComprasAlmoxarifadoView from './modules/compras/almoxarifado/ComprasAlmoxarifadoView';
 import ActiveProductsView from './modules/administrativo/linha_produtos/ActiveProductsView';
 import ProdutosAtivosRelatoriosView from './modules/administrativo/produtos_ativos_relatorios/ProdutosAtivosRelatoriosView';
+import FuncionariosView from './modules/administrativo/funcionarios/FuncionariosView';
 import VendasView from './modules/vendas/vendas_geral/VendasView';
 import VendasOnlineView from './modules/vendas/vendas_online/VendasOnlineView';
 import ControleQualidadeView from './modules/qualidade/controle/ControleQualidadeView';
@@ -32,6 +34,7 @@ import QualidadeTreinamentosView from './modules/qualidade/treinamentos/Qualidad
 import QualidadeTemperaturaView from './modules/qualidade/temperatura/QualidadeTemperaturaView';
 import QualidadeLimpezaView from './modules/qualidade/limpeza/QualidadeLimpezaView';
 import QualidadeRecebimentoMpView from './modules/qualidade/recebimento_mp/QualidadeRecebimentoMpView';
+import QualidadeDocumentacaoView from './modules/qualidade/documentacao/QualidadeDocumentacaoView';
 import AdministrativoView from './modules/administrativo/AdministrativoView';
 import ExpedicaoView from './modules/expedicao/ExpedicaoView';
 import FinanceiroView from './modules/financeiro/FinanceiroView';
@@ -42,24 +45,24 @@ import {
   Boxes, ShoppingCart, Activity, FlaskConical, ArrowRight, ArrowLeft,
   Settings, Database, Loader2, Globe,
   FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp, Warehouse,
-  Truck, ClipboardCheck, BookOpen, GraduationCap, Thermometer, Sparkles, PackageCheck,
+  Truck, ClipboardCheck, BookOpen, GraduationCap, Thermometer, Sparkles, PackageCheck, FolderOpen,
 } from 'lucide-react';
 import { APP_NAME } from './modules/geral/lib/utils';
 import { localAuth } from './modules/geral/lib/api';
-import { clearAuthSession, getAuthUser, validateSession, fetchSetupStatus, canSeeFeedbacks, type AuthUser } from './modules/geral/lib/auth';
+import { clearAuthSession, getAuthUser, validateSession, fetchSetupStatus, type AuthUser } from './modules/geral/lib/auth';
 import { canAccessView } from './modules/geral/lib/modules/permissions';
 import { apiJson, getSettings, setSettings } from './modules/geral/lib/http';
 
-import { runUpdateCheckFlow } from './modules/geral/lib/updateChannel';
 import {
   isConnectionSetupCompleted,
   syncConfigFromTauri,
   waitForServerHealth,
   resetConnectionSetupForWizard,
   getApiOrigin,
+  ensureBrowserClientConfig,
 } from './modules/geral/lib/connectionConfig';
 
-type HubView = 'hub' | 'producao_hub' | 'producao' | 'producao_bases' | 'producao_lotes' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'compras_almoxarifado' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'qualidade_hub' | 'controle_qualidade' | 'qualidade_pops' | 'qualidade_treinamentos' | 'qualidade_temperatura' | 'qualidade_limpeza' | 'qualidade_recebimento_mp' | 'administrativo' | 'admin_linha_produtos' | 'admin_produtos_ativos_relatorios' | 'expedicao_hub' | 'expedicao_ecommerce' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro';
+type HubView = 'hub' | 'producao_hub' | 'producao' | 'producao_bases' | 'producao_lotes' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'compras_almoxarifado' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'mapa_arquitetura' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'qualidade_hub' | 'controle_qualidade' | 'qualidade_pops' | 'qualidade_treinamentos' | 'qualidade_temperatura' | 'qualidade_limpeza' | 'qualidade_recebimento_mp' | 'qualidade_documentacao' | 'administrativo' | 'admin_linha_produtos' | 'admin_produtos_ativos_relatorios' | 'admin_funcionarios' | 'expedicao_hub' | 'expedicao_ecommerce' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro';
 
 export default function App() {
   const [view, setView] = useState<HubView>('hub');
@@ -158,15 +161,6 @@ export default function App() {
     }
   };
 
-  const checkUpdates = async (user: AuthUser | null) => {
-    if (!user) return;
-    try {
-      await runUpdateCheckFlow(user);
-    } catch (e) {
-      console.error('Erro ao verificar atualizações:', e);
-    }
-  };
-
   useEffect(() => {
     if (!authReady) return;
     if (!currentUser) return;
@@ -219,7 +213,9 @@ export default function App() {
 
     async function initAuth() {
       try {
+        ensureBrowserClientConfig();
         await syncConfigFromTauri();
+        ensureBrowserClientConfig();
         const { repairDevConnectionIfNeeded } = await import('./modules/geral/lib/connectionConfig');
         if (await repairDevConnectionIfNeeded()) {
           if (!cancelled) {
@@ -275,7 +271,6 @@ export default function App() {
           const user = await validateSession();
           if (user) {
             setCurrentUser(user);
-            checkUpdates(user);
           }
         } catch {
           clearAuthSession();
@@ -926,6 +921,14 @@ export default function App() {
       );
     }
 
+    if (view === 'admin_funcionarios') {
+      return (
+        <ErrorBoundary onReset={() => setView('administrativo')} fallbackTitle="Erro no módulo de Funcionários">
+          <FuncionariosView onBackToHub={() => setView('administrativo')} />
+        </ErrorBoundary>
+      );
+    }
+
     if (view === 'vendas') {
       return (
         <ErrorBoundary onReset={() => setView('vendas_hub')} fallbackTitle="Erro no módulo de Vendas">
@@ -986,6 +989,14 @@ export default function App() {
       return (
         <ErrorBoundary onReset={() => setView('qualidade_hub')} fallbackTitle="Erro no módulo Recebimento MP">
           <QualidadeRecebimentoMpView onBackToHub={() => setView('qualidade_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'qualidade_documentacao') {
+      return (
+        <ErrorBoundary onReset={() => setView('qualidade_hub')} fallbackTitle="Erro no módulo Documentação">
+          <QualidadeDocumentacaoView onBackToHub={() => setView('qualidade_hub')} />
         </ErrorBoundary>
       );
     }
@@ -1062,6 +1073,15 @@ export default function App() {
                   <div className="space-y-4">
                     <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><PackageCheck className="h-6 w-6" /></div>
                     <div><h3 className="text-xl font-bold text-zinc-900">Recebimento MP</h3><p className="text-sm text-zinc-500 mt-1">Inspeção de matérias-primas na entrada.</p></div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+              {allow('qualidade_documentacao') && (
+                <button onClick={() => setView('qualidade_documentacao')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><FolderOpen className="h-6 w-6" /></div>
+                    <div><h3 className="text-xl font-bold text-zinc-900">Documentação</h3><p className="text-sm text-zinc-500 mt-1">Documentos da empresa, validade e pagamentos.</p></div>
                   </div>
                   <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar <ArrowRight className="h-4 w-4" /></div>
                 </button>
@@ -1201,6 +1221,14 @@ export default function App() {
       );
     }
 
+    if (view === 'mapa_arquitetura') {
+      return (
+        <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no Mapa operacional">
+          <MapaArquiteturaView onBackToHub={() => setView('hub')} />
+        </ErrorBoundary>
+      );
+    }
+
     return (
       <DashboardView
         view={view}
@@ -1238,7 +1266,7 @@ export default function App() {
           renderContent()
         )}
       </div>
-      <FeedbackWidget currentView={view} visible={canSeeFeedbacks(currentUser)} />
+      <FeedbackWidget currentView={view} visible={!!currentUser} />
     </div>
   );
 }

@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, User, Settings, LogOut, UserCog, ClipboardList, Shield, ArrowLeft } from 'lucide-react';
+import { ChevronDown, Settings, LogOut, UserCog, ClipboardList, Shield, ArrowLeft, Network, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { localAuth } from '../../lib/api';
 import { canAccessView } from '../../lib/modules/permissions';
 import { isSupervisor, canSeeFeedbacks } from '../../lib/auth';
 import type { AuthUser } from '../../lib/auth';
+import { apiJson } from '../../lib/http';
 import Modal from '../ui/Modal';
 import NotificationsPanel from './NotificationsPanel';
 import {
@@ -17,6 +17,40 @@ import {
   type NavSubmodule,
 } from '../../lib/nav/navRegistry';
 import { getModuleTitle } from '../../lib/viewLabels';
+
+interface ProfileForm {
+  fullName: string;
+  cpf: string;
+  phone: string;
+  email: string;
+  birthDate: string;
+  hireDate: string;
+  addressStreet: string;
+  addressNumber: string;
+  addressComplement: string;
+  addressNeighborhood: string;
+  addressCity: string;
+  addressState: string;
+  addressZip: string;
+  notes: string;
+}
+
+const EMPTY_PROFILE: ProfileForm = {
+  fullName: '',
+  cpf: '',
+  phone: '',
+  email: '',
+  birthDate: '',
+  hireDate: '',
+  addressStreet: '',
+  addressNumber: '',
+  addressComplement: '',
+  addressNeighborhood: '',
+  addressCity: '',
+  addressState: '',
+  addressZip: '',
+  notes: '',
+};
 
 interface AppTopBarProps {
   view: string;
@@ -48,7 +82,10 @@ export default function AppTopBar({
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
-  const [editName, setEditName] = useState(currentUser?.displayName || '');
+  const [profileForm, setProfileForm] = useState<ProfileForm>(EMPTY_PROFILE);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const barRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
@@ -141,18 +178,56 @@ export default function AppTopBar({
     };
   }, [menuAnchor?.groupKey]);
 
+  const openProfileModal = async () => {
+    setDropdownOpen(false);
+    setProfileModalOpen(true);
+    setProfileError(null);
+    setProfileLoading(true);
+    try {
+      const raw = await apiJson<Record<string, unknown>>('/administrativo/funcionarios/me');
+      setProfileForm({
+        fullName: String(raw.fullName ?? ''),
+        cpf: String(raw.cpf ?? ''),
+        phone: String(raw.phone ?? ''),
+        email: String(raw.email ?? ''),
+        birthDate: String(raw.birthDate ?? ''),
+        hireDate: String(raw.hireDate ?? ''),
+        addressStreet: String(raw.addressStreet ?? ''),
+        addressNumber: String(raw.addressNumber ?? ''),
+        addressComplement: String(raw.addressComplement ?? ''),
+        addressNeighborhood: String(raw.addressNeighborhood ?? ''),
+        addressCity: String(raw.addressCity ?? ''),
+        addressState: String(raw.addressState ?? ''),
+        addressZip: String(raw.addressZip ?? ''),
+        notes: String(raw.notes ?? ''),
+      });
+    } catch (e: unknown) {
+      setProfileForm(EMPTY_PROFILE);
+      setProfileError(e instanceof Error ? e.message : 'Falha ao carregar perfil');
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editName.trim()) {
-      try {
-        const user = await localAuth.signIn(editName.trim());
-        setEditName(user.displayName);
-        setProfileModalOpen(false);
-        window.location.reload();
-      } catch {
-        // erro exibido via reload ou toast futuro
-      }
+    setProfileSaving(true);
+    setProfileError(null);
+    try {
+      await apiJson('/administrativo/funcionarios/me', {
+        method: 'PUT',
+        body: JSON.stringify(profileForm),
+      });
+      setProfileModalOpen(false);
+    } catch (err: unknown) {
+      setProfileError(err instanceof Error ? err.message : 'Erro ao salvar perfil');
+    } finally {
+      setProfileSaving(false);
     }
+  };
+
+  const setPF = (key: keyof ProfileForm, value: string) => {
+    setProfileForm((prev) => ({ ...prev, [key]: value }));
   };
 
   const navigateTo = (target: string) => {
@@ -345,11 +420,8 @@ export default function AppTopBar({
 
                   <div className="p-1 space-y-0.5">
                     <button
-                      onClick={() => {
-                        setDropdownOpen(false);
-                        setEditName(currentUser.displayName);
-                        setProfileModalOpen(true);
-                      }}
+                      type="button"
+                      onClick={() => void openProfileModal()}
                       className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left"
                     >
                       <UserCog className="h-4 w-4 text-zinc-400" />
@@ -366,6 +438,19 @@ export default function AppTopBar({
                       >
                         <ClipboardList className="h-4 w-4 text-zinc-400" />
                         Gestão de Feedbacks
+                      </button>
+                    )}
+
+                    {isSupervisor(currentUser) && (
+                      <button
+                        onClick={() => {
+                          setDropdownOpen(false);
+                          setView('mapa_arquitetura');
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left"
+                      >
+                        <Network className="h-4 w-4 text-zinc-400" />
+                        Mapa operacional
                       </button>
                     )}
 
@@ -421,29 +506,93 @@ export default function AppTopBar({
 
       {profileModalOpen && (
         <Modal title="Dados do Perfil" onClose={() => setProfileModalOpen(false)}>
-          <form onSubmit={handleSaveProfile} className="space-y-4">
-            <div className="space-y-2">
-              <label
-                htmlFor="profile-name"
-                className="text-xs font-bold text-zinc-500 uppercase tracking-wider"
-              >
-                Nome do Operador
-              </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-400">
-                  <User className="h-4 w-4" />
-                </span>
-                <input
-                  id="profile-name"
-                  type="text"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  placeholder="Nome do operador..."
-                  className="w-full bg-white border border-zinc-300 rounded-xl pl-10 pr-4 py-3 text-sm font-semibold text-zinc-800 shadow-sm focus:outline-none focus:border-zinc-500"
-                  autoFocus
-                />
-              </div>
+          <form onSubmit={handleSaveProfile} className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+            <div className="rounded-xl bg-zinc-50 border border-zinc-100 px-3 py-2 text-xs text-zinc-600">
+              Login: <strong>{currentUser?.displayName}</strong>
+              {currentUser?.role ? ` · ${currentUser.role}` : ''}
             </div>
+
+            {profileError && (
+              <p className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">
+                {profileError}
+              </p>
+            )}
+
+            {profileLoading ? (
+              <div className="flex items-center gap-2 text-sm text-zinc-500 py-6">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Carregando perfil…
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <label className="col-span-2 space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Nome completo</span>
+                  <input
+                    value={profileForm.fullName}
+                    onChange={(e) => setPF('fullName', e.target.value)}
+                    className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm"
+                    autoFocus
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">CPF</span>
+                  <input value={profileForm.cpf} onChange={(e) => setPF('cpf', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Telefone</span>
+                  <input value={profileForm.phone} onChange={(e) => setPF('phone', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="col-span-2 space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">E-mail</span>
+                  <input type="email" value={profileForm.email} onChange={(e) => setPF('email', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Nascimento</span>
+                  <input type="date" value={profileForm.birthDate} onChange={(e) => setPF('birthDate', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Admissão</span>
+                  <input type="date" value={profileForm.hireDate} onChange={(e) => setPF('hireDate', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="col-span-2 space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Rua</span>
+                  <input value={profileForm.addressStreet} onChange={(e) => setPF('addressStreet', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Número</span>
+                  <input value={profileForm.addressNumber} onChange={(e) => setPF('addressNumber', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Complemento</span>
+                  <input value={profileForm.addressComplement} onChange={(e) => setPF('addressComplement', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Bairro</span>
+                  <input value={profileForm.addressNeighborhood} onChange={(e) => setPF('addressNeighborhood', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Cidade</span>
+                  <input value={profileForm.addressCity} onChange={(e) => setPF('addressCity', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">UF</span>
+                  <input value={profileForm.addressState} onChange={(e) => setPF('addressState', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">CEP</span>
+                  <input value={profileForm.addressZip} onChange={(e) => setPF('addressZip', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="col-span-2 space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Observações</span>
+                  <textarea
+                    value={profileForm.notes}
+                    onChange={(e) => setPF('notes', e.target.value)}
+                    rows={2}
+                    className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm"
+                  />
+                </label>
+              </div>
+            )}
 
             <div className="flex justify-end gap-2 pt-2 border-t border-zinc-100">
               <button
@@ -455,9 +604,11 @@ export default function AppTopBar({
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 cursor-pointer"
+                disabled={profileLoading || profileSaving}
+                className="px-4 py-2 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 cursor-pointer disabled:opacity-50 inline-flex items-center gap-2"
               >
-                Salvar Alterações
+                {profileSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Salvar Perfil
               </button>
             </div>
           </form>

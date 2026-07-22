@@ -668,56 +668,61 @@ pub async fn get_auto_ignored_ingredients_query(
 }
 
 // Tauri stubs — use REST hub API
-use tauri::State;
-use crate::DbState;
+#[cfg(feature = "desktop")]
+#[allow(dead_code)]
+mod _tauri_stubs {
+    use super::*;
+    use tauri::State;
+    use crate::DbState;
 
-#[tauri::command]
-pub fn get_compras_config(_state: State<DbState>, _key: Option<String>) -> Result<Option<serde_json::Value>, String> {
-    Err("Use a API REST (/api/hub/compras/config)".into())
-}
+    #[tauri::command]
+    pub fn get_compras_config(_state: State<DbState>, _key: Option<String>) -> Result<Option<serde_json::Value>, String> {
+        Err("Use a API REST (/api/hub/compras/config)".into())
+    }
 
-#[tauri::command]
-pub fn save_compras_config(
-    _state: State<DbState>,
-    _config: serde_json::Value,
-    _key: Option<String>,
-) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/compras/config)".into())
-}
+    #[tauri::command]
+    pub fn save_compras_config(
+        _state: State<DbState>,
+        _config: serde_json::Value,
+        _key: Option<String>,
+    ) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/compras/config)".into())
+    }
 
-#[tauri::command]
-pub fn import_stock(
-    _state: State<DbState>,
-    _rows: Vec<serde_json::Value>,
-    _filename: String,
-) -> Result<ImportResult, String> {
-    Err("Use a API REST (/api/hub/compras/imports/stock)".into())
-}
+    #[tauri::command]
+    pub fn import_stock(
+        _state: State<DbState>,
+        _rows: Vec<serde_json::Value>,
+        _filename: String,
+    ) -> Result<ImportResult, String> {
+        Err("Use a API REST (/api/hub/compras/imports/stock)".into())
+    }
 
-#[tauri::command]
-pub fn import_consumption(
-    _state: State<DbState>,
-    _rows: Vec<serde_json::Value>,
-    _filename: String,
-) -> Result<ImportResult, String> {
-    Err("Use a API REST (/api/hub/compras/imports/consumption)".into())
-}
+    #[tauri::command]
+    pub fn import_consumption(
+        _state: State<DbState>,
+        _rows: Vec<serde_json::Value>,
+        _filename: String,
+    ) -> Result<ImportResult, String> {
+        Err("Use a API REST (/api/hub/compras/imports/consumption)".into())
+    }
 
-#[tauri::command]
-pub fn import_invoices(
-    _state: State<DbState>,
-    _rows: Vec<serde_json::Value>,
-    _filename: String,
-) -> Result<ImportResult, String> {
-    Err("Use a API REST (/api/hub/compras/imports/invoices)".into())
-}
+    #[tauri::command]
+    pub fn import_invoices(
+        _state: State<DbState>,
+        _rows: Vec<serde_json::Value>,
+        _filename: String,
+    ) -> Result<ImportResult, String> {
+        Err("Use a API REST (/api/hub/compras/imports/invoices)".into())
+    }
 
-#[tauri::command]
-pub fn get_import_history(_state: State<DbState>) -> Result<Vec<StockImport>, String> {
-    Err("Use a API REST (/api/hub/compras/imports/history)".into())
-}
+    #[tauri::command]
+    pub fn get_import_history(_state: State<DbState>) -> Result<Vec<StockImport>, String> {
+        Err("Use a API REST (/api/hub/compras/imports/history)".into())
+    }
 
-#[tauri::command]
-pub fn get_nf_import_control(_state: State<DbState>) -> Result<Option<serde_json::Value>, String> {
-    Err("Use a API REST (/api/hub/compras/imports/nf-control)".into())
+    #[tauri::command]
+    pub fn get_nf_import_control(_state: State<DbState>) -> Result<Option<serde_json::Value>, String> {
+        Err("Use a API REST (/api/hub/compras/imports/nf-control)".into())
+    }
 }

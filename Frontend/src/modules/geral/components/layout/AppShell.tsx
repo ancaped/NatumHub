@@ -27,7 +27,7 @@ function HubWelcome() {
   );
 }
 
-const ADMIN_VIEWS = new Set(['hub_settings', 'hub_supervisor', 'hub_feedbacks']);
+const ADMIN_VIEWS = new Set(['hub_settings', 'hub_supervisor', 'hub_feedbacks', 'mapa_arquitetura']);
 
 export default function AppShell({
   view,

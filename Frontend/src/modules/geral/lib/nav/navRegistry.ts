@@ -10,6 +10,7 @@ import {
   Cog,
   DollarSign,
   FileText,
+  FolderOpen,
   FlaskConical,
   Globe,
   GraduationCap,
@@ -26,6 +27,7 @@ import {
   Thermometer,
   TrendingUp,
   Truck,
+  Users,
   Wrench,
   Warehouse,
   Calculator,
@@ -94,6 +96,7 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   compras_almoxarifado: Warehouse,
   admin_linha_produtos: CheckCircle2,
   admin_produtos_ativos_relatorios: FileSpreadsheet,
+  admin_funcionarios: Users,
   estoque_ativos: CheckCircle2,
   vendas: TrendingUp,
   vendas_online: ShoppingBag,
@@ -103,6 +106,7 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   qualidade_temperatura: Thermometer,
   qualidade_limpeza: Sparkles,
   qualidade_recebimento_mp: PackageCheck,
+  qualidade_documentacao: FolderOpen,
   administrativo: Briefcase,
   expedicao_ecommerce: Globe,
   expedicao: Truck,
@@ -182,7 +186,8 @@ export function shouldShowNavColumn(view: string): boolean {
     view === 'hub' ||
     view === 'hub_settings' ||
     view === 'hub_supervisor' ||
-    view === 'hub_feedbacks'
+    view === 'hub_feedbacks' ||
+    view === 'mapa_arquitetura'
   ) {
     return false;
   }

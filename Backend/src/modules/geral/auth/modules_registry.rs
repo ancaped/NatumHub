@@ -19,6 +19,7 @@ pub const MODULE_ESTOQUE_MANUTENCOES: &str = "estoque_manutencoes";
 pub const MODULE_ESTOQUE_ATIVOS: &str = "estoque_ativos";
 pub const MODULE_ADMIN_LINHA_PRODUTOS: &str = "admin_linha_produtos";
 pub const MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS: &str = "admin_produtos_ativos_relatorios";
+pub const MODULE_ADMIN_FUNCIONARIOS: &str = "admin_funcionarios";
 
 pub const MODULE_PRODUCAO: &str = "producao";
 pub const MODULE_PRODUCAO_BASES: &str = "producao_bases";
@@ -48,6 +49,7 @@ pub const MODULE_QUALIDADE_TREINAMENTOS: &str = "qualidade_treinamentos";
 pub const MODULE_QUALIDADE_TEMPERATURA: &str = "qualidade_temperatura";
 pub const MODULE_QUALIDADE_LIMPEZA: &str = "qualidade_limpeza";
 pub const MODULE_QUALIDADE_RECEBIMENTO_MP: &str = "qualidade_recebimento_mp";
+pub const MODULE_QUALIDADE_DOCUMENTACAO: &str = "qualidade_documentacao";
 /// Placeholder legado — hub Administrativo usa filhos (`admin_linha_produtos`, …).
 pub const MODULE_ADMINISTRATIVO: &str = "administrativo";
 /// Legado — use [`MODULE_EXPEDICAO_ECOMMERCE`].
@@ -74,6 +76,7 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_ESTOQUE_MANUTENCOES,
     MODULE_ADMIN_LINHA_PRODUTOS,
     MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS,
+    MODULE_ADMIN_FUNCIONARIOS,
     MODULE_PRODUCAO,
     MODULE_PRODUCAO_BASES,
     MODULE_PRODUCAO_LOTES,
@@ -98,6 +101,7 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_QUALIDADE_TEMPERATURA,
     MODULE_QUALIDADE_LIMPEZA,
     MODULE_QUALIDADE_RECEBIMENTO_MP,
+    MODULE_QUALIDADE_DOCUMENTACAO,
     MODULE_ADMINISTRATIVO,
     MODULE_EXPEDICAO,
     MODULE_EXPEDICAO_ECOMMERCE,
@@ -199,6 +203,7 @@ pub fn module_registry() -> Vec<ModuleGroup> {
                 leaf(MODULE_QUALIDADE_TEMPERATURA, "Temperatura"),
                 leaf(MODULE_QUALIDADE_LIMPEZA, "Limpeza"),
                 leaf(MODULE_QUALIDADE_RECEBIMENTO_MP, "Recebimento MP"),
+                leaf(MODULE_QUALIDADE_DOCUMENTACAO, "Documentação"),
             ],
         },
         ModuleGroup {
@@ -211,6 +216,7 @@ pub fn module_registry() -> Vec<ModuleGroup> {
                     MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS,
                     "Relatórios · Produtos Ativos",
                 ),
+                leaf(MODULE_ADMIN_FUNCIONARIOS, "Funcionários"),
             ],
         },
         ModuleGroup {
@@ -303,6 +309,7 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
             MODULE_QUALIDADE_TEMPERATURA,
             MODULE_QUALIDADE_LIMPEZA,
             MODULE_QUALIDADE_RECEBIMENTO_MP,
+            MODULE_QUALIDADE_DOCUMENTACAO,
         ]
         .into_iter()
         .map(String::from)
@@ -310,6 +317,7 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
         "administrativo" => vec![
             MODULE_ADMIN_LINHA_PRODUTOS.to_string(),
             MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS.to_string(),
+            MODULE_ADMIN_FUNCIONARIOS.to_string(),
         ],
         "expedicao" => vec![MODULE_EXPEDICAO_ECOMMERCE.to_string()],
         _ => vec![],

@@ -21,10 +21,73 @@ pub fn resolve_repo_root() -> Option<PathBuf> {
     None
 }
 
+/// Pasta do SPA buildado (`Frontend/dist`) para o Axum servir no navegador.
+/// Override: `NATUMHUB_FRONTEND_DIST` (caminho absoluto ou relativo com `index.html`).
+pub fn frontend_dist_dir() -> Option<PathBuf> {
+    if let Ok(override_path) = std::env::var("NATUMHUB_FRONTEND_DIST") {
+        let dist = PathBuf::from(override_path);
+        if dist.join("index.html").is_file() {
+            return Some(dist);
+        }
+        eprintln!(
+            "NATUMHUB_FRONTEND_DIST={} sem index.html — ignorado.",
+            dist.display()
+        );
+    }
+    if let Some(root) = resolve_repo_root() {
+        let dist = root.join("Frontend").join("dist");
+        if dist.join("index.html").is_file() {
+            return Some(dist);
+        }
+    }
+    if let Some(data) = data_dir_from_env() {
+        let dist = data.join("frontend-dist");
+        if dist.join("index.html").is_file() {
+            return Some(dist);
+        }
+    }
+    for candidate in [
+        PathBuf::from("../Frontend/dist"),
+        PathBuf::from("Frontend/dist"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../Frontend/dist"),
+    ] {
+        if candidate.join("index.html").is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// `NATUMHUB_DATA_DIR` — raiz de dados do servidor (conterá `Saves/` ou será usada como Saves).
+fn data_dir_from_env() -> Option<PathBuf> {
+    std::env::var_os("NATUMHUB_DATA_DIR").map(PathBuf::from)
+}
+
 /// Pasta Saves — caminho absoluto.
+/// - Override: `NATUMHUB_DATA_DIR` (usa direto ou `…/Saves` se existir)
 /// - Dev/repo: `<repo>/Saves`
-/// - Instalado: `%LOCALAPPDATA%/NatumHub/Saves` (gravável; não usa Program Files)
+/// - Instalado Win: `%LOCALAPPDATA%/NatumHub/Saves`
+/// - Linux/serviço: `$XDG_DATA_HOME/natumhub/Saves` ou `~/.local/share/natumhub/Saves`
 pub fn saves_dir() -> PathBuf {
+    if let Some(data) = data_dir_from_env() {
+        let dir = if data.join("Saves").is_dir() || data.file_name().and_then(|n| n.to_str()) == Some("Saves")
+        {
+            if data.file_name().and_then(|n| n.to_str()) == Some("Saves") {
+                data
+            } else {
+                data.join("Saves")
+            }
+        } else if data.join("postgres.env").is_file() || data.join("client_config.json").is_file() {
+            data
+        } else {
+            let saves = data.join("Saves");
+            let _ = fs::create_dir_all(&saves);
+            saves
+        };
+        let _ = fs::create_dir_all(&dir);
+        return dir;
+    }
+
     if let Some(root) = resolve_repo_root() {
         return root.join("Saves");
     }
@@ -43,6 +106,22 @@ pub fn saves_dir() -> PathBuf {
         let _ = fs::create_dir_all(&dir);
         // Mesmo PC de desenvolvimento: se ainda não há env, tenta copiar do repo conhecido.
         bootstrap_postgres_env_from_dev_repo(&dir);
+        return dir;
+    }
+
+    // Linux / headless sem LOCALAPPDATA
+    if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
+        let dir = PathBuf::from(xdg).join("natumhub").join("Saves");
+        let _ = fs::create_dir_all(&dir);
+        return dir;
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        let dir = PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("natumhub")
+            .join("Saves");
+        let _ = fs::create_dir_all(&dir);
         return dir;
     }
 

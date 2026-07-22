@@ -999,14 +999,19 @@ pub async fn get_demands_query(
     Ok(results)
 }
 
-use tauri::State;
-use crate::DbState;
+#[cfg(feature = "desktop")]
+#[allow(dead_code)]
+mod _tauri_stubs {
+    use super::*;
+    use tauri::State;
+    use crate::DbState;
 
-#[tauri::command]
-pub fn get_demands(
-    _state: State<DbState>,
-    _category_id: Option<String>,
-    _target_days: i32,
-) -> Result<Vec<DemandResult>, String> {
-    Err("Use a API REST (/api/hub/compras/demands)".into())
+    #[tauri::command]
+    pub fn get_demands(
+        _state: State<DbState>,
+        _category_id: Option<String>,
+        _target_days: i32,
+    ) -> Result<Vec<DemandResult>, String> {
+        Err("Use a API REST (/api/hub/compras/demands)".into())
+    }
 }

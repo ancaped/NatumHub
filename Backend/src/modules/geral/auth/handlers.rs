@@ -128,6 +128,7 @@ pub async fn list_operators_manage(State(state): State<Arc<AppState>>) -> impl I
 
 pub async fn create_operator(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Json(body): Json<SaveOperatorRequest>,
 ) -> impl IntoResponse {
     let pool = state.db.pool();
@@ -150,7 +151,21 @@ pub async fn create_operator(
     )
     .await
     {
-        Ok(op) => (StatusCode::CREATED, Json(op)).into_response(),
+        Ok(op) => {
+            crate::modules::geral::audit::record_domain(
+                pool,
+                Some(&ctx),
+                "hub_operadores",
+                "create",
+                "operator",
+                &op.id,
+                &format!("Operador criado: {}", op.display_name),
+                None,
+                Some(json!({ "id": op.id, "displayName": op.display_name, "role": op.role })),
+            )
+            .await;
+            (StatusCode::CREATED, Json(op)).into_response()
+        }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
     }
 }
@@ -194,7 +209,26 @@ pub async fn update_operator(
     )
     .await
     {
-        Ok(op) => (StatusCode::OK, Json(op)).into_response(),
+        Ok(op) => {
+            crate::modules::geral::audit::record_domain(
+                pool,
+                Some(&ctx),
+                "hub_operadores",
+                "update",
+                "operator",
+                &op.id,
+                &format!("Operador atualizado: {}", op.display_name),
+                None,
+                Some(json!({
+                    "id": op.id,
+                    "displayName": op.display_name,
+                    "role": op.role,
+                    "active": op.active
+                })),
+            )
+            .await;
+            (StatusCode::OK, Json(op)).into_response()
+        }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
     }
 }
@@ -222,7 +256,21 @@ pub async fn delete_operator(
     }
 
     match store::delete_operator(pool, &id, &ctx.operator_id).await {
-        Ok(()) => (StatusCode::OK, Json(json!({ "status": "success" }))).into_response(),
+        Ok(()) => {
+            crate::modules::geral::audit::record_domain(
+                pool,
+                Some(&ctx),
+                "hub_operadores",
+                "delete",
+                "operator",
+                &id,
+                &format!("Operador excluído: {id}"),
+                None,
+                None,
+            )
+            .await;
+            (StatusCode::OK, Json(json!({ "status": "success" }))).into_response()
+        }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
     }
 }

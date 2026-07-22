@@ -15,8 +15,13 @@
         "title": "Natum Hub",
         "width": 1280,
         "height": 850,
+        "minWidth": 900,
+        "minHeight": 600,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "center": true,
+        "visible": true,
+        "focus": true
       }
     ],
     "security": {
@@ -26,7 +31,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -34,13 +39,5 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
-  },
-  "plugins": {
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU3RjdCNTNBOTY3QUQ1OTYKUldTVzFYcVdPclgzNTBjSjQyL1U2aU5ROUpxdVdZSDE4VjVpTzZvNUpkWW41ZG5XdEtVTGV3S2cK",
-      "endpoints": [
-        "http://127.0.0.1:3001/api/hub/updater-manifest/stable"
-      ]
-    }
   }
 }

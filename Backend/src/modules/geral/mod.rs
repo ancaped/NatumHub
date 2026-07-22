@@ -3,10 +3,12 @@ pub mod feedbacks;
 pub mod acesso;
 pub mod hub;
 pub mod auth;
+pub mod audit;
+pub mod mapa;
 pub mod notifications;
 pub mod postgres_bootstrap;
-pub mod releases;
-pub mod updater;
+#[cfg(feature = "desktop")]
+pub mod build_info;
 
 pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
     axum::Router::new()
@@ -25,6 +27,7 @@ pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
         .route("/api/auth/session", axum::routing::get(acesso::get_session).post(acesso::save_session).delete(acesso::clear_session))
         .merge(hub::router())
         .merge(auth::router())
-        .merge(releases::router())
+        .merge(audit::router())
+        .merge(mapa::router())
         .merge(notifications::router())
 }

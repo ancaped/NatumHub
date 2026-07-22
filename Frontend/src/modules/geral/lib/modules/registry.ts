@@ -32,6 +32,7 @@ export const MODULE_KEYS = {
   ESTOQUE_ATIVOS: 'estoque_ativos',
   ADMIN_LINHA_PRODUTOS: 'admin_linha_produtos',
   ADMIN_PRODUTOS_ATIVOS_RELATORIOS: 'admin_produtos_ativos_relatorios',
+  ADMIN_FUNCIONARIOS: 'admin_funcionarios',
   PRODUCAO: 'producao',
   PRODUCAO_BASES: 'producao_bases',
   PRODUCAO_LOTES: 'producao_lotes',
@@ -58,6 +59,7 @@ export const MODULE_KEYS = {
   QUALIDADE_TEMPERATURA: 'qualidade_temperatura',
   QUALIDADE_LIMPEZA: 'qualidade_limpeza',
   QUALIDADE_RECEBIMENTO_MP: 'qualidade_recebimento_mp',
+  QUALIDADE_DOCUMENTACAO: 'qualidade_documentacao',
   ADMINISTRATIVO: 'administrativo',
   /** @deprecated alias — use EXPEDICAO_ECOMMERCE */
   EXPEDICAO: 'expedicao',
@@ -162,6 +164,7 @@ export function moduleRegistry(): ModuleGroup[] {
         { key: MODULE_KEYS.QUALIDADE_TEMPERATURA, label: 'Temperatura' },
         { key: MODULE_KEYS.QUALIDADE_LIMPEZA, label: 'Limpeza' },
         { key: MODULE_KEYS.QUALIDADE_RECEBIMENTO_MP, label: 'Recebimento MP' },
+        { key: MODULE_KEYS.QUALIDADE_DOCUMENTACAO, label: 'Documentação' },
       ],
     },
     {
@@ -174,6 +177,7 @@ export function moduleRegistry(): ModuleGroup[] {
           key: MODULE_KEYS.ADMIN_PRODUTOS_ATIVOS_RELATORIOS,
           label: 'Relatórios · Produtos Ativos',
         },
+        { key: MODULE_KEYS.ADMIN_FUNCIONARIOS, label: 'Funcionários' },
       ],
     },
     {
@@ -257,11 +261,13 @@ export function defaultModulesForRole(role: string): string[] {
         MODULE_KEYS.QUALIDADE_TEMPERATURA,
         MODULE_KEYS.QUALIDADE_LIMPEZA,
         MODULE_KEYS.QUALIDADE_RECEBIMENTO_MP,
+        MODULE_KEYS.QUALIDADE_DOCUMENTACAO,
       ];
     case 'administrativo':
       return [
         MODULE_KEYS.ADMIN_LINHA_PRODUTOS,
         MODULE_KEYS.ADMIN_PRODUTOS_ATIVOS_RELATORIOS,
+        MODULE_KEYS.ADMIN_FUNCIONARIOS,
       ];
     case 'expedicao':
       return [MODULE_KEYS.EXPEDICAO_ECOMMERCE];

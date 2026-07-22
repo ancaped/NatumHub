@@ -26,7 +26,7 @@ function hubVisible(modules: string[], hubView: string): boolean {
 
 export function canAccessView(user: AuthUser | null, view: string): boolean {
   if (!user) return view === 'hub_settings';
-  if (view === 'hub_supervisor') return isSupervisor(user);
+  if (view === 'hub_supervisor' || view === 'mapa_arquitetura') return isSupervisor(user);
   if (isSupervisor(user)) return true;
   if (view === 'hub') return true;
 

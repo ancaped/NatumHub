@@ -78,8 +78,24 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
         include_str!("../../../../supabase/015_reembalagem_packaging.sql"),
     ),
     (
-        "016_produtos_codigo_barras.sql",
-        include_str!("../../../../supabase/016_produtos_codigo_barras.sql"),
+        "016_qualidade_documentacao.sql",
+        include_str!("../../../../supabase/016_qualidade_documentacao.sql"),
+    ),
+    (
+        "017_hub_audit_events.sql",
+        include_str!("../../../../supabase/017_hub_audit_events.sql"),
+    ),
+    (
+        "018_mapa_hub.sql",
+        include_str!("../../../../supabase/018_mapa_hub.sql"),
+    ),
+    (
+        "019_hub_operator_profiles.sql",
+        include_str!("../../../../supabase/019_hub_operator_profiles.sql"),
+    ),
+    (
+        "020_produtos_codigo_barras.sql",
+        include_str!("../../../../supabase/020_produtos_codigo_barras.sql"),
     ),
 ];
 
@@ -541,6 +557,7 @@ pub fn bootstrap_local_postgres() -> Result<BootstrapPostgresResult, String> {
     })
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub fn hub_bootstrap_local_postgres() -> Result<BootstrapPostgresResult, String> {
     std::thread::Builder::new()

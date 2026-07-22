@@ -67,20 +67,25 @@ pub async fn delete_category_query(pool: PgPool, id: &str) -> Result<(), String>
 }
 
 // Tauri stubs — use REST hub API
-use tauri::State;
-use crate::DbState;
+#[cfg(feature = "desktop")]
+#[allow(dead_code)]
+mod _tauri_stubs {
+    use super::*;
+    use tauri::State;
+    use crate::DbState;
 
-#[tauri::command]
-pub fn get_categories(_state: State<DbState>) -> Result<Vec<Category>, String> {
-    Err("Use a API REST (/api/hub/compras/categories)".into())
-}
+    #[tauri::command]
+    pub fn get_categories(_state: State<DbState>) -> Result<Vec<Category>, String> {
+        Err("Use a API REST (/api/hub/compras/categories)".into())
+    }
 
-#[tauri::command]
-pub fn save_category(_state: State<DbState>, _category: Category) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/compras/categories)".into())
-}
+    #[tauri::command]
+    pub fn save_category(_state: State<DbState>, _category: Category) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/compras/categories)".into())
+    }
 
-#[tauri::command]
-pub fn delete_category(_state: State<DbState>, _id: String) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/compras/categories/:id)".into())
+    #[tauri::command]
+    pub fn delete_category(_state: State<DbState>, _id: String) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/compras/categories/:id)".into())
+    }
 }
