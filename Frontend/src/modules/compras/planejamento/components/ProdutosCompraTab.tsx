@@ -8,7 +8,7 @@ import {
 import { cn } from '../../../geral/lib/utils';
 import { api } from '../../../geral/lib/api';
 import type { DemandResult } from '../../../geral/lib/types';
-
+import { getAuthUser, isSupervisor } from '../../../geral/lib/auth';
 
 interface ProductRow {
   codigo: string;
@@ -95,6 +95,7 @@ interface ProdutosCompraTabProps {
 }
 
 export function ProdutosCompraTab({ statusFilter, title, active = false, initialCategoryFilter = null }: ProdutosCompraTabProps) {
+  const canConfig = isSupervisor(getAuthUser());
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -184,6 +185,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
   };
 
   const handleSaveTriggerDays = async (val: number) => {
+    if (!canConfig) return;
     setTriggerDaysInput(val);
     try {
       const existing = customConfigs.find(c => c.level === 'subcategoria' && c.targetId === activeCategoryId);
@@ -206,6 +208,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
   };
 
   const handleSaveTargetDays = async (val: number) => {
+    if (!canConfig) return;
     setTargetDaysInput(val);
     try {
       const existing = customConfigs.find(c => c.level === 'subcategoria' && c.targetId === activeCategoryId);
@@ -252,6 +255,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
   };
 
   const handleSaveItemConfig = async (updated: any) => {
+    if (!canConfig) return;
     setItemConfig(updated);
     try {
       await api.saveCustomPurchaseConfig(updated);
@@ -1037,6 +1041,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
               <input 
                 type="number" 
                 value={tempTriggerDays} 
+                disabled={!canConfig}
                 onChange={e => setTempTriggerDays(e.target.value)} 
                 onBlur={() => handleSaveTriggerDays(Number(tempTriggerDays) || 0)}
                 onKeyDown={e => {
@@ -1045,7 +1050,8 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                     (e.target as HTMLInputElement).blur();
                   }
                 }}
-                className="w-12 text-xs border border-zinc-300 rounded-md px-2 py-1.5 focus:ring-1 focus:ring-zinc-900 focus:outline-none shadow-sm text-center font-bold" 
+                title={canConfig ? undefined : 'Apenas supervisor pode alterar Disp./Obj.'}
+                className="w-12 text-xs border border-zinc-300 rounded-md px-2 py-1.5 focus:ring-1 focus:ring-zinc-900 focus:outline-none shadow-sm text-center font-bold disabled:bg-zinc-100 disabled:text-zinc-500 disabled:cursor-not-allowed" 
               />
               <span className="text-[10px] text-zinc-400 font-bold uppercase">dias</span>
             </div>
@@ -1054,6 +1060,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
               <input 
                 type="number" 
                 value={tempTargetDays} 
+                disabled={!canConfig}
                 onChange={e => setTempTargetDays(e.target.value)} 
                 onBlur={() => handleSaveTargetDays(Number(tempTargetDays) || 0)}
                 onKeyDown={e => {
@@ -1062,7 +1069,8 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                     (e.target as HTMLInputElement).blur();
                   }
                 }}
-                className="w-12 text-xs border border-zinc-300 rounded-md px-2 py-1.5 focus:ring-1 focus:ring-zinc-900 focus:outline-none shadow-sm text-center font-bold" 
+                title={canConfig ? undefined : 'Apenas supervisor pode alterar Disp./Obj.'}
+                className="w-12 text-xs border border-zinc-300 rounded-md px-2 py-1.5 focus:ring-1 focus:ring-zinc-900 focus:outline-none shadow-sm text-center font-bold disabled:bg-zinc-100 disabled:text-zinc-500 disabled:cursor-not-allowed" 
               />
               <span className="text-[10px] text-zinc-400 font-bold uppercase">dias</span>
             </div>
@@ -1860,7 +1868,10 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                       </div>
                       <select
                         value={selectedProduct.categoria_produto || ''}
+                        disabled={!canConfig}
+                        title={canConfig ? undefined : 'Apenas supervisor pode alterar categoria'}
                         onChange={async (e) => {
+                          if (!canConfig) return;
                           const newCatId = e.target.value;
                           try {
                             const res = await apiFetch(`/overrides`, {
@@ -1888,7 +1899,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                             console.error(ex);
                           }
                         }}
-                        className="text-xs border border-zinc-300 rounded-md px-2 py-1.5 bg-white w-full focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                        className="text-xs border border-zinc-300 rounded-md px-2 py-1.5 bg-white w-full focus:ring-1 focus:ring-zinc-900 focus:outline-none disabled:bg-zinc-100 disabled:text-zinc-500 disabled:cursor-not-allowed"
                       >
                         <option value="">Sem Categoria</option>
                         {categories
@@ -1904,8 +1915,13 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
 
                     {/* Reordenação Customizada */}
                     {itemConfig && (
-                      <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-4">
+                      <div className={cn("bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-4", !canConfig && "opacity-70 pointer-events-none")}>
                         <h5 className="text-xs font-bold text-zinc-800">Regras de Reposição Personalizadas</h5>
+                        {!canConfig && (
+                          <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1">
+                            Apenas supervisor pode alterar Disp./Obj. e regras do item.
+                          </p>
+                        )}
                         
                         {/* Ponto de Disparo (Start Compra) */}
                         <div className="space-y-2">

@@ -38,7 +38,7 @@ export default function SetupConnectionView({ onComplete, reason }: SetupConnect
   const [deviceLabel, setDeviceLabel] = useState(() => existing.deviceLabel || '');
   const [masterOrigin, setMasterOrigin] = useState(() => {
     if (existing.appMode === 'client' && existing.apiOrigin) return existing.apiOrigin;
-    return `http://127.0.0.1:${DEFAULT_API_PORT}`;
+    return `http://natumhub.local:${DEFAULT_API_PORT}`;
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +102,7 @@ export default function SetupConnectionView({ onComplete, reason }: SetupConnect
     if (role === 'terminal') {
       const origin = masterOrigin.trim().replace(/\/$/, '');
       if (!origin.startsWith('http://') && !origin.startsWith('https://')) {
-        setError('Informe a URL do PC Principal (ex.: http://100.x.x.x:3001).');
+        setError('Informe a URL do PC Principal (ex.: http://natumhub.local:3001).');
         return;
       }
       setTesting(true);
@@ -180,7 +180,7 @@ export default function SetupConnectionView({ onComplete, reason }: SetupConnect
             <Laptop className="h-5 w-5" />
             <span className="text-xs font-extrabold uppercase tracking-wide">Terminal</span>
             <span className={`text-[11px] leading-snug ${role === 'terminal' ? 'text-zinc-300' : 'text-zinc-500'}`}>
-              Só o app; conecta na API do master
+              Navegador em http://natumhub.local:3001 (sem instalador)
             </span>
           </button>
         </div>
@@ -208,12 +208,12 @@ export default function SetupConnectionView({ onComplete, reason }: SetupConnect
               type="url"
               value={masterOrigin}
               onChange={(e) => setMasterOrigin(e.target.value)}
-              placeholder={`http://100.x.x.x:${DEFAULT_API_PORT}`}
+              placeholder={`http://natumhub.local:${DEFAULT_API_PORT}`}
               className="mt-1.5 w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-sm bg-zinc-50 font-mono"
               disabled={saving || testing}
             />
             <p className="text-[10px] text-zinc-400 mt-1">
-              LAN ou Tailscale (MagicDNS/IP). Ex.: http://pc-master:3001
+              Preferência: http://natumhub.local:3001 (hosts/DNS). Alternativa: IP LAN ou Tailscale.
             </p>
           </div>
         )}

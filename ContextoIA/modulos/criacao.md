@@ -2,6 +2,8 @@
 
 Checklist para adicionar um **submódulo** ao NatumHub (espelhamento FE + BE).
 
+**Atalho IA:** em [`../arquitetura/mapa-app.html`](../arquitetura/mapa-app.html) use **Propor módulo** → baixe/copie o SPEC (`kind: natumhub-module-spec`) e peça ao agente com a skill `natumhub-modulos`. Consulte o inventário em [`mapa-app.json`](../arquitetura/mapa-app.json).
+
 ## 1. Definir chave e view
 
 Escolha uma `module_key` única (snake_case, ex.: `compras_novo`).

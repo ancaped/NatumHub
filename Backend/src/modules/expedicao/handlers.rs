@@ -144,7 +144,6 @@ pub async fn list_ecommerce_orders(
         if !clean.is_empty() {
             sql.push_str(&format!(" AND plataforma = ${}", param_idx));
             params.push(clean.to_string());
-            param_idx += 1;
         }
     }
 

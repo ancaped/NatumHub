@@ -175,24 +175,86 @@ export function isSetupLocked(): boolean {
   return cfg.appMode === 'client' && !!cfg.setupLocked;
 }
 
-/** Dev (`tauri dev`) nunca pode ser servidor. */
+/** Dev (`tauri dev` / Vite :5175) nunca pode ser servidor de produção. */
 export function isDevRuntime(): boolean {
   return import.meta.env.DEV;
 }
 
-/** Pode ser PC Principal: build Estável e fora do `tauri dev`. */
+/** UI servida pelo Axum (navegador na LAN) — não Vite e não WebView Tauri. */
+export function isAxumServedUi(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (window.location.port === '5175') return false;
+  const w = window as Window & { __TAURI_INTERNALS__?: unknown; __TAURI__?: unknown };
+  if (w.__TAURI_INTERNALS__ || w.__TAURI__) return false;
+  return /^https?:$/.test(window.location.protocol);
+}
+
+export interface BuildInfo {
+  channel: string;
+  identifier: string;
+  productName: string;
+  version: string;
+  canBePrincipalServer: boolean;
+  isDeveloperInstall: boolean;
+}
+
+export async function getBuildInfo(): Promise<BuildInfo | null> {
+  if (isAxumServedUi()) return null;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const info = await invoke<BuildInfo & Record<string, unknown>>('get_build_info');
+    return {
+      channel: String(info.channel ?? ''),
+      identifier: String(info.identifier ?? ''),
+      productName: String(info.productName ?? info.product_name ?? 'NatumHub'),
+      version: String(info.version ?? ''),
+      canBePrincipalServer: Boolean(
+        info.canBePrincipalServer ?? info.can_be_principal_server
+      ),
+      isDeveloperInstall: Boolean(
+        info.isDeveloperInstall ?? info.is_developer_install
+      ),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Pode ser PC Principal: build Estável/Dev instalado e fora do `tauri dev`/browser. */
 export async function canBePrincipalServer(): Promise<boolean> {
-  if (isDevRuntime()) return false;
-  const { getBuildInfo } = await import('./updateChannel');
+  if (isDevRuntime() || isAxumServedUi()) return false;
   const build = await getBuildInfo();
   return build?.canBePrincipalServer ?? false;
 }
 
 export async function isDeveloperInstall(): Promise<boolean> {
+  if (isAxumServedUi()) return false;
   if (isDevRuntime()) return true;
-  const { getBuildInfo } = await import('./updateChannel');
   const build = await getBuildInfo();
   return build?.isDeveloperInstall ?? false;
+}
+
+/**
+ * No navegador (SPA no Axum), força cliente same-origin e marca setup concluído.
+ * Em Vite/Tauri, não altera.
+ */
+export function ensureBrowserClientConfig(): ClientConfig {
+  let cfg = loadConnectionConfig();
+  if (!isAxumServedUi()) return cfg;
+  const origin = window.location.origin.replace(/\/$/, '');
+  cfg = normalizeClientConfig({
+    ...cfg,
+    appMode: 'client',
+    isSyncMaster: false,
+    apiOrigin: origin,
+    apiBindHost: '127.0.0.1',
+    apiPort: DEFAULT_API_PORT,
+    setupLocked: true,
+    connectionSetupCompleted: true,
+    installRole: 'terminal',
+  });
+  saveConnectionConfig(cfg);
+  return cfg;
 }
 
 /** Legacy no-op: terminais (`client`) são válidos e não devem ser forçados a master. */

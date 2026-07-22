@@ -31,6 +31,7 @@ export const MODULE_KEYS = {
   /** @deprecated alias — use ADMIN_LINHA_PRODUTOS */
   ESTOQUE_ATIVOS: 'estoque_ativos',
   ADMIN_LINHA_PRODUTOS: 'admin_linha_produtos',
+  ADMIN_FUNCIONARIOS: 'admin_funcionarios',
   PRODUCAO: 'producao',
   PRODUCAO_BASES: 'producao_bases',
   PRODUCAO_LOTES: 'producao_lotes',
@@ -57,6 +58,7 @@ export const MODULE_KEYS = {
   QUALIDADE_TEMPERATURA: 'qualidade_temperatura',
   QUALIDADE_LIMPEZA: 'qualidade_limpeza',
   QUALIDADE_RECEBIMENTO_MP: 'qualidade_recebimento_mp',
+  QUALIDADE_DOCUMENTACAO: 'qualidade_documentacao',
   ADMINISTRATIVO: 'administrativo',
   /** @deprecated alias — use EXPEDICAO_ECOMMERCE */
   EXPEDICAO: 'expedicao',
@@ -161,13 +163,17 @@ export function moduleRegistry(): ModuleGroup[] {
         { key: MODULE_KEYS.QUALIDADE_TEMPERATURA, label: 'Temperatura' },
         { key: MODULE_KEYS.QUALIDADE_LIMPEZA, label: 'Limpeza' },
         { key: MODULE_KEYS.QUALIDADE_RECEBIMENTO_MP, label: 'Recebimento MP' },
+        { key: MODULE_KEYS.QUALIDADE_DOCUMENTACAO, label: 'Documentação' },
       ],
     },
     {
       key: 'administrativo',
       label: 'Administrativo',
       hubView: 'administrativo',
-      children: [{ key: MODULE_KEYS.ADMIN_LINHA_PRODUTOS, label: 'Linha de Produtos' }],
+      children: [
+        { key: MODULE_KEYS.ADMIN_LINHA_PRODUTOS, label: 'Linha de Produtos' },
+        { key: MODULE_KEYS.ADMIN_FUNCIONARIOS, label: 'Funcionários' },
+      ],
     },
     {
       key: 'expedicao',
@@ -251,9 +257,10 @@ export function defaultModulesForRole(role: string): string[] {
         MODULE_KEYS.QUALIDADE_TEMPERATURA,
         MODULE_KEYS.QUALIDADE_LIMPEZA,
         MODULE_KEYS.QUALIDADE_RECEBIMENTO_MP,
+        MODULE_KEYS.QUALIDADE_DOCUMENTACAO,
       ];
     case 'administrativo':
-      return [MODULE_KEYS.ADMIN_LINHA_PRODUTOS];
+      return [MODULE_KEYS.ADMIN_LINHA_PRODUTOS, MODULE_KEYS.ADMIN_FUNCIONARIOS];
     case 'expedicao':
       return [MODULE_KEYS.EXPEDICAO_ECOMMERCE];
     default:

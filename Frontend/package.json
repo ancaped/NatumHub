@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "map:arch": "node ../scripts/generate-architecture-map.mjs",
+    "map:arch:check": "node ../scripts/generate-architecture-map.mjs --check",
     "tauri": "cd ../Backend && npm run tauri",
     "tauri:dev": "cd ../Backend && npm run tauri:dev",
     "tauri:build": "cd ../Backend && npm run tauri:build",

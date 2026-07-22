@@ -1,6 +1,6 @@
 use axum::{
-    extract::{Path, State},
-    http::{header, StatusCode},
+    extract::State,
+    http::StatusCode,
     response::IntoResponse,
     Json,
 };
@@ -97,39 +97,14 @@ pub async fn save_client_config(Json(body): Json<ClientConfig>) -> impl IntoResp
     }
 }
 
-/// Config mínima para clientes (repo de releases) — sem auth.
-pub async fn public_config(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
-    let repo = crate::modules::geral::releases::store::github_repo(pool).await;
-
+/// Config pública mínima para clientes do navegador — sem auth.
+pub async fn public_config() -> impl IntoResponse {
     (
         StatusCode::OK,
         Json(json!({
-            "updaterGithubRepo": repo,
+            "hubUrlHint": "http://natumhub.local:3001",
+            "accessMode": "browser",
         })),
     )
         .into_response()
-}
-
-/// Manifest de atualização por canal — público na LAN (repo GitHub pode ser privado).
-pub async fn get_updater_manifest(
-    State(state): State<Arc<AppState>>,
-    Path(channel): Path<String>,
-) -> impl IntoResponse {
-    let _ = state;
-    match crate::modules::geral::hub::updater_manifest::read_manifest(&channel) {
-        Ok(body) => (
-            StatusCode::OK,
-            [(header::CONTENT_TYPE, "application/json")],
-            body,
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": e })),
-        )
-            .into_response(),
-    }
 }

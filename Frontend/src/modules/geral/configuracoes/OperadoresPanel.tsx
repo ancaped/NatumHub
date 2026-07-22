@@ -125,10 +125,14 @@ export default function OperadoresPanel({
     }
   };
 
-  const validatePasswordPair = (password: string, confirm: string, required: boolean) => {
+  const validatePasswordPair = (password: string, confirm: string, required: boolean, role?: string) => {
     if (!required && !password.trim()) return true;
-    if (required && password.length < 4) {
-      setMessage({ text: 'Senha deve ter no mínimo 4 caracteres.', type: 'error' });
+    const minLen = role === 'supervisor' || role === 'admin' ? 8 : 4;
+    if (password.length < minLen) {
+      setMessage({
+        text: `Senha deve ter no mínimo ${minLen} caracteres.`,
+        type: 'error',
+      });
       return false;
     }
     if (password !== confirm) {
@@ -143,7 +147,7 @@ export default function OperadoresPanel({
       setMessage({ text: 'Informe o nome do operador.', type: 'error' });
       return;
     }
-    if (!validatePasswordPair(newForm.password, newForm.passwordConfirm, true)) return;
+    if (!validatePasswordPair(newForm.password, newForm.passwordConfirm, true, newForm.role)) return;
     setSaving(true);
     try {
       await createOperator({
@@ -175,7 +179,7 @@ export default function OperadoresPanel({
       return;
     }
     const changingPassword = Boolean(form.password.trim());
-    if (!validatePasswordPair(form.password, form.passwordConfirm, changingPassword)) return;
+    if (!validatePasswordPair(form.password, form.passwordConfirm, changingPassword, form.role)) return;
     setSaving(true);
     try {
       await updateOperator(id, {
@@ -186,7 +190,12 @@ export default function OperadoresPanel({
         updateChannel: 'stable',
         password: changingPassword ? form.password : undefined,
       });
-      setMessage({ text: 'Operador atualizado.', type: 'success' });
+      setMessage({
+        text: changingPassword
+          ? 'Operador atualizado. Senha alterada com sucesso.'
+          : 'Operador atualizado.',
+        type: 'success',
+      });
       await load();
     } catch (e: any) {
       setMessage({ text: e?.message || 'Erro ao salvar', type: 'error' });

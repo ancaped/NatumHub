@@ -16,6 +16,7 @@ import { api } from '../../geral/lib/api';
 import { Category } from '../../geral/lib/types';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import { COMPRAS_MODE_VIEW, syncCurrentPageForView } from '../../geral/lib/viewLabels';
+import { getAuthUser, isSupervisor } from '../../geral/lib/auth';
 
 interface ComprasViewProps {
   onBackToHub: () => void;
@@ -23,6 +24,7 @@ interface ComprasViewProps {
 }
 
 export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewProps) {
+  const canConfig = isSupervisor(getAuthUser());
   const [categories, setCategories] = useState<Category[]>([]);
   const [pinnedSubs, setPinnedSubs] = useState<string[]>([]);
 
@@ -58,9 +60,14 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         }));
     };
 
+    const settingsItem = canConfig
+      ? [{ id: 'settings', label: 'Configurações', icon: Settings, iconOnly: true }]
+      : [];
+
+    let items;
     switch (mode) {
       case 'materia_prima':
-        return [
+        items = [
           { id: 'materia_prima', label: 'Matéria-Prima', icon: Boxes },
           ...getSubcategoryNavItems('cat_mp'),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
@@ -68,10 +75,11 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
-          { id: 'settings', label: 'Configurações', icon: Settings, iconOnly: true },
+          ...settingsItem,
         ];
+        break;
       case 'embalagens':
-        return [
+        items = [
           { id: 'embalagens', label: 'Embalagens', icon: Layers },
           ...getSubcategoryNavItems('cat_emb'),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
@@ -79,10 +87,11 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
-          { id: 'settings', label: 'Configurações', icon: Settings, iconOnly: true },
+          ...settingsItem,
         ];
+        break;
       case 'coloracao':
-        return [
+        items = [
           { id: 'coloracao', label: 'Coloração', icon: Palette },
           ...getSubcategoryNavItems('cat_coloracao'),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
@@ -90,10 +99,11 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
-          { id: 'settings', label: 'Configurações', icon: Settings, iconOnly: true },
+          ...settingsItem,
         ];
+        break;
       case 'apoio':
-        return [
+        items = [
           { id: 'apoio', label: 'Material de Apoio', icon: Tag },
           ...getSubcategoryNavItems('cat_apoio'),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
@@ -101,22 +111,25 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
-          { id: 'settings', label: 'Configurações', icon: Settings, iconOnly: true },
+          ...settingsItem,
         ];
+        break;
       case 'quotations':
-        return [
+        items = [
           { id: 'quotations', label: 'Cotações', icon: ShoppingCart },
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
         ];
+        break;
       case 'simulation':
-        return [
+        items = [
           { id: 'sim_products', label: 'Produtos a Simular', icon: ClipboardList },
           { id: 'sim_requirements', label: 'Insumos Mapeados', icon: Boxes },
         ];
+        break;
       default:
-        return [
+        items = [
           { id: 'demands', label: 'Demandas', icon: Package },
           { id: 'materia_prima', label: 'Matéria-Prima', icon: Boxes },
           { id: 'embalagens', label: 'Embalagens', icon: Layers },
@@ -129,10 +142,12 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
-          { id: 'settings', label: 'Configurações', icon: Settings, iconOnly: true },
+          ...settingsItem,
         ];
+        break;
     }
-  }, [mode, categories, pinnedSubs]);
+    return items;
+  }, [mode, categories, pinnedSubs, canConfig]);
 
   const initialTab = React.useMemo(() => {
     if (mode === 'materia_prima') return 'materia_prima';

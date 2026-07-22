@@ -4,6 +4,7 @@ import { api } from '../../../geral/lib/api';
 import { DemandResult, Category, Item } from '../../../geral/lib/types';
 import { AlertCircle, ArrowDownToLine, Package, Filter, CheckCircle2, ShoppingCart, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, TrendingUp, BarChart3, FileText, ChevronRight, X, Info, RefreshCw, Database, Factory, Printer, PlusCircle, Settings, Layers } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
+import { getAuthUser, isSupervisor } from '../../../geral/lib/auth';
 
 interface InsumoDetalhes {
   code: string;
@@ -102,6 +103,7 @@ interface DemandTableProps {
 }
 
 export function DemandTable({ mode = 'all', initialCategoryFilter = null, active = true }: DemandTableProps) {
+  const canConfig = isSupervisor(getAuthUser());
   const defaultTab = mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : 'ALL';
   const [demands, setDemands] = useState<DemandResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -157,6 +159,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   };
 
   const handleSaveTriggerDays = async (val: number) => {
+    if (!canConfig) return;
     setTriggerDaysInput(val);
     try {
       const existing = customConfigs.find(c => c.level === 'subcategoria' && c.targetId === activeCategoryId);
@@ -178,6 +181,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   };
 
   const handleSaveTargetDays = async (val: number) => {
+    if (!canConfig) return;
     setTargetDaysInput(val);
     try {
       const existing = customConfigs.find(c => c.level === 'subcategoria' && c.targetId === activeCategoryId);
@@ -223,6 +227,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   };
 
   const handleSaveItemConfig = async (updated: any) => {
+    if (!canConfig) return;
     setItemConfig(updated);
     try {
       await api.saveCustomPurchaseConfig(updated);
@@ -905,6 +910,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 <input
                   type="number"
                   value={tempTriggerDays}
+                  disabled={!canConfig}
                   onChange={e => setTempTriggerDays(e.target.value)}
                   onBlur={() => handleSaveTriggerDays(Number(tempTriggerDays) || 0)}
                   onKeyDown={e => {
@@ -914,13 +920,14 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                     }
                   }}
                   placeholder="Disp"
-                  title="Ponto de Disparo (dias)"
-                  className="w-11 text-xs border border-zinc-300 rounded-md px-1.5 py-1 focus:ring-1 focus:ring-zinc-900 focus:outline-none text-center"
+                  title={canConfig ? 'Ponto de Disparo (dias)' : 'Apenas supervisor pode alterar Disp./Obj.'}
+                  className="w-11 text-xs border border-zinc-300 rounded-md px-1.5 py-1 focus:ring-1 focus:ring-zinc-900 focus:outline-none text-center disabled:bg-zinc-100 disabled:text-zinc-500 disabled:cursor-not-allowed"
                 />
                 <span className="text-zinc-400 text-xs">/</span>
                 <input
                   type="number"
                   value={tempTargetDays}
+                  disabled={!canConfig}
                   onChange={e => setTempTargetDays(e.target.value)}
                   onBlur={() => handleSaveTargetDays(Number(tempTargetDays) || 0)}
                   onKeyDown={e => {
@@ -930,8 +937,8 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                     }
                   }}
                   placeholder="Obj"
-                  title="Objetivo (dias)"
-                  className="w-11 text-xs border border-zinc-300 rounded-md px-1.5 py-1 focus:ring-1 focus:ring-zinc-900 focus:outline-none text-center"
+                  title={canConfig ? 'Objetivo (dias)' : 'Apenas supervisor pode alterar Disp./Obj.'}
+                  className="w-11 text-xs border border-zinc-300 rounded-md px-1.5 py-1 focus:ring-1 focus:ring-zinc-900 focus:outline-none text-center disabled:bg-zinc-100 disabled:text-zinc-500 disabled:cursor-not-allowed"
                 />
                 <span className="text-[10px] text-zinc-400">d</span>
               </div>
@@ -1790,7 +1797,10 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       </div>
                       <select
                         value={details.categoryId || ''}
+                        disabled={!canConfig}
+                        title={canConfig ? undefined : 'Apenas supervisor pode alterar categoria'}
                         onChange={async (e) => {
+                          if (!canConfig) return;
                           try {
                             await api.updateItemsCategory([details.code], e.target.value || null);
                             await loadDetails(details.code);
@@ -1799,7 +1809,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                             console.error(ex);
                           }
                         }}
-                        className="text-xs border border-zinc-300 rounded-md px-2 py-1.5 bg-white w-full focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                        className="text-xs border border-zinc-300 rounded-md px-2 py-1.5 bg-white w-full focus:ring-1 focus:ring-zinc-900 focus:outline-none disabled:bg-zinc-100 disabled:text-zinc-500 disabled:cursor-not-allowed"
                       >
                         <option value="">Sem Categoria</option>
                         {categories
@@ -1815,9 +1825,13 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
 
                     {/* Reordenação Customizada */}
                     {itemConfig && (
-                      <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-4">
+                      <div className={cn("bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-4", !canConfig && "opacity-70 pointer-events-none")}>
                         <h5 className="text-xs font-bold text-zinc-800">Regras de Reposição Personalizadas</h5>
-                        
+                        {!canConfig && (
+                          <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1">
+                            Apenas supervisor pode alterar Disp./Obj. e regras do item.
+                          </p>
+                        )}
                         {/* Ponto de Disparo (Start Compra) */}
                         <div className="space-y-2">
                           <span className="text-xs font-semibold text-zinc-700 block">Gatilho / Ponto de Disparo:</span>

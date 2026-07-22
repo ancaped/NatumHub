@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Boxes, User, Settings, LogOut, ChevronRight, UserCog, ClipboardList, Shield } from 'lucide-react';
+import { Boxes, User, Settings, LogOut, ChevronRight, UserCog, ClipboardList, Shield, Network } from 'lucide-react';
 import { localAuth } from '../../lib/api';
 import { isPrincipalPc } from '../../lib/connectionConfig';
 import { canAccessView } from '../../lib/modules/permissions';
@@ -171,6 +171,19 @@ export default function Header({
                       >
                         <ClipboardList className="h-4 w-4 text-zinc-400" />
                         Gestão de Feedbacks
+                      </button>
+                    )}
+
+                    {isSupervisor(currentUser) && (
+                      <button
+                        onClick={() => {
+                          setDropdownOpen(false);
+                          setView('mapa_arquitetura');
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left"
+                      >
+                        <Network className="h-4 w-4 text-zinc-400" />
+                        Mapa operacional
                       </button>
                     )}
 

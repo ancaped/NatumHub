@@ -7,7 +7,7 @@ Use com [`../INDEX.md`](../INDEX.md).
 | `Frontend/` | UI React + Vite |
 | `Backend/` | Tauri + Axum `:3001` → PostgreSQL |
 | `Backend/supabase/` | DDL |
-| `ContextoIA/` | Docs para agentes |
+| `ContextoIA/` | Docs para agentes · [mapa-app.html](arquitetura/mapa-app.html) hub de arquitetura IA |
 | `erp-import/` | Queries SQL Server + PASSOS |
 | `Feedbacks/feedback.md` | Playbook de bugs (dados no Postgres) |
 | `Saves/` | `postgres.env`, `client_config.json` (não versionar secrets) |

@@ -935,16 +935,28 @@ pub async fn update_operator(
     supervisor_id: Option<&str>,
     supervisor_password: Option<&str>,
 ) -> Result<OperatorDetail, String> {
-    if role == "supervisor" || role == "admin" {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM hub_operators WHERE role IN ('supervisor', 'admin') AND active = 1 AND id != $1",
-        )
-        .bind(id)
-        .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
-        if count > 0 && active {
-            return Err("Já existe um supervisor ativo.".to_string());
+    // Só bloqueia promoção a supervisor/admin se já existe outro ativo.
+    // Atualizar um supervisor já existente (ex.: senha) deve ser permitido.
+    if (role == "supervisor" || role == "admin") && active {
+        let current_role: Option<String> =
+            sqlx::query_scalar("SELECT role FROM hub_operators WHERE id = $1")
+                .bind(id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| e.to_string())?;
+        let already_supervisor = current_role
+            .as_deref()
+            .is_some_and(|r| r == "supervisor" || r == "admin");
+        if !already_supervisor {
+            let count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM hub_operators WHERE role IN ('supervisor', 'admin') AND active = 1",
+            )
+            .fetch_one(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+            if count > 0 {
+                return Err("Já existe um supervisor ativo.".to_string());
+            }
         }
     }
 
@@ -963,7 +975,11 @@ pub async fn update_operator(
     let active_val: i32 = if active { 1 } else { 0 };
 
     if let Some(pwd) = password.filter(|p| !p.trim().is_empty()) {
-        validate_operator_password(pwd)?;
+        if role == "supervisor" || role == "admin" {
+            validate_supervisor_password(pwd)?;
+        } else {
+            validate_operator_password(pwd)?;
+        }
         let hash = hash_password(pwd)?;
         sqlx::query(
             "UPDATE hub_operators SET display_name = $2, role = $3, active = $4, update_channel = $5, password_hash = $6 WHERE id = $1",
@@ -1137,6 +1153,10 @@ pub async fn log_audit(
 }
 
 pub fn is_public_path(path: &str) -> bool {
+    // SPA / assets estáticos (servidos fora do middleware via fallback; defesa em profundidade)
+    if !path.starts_with("/api") {
+        return true;
+    }
     matches!(
         path,
         "/api/health"
@@ -1145,14 +1165,15 @@ pub fn is_public_path(path: &str) -> bool {
             | "/api/auth/session"
             | "/api/auth/setup-status"
             | "/api/auth/setup-supervisor"
-            | "/login"
     ) || path.starts_with("/api/hub/client-config")
-        || path.starts_with("/api/hub/updater-manifest/")
         || path == "/api/hub/public-config"
         || path.starts_with("/api/google/callback")
 }
 
 pub fn requires_supervisor(path: &str, method: &str) -> bool {
+    if path.starts_with("/api/mapa") {
+        return matches!(method, "GET" | "POST" | "PUT" | "PATCH" | "DELETE");
+    }
     if path.starts_with("/api/admin/db-usage") {
         return matches!(method, "GET");
     }
@@ -1161,6 +1182,9 @@ pub fn requires_supervisor(path: &str, method: &str) -> bool {
     }
     if path.starts_with("/api/admin/pg-backup/") {
         return matches!(method, "POST");
+    }
+    if path == "/api/admin/audit/events" {
+        return matches!(method, "GET");
     }
     if path == "/api/admin/audit/stock/resync-insumos" {
         return matches!(method, "POST");
@@ -1177,11 +1201,16 @@ pub fn requires_supervisor(path: &str, method: &str) -> bool {
     if path.starts_with("/api/auth/devices/manage") {
         return matches!(method, "GET" | "PUT");
     }
-    if path.starts_with("/api/auth/releases/") {
-        return matches!(method, "GET" | "POST" | "PUT");
-    }
     if !matches!(method, "POST" | "PUT" | "DELETE") {
         return false;
+    }
+    // Configuração de Compras (Disp/Obj, categorias, regras, config app)
+    if path.starts_with("/api/hub/compras/custom-configs")
+        || path.starts_with("/api/hub/compras/categories")
+        || path == "/api/hub/compras/config"
+        || path == "/api/hub/compras/items/category"
+    {
+        return true;
     }
     path.starts_with("/api/import/sync")
         || path.starts_with("/api/import/dump")
