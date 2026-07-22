@@ -1,8 +1,6 @@
 use sqlx::{PgPool, Row};
-use tauri::State;
-
 use crate::{
-    DbState, Product, Report, FiscoQuimicaPattern, FiscoQuimicaAgent, FiscoQuimicaAnalysis,
+    Product, Report, FiscoQuimicaPattern, FiscoQuimicaAgent, FiscoQuimicaAnalysis,
 };
 
 pub async fn get_microbio_config_query(pool: PgPool) -> Result<Option<serde_json::Value>, String> {
@@ -393,98 +391,105 @@ pub async fn delete_fisco_quimica_analysis_query(pool: PgPool, id: &str) -> Resu
     Ok(())
 }
 
-// Tauri stubs
-#[tauri::command]
-pub fn get_microbio_config(_state: State<DbState>) -> Result<Option<serde_json::Value>, String> {
-    Err("Use a API REST (/api/hub/microbio/config)".into())
+#[cfg(feature = "desktop")]
+#[allow(dead_code)]
+mod _tauri_stubs {
+    use super::*;
+    use tauri::State;
+    use crate::DbState;
+    #[tauri::command]
+    pub fn get_microbio_config(_state: State<DbState>) -> Result<Option<serde_json::Value>, String> {
+        Err("Use a API REST (/api/hub/microbio/config)".into())
+    }
+
+    #[tauri::command]
+    pub fn save_config_microbio(_state: State<DbState>, _config: serde_json::Value) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/microbio/config)".into())
+    }
+
+    #[tauri::command]
+    pub fn get_products(_state: State<DbState>) -> Result<Vec<Product>, String> {
+        Err("Use a API REST (/api/hub/microbio/products)".into())
+    }
+
+    #[tauri::command]
+    pub fn save_product(_state: State<DbState>, _product: Product) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/microbio/products)".into())
+    }
+
+    #[tauri::command]
+    pub fn delete_product(_state: State<DbState>, _code: String) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/microbio/products/:code)".into())
+    }
+
+    #[tauri::command]
+    pub fn get_reports(_state: State<DbState>) -> Result<Vec<Report>, String> {
+        Err("Use a API REST (/api/hub/microbio/reports)".into())
+    }
+
+    #[tauri::command]
+    pub fn save_reports(_state: State<DbState>, _reports: Vec<Report>) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/microbio/reports)".into())
+    }
+
+    #[tauri::command]
+    pub fn delete_report(_state: State<DbState>, _id: String) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/microbio/reports/:id)".into())
+    }
+
+    #[tauri::command]
+    pub fn delete_all_products(_state: State<DbState>) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/microbio/products)".into())
+    }
+
+    #[tauri::command]
+    pub fn get_fisco_quimica_patterns(_state: State<DbState>) -> Result<Vec<FiscoQuimicaPattern>, String> {
+        Err("Use a API REST (/api/hub/fisco/patterns)".into())
+    }
+
+    #[tauri::command]
+    pub fn save_fisco_quimica_pattern(_state: State<DbState>, _pattern: FiscoQuimicaPattern) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/fisco/patterns)".into())
+    }
+
+    #[tauri::command]
+    pub fn delete_fisco_quimica_pattern(_state: State<DbState>, _code: String) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/fisco/patterns/:code)".into())
+    }
+
+    #[tauri::command]
+    pub fn get_fisco_quimica_agents(_state: State<DbState>) -> Result<Vec<FiscoQuimicaAgent>, String> {
+        Err("Use a API REST (/api/hub/fisco/agents)".into())
+    }
+
+    #[tauri::command]
+    pub fn save_fisco_quimica_agent(_state: State<DbState>, _agent: FiscoQuimicaAgent) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/fisco/agents)".into())
+    }
+
+    #[tauri::command]
+    pub fn delete_fisco_quimica_agent(_state: State<DbState>, _id: String) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/fisco/agents/:id)".into())
+    }
+
+    #[tauri::command]
+    pub fn get_fisco_quimica_analyses(_state: State<DbState>) -> Result<Vec<FiscoQuimicaAnalysis>, String> {
+        Err("Use a API REST (/api/hub/fisco/analyses)".into())
+    }
+
+    #[tauri::command]
+    pub fn save_fisco_quimica_analysis(_state: State<DbState>, _analysis: FiscoQuimicaAnalysis) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/fisco/analyses)".into())
+    }
+
+    #[tauri::command]
+    pub fn delete_fisco_quimica_analysis(_state: State<DbState>, _id: String) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/fisco/analyses/:id)".into())
+    }
+
 }
 
-#[tauri::command]
-pub fn save_config_microbio(_state: State<DbState>, _config: serde_json::Value) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/microbio/config)".into())
-}
-
-#[tauri::command]
-pub fn get_products(_state: State<DbState>) -> Result<Vec<Product>, String> {
-    Err("Use a API REST (/api/hub/microbio/products)".into())
-}
-
-#[tauri::command]
-pub fn save_product(_state: State<DbState>, _product: Product) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/microbio/products)".into())
-}
-
-#[tauri::command]
-pub fn delete_product(_state: State<DbState>, _code: String) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/microbio/products/:code)".into())
-}
-
-#[tauri::command]
-pub fn get_reports(_state: State<DbState>) -> Result<Vec<Report>, String> {
-    Err("Use a API REST (/api/hub/microbio/reports)".into())
-}
-
-#[tauri::command]
-pub fn save_reports(_state: State<DbState>, _reports: Vec<Report>) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/microbio/reports)".into())
-}
-
-#[tauri::command]
-pub fn delete_report(_state: State<DbState>, _id: String) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/microbio/reports/:id)".into())
-}
-
-#[tauri::command]
-pub fn delete_all_products(_state: State<DbState>) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/microbio/products)".into())
-}
-
-#[tauri::command]
-pub fn get_fisco_quimica_patterns(_state: State<DbState>) -> Result<Vec<FiscoQuimicaPattern>, String> {
-    Err("Use a API REST (/api/hub/fisco/patterns)".into())
-}
-
-#[tauri::command]
-pub fn save_fisco_quimica_pattern(_state: State<DbState>, _pattern: FiscoQuimicaPattern) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/fisco/patterns)".into())
-}
-
-#[tauri::command]
-pub fn delete_fisco_quimica_pattern(_state: State<DbState>, _code: String) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/fisco/patterns/:code)".into())
-}
-
-#[tauri::command]
-pub fn get_fisco_quimica_agents(_state: State<DbState>) -> Result<Vec<FiscoQuimicaAgent>, String> {
-    Err("Use a API REST (/api/hub/fisco/agents)".into())
-}
-
-#[tauri::command]
-pub fn save_fisco_quimica_agent(_state: State<DbState>, _agent: FiscoQuimicaAgent) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/fisco/agents)".into())
-}
-
-#[tauri::command]
-pub fn delete_fisco_quimica_agent(_state: State<DbState>, _id: String) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/fisco/agents/:id)".into())
-}
-
-#[tauri::command]
-pub fn get_fisco_quimica_analyses(_state: State<DbState>) -> Result<Vec<FiscoQuimicaAnalysis>, String> {
-    Err("Use a API REST (/api/hub/fisco/analyses)".into())
-}
-
-#[tauri::command]
-pub fn save_fisco_quimica_analysis(_state: State<DbState>, _analysis: FiscoQuimicaAnalysis) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/fisco/analyses)".into())
-}
-
-#[tauri::command]
-pub fn delete_fisco_quimica_analysis(_state: State<DbState>, _id: String) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/fisco/analyses/:id)".into())
-}
-
-#[tauri::command]
+#[cfg_attr(feature = "desktop", tauri::command)]
 pub fn open_external_browser(url: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     std::process::Command::new("cmd")

@@ -215,49 +215,54 @@ pub async fn import_item_observations_query(
     Ok(())
 }
 
-use tauri::State;
-use crate::DbState;
+#[cfg(feature = "desktop")]
+#[allow(dead_code)]
+mod _tauri_stubs {
+    use super::*;
+    use tauri::State;
+    use crate::DbState;
 
-#[tauri::command]
-pub fn get_items(_state: State<DbState>, _category_id: Option<String>) -> Result<Vec<Item>, String> {
-    Err("Use a API REST (/api/hub/compras/items)".into())
-}
+    #[tauri::command]
+    pub fn get_items(_state: State<DbState>, _category_id: Option<String>) -> Result<Vec<Item>, String> {
+        Err("Use a API REST (/api/hub/compras/items)".into())
+    }
 
-#[tauri::command]
-pub fn get_similar_items(_state: State<DbState>, _code: String) -> Result<Vec<Item>, String> {
-    Err("Use a API REST (/api/hub/compras/items/similar)".into())
-}
+    #[tauri::command]
+    pub fn get_similar_items(_state: State<DbState>, _code: String) -> Result<Vec<Item>, String> {
+        Err("Use a API REST (/api/hub/compras/items/similar)".into())
+    }
 
-#[tauri::command]
-pub fn add_similar_item(_state: State<DbState>, _code_a: String, _code_b: String) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/compras/items/similar)".into())
-}
+    #[tauri::command]
+    pub fn add_similar_item(_state: State<DbState>, _code_a: String, _code_b: String) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/compras/items/similar)".into())
+    }
 
-#[tauri::command]
-pub fn remove_similar_item(_state: State<DbState>, _code_a: String, _code_b: String) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/compras/items/similar)".into())
-}
+    #[tauri::command]
+    pub fn remove_similar_item(_state: State<DbState>, _code_a: String, _code_b: String) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/compras/items/similar)".into())
+    }
 
-#[tauri::command]
-pub fn update_item_details(
-    _state: State<DbState>,
-    _code: String,
-    _notes: Option<String>,
-    _is_ignored: bool,
-) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/compras/items/details)".into())
-}
+    #[tauri::command]
+    pub fn update_item_details(
+        _state: State<DbState>,
+        _code: String,
+        _notes: Option<String>,
+        _is_ignored: bool,
+    ) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/compras/items/details)".into())
+    }
 
-#[tauri::command]
-pub fn update_items_category(
-    _state: State<DbState>,
-    _codes: Vec<String>,
-    _category_id: Option<String>,
-) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/compras/items/category)".into())
-}
+    #[tauri::command]
+    pub fn update_items_category(
+        _state: State<DbState>,
+        _codes: Vec<String>,
+        _category_id: Option<String>,
+    ) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/compras/items/category)".into())
+    }
 
-#[tauri::command]
-pub fn import_item_observations(_state: State<DbState>, _observations: Vec<ObsInput>) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/compras/items/observations)".into())
+    #[tauri::command]
+    pub fn import_item_observations(_state: State<DbState>, _observations: Vec<ObsInput>) -> Result<(), String> {
+        Err("Use a API REST (/api/hub/compras/items/observations)".into())
+    }
 }

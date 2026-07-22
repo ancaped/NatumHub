@@ -2,48 +2,60 @@
 
 Pré-requisito: [PostgreSQL configurado](instalacao_postgres_master.md) + `Saves/postgres.env`.
 
-No **NatumHub Dev**, o wizard **PC Principal** pode instalar Postgres 17, criar `natumhub` e gravar o `.env` com um clique (opção A no doc do Postgres).
+No **NatumHub Dev**, o wizard **PC Principal** pode instalar Postgres 17, criar `natumhub` e gravar o `.env` com um clique.
 
-## O que não precisa
+## Papel do master
 
-No PC de produção **não** instale Rust, Node nem drivers ODBC. O `.exe` já traz a API Axum e os clientes Postgres/SQL Server.
+- Sobe Axum em `0.0.0.0:3001` (API + **SPA** do Hub em `/`) — via app Tauri **ou** [`instalacao_servidor.md`](instalacao_servidor.md) (`natumhub-server`, sem janela).
+- Clientes abrem `http://natumhub.local:3001` no navegador — sem instalador.
+- Produção = branch **`main`**. Outras branches só para desenvolvimento.
 
-## 1. Baixar o instalador
+## 1. Subir a partir do repositório (recomendado)
 
-Na [GitHub Release](https://github.com/ancaped/NatumHub/releases):
+Ver [instalacao_via_repositorio.md](instalacao_via_repositorio.md). Resumo:
 
-- Canal fábrica: `NatumHub_*_x64-setup.exe` (**stable**)
-- Canal testes (supervisor): `NatumHub Dev_*_x64-setup.exe` (**dev**)
+```powershell
+git checkout main
+git pull
+cd Frontend; npm ci; npm run build; cd ..
+# subir o app Tauri master (tauri:dev ou build:stable)
+```
 
-Detalhes de assinatura/canais: [`.github/RELEASE.md`](../../.github/RELEASE.md).
+Opcional: gerar `.exe` do master com `npm run build:stable` em `Backend/` — detalhes em [`.github/RELEASE.md`](../../.github/RELEASE.md).
 
-## 2. Instalar e configurar
+## 2. Configurar
 
-1. Rode o NSIS → WebView2 costuma já existir no Windows 10/11.
-2. Na 1ª abertura: wizard → escolha **PC Principal**.
-3. Confirme o arquivo de conexão:
-   - Instalado: `%LOCALAPPDATA%\NatumHub\Saves\postgres.env`
-   - Dev instalado: `%LOCALAPPDATA%\NatumHub Dev\Saves\postgres.env`
-4. Crie a conta **supervisor** (única que cadastra operadores).
-5. Login digitando **nome + senha** (a lista de usuários não aparece na tela).
+1. Wizard → **PC Principal**.
+2. Confirme `postgres.env` (repo `Saves/` ou `%LOCALAPPDATA%\NatumHub\Saves\`).
+3. Crie a conta **supervisor**.
+4. Login com **nome + senha**.
 
-Se o app abriu mas a API está offline: falta `postgres.env` ou o Postgres não está rodando — veja o log no console e o caminho acima.
+## 3. Rede e hostname
 
-## 3. Rede
+- API + SPA em `0.0.0.0:3001`.
+- Firewall Windows: inbound **TCP 3001**.
+- Nos terminais: hosts `natumhub.local` → IP deste PC (ver [instalacao_app_terminal.md](instalacao_app_terminal.md)).
 
-- API escuta em `0.0.0.0:3001`.
-- Firewall Windows: permitir inbound **TCP 3001**.
-- Terminais usam `http://<ip-ou-hostname-do-master>:3001`.
+## 4. Atualizar produção
 
-## 4. ERP e updates
+```powershell
+git checkout main
+git pull
+cd Frontend; npm run build; cd ..
+# reiniciar o app master
+```
 
-- Sync SQL Server: Configurações / Painel Supervisor (só no master).
-- Updates: supervisor sincroniza manifests do GitHub; terminais atualizam pelo master.
+Não há update in-app nem sync de releases GitHub no Painel Supervisor.
 
-## 5. Checklist rápido
+## 5. ERP
+
+Sync SQL Server: Configurações / Painel Supervisor (só no master).
+
+## 6. Checklist
 
 - [ ] Postgres no ar + schema
 - [ ] `postgres.env` ok
-- [ ] App sobe Axum em :3001
+- [ ] `Frontend/dist` gerado (`npm run build`)
+- [ ] App sobe Axum em :3001 e `http://127.0.0.1:3001/` carrega o Hub
 - [ ] Supervisor loga
-- [ ] Porta 3001 acessível pelos outros PCs (ou Tailscale)
+- [ ] Porta 3001 acessível; terminais usam `http://natumhub.local:3001`

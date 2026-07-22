@@ -1,6 +1,6 @@
 use sqlx::{PgPool, Row};
-use tauri::State;
 
+#[cfg(feature = "desktop")]
 use crate::DbState;
 use super::models::{
     Feedback, FeedbackAdminUpdate, FeedbackDetail, FeedbackNote,
@@ -76,8 +76,9 @@ pub async fn get_feedbacks_admin_query(pool: PgPool) -> Result<Vec<Feedback>, St
     Ok(rows.iter().map(map_feedback_list_row).collect())
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
-pub fn get_feedbacks(_state: State<DbState>) -> Result<Vec<Feedback>, String> {
+pub fn get_feedbacks(_state: tauri::State<DbState>) -> Result<Vec<Feedback>, String> {
     Err("Use a API REST (/api/hub/feedbacks/manage)".into())
 }
 
@@ -345,8 +346,9 @@ pub async fn save_feedback_query(pool: PgPool, feedback: &Feedback) -> Result<()
     Ok(())
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
-pub fn save_feedback(_state: State<DbState>, _feedback: Feedback) -> Result<(), String> {
+pub fn save_feedback(_state: tauri::State<DbState>, _feedback: Feedback) -> Result<(), String> {
     Err("Use a API REST (/api/hub/feedbacks)".into())
 }
 
@@ -543,8 +545,9 @@ pub async fn resolve_feedback_query(pool: PgPool, id: &str) -> Result<(), String
     .await
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
-pub fn resolve_feedback(_state: State<DbState>, _id: String) -> Result<(), String> {
+pub fn resolve_feedback(_state: tauri::State<DbState>, _id: String) -> Result<(), String> {
     Err("Use a API REST (/api/hub/feedbacks/:id)".into())
 }
 

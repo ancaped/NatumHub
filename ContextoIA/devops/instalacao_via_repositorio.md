@@ -6,36 +6,38 @@ Há dois papéis:
 
 | Papel | Quem | Postgres? | SQL Server ERP? | O que sobe |
 |-------|------|-----------|-----------------|------------|
-| **PC Principal (master)** | 1 máquina servidor | **Sim, obrigatório** | Só se for fazer sync ERP | App Tauri + API Axum `:3001` |
-| **Terminal (client)** | Demais PCs | Não | Não | Só UI → API do master |
+| **PC Principal (master)** | 1 máquina servidor | **Sim, obrigatório** | Só se for fazer sync ERP | App Tauri **ou** `natumhub-server` ([instalacao_servidor.md](instalacao_servidor.md)) + Axum `:3001` (API + SPA) |
+| **Terminal (cliente)** | Demais PCs | Não | Não | **Navegador** → `http://natumhub.local:3001` |
+
+**Branches:** `main` = produção no master. Outras branches = desenvolvimento (não servir aos clientes).
 
 **Não** use SQLite / `data.db`. Dados do Hub ficam no PostgreSQL do master (`Saves/postgres.env`).
 
-Docs relacionadas: [instalacao_postgres_master.md](instalacao_postgres_master.md) · [multi_usuario.md](../arquitetura/multi_usuario.md) · [README.md](README.md).
+Docs relacionadas: [instalacao_postgres_master.md](instalacao_postgres_master.md) · [multi_usuario.md](../arquitetura/multi_usuario.md) · [instalacao_app_terminal.md](instalacao_app_terminal.md).
 
 ---
 
 ## Visão do fluxo
 
 ```
-1. Clone o repo
-2. Instale ferramentas (só no PC que vai COMPILAR / rodar em modo repo)
-3. PC Principal: Postgres + postgres.env + schema
-4. Suba o app (dev OU build local)
-5. Wizard: PC Principal OU Terminal
-6. Master: supervisor + firewall 3001 + sync ERP
-7. Terminais: apontar apiOrigin → master
+1. Clone o repo (branch main)
+2. Instale ferramentas (só no PC Principal)
+3. Postgres + postgres.env + schema
+4. npm run build no Frontend + suba o app master
+5. Wizard: PC Principal
+6. Firewall 3001 + hosts natumhub.local nos terminais
+7. Clientes abrem http://natumhub.local:3001 no navegador
 ```
 
 ---
 
-## Parte A — Pré-requisitos (PC que clona / compila)
+## Parte A — Pré-requisitos (PC Principal)
 
-Necessário no **PC Principal** se for rodar a partir do repo. Nos **terminais**, o ideal é só copiar o `.exe` gerado no master (Parte D); se o terminal também clonar, precisam das mesmas ferramentas.
+Necessário no **PC Principal**. Terminais **não** clonam nem instalam o app.
 
 | Ferramenta | Versão sugerida | Para quê |
 |------------|-----------------|----------|
-| Git | recente | Clonar o repo |
+| Git | recente | Clonar / atualizar `main` |
 | Node.js | **20 LTS** ou 22 | Frontend + scripts Tauri |
 | Rust | **1.77+** (`rustup`) | Backend Tauri |
 | Visual Studio Build Tools | C++ workload | Linker Windows |
@@ -249,20 +251,23 @@ Na tela de login: **Reconfigurar dispositivo** (volta ao wizard).
 
 ### Master
 
+- [ ] Branch `main` atualizada
 - [ ] Postgres rodando
 - [ ] `Saves/postgres.env` (ou `%LOCALAPPDATA%\NatumHub\Saves\postgres.env`) com `DATABASE_URL` correto
-- [ ] Schema `001`…`006` (+ extras se existirem) aplicado
+- [ ] Schema aplicado
+- [ ] `Frontend/dist` gerado (`npm run build`)
 - [ ] App aberto como **PC Principal**
 - [ ] `GET http://127.0.0.1:3001/api/health` → `postgresql` + `dbConnected: true`
+- [ ] `http://127.0.0.1:3001/` carrega o Hub (SPA)
 - [ ] Supervisor criado e logado
 - [ ] Firewall TCP 3001
 - [ ] (Opcional) Sync ERP ok
 
 ### Cada terminal
 
-- [ ] App aberto como **Terminal**
-- [ ] `apiOrigin` aponta para o master (`:3001`)
-- [ ] Health remoto ok
+- [ ] Hosts: `natumhub.local` → IP do master
+- [ ] Navegador em `http://natumhub.local:3001`
+- [ ] Health ok (`/api/health`)
 - [ ] Login com operador cadastrado no master
 
 ---
@@ -272,24 +277,27 @@ Na tela de login: **Reconfigurar dispositivo** (volta ao wizard).
 | Sintoma | Causa provável | O que fazer |
 |---------|----------------|-------------|
 | API offline / `dbConnected: false` | Sem Postgres ou `postgres.env` errado | Parte C; reiniciar app |
+| `/` não carrega UI | Sem `Frontend/dist` | `cd Frontend; npm run build` e reiniciar master |
 | Panic / mismatch SQL no financeiro | Schema/tipos Postgres | Atualizar `git pull` + schema |
-| Terminal não conecta | Firewall ou IP errado | Liberar 3001; testar `Invoke-RestMethod http://IP:3001/api/health` no terminal |
+| Terminal não conecta | Firewall, hosts ou IP errado | Liberar 3001; hosts `natumhub.local`; testar `/api/health` |
 | 1ª compilação “travou” | Cargo baixando crates | Esperar; rede liberada; `cargo check --lib` no Backend |
 | Instalador NSIS da Release falha | Motivo deste guia | Use D1 (`tauri:dev`) ou D2 (exe em `target\release`) |
 | Pensou que “só SQLite basta” | Doc antiga | Ignore — master **exige** Postgres |
 
 ---
 
-## Atualizar depois (mesmo fluxo repo)
+## Atualizar produção (branch main)
 
 ```powershell
 cd C:\NatumHub
+git checkout main
 git pull
-cd Frontend; npm ci
-cd ..\Backend; npm ci
-# master: reaplique só migrations novas em Backend\supabase\00N_*.sql se houver
-npm run tauri:dev
-# ou: npm run tauri:build
+cd Frontend
+npm ci
+npm run build
+cd ..\Backend
+npm ci
+# reiniciar o app master (tauri:dev ou o .exe instalado)
 ```
 
-Quando o instalador `.exe` da Release estiver estável de novo, volte ao fluxo de [instalacao_app_master.md](instalacao_app_master.md) / [instalacao_app_terminal.md](instalacao_app_terminal.md).
+Clientes: só recarregar `http://natumhub.local:3001`. Ver [instalacao_app_master.md](instalacao_app_master.md) · [instalacao_app_terminal.md](instalacao_app_terminal.md).
