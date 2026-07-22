@@ -829,7 +829,7 @@ pub async fn get_demands_query(
 
     let mut last_supplier_invoice_map = std::collections::HashMap::new();
     if let Ok(rows) = sqlx::query(
-        "SELECT DISTINCT ON (item_code) item_code, invoice_number
+        "SELECT DISTINCT ON (item_code) item_code, invoice_number, supplier_name, invoice_date, unit_price
          FROM invoices
          WHERE invoice_number IS NOT NULL AND invoice_number <> ''
          ORDER BY item_code, invoice_date DESC NULLS LAST, id DESC",
@@ -843,7 +843,39 @@ pub async fn get_demands_query(
                 row.try_get::<String, _>(1),
             ) {
                 if !invoice_number.is_empty() {
-                    last_supplier_invoice_map.insert(code, invoice_number);
+                    let supplier_name = row.try_get::<Option<String>, _>(2).ok().flatten();
+                    let invoice_date = row.try_get::<Option<String>, _>(3).ok().flatten();
+                    let unit_price = row.try_get::<Option<f64>, _>(4).ok().flatten();
+
+                    let formatted_date = invoice_date.as_deref().map(|d| {
+                        if d.len() >= 10 {
+                            let parts: Vec<&str> = d[..10].split('-').collect();
+                            if parts.len() == 3 {
+                                format!("{}/{}/{}", parts[2], parts[1], parts[0])
+                            } else {
+                                d.to_string()
+                            }
+                        } else {
+                            d.to_string()
+                        }
+                    }).unwrap_or_else(|| "-".to_string());
+
+                    let formatted_price = unit_price.map(|p| {
+                        let s = format!("{:.2}", p);
+                        s.replace('.', ",")
+                    }).unwrap_or_else(|| "0,00".to_string());
+
+                    let supplier = supplier_name.as_deref().unwrap_or("-").trim();
+
+                    let formatted_invoice = format!(
+                        "{} | {} | R$ {} | NF {}",
+                        supplier,
+                        formatted_date,
+                        formatted_price,
+                        invoice_number
+                    );
+
+                    last_supplier_invoice_map.insert(code, formatted_invoice);
                 }
             }
         }

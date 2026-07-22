@@ -18,6 +18,7 @@ pub const MODULE_ESTOQUE_MANUTENCOES: &str = "estoque_manutencoes";
 /// Legado — use [`MODULE_ADMIN_LINHA_PRODUTOS`].
 pub const MODULE_ESTOQUE_ATIVOS: &str = "estoque_ativos";
 pub const MODULE_ADMIN_LINHA_PRODUTOS: &str = "admin_linha_produtos";
+pub const MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS: &str = "admin_produtos_ativos_relatorios";
 
 pub const MODULE_PRODUCAO: &str = "producao";
 pub const MODULE_PRODUCAO_BASES: &str = "producao_bases";
@@ -72,6 +73,7 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_ESTOQUE_EQUIPAMENTOS,
     MODULE_ESTOQUE_MANUTENCOES,
     MODULE_ADMIN_LINHA_PRODUTOS,
+    MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS,
     MODULE_PRODUCAO,
     MODULE_PRODUCAO_BASES,
     MODULE_PRODUCAO_LOTES,
@@ -203,7 +205,13 @@ pub fn module_registry() -> Vec<ModuleGroup> {
             key: "administrativo".into(),
             label: "Administrativo".into(),
             hub_view: "administrativo".into(),
-            children: vec![leaf(MODULE_ADMIN_LINHA_PRODUTOS, "Linha de Produtos")],
+            children: vec![
+                leaf(MODULE_ADMIN_LINHA_PRODUTOS, "Linha de Produtos"),
+                leaf(
+                    MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS,
+                    "Relatórios · Produtos Ativos",
+                ),
+            ],
         },
         ModuleGroup {
             key: "expedicao".into(),
@@ -299,7 +307,10 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
         .into_iter()
         .map(String::from)
         .collect(),
-        "administrativo" => vec![MODULE_ADMIN_LINHA_PRODUTOS.to_string()],
+        "administrativo" => vec![
+            MODULE_ADMIN_LINHA_PRODUTOS.to_string(),
+            MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS.to_string(),
+        ],
         "expedicao" => vec![MODULE_EXPEDICAO_ECOMMERCE.to_string()],
         _ => vec![],
     }

@@ -23,6 +23,7 @@ pub mod modules {
     pub mod financeiro;
     pub mod hub_api;
     pub mod expedicao;
+    pub mod administrativo;
 }
 
 pub mod handlers;
@@ -214,9 +215,12 @@ fn start_axum_server() {
         };
         let db = core::db::Db::new(pool.clone());
 
-        // Chamada da rotina de auto-reparação em background
+        // Chamada da rotina de migrações e auto-reparação em background
         let pool_clone = pool.clone();
         tauri::async_runtime::spawn(async move {
+            if let Err(e) = modules::geral::postgres_bootstrap::commands::run_schema_migrations(&pool_clone).await {
+                eprintln!("[Database Migration Error] Falha nas migrações automáticas: {}", e);
+            }
             repair_corrupted_data_if_needed(&pool_clone).await;
         });
 
@@ -258,6 +262,7 @@ fn start_axum_server() {
             .route("/api/turnovers/orders", get(handlers::list_vira_orders).post(handlers::create_vira_order))
             .route("/api/turnovers/orders/:id", put(handlers::update_vira_order).delete(handlers::delete_vira_order))
             .route("/api/turnovers/next-order-number", get(handlers::get_next_vira_order_number))
+            .route("/api/turnovers/packaging-preview", get(handlers::preview_vira_packaging))
             .route("/api/configs", get(handlers::get_configs).put(handlers::update_config))
             .route("/api/configs/:prefix", delete(handlers::delete_config))
             .route("/api/overrides", get(handlers::get_overrides).post(handlers::save_override))
@@ -286,6 +291,7 @@ fn start_axum_server() {
             .merge(modules::estoque::router())
             .merge(modules::financeiro::router())
             .merge(modules::expedicao::router())
+            .merge(modules::administrativo::router())
             .route("/api/historico", get(handlers::list_producao).post(handlers::add_producao))
             .route("/api/historico/:id", delete(handlers::delete_producao))
             .route("/api/historico/:id/lote", put(handlers::update_producao_lote))

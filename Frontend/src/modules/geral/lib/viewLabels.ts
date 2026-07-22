@@ -70,6 +70,8 @@ export function getModuleTitle(view: string): string {
     case 'admin_linha_produtos':
     case 'estoque_ativos':
       return 'Administrativo > Linha de Produtos';
+    case 'admin_produtos_ativos_relatorios':
+      return 'Administrativo > Relatórios · Produtos Ativos';
     case 'vendas':
       return 'Vendas > Vendas Geral';
     case 'vendas_hub':

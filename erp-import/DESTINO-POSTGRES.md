@@ -6,7 +6,7 @@ Banco centralizado no **PostgreSQL** do PC Principal (`Saves/postgres.env`). Sch
 
 | Postgres | Colunas principais | Origem |
 |--------|-------------------|--------|
-| `produtos` | codigo, descricao, linha_prefix, base, media_m1…m12 | Passo A |
+| `produtos` | codigo, descricao, linha_prefix, base, media_levantamento, **codigo_barras** (`Produtos.cCodBarras`) | Passo A |
 | `estoque_atual` | codigo, estoque, producao, pedidos_aberto, fase | Passo A |
 | `items` | code, description, unit, category, is_ignored | Passos C, D |
 | `suppliers` | id, name, contact, email | Passo B |

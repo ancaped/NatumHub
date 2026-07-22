@@ -31,6 +31,7 @@ export const MODULE_KEYS = {
   /** @deprecated alias — use ADMIN_LINHA_PRODUTOS */
   ESTOQUE_ATIVOS: 'estoque_ativos',
   ADMIN_LINHA_PRODUTOS: 'admin_linha_produtos',
+  ADMIN_PRODUTOS_ATIVOS_RELATORIOS: 'admin_produtos_ativos_relatorios',
   PRODUCAO: 'producao',
   PRODUCAO_BASES: 'producao_bases',
   PRODUCAO_LOTES: 'producao_lotes',
@@ -167,15 +168,20 @@ export function moduleRegistry(): ModuleGroup[] {
       key: 'administrativo',
       label: 'Administrativo',
       hubView: 'administrativo',
-      children: [{ key: MODULE_KEYS.ADMIN_LINHA_PRODUTOS, label: 'Linha de Produtos' }],
+      children: [
+        { key: MODULE_KEYS.ADMIN_LINHA_PRODUTOS, label: 'Linha de Produtos' },
+        {
+          key: MODULE_KEYS.ADMIN_PRODUTOS_ATIVOS_RELATORIOS,
+          label: 'Relatórios · Produtos Ativos',
+        },
+      ],
     },
     {
       key: 'expedicao',
       label: 'Expedição',
       hubView: 'expedicao_hub',
       children: [{ key: MODULE_KEYS.EXPEDICAO_ECOMMERCE, label: 'E-commerce' }],
-    },
-    {
+    },    {
       key: 'financeiro',
       label: 'Financeiro',
       hubView: 'financeiro',
@@ -253,7 +259,10 @@ export function defaultModulesForRole(role: string): string[] {
         MODULE_KEYS.QUALIDADE_RECEBIMENTO_MP,
       ];
     case 'administrativo':
-      return [MODULE_KEYS.ADMIN_LINHA_PRODUTOS];
+      return [
+        MODULE_KEYS.ADMIN_LINHA_PRODUTOS,
+        MODULE_KEYS.ADMIN_PRODUTOS_ATIVOS_RELATORIOS,
+      ];
     case 'expedicao':
       return [MODULE_KEYS.EXPEDICAO_ECOMMERCE];
     default:

@@ -13,6 +13,14 @@ import {
   kitComponentNeedQty,
   kitOrderComponentNeed,
 } from '../lib/kitComponentQty';
+import {
+  linesFromPreview,
+  parsePackagingDeductions,
+  serializePackagingDeductions,
+  splitPackagingLines,
+  type PackagingPreviewResponse,
+  type ViraPackagingLine,
+} from '../lib/viraPackaging';
 
 export default function MontagemKitsView({ onBackToHub }) {
   const [activeSubTab, setActiveSubTab] = useState('ordens'); // 'ordens', 'componentes' ou 'composicao'
@@ -101,9 +109,20 @@ export default function MontagemKitsView({ onBackToHub }) {
   const [nextViraOrderNumber, setNextViraOrderNumber] = useState('');
   const [selectedViraComp, setSelectedViraComp] = useState(null); // {de, para, etc}
   const [newViraOrderNumber, setNewViraOrderNumber] = useState('');
-  const [newViraOrderQuantity, setNewViraOrderQuantity] = useState(10);
+  const [newViraQtyDe, setNewViraQtyDe] = useState(10);
+  const [newViraFator, setNewViraFator] = useState(1);
+  const [newViraQtyPara, setNewViraQtyPara] = useState(10);
+  const [newViraQtyParaManual, setNewViraQtyParaManual] = useState(false);
+  const [newViraPackagingLines, setNewViraPackagingLines] = useState<ViraPackagingLine[]>([]);
+  const [newViraMotivo, setNewViraMotivo] = useState('');
+  const [loadingViraPackaging, setLoadingViraPackaging] = useState(false);
   const [newViraOrderNotes, setNewViraOrderNotes] = useState('');
   const [submittingNewViraOrder, setSubmittingNewViraOrder] = useState(false);
+
+  // Preview embalagens na aba Fórmulas
+  const [expandedViraFormulaKey, setExpandedViraFormulaKey] = useState('');
+  const [formulaPackagingPreview, setFormulaPackagingPreview] = useState<PackagingPreviewResponse | null>(null);
+  const [loadingFormulaPackaging, setLoadingFormulaPackaging] = useState(false);
 
   // Editar/Visualizar Ordem de Vira
   const [showEditViraOrderModal, setShowEditViraOrderModal] = useState(false);
@@ -114,6 +133,8 @@ export default function MontagemKitsView({ onBackToHub }) {
   const [editViraNotes, setEditViraNotes] = useState('');
   const [editViraQuantityAssembled, setEditViraQuantityAssembled] = useState(0);
   const [editViraErpLaunched, setEditViraErpLaunched] = useState(false);
+  const [editViraPackagingLines, setEditViraPackagingLines] = useState<ViraPackagingLine[]>([]);
+  const [editViraMotivo, setEditViraMotivo] = useState('');
   const [submittingEditViraOrder, setSubmittingEditViraOrder] = useState(false);
 
   // State: Impressão
@@ -390,12 +411,81 @@ export default function MontagemKitsView({ onBackToHub }) {
     }
   };
 
+  const fetchViraPackagingPreview = async (de: string, para: string, qtyDe: number, qtyPara: number) => {
+    const params = new URLSearchParams({
+      de,
+      para,
+      qtyDe: String(qtyDe || 1),
+      qtyPara: String(qtyPara || 1),
+    });
+    const res = await apiFetch(`/turnovers/packaging-preview?${params}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Falha ao carregar embalagens');
+    }
+    return (await res.json()) as PackagingPreviewResponse;
+  };
+
   const handleOpenNewViraOrderModal = async () => {
     setSelectedViraComp(null);
-    setNewViraOrderQuantity(10);
+    setNewViraQtyDe(10);
+    setNewViraFator(1);
+    setNewViraQtyPara(10);
+    setNewViraQtyParaManual(false);
+    setNewViraPackagingLines([]);
+    setNewViraMotivo('');
     setNewViraOrderNotes('');
     await fetchNextViraOrderNumber();
     setShowNewViraOrderModal(true);
+  };
+
+  const applyViraCompSelection = async (found) => {
+    setSelectedViraComp(found || null);
+    if (!found) {
+      setNewViraPackagingLines([]);
+      setNewViraFator(1);
+      return;
+    }
+    const fator = parseFloat(found.quantidade) || 1;
+    setNewViraFator(fator);
+    setNewViraQtyParaManual(false);
+    const qtyDe = newViraQtyDe || 1;
+    const qtyPara = qtyDe * fator;
+    setNewViraQtyPara(qtyPara);
+    setLoadingViraPackaging(true);
+    try {
+      const preview = await fetchViraPackagingPreview(
+        found.deProdutoCodigo,
+        found.paraProdutoCodigo,
+        qtyDe,
+        qtyPara,
+      );
+      setNewViraFator(preview.fator || fator);
+      setNewViraPackagingLines(linesFromPreview(preview));
+    } catch (err) {
+      console.error(err);
+      setNewViraPackagingLines([]);
+    } finally {
+      setLoadingViraPackaging(false);
+    }
+  };
+
+  const refreshNewViraPackaging = async (qtyDe: number, qtyPara: number) => {
+    if (!selectedViraComp) return;
+    setLoadingViraPackaging(true);
+    try {
+      const preview = await fetchViraPackagingPreview(
+        selectedViraComp.deProdutoCodigo,
+        selectedViraComp.paraProdutoCodigo,
+        qtyDe,
+        qtyPara,
+      );
+      setNewViraPackagingLines(linesFromPreview(preview));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingViraPackaging(false);
+    }
   };
 
   const handleCreateViraOrder = async (e) => {
@@ -403,6 +493,14 @@ export default function MontagemKitsView({ onBackToHub }) {
     if (!selectedViraComp || !newViraOrderNumber.trim()) return;
     setSubmittingNewViraOrder(true);
     try {
+      const packagingPayload = serializePackagingDeductions({
+        meta: {
+          qtyDe: Number(newViraQtyDe) || 0,
+          fator: Number(newViraFator) || 1,
+          qtyPara: Number(newViraQtyPara) || 0,
+        },
+        items: newViraPackagingLines,
+      });
       const res = await apiFetch(`/turnovers/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -410,10 +508,12 @@ export default function MontagemKitsView({ onBackToHub }) {
           orderNumber: newViraOrderNumber.trim(),
           deProdutoCodigo: selectedViraComp.deProdutoCodigo,
           paraProdutoCodigo: selectedViraComp.paraProdutoCodigo,
-          quantity: parseFloat(newViraOrderQuantity) || 0,
+          quantity: parseFloat(String(newViraQtyPara)) || 0,
           status: 'PENDING',
-          observations: newViraOrderNotes
-        })
+          observations: newViraOrderNotes,
+          packagingDeductions: packagingPayload,
+          motivo: newViraMotivo.trim() || null,
+        }),
       });
       if (res.ok) {
         setShowNewViraOrderModal(false);
@@ -422,8 +522,8 @@ export default function MontagemKitsView({ onBackToHub }) {
         const err = await res.json();
         alert(err.error || 'Erro ao criar ordem de vira.');
       }
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error(err);
       alert('Erro ao conectar com a API.');
     } finally {
       setSubmittingNewViraOrder(false);
@@ -438,6 +538,9 @@ export default function MontagemKitsView({ onBackToHub }) {
     setEditViraNotes(o.observations || '');
     setEditViraQuantityAssembled(o.quantityAssembled !== null && o.quantityAssembled !== undefined ? o.quantityAssembled : o.quantity);
     setEditViraErpLaunched(o.erpLaunched === 1);
+    setEditViraMotivo(o.motivo || '');
+    const parsed = parsePackagingDeductions(o.packagingDeductions);
+    setEditViraPackagingLines(parsed?.items ? [...parsed.items] : []);
     setShowEditViraOrderModal(true);
   };
 
@@ -446,18 +549,30 @@ export default function MontagemKitsView({ onBackToHub }) {
     if (!selectedViraOrder) return;
     setSubmittingEditViraOrder(true);
     try {
-      const payload = {
+      const existing = parsePackagingDeductions(selectedViraOrder.packagingDeductions);
+      const packagingPayload =
+        editViraPackagingLines.length > 0
+          ? serializePackagingDeductions({
+              meta: existing?.meta,
+              items: editViraPackagingLines,
+            })
+          : null;
+      const payload: Record<string, unknown> = {
         status: editViraStatus,
         assembledBy: editViraAssembledBy,
         checkedBy: editViraCheckedBy,
         observations: editViraNotes,
         erpLaunched: editViraErpLaunched ? 1 : 0,
-        quantityAssembled: parseFloat(editViraQuantityAssembled) || 0
+        quantityAssembled: parseFloat(String(editViraQuantityAssembled)) || 0,
+        motivo: editViraMotivo.trim() || null,
       };
+      if (packagingPayload) {
+        payload.packagingDeductions = packagingPayload;
+      }
       const res = await apiFetch(`/turnovers/orders/${selectedViraOrder.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         setShowEditViraOrderModal(false);
@@ -466,12 +581,70 @@ export default function MontagemKitsView({ onBackToHub }) {
         const err = await res.json();
         alert(err.error || 'Erro ao atualizar ordem de vira.');
       }
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error(err);
       alert('Erro de conexão.');
     } finally {
       setSubmittingEditViraOrder(false);
     }
+  };
+
+  const toggleFormulaPackagingPreview = async (row) => {
+    const key = `${row.deProdutoCodigo}|${row.paraProdutoCodigo}`;
+    if (expandedViraFormulaKey === key) {
+      setExpandedViraFormulaKey('');
+      setFormulaPackagingPreview(null);
+      return;
+    }
+    setExpandedViraFormulaKey(key);
+    setLoadingFormulaPackaging(true);
+    setFormulaPackagingPreview(null);
+    try {
+      const preview = await fetchViraPackagingPreview(
+        row.deProdutoCodigo,
+        row.paraProdutoCodigo,
+        1,
+        parseFloat(row.quantidade) || 1,
+      );
+      setFormulaPackagingPreview(preview);
+    } catch (err) {
+      console.error(err);
+      setFormulaPackagingPreview(null);
+    } finally {
+      setLoadingFormulaPackaging(false);
+    }
+  };
+
+  const buildViraPrintPayload = (o) => {
+    const parsed = parsePackagingDeductions(o.packagingDeductions);
+    const meta = parsed?.meta;
+    const { returns, consumes } = splitPackagingLines(parsed?.items || []);
+    return {
+      id: o.id,
+      orderNumber: o.orderNumber,
+      isViraPrint: true,
+      kitProductCode: o.paraProdutoCodigo,
+      kitProductDescription: `CONVERSÃO: ${o.deProdutoDescricao} ➔ ${o.paraProdutoDescricao}`,
+      deCodigo: o.deProdutoCodigo,
+      deDescricao: o.deProdutoDescricao,
+      paraCodigo: o.paraProdutoCodigo,
+      paraDescricao: o.paraProdutoDescricao,
+      quantity: o.quantity,
+      quantityAssembled: o.quantityAssembled,
+      status: o.status,
+      observations: o.observations,
+      created_at: o.createdAt,
+      motivo: o.motivo || '',
+      viraMeta: meta || null,
+      viraReturns: returns,
+      viraConsumes: consumes,
+    };
+  };
+
+  const truncPrint = (s, n = 42) => {
+    const t = String(s || '').trim();
+    if (t.length <= n) return t;
+    return `${t.slice(0, n - 1)}…`;
   };
 
   const handleDeleteViraOrder = async (id) => {
@@ -812,6 +985,232 @@ export default function MontagemKitsView({ onBackToHub }) {
     <div className="flex flex-1 w-full h-full overflow-hidden animate-in fade-in duration-200">
       {/* Printable Sheet */}
       {printingOrder && (
+        printingOrder.isViraPrint || printingOrder.kitProductDescription?.startsWith('CONVERSÃO') ? (
+          /* Folha compacta de conversão — formulário manual de chão */
+          <div
+            id="print-area"
+            className="hidden print:block p-5 bg-white text-zinc-900 font-sans w-full max-w-[850px] mx-auto shadow-none text-[9px] leading-tight"
+          >
+            <div className="flex justify-between items-start border-b border-zinc-900 pb-2 mb-2">
+              <div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-lg font-black tracking-tighter">NATUM</span>
+                  <span className="text-[8px] font-semibold tracking-[0.2em] text-zinc-500 uppercase">COSMÉTICOS</span>
+                </div>
+                <p className="text-[8px] font-bold uppercase tracking-widest text-zinc-600">Folha de Conversão de Produto</p>
+              </div>
+              <div className="text-right">
+                <div className="inline-block bg-zinc-950 text-white px-2.5 py-1 rounded text-center">
+                  <span className="text-[6px] uppercase font-black text-zinc-300 block">Nº Ordem / Lote Hub</span>
+                  <span className="text-sm font-black">{printingOrder.orderNumber}</span>
+                </div>
+                <p className="text-[7px] text-zinc-500 font-bold mt-1 uppercase">
+                  Emissão: {new Date(printingOrder.created_at || Date.now()).toLocaleDateString('pt-BR')}
+                </p>
+              </div>
+            </div>
+
+            {/* DE → PARA + qtys */}
+            <div className="border border-zinc-800 rounded mb-2 overflow-hidden">
+              <div className="grid grid-cols-12 divide-x divide-zinc-300">
+                <div className="col-span-5 p-1.5">
+                  <span className="text-[6.5px] font-black uppercase text-zinc-500 block">DE (origem)</span>
+                  <p className="font-mono font-bold text-[9px]">{printingOrder.deCodigo || '—'}</p>
+                  <p className="font-semibold text-[8px] text-zinc-700 truncate">
+                    {truncPrint(printingOrder.deDescricao, 48)}
+                  </p>
+                </div>
+                <div className="col-span-5 p-1.5">
+                  <span className="text-[6.5px] font-black uppercase text-zinc-500 block">PARA (destino)</span>
+                  <p className="font-mono font-bold text-[9px]">
+                    {printingOrder.paraCodigo || printingOrder.kitProductCode || '—'}
+                  </p>
+                  <p className="font-semibold text-[8px] text-zinc-700 truncate">
+                    {truncPrint(printingOrder.paraDescricao, 48)}
+                  </p>
+                </div>
+                <div className="col-span-2 p-1.5 text-center flex flex-col justify-center bg-zinc-50">
+                  <span className="text-[6.5px] font-black uppercase text-zinc-500">Fator</span>
+                  <span className="font-black text-[11px]">
+                    {printingOrder.viraMeta?.fator ?? '—'}
+                  </span>
+                </div>
+              </div>
+              <div className="grid grid-cols-4 border-t border-zinc-300 divide-x divide-zinc-300 text-center">
+                <div className="p-1">
+                  <span className="text-[6.5px] font-black uppercase text-zinc-500 block">Qtd DE</span>
+                  <span className="font-bold">{printingOrder.viraMeta?.qtyDe ?? '—'}</span>
+                </div>
+                <div className="p-1">
+                  <span className="text-[6.5px] font-black uppercase text-zinc-500 block">Qtd PARA est.</span>
+                  <span className="font-bold">
+                    {printingOrder.viraMeta?.qtyPara ?? printingOrder.quantity ?? '—'}
+                  </span>
+                </div>
+                <div className="p-1">
+                  <span className="text-[6.5px] font-black uppercase text-zinc-500 block">Qtd real PARA</span>
+                  <div className="border-b border-dashed border-zinc-600 h-3.5 w-14 mx-auto mt-0.5" />
+                </div>
+                <div className="p-1">
+                  <span className="text-[6.5px] font-black uppercase text-zinc-500 block">Data conversão</span>
+                  <div className="border-b border-dashed border-zinc-600 h-3.5 w-16 mx-auto mt-0.5" />
+                </div>
+              </div>
+            </div>
+
+            {/* Lotes produto */}
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <div className="border border-zinc-400 rounded px-2 py-1.5 flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <span className="text-[6.5px] font-black uppercase text-zinc-500 block">Lote produto origem (virado)</span>
+                  <span className="font-mono text-[8px] text-zinc-600">{printingOrder.deCodigo}</span>
+                </div>
+                <div className="border border-zinc-400 rounded h-6 w-28 bg-white shrink-0" title="Preencher à mão" />
+              </div>
+              <div className="border border-zinc-400 rounded px-2 py-1.5 flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <span className="text-[6.5px] font-black uppercase text-zinc-500 block">Lote item final (destino)</span>
+                  <span className="font-mono text-[8px] text-zinc-600">
+                    {printingOrder.paraCodigo || printingOrder.kitProductCode}
+                  </span>
+                </div>
+                <div className="border border-zinc-400 rounded h-6 w-28 bg-white shrink-0" title="Preencher à mão" />
+              </div>
+            </div>
+
+            {/* Embalagens retorno */}
+            <div className="border border-zinc-700 rounded mb-1.5 overflow-hidden">
+              <div className="bg-zinc-100 px-2 py-0.5 text-[7px] font-black uppercase tracking-wide text-zinc-700">
+                Embalagens retorno (origem) — marcar se retornou ao estoque
+              </div>
+              <table className="w-full text-[8px] border-collapse">
+                <thead>
+                  <tr className="border-b border-zinc-400 text-[6.5px] uppercase font-black text-zinc-500">
+                    <th className="py-0.5 px-1.5 text-left w-16">Cód.</th>
+                    <th className="py-0.5 px-1.5 text-left">Descrição</th>
+                    <th className="py-0.5 px-1.5 text-center w-10">Qtd</th>
+                    <th className="py-0.5 px-1.5 text-center w-24">Retornou?</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const all = printingOrder.viraReturns || [];
+                    const max = 8;
+                    const rows = all.slice(0, max);
+                    if (rows.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={4} className="px-1.5 py-1 text-zinc-400 italic">
+                            Sem embalagens de retorno sugeridas
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return (
+                      <>
+                        {rows.map((r) => (
+                          <tr key={`vr-${r.code}`} className="border-t border-zinc-200">
+                            <td className="py-0.5 px-1.5 font-mono font-bold">{r.code}</td>
+                            <td className="py-0.5 px-1.5">{truncPrint(r.description, 36)}</td>
+                            <td className="py-0.5 px-1.5 text-center font-bold">{r.qty}</td>
+                            <td className="py-0.5 px-1.5 text-center font-bold tracking-wide">
+                              □ Sim&nbsp;&nbsp;□ Não
+                            </td>
+                          </tr>
+                        ))}
+                        {all.length > max && (
+                          <tr className="border-t border-zinc-200">
+                            <td colSpan={4} className="px-1.5 py-0.5 text-zinc-500 italic">
+                              +{all.length - max} no Hub (não impressas)
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })()}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Embalagens saída */}
+            <div className="border border-zinc-700 rounded mb-2 overflow-hidden">
+              <div className="bg-zinc-100 px-2 py-0.5 text-[7px] font-black uppercase tracking-wide text-zinc-700">
+                Embalagens saída (destino) — preencher lote da embalagem usada
+              </div>
+              <table className="w-full text-[8px] border-collapse">
+                <thead>
+                  <tr className="border-b border-zinc-400 text-[6.5px] uppercase font-black text-zinc-500">
+                    <th className="py-0.5 px-1.5 text-left w-16">Cód.</th>
+                    <th className="py-0.5 px-1.5 text-left">Descrição</th>
+                    <th className="py-0.5 px-1.5 text-center w-10">Qtd</th>
+                    <th className="py-0.5 px-1.5 text-left w-28">Lote emb.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const all = printingOrder.viraConsumes || [];
+                    const max = 8;
+                    const rows = all.slice(0, max);
+                    if (rows.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={4} className="px-1.5 py-1 text-zinc-400 italic">
+                            Sem embalagens de saída sugeridas
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return (
+                      <>
+                        {rows.map((c) => (
+                          <tr key={`vc-${c.code}`} className="border-t border-zinc-200">
+                            <td className="py-0.5 px-1.5 font-mono font-bold">{c.code}</td>
+                            <td className="py-0.5 px-1.5">{truncPrint(c.description, 36)}</td>
+                            <td className="py-0.5 px-1.5 text-center font-bold">{c.qty}</td>
+                            <td className="py-0.5 px-1.5">
+                              <div className="border border-zinc-400 rounded h-4 w-full bg-white" />
+                            </td>
+                          </tr>
+                        ))}
+                        {all.length > max && (
+                          <tr className="border-t border-zinc-200">
+                            <td colSpan={4} className="px-1.5 py-0.5 text-zinc-500 italic">
+                              +{all.length - max} no Hub (não impressas)
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })()}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Assinaturas + obs */}
+            <div className="grid grid-cols-3 gap-2 mb-1.5 text-[8px]">
+              <div className="border border-zinc-400 rounded px-2 py-1">
+                <span className="text-[6.5px] font-black uppercase text-zinc-500 block">Montou</span>
+                <div className="border-b border-zinc-500 h-4 mt-1" />
+              </div>
+              <div className="border border-zinc-400 rounded px-2 py-1">
+                <span className="text-[6.5px] font-black uppercase text-zinc-500 block">Conferiu</span>
+                <div className="border-b border-zinc-500 h-4 mt-1" />
+              </div>
+              <div className="border border-zinc-400 rounded px-2 py-1">
+                <span className="text-[6.5px] font-black uppercase text-zinc-500 block">Data</span>
+                <div className="border-b border-zinc-500 h-4 mt-1" />
+              </div>
+            </div>
+            <div className="border border-zinc-400 rounded px-2 py-1 mb-2">
+              <span className="text-[6.5px] font-black uppercase text-zinc-500 block">Observações</span>
+              <div className="border-b border-dashed border-zinc-400 h-3.5 mt-1" />
+              <div className="border-b border-dashed border-zinc-400 h-3.5 mt-1" />
+            </div>
+            <p className="text-[6.5px] text-zinc-500 font-medium text-center">
+              Registro Hub não movimenta estoque — lançar no ERP conforme preenchido nesta folha.
+            </p>
+          </div>
+        ) : (
         <div id="print-area" className="hidden print:flex flex-col justify-between p-8 bg-white text-zinc-900 font-sans min-h-[94vh] w-full max-w-[850px] mx-auto relative shadow-none">
           <div className="space-y-6">
             {/* Elegant Top Header with logo and document type */}
@@ -822,9 +1221,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                   <span className="text-[10px] font-semibold tracking-[0.3em] text-zinc-450 uppercase">COSMÉTICOS</span>
                 </div>
                 <p className="text-[9px] font-bold text-zinc-455 uppercase tracking-widest mt-1">
-                  {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
-                    ? "Ordem de Conversão de Produto" 
-                    : "Ordem de Montagem de Kit"}
+                  Ordem de Montagem de Kit
                 </p>
               </div>
               <div className="flex flex-col items-end">
@@ -842,17 +1239,13 @@ export default function MontagemKitsView({ onBackToHub }) {
             <div className="grid grid-cols-12 border border-zinc-200 rounded-xl overflow-hidden divide-x divide-zinc-200 text-[10px]">
               <div className="p-3 bg-zinc-50/50 space-y-1 col-span-6">
                 <span className="text-[7.5px] uppercase font-black text-zinc-400 tracking-wider block">
-                  {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
-                    ? "Conversão de Produto" 
-                    : "Produto / Kit Comercial"}
+                  Produto / Kit Comercial
                 </span>
                 <p className="font-extrabold text-zinc-900 leading-tight">{printingOrder.kitProductDescription}</p>
               </div>
               <div className="p-3 space-y-1 col-span-2 text-center flex flex-col justify-center">
                 <span className="text-[7.5px] uppercase font-black text-zinc-400 tracking-wider block">
-                  {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
-                    ? "Código Destino" 
-                    : "Código do Kit"}
+                  Código do Kit
                 </span>
                 <p className="font-mono font-bold text-zinc-800 leading-none mt-1">{printingOrder.kitProductCode}</p>
               </div>
@@ -862,9 +1255,7 @@ export default function MontagemKitsView({ onBackToHub }) {
               </div>
               <div className="p-3 space-y-1 col-span-2 text-center flex flex-col justify-center">
                 <span className="text-[7.5px] uppercase font-black text-zinc-400 tracking-wider block">
-                  {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
-                    ? "Convertida Real" 
-                    : "Montada Real"}
+                  Montada Real
                 </span>
                 {printingOrder.status === 'COMPLETED' ? (
                   <p className="font-black text-zinc-950 leading-none mt-1">
@@ -880,9 +1271,7 @@ export default function MontagemKitsView({ onBackToHub }) {
             <div className="space-y-3">
               <div className="flex items-center justify-between border-b border-zinc-950 pb-1.5">
                 <h3 className="text-[9px] font-black text-zinc-950 uppercase tracking-widest">
-                  {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
-                    ? "Instruções e Origem da Conversão" 
-                    : "Instruções e Componentes do Kit"}
+                  Instruções e Componentes do Kit
                 </h3>
                 <span className="text-[8px] text-zinc-450 font-bold uppercase">NatumHub — Controle de Fluxo</span>
               </div>
@@ -890,26 +1279,10 @@ export default function MontagemKitsView({ onBackToHub }) {
                 <thead>
                   <tr className="border-b border-zinc-950 text-zinc-900 font-black text-[8px] uppercase tracking-wider">
                     <th className="py-2 text-left w-20">Código</th>
-                    <th className="py-2 text-left">
-                      {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
-                        ? "Produto Origem / Descrição" 
-                        : "Componente / Descrição"}
-                    </th>
-                    <th className="py-2 text-center w-16">
-                      {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
-                        ? "Fator" 
-                        : "Qtd p/ Kit"}
-                    </th>
-                    <th className="py-2 text-center w-20">
-                      {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
-                        ? "Origem Prog." 
-                        : "Qtd Prog."}
-                    </th>
-                    <th className="py-2 text-center w-20">
-                      {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
-                        ? "Origem Usada" 
-                        : "Qtd Usada"}
-                    </th>
+                    <th className="py-2 text-left">Componente / Descrição</th>
+                    <th className="py-2 text-center w-16">Qtd p/ Kit</th>
+                    <th className="py-2 text-center w-20">Qtd Prog.</th>
+                    <th className="py-2 text-center w-20">Qtd Usada</th>
                     <th className="py-2 text-left w-36 pl-4">Lote Utilizado</th>
                   </tr>
                 </thead>
@@ -974,10 +1347,7 @@ export default function MontagemKitsView({ onBackToHub }) {
               </span>
               {printingOrder.status === 'COMPLETED' ? (
                 <p className="text-[9.5px] italic text-zinc-650 leading-tight">
-                  {printingOrder.observations || (printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
-                    ? "Nenhuma observação registrada para esta ordem de conversão."
-                    : "Nenhuma observação registrada para esta ordem de montagem.")
-                  }
+                  {printingOrder.observations || "Nenhuma observação registrada para esta ordem de montagem."}
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -995,12 +1365,9 @@ export default function MontagemKitsView({ onBackToHub }) {
 
             {/* Signature Grid */}
             <div className="grid grid-cols-3 gap-6 pt-4 border-t border-zinc-200">
-              {/* Column 1: Operator */}
               <div className="border border-zinc-200 bg-zinc-50/20 p-4 rounded-xl space-y-3 h-28 flex flex-col justify-between">
                 <span className="text-[8px] font-black text-zinc-950 uppercase tracking-wider block border-b border-zinc-200 pb-1 text-center">
-                  {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
-                    ? "1. OPERADOR RESPONSÁVEL" 
-                    : "1. MONTADOR RESPONSÁVEL"}
+                  1. MONTADOR RESPONSÁVEL
                 </span>
                 <div className="space-y-2.5 text-[9.5px] text-zinc-650">
                   <div className="flex items-baseline gap-1">
@@ -1014,12 +1381,9 @@ export default function MontagemKitsView({ onBackToHub }) {
                 </div>
               </div>
 
-              {/* Column 2: Checker */}
               <div className="border border-zinc-200 bg-zinc-50/20 p-4 rounded-xl space-y-3 h-28 flex flex-col justify-between">
                 <span className="text-[8px] font-black text-zinc-950 uppercase tracking-wider block border-b border-zinc-200 pb-1 text-center">
-                  {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
-                    ? "2. CONFERENTE CONTROLE" 
-                    : "2. CONFERENTE EXPEDIÇÃO"}
+                  2. CONFERENTE EXPEDIÇÃO
                 </span>
                 <div className="space-y-2.5 text-[9.5px] text-zinc-650">
                   <div className="flex items-baseline gap-1">
@@ -1033,7 +1397,6 @@ export default function MontagemKitsView({ onBackToHub }) {
                 </div>
               </div>
 
-              {/* Column 3: Supervisor */}
               <div className="border border-zinc-200 bg-zinc-50/20 p-4 rounded-xl space-y-3 h-28 flex flex-col justify-between">
                 <span className="text-[8px] font-black text-zinc-950 uppercase tracking-wider block border-b border-zinc-200 pb-1 text-center">3. RESPONSÁVEL CONTROLE</span>
                 <div className="space-y-2.5 text-[9.5px] text-zinc-650">
@@ -1050,6 +1413,7 @@ export default function MontagemKitsView({ onBackToHub }) {
             </div>
           </div>
         </div>
+        )
       )}
 
       {/* Sidebar */}
@@ -1786,26 +2150,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                               <div className="flex gap-2 justify-center items-center">
                                 <button 
                                   onClick={() => {
-                                    const customPrint = {
-                                      id: o.id,
-                                      orderNumber: o.orderNumber,
-                                      kitProductCode: o.paraProdutoCodigo,
-                                      kitProductDescription: `CONVERSÃO SIMPLES: ${o.deProdutoDescricao} ➔ ${o.paraProdutoDescricao}`,
-                                      quantity: o.quantity,
-                                      quantityAssembled: o.quantityAssembled,
-                                      status: o.status,
-                                      observations: o.observations,
-                                      created_at: o.createdAt,
-                                      componentsLotes: JSON.stringify([
-                                        {
-                                          code: o.deProdutoCodigo,
-                                          description: o.deProdutoDescricao,
-                                          expected_qty: 1,
-                                          used_qty: o.quantityAssembled || undefined
-                                        }
-                                      ])
-                                    };
-                                    setPrintingOrder(customPrint);
+                                    setPrintingOrder(buildViraPrintPayload(o));
                                     setTimeout(() => window.print(), 100);
                                   }}
                                   className="p-1.5 hover:bg-zinc-100 text-zinc-650 hover:text-zinc-900 rounded-lg cursor-pointer"
@@ -1969,26 +2314,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                               <div className="flex gap-2 justify-center items-center">
                                 <button 
                                   onClick={() => {
-                                    const customPrint = {
-                                      id: o.id,
-                                      orderNumber: o.orderNumber,
-                                      kitProductCode: o.paraProdutoCodigo,
-                                      kitProductDescription: `CONVERSÃO: ${o.deProdutoDescricao} ➔ ${o.paraProdutoDescricao}`,
-                                      quantity: o.quantity,
-                                      quantityAssembled: o.quantityAssembled,
-                                      status: o.status,
-                                      observations: o.observations,
-                                      created_at: o.createdAt,
-                                      componentsLotes: JSON.stringify([
-                                        {
-                                          code: o.deProdutoCodigo,
-                                          description: o.deProdutoDescricao,
-                                          expected_qty: 1,
-                                          used_qty: o.quantityAssembled || undefined
-                                        }
-                                      ])
-                                    };
-                                    setPrintingOrder(customPrint);
+                                    setPrintingOrder(buildViraPrintPayload(o));
                                     setTimeout(() => window.print(), 100);
                                   }}
                                   className="p-1.5 hover:bg-zinc-100 text-zinc-650 hover:text-zinc-900 rounded-lg cursor-pointer"
@@ -2068,6 +2394,9 @@ export default function MontagemKitsView({ onBackToHub }) {
                     className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-955 text-xs font-semibold text-zinc-900"
                     required
                   />
+                  <p className="text-[9px] text-zinc-450 font-medium leading-snug">
+                    1 origem → N destino (ex.: 300g → 100g = fator 3)
+                  </p>
                 </div>
                 <button
                   type="submit"
@@ -2123,24 +2452,87 @@ export default function MontagemKitsView({ onBackToHub }) {
                         );
                       }
 
-                      return filtered.map(row => (
-                        <tr key={`${row.deProdutoCodigo}-${row.paraProdutoCodigo}`} className="hover:bg-zinc-50/50 transition-colors">
-                          <td className="px-6 py-3 font-mono font-bold text-zinc-800">{row.deProdutoCodigo}</td>
-                          <td className="px-6 py-3 font-bold text-zinc-900">{row.deProdutoDescricao}</td>
-                          <td className="px-6 py-3 font-mono text-zinc-650">{row.paraProdutoCodigo}</td>
-                          <td className="px-6 py-3 text-zinc-700">{row.paraProdutoDescricao}</td>
-                          <td className="px-6 py-3 text-center font-bold text-zinc-900">{row.quantidade}</td>
-                          <td className="px-6 py-3 text-center">
-                            <button
-                              onClick={() => handleDeleteViraComposicao(row.deProdutoCodigo, row.paraProdutoCodigo)}
-                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-150 transition-colors cursor-pointer inline-flex items-center justify-center"
-                              title="Remover vínculo de vira"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ));
+                      return filtered.map(row => {
+                        const key = `${row.deProdutoCodigo}|${row.paraProdutoCodigo}`;
+                        const expanded = expandedViraFormulaKey === key;
+                        return (
+                          <React.Fragment key={key}>
+                            <tr className="hover:bg-zinc-50/50 transition-colors">
+                              <td className="px-6 py-3 font-mono font-bold text-zinc-800">{row.deProdutoCodigo}</td>
+                              <td className="px-6 py-3 font-bold text-zinc-900">{row.deProdutoDescricao}</td>
+                              <td className="px-6 py-3 font-mono text-zinc-650">{row.paraProdutoCodigo}</td>
+                              <td className="px-6 py-3 text-zinc-700">{row.paraProdutoDescricao}</td>
+                              <td className="px-6 py-3 text-center font-bold text-zinc-900">
+                                1 → {row.quantidade}
+                              </td>
+                              <td className="px-6 py-3 text-center">
+                                <div className="inline-flex gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleFormulaPackagingPreview(row)}
+                                    className="p-1.5 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 rounded-lg border border-zinc-200 transition-colors cursor-pointer"
+                                    title="Ver embalagens (por unidade)"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteViraComposicao(row.deProdutoCodigo, row.paraProdutoCodigo)}
+                                    className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-150 transition-colors cursor-pointer"
+                                    title="Remover vínculo de vira"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                            {expanded && (
+                              <tr className="bg-zinc-50/80">
+                                <td colSpan={6} className="px-6 py-3">
+                                  {loadingFormulaPackaging ? (
+                                    <p className="text-[11px] text-zinc-500 font-medium">Carregando embalagens da formulação…</p>
+                                  ) : !formulaPackagingPreview ? (
+                                    <p className="text-[11px] text-zinc-500 font-medium">Sem dados de embalagem ou falha ao carregar.</p>
+                                  ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[11px]">
+                                      <div>
+                                        <p className="font-extrabold text-zinc-600 uppercase tracking-wide mb-1.5">Retorno (origem) / un</p>
+                                        {(formulaPackagingPreview.returns || []).length === 0 ? (
+                                          <p className="text-zinc-400">Nenhuma embalagem na formulação DE</p>
+                                        ) : (
+                                          <ul className="space-y-1">
+                                            {formulaPackagingPreview.returns.map((r) => (
+                                              <li key={`r-${r.code}`} className="flex justify-between gap-2 border-b border-zinc-100 py-0.5">
+                                                <span className="font-medium text-zinc-800 truncate">{r.code} · {r.description}</span>
+                                                <span className="font-bold text-zinc-600 shrink-0">{r.unitQty ?? r.qty}</span>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        )}
+                                      </div>
+                                      <div>
+                                        <p className="font-extrabold text-zinc-600 uppercase tracking-wide mb-1.5">Saída (destino) / un destino</p>
+                                        {(formulaPackagingPreview.consumes || []).length === 0 ? (
+                                          <p className="text-zinc-400">Nenhuma embalagem na formulação PARA</p>
+                                        ) : (
+                                          <ul className="space-y-1">
+                                            {formulaPackagingPreview.consumes.map((c) => (
+                                              <li key={`c-${c.code}`} className="flex justify-between gap-2 border-b border-zinc-100 py-0.5">
+                                                <span className="font-medium text-zinc-800 truncate">{c.code} · {c.description}</span>
+                                                <span className="font-bold text-zinc-600 shrink-0">{c.unitQty ?? c.qty}</span>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      });
                     })()}
                   </tbody>
                 </table>
@@ -2521,13 +2913,14 @@ export default function MontagemKitsView({ onBackToHub }) {
       {/* MODAL: NOVA ORDEM DE CONVERSÃO */}
       {showNewViraOrderModal && (
         <div className="fixed inset-0 bg-black/55 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b pb-3">
               <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-1.5">
                 <RefreshCw className="h-5 w-5 text-zinc-900" />
                 Criar Ordem de Conversão de Produto
               </h3>
-              <button 
+              <button
+                type="button"
                 onClick={() => setShowNewViraOrderModal(false)}
                 className="p-1 hover:bg-zinc-100 rounded-full text-zinc-450 hover:text-zinc-900 cursor-pointer"
               >
@@ -2538,8 +2931,8 @@ export default function MontagemKitsView({ onBackToHub }) {
             <form onSubmit={handleCreateViraOrder} className="space-y-4 text-xs font-medium text-zinc-700">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Lote da Ordem de Conversão</label>
-                  <input 
+                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Lote da Ordem</label>
+                  <input
                     type="text"
                     value={newViraOrderNumber}
                     onChange={(e) => setNewViraOrderNumber(e.target.value)}
@@ -2549,19 +2942,24 @@ export default function MontagemKitsView({ onBackToHub }) {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Selecione a Conversão de Produto</label>
+                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Conversão</label>
                   <select
                     value={selectedViraComp ? `${selectedViraComp.deProdutoCodigo}-${selectedViraComp.paraProdutoCodigo}` : ''}
                     onChange={(e) => {
-                      const found = viraComposicao.find(vc => `${vc.deProdutoCodigo}-${vc.paraProdutoCodigo}` === e.target.value);
-                      setSelectedViraComp(found || null);
+                      const found = viraComposicao.find(
+                        (vc) => `${vc.deProdutoCodigo}-${vc.paraProdutoCodigo}` === e.target.value,
+                      );
+                      void applyViraCompSelection(found || null);
                     }}
                     className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900 font-semibold text-zinc-900 bg-white"
                     required
                   >
                     <option value="">Selecione uma conversão...</option>
-                    {viraComposicao.map(vc => (
-                      <option key={`${vc.deProdutoCodigo}-${vc.paraProdutoCodigo}`} value={`${vc.deProdutoCodigo}-${vc.paraProdutoCodigo}`}>
+                    {viraComposicao.map((vc) => (
+                      <option
+                        key={`${vc.deProdutoCodigo}-${vc.paraProdutoCodigo}`}
+                        value={`${vc.deProdutoCodigo}-${vc.paraProdutoCodigo}`}
+                      >
                         {vc.deProdutoDescricao} ➔ {vc.paraProdutoDescricao}
                       </option>
                     ))}
@@ -2571,61 +2969,193 @@ export default function MontagemKitsView({ onBackToHub }) {
 
               {selectedViraComp && (
                 <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-3">
-                  <h4 className="font-extrabold text-[10px] uppercase text-zinc-500 tracking-wider">Produtos Associados</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-0.5">
-                      <span className="text-[9px] text-zinc-400 font-bold block">PRODUTO ORIGEM (DE):</span>
-                      <span className="font-bold text-zinc-900 block">{selectedViraComp.deProdutoDescricao}</span>
-                      <span className="text-[10px] font-mono text-zinc-550 block">{selectedViraComp.deProdutoCodigo}</span>
+                  <h4 className="font-extrabold text-[10px] uppercase text-zinc-500 tracking-wider">
+                    Quantidade estimada (DE × fator → PARA)
+                  </h4>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[9px] text-zinc-400 font-bold uppercase block">Qtd origem (DE)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={newViraQtyDe}
+                        onChange={(e) => {
+                          const qtyDe = parseFloat(e.target.value) || 0;
+                          setNewViraQtyDe(qtyDe);
+                          const qtyPara = newViraQtyParaManual
+                            ? newViraQtyPara
+                            : qtyDe * (Number(newViraFator) || 1);
+                          if (!newViraQtyParaManual) setNewViraQtyPara(qtyPara);
+                          void refreshNewViraPackaging(
+                            qtyDe,
+                            newViraQtyParaManual ? newViraQtyPara : qtyPara,
+                          );
+                        }}
+                        className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs font-bold text-zinc-900"
+                        required
+                      />
                     </div>
-                    <div className="space-y-0.5">
-                      <span className="text-[9px] text-zinc-400 font-bold block">PRODUTO DESTINO (PARA):</span>
-                      <span className="font-bold text-zinc-900 block">{selectedViraComp.paraProdutoDescricao}</span>
-                      <span className="text-[10px] font-mono text-zinc-550 block">{selectedViraComp.paraProdutoCodigo}</span>
+                    <div className="space-y-1">
+                      <label className="text-[9px] text-zinc-400 font-bold uppercase block">Fator (1→N)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={newViraFator}
+                        onChange={(e) => {
+                          const fator = parseFloat(e.target.value) || 0;
+                          setNewViraFator(fator);
+                          if (!newViraQtyParaManual) {
+                            const qtyPara = (Number(newViraQtyDe) || 0) * fator;
+                            setNewViraQtyPara(qtyPara);
+                            void refreshNewViraPackaging(Number(newViraQtyDe) || 0, qtyPara);
+                          }
+                        }}
+                        className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs font-bold text-zinc-900"
+                      />
                     </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] text-zinc-400 font-bold uppercase block">Qtd estimada PARA</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={newViraQtyPara}
+                        onChange={(e) => {
+                          const qtyPara = parseFloat(e.target.value) || 0;
+                          setNewViraQtyParaManual(true);
+                          setNewViraQtyPara(qtyPara);
+                          void refreshNewViraPackaging(Number(newViraQtyDe) || 0, qtyPara);
+                        }}
+                        className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs font-bold text-zinc-900"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[9px] text-zinc-450">
+                    {selectedViraComp.deProdutoCodigo} → {selectedViraComp.paraProdutoCodigo}
+                    {loadingViraPackaging ? ' · atualizando embalagens…' : ''}
+                  </p>
+                </div>
+              )}
+
+              {selectedViraComp && (
+                <div className="space-y-3 border border-zinc-200 rounded-xl p-4">
+                  <h4 className="font-extrabold text-[10px] uppercase text-zinc-500 tracking-wider">
+                    Embalagens (registro — não movimenta estoque no Hub)
+                  </h4>
+                  <div className="space-y-2">
+                    <p className="text-[9px] font-bold text-emerald-700 uppercase">Retorno ao estoque (origem)</p>
+                    {newViraPackagingLines.filter((l) => l.role === 'return').length === 0 ? (
+                      <p className="text-[11px] text-zinc-400">Nenhuma embalagem sugerida na formulação DE</p>
+                    ) : (
+                      newViraPackagingLines
+                        .filter((l) => l.role === 'return')
+                        .map((line, idx) => {
+                          const i = newViraPackagingLines.indexOf(line);
+                          return (
+                            <div key={`ret-${line.code}-${idx}`} className="flex flex-wrap items-center gap-2 text-[11px]">
+                              <label className="inline-flex items-center gap-1.5 shrink-0 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={line.returned !== false}
+                                  onChange={(e) => {
+                                    const next = [...newViraPackagingLines];
+                                    next[i] = { ...line, returned: e.target.checked };
+                                    setNewViraPackagingLines(next);
+                                  }}
+                                />
+                                <span className="font-bold text-zinc-600">Retornou</span>
+                              </label>
+                              <span className="font-mono text-zinc-800 truncate flex-1 min-w-[120px]">
+                                {line.code} · {line.description}
+                              </span>
+                              <input
+                                type="number"
+                                step="any"
+                                value={line.qty}
+                                onChange={(e) => {
+                                  const next = [...newViraPackagingLines];
+                                  next[i] = { ...line, qty: parseFloat(e.target.value) || 0 };
+                                  setNewViraPackagingLines(next);
+                                }}
+                                className="w-20 border border-zinc-200 rounded-lg px-2 py-1 font-bold"
+                              />
+                            </div>
+                          );
+                        })
+                    )}
+                  </div>
+                  <div className="space-y-2 pt-2 border-t border-zinc-100">
+                    <p className="text-[9px] font-bold text-amber-700 uppercase">Saída (destino)</p>
+                    {newViraPackagingLines.filter((l) => l.role === 'consume').length === 0 ? (
+                      <p className="text-[11px] text-zinc-400">Nenhuma embalagem sugerida na formulação PARA</p>
+                    ) : (
+                      newViraPackagingLines
+                        .filter((l) => l.role === 'consume')
+                        .map((line) => {
+                          const i = newViraPackagingLines.indexOf(line);
+                          return (
+                            <div key={`con-${line.code}-${i}`} className="flex flex-wrap items-center gap-2 text-[11px]">
+                              <span className="font-mono text-zinc-800 truncate flex-1 min-w-[120px]">
+                                {line.code} · {line.description}
+                              </span>
+                              <input
+                                type="number"
+                                step="any"
+                                value={line.qty}
+                                onChange={(e) => {
+                                  const next = [...newViraPackagingLines];
+                                  next[i] = { ...line, qty: parseFloat(e.target.value) || 0 };
+                                  setNewViraPackagingLines(next);
+                                }}
+                                className="w-20 border border-zinc-200 rounded-lg px-2 py-1 font-bold"
+                              />
+                            </div>
+                          );
+                        })
+                    )}
                   </div>
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Quantidade Programada</label>
-                  <input 
-                    type="number"
-                    min="1"
-                    value={newViraOrderQuantity}
-                    onChange={(e) => setNewViraOrderQuantity(parseFloat(e.target.value) || 0)}
-                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900 font-bold text-zinc-900"
-                    required
-                  />
-                </div>
+              <div className="space-y-1">
+                <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Motivo / observação de embalagem</label>
+                <input
+                  type="text"
+                  value={newViraMotivo}
+                  onChange={(e) => setNewViraMotivo(e.target.value)}
+                  placeholder="Ex.: frasco origem rachado — sem retorno"
+                  className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs"
+                />
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Observações / Instruções Especiais</label>
-                <textarea 
+                <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Observações / Instruções</label>
+                <textarea
                   value={newViraOrderNotes}
                   onChange={(e) => setNewViraOrderNotes(e.target.value)}
-                  placeholder="Ex: Realizar transposição de frascos com conferência lote-a-lote..."
-                  rows="2"
+                  placeholder="Ex: Conferência lote-a-lote..."
+                  rows={2}
                   className="w-full border border-zinc-300 rounded-xl p-3 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900"
                 />
               </div>
 
               <div className="flex gap-3 justify-end pt-2">
-                <button 
+                <button
                   type="button"
                   onClick={() => setShowNewViraOrderModal(false)}
                   className="px-4 py-2 border border-zinc-300 rounded-xl hover:bg-zinc-50 text-xs font-bold cursor-pointer"
                 >
                   Cancelar
                 </button>
-                <button 
+                <button
                   type="submit"
                   disabled={submittingNewViraOrder || !selectedViraComp}
                   className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold disabled:opacity-50 cursor-pointer"
                 >
-                  {submittingNewViraOrder ? "Criando..." : "Criar Ordem"}
+                  {submittingNewViraOrder ? 'Criando...' : 'Criar Ordem'}
                 </button>
               </div>
             </form>
@@ -2636,16 +3166,19 @@ export default function MontagemKitsView({ onBackToHub }) {
       {/* MODAL: RETORNO DE ORDEM DE TRANSFORMAÇÃO */}
       {showEditViraOrderModal && selectedViraOrder && (
         <div className="fixed inset-0 bg-black/55 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b pb-3">
               <div className="flex flex-col">
                 <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-1.5">
                   <RefreshCw className="h-5 w-5 text-zinc-900" />
                   Retorno de Lote / Ordem de Transformação
                 </h3>
-                <span className="text-[10px] text-zinc-500 font-mono mt-0.5">Lote: {selectedViraOrder.orderNumber}</span>
+                <span className="text-[10px] text-zinc-500 font-mono mt-0.5">
+                  Lote: {selectedViraOrder.orderNumber}
+                </span>
               </div>
-              <button 
+              <button
+                type="button"
                 onClick={() => setShowEditViraOrderModal(false)}
                 className="p-1 hover:bg-zinc-100 rounded-full text-zinc-450 hover:text-zinc-900 cursor-pointer"
               >
@@ -2670,8 +3203,8 @@ export default function MontagemKitsView({ onBackToHub }) {
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Lançado no ERP?</label>
                   <div className="flex items-center h-[36px]">
                     <label className="relative inline-flex items-center cursor-pointer">
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={editViraErpLaunched}
                         onChange={(e) => setEditViraErpLaunched(e.target.checked)}
                         className="sr-only peer"
@@ -2686,44 +3219,106 @@ export default function MontagemKitsView({ onBackToHub }) {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Operador Montador</label>
-                  <input 
+                  <input
                     type="text"
                     value={editViraAssembledBy}
                     onChange={(e) => setEditViraAssembledBy(e.target.value)}
                     placeholder="Nome do operador..."
-                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900 font-semibold text-zinc-900"
+                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs font-semibold text-zinc-900"
                   />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Conferente Expedição</label>
-                  <input 
+                  <input
                     type="text"
                     value={editViraCheckedBy}
                     onChange={(e) => setEditViraCheckedBy(e.target.value)}
                     placeholder="Nome do conferente..."
-                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900 font-semibold text-zinc-900"
+                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs font-semibold text-zinc-900"
                   />
                 </div>
               </div>
 
               <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-3">
-                <h4 className="font-extrabold text-[10px] uppercase text-zinc-500 tracking-wider">Ajuste de Quantidade Realizada</h4>
+                <h4 className="font-extrabold text-[10px] uppercase text-zinc-500 tracking-wider">
+                  Ajuste de Quantidade Realizada (itens PARA)
+                </h4>
                 <div className="grid grid-cols-2 gap-4 items-end">
                   <div className="space-y-0.5">
-                    <span className="text-[9px] text-zinc-400 font-bold block">QTD. PROGRAMADA:</span>
+                    <span className="text-[9px] text-zinc-400 font-bold block">QTD. PROGRAMADA PARA:</span>
                     <span className="font-bold text-zinc-650 block">{selectedViraOrder.quantity} un</span>
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Qtd. Real Virada</label>
-                    <input 
+                    <input
                       type="number"
                       value={editViraQuantityAssembled}
                       onChange={(e) => setEditViraQuantityAssembled(parseFloat(e.target.value) || 0)}
-                      className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900 font-bold text-zinc-900"
+                      className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs font-bold text-zinc-900"
                       required
                     />
                   </div>
                 </div>
+              </div>
+
+              {editViraPackagingLines.length > 0 && (
+                <div className="border border-zinc-200 rounded-xl p-4 space-y-3">
+                  <h4 className="font-extrabold text-[10px] uppercase text-zinc-500 tracking-wider">
+                    Embalagens — confirmar retornos
+                  </h4>
+                  {editViraPackagingLines
+                    .filter((l) => l.role === 'return')
+                    .map((line) => {
+                      const i = editViraPackagingLines.indexOf(line);
+                      return (
+                        <label
+                          key={`edit-ret-${line.code}-${i}`}
+                          className="flex items-center gap-2 text-[11px] cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={line.returned !== false}
+                            onChange={(e) => {
+                              const next = [...editViraPackagingLines];
+                              next[i] = { ...line, returned: e.target.checked };
+                              setEditViraPackagingLines(next);
+                            }}
+                          />
+                          <span className="font-bold text-zinc-600 w-16">Retornou</span>
+                          <span className="font-mono flex-1 truncate">
+                            {line.code} · {line.description}
+                          </span>
+                          <span className="font-bold text-zinc-700">{line.qty}</span>
+                        </label>
+                      );
+                    })}
+                  {editViraPackagingLines.filter((l) => l.role === 'consume').length > 0 && (
+                    <div className="pt-2 border-t border-zinc-100 space-y-1">
+                      <p className="text-[9px] font-bold text-amber-700 uppercase">Saídas (destino)</p>
+                      {editViraPackagingLines
+                        .filter((l) => l.role === 'consume')
+                        .map((line, i) => (
+                          <div key={`edit-con-${line.code}-${i}`} className="flex justify-between text-[11px]">
+                            <span className="font-mono truncate">
+                              {line.code} · {line.description}
+                            </span>
+                            <span className="font-bold">{line.qty}</span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Motivo / embalagem</label>
+                <input
+                  type="text"
+                  value={editViraMotivo}
+                  onChange={(e) => setEditViraMotivo(e.target.value)}
+                  className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs"
+                  placeholder="Ex.: origem não retornou — danificada"
+                />
               </div>
 
               <div className="space-y-1">
@@ -2731,29 +3326,29 @@ export default function MontagemKitsView({ onBackToHub }) {
                   <FileText size={10} />
                   Observações de Retorno / Ocorrências
                 </label>
-                <textarea 
+                <textarea
                   value={editViraNotes}
                   onChange={(e) => setEditViraNotes(e.target.value)}
-                  placeholder="Ex: Transformação concluída. Sobrou resíduo de 2 frascos no galão de origem..."
-                  rows="3"
+                  placeholder="Ex: Transformação concluída..."
+                  rows={3}
                   className="w-full border border-zinc-300 rounded-xl p-3 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900"
                 />
               </div>
 
               <div className="flex gap-3 justify-end pt-2">
-                <button 
+                <button
                   type="button"
                   onClick={() => setShowEditViraOrderModal(false)}
                   className="px-4 py-2 border border-zinc-300 rounded-xl hover:bg-zinc-50 text-xs font-bold cursor-pointer"
                 >
                   Cancelar
                 </button>
-                <button 
+                <button
                   type="submit"
                   disabled={submittingEditViraOrder}
                   className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold disabled:opacity-50 cursor-pointer"
                 >
-                  {submittingEditViraOrder ? "Salvando..." : "Salvar Retorno"}
+                  {submittingEditViraOrder ? 'Salvando...' : 'Salvar Retorno'}
                 </button>
               </div>
             </form>

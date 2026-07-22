@@ -78,6 +78,7 @@ struct ProductRow {
     base: Option<String>,
     fase: Option<String>,
     m_sales: [i32; 12],
+    codigo_barras: Option<String>,
 }
 
 struct SupplierRow {
@@ -475,6 +476,9 @@ pub async fn connect_sql_server(pool: &PgPool) -> anyhow::Result<Client<tokio_ut
 }
 
 pub async fn sync_from_sql_server(pool: &PgPool, requested: SyncMode) -> anyhow::Result<SyncResult> {
+    // Garante que todas as migrações SQL (colunas e tabelas novas) estejam aplicadas antes de rodar o sync
+    let _ = crate::modules::geral::postgres_bootstrap::commands::run_schema_migrations(pool).await;
+
     // Queries SQL e mapeamento documentados em ../../erp-import/ (raiz do projeto).
     let wm = load_watermark(pool).await;
     let history_floor = load_history_floor(pool).await;
@@ -515,7 +519,8 @@ SELECT
     CAST(ISNULL(v.M9, 0) AS INT) as M9,
     CAST(ISNULL(v.M10, 0) AS INT) as M10,
     CAST(ISNULL(v.M11, 0) AS INT) as M11,
-    CAST(ISNULL(v.M12, 0) AS INT) as M12
+    CAST(ISNULL(v.M12, 0) AS INT) as M12,
+    NULLIF(LTRIM(RTRIM(p.cCodBarras COLLATE Latin1_General_CI_AS)), '') as cCodBarras
 FROM Produtos p WITH (NOLOCK)
 LEFT JOIN (
     SELECT 
@@ -550,6 +555,10 @@ WHERE p.cInativo = 'N' OR p.cInativo IS NULL;
         for i in 0..12 {
             m_sales[i] = row.get(7 + i).unwrap_or(0);
         }
+        let codigo_barras = row
+            .get(19)
+            .map(|s: &str| s.trim().to_string())
+            .filter(|s| !s.is_empty());
         products_list.push(ProductRow {
             codigo: codigo.trim().to_string(),
             descricao: raw_descricao.trim().to_string(),
@@ -559,6 +568,7 @@ WHERE p.cInativo = 'N' OR p.cInativo IS NULL;
             base: row.get(5).map(|s: &str| s.trim().to_string()).filter(|s| !s.is_empty()),
             fase: row.get(6).map(|s: &str| s.trim().to_string()).filter(|s| !s.is_empty()),
             m_sales,
+            codigo_barras,
         });
     }
 
@@ -1455,6 +1465,7 @@ WHERE {so2_date_filter};
     let mut hist_codigos: Vec<String> = Vec::with_capacity(count_prod * 12);
     let mut hist_meses: Vec<i32> = Vec::with_capacity(count_prod * 12);
     let mut hist_qtds: Vec<i32> = Vec::with_capacity(count_prod * 12);
+    let mut codigos_barras: Vec<Option<String>> = Vec::with_capacity(count_prod);
 
     for p in &products_list {
         let prefix = get_linha_prefix(&p.codigo).to_string();
@@ -1463,6 +1474,7 @@ WHERE {so2_date_filter};
         prefixes.push(prefix);
         bases.push(p.base.clone());
         medias.push(p.media_lev());
+        codigos_barras.push(p.codigo_barras.clone());
         estoques.push(p.estoque);
         producoes.push(p.producao);
         pedidos.push(p.pedidos);
@@ -1481,13 +1493,14 @@ WHERE {so2_date_filter};
         let end = (chunk_start + PROD_CHUNK).min(codigos.len());
         sqlx::query(
             r#"
-            INSERT INTO produtos (codigo, descricao, linha_prefix, base, media_levantamento)
-            SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::float8[])
+            INSERT INTO produtos (codigo, descricao, linha_prefix, base, media_levantamento, codigo_barras)
+            SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::float8[], $6::text[])
             ON CONFLICT (codigo) DO UPDATE SET
                 descricao = EXCLUDED.descricao,
                 linha_prefix = EXCLUDED.linha_prefix,
                 base = EXCLUDED.base,
-                media_levantamento = EXCLUDED.media_levantamento
+                media_levantamento = EXCLUDED.media_levantamento,
+                codigo_barras = EXCLUDED.codigo_barras
             "#,
         )
         .bind(&codigos[chunk_start..end])
@@ -1495,6 +1508,7 @@ WHERE {so2_date_filter};
         .bind(&prefixes[chunk_start..end])
         .bind(&bases[chunk_start..end])
         .bind(&medias[chunk_start..end])
+        .bind(&codigos_barras[chunk_start..end])
         .execute(&mut *tx)
         .await?;
 

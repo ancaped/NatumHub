@@ -5,7 +5,7 @@ Query SQL: pasta [`sql/`](sql/).
 
 | Passo | Arquivo SQL | Origem ERP | Destino Postgres | Módulos que usam |
 |-------|-------------|------------|----------------|------------------|
-| **A** | `A-produtos.sql` | `Produtos` + vendas M1–M12 | `produtos`, `estoque_atual` | Produção, Estoque, Compras |
+| **A** | `A-produtos.sql` | `Produtos` + vendas M1–M12 + `cCodBarras` | `produtos` (+ `codigo_barras`), `estoque_atual` | Produção, Estoque, Compras, Relatório Produtos Ativos |
 | **B** | `B-fornecedores.sql` | `Fornecedores` | `suppliers` | Compras, Financeiro |
 | **C** | `C-insumos.sql` | `Insumos` | `items` (tipo insumo) | Compras, Estoque |
 | **D** | `D-materiais.sql` | `Materiais` | `items` (tipo material) | Compras, Estoque |

@@ -77,6 +77,10 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
         "015_reembalagem_packaging.sql",
         include_str!("../../../../supabase/015_reembalagem_packaging.sql"),
     ),
+    (
+        "016_produtos_codigo_barras.sql",
+        include_str!("../../../../supabase/016_produtos_codigo_barras.sql"),
+    ),
 ];
 
 #[derive(Debug, Serialize)]
@@ -545,4 +549,56 @@ pub fn hub_bootstrap_local_postgres() -> Result<BootstrapPostgresResult, String>
         .map_err(|e| e.to_string())?
         .join()
         .map_err(|_| "Thread de bootstrap panicou.".to_string())?
+}
+
+/// Executa os arquivos SQL de migração definidos em SCHEMA_FILES no banco de dados ativo.
+/// Lock de sessão para serializar migrações (startup Axum + sync ERP em paralelo).
+const SCHEMA_MIGRATION_LOCK_KEY: i64 = 0x4E41_7475_6D48; // "NAtumH"
+
+fn is_benign_migration_error(err_msg: &str) -> bool {
+    let m = err_msg.to_lowercase();
+    m.contains("already exists")
+        || m.contains("duplicate column")
+        || m.contains("already member of")
+        // Corrida CREATE TABLE IF NOT EXISTS: colisão no tipo composto da tabela
+        || m.contains("pg_type_typname_nsp_index")
+        || m.contains("pg_class_relname_nsp_index")
+}
+
+pub async fn run_schema_migrations(pool: &sqlx::PgPool) -> Result<(), String> {
+    use sqlx::Executor;
+
+    sqlx::query("SELECT pg_advisory_lock($1)")
+        .bind(SCHEMA_MIGRATION_LOCK_KEY)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Erro ao obter lock de migração: {e}"))?;
+
+    let result = async {
+        for (name, body) in SCHEMA_FILES {
+            match pool.execute(*body).await {
+                Ok(_) => {
+                    println!("[Database Migration] Aplicado {} com sucesso.", name);
+                }
+                Err(e) => {
+                    let err_msg = e.to_string();
+                    if is_benign_migration_error(&err_msg) {
+                        // Objeto já existe / corrida inócua entre processos
+                    } else {
+                        eprintln!("[Database Migration] Erro ao aplicar {}: {}", name, e);
+                        return Err(format!("Erro ao aplicar migração {}: {}", name, e));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    .await;
+
+    let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(SCHEMA_MIGRATION_LOCK_KEY)
+        .execute(pool)
+        .await;
+
+    result
 }
