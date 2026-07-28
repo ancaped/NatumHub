@@ -9,6 +9,7 @@ pub const MODULE_ESTOQUE_MP: &str = "estoque_materia_prima";
 pub const MODULE_ESTOQUE_EMB: &str = "estoque_embalagens";
 pub const MODULE_ESTOQUE_COLOR: &str = "estoque_coloracao";
 pub const MODULE_ESTOQUE_APOIO: &str = "estoque_apoio";
+pub const MODULE_ESTOQUE_ORDENS_MANUAIS: &str = "estoque_ordens_manuais";
 pub const MODULE_ESTOQUE_ITENS: &str = "estoque_itens";
 pub const MODULE_ESTOQUE_ALMOX: &str = "estoque_almoxarifado";
 pub const MODULE_ESTOQUE_SUPERMERCADO: &str = "estoque_supermercado";
@@ -68,6 +69,7 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_ESTOQUE_EMB,
     MODULE_ESTOQUE_COLOR,
     MODULE_ESTOQUE_APOIO,
+    MODULE_ESTOQUE_ORDENS_MANUAIS,
     MODULE_ESTOQUE_ITENS,
     MODULE_ESTOQUE_ALMOX,
     MODULE_ESTOQUE_SUPERMERCADO,
@@ -138,6 +140,7 @@ pub fn module_registry() -> Vec<ModuleGroup> {
                 leaf(MODULE_ESTOQUE_EMB, "Embalagens"),
                 leaf(MODULE_ESTOQUE_COLOR, "Coloração"),
                 leaf(MODULE_ESTOQUE_APOIO, "Material de Apoio"),
+                leaf(MODULE_ESTOQUE_ORDENS_MANUAIS, "Ordens Manuais"),
             ],
         },
         ModuleGroup {
@@ -262,6 +265,7 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
             MODULE_ESTOQUE_EMB,
             MODULE_ESTOQUE_COLOR,
             MODULE_ESTOQUE_APOIO,
+            MODULE_ESTOQUE_ORDENS_MANUAIS,
             MODULE_ESTOQUE_ITENS,
             MODULE_ESTOQUE_ALMOX,
             MODULE_ESTOQUE_SUPERMERCADO,

@@ -202,11 +202,12 @@ const DEMANDS_SQL_PRODUCTS: &str = "
                          SELECT SUM(soi.n_qtde - soi.n_qtde_fat)
                          FROM sales_order_items soi
                          JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
-                         WHERE so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
+                         WHERE TRIM(COALESCE(so.c_status, '')) IN ('PP', 'LB', 'EX', 'CF', 'AL')
+                           AND (soi.n_qtde > soi.n_qtde_fat)
                            AND soi.c_cod_prod = p.codigo
                            AND (
-                                CAST(COALESCE((SELECT value FROM settings WHERE key = 'sales_faltas_days_limit'), '180') AS INTEGER) = 0 
-                                OR so.d_pedido::date >= CURRENT_DATE - (COALESCE((SELECT value FROM settings WHERE key = 'sales_faltas_days_limit'), '180') || ' days')::interval
+                                CAST(COALESCE((SELECT value FROM settings WHERE key = 'sales_faltas_days_limit'), '90') AS INTEGER) = 0
+                                OR so.d_pedido::date >= CURRENT_DATE - (COALESCE((SELECT value FROM settings WHERE key = 'sales_faltas_days_limit'), '90') || ' days')::interval
                            )
                      ), 0.0))
                  ) as in_orders,
@@ -265,6 +266,7 @@ fn build_demand_result(
     fat_map: &HashMap<String, [i64; 12]>,
     lead_time_map: &HashMap<String, i32>,
     override_period: Option<i32>,
+    manual_pending: &HashMap<String, (f64, f64)>,
 ) -> Result<DemandResult, String> {
     let code: String = row.get(0);
     let desc: String = row.get(1);
@@ -280,8 +282,8 @@ fn build_demand_result(
     let avg26: f64 = row.get(11);
     let notes: Option<String> = row.get(12);
 
-    let total_reserved = total_reserved_map.get(&code).copied().unwrap_or(0.0);
-    let _remaining_reserved = remaining_reserved_map.get(&code).copied().unwrap_or(0.0);
+    let _total_reserved = total_reserved_map.get(&code).copied().unwrap_or(0.0);
+    let remaining_reserved = remaining_reserved_map.get(&code).copied().unwrap_or(0.0);
 
     use chrono::Datelike;
     let now = chrono::Local::now();
@@ -369,18 +371,23 @@ fn build_demand_result(
     let daily_avg = overall_avg / 30.0;
 
     // Estoque (nQtdeEstoqueA) já vem líquido da reserva no ERP — não descontar R/lotes de novo.
-    // Prev. Futura = estoque + pedidos (produção ignorada nesta previsão).
-    let future_stock_forecast = current_stock + in_orders;
+    // Prev. Futura = estoque + pedidos + entradas manuais OPEN − saídas manuais OPEN.
+    let (manual_in, manual_out) = manual_pending
+        .get(&code)
+        .copied()
+        .unwrap_or((0.0, 0.0));
+    let future_stock_forecast = current_stock + in_orders + manual_in - manual_out;
     let max_forecast = if future_stock_forecast > 0.0 {
         future_stock_forecast
     } else {
         0.0
     };
 
-    let reserved_display = if reserved_qty_imported > 0.0 {
-        reserved_qty_imported
+    let reserved_display = remaining_reserved;
+    let reserved_qty_erp = if reserved_qty_imported > 0.0 {
+        Some(reserved_qty_imported)
     } else {
-        total_reserved
+        None
     };
 
     let estimated_duration_days = if daily_avg > 0.0 {
@@ -474,6 +481,7 @@ fn build_demand_result(
         category_name: cat_name,
         current_stock,
         reserved_qty: reserved_display,
+        reserved_qty_erp,
         in_production,
         in_orders,
         avg2024: avg24_corrected,
@@ -571,219 +579,11 @@ pub async fn get_demands_query(
         }
     }
 
-    let mut open_lotes = Vec::new();
-    if let Ok(rows) = sqlx::query(
-        "SELECT document_number, item_code, quantity, details 
-         FROM stock_movements 
-         WHERE item_type = 'produto' AND movement_type = 'entrada'
-           AND COALESCE(document_number, '') <> ''
-           AND details IS NOT NULL
-           AND details NOT LIKE '%Status: EA%'
-           AND details NOT LIKE '%Status: CF%'
-           AND details NOT LIKE '%Status: FP%'
-           AND details NOT LIKE '%Status: CA%'
-           AND details NOT LIKE '%Status: FI%'",
-    )
-    .fetch_all(&pool)
-    .await
-    {
-        for row in rows {
-            if let (
-                Ok(doc_num),
-                Ok(item_code),
-                Ok(qty),
-                Ok(details),
-            ) = (
-                row.try_get::<Option<String>, _>(0),
-                row.try_get::<String, _>(1),
-                row.try_get::<f64, _>(2),
-                row.try_get::<Option<String>, _>(3),
-            ) {
-                let doc_num = doc_num.unwrap_or_default();
-                let details = details.unwrap_or_default();
-                if !doc_num.is_empty() {
-                    let mut d_pesado = String::new();
-                    for part in details.split('|') {
-                        let part = part.trim();
-                        if part.starts_with("dPesado:") {
-                            d_pesado = part.trim_start_matches("dPesado:").trim().to_string();
-                        }
-                    }
-                    open_lotes.push((doc_num, item_code, qty, d_pesado));
-                }
-            }
-        }
-    }
-
-    struct FormEntry {
-        ingredient_code: String,
-        quantity: f64,
-        percentage: f64,
-        unit: String,
-    }
-    let mut formulations_map: std::collections::HashMap<String, Vec<FormEntry>> =
-        std::collections::HashMap::new();
-    let mut formulation_bulk_sums: std::collections::HashMap<String, f64> =
-        std::collections::HashMap::new();
-    let mut formulation_total_sums: std::collections::HashMap<String, f64> =
-        std::collections::HashMap::new();
-
-    if let Ok(rows) = sqlx::query(
-        "SELECT f.product_code, f.ingredient_code, f.quantity, COALESCE(f.percentage, 0.0), COALESCE(i.unit, 'UN')
-        FROM formulations f
-        LEFT JOIN items i ON f.ingredient_code = i.code",
-    )
-    .fetch_all(&pool)
-    .await
-    {
-        for row in rows {
-            if let (Ok(prod_code), Ok(ing_code), Ok(qty), Ok(pct), Ok(unit)) = (
-                row.try_get::<String, _>(0),
-                row.try_get::<String, _>(1),
-                row.try_get::<f64, _>(2),
-                row.try_get::<f64, _>(3),
-                row.try_get::<String, _>(4),
-            ) {
-                let norm_prod = prod_code.strip_prefix('0').unwrap_or(&prod_code).to_string();
-                let unit_upper = unit.trim().to_uppercase();
-                formulations_map
-                    .entry(norm_prod.clone())
-                    .or_default()
-                    .push(FormEntry {
-                        ingredient_code: ing_code,
-                        quantity: qty,
-                        percentage: pct,
-                        unit: unit_upper.clone(),
-                    });
-                if unit_upper != "UN" {
-                    *formulation_bulk_sums.entry(norm_prod.clone()).or_insert(0.0) += qty;
-                }
-                *formulation_total_sums.entry(norm_prod).or_insert(0.0) += qty;
-            }
-        }
-    }
-
-    let mut exits_map: std::collections::HashMap<(String, String), f64> =
-        std::collections::HashMap::new();
-    let open_docs: Vec<String> = open_lotes.iter().map(|(d, _, _, _)| d.clone()).collect();
-    if !open_docs.is_empty() {
-        if let Ok(rows) = sqlx::query(
-            "SELECT document_number, item_code, SUM(quantity) 
-             FROM stock_movements 
-             WHERE item_type = 'insumo' AND movement_type = 'saida'
-               AND document_number = ANY($1)
-             GROUP BY document_number, item_code",
-        )
-        .bind(&open_docs)
-        .fetch_all(&pool)
-        .await
-        {
-            for row in rows {
-                if let (Ok(doc_num), Ok(item_code), Ok(qty)) = (
-                    row.try_get::<Option<String>, _>(0),
-                    row.try_get::<String, _>(1),
-                    row.try_get::<f64, _>(2),
-                ) {
-                    exits_map.insert((doc_num.unwrap_or_default(), item_code), qty);
-                }
-            }
-        }
-    }
-
-    let mut lotes_baixas_map: std::collections::HashMap<(i64, String), Vec<f64>> =
-        std::collections::HashMap::new();
-
-    let lote_ids: Vec<i64> = open_lotes
-        .iter()
-        .filter_map(|(doc_num, _, _, _)| doc_num.parse::<i64>().ok())
-        .collect();
-
-    if !lote_ids.is_empty() {
-        if let Ok(rows) = sqlx::query(
-            "SELECT nLote, cReferencia, nQtdeRef FROM lotes_baixas WHERE nLote = ANY($1) ORDER BY Registro ASC",
-        )
-        .bind(&lote_ids)
-        .fetch_all(&pool)
-        .await
-        {
-            for row in rows {
-                let n_lote = crate::core::pg_row::pg_i64(&row, 0);
-                if let (Ok(c_ref), Ok(n_qtde_ref)) = (
-                    row.try_get::<String, _>(1),
-                    row.try_get::<f64, _>(2),
-                ) {
-                    lotes_baixas_map
-                        .entry((n_lote, c_ref))
-                        .or_default()
-                        .push(n_qtde_ref);
-                }
-            }
-        }
-    }
-
-    let mut total_reserved_map: std::collections::HashMap<String, f64> =
-        std::collections::HashMap::new();
-    let mut remaining_reserved_map: std::collections::HashMap<String, f64> =
-        std::collections::HashMap::new();
-    for (lote_number, product_code, quantity, d_pesado) in open_lotes {
-        let norm_prod = product_code.strip_prefix('0').unwrap_or(&product_code).to_string();
-        if let Some(ingredients) = formulations_map.get(&norm_prod) {
-            let bulk_sum = formulation_bulk_sums.get(&norm_prod).copied().unwrap_or(0.0);
-            let total_sum = formulation_total_sums.get(&norm_prod).copied().unwrap_or(0.0);
-            let lote_int = lote_number.parse::<i64>().unwrap_or(-1);
-
-            for ing in ingredients {
-                let factor = if ing.percentage > 0.0 {
-                    ing.percentage / 100.0
-                } else if ing.unit == "UN" {
-                    if bulk_sum > 0.0 {
-                        ing.quantity / bulk_sum
-                    } else if total_sum > 0.0 {
-                        ing.quantity / total_sum
-                    } else {
-                        ing.quantity
-                    }
-                } else if bulk_sum > 0.0 {
-                    ing.quantity / bulk_sum
-                } else if total_sum > 0.0 {
-                    ing.quantity / total_sum
-                } else {
-                    0.0
-                };
-                let fallback_expected = quantity * factor;
-
-                let mut expected = fallback_expected;
-                if lote_int != -1 {
-                    if let Some(queue) = lotes_baixas_map.get_mut(&(lote_int, ing.ingredient_code.clone())) {
-                        if !queue.is_empty() {
-                            expected = queue.remove(0);
-                        }
-                    }
-                }
-
-                let exited_qty = exits_map
-                    .get(&(lote_number.clone(), ing.ingredient_code.clone()))
-                    .copied()
-                    .unwrap_or(0.0);
-                let mut remaining = (expected - exited_qty).max(0.0);
-
-                if !d_pesado.is_empty() {
-                    remaining = 0.0;
-                }
-
-                if fallback_expected > 0.0 {
-                    *total_reserved_map
-                        .entry(ing.ingredient_code.clone())
-                        .or_insert(0.0) += fallback_expected;
-                }
-                if remaining > 0.0 {
-                    *remaining_reserved_map
-                        .entry(ing.ingredient_code.clone())
-                        .or_insert(0.0) += remaining;
-                }
-            }
-        }
-    }
+    let reserve_maps = crate::core::production_reserve::compute_production_reserve_maps(&pool).await;
+    let total_reserved_map = reserve_maps.total_by_ingredient;
+    let remaining_reserved_map = reserve_maps.remaining_by_ingredient;
+    let manual_pending =
+        crate::modules::estoque::ordens_manuais::handlers::pending_net_by_item(&pool).await;
 
     let include_products = match category_id.as_deref() {
         Some("cat_mp") | Some("cat_emb") => false,
@@ -991,6 +791,7 @@ pub async fn get_demands_query(
             &fat_map,
             &lead_time_map,
             override_period,
+            &manual_pending,
         )?;
         if !auto_ignored.contains_key(&item.item_code) {
             results.push(item);

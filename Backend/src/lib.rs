@@ -8,6 +8,8 @@ pub mod core {
     pub mod pg_db;
     pub mod hub_db;
     pub mod pg_row;
+    pub mod sales_open;
+    pub mod production_reserve;
 }
 
 pub mod modules {

@@ -21,7 +21,16 @@ Mapeamento complementar (insumos) — espelho da planilha ERP:
 
 Produtos (passo A): `nQtdeProducao` → `producao`; `nPedidos` → `pedidos_aberto` (espelho ERP).
 
-**Produção — Ped na UI:** residual de pedidos de venda abertos (`sales_order_items`, status ≠ FT/CA), filtrado pela setting **`sales_faltas_days_limit`** (Configurações → Janela de pedidos de venda). `0` = sem limite de data. EFP = `estoque + producao - pedidos` (com essa janela). Overrides manuais (`pedidos_manual`) permanecem.
+**Produção — não confundir colunas:**
+
+| UI | Fonte | Comparar com ERP? |
+|----|-------|-------------------|
+| **Est** | `estoque_atual.estoque` ← `Produtos.nQtdeEstoque` | Sim — deve bater com o cadastro |
+| **Prod** | `nQtdeProducao` | Sim |
+| **Ped** | residual M/N (`PP/LB/EX/CF/AL`, janela `sales_faltas_days_limit`) | **Não** é `nPedidos` do cadastro |
+| **EFP** | `Est + Prod − Ped` | **Não** — projeção Hub |
+
+Excel de levantamento e contagem física **não** são fonte canônica: sync A / `resync-produtos` sobrescreve `estoque`/`producao`/`pedidos_aberto`.
 
 **Vendas / faltas / Compras:** mesma setting e `d_pedido::date` (coluna é `text` no Postgres).
 
@@ -32,7 +41,8 @@ Produtos (passo A): `nQtdeProducao` → `producao`; `nPedidos` → `pedidos_aber
 1. **Estoque exibido (insumos)** = `nQtdeEstoqueA` do ERP, **sem truncar** (FLOAT/REAL). Esse valor **já desconta** a reserva operacional no ERP.
 2. **Reserva exibida** em Compras = `nqtdeReserva` (ou fallback de lotes só para exibição) — informativa; **não** subtrair de novo do estoque nem da Prev. Futura.
 3. **Previsão futura** (planejamento Compras):
-   - `Prev. Futura = estoque + pedidos` (`current_stock + in_orders`).
+   - `Prev. Futura = estoque + pedidos + entradas_manuais_OPEN − saídas_manuais_OPEN`.
+   - Ordens Manuais (`manual_stock_orders` status `OPEN`) ajustam a previsão até marcar **Lançado no ERP** (`POSTED`); não alteram `stock_snapshots`.
    - **Sem** `− nqtdeReserva`, **sem** `− remaining_reserved` de lotes, **sem** `+ in_production`.
 4. Sync **substitui** `stock_snapshots` dos códigos sincronizados.
 5. D1/D2 são **reconsultados imediatamente antes** do INSERT dos snapshots.
@@ -46,6 +56,7 @@ Produtos (passo A): `nQtdeProducao` → `producao`; `nPedidos` → `pedidos_aber
 | GET | `/api/admin/audit/stock/:code` | Compara Hub × ERP ao vivo |
 | POST | `/api/admin/audit/stock/:code/refresh` | Re-lê pontual e grava |
 | POST | `/api/admin/audit/stock/resync-insumos` | Regrava todos os insumos com `nQtdeEstoqueA` |
+| POST | `/api/admin/audit/stock/resync-produtos` | Regrava `estoque_atual` com `Produtos.nQtdeEstoque` |
 
 Caso de teste: `9.15.065` — Estoque ≈ 98,8; R ≈ 7,3; Prev. Futura ≈ 98,8 + P (não 91,5).
 

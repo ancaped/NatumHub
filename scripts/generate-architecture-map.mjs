@@ -104,6 +104,7 @@ const MODULE_GROUPS = [
       'estoque_embalagens',
       'estoque_coloracao',
       'estoque_apoio',
+      'estoque_ordens_manuais',
       'estoque_produtos',
       'estoque_previsao_uso',
     ],

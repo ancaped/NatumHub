@@ -11,6 +11,7 @@ Tabelas principais (referência rápida):
 | Mapa | `mapa_groups`, `mapa_modules`, `mapa_edges`, `mapa_routes`, `mapa_tasks`, `mapa_activity` (`018`) |
 | Produção | `config_linhas`, `produtos`, `estoque_atual`, `overrides_produtos`, `historico_producao`, `stock_movements` |
 | Compras | `categories`, `items`, `suppliers`, `consumption`, `invoices`, `quotations`, `stock_snapshots` |
+| Ordens Manuais (Estoque) | `manual_stock_orders`, `manual_stock_order_items` (`021`) — entrada/saída OPEN ajusta Prev. Futura; não altera `stock_snapshots` |
 | Almoxarifado (local) | `almox_item_config` (+ `section`/`source`/`erp_description`/`description`/`unit`), `almox_balances`, `almox_movements` (+ `variant_label`/`pack_*`/`total_paid`), demandas, `estoque_peca_meta`, `estoque_equipamentos`, `estoque_equipamento_pecas`, `estoque_manutencoes` — `002`–`004` · [`../modulos/almoxarifado.md`](../modulos/almoxarifado.md) |
 | Pedidos ERP | `purchase_orders`, `sales_orders`, `*_items` |
 | Qualidade | `products`, `reports`, `fisco_quimica_*`, `doc_families`, `doc_types`, `documents`, `document_files` (`016`) |

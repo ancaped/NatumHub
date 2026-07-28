@@ -87,6 +87,7 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   estoque_embalagens: Layers,
   estoque_coloracao: Palette,
   estoque_apoio: Tag,
+  estoque_ordens_manuais: ClipboardList,
   estoque_itens: Boxes,
   estoque_almoxarifado: Warehouse,
   estoque_supermercado: Store,

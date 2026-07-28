@@ -1,7 +1,7 @@
 {
   "meta": {
     "name": "NatumHub",
-    "generatedAt": "2026-07-22T05:31:44.954Z",
+    "generatedAt": "2026-07-28T21:15:23.055Z",
     "version": "0.0.12",
     "generator": "scripts/generate-architecture-map.mjs",
     "schemaVersion": 2,
@@ -62,6 +62,7 @@
         "estoque_embalagens",
         "estoque_coloracao",
         "estoque_apoio",
+        "estoque_ordens_manuais",
         "estoque_produtos",
         "estoque_previsao_uso"
       ]
@@ -271,6 +272,95 @@
         }
       ],
       "aiHints": []
+    },
+    "estoque_ordens_manuais": {
+      "key": "estoque_ordens_manuais",
+      "label": "Ordens Manuais",
+      "group": "estoque",
+      "purpose": "Entrada/saída manual de insumos com impressão física; ordens OPEN ajustam Prev. Futura em Compras até marcar lançado no ERP (POSTED). Não altera stock_snapshots.",
+      "status": "live",
+      "frontend": {
+        "view": "OrdensManuaisView",
+        "path": "Frontend/src/modules/estoque/ordens_manuais/"
+      },
+      "backend": {
+        "path": "Backend/src/modules/estoque/ordens_manuais/",
+        "routerPrefix": "/api/estoque/ordens-manuais"
+      },
+      "permissions": {
+        "rolesDefault": [
+          "estoque",
+          "admin"
+        ],
+        "supervisorOnly": false
+      },
+      "data": {
+        "tables": [
+          "manual_stock_orders",
+          "manual_stock_order_items"
+        ],
+        "filesOnDisk": []
+      },
+      "routes": [
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/estoque/ordens-manuais",
+          "summary": "Ordens manuais entrada/saída de insumos",
+          "auth": "module",
+          "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/estoque/ordens-manuais/:id",
+          "summary": "Ordens manuais entrada/saída de insumos",
+          "auth": "module",
+          "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs"
+        },
+        {
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/estoque/ordens-manuais/:id/postar",
+          "summary": "Ordens manuais entrada/saída de insumos",
+          "auth": "module",
+          "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/estoque/ordens-manuais/itens/busca",
+          "summary": "Ordens manuais entrada/saída de insumos",
+          "auth": "module",
+          "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs"
+        }
+      ],
+      "connectsTo": [
+        {
+          "target": "auth",
+          "kind": "guard",
+          "note": "module_key estoque_ordens_manuais"
+        },
+        {
+          "target": "postgres",
+          "kind": "data",
+          "note": "migration 021"
+        },
+        {
+          "target": "erp",
+          "kind": "process",
+          "note": "POSTED após lançamento manual no ERP; sync D1 atualiza saldo"
+        }
+      ],
+      "aiHints": [
+        "Dupla checagem só no papel (imprimir folhas); Hub não grava conferência",
+        "Prev. Futura = estoque + in_orders + entrada_OPEN − saida_OPEN",
+        "Catálogo items (MP/Emb); não produtos acabados na v1"
+      ]
     },
     "estoque_produtos": {
       "key": "estoque_produtos",
@@ -682,7 +772,7 @@
           "path": "/api/historico",
           "summary": "Histórico de produção",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -691,7 +781,7 @@
           "path": "/api/historico/:id",
           "summary": "Histórico de produção",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -700,7 +790,7 @@
           "path": "/api/turnovers/composicao/:de/:para",
           "summary": "Virações / turnovers",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -709,7 +799,7 @@
           "path": "/api/turnovers/next-order-number",
           "summary": "Virações / turnovers",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -718,7 +808,7 @@
           "path": "/api/turnovers/orders/:id",
           "summary": "Virações / turnovers",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         }
       ],
       "connectsTo": [
@@ -780,7 +870,7 @@
           "path": "/api/producao/lotes/:number/detalhes",
           "summary": "Lotes e recálculo",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -789,7 +879,7 @@
           "path": "/api/producao/lotes/:number/resolver",
           "summary": "Lotes e recálculo",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -798,7 +888,7 @@
           "path": "/api/producao/recalcular/preview",
           "summary": "Lotes e recálculo",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         }
       ],
       "connectsTo": [
@@ -845,7 +935,7 @@
           "path": "/api/kits/component-candidates",
           "summary": "Kits e composição",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -854,7 +944,7 @@
           "path": "/api/kits/composicao/upload",
           "summary": "Kits e composição",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -863,7 +953,7 @@
           "path": "/api/kits/next-order-number",
           "summary": "Kits e composição",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -872,7 +962,7 @@
           "path": "/api/kits/orders",
           "summary": "Kits e composição",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -881,7 +971,7 @@
           "path": "/api/kits/orders/:id",
           "summary": "Kits e composição",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         }
       ],
       "connectsTo": [
@@ -1511,10 +1601,28 @@
           "methods": [
             "GET"
           ],
+          "path": "/api/vendas/clientes/:codigo/pedidos",
+          "summary": "Pedidos de venda e faltas",
+          "auth": "module",
+          "source": "Backend/src/server.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/vendas/faltas",
+          "summary": "Pedidos de venda e faltas",
+          "auth": "module",
+          "source": "Backend/src/server.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
           "path": "/api/vendas/pedidos",
           "summary": "Pedidos de venda e faltas",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         }
       ],
       "connectsTo": [
@@ -1865,7 +1973,7 @@
           "path": "/api/overrides/bulk",
           "summary": "Overrides de produto",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -1874,7 +1982,7 @@
           "path": "/api/products",
           "summary": "Catálogo produtos",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -1883,16 +1991,7 @@
           "path": "/api/produtos/:code/detalhes",
           "summary": "Detalhes / formulação produto",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
-        },
-        {
-          "methods": [
-            "GET"
-          ],
-          "path": "/api/produtos/:code/pedidos-pendentes",
-          "summary": "Detalhes / formulação produto",
-          "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -1901,7 +2000,7 @@
           "path": "/api/produtos/formulacao/:code",
           "summary": "Detalhes / formulação produto",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         }
       ],
       "connectsTo": [
@@ -2138,9 +2237,18 @@
         },
         {
           "methods": [
-            "GET"
+            "POST"
           ],
-          "path": "/api/admin/audit/stock/:code",
+          "path": "/api/admin/audit/stock/:code/refresh",
+          "summary": "Admin: backup, DB, audit estoque",
+          "auth": "supervisor",
+          "source": "Backend/src/modules/geral/mod.rs"
+        },
+        {
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/admin/audit/stock/resync-produtos",
           "summary": "Admin: backup, DB, audit estoque",
           "auth": "supervisor",
           "source": "Backend/src/modules/geral/mod.rs"
@@ -2192,12 +2300,21 @@
         },
         {
           "methods": [
+            "GET"
+          ],
+          "path": "/api/configs",
+          "summary": "Configs genéricas",
+          "auth": "module",
+          "source": "Backend/src/server.rs"
+        },
+        {
+          "methods": [
             "DELETE"
           ],
           "path": "/api/configs/:prefix",
           "summary": "Configs genéricas",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -2251,7 +2368,7 @@
           "path": "/api/import/dump",
           "summary": "Sync ERP / dump / status",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -2269,7 +2386,7 @@
           "path": "/api/import/faturamento",
           "summary": "Sync ERP / dump / status",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -2278,7 +2395,7 @@
           "path": "/api/import/kits",
           "summary": "Sync ERP / dump / status",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -2287,7 +2404,7 @@
           "path": "/api/import/status",
           "summary": "Sync ERP / dump / status",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -2296,7 +2413,7 @@
           "path": "/api/import/sync-lock",
           "summary": "Sync ERP / dump / status",
           "auth": "module",
-          "source": "Backend/src/lib.rs"
+          "source": "Backend/src/server.rs"
         },
         {
           "methods": [
@@ -2437,15 +2554,6 @@
           "methods": [
             "GET"
           ],
-          "path": "/api/auth/session",
-          "summary": "Login, operadores, dispositivos",
-          "auth": "module",
-          "source": "Backend/src/modules/geral/mod.rs"
-        },
-        {
-          "methods": [
-            "GET"
-          ],
           "path": "/api/auth/setup-status",
           "summary": "Login, operadores, dispositivos",
           "auth": "module",
@@ -2499,6 +2607,24 @@
       "to": "auth",
       "kind": "guard",
       "note": "module_key estoque_apoio"
+    },
+    {
+      "from": "estoque_ordens_manuais",
+      "to": "auth",
+      "kind": "guard",
+      "note": "module_key estoque_ordens_manuais"
+    },
+    {
+      "from": "estoque_ordens_manuais",
+      "to": "postgres",
+      "kind": "data",
+      "note": "migration 021"
+    },
+    {
+      "from": "estoque_ordens_manuais",
+      "to": "erp",
+      "kind": "process",
+      "note": "POSTED após lançamento manual no ERP; sync D1 atualiza saldo"
     },
     {
       "from": "estoque_produtos",
@@ -2904,9 +3030,19 @@
       "auth": "supervisor"
     },
     {
-      "path": "/api/admin/audit/stock/:code",
+      "path": "/api/admin/audit/stock/:code/refresh",
       "methods": [
-        "GET"
+        "POST"
+      ],
+      "source": "Backend/src/modules/geral/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/admin/audit/stock/resync-produtos",
+      "methods": [
+        "POST"
       ],
       "source": "Backend/src/modules/geral/mod.rs",
       "moduleKey": "hub_settings",
@@ -3124,16 +3260,6 @@
       "auth": "supervisor"
     },
     {
-      "path": "/api/auth/session",
-      "methods": [
-        "GET"
-      ],
-      "source": "Backend/src/modules/geral/mod.rs",
-      "moduleKey": "hub_operadores",
-      "summary": "Login, operadores, dispositivos",
-      "auth": "module"
-    },
-    {
       "path": "/api/auth/setup-status",
       "methods": [
         "GET"
@@ -3174,11 +3300,21 @@
       "auth": "module"
     },
     {
+      "path": "/api/configs",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Configs genéricas",
+      "auth": "module"
+    },
+    {
       "path": "/api/configs/:prefix",
       "methods": [
         "DELETE"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "hub_settings",
       "summary": "Configs genéricas",
       "auth": "module"
@@ -3191,6 +3327,46 @@
       "source": "Backend/src/modules/compras/planejamento/mod.rs",
       "moduleKey": "estoque_produtos",
       "summary": "Estoque / contagens / item-info",
+      "auth": "module"
+    },
+    {
+      "path": "/api/estoque/ordens-manuais",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
+      "moduleKey": "estoque_ordens_manuais",
+      "summary": "Ordens manuais entrada/saída de insumos",
+      "auth": "module"
+    },
+    {
+      "path": "/api/estoque/ordens-manuais/:id",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
+      "moduleKey": "estoque_ordens_manuais",
+      "summary": "Ordens manuais entrada/saída de insumos",
+      "auth": "module"
+    },
+    {
+      "path": "/api/estoque/ordens-manuais/:id/postar",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
+      "moduleKey": "estoque_ordens_manuais",
+      "summary": "Ordens manuais entrada/saída de insumos",
+      "auth": "module"
+    },
+    {
+      "path": "/api/estoque/ordens-manuais/itens/busca",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
+      "moduleKey": "estoque_ordens_manuais",
+      "summary": "Ordens manuais entrada/saída de insumos",
       "auth": "module"
     },
     {
@@ -3318,7 +3494,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "producao",
       "summary": "Histórico de produção",
       "auth": "module"
@@ -3328,7 +3504,7 @@
       "methods": [
         "DELETE"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "producao",
       "summary": "Histórico de produção",
       "auth": "module"
@@ -3599,7 +3775,7 @@
       "methods": [
         "POST"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "hub_settings",
       "summary": "Sync ERP / dump / status",
       "auth": "module"
@@ -3619,7 +3795,7 @@
       "methods": [
         "POST"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "hub_settings",
       "summary": "Sync ERP / dump / status",
       "auth": "module"
@@ -3629,7 +3805,7 @@
       "methods": [
         "POST"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "hub_settings",
       "summary": "Sync ERP / dump / status",
       "auth": "module"
@@ -3639,7 +3815,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "hub_settings",
       "summary": "Sync ERP / dump / status",
       "auth": "module"
@@ -3649,7 +3825,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "hub_settings",
       "summary": "Sync ERP / dump / status",
       "auth": "module"
@@ -3669,7 +3845,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "montagem_kits",
       "summary": "Kits e composição",
       "auth": "module"
@@ -3679,7 +3855,7 @@
       "methods": [
         "POST"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "montagem_kits",
       "summary": "Kits e composição",
       "auth": "module"
@@ -3689,7 +3865,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "montagem_kits",
       "summary": "Kits e composição",
       "auth": "module"
@@ -3699,7 +3875,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "montagem_kits",
       "summary": "Kits e composição",
       "auth": "module"
@@ -3709,7 +3885,7 @@
       "methods": [
         "PUT"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "montagem_kits",
       "summary": "Kits e composição",
       "auth": "module"
@@ -3789,7 +3965,7 @@
       "methods": [
         "POST"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "admin_linha_produtos",
       "summary": "Overrides de produto",
       "auth": "module"
@@ -3799,7 +3975,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "producao_lotes",
       "summary": "Lotes e recálculo",
       "auth": "module"
@@ -3809,7 +3985,7 @@
       "methods": [
         "POST"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "producao_lotes",
       "summary": "Lotes e recálculo",
       "auth": "module"
@@ -3819,7 +3995,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "producao_lotes",
       "summary": "Lotes e recálculo",
       "auth": "module"
@@ -3829,7 +4005,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "admin_linha_produtos",
       "summary": "Catálogo produtos",
       "auth": "module"
@@ -3839,17 +4015,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
-      "moduleKey": "admin_linha_produtos",
-      "summary": "Detalhes / formulação produto",
-      "auth": "module"
-    },
-    {
-      "path": "/api/produtos/:code/pedidos-pendentes",
-      "methods": [
-        "GET"
-      ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "admin_linha_produtos",
       "summary": "Detalhes / formulação produto",
       "auth": "module"
@@ -3859,7 +4025,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "admin_linha_produtos",
       "summary": "Detalhes / formulação produto",
       "auth": "module"
@@ -3939,7 +4105,7 @@
       "methods": [
         "DELETE"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "producao",
       "summary": "Virações / turnovers",
       "auth": "module"
@@ -3949,7 +4115,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "producao",
       "summary": "Virações / turnovers",
       "auth": "module"
@@ -3959,9 +4125,29 @@
       "methods": [
         "PUT"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "producao",
       "summary": "Virações / turnovers",
+      "auth": "module"
+    },
+    {
+      "path": "/api/vendas/clientes/:codigo/pedidos",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": "vendas",
+      "summary": "Pedidos de venda e faltas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/vendas/faltas",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": "vendas",
+      "summary": "Pedidos de venda e faltas",
       "auth": "module"
     },
     {
@@ -3969,7 +4155,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "vendas",
       "summary": "Pedidos de venda e faltas",
       "auth": "module"
@@ -4007,9 +4193,19 @@
       "auth": "supervisor"
     },
     {
-      "path": "/api/admin/audit/stock/:code",
+      "path": "/api/admin/audit/stock/:code/refresh",
       "methods": [
-        "GET"
+        "POST"
+      ],
+      "source": "Backend/src/modules/geral/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/admin/audit/stock/resync-produtos",
+      "methods": [
+        "POST"
       ],
       "source": "Backend/src/modules/geral/mod.rs",
       "moduleKey": "hub_settings",
@@ -4227,16 +4423,6 @@
       "auth": "supervisor"
     },
     {
-      "path": "/api/auth/session",
-      "methods": [
-        "GET"
-      ],
-      "source": "Backend/src/modules/geral/mod.rs",
-      "moduleKey": "hub_operadores",
-      "summary": "Login, operadores, dispositivos",
-      "auth": "module"
-    },
-    {
       "path": "/api/auth/setup-status",
       "methods": [
         "GET"
@@ -4277,11 +4463,21 @@
       "auth": "module"
     },
     {
+      "path": "/api/configs",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Configs genéricas",
+      "auth": "module"
+    },
+    {
       "path": "/api/configs/:prefix",
       "methods": [
         "DELETE"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "hub_settings",
       "summary": "Configs genéricas",
       "auth": "module"
@@ -4294,6 +4490,46 @@
       "source": "Backend/src/modules/compras/planejamento/mod.rs",
       "moduleKey": "estoque_produtos",
       "summary": "Estoque / contagens / item-info",
+      "auth": "module"
+    },
+    {
+      "path": "/api/estoque/ordens-manuais",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
+      "moduleKey": "estoque_ordens_manuais",
+      "summary": "Ordens manuais entrada/saída de insumos",
+      "auth": "module"
+    },
+    {
+      "path": "/api/estoque/ordens-manuais/:id",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
+      "moduleKey": "estoque_ordens_manuais",
+      "summary": "Ordens manuais entrada/saída de insumos",
+      "auth": "module"
+    },
+    {
+      "path": "/api/estoque/ordens-manuais/:id/postar",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
+      "moduleKey": "estoque_ordens_manuais",
+      "summary": "Ordens manuais entrada/saída de insumos",
+      "auth": "module"
+    },
+    {
+      "path": "/api/estoque/ordens-manuais/itens/busca",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
+      "moduleKey": "estoque_ordens_manuais",
+      "summary": "Ordens manuais entrada/saída de insumos",
       "auth": "module"
     },
     {
@@ -4421,7 +4657,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "producao",
       "summary": "Histórico de produção",
       "auth": "module"
@@ -4431,7 +4667,7 @@
       "methods": [
         "DELETE"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "producao",
       "summary": "Histórico de produção",
       "auth": "module"
@@ -4702,7 +4938,7 @@
       "methods": [
         "POST"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "hub_settings",
       "summary": "Sync ERP / dump / status",
       "auth": "module"
@@ -4722,7 +4958,7 @@
       "methods": [
         "POST"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "hub_settings",
       "summary": "Sync ERP / dump / status",
       "auth": "module"
@@ -4732,7 +4968,7 @@
       "methods": [
         "POST"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "hub_settings",
       "summary": "Sync ERP / dump / status",
       "auth": "module"
@@ -4742,7 +4978,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "hub_settings",
       "summary": "Sync ERP / dump / status",
       "auth": "module"
@@ -4752,7 +4988,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "hub_settings",
       "summary": "Sync ERP / dump / status",
       "auth": "module"
@@ -4772,7 +5008,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "montagem_kits",
       "summary": "Kits e composição",
       "auth": "module"
@@ -4782,7 +5018,7 @@
       "methods": [
         "POST"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "montagem_kits",
       "summary": "Kits e composição",
       "auth": "module"
@@ -4792,7 +5028,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "montagem_kits",
       "summary": "Kits e composição",
       "auth": "module"
@@ -4802,7 +5038,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "montagem_kits",
       "summary": "Kits e composição",
       "auth": "module"
@@ -4812,7 +5048,7 @@
       "methods": [
         "PUT"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "montagem_kits",
       "summary": "Kits e composição",
       "auth": "module"
@@ -4892,7 +5128,7 @@
       "methods": [
         "POST"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "admin_linha_produtos",
       "summary": "Overrides de produto",
       "auth": "module"
@@ -4902,7 +5138,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "producao_lotes",
       "summary": "Lotes e recálculo",
       "auth": "module"
@@ -4912,7 +5148,7 @@
       "methods": [
         "POST"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "producao_lotes",
       "summary": "Lotes e recálculo",
       "auth": "module"
@@ -4922,7 +5158,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "producao_lotes",
       "summary": "Lotes e recálculo",
       "auth": "module"
@@ -4932,7 +5168,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "admin_linha_produtos",
       "summary": "Catálogo produtos",
       "auth": "module"
@@ -4942,17 +5178,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
-      "moduleKey": "admin_linha_produtos",
-      "summary": "Detalhes / formulação produto",
-      "auth": "module"
-    },
-    {
-      "path": "/api/produtos/:code/pedidos-pendentes",
-      "methods": [
-        "GET"
-      ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "admin_linha_produtos",
       "summary": "Detalhes / formulação produto",
       "auth": "module"
@@ -4962,7 +5188,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "admin_linha_produtos",
       "summary": "Detalhes / formulação produto",
       "auth": "module"
@@ -5042,7 +5268,7 @@
       "methods": [
         "DELETE"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "producao",
       "summary": "Virações / turnovers",
       "auth": "module"
@@ -5052,7 +5278,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "producao",
       "summary": "Virações / turnovers",
       "auth": "module"
@@ -5062,9 +5288,29 @@
       "methods": [
         "PUT"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "producao",
       "summary": "Virações / turnovers",
+      "auth": "module"
+    },
+    {
+      "path": "/api/vendas/clientes/:codigo/pedidos",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": "vendas",
+      "summary": "Pedidos de venda e faltas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/vendas/faltas",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": "vendas",
+      "summary": "Pedidos de venda e faltas",
       "auth": "module"
     },
     {
@@ -5072,7 +5318,7 @@
       "methods": [
         "GET"
       ],
-      "source": "Backend/src/lib.rs",
+      "source": "Backend/src/server.rs",
       "moduleKey": "vendas",
       "summary": "Pedidos de venda e faltas",
       "auth": "module"
@@ -5162,6 +5408,10 @@
       "path": "Frontend/src/modules/administrativo/linha_produtos/ActiveProductsView.tsx"
     },
     {
+      "view": "ProdutosAtivosRelatoriosView.tsx",
+      "path": "Frontend/src/modules/administrativo/produtos_ativos_relatorios/ProdutosAtivosRelatoriosView.tsx"
+    },
+    {
       "view": "ComprasAlmoxarifadoView.tsx",
       "path": "Frontend/src/modules/compras/almoxarifado/ComprasAlmoxarifadoView.tsx"
     },
@@ -5192,6 +5442,10 @@
     {
       "view": "EstoqueOpsView.tsx",
       "path": "Frontend/src/modules/estoque/ops/EstoqueOpsView.tsx"
+    },
+    {
+      "view": "OrdensManuaisView.tsx",
+      "path": "Frontend/src/modules/estoque/ordens_manuais/OrdensManuaisView.tsx"
     },
     {
       "view": "PrevisaoUsoView.tsx",
@@ -5410,6 +5664,14 @@
     {
       "file": "Backend/supabase/019_hub_operator_profiles.sql",
       "id": "019_hub_operator_profiles"
+    },
+    {
+      "file": "Backend/supabase/020_produtos_codigo_barras.sql",
+      "id": "020_produtos_codigo_barras"
+    },
+    {
+      "file": "Backend/supabase/021_manual_stock_orders.sql",
+      "id": "021_manual_stock_orders"
     }
   ],
   "keyFlows": [
@@ -5458,10 +5720,10 @@
     "AGENTS.md"
   ],
   "stats": {
-    "httpRouteEntries": 110,
-    "migrations": 19,
-    "frontendViews": 38,
-    "modules": 43,
-    "edges": 62
+    "httpRouteEntries": 116,
+    "migrations": 21,
+    "frontendViews": 40,
+    "modules": 44,
+    "edges": 65
   }
 }

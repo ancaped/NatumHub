@@ -18,6 +18,7 @@
   "routePrefixes": [
     { "prefix": "/api/qualidade/documentacao", "moduleKey": "qualidade_documentacao", "summary": "CRUD documentação / PDF / alertas" },
     { "prefix": "/api/almox", "moduleKey": "estoque_almoxarifado", "summary": "Almoxarifado ops (itens, movimentos, equipamentos)" },
+    { "prefix": "/api/estoque/ordens-manuais", "moduleKey": "estoque_ordens_manuais", "summary": "Ordens manuais entrada/saída de insumos" },
     { "prefix": "/api/estoque", "moduleKey": "estoque_produtos", "summary": "Estoque / contagens / item-info" },
     { "prefix": "/api/compras", "moduleKey": "compras_pedidos", "summary": "Pedidos, notas, lojas online (API compras)" },
     { "prefix": "/api/hub/compras", "moduleKey": "compras_quotations", "summary": "Hub compras: cotações, itens, demandas, imports" },
@@ -94,6 +95,37 @@
         "DELETE /api/qualidade/documentacao/files/:id": "Remove arquivo",
         "POST /api/qualidade/documentacao/check-alerts": "Gera notificações de validade/pagamento"
       }
+    },
+    "estoque_ordens_manuais": {
+      "label": "Ordens Manuais",
+      "purpose": "Entrada/saída manual de insumos com impressão física; ordens OPEN ajustam Prev. Futura em Compras até marcar lançado no ERP (POSTED). Não altera stock_snapshots.",
+      "status": "live",
+      "frontend": {
+        "view": "OrdensManuaisView",
+        "path": "Frontend/src/modules/estoque/ordens_manuais/"
+      },
+      "backend": {
+        "path": "Backend/src/modules/estoque/ordens_manuais/",
+        "routerPrefix": "/api/estoque/ordens-manuais"
+      },
+      "permissions": {
+        "rolesDefault": ["estoque", "admin"],
+        "supervisorOnly": false
+      },
+      "data": {
+        "tables": ["manual_stock_orders", "manual_stock_order_items"],
+        "filesOnDisk": []
+      },
+      "connectsTo": [
+        { "target": "auth", "kind": "guard", "note": "module_key estoque_ordens_manuais" },
+        { "target": "postgres", "kind": "data", "note": "migration 021" },
+        { "target": "erp", "kind": "process", "note": "POSTED após lançamento manual no ERP; sync D1 atualiza saldo" }
+      ],
+      "aiHints": [
+        "Dupla checagem só no papel (imprimir folhas); Hub não grava conferência",
+        "Prev. Futura = estoque + in_orders + entrada_OPEN − saida_OPEN",
+        "Catálogo items (MP/Emb); não produtos acabados na v1"
+      ]
     },
     "estoque_almoxarifado": {
       "label": "Almoxarifado",

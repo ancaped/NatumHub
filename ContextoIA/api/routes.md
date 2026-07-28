@@ -83,7 +83,7 @@ Sync ERP: [`../erp-import/README.md`](../erp-import/README.md) · `legacy_db::sy
 | GET/POST | `/api/overrides`, `/api/overrides/bulk` |
 | GET/POST/DELETE | `/api/historico`, `/api/historico/:id` |
 | GET | `/api/producao/lotes`, `/api/producao/lotes/:n`, `/api/producao/lotes/:n/detalhes` |
-| GET | `/api/vendas/pedidos`, `/api/vendas/faltas` |
+| GET | `/api/vendas/pedidos`, `/api/vendas/pedidos/detalhe`, `/api/vendas/faltas`, `/api/vendas/clientes`, `/api/vendas/clientes/:codigo/pedidos` |
 
 ## Almoxarifado / Estoque ops
 
@@ -101,6 +101,17 @@ Hub `almoxarifado_hub`. Doc: [`../modulos/almoxarifado.md`](../modulos/almoxarif
 | GET/POST/PUT | `/api/almox/maintenances` | |
 | GET/POST | `/api/almox/demands` | compras |
 
+## Estoque — Ordens Manuais
+
+| Método | Rota | Notas |
+|--------|------|-------|
+| GET/POST | `/api/estoque/ordens-manuais` | Lista / cria (`OPEN`) |
+| GET/PUT/DELETE | `/api/estoque/ordens-manuais/:id` | Detalhe; edita/exclui só `OPEN` |
+| POST | `/api/estoque/ordens-manuais/:id/postar` | Marca `POSTED` (lançado no ERP) |
+| POST | `/api/estoque/ordens-manuais/:id/reabrir` | Volta a `OPEN` |
+| GET | `/api/estoque/ordens-manuais/itens/busca` | Autocomplete `items` MP/Emb |
+| GET | `/api/estoque/ordens-manuais/pendencias/por-item` | Agregado OPEN (Prev. Futura) |
+
 ## Admin / auditoria (supervisor)
 
 | Método | Rota | Notas |
@@ -113,6 +124,7 @@ Hub `almoxarifado_hub`. Doc: [`../modulos/almoxarifado.md`](../modulos/almoxarif
 | GET | `/api/admin/audit/stock/:code` | Hub × ERP ao vivo (estoque/reserva/prod/pedidos) |
 | POST | `/api/admin/audit/stock/:code/refresh` | Re-lê D1/D2/A pontual e grava |
 | POST | `/api/admin/audit/stock/resync-insumos` | Regrava todos os insumos com `nQtdeEstoqueA` |
+| POST | `/api/admin/audit/stock/resync-produtos` | Regrava `estoque_atual` com `Produtos.nQtdeEstoque` |
 
 ## Mapa operacional (supervisor)
 

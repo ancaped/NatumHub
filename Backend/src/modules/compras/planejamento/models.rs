@@ -129,6 +129,9 @@ pub struct DemandResult {
     pub category_name: String,
     pub current_stock: f64,
     pub reserved_qty: f64,
+    /// Reserva espelhada do ERP (stock_snapshots) — tooltip na lista Compras.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reserved_qty_erp: Option<f64>,
     pub in_production: f64,
     pub in_orders: f64,
     pub avg2024: f64,
