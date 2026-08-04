@@ -30,16 +30,34 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
 
   const loadPinnedAndCategories = () => {
     api.getCategories().then(setCategories).catch(console.error);
-    const stored = localStorage.getItem('natum_hub_pinned_subcategories');
-    if (stored) {
-      try {
-        setPinnedSubs(JSON.parse(stored));
-      } catch (e) {
-        console.error(e);
-      }
-    } else {
-      setPinnedSubs([]);
-    }
+    api.getPinnedSubcategories()
+      .then((ids) => {
+        setPinnedSubs(ids);
+        // Migra pins antigos do navegador → servidor (uma vez).
+        const stored = localStorage.getItem('natum_hub_pinned_subcategories');
+        if (ids.length === 0 && stored) {
+          try {
+            const localIds: string[] = JSON.parse(stored);
+            if (localIds.length > 0) {
+              api.savePinnedSubcategories(localIds).then(() => setPinnedSubs(localIds)).catch(console.error);
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      })
+      .catch(() => {
+        const stored = localStorage.getItem('natum_hub_pinned_subcategories');
+        if (stored) {
+          try {
+            setPinnedSubs(JSON.parse(stored));
+          } catch (e) {
+            console.error(e);
+          }
+        } else {
+          setPinnedSubs([]);
+        }
+      });
   };
 
   useEffect(() => {

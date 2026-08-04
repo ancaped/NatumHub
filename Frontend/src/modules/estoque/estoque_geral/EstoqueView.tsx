@@ -1,4 +1,5 @@
 import { apiFetch } from '../../geral/lib/http';
+import { salesOrderStatusLabel } from '../../geral/lib/salesOrderStatus';
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../geral/lib/api';
 import { 
@@ -1013,7 +1014,7 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initi
                   <div className="space-y-4">
                     <div className="flex items-center gap-1.5 text-xs text-zinc-500 font-medium">
                       <Truck className="h-3.5 w-3.5 text-zinc-400" />
-                      Pedidos de venda ativos (faltas) aguardando faturamento.
+                      Pedidos de venda abertos (PP/LB/EX/CF/AL) — faltas a faturar.
                     </div>
                     {(!productPendingOrders || !productPendingOrders.pending_sales_orders || productPendingOrders.pending_sales_orders.length === 0) ? (
                       <div className="text-center py-12 text-zinc-400">Nenhum pedido de venda pendente para este produto.</div>
@@ -1023,11 +1024,17 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initi
                           const percent = so.n_qtde > 0 ? (so.n_qtde_fat / so.n_qtde) * 100 : 0;
                           return (
                             <div key={`${so.n_pedido}-${index}`} className="bg-white border border-zinc-150 p-4 rounded-xl shadow-sm space-y-3 hover:border-zinc-300 transition-colors">
-                              <div className="flex items-center justify-between">
+                              <div className="flex items-center justify-between gap-2">
                                 <span className="px-2 py-0.5 bg-blue-50 text-blue-600 border border-blue-200 text-[9px] font-bold uppercase rounded">
                                   Pedido #{so.n_pedido}
+                                  {so.n_codigo != null ? ` · Cli ${so.n_codigo}` : ''}
                                 </span>
-                                <span className="text-[10px] text-zinc-400 font-medium flex items-center gap-1">
+                                <span className="text-[10px] text-zinc-500 font-semibold">
+                                  {salesOrderStatusLabel(so.c_status)}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-[10px] text-zinc-400 font-medium">
+                                <span className="flex items-center gap-1">
                                   <Calendar size={10} />
                                   {formatDate(so.d_pedido)}
                                 </span>

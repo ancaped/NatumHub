@@ -187,6 +187,25 @@ struct LoteBaixaRow {
     n_qtde_ref: f64,
 }
 
+/// Agrupa duplicatas (nlote, creferencia) somando qty/nqtderef — mantém menor registro.
+fn dedupe_lotes_baixas(rows: Vec<LoteBaixaRow>) -> Vec<LoteBaixaRow> {
+    let mut merged: HashMap<(i32, String), LoteBaixaRow> = HashMap::new();
+    for row in rows {
+        let key = (row.lote, row.ref_code.clone());
+        merged
+            .entry(key)
+            .and_modify(|existing| {
+                existing.qty += row.qty;
+                existing.n_qtde_ref += row.n_qtde_ref;
+                if row.registro < existing.registro {
+                    existing.registro = row.registro;
+                }
+            })
+            .or_insert(row);
+    }
+    merged.into_values().collect()
+}
+
 /// Passo O — movimentos extras de insumos (acertos/inventário). Preencher SQL real via erp-import.
 struct ExtraInsumoMovRow {
     ref_code: String,
@@ -377,6 +396,213 @@ fn sql_datetime_since(since_ymd: &str) -> String {
     format!("{} 00:00:00", since_ymd)
 }
 
+/// Data `YYYY-MM-DD` para chave natural (n_pedido, d_pedido).
+fn normalize_pedido_date(d: &str) -> String {
+    let t = d.trim();
+    if t.len() >= 10 {
+        t[..10].to_string()
+    } else {
+        t.to_string()
+    }
+}
+
+/// Pedidos que o Hub ainda trata como abertos — reconsultar no ERP mesmo fora da janela incremental.
+async fn load_hub_open_sales_order_keys(pool: &PgPool) -> Vec<(i32, String)> {
+    let rows = sqlx::query(
+        r#"
+        SELECT DISTINCT so.n_pedido, so.d_pedido::text
+        FROM sales_orders so
+        WHERE TRIM(COALESCE(so.c_status, '')) IN ('PP', 'LB', 'EX', 'CF', 'AL')
+           OR EXISTS (
+                SELECT 1 FROM sales_order_items soi
+                WHERE soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
+                  AND soi.n_qtde > soi.n_qtde_fat
+                  AND TRIM(COALESCE(so.c_status, '')) NOT IN ('FT', 'CA')
+           )
+        "#,
+    )
+    .fetch_all(pool)
+    .await;
+
+    let Ok(rows) = rows else {
+        return Vec::new();
+    };
+
+    rows.into_iter()
+        .map(|r| {
+            let n_pedido: i32 = r.get(0);
+            let d_pedido: String = r.get(1);
+            (n_pedido, normalize_pedido_date(&d_pedido))
+        })
+        .collect()
+}
+
+fn build_pedido_pairs_sql_filter(pairs: &[(i32, String)], p1_alias: bool) -> String {
+    if pairs.is_empty() {
+        return "1 = 0".to_string();
+    }
+    let prefix = if p1_alias { "p1." } else { "" };
+    pairs
+        .iter()
+        .map(|(n, d)| {
+            format!(
+                "({prefix}nPedido = {n} AND CONVERT(date, {prefix}dPedido) = '{d}')"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" OR ")
+}
+
+fn merge_sales_orders(
+    target: &mut Vec<SalesOrderRow>,
+    incoming: Vec<SalesOrderRow>,
+) {
+    let mut seen: HashSet<(i32, String)> = target
+        .iter()
+        .map(|s| (s.n_pedido, normalize_pedido_date(&s.d_pedido)))
+        .collect();
+    for so in incoming {
+        let key = (so.n_pedido, normalize_pedido_date(&so.d_pedido));
+        if seen.insert(key.clone()) {
+            target.push(so);
+        } else if let Some(existing) = target.iter_mut().find(|s| {
+            s.n_pedido == so.n_pedido && normalize_pedido_date(&s.d_pedido) == key.1
+        }) {
+            *existing = so;
+        }
+    }
+}
+
+fn merge_sales_order_items(
+    target: &mut Vec<SalesOrderItemRow>,
+    incoming: Vec<SalesOrderItemRow>,
+) {
+    let mut seen: HashSet<(i32, String, String)> = target
+        .iter()
+        .map(|s| {
+            (
+                s.n_pedido,
+                normalize_pedido_date(&s.d_pedido),
+                s.c_cod_prod.clone(),
+            )
+        })
+        .collect();
+    for soi in incoming {
+        let key = (
+            soi.n_pedido,
+            normalize_pedido_date(&soi.d_pedido),
+            soi.c_cod_prod.clone(),
+        );
+        if seen.insert(key.clone()) {
+            target.push(soi);
+        } else if let Some(existing) = target.iter_mut().find(|s| {
+            s.n_pedido == soi.n_pedido
+                && normalize_pedido_date(&s.d_pedido) == key.1
+                && s.c_cod_prod == key.2
+        }) {
+            *existing = soi;
+        }
+    }
+}
+
+async fn fetch_sales_orders_reconcile(
+    client: &mut Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    pairs: &[(i32, String)],
+) -> anyhow::Result<Vec<SalesOrderRow>> {
+    if pairs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let filter = build_pedido_pairs_sql_filter(pairs, false);
+    let query = format!(
+        "
+SELECT 
+    nPedido,
+    CONVERT(varchar, dPedido, 120) COLLATE Latin1_General_CI_AS as dPedido,
+    nCodigo,
+    cNome COLLATE Latin1_General_CI_AS as cNome,
+    CAST(nValorTot AS FLOAT) as nValorTot,
+    CSTATUS COLLATE Latin1_General_CI_AS as CSTATUS,
+    NNOTAFISCAL,
+    CONVERT(varchar, dPrevisaoDespacho, 120) COLLATE Latin1_General_CI_AS as dPrevisao,
+    CONVERT(varchar, dEntrega, 120) COLLATE Latin1_General_CI_AS as dEntrega,
+    CAST(mObservac AS NVARCHAR(MAX)) COLLATE Latin1_General_CI_AS as mObservac
+FROM Pedidos1 WITH (NOLOCK)
+WHERE {filter};
+"
+    );
+    let stream = client.query(query, &[]).await?;
+    let rows = stream.into_first_result().await?;
+    let mut out = Vec::new();
+    for row in rows {
+        let n_pedido: i32 = row.get(0).unwrap_or(0);
+        let d_pedido: &str = row.get(1).unwrap_or("");
+        if n_pedido == 0 || d_pedido.is_empty() {
+            continue;
+        }
+        out.push(SalesOrderRow {
+            n_pedido,
+            d_pedido: d_pedido.trim().to_string(),
+            n_codigo: row.get(2),
+            c_nome: row.get(3).map(|s: &str| s.trim().to_string()),
+            n_valor_tot: row.get(4).unwrap_or(0.0),
+            c_status: row.get(5).map(|s: &str| s.trim().to_string()),
+            n_nota_fiscal: row.get(6).unwrap_or(0),
+            d_previsao: row.get(7).map(|s: &str| s.trim().to_string()),
+            d_entrega: row.get(8).map(|s: &str| s.trim().to_string()),
+            m_observac: row.get(9).map(|s: &str| s.trim().to_string()),
+        });
+    }
+    Ok(out)
+}
+
+async fn fetch_sales_order_items_reconcile(
+    client: &mut Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    pairs: &[(i32, String)],
+) -> anyhow::Result<Vec<SalesOrderItemRow>> {
+    if pairs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let filter = build_pedido_pairs_sql_filter(pairs, true);
+    let query = format!(
+        "
+SELECT 
+    p2.nPedido,
+    CONVERT(varchar, p2.dPedido, 120) COLLATE Latin1_General_CI_AS as dPedido,
+    p2.nRegistro,
+    p2.cCodProd COLLATE Latin1_General_CI_AS as cCodProd,
+    CAST(p2.nQtde AS INT) as nQtde,
+    CAST(p2.nQtdeFat AS INT) as nQtdeFat,
+    CAST(p2.nPreco AS FLOAT) as nPreco,
+    p2.cLote COLLATE Latin1_General_CI_AS as cLote
+FROM Pedidos2 p2 WITH (NOLOCK)
+INNER JOIN Pedidos1 p1 WITH (NOLOCK) ON p1.nPedido = p2.nPedido AND p1.dPedido = p2.dPedido
+WHERE {filter};
+"
+    );
+    let stream = client.query(query, &[]).await?;
+    let rows = stream.into_first_result().await?;
+    let mut out = Vec::new();
+    for row in rows {
+        let n_pedido: i32 = row.get(0).unwrap_or(0);
+        let d_pedido: &str = row.get(1).unwrap_or("");
+        let c_cod_prod: &str = row.get(3).unwrap_or("");
+        if n_pedido == 0 || d_pedido.is_empty() || c_cod_prod.is_empty() {
+            continue;
+        }
+        out.push(SalesOrderItemRow {
+            n_pedido,
+            d_pedido: d_pedido.trim().to_string(),
+            n_registro: row.get(2),
+            c_cod_prod: c_cod_prod.trim().to_string(),
+            n_qtde: row.get(4).unwrap_or(0),
+            n_qtde_fat: row.get(5).unwrap_or(0),
+            n_preco: row.get(6).unwrap_or(0.0),
+            c_lote: row.get(7).map(|s: &str| s.trim().to_string()),
+        });
+    }
+    Ok(out)
+}
+
 struct MovInsert {
     id: String,
     item_code: String,
@@ -493,6 +719,14 @@ pub async fn sync_from_sql_server(pool: &PgPool, requested: SyncMode) -> anyhow:
     );
 
     let mut client = connect_sql_server(pool).await?;
+
+    let hub_open_keys = load_hub_open_sales_order_keys(pool).await;
+    if !hub_open_keys.is_empty() {
+        eprintln!(
+            "[ERP Sync] Hub tem {} pedido(s) de venda ainda abertos — reconciliação M/N ativa.",
+            hub_open_keys.len()
+        );
+    }
 
     // ==========================================
     // 1. FETCH ALL DATA FROM SQL SERVER FIRST (AWAIT POINTS)
@@ -1152,6 +1386,15 @@ WHERE b.dLog >= '{since_dt}'
             n_qtde_ref: row.get(8).unwrap_or(0.0),
         });
     }
+    let lb_before = lotes_baixas_list.len();
+    lotes_baixas_list = dedupe_lotes_baixas(lotes_baixas_list);
+    if lotes_baixas_list.len() < lb_before {
+        eprintln!(
+            "[ERP Sync] lotes_baixas dedupe: {} -> {} linhas (SUM por nlote+creferencia)",
+            lb_before,
+            lotes_baixas_list.len()
+        );
+    }
 
     // O. Movimentos extras de insumos (acertos / inventário) — query placeholder até discovery
     // Ver erp-import/sql/O-movimentos-insumos.sql e MOVIMENTOS-INSUMOS.md
@@ -1425,6 +1668,53 @@ WHERE {so2_date_filter};
             n_preco: row.get(6).unwrap_or(0.0),
             c_lote: row.get(7).map(|s: &str| s.trim().to_string()),
         });
+    }
+
+    // Reconciliação: pedidos abertos no Hub mas fora do filtro incremental (ex.: viraram FT no ERP).
+    // Se o ERP não devolver a chave, o pedido sumiu (apagado/renumerado) → marcar CA no Hub.
+    let main_so_keys: HashSet<(i32, String)> = sales_orders_list
+        .iter()
+        .map(|s| (s.n_pedido, normalize_pedido_date(&s.d_pedido)))
+        .collect();
+    let reconcile_keys: Vec<(i32, String)> = hub_open_keys
+        .into_iter()
+        .filter(|k| !main_so_keys.contains(k))
+        .collect();
+    let mut orphan_so_keys: Vec<(i32, String)> = Vec::new();
+    if !reconcile_keys.is_empty() {
+        eprintln!(
+            "[ERP Sync] Reconciliando {} pedido(s) abertos no Hub (fora da janela since={since})...",
+            reconcile_keys.len()
+        );
+        let mut found_keys: HashSet<(i32, String)> = HashSet::new();
+        const RECONCILE_CHUNK: usize = 80;
+        for chunk_start in (0..reconcile_keys.len()).step_by(RECONCILE_CHUNK) {
+            let end = (chunk_start + RECONCILE_CHUNK).min(reconcile_keys.len());
+            let chunk = &reconcile_keys[chunk_start..end];
+            let so_chunk = fetch_sales_orders_reconcile(&mut client, chunk).await?;
+            for so in &so_chunk {
+                found_keys.insert((so.n_pedido, normalize_pedido_date(&so.d_pedido)));
+            }
+            merge_sales_orders(&mut sales_orders_list, so_chunk);
+            let soi_chunk = fetch_sales_order_items_reconcile(&mut client, chunk).await?;
+            merge_sales_order_items(&mut sales_order_items_list, soi_chunk);
+        }
+        orphan_so_keys = reconcile_keys
+            .into_iter()
+            .filter(|k| !found_keys.contains(k))
+            .collect();
+        if !orphan_so_keys.is_empty() {
+            eprintln!(
+                "[ERP Sync] {} pedido(s) abertos no Hub não existem mais no ERP — marcando CA.",
+                orphan_so_keys.len()
+            );
+        }
+        eprintln!(
+            "[ERP Sync] Reconciliação M/N concluída — SO total={} itens={} órfãos={}",
+            sales_orders_list.len(),
+            sales_order_items_list.len(),
+            orphan_so_keys.len()
+        );
     }
 
     // ==========================================
@@ -2549,6 +2839,30 @@ WHERE {so2_date_filter};
         }
     }
 
+    if !orphan_so_keys.is_empty() {
+        let orphan_ped: Vec<i32> = orphan_so_keys.iter().map(|(n, _)| *n).collect();
+        let orphan_dp: Vec<String> = orphan_so_keys.iter().map(|(_, d)| d.clone()).collect();
+        let closed = sqlx::query(
+            r#"
+            UPDATE sales_orders so
+            SET c_status = 'CA'
+            FROM UNNEST($1::int4[], $2::text[]) AS v(n_pedido, d_ymd)
+            WHERE so.n_pedido = v.n_pedido
+              AND so.d_pedido::date = v.d_ymd::date
+              AND TRIM(COALESCE(so.c_status, '')) NOT IN ('FT', 'CA')
+            "#,
+        )
+        .bind(&orphan_ped)
+        .bind(&orphan_dp)
+        .execute(&mut *tx)
+        .await?;
+        eprintln!(
+            "[ERP Sync] Órfãos M/N marcados CA: {} (chaves={})",
+            closed.rows_affected(),
+            orphan_so_keys.len()
+        );
+    }
+
     {
         let mut soi_ped: Vec<i32> = Vec::new();
         let mut soi_dp: Vec<String> = Vec::new();
@@ -2603,60 +2917,9 @@ WHERE {so2_date_filter};
         "[ERP Sync] Fase pedidos commitada (PO={count_pos} SO={count_sales_orders})."
     );
 
-    // Apply automatic subcategory rules if configured
-    if let Ok(Some(config_str)) = sqlx::query("SELECT value FROM config WHERE key = 'compras_main'")
-        .fetch_optional(pool)
-        .await
-        .map(|r| r.map(|row| row.get::<String, _>(0)))
-    {
-        if let Ok(config_json) = serde_json::from_str::<serde_json::Value>(&config_str) {
-            let _ = sqlx::query(
-                "UPDATE items
-                 SET category_id = CASE
-                     WHEN code LIKE '9.15.%' THEN 'cat_mp'
-                     WHEN code LIKE '08.%' THEN 'cat_mat'
-                     ELSE 'cat_emb'
-                 END
-                 WHERE (manual_category IS NULL OR manual_category = 0)",
-            )
-            .execute(pool)
-            .await;
-
-            if let Some(rules) = config_json.get("autoSubcategories").and_then(|r| r.as_array()) {
-                for rule in rules {
-                    if let (Some(sub_id), Some(prefix)) = (
-                        rule.get("subcategoryId").and_then(|s| s.as_str()),
-                        rule.get("prefix").and_then(|p| p.as_str()),
-                    ) {
-                        let parent_id: Option<String> = sqlx::query(
-                            "SELECT parent_id FROM categories WHERE id = $1",
-                        )
-                        .bind(sub_id)
-                        .fetch_optional(pool)
-                        .await
-                        .ok()
-                        .flatten()
-                        .map(|row| row.get(0));
-
-                        if let Some(parent) = parent_id {
-                            let like_pattern = format!("{}%", prefix);
-                            let _ = sqlx::query(
-                                "UPDATE items SET category_id = $1
-                                 WHERE description LIKE $2
-                                   AND category_id = $3
-                                   AND (manual_category IS NULL OR manual_category = 0)",
-                            )
-                            .bind(sub_id)
-                            .bind(like_pattern)
-                            .bind(parent)
-                            .execute(pool)
-                            .await;
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // Reaplica regras de subcategoria de todos os módulos (main/coloração/apoio).
+    crate::modules::compras::planejamento::commands::reapply_all_compras_auto_subcategories(pool)
+        .await;
 
     let now_iso = Utc::now().to_rfc3339();
     let today = Local::now().date_naive().format("%Y-%m-%d").to_string();
@@ -3002,5 +3265,129 @@ WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInat
     }
     tx.commit().await?;
     Ok(list.len())
+}
+
+/// Resultado do resync em massa de estoque de produtos (passo A).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProdutoStockResyncResult {
+    pub updated: usize,
+    pub still_negative_from_erp: usize,
+    pub sample_before_after: Vec<serde_json::Value>,
+}
+
+/// Regrava estoque_atual a partir de Produtos.nQtdeEstoque (espelho passo A).
+pub async fn resync_all_produto_stocks_from_erp(
+    pool: &PgPool,
+) -> anyhow::Result<ProdutoStockResyncResult> {
+    let mut client = connect_sql_server(pool).await?;
+    let query = "
+SELECT 
+    RTRIM(cCodProd) COLLATE Latin1_General_CI_AS as cCodProd,
+    CAST(nQtdeEstoque AS FLOAT) as nQtdeEstoque,
+    CAST(nQtdeProducao AS FLOAT) as nQtdeProducao,
+    CAST(nPedidos AS FLOAT) as nPedidos,
+    cNomeTipo COLLATE Latin1_General_CI_AS as cNomeTipo
+FROM Produtos WITH (NOLOCK)
+WHERE cCodProd IS NOT NULL AND cCodProd <> '' AND (cInativo = 'N' OR cInativo IS NULL);
+";
+    let stream = client.query(query, &[]).await?;
+    let rows = stream.into_first_result().await?;
+
+    let mut codes: Vec<String> = Vec::new();
+    let mut stocks: Vec<f64> = Vec::new();
+    let mut prods: Vec<f64> = Vec::new();
+    let mut orders: Vec<f64> = Vec::new();
+    let mut fases: Vec<Option<String>> = Vec::new();
+    let mut still_negative = 0usize;
+
+    for row in rows {
+        let code: &str = row.get(0).unwrap_or("");
+        if code.is_empty() {
+            continue;
+        }
+        let stock: f64 = row.get(1).unwrap_or(0.0);
+        if stock < 0.0 {
+            still_negative += 1;
+        }
+        codes.push(code.trim().to_string());
+        stocks.push(stock);
+        prods.push(row.get(2).unwrap_or(0.0));
+        orders.push(row.get(3).unwrap_or(0.0));
+        fases.push(
+            row.get(4)
+                .map(|s: &str| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+        );
+    }
+
+    // Amostra de divergências antes do UPSERT (para o relatório).
+    let mut sample: Vec<serde_json::Value> = Vec::new();
+    if !codes.is_empty() {
+        let before = sqlx::query(
+            r#"
+            SELECT e.codigo, e.estoque
+            FROM estoque_atual e
+            INNER JOIN UNNEST($1::text[], $2::float8[]) AS v(codigo, erp_estoque)
+              ON e.codigo = v.codigo
+            WHERE ABS(e.estoque - v.erp_estoque) > 0.5
+            ORDER BY ABS(e.estoque - v.erp_estoque) DESC
+            LIMIT 20
+            "#,
+        )
+        .bind(&codes)
+        .bind(&stocks)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+        let erp_map: HashMap<String, f64> = codes
+            .iter()
+            .cloned()
+            .zip(stocks.iter().copied())
+            .collect();
+        for row in before {
+            let codigo: String = row.get(0);
+            let hub: f64 = row.get(1);
+            let erp = *erp_map.get(&codigo).unwrap_or(&0.0);
+            sample.push(serde_json::json!({
+                "codigo": codigo,
+                "hubBefore": hub,
+                "erp": erp,
+                "delta": hub - erp,
+            }));
+        }
+    }
+
+    let mut tx = pool.begin().await?;
+    const CHUNK: usize = 400;
+    for start in (0..codes.len()).step_by(CHUNK) {
+        let end = (start + CHUNK).min(codes.len());
+        sqlx::query(
+            r#"
+            INSERT INTO estoque_atual (codigo, estoque, producao, pedidos_aberto, fase)
+            SELECT * FROM UNNEST($1::text[], $2::float8[], $3::float8[], $4::float8[], $5::text[])
+            ON CONFLICT (codigo) DO UPDATE SET
+                estoque = EXCLUDED.estoque,
+                producao = EXCLUDED.producao,
+                pedidos_aberto = EXCLUDED.pedidos_aberto,
+                fase = COALESCE(EXCLUDED.fase, estoque_atual.fase)
+            "#,
+        )
+        .bind(&codes[start..end])
+        .bind(&stocks[start..end])
+        .bind(&prods[start..end])
+        .bind(&orders[start..end])
+        .bind(&fases[start..end])
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+
+    Ok(ProdutoStockResyncResult {
+        updated: codes.len(),
+        still_negative_from_erp: still_negative,
+        sample_before_after: sample,
+    })
 }
 

@@ -164,6 +164,9 @@ pub struct SalesOrder {
     pub d_entrega: Option<String>,
     pub m_observac: Option<String>,
     pub items: Vec<SalesOrderItem>,
+    /// SUM GREATEST(n_qtde - n_qtde_fat, 0) dos itens.
+    #[serde(default)]
+    pub residual_un: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -176,6 +179,8 @@ pub struct ProductFaltaItem {
     pub n_qtde_fat: i32,
     pub falta: i32,
     pub d_previsao: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_codigo: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

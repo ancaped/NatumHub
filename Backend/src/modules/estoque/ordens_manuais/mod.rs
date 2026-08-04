@@ -3,7 +3,7 @@ pub mod models;
 
 use std::sync::Arc;
 use axum::{
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use crate::handlers::AppState;
@@ -21,6 +21,14 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/api/estoque/ordens-manuais/pendencias/por-item",
             get(handlers::pending_by_item),
+        )
+        .route(
+            "/api/estoque/ordens-manuais/tipos",
+            get(handlers::list_record_types).post(handlers::create_record_type),
+        )
+        .route(
+            "/api/estoque/ordens-manuais/tipos/:id",
+            delete(handlers::delete_record_type),
         )
         .route(
             "/api/estoque/ordens-manuais/:id",

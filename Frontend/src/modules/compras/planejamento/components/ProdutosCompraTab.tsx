@@ -978,7 +978,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
   };
 
   return (
-    <div className="flex flex-col gap-4 w-full h-[calc(100vh-6.25rem)]">
+    <div className="flex flex-col gap-4 w-full min-h-0 h-[calc(100dvh-10.5rem)] md:h-[calc(100vh-6.25rem)]">
       {/* Filters & Actions Bar */}
       <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden flex flex-col w-full flex-1">
         {lastErpStockSync && (

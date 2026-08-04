@@ -150,7 +150,17 @@ pub async fn save_product_count(
             .into_response();
     }
 
-    (StatusCode::OK, Json(json!({ "success": true, "delta": delta }))).into_response()
+    // Contagem é operacional/local: o próximo sync passo A ou POST
+    // /api/admin/audit/stock/resync-produtos sobrescreve estoque com nQtdeEstoque do ERP.
+    (
+        StatusCode::OK,
+        Json(json!({
+            "success": true,
+            "delta": delta,
+            "note": "Valor local até o próximo sync ERP (passo A) ou resync-produtos — fonte canônica: Produtos.nQtdeEstoque"
+        })),
+    )
+        .into_response()
 }
 
 /// GET /api/estoque/produtos/:code/contagem/historico

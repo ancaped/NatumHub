@@ -1186,7 +1186,9 @@ pub fn requires_supervisor(path: &str, method: &str) -> bool {
     if path == "/api/admin/audit/events" {
         return matches!(method, "GET");
     }
-    if path == "/api/admin/audit/stock/resync-insumos" {
+    if path == "/api/admin/audit/stock/resync-insumos"
+        || path == "/api/admin/audit/stock/resync-produtos"
+    {
         return matches!(method, "POST");
     }
     if path.starts_with("/api/admin/audit/stock/") {
@@ -1208,6 +1210,7 @@ pub fn requires_supervisor(path: &str, method: &str) -> bool {
     if path.starts_with("/api/hub/compras/custom-configs")
         || path.starts_with("/api/hub/compras/categories")
         || path == "/api/hub/compras/config"
+        || path == "/api/hub/compras/pinned-subcategories"
         || path == "/api/hub/compras/items/category"
     {
         return true;

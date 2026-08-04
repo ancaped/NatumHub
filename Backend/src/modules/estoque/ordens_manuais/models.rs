@@ -14,6 +14,8 @@ pub struct ManualOrderItemIn {
 #[serde(rename_all = "camelCase")]
 pub struct CreateManualOrderRequest {
     pub kind: String,
+    /// Ex.: "Venda", "Uso/Interno" — texto livre vinculado à ordem.
+    pub record_type: String,
     pub partner_name: String,
     pub order_date: Option<String>,
     pub notes: Option<String>,
@@ -24,6 +26,7 @@ pub struct CreateManualOrderRequest {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateManualOrderRequest {
     pub kind: Option<String>,
+    pub record_type: Option<String>,
     pub partner_name: Option<String>,
     pub order_date: Option<String>,
     pub notes: Option<String>,
@@ -47,6 +50,7 @@ pub struct ManualOrderOut {
     pub id: i64,
     pub order_number: String,
     pub kind: String,
+    pub record_type: String,
     pub partner_name: String,
     pub order_date: String,
     pub status: String,
@@ -73,6 +77,19 @@ pub struct PendingByItem {
     pub item_code: String,
     pub entrada: f64,
     pub saida: f64,
-    /// Net effect on Prev. Futura: +entrada − saida
     pub net: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordTypeOut {
+    pub id: i64,
+    pub name: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateRecordTypeRequest {
+    pub name: String,
 }

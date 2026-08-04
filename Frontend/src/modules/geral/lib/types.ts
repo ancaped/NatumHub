@@ -159,6 +159,8 @@ export interface DemandResult {
   categoryName: string;
   currentStock: number;
   reservedQty: number;
+  /** Reserva espelhada do ERP (tooltip). */
+  reservedQtyErp?: number | null;
   inProduction: number;
   inOrders: number;
   avg2024: number;

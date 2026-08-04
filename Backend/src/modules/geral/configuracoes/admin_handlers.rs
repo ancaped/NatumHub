@@ -250,8 +250,10 @@ pub async fn audit_stock(
             "deltaStock": delta,
             "match": match_stock,
             "notes": {
-                "estoqueExibido": "nQtdeEstoqueA (tela ERP; fallback nQtdeEstoque)",
-                "prevFutura": "cálculo interno Hub — não comparar com estoque ERP"
+                "estoqueExibidoProdutos": "nQtdeEstoque (cadastro Produtos)",
+                "estoqueExibidoInsumos": "nQtdeEstoqueA (fallback nQtdeEstoque)",
+                "prevFutura": "cálculo interno Hub — não comparar com estoque ERP",
+                "efpProducao": "estoque + produção − pedidos (não é o estoque ERP)"
             }
         })),
     )
@@ -296,6 +298,28 @@ pub async fn resync_insumo_stocks(State(state): State<Arc<AppState>>) -> impl In
                 "status": "ok",
                 "updated": n,
                 "source": "nQtdeEstoqueA",
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// POST /api/admin/audit/stock/resync-produtos — regrava estoque_atual com Produtos.nQtdeEstoque.
+pub async fn resync_produto_stocks(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match crate::core::legacy_db::resync_all_produto_stocks_from_erp(state.db.pool()).await {
+        Ok(r) => (
+            StatusCode::OK,
+            Json(json!({
+                "status": "ok",
+                "updated": r.updated,
+                "stillNegativeFromErp": r.still_negative_from_erp,
+                "divergencesBefore": r.sample_before_after,
+                "source": "nQtdeEstoque",
             })),
         )
             .into_response(),

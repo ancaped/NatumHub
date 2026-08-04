@@ -21,9 +21,11 @@ use crate::handlers::AppState;
 use crate::handlers::imports::clean_product_code;
 
 /// Estoque de componentes que existem em `items` (embalagem/insumo), não em produtos.
+/// `sales_residual`: pedidos de venda abertos (M/N) — não usar `estoque_atual.pedidos_aberto` (nPedidos).
 async fn load_item_kit_component_stocks(
     pool: &PgPool,
     codes: &[String],
+    sales_residual: &HashMap<String, i64>,
 ) -> HashMap<String, (String, i64, i64, i64)> {
     let mut out = HashMap::new();
     if codes.is_empty() {
@@ -34,13 +36,12 @@ async fn load_item_kit_component_stocks(
         SELECT TRIM(REPLACE(i.code, '"', '')) AS code,
                i.description,
                COALESCE(s.stock_qty, e.estoque::float8, 0)::float8 AS estoque,
-               COALESCE(s.in_production, e.producao::float8, 0)::float8 AS producao,
-               COALESCE(s.in_orders, e.pedidos_aberto::float8, 0)::float8 AS pedidos
+               COALESCE(s.in_production, e.producao::float8, 0)::float8 AS producao
         FROM items i
         LEFT JOIN estoque_atual e
           ON TRIM(REPLACE(e.codigo, '"', '')) = TRIM(REPLACE(i.code, '"', ''))
         LEFT JOIN LATERAL (
-            SELECT stock_qty, in_production, in_orders
+            SELECT stock_qty, in_production
             FROM stock_snapshots
             WHERE TRIM(REPLACE(item_code, '"', '')) = TRIM(REPLACE(i.code, '"', ''))
             ORDER BY snapshot_date DESC, id DESC
@@ -62,7 +63,7 @@ async fn load_item_kit_component_stocks(
         let desc: String = row.get(1);
         let estoque = row.get::<f64, _>(2).floor() as i64;
         let producao = row.get::<f64, _>(3).floor() as i64;
-        let pedidos = row.get::<f64, _>(4).floor() as i64;
+        let pedidos = sales_residual.get(&code).copied().unwrap_or(0);
         out.insert(code, (desc, estoque, producao, pedidos));
     }
     out
@@ -204,6 +205,7 @@ pub async fn fetch_calculation_data(state: &Db) -> anyhow::Result<(
     HashMap<String, Vec<i64>>,
     Vec<LineConfig>,
     Vec<ProductOverride>,
+    HashMap<String, i64>,
 )> {
     let pool = state.pool();
 
@@ -225,44 +227,20 @@ pub async fn fetch_calculation_data(state: &Db) -> anyhow::Result<(
         });
     }
 
-    // Pedidos na Produção = residual de pedidos de venda abertos, limitado pela janela
-    // `sales_faltas_days_limit` (Configurações). 0 = sem limite de data.
-    let sales_faltas_days: i32 = match state.get_setting("sales_faltas_days_limit").await {
-        Ok(Some(val)) => val.parse().unwrap_or(90),
-        _ => 90,
-    };
+    // Pedidos na Produção = residual M/N (allowlist ERP). Não usar estoque_atual.pedidos_aberto (nPedidos).
+    let sales_faltas_days = crate::core::sales_open::resolve_faltas_days(state).await;
+    let sales_faltas_map =
+        crate::core::sales_open::fetch_residual_map(pool, sales_faltas_days)
+            .await
+            .unwrap_or_default();
 
-    let mut sales_faltas_map: HashMap<String, i64> = HashMap::new();
-    let sales_faltas_query = if sales_faltas_days > 0 {
-        format!(
-            "SELECT soi.c_cod_prod, SUM(soi.n_qtde - soi.n_qtde_fat)
-             FROM sales_order_items soi
-             JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
-             WHERE so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
-               AND so.d_pedido::date >= (CURRENT_DATE - INTERVAL '{} days')
-             GROUP BY soi.c_cod_prod",
-            sales_faltas_days
-        )
-    } else {
-        "SELECT soi.c_cod_prod, SUM(soi.n_qtde - soi.n_qtde_fat)
-         FROM sales_order_items soi
-         JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
-         WHERE so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
-         GROUP BY soi.c_cod_prod"
-            .to_string()
-    };
-
-    if let Ok(rows) = sqlx::query(&sales_faltas_query).fetch_all(pool).await {
-        for row in rows {
-            sales_faltas_map.insert(
-                row.get::<String, _>(0),
-                crate::core::pg_row::pg_i64(&row, 1),
-            );
-        }
-    }
+    // Prod = max(nQtdeProducao ERP, soma Unidades dos lotes abertos no Hub).
+    // Evita subcontar quando o cadastro ERP atrasa vs OPs PG ainda abertas.
+    let open_prod_map =
+        crate::core::production_reserve::fetch_open_production_units_map(pool).await;
 
     let stock_rows = sqlx::query(
-        "SELECT codigo, estoque, producao, pedidos_aberto, fase FROM estoque_atual",
+        "SELECT codigo, estoque, producao, fase FROM estoque_atual",
     )
     .fetch_all(pool)
     .await?;
@@ -271,13 +249,15 @@ pub async fn fetch_calculation_data(state: &Db) -> anyhow::Result<(
     for row in stock_rows {
         let codigo: String = row.get(0);
         let estoque: f64 = row.get(1);
-        let producao: f64 = row.get(2);
+        let erp_producao: f64 = row.get(2);
+        let hub_producao = open_prod_map.get(&codigo).copied().unwrap_or(0.0);
+        let producao = erp_producao.max(hub_producao);
         stocks.push(Stock {
             codigo: codigo.clone(),
             estoque: estoque.round() as i64,
             producao: producao.round() as i64,
             pedidos_aberto: *sales_faltas_map.get(&codigo).unwrap_or(&0),
-            fase: row.get(4),
+            fase: row.get(3),
         });
     }
 
@@ -300,7 +280,7 @@ pub async fn fetch_calculation_data(state: &Db) -> anyhow::Result<(
         }
     }
 
-    Ok((products, stocks, fat_map, configs, overrides))
+    Ok((products, stocks, fat_map, configs, overrides, sales_faltas_map))
 }
 
 pub fn post_process_kit_only_production(
@@ -351,7 +331,8 @@ pub async fn list_products(
     State(state): State<Arc<AppState>>,
     Query(params): Query<QueryParams>,
 ) -> impl IntoResponse {
-    let (products, stocks, fat_map, configs, overrides) = match fetch_calculation_data(&state.db).await {
+    let (products, stocks, fat_map, configs, overrides, sales_faltas_map) =
+        match fetch_calculation_data(&state.db).await {
         Ok(data) => data,
         Err(e) => return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -468,14 +449,6 @@ pub async fn list_products(
     {
         for row in rows {
             item_stock_map.insert(row.get(0), row.get(1));
-        }
-    }
-
-    // Pedidos ERP (nPedidos) já estão em stocks.pedidos_aberto
-    let mut sales_faltas_map: HashMap<String, i64> = HashMap::new();
-    for s in &stocks {
-        if s.pedidos_aberto != 0 {
-            sales_faltas_map.insert(s.codigo.clone(), s.pedidos_aberto);
         }
     }
 
@@ -828,7 +801,8 @@ pub async fn list_kits(
     let pool = state.db.pool();
 
     // 1. Fetch normal calculation data
-    let (products, stocks, fat_map, configs, overrides) = match fetch_calculation_data(&state.db).await {
+    let (products, stocks, fat_map, configs, overrides, sales_faltas_map) =
+        match fetch_calculation_data(&state.db).await {
         Ok(data) => data,
         Err(e) => return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -865,7 +839,8 @@ pub async fn list_kits(
             }
         }
     }
-    let item_stocks = load_item_kit_component_stocks(pool, &item_codes).await;
+    let item_stocks =
+        load_item_kit_component_stocks(pool, &item_codes, &sales_faltas_map).await;
 
     // 4. Build results for each kit
     let mut kit_results = Vec::new();

@@ -13,3 +13,4 @@ SELECT
 FROM Pedidos2 p2 WITH (NOLOCK)
 INNER JOIN Pedidos1 p1 WITH (NOLOCK) ON p1.nPedido = p2.nPedido AND p1.dPedido = p2.dPedido
 WHERE p1.dPedido >= DATEADD(month, -6, GETDATE()) OR (p1.CSTATUS NOT IN ('FT', 'CA') AND p1.CSTATUS IS NOT NULL);
+-- Pedidos órfãos no Hub (sumiram do ERP) são marcados CA em legacy_db.rs.

@@ -152,9 +152,11 @@ export function InventoryTab({
                     style={{ width: '10%', cursor: 'pointer' }}
                     onClick={() => toggleSort('estoque_futuro_com_producao', sortField, setSortField, sortDir, setSortDir)}
                     className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px] select-none hover:bg-zinc-100 transition-colors text-right"
+                    title="EFP = Estoque + Produção − Pedidos (disponível projetado). Não confundir com Est (espelho nQtdeEstoque do ERP)."
                   >
                     <div className="flex items-center gap-1 justify-end">
                       EFP
+                      <HelpCircle size={11} className="text-zinc-400 shrink-0" aria-hidden />
                       <SortIcon field="estoque_futuro_com_producao" activeField={sortField} activeDir={sortDir} />
                     </div>
                   </th>
@@ -272,9 +274,21 @@ export function InventoryTab({
                         )}
                       </td>
                       <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-right font-bold text-zinc-900">
-                        {p.estoque_futuro_com_producao}
+                        <span title="EFP = Est + Prod − Ped (projeção Hub; não comparar com nQtdeEstoque do ERP)">
+                          {p.estoque_futuro_com_producao}
+                        </span>
                         <div className="text-[10px] text-zinc-400 font-semibold mt-0.5">
-                          Est: {p.estoque} | Prod: {p.producao} | Ped: {p.pedidos_aberto}
+                          <span title="Est = espelho ERP Produtos.nQtdeEstoque (não é EFP)">
+                            Est: {p.estoque}
+                          </span>
+                          {' | '}
+                          <span title="Em produção: maior entre nQtdeProducao (ERP) e soma de Unidades dos lotes abertos no Hub">
+                            Prod: {p.producao}
+                          </span>
+                          {' | '}
+                          <span title="Faltas a faturar (unidades) — pedidos PP/LB/EX/CF/AL, janela Configurações. Diferente de nPedidos do cadastro ERP.">
+                            Ped: {p.pedidos_aberto}
+                          </span>
                         </div>
                       </td>
                       <td className="px-4 py-2.5 border-b border-zinc-150 align-middle">

@@ -34,7 +34,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
   const [newRulePrefix, setNewRulePrefix] = useState('');
   const [newRuleType, setNewRuleType] = useState<'description' | 'supplier'>('description');
 
-  const handleAddAutoRule = () => {
+  const handleAddAutoRule = async () => {
     if (!canConfig) return;
     if (!newRuleSubcategoryId || !newRulePrefix.trim()) return;
     const rules = config.autoSubcategories || [];
@@ -44,15 +44,34 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
       return;
     }
     const updatedRules = [...rules, { subcategoryId: newRuleSubcategoryId, prefix: prefixClean, type: newRuleType }];
-    setConfig({ ...config, autoSubcategories: updatedRules });
+    const next = { ...config, autoSubcategories: updatedRules };
+    setConfig(next);
     setNewRulePrefix('');
+    // Persiste na hora — antes as regras só existiam em memória até clicar em Salvar.
+    try {
+      const configKey = mode === 'coloracao' ? 'compras_coloracao' : mode === 'apoio' ? 'compras_apoio' : 'compras_main';
+      await api.saveComprasConfig(next, configKey);
+      await loadItems();
+    } catch (e) {
+      console.error(e);
+      alert('Regra adicionada na tela, mas falhou ao salvar no servidor.');
+    }
   };
 
-  const handleRemoveAutoRule = (prefixToRemove: string, typeToRemove: string) => {
+  const handleRemoveAutoRule = async (prefixToRemove: string, typeToRemove: string) => {
     if (!canConfig) return;
     const rules = config.autoSubcategories || [];
     const updatedRules = rules.filter(r => !(r.prefix === prefixToRemove && (r.type || 'description') === typeToRemove));
-    setConfig({ ...config, autoSubcategories: updatedRules });
+    const next = { ...config, autoSubcategories: updatedRules };
+    setConfig(next);
+    try {
+      const configKey = mode === 'coloracao' ? 'compras_coloracao' : mode === 'apoio' ? 'compras_apoio' : 'compras_main';
+      await api.saveComprasConfig(next, configKey);
+      await loadItems();
+    } catch (e) {
+      console.error(e);
+      alert('Falha ao remover regra no servidor.');
+    }
   };
 
   const handleApplyAutoRules = async () => {
@@ -95,13 +114,17 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
     loadCategories();
     loadItems();
 
-    const stored = localStorage.getItem('natum_hub_pinned_subcategories');
-    if (stored) {
-      try { setPinnedSubs(JSON.parse(stored)); } catch (e) { console.error(e); }
-    }
-  }, [active]);
+    api.getPinnedSubcategories()
+      .then(setPinnedSubs)
+      .catch(() => {
+        const stored = localStorage.getItem('natum_hub_pinned_subcategories');
+        if (stored) {
+          try { setPinnedSubs(JSON.parse(stored)); } catch (e) { console.error(e); }
+        }
+      });
+  }, [active, mode]);
 
-  const togglePinSubcategory = (catId: string) => {
+  const togglePinSubcategory = async (catId: string) => {
     if (!canConfig) return;
     let updated: string[];
     if (pinnedSubs.includes(catId)) {
@@ -112,6 +135,11 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
     setPinnedSubs(updated);
     localStorage.setItem('natum_hub_pinned_subcategories', JSON.stringify(updated));
     window.dispatchEvent(new Event('storage'));
+    try {
+      await api.savePinnedSubcategories(updated);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const subcategoriesOnly = useMemo(() => {

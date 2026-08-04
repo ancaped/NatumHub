@@ -147,6 +147,15 @@ export const api = {
   deleteCategory(id: string): Promise<void> {
     return hubJson(`compras/categories/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
+  getPinnedSubcategories(): Promise<string[]> {
+    return hubJson('compras/pinned-subcategories');
+  },
+  savePinnedSubcategories(ids: string[]): Promise<void> {
+    return hubJson('compras/pinned-subcategories', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+  },
 
   // === COMPRAS: CONFIG ===
   getComprasConfig(key?: string): Promise<ComprasAppConfig | null> {

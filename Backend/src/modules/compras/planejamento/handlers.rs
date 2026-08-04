@@ -1053,12 +1053,20 @@ pub async fn get_insumo_detalhes(
 
             let mut status = String::new();
             let mut d_pesado = String::new();
+            let mut unidades = 0.0;
             for part in raw_op.details.split('|') {
                 let part = part.trim();
                 if part.starts_with("Status:") {
                     status = part.trim_start_matches("Status:").trim().to_string();
                 } else if part.starts_with("dPesado:") {
                     d_pesado = part.trim_start_matches("dPesado:").trim().to_string();
+                } else if part.starts_with("Unidades:") {
+                    unidades = part
+                        .trim_start_matches("Unidades:")
+                        .trim()
+                        .replace(',', ".")
+                        .parse::<f64>()
+                        .unwrap_or(0.0);
                 }
             }
             let status_label = match status.to_uppercase().as_str() {
@@ -1075,12 +1083,15 @@ pub async fn get_insumo_detalhes(
             .to_string();
 
             let mut insumo_qty_per_unit = 0.0;
+            let mut is_un_packaging = false;
             if let Ok(Some(row_form)) = sqlx::query(
-                "SELECT quantity, COALESCE(percentage, 0.0) FROM formulations 
-                 WHERE (product_code = $1 
-                    OR (product_code LIKE '0%' AND SUBSTR(product_code, 2) = $1) 
-                    OR ($1 LIKE '0%' AND product_code = SUBSTR($1, 2)))
-                 AND ingredient_code = $2",
+                "SELECT f.quantity, COALESCE(f.percentage, 0.0), COALESCE(i.unit, 'UN')
+                 FROM formulations f
+                 LEFT JOIN items i ON i.code = f.ingredient_code
+                 WHERE (f.product_code = $1 
+                    OR (f.product_code LIKE '0%' AND SUBSTR(f.product_code, 2) = $1) 
+                    OR ($1 LIKE '0%' AND f.product_code = SUBSTR($1, 2)))
+                 AND f.ingredient_code = $2",
             )
             .bind(&raw_op.product_code)
             .bind(&code)
@@ -1089,14 +1100,19 @@ pub async fn get_insumo_detalhes(
             {
                 let qty: f64 = row_form.get(0);
                 let pct: f64 = row_form.get(1);
+                let unit: String = row_form.get::<String, _>(2).trim().to_uppercase();
+                is_un_packaging = unit == "UN";
                 if pct > 0.0 {
                     insumo_qty_per_unit = pct / 100.0;
+                } else if is_un_packaging {
+                    insumo_qty_per_unit = qty;
                 } else {
                     let sum: f64 = sqlx::query_scalar(
                         "SELECT SUM(quantity) FROM formulations 
                          WHERE (product_code = $1 
                             OR (product_code LIKE '0%' AND SUBSTR(product_code, 2) = $1) 
-                            OR ($1 LIKE '0%' AND product_code = SUBSTR($1, 2)))",
+                            OR ($1 LIKE '0%' AND product_code = SUBSTR($1, 2)))
+                           AND COALESCE((SELECT unit FROM items WHERE code = formulations.ingredient_code), '') <> 'UN'",
                     )
                     .bind(&raw_op.product_code)
                     .fetch_one(&pool)
@@ -1108,18 +1124,20 @@ pub async fn get_insumo_detalhes(
                 }
             }
 
-            let fallback_qty_needed = raw_op.quantity_produced * insumo_qty_per_unit;
+            let batch_basis = if is_un_packaging && unidades > 0.0 {
+                unidades
+            } else {
+                raw_op.quantity_produced
+            };
+            let fallback_qty_needed = batch_basis * insumo_qty_per_unit;
 
-            let insumo_qty_needed: f64 = sqlx::query_scalar(
-                "SELECT nQtdeRef FROM lotes_baixas WHERE nLote = $1 AND cReferencia = $2",
+            let insumo_qty_needed = crate::core::production_reserve::insumo_qty_needed_for_lote(
+                &pool,
+                &raw_op.lote_number,
+                &code,
+                fallback_qty_needed,
             )
-            .bind(&raw_op.lote_number)
-            .bind(&code)
-            .fetch_optional(&pool)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or(fallback_qty_needed);
+            .await;
 
             let insumo_qty_weighed: f64 = sqlx::query_scalar(
                 "SELECT COALESCE(SUM(quantity), 0.0) FROM stock_movements

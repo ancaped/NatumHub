@@ -26,7 +26,7 @@ Produtos (passo A): `nQtdeProducao` → `producao`; `nPedidos` → `pedidos_aber
 | UI | Fonte | Comparar com ERP? |
 |----|-------|-------------------|
 | **Est** | `estoque_atual.estoque` ← `Produtos.nQtdeEstoque` | Sim — deve bater com o cadastro |
-| **Prod** | `nQtdeProducao` | Sim |
+| **Prod** | `max(nQtdeProducao, Σ Unidades lotes abertos Hub)` | Parcial — se ERP atrasar vs OPs PG, Hub usa as Unidades |
 | **Ped** | residual M/N (`PP/LB/EX/CF/AL`, janela `sales_faltas_days_limit`) | **Não** é `nPedidos` do cadastro |
 | **EFP** | `Est + Prod − Ped` | **Não** — projeção Hub |
 

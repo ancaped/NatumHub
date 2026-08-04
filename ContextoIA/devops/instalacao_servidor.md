@@ -26,6 +26,8 @@ Sem `NATUMHUB_DATA_DIR`: no repo usa `<repo>/Saves`; no Windows instalado `%LOCA
 
 ## Windows (hoje)
 
+No repo: `NatumHub-Server.bat` sobe o headless (fica ligado); `NatumHub-Frontend.bat` abre `http://natumhub.local:3001` no navegador. Não use junto com `NatumHub.bat` (Tauri).
+
 Pré-requisitos: Postgres no ar, schema aplicado, `Frontend` buildado.
 
 ```powershell

@@ -5,6 +5,7 @@ import { DemandResult, Category, Item } from '../../../geral/lib/types';
 import { AlertCircle, ArrowDownToLine, Package, Filter, CheckCircle2, ShoppingCart, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, TrendingUp, BarChart3, FileText, ChevronRight, X, Info, RefreshCw, Database, Factory, Printer, PlusCircle, Settings, Layers } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
 import { getAuthUser, isSupervisor } from '../../../geral/lib/auth';
+import { LoteDetailsDrawer } from '../../../producao/gerenciamento/components/LoteDetailsDrawer';
 
 interface InsumoDetalhes {
   code: string;
@@ -145,6 +146,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
 
   const [printList, setPrintList] = useState<string[]>([]);
   const [lastErpStockSync, setLastErpStockSync] = useState<{ at: string; count: number } | null>(null);
+  const [loteDetailsNumber, setLoteDetailsNumber] = useState<string | null>(null);
 
   const activeCategoryId = selectedCategory || 
     (activeMainTab !== 'ALL' ? activeMainTab : (mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : 'cat_mp'));
@@ -815,8 +817,10 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
 
   return (
     <div className={cn(
-      "flex flex-col gap-4 w-full",
-      (mode === 'materia_prima' || mode === 'embalagens') ? "h-[calc(100vh-6.25rem)]" : "h-[calc(100vh-12.25rem)]"
+      "flex flex-col gap-4 w-full min-h-0",
+      (mode === 'materia_prima' || mode === 'embalagens')
+        ? "h-[calc(100dvh-10.5rem)] md:h-[calc(100vh-6.25rem)]"
+        : "h-[calc(100dvh-14.5rem)] md:h-[calc(100vh-12.25rem)]"
     )}>
       {mode !== 'materia_prima' && mode !== 'embalagens' && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 shrink-0">
@@ -851,10 +855,10 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
         </div>
       )}
 
-      <div className="flex-1 flex gap-4 overflow-hidden relative">
-        <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden flex flex-col w-full">
+      <div className="flex-1 flex gap-4 overflow-hidden relative min-h-0">
+        <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden flex flex-col w-full min-h-0">
           {mode === 'all' && !initialCategoryFilter && (
-            <div className="flex border-b border-zinc-200 bg-zinc-50/50 px-4 pt-2 shrink-0 gap-2">
+            <div className="flex border-b border-zinc-200 bg-zinc-50/50 px-4 pt-2 shrink-0 gap-2 overflow-x-auto">
               {([
                 { id: 'ALL', name: 'Todos', count: counts.all },
                 { id: 'cat_mp', name: 'Matéria-prima', count: counts.mp },
@@ -886,9 +890,9 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
 
           <div className="px-4 py-2 border-b border-zinc-200 bg-zinc-50 flex items-center justify-between shrink-0 gap-4 flex-wrap">
             <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-2 bg-white border border-zinc-300 rounded-md px-3 py-1.5">
-                <Search className="h-4 w-4 text-zinc-400" />
-                <input type="text" placeholder="Buscar código ou descrição..." value={search} onChange={e => setSearch(e.target.value)} className="text-sm bg-transparent border-none focus:outline-none w-48" />
+              <div className="flex items-center gap-2 bg-white border border-zinc-300 rounded-md px-3 py-1.5 w-full sm:w-auto">
+                <Search className="h-4 w-4 text-zinc-400 shrink-0" />
+                <input type="text" placeholder="Buscar código ou descrição..." value={search} onChange={e => setSearch(e.target.value)} className="text-sm bg-transparent border-none focus:outline-none w-full sm:w-48" />
               </div>
               {!initialCategoryFilter && (
                 <div className="flex items-center gap-2">
@@ -943,7 +947,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 <span className="text-[10px] text-zinc-400">d</span>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
               <span className="text-xs text-zinc-500">{filteredDemands.length} itens</span>
               <button 
                 onClick={() => {
@@ -954,18 +958,20 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 className="text-xs bg-zinc-900 hover:bg-zinc-800 text-white px-3 py-1.5 rounded-md font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <Printer className="h-3.5 w-3.5" />
-                Imprimir Relatório
+                <span className="sm:hidden">Imprimir</span>
+                <span className="hidden sm:inline">Imprimir Relatório</span>
               </button>
               {mode !== 'materia_prima' && mode !== 'embalagens' && (
-                <button onClick={handleCreateQuotation} disabled={selectedItems.size === 0} className="text-sm bg-zinc-900 text-white px-4 py-2 rounded-md font-medium hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                <button onClick={handleCreateQuotation} disabled={selectedItems.size === 0} className="text-sm bg-zinc-900 text-white px-3 sm:px-4 py-2 rounded-md font-medium hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
                   <ShoppingCart className="h-4 w-4" />
-                  Criar Cotação ({selectedItems.size})
+                  <span className="hidden sm:inline">Criar Cotação</span>
+                  <span>({selectedItems.size})</span>
                 </button>
               )}
             </div>
           </div>
 
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-auto min-h-0">
             {loading ? (
               <div className="flex items-center justify-center h-full text-zinc-500">Carregando...</div>
             ) : filteredDemands.length === 0 ? (
@@ -974,7 +980,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 <p>Nenhuma demanda encontrada.</p>
               </div>
             ) : (
-              <table className="w-full text-left text-sm whitespace-nowrap">
+              <table className="w-full min-w-[900px] text-left text-sm whitespace-nowrap">
                 <thead className="bg-zinc-100 sticky top-0 z-10 shadow-sm">
                   <tr>
                     {mode !== 'materia_prima' && mode !== 'embalagens' && (
@@ -1007,7 +1013,16 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="font-medium">{demand.currentStock.toLocaleString('pt-BR')} {demand.unit}</div>
-                        <div className="text-xs text-zinc-500" title="R = reservada ERP (já refletida no estoque). P = pedidos em trânsito. Prev. Futura = estoque + pedidos.">-{demand.reservedQty} R / +{demand.inOrders} P</div>
+                        <div
+                          className="text-xs text-zinc-500"
+                          title={
+                            demand.reservedQtyErp != null && demand.reservedQtyErp > 0
+                              ? `R = reserva por lotes abertos (${demand.reservedQty}). ERP espelho: ${demand.reservedQtyErp}. P = pedidos em trânsito. Prev. Futura = estoque + pedidos.`
+                              : 'R = reserva por lotes abertos. P = pedidos em trânsito. Prev. Futura = estoque + pedidos.'
+                          }
+                        >
+                          -{demand.reservedQty} R / +{demand.inOrders} P
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-right font-medium text-zinc-700">{demand.overallAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {demand.unit}</td>
                       <td className="px-4 py-3 text-center">
@@ -1049,8 +1064,8 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
           </div>
 
           {totalPages > 1 && (
-            <div className="px-6 py-4 border-t border-zinc-200 bg-zinc-50 flex items-center justify-between shrink-0">
-              <span className="text-xs text-zinc-500">Mostrando {Math.min(filteredDemands.length, (currentPage - 1) * itemsPerPage + 1)} a {Math.min(filteredDemands.length, currentPage * itemsPerPage)} de {filteredDemands.length} itens</span>
+            <div className="px-4 sm:px-6 py-4 border-t border-zinc-200 bg-zinc-50 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0">
+              <span className="text-[10px] sm:text-xs text-zinc-500">Mostrando {Math.min(filteredDemands.length, (currentPage - 1) * itemsPerPage + 1)} a {Math.min(filteredDemands.length, currentPage * itemsPerPage)} de {filteredDemands.length} itens</span>
               <div className="flex items-center gap-2">
                 <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))} className="px-3 py-1.5 rounded-lg border border-zinc-200 text-xs font-bold bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed">Anterior</button>
                 <span className="text-xs text-zinc-500">Pág {currentPage} de {totalPages}</span>
@@ -1084,7 +1099,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
               </div>
 
             {/* Drawer Tab Navigation */}
-            <div className="flex border-b border-zinc-200 bg-zinc-50 shrink-0">
+            <div className="flex border-b border-zinc-200 bg-zinc-50 shrink-0 overflow-x-auto">
               {([
                 { id: 'visao_geral' as const, label: 'Visão Geral', icon: Info, show: true },
                 { id: 'consumo' as const, label: 'Consumo', icon: BarChart3, show: true },
@@ -1098,12 +1113,12 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                   key={tab.id}
                   onClick={() => setDrawerTab(tab.id)}
                   className={cn(
-                    "flex-1 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center justify-center gap-1.5",
+                    "shrink-0 px-3 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center justify-center gap-1.5",
                     drawerTab === tab.id ? "border-zinc-900 text-zinc-900 font-extrabold" : "border-transparent text-zinc-500 hover:text-zinc-800"
                   )}
                 >
                   <tab.icon className="h-3.5 w-3.5" />
-                  {tab.label}
+                  <span className="hidden sm:inline">{tab.label}</span>
                 </button>
               ))}
             </div>
@@ -1115,13 +1130,13 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 Carregando análises detalhadas...
               </div>
             ) : details ? (
-              <div className="flex-1 overflow-y-auto p-6 space-y-6 text-left">
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 text-left">
 
                 {/* ===== TAB: Visão Geral ===== */}
                 {drawerTab === 'visao_geral' && (
                   <>
                     {/* Info Stats Cards */}
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                       <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
                         <span className="text-[9px] text-zinc-400 font-bold uppercase block tracking-wider">Estoque Atual</span>
                         <p className="text-lg font-extrabold text-zinc-900 mt-1">
@@ -1153,7 +1168,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                         <span className="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">
                           Uso Desde o Último Recebimento ({formatDate(details.lastReceivedDate)})
                         </span>
-                        <div className="grid grid-cols-3 gap-4 pt-1">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 pt-1">
                           <div>
                             <span className="text-[9px] text-zinc-400 font-bold block">Consumo Total</span>
                             <span className="text-sm font-bold text-zinc-800">
@@ -1587,8 +1602,16 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                   };
 
                                   return (
-                                    <tr key={`${op.productCode}-${op.loteNumber}-${idx}`} className="hover:bg-zinc-50/50 transition-colors">
-                                      <td className="px-3 py-2 font-bold text-zinc-700 font-mono text-[10px]">
+                                    <tr
+                                      key={`${op.productCode}-${op.loteNumber}-${idx}`}
+                                      className={cn(
+                                        'hover:bg-zinc-50/50 transition-colors',
+                                        op.loteNumber && 'cursor-pointer'
+                                      )}
+                                      onClick={() => op.loteNumber && setLoteDetailsNumber(op.loteNumber)}
+                                      title={op.loteNumber ? 'Clique para ver análise detalhada do lote' : undefined}
+                                    >
+                                      <td className="px-3 py-2 font-bold text-indigo-700 font-mono text-[10px] hover:underline">
                                         {op.loteNumber || 'S/L'}
                                       </td>
                                       <td className="px-3 py-2">
@@ -2233,6 +2256,14 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
           </div>
         </div>
       )}
+
+      <LoteDetailsDrawer
+        open={!!loteDetailsNumber}
+        loteNumber={loteDetailsNumber}
+        onClose={() => setLoteDetailsNumber(null)}
+        readOnly
+        highlightInsumoCode={selectedItemCode}
+      />
       </div>
     </div>
   );

@@ -13,8 +13,8 @@ use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
 
 use super::models::{
-    CreateManualOrderRequest, ItemSearchHit, ManualOrderItemOut, ManualOrderOut, PendingByItem,
-    UpdateManualOrderRequest,
+    CreateManualOrderRequest, CreateRecordTypeRequest, ItemSearchHit, ManualOrderItemOut,
+    ManualOrderOut, PendingByItem, RecordTypeOut, UpdateManualOrderRequest,
 };
 
 pub async fn ensure_tables(pool: &PgPool) -> Result<(), String> {
@@ -63,6 +63,26 @@ pub async fn ensure_tables(pool: &PgPool) -> Result<(), String> {
     .await;
     let _ = sqlx::query(
         "CREATE INDEX IF NOT EXISTS idx_manual_stock_order_items_code ON manual_stock_order_items (item_code)",
+    )
+    .execute(pool)
+    .await;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS manual_stock_record_types (
+            id BIGSERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT manual_stock_record_types_name_uq UNIQUE (name)
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let _ = sqlx::query(
+        "ALTER TABLE manual_stock_orders ADD COLUMN IF NOT EXISTS record_type TEXT NOT NULL DEFAULT ''",
     )
     .execute(pool)
     .await;
@@ -169,27 +189,29 @@ async fn load_items(pool: &PgPool, order_id: i64) -> Result<Vec<ManualOrderItemO
 }
 
 fn row_to_order(r: &sqlx::postgres::PgRow, items: Vec<ManualOrderItemOut>) -> ManualOrderOut {
-    let order_date: chrono::NaiveDate = r.get(4);
-    let created_at: chrono::DateTime<chrono::Utc> = r.get(8);
-    let posted_at: Option<chrono::DateTime<chrono::Utc>> = r.get(10);
+    let order_date: chrono::NaiveDate = r.get(5);
+    let created_at: chrono::DateTime<chrono::Utc> = r.get(9);
+    let posted_at: Option<chrono::DateTime<chrono::Utc>> = r.get(11);
     ManualOrderOut {
         id: crate::core::pg_row::pg_i64(r, 0),
         order_number: r.get(1),
         kind: r.get(2),
-        partner_name: r.get(3),
+        record_type: r.get(3),
+        partner_name: r.get(4),
         order_date: order_date.format("%Y-%m-%d").to_string(),
-        status: r.get(5),
-        notes: r.get(6),
-        created_by: r.get(7),
+        status: r.get(6),
+        notes: r.get(7),
+        created_by: r.get(8),
         created_at: created_at.to_rfc3339(),
-        posted_by: r.get(9),
+        posted_by: r.get(10),
         posted_at: posted_at.map(|t| t.to_rfc3339()),
         items,
     }
 }
 
 const ORDER_SELECT: &str = r#"
-    SELECT id, order_number, kind, partner_name, order_date, status, notes,
+    SELECT id, order_number, kind, COALESCE(record_type, '') AS record_type,
+           partner_name, order_date, status, notes,
            created_by, created_at, posted_by, posted_at
     FROM manual_stock_orders
 "#;
@@ -199,6 +221,7 @@ pub struct ListQuery {
     pub status: Option<String>,
     pub kind: Option<String>,
     pub q: Option<String>,
+    pub record_type: Option<String>,
 }
 
 pub async fn list_orders(
@@ -231,13 +254,20 @@ pub async fn list_orders(
             sql.push_str(&format!(" AND kind = ${}", binds.len()));
         }
     }
+    if let Some(ref rt) = query.record_type {
+        let rt = rt.trim();
+        if !rt.is_empty() {
+            binds.push(rt.to_string());
+            sql.push_str(&format!(" AND record_type ILIKE ${}", binds.len()));
+        }
+    }
     if let Some(ref q) = query.q {
         let q = q.trim();
         if !q.is_empty() {
             binds.push(format!("%{q}%"));
             let i = binds.len();
             sql.push_str(&format!(
-                " AND (order_number ILIKE ${i} OR partner_name ILIKE ${i} OR COALESCE(notes,'') ILIKE ${i})"
+                " AND (order_number ILIKE ${i} OR partner_name ILIKE ${i} OR COALESCE(notes,'') ILIKE ${i} OR COALESCE(record_type,'') ILIKE ${i})"
             ));
         }
     }
@@ -360,6 +390,22 @@ pub async fn create_order(
         }
     }
 
+    if payload.partner_name.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Informe a pessoa/empresa" })),
+        )
+            .into_response();
+    }
+    let record_type = payload.record_type.trim().to_string();
+    if record_type.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Informe o tipo de registro (ex.: Venda, Uso/Interno)" })),
+        )
+            .into_response();
+    }
+
     let order_number = match next_order_number(pool).await {
         Ok(n) => n,
         Err(e) => {
@@ -391,13 +437,14 @@ pub async fn create_order(
     let row = match sqlx::query(
         r#"
         INSERT INTO manual_stock_orders
-            (order_number, kind, partner_name, order_date, status, notes, created_by)
-        VALUES ($1, $2, $3, $4, 'OPEN', $5, $6)
+            (order_number, kind, record_type, partner_name, order_date, status, notes, created_by)
+        VALUES ($1, $2, $3, $4, $5, 'OPEN', $6, $7)
         RETURNING id
         "#,
     )
     .bind(&order_number)
     .bind(kind)
+    .bind(&record_type)
     .bind(payload.partner_name.trim())
     .bind(order_date)
     .bind(&payload.notes)
@@ -415,6 +462,14 @@ pub async fn create_order(
         }
     };
     let id = crate::core::pg_row::pg_i64(&row, 0);
+
+    // Garante o tipo no cadastro (idempotente).
+    let _ = sqlx::query(
+        "INSERT INTO manual_stock_record_types (name) VALUES ($1) ON CONFLICT (name) DO NOTHING",
+    )
+    .bind(&record_type)
+    .execute(&mut *tx)
+    .await;
 
     for it in &payload.items {
         if let Err(e) = sqlx::query(
@@ -549,6 +604,22 @@ pub async fn update_order(
             .bind(id)
             .execute(&mut *tx)
             .await;
+    }
+    if let Some(ref rt) = payload.record_type {
+        let rt = rt.trim();
+        if !rt.is_empty() {
+            let _ = sqlx::query("UPDATE manual_stock_orders SET record_type = $1 WHERE id = $2")
+                .bind(rt)
+                .bind(id)
+                .execute(&mut *tx)
+                .await;
+            let _ = sqlx::query(
+                "INSERT INTO manual_stock_record_types (name) VALUES ($1) ON CONFLICT (name) DO NOTHING",
+            )
+            .bind(rt)
+            .execute(&mut *tx)
+            .await;
+        }
     }
     if let Some(ref d) = payload.order_date {
         if let Ok(nd) = chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d") {
@@ -834,4 +905,123 @@ pub async fn pending_by_item(State(state): State<Arc<AppState>>) -> impl IntoRes
         .collect();
     out.sort_by(|a, b| a.item_code.cmp(&b.item_code));
     (StatusCode::OK, Json(out)).into_response()
+}
+
+pub async fn list_record_types(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let pool = state.db.pool();
+    if let Err(e) = ensure_tables(pool).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response();
+    }
+    let rows = sqlx::query(
+        "SELECT id, name, created_at FROM manual_stock_record_types ORDER BY name ASC",
+    )
+    .fetch_all(pool)
+    .await;
+    match rows {
+        Ok(rows) => {
+            let out: Vec<RecordTypeOut> = rows
+                .into_iter()
+                .map(|r| {
+                    let created_at: chrono::DateTime<chrono::Utc> = r.get(2);
+                    RecordTypeOut {
+                        id: crate::core::pg_row::pg_i64(&r, 0),
+                        name: r.get(1),
+                        created_at: created_at.to_rfc3339(),
+                    }
+                })
+                .collect();
+            (StatusCode::OK, Json(out)).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn create_record_type(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateRecordTypeRequest>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    if let Err(e) = ensure_tables(pool).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response();
+    }
+    let name = payload.name.trim().to_string();
+    if name.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Nome do tipo obrigatório" })),
+        )
+            .into_response();
+    }
+    let row = sqlx::query(
+        r#"
+        INSERT INTO manual_stock_record_types (name) VALUES ($1)
+        ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+        RETURNING id, name, created_at
+        "#,
+    )
+    .bind(&name)
+    .fetch_one(pool)
+    .await;
+    match row {
+        Ok(r) => {
+            let created_at: chrono::DateTime<chrono::Utc> = r.get(2);
+            (
+                StatusCode::CREATED,
+                Json(RecordTypeOut {
+                    id: crate::core::pg_row::pg_i64(&r, 0),
+                    name: r.get(1),
+                    created_at: created_at.to_rfc3339(),
+                }),
+            )
+                .into_response()
+        }
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn delete_record_type(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    if let Err(e) = ensure_tables(pool).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response();
+    }
+    match sqlx::query("DELETE FROM manual_stock_record_types WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await
+    {
+        Ok(r) if r.rows_affected() == 0 => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Tipo não encontrado" })),
+        )
+            .into_response(),
+        Ok(_) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
 }

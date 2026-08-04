@@ -404,6 +404,28 @@ async fn save_compras_config_handler(State(state): State<Arc<AppState>>, Json(bo
     }
 }
 
+async fn get_pinned_subcategories_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match with_pool(&state, get_pinned_subcategories_query).await {
+        Ok(v) => ok_json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct PinnedSubcategoriesBody {
+    ids: Vec<String>,
+}
+
+async fn save_pinned_subcategories_handler(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<PinnedSubcategoriesBody>,
+) -> impl IntoResponse {
+    match with_pool(&state, |pool| save_pinned_subcategories_query(pool, &body.ids)).await {
+        Ok(()) => ok_status().into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
 // --- Imports ---
 
 async fn import_stock_handler(State(state): State<Arc<AppState>>, Json(body): Json<ImportStockBody>) -> impl IntoResponse {
@@ -515,6 +537,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/hub/compras/spending/category", get(get_spending_by_category_handler))
         // Config
         .route("/api/hub/compras/config", get(get_compras_config_handler).post(save_compras_config_handler))
+        .route(
+            "/api/hub/compras/pinned-subcategories",
+            get(get_pinned_subcategories_handler).post(save_pinned_subcategories_handler),
+        )
         // Imports
         .route("/api/hub/compras/imports/stock", post(import_stock_handler))
         .route("/api/hub/compras/imports/consumption", post(import_consumption_handler))

@@ -1,7 +1,7 @@
 {
   "meta": {
     "name": "NatumHub",
-    "generatedAt": "2026-07-28T21:15:23.055Z",
+    "generatedAt": "2026-07-29T14:00:38.919Z",
     "version": "0.0.12",
     "generator": "scripts/generate-architecture-map.mjs",
     "schemaVersion": 2,
@@ -313,15 +313,6 @@
         },
         {
           "methods": [
-            "GET"
-          ],
-          "path": "/api/estoque/ordens-manuais/:id",
-          "summary": "Ordens manuais entrada/saída de insumos",
-          "auth": "module",
-          "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs"
-        },
-        {
-          "methods": [
             "POST"
           ],
           "path": "/api/estoque/ordens-manuais/:id/postar",
@@ -334,6 +325,24 @@
             "GET"
           ],
           "path": "/api/estoque/ordens-manuais/itens/busca",
+          "summary": "Ordens manuais entrada/saída de insumos",
+          "auth": "module",
+          "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/estoque/ordens-manuais/tipos",
+          "summary": "Ordens manuais entrada/saída de insumos",
+          "auth": "module",
+          "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs"
+        },
+        {
+          "methods": [
+            "DELETE"
+          ],
+          "path": "/api/estoque/ordens-manuais/tipos/:id",
           "summary": "Ordens manuais entrada/saída de insumos",
           "auth": "module",
           "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs"
@@ -1704,7 +1713,71 @@
         "tables": [],
         "filesOnDisk": []
       },
-      "routes": [],
+      "routes": [
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/qualidade/pops/documents",
+          "summary": "POPs versionados / setores / logo / alertas",
+          "auth": "module",
+          "source": "Backend/src/modules/qualidade/pops/mod.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/qualidade/pops/documents/:id",
+          "summary": "POPs versionados / setores / logo / alertas",
+          "auth": "module",
+          "source": "Backend/src/modules/qualidade/pops/mod.rs"
+        },
+        {
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/qualidade/pops/documents/:id/publish",
+          "summary": "POPs versionados / setores / logo / alertas",
+          "auth": "module",
+          "source": "Backend/src/modules/qualidade/pops/mod.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/qualidade/pops/documents/:id/versions",
+          "summary": "POPs versionados / setores / logo / alertas",
+          "auth": "module",
+          "source": "Backend/src/modules/qualidade/pops/mod.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/qualidade/pops/sectors",
+          "summary": "POPs versionados / setores / logo / alertas",
+          "auth": "module",
+          "source": "Backend/src/modules/qualidade/pops/mod.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/qualidade/pops/settings",
+          "summary": "POPs versionados / setores / logo / alertas",
+          "auth": "module",
+          "source": "Backend/src/modules/qualidade/pops/mod.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/qualidade/pops/settings/logo",
+          "summary": "POPs versionados / setores / logo / alertas",
+          "auth": "module",
+          "source": "Backend/src/modules/qualidade/pops/mod.rs"
+        }
+      ],
       "connectsTo": [
         {
           "target": "auth",
@@ -3340,16 +3413,6 @@
       "auth": "module"
     },
     {
-      "path": "/api/estoque/ordens-manuais/:id",
-      "methods": [
-        "GET"
-      ],
-      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
-      "moduleKey": "estoque_ordens_manuais",
-      "summary": "Ordens manuais entrada/saída de insumos",
-      "auth": "module"
-    },
-    {
       "path": "/api/estoque/ordens-manuais/:id/postar",
       "methods": [
         "POST"
@@ -3363,6 +3426,26 @@
       "path": "/api/estoque/ordens-manuais/itens/busca",
       "methods": [
         "GET"
+      ],
+      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
+      "moduleKey": "estoque_ordens_manuais",
+      "summary": "Ordens manuais entrada/saída de insumos",
+      "auth": "module"
+    },
+    {
+      "path": "/api/estoque/ordens-manuais/tipos",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
+      "moduleKey": "estoque_ordens_manuais",
+      "summary": "Ordens manuais entrada/saída de insumos",
+      "auth": "module"
+    },
+    {
+      "path": "/api/estoque/ordens-manuais/tipos/:id",
+      "methods": [
+        "DELETE"
       ],
       "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
       "moduleKey": "estoque_ordens_manuais",
@@ -4098,6 +4181,76 @@
       "source": "Backend/src/modules/qualidade/documentacao/mod.rs",
       "moduleKey": "qualidade_documentacao",
       "summary": "Atualiza tipo",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/pops/documents",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/qualidade/pops/mod.rs",
+      "moduleKey": "qualidade_pops",
+      "summary": "POPs versionados / setores / logo / alertas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/pops/documents/:id",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/qualidade/pops/mod.rs",
+      "moduleKey": "qualidade_pops",
+      "summary": "POPs versionados / setores / logo / alertas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/pops/documents/:id/publish",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/qualidade/pops/mod.rs",
+      "moduleKey": "qualidade_pops",
+      "summary": "POPs versionados / setores / logo / alertas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/pops/documents/:id/versions",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/qualidade/pops/mod.rs",
+      "moduleKey": "qualidade_pops",
+      "summary": "POPs versionados / setores / logo / alertas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/pops/sectors",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/qualidade/pops/mod.rs",
+      "moduleKey": "qualidade_pops",
+      "summary": "POPs versionados / setores / logo / alertas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/pops/settings",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/qualidade/pops/mod.rs",
+      "moduleKey": "qualidade_pops",
+      "summary": "POPs versionados / setores / logo / alertas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/pops/settings/logo",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/qualidade/pops/mod.rs",
+      "moduleKey": "qualidade_pops",
+      "summary": "POPs versionados / setores / logo / alertas",
       "auth": "module"
     },
     {
@@ -4503,16 +4656,6 @@
       "auth": "module"
     },
     {
-      "path": "/api/estoque/ordens-manuais/:id",
-      "methods": [
-        "GET"
-      ],
-      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
-      "moduleKey": "estoque_ordens_manuais",
-      "summary": "Ordens manuais entrada/saída de insumos",
-      "auth": "module"
-    },
-    {
       "path": "/api/estoque/ordens-manuais/:id/postar",
       "methods": [
         "POST"
@@ -4526,6 +4669,26 @@
       "path": "/api/estoque/ordens-manuais/itens/busca",
       "methods": [
         "GET"
+      ],
+      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
+      "moduleKey": "estoque_ordens_manuais",
+      "summary": "Ordens manuais entrada/saída de insumos",
+      "auth": "module"
+    },
+    {
+      "path": "/api/estoque/ordens-manuais/tipos",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
+      "moduleKey": "estoque_ordens_manuais",
+      "summary": "Ordens manuais entrada/saída de insumos",
+      "auth": "module"
+    },
+    {
+      "path": "/api/estoque/ordens-manuais/tipos/:id",
+      "methods": [
+        "DELETE"
       ],
       "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
       "moduleKey": "estoque_ordens_manuais",
@@ -5261,6 +5424,76 @@
       "source": "Backend/src/modules/qualidade/documentacao/mod.rs",
       "moduleKey": "qualidade_documentacao",
       "summary": "Atualiza tipo",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/pops/documents",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/qualidade/pops/mod.rs",
+      "moduleKey": "qualidade_pops",
+      "summary": "POPs versionados / setores / logo / alertas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/pops/documents/:id",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/qualidade/pops/mod.rs",
+      "moduleKey": "qualidade_pops",
+      "summary": "POPs versionados / setores / logo / alertas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/pops/documents/:id/publish",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/qualidade/pops/mod.rs",
+      "moduleKey": "qualidade_pops",
+      "summary": "POPs versionados / setores / logo / alertas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/pops/documents/:id/versions",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/qualidade/pops/mod.rs",
+      "moduleKey": "qualidade_pops",
+      "summary": "POPs versionados / setores / logo / alertas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/pops/sectors",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/qualidade/pops/mod.rs",
+      "moduleKey": "qualidade_pops",
+      "summary": "POPs versionados / setores / logo / alertas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/pops/settings",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/qualidade/pops/mod.rs",
+      "moduleKey": "qualidade_pops",
+      "summary": "POPs versionados / setores / logo / alertas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/pops/settings/logo",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/qualidade/pops/mod.rs",
+      "moduleKey": "qualidade_pops",
+      "summary": "POPs versionados / setores / logo / alertas",
       "auth": "module"
     },
     {
@@ -5672,6 +5905,14 @@
     {
       "file": "Backend/supabase/021_manual_stock_orders.sql",
       "id": "021_manual_stock_orders"
+    },
+    {
+      "file": "Backend/supabase/022_manual_stock_record_types.sql",
+      "id": "022_manual_stock_record_types"
+    },
+    {
+      "file": "Backend/supabase/023_qualidade_pops.sql",
+      "id": "023_qualidade_pops"
     }
   ],
   "keyFlows": [
@@ -5720,8 +5961,8 @@
     "AGENTS.md"
   ],
   "stats": {
-    "httpRouteEntries": 116,
-    "migrations": 21,
+    "httpRouteEntries": 124,
+    "migrations": 23,
     "frontendViews": 40,
     "modules": 44,
     "edges": 65

@@ -17,6 +17,7 @@
   },
   "routePrefixes": [
     { "prefix": "/api/qualidade/documentacao", "moduleKey": "qualidade_documentacao", "summary": "CRUD documentação / PDF / alertas" },
+    { "prefix": "/api/qualidade/pops", "moduleKey": "qualidade_pops", "summary": "POPs versionados / setores / logo / alertas" },
     { "prefix": "/api/almox", "moduleKey": "estoque_almoxarifado", "summary": "Almoxarifado ops (itens, movimentos, equipamentos)" },
     { "prefix": "/api/estoque/ordens-manuais", "moduleKey": "estoque_ordens_manuais", "summary": "Ordens manuais entrada/saída de insumos" },
     { "prefix": "/api/estoque", "moduleKey": "estoque_produtos", "summary": "Estoque / contagens / item-info" },
@@ -94,6 +95,53 @@
         "GET /api/qualidade/documentacao/files/:id": "Download arquivo",
         "DELETE /api/qualidade/documentacao/files/:id": "Remove arquivo",
         "POST /api/qualidade/documentacao/check-alerts": "Gera notificações de validade/pagamento"
+      }
+    },
+    "qualidade_pops": {
+      "label": "POPs",
+      "purpose": "Procedimentos Operacionais Padrão em HTML/PDF no Hub, por setor, com validade anual, revisões versionadas, logo configurável e alertas 30/15/7.",
+      "status": "live",
+      "frontend": {
+        "view": "QualidadePopsView",
+        "path": "Frontend/src/modules/qualidade/pops/"
+      },
+      "backend": {
+        "path": "Backend/src/modules/qualidade/pops/",
+        "routerPrefix": "/api/qualidade/pops"
+      },
+      "permissions": { "rolesDefault": ["qualidade", "admin"], "supervisorOnly": false },
+      "data": {
+        "tables": ["pop_sectors", "pop_documents", "pop_versions"],
+        "filesOnDisk": ["Saves/pops/"]
+      },
+      "connectsTo": [
+        { "target": "notifications", "kind": "notify", "note": "check-alerts → hub_notifications" },
+        { "target": "auth", "kind": "guard", "note": "module_key qualidade_pops" },
+        { "target": "saves", "kind": "files", "note": "logo em Saves/pops/" },
+        { "target": "postgres", "kind": "data", "note": "migration 023" }
+      ],
+      "aiHints": [
+        "AppLayout: POPs / Setores / Configuração; sem h1 no main",
+        "Impressão HTML + window.print; logo configurável",
+        "Revalidar (mesmo conteúdo) vs publicar revisão (conteúdo + histórico)",
+        "Registros acompanhantes = fase 2 (não implementar na v1)"
+      ],
+      "routeSummaries": {
+        "GET /api/qualidade/pops/sectors": "Lista setores",
+        "POST /api/qualidade/pops/sectors": "Cria setor",
+        "GET /api/qualidade/pops/documents": "Lista POPs (filtro setor/status/q)",
+        "POST /api/qualidade/pops/documents": "Cria POP draft",
+        "GET /api/qualidade/pops/documents/:id": "Detalhe + versão atual",
+        "PUT /api/qualidade/pops/documents/:id": "Edita draft / metadados",
+        "POST /api/qualidade/pops/documents/:id/publish": "Publica initial ou content",
+        "POST /api/qualidade/pops/documents/:id/revalidate": "Nova revisão sem mudar seções",
+        "GET /api/qualidade/pops/documents/:id/versions": "Histórico de versões",
+        "GET /api/qualidade/pops/documents/:id/versions/:vid": "Snapshot antigo",
+        "GET /api/qualidade/pops/settings": "Config (logo)",
+        "PUT /api/qualidade/pops/settings": "Upload logo multipart",
+        "GET /api/qualidade/pops/settings/logo": "Bytes do logo",
+        "POST /api/qualidade/pops/seed-inventory": "Importa inventário 31 POPs",
+        "POST /api/qualidade/pops/check-alerts": "Alertas vencimento 30/15/7"
       }
     },
     "estoque_ordens_manuais": {

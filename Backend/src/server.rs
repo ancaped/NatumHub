@@ -241,7 +241,16 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
             put(handlers::update_producao_lote),
         )
         .route("/api/vendas/pedidos", get(handlers::list_sales_orders))
+        .route(
+            "/api/vendas/pedidos/detalhe",
+            get(handlers::get_sales_order_detail),
+        )
         .route("/api/vendas/faltas", get(handlers::list_sales_faltas))
+        .route("/api/vendas/clientes", get(handlers::list_sales_clientes))
+        .route(
+            "/api/vendas/clientes/:codigo/pedidos",
+            get(handlers::list_cliente_sales_orders),
+        )
         .route(
             "/api/produtos/:code/pedidos-pendentes",
             get(handlers::get_product_pending_orders),
@@ -313,6 +322,8 @@ pub async fn run_hub_server(opts: HubServerOptions) -> Result<(), String> {
     };
 
     let db = core::db::Db::new(pool.clone());
+
+    let _ = crate::core::sales_open::ensure_faltas_days_setting(&db).await;
 
     let pool_clone = pool.clone();
     tokio::spawn(async move {

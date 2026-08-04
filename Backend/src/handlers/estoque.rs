@@ -172,7 +172,7 @@ pub async fn get_similar_products(
         }
     }
 
-    let (products, stocks, fat_map, configs, overrides) =
+    let (products, stocks, fat_map, configs, overrides, _) =
         match fetch_calculation_data(&state.db).await {
             Ok(data) => data,
             Err(e) => {
@@ -565,32 +565,19 @@ pub async fn get_product_pending_orders(
 ) -> impl IntoResponse {
     let pool = state.db.pool();
 
-    let sales_faltas_days: i32 = match state.db.get_setting("sales_faltas_days_limit").await {
-        Ok(Some(val)) => val.parse().unwrap_or(180),
-        _ => 180,
-    };
-
-    let query_sales = if sales_faltas_days > 0 {
-        format!(
-            "SELECT soi.n_pedido, soi.d_pedido, so.c_nome, so.c_status, soi.n_qtde, soi.n_qtde_fat,
-                    (soi.n_qtde - soi.n_qtde_fat) as falta, so.d_previsao
-             FROM sales_order_items soi
-             JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
-             WHERE soi.c_cod_prod = $1 AND so.c_status NOT IN ('FT', 'CA')
-               AND (soi.n_qtde > soi.n_qtde_fat)
-               AND so.d_pedido::date >= (CURRENT_DATE - INTERVAL '{} days')
-             ORDER BY soi.d_pedido DESC",
-            sales_faltas_days
-        )
-    } else {
+    let sales_faltas_days = crate::core::sales_open::resolve_faltas_days(&state.db).await;
+    let date_filter = crate::core::sales_open::days_filter_sql(sales_faltas_days);
+    let open_st = crate::core::sales_open::OPEN_STATUS_SQL;
+    let query_sales = format!(
         "SELECT soi.n_pedido, soi.d_pedido, so.c_nome, so.c_status, soi.n_qtde, soi.n_qtde_fat,
-                (soi.n_qtde - soi.n_qtde_fat) as falta, so.d_previsao
+                (soi.n_qtde - soi.n_qtde_fat) as falta, so.d_previsao, so.n_codigo
          FROM sales_order_items soi
          JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
-         WHERE soi.c_cod_prod = $1 AND so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
+         WHERE soi.c_cod_prod = $1 AND {open_st}
+           AND (soi.n_qtde > soi.n_qtde_fat)
+           {date_filter}
          ORDER BY soi.d_pedido DESC"
-            .to_string()
-    };
+    );
 
     let mut pending_sales_orders = Vec::new();
     if let Ok(rows) = sqlx::query(&query_sales).bind(&code).fetch_all(pool).await {
@@ -604,6 +591,7 @@ pub async fn get_product_pending_orders(
                 n_qtde_fat: crate::core::pg_row::pg_i32(&row, 5),
                 falta: crate::core::pg_row::pg_i32(&row, 6),
                 d_previsao: row.get(7),
+                n_codigo: crate::core::pg_row::pg_opt_i32(&row, 8),
             });
         }
     }

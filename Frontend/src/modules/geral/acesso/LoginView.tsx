@@ -40,7 +40,7 @@ export default function LoginView({
         if (!health.ok) {
           setLoadError(
             health.error ||
-              `API inacessível em ${getApiOrigin()}. Verifique o PC Principal ou a configuração.`
+              `API inacessível em ${getApiOrigin()}. No mesmo Wi‑Fi use http://IP-DO-MASTER:3001 (PC Principal ligado). Verifique firewall na porta 3001.`
           );
         }
       } catch (e: unknown) {

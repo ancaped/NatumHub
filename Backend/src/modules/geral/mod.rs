@@ -22,6 +22,7 @@ pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
         .route("/api/admin/pg-backup/run", axum::routing::post(configuracoes::admin_handlers::run_pg_backup_now))
         .route("/api/admin/db-reset", axum::routing::post(configuracoes::admin_handlers::reset_operational_data))
         .route("/api/admin/audit/stock/resync-insumos", axum::routing::post(configuracoes::admin_handlers::resync_insumo_stocks))
+        .route("/api/admin/audit/stock/resync-produtos", axum::routing::post(configuracoes::admin_handlers::resync_produto_stocks))
         .route("/api/admin/audit/stock/:code", axum::routing::get(configuracoes::admin_handlers::audit_stock))
         .route("/api/admin/audit/stock/:code/refresh", axum::routing::post(configuracoes::admin_handlers::refresh_stock_from_erp))
         .route("/api/auth/session", axum::routing::get(acesso::get_session).post(acesso::save_session).delete(acesso::clear_session))

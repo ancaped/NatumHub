@@ -255,6 +255,11 @@ export default function OperadoresPanel({
         </div>
         <div>
           <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Perfil base</label>
+          {form.role === 'supervisor' || form.role === 'admin' ? (
+            <div className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-100 text-zinc-700 font-medium">
+              Supervisor (protegido)
+            </div>
+          ) : (
           <select
             value={form.role}
             onChange={(e) => {
@@ -280,6 +285,7 @@ export default function OperadoresPanel({
             <option value="vendas">Vendas</option>
             <option value="operador">Operador (customizado)</option>
           </select>
+          )}
         </div>
       </div>
 
@@ -302,7 +308,11 @@ export default function OperadoresPanel({
               }));
             }
           }}
-          placeholder={formKey === 'new' ? 'Mín. 4 caracteres' : 'Deixe vazio para manter'}
+          placeholder={
+            form.role === 'supervisor' || form.role === 'admin'
+              ? (formKey === 'new' ? 'Mín. 8 caracteres' : 'Mín. 8 — vazio mantém')
+              : (formKey === 'new' ? 'Mín. 4 caracteres' : 'Deixe vazio para manter')
+          }
           className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-50"
         />
       </div>

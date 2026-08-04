@@ -111,6 +111,25 @@ Hub `almoxarifado_hub`. Doc: [`../modulos/almoxarifado.md`](../modulos/almoxarif
 | POST | `/api/estoque/ordens-manuais/:id/reabrir` | Volta a `OPEN` |
 | GET | `/api/estoque/ordens-manuais/itens/busca` | Autocomplete `items` MP/Emb |
 | GET | `/api/estoque/ordens-manuais/pendencias/por-item` | Agregado OPEN (Prev. Futura) |
+| GET/POST | `/api/estoque/ordens-manuais/tipos` | Tipos de registro (Venda, Uso/Interno…) |
+| DELETE | `/api/estoque/ordens-manuais/tipos/:id` | Remove tipo do cadastro |
+
+## Qualidade — Documentação / POPs
+
+| Método | Rota | Notas |
+|--------|------|-------|
+| * | `/api/qualidade/documentacao/...` | Famílias, tipos, docs, PDF, alertas |
+| GET/POST | `/api/qualidade/pops/sectors` | Setores |
+| GET/POST | `/api/qualidade/pops/documents` | Lista / cria (draft) |
+| GET/PUT | `/api/qualidade/pops/documents/:id` | Detalhe / edita draft |
+| POST | `/api/qualidade/pops/documents/:id/publish` | Publica (initial ou content) |
+| POST | `/api/qualidade/pops/documents/:id/revalidate` | Nova revisão sem mudar seções |
+| GET | `/api/qualidade/pops/documents/:id/versions` | Histórico |
+| GET | `/api/qualidade/pops/documents/:id/versions/:vid` | Snapshot |
+| GET/PUT | `/api/qualidade/pops/settings` | Logo (PUT multipart) |
+| GET | `/api/qualidade/pops/settings/logo` | Bytes do logo |
+| POST | `/api/qualidade/pops/seed-inventory` | Importa 31 POPs draft |
+| POST | `/api/qualidade/pops/check-alerts` | Vencidos / 30-15-7 |
 
 ## Admin / auditoria (supervisor)
 

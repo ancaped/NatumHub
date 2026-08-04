@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bug, MessageSquare, X, Upload, Camera } from 'lucide-react';
+import { Bug, MessageSquare, X, Upload, Camera, ChevronLeft } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import { api } from '../lib/api';
 import { getLogs } from '../lib/logInterceptor';
@@ -7,14 +7,22 @@ import { cn, randomId } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { buildFeedbackPagePath, splitFeedbackPagePath } from '../lib/viewLabels';
 
+const COLLAPSED_KEY = 'natumhub.feedbackWidget.collapsed';
+
 interface FeedbackWidgetProps {
   currentView?: string;
   visible?: boolean;
 }
 
 export function FeedbackWidget({ currentView, visible = false }: FeedbackWidgetProps) {
-  if (!visible) return null;
   const [isOpen, setIsOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(COLLAPSED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
   const [type, setType] = useState<'bug' | 'feedback'>('bug');
   const [module, setModule] = useState('Geral');
   const [subPage, setSubPage] = useState('');
@@ -25,13 +33,22 @@ export function FeedbackWidget({ currentView, visible = false }: FeedbackWidgetP
   const [sent, setSent] = useState(false);
 
   useEffect(() => {
-    if (isOpen) {
-      const path = buildFeedbackPagePath(currentView);
-      const { module: mod, subPage: sub } = splitFeedbackPagePath(path);
-      setModule(mod);
-      setSubPage(sub);
+    try {
+      localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0');
+    } catch {
+      /* ignore */
     }
-  }, [isOpen, currentView]);
+  }, [collapsed]);
+
+  useEffect(() => {
+    if (!visible || !isOpen) return;
+    const path = buildFeedbackPagePath(currentView);
+    const { module: mod, subPage: sub } = splitFeedbackPagePath(path);
+    setModule(mod);
+    setSubPage(sub);
+  }, [isOpen, currentView, visible]);
+
+  if (!visible) return null;
 
   const handlePaste = (e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
@@ -133,13 +150,37 @@ export function FeedbackWidget({ currentView, visible = false }: FeedbackWidgetP
 
   return (
     <>
-      <button
-        onClick={() => setIsOpen(true)}
-        className="feedback-widget-trigger fixed bottom-6 right-6 w-12 h-12 bg-zinc-900 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-zinc-800 transition-colors z-50 group"
-        title="Enviar Feedback / Reportar Bug"
-      >
-        <Bug className="h-5 w-5" />
-      </button>
+      {collapsed && !isOpen ? (
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="feedback-widget-trigger fixed bottom-24 right-0 z-50 flex h-10 w-5 items-center justify-center rounded-l-md bg-zinc-900/55 text-white/90 shadow-sm backdrop-blur-[1px] transition hover:w-7 hover:bg-zinc-900/80"
+          title="Mostrar botão de feedback"
+          aria-label="Mostrar botão de feedback"
+        >
+          <ChevronLeft className="h-3.5 w-3.5" />
+        </button>
+      ) : (
+        <div className="feedback-widget-trigger fixed bottom-6 right-6 z-50 flex items-end gap-1.5">
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            className="mb-1 rounded-full border border-zinc-200 bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500 shadow-sm hover:bg-zinc-50 hover:text-zinc-800"
+            title="Ocultar parcialmente (libera a paginação)"
+            aria-label="Ocultar botão de feedback"
+          >
+            Ocultar
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsOpen(true)}
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-900 text-white shadow-lg transition-colors hover:bg-zinc-800 group"
+            title="Enviar Feedback / Reportar Bug"
+          >
+            <Bug className="h-5 w-5" />
+          </button>
+        </div>
+      )}
 
       <AnimatePresence>
         {isOpen && (
@@ -147,7 +188,7 @@ export function FeedbackWidget({ currentView, visible = false }: FeedbackWidgetP
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            className="feedback-widget-container fixed bottom-24 right-6 w-[400px] max-h-[80vh] bg-white rounded-xl shadow-2xl border border-zinc-200 flex flex-col z-50 overflow-hidden"
+            className="feedback-widget-container fixed bottom-24 right-6 w-[min(400px,calc(100vw-1.5rem))] max-h-[80vh] bg-white rounded-xl shadow-2xl border border-zinc-200 flex flex-col z-50 overflow-hidden"
           >
             <div className="flex items-center justify-between p-4 border-b border-zinc-100 bg-zinc-50">
               <span className="text-sm font-semibold text-zinc-900">Novo Report</span>

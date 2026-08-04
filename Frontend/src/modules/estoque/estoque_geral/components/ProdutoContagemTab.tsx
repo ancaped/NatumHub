@@ -124,8 +124,12 @@ export function ProdutoContagemTab({ active = false }: { active?: boolean }) {
       });
 
       if (res.ok) {
-        setSuccessMsg('Contagem física registrada e salva no banco!');
-        // Update local list
+        const body = await res.json().catch(() => ({} as { note?: string }));
+        setSuccessMsg(
+          body.note
+            ? `Contagem salva. ${body.note}`
+            : 'Contagem salva. Valor local até o próximo sync ERP (passo A).',
+        );
         setProducts(prev =>
           prev.map(p =>
             p.codigo === selectedProduct.codigo
