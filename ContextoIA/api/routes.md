@@ -142,7 +142,8 @@ Hub `almoxarifado_hub`. Doc: [`../modulos/almoxarifado.md`](../modulos/almoxarif
 | POST | `/api/admin/db-reset` | Reset operacional |
 | GET | `/api/admin/audit/stock/:code` | Hub × ERP ao vivo (estoque/reserva/prod/pedidos) |
 | POST | `/api/admin/audit/stock/:code/refresh` | Re-lê D1/D2/A pontual e grava |
-| POST | `/api/admin/audit/stock/resync-insumos` | Regrava todos os insumos com `nQtdeEstoqueA` |
+| POST | `/api/admin/audit/stock/verify-insumos` | Confere Hub × ERP e corrige divergências de insumos (`nQtdeEstoque`) |
+| POST | `/api/admin/audit/stock/resync-insumos` | Regrava todos os insumos com `nQtdeEstoque` |
 | POST | `/api/admin/audit/stock/resync-produtos` | Regrava `estoque_atual` com `Produtos.nQtdeEstoque` |
 
 ## Mapa operacional (supervisor)

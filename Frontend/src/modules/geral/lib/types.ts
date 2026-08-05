@@ -163,6 +163,8 @@ export interface DemandResult {
   reservedQtyErp?: number | null;
   inProduction: number;
   inOrders: number;
+  /** Consumo se produzir produtos em Produzir Urgente / Abrir Ordem. */
+  simProducao?: number;
   avg2024: number;
   avg2025: number;
   avg2026: number;

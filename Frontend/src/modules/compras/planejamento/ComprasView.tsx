@@ -143,6 +143,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
       case 'simulation':
         items = [
           { id: 'sim_products', label: 'Produtos a Simular', icon: ClipboardList },
+          { id: 'sim_auto', label: 'Simulação Automática', icon: Calculator },
           { id: 'sim_requirements', label: 'Insumos Mapeados', icon: Boxes },
         ];
         break;

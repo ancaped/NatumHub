@@ -161,11 +161,12 @@ pub async fn reset_operational_data(State(state): State<Arc<AppState>>) -> impl 
 }
 
 async fn hub_stock_for_code(pool: &sqlx::PgPool, code: &str) -> serde_json::Value {
+    let code = code.trim();
     if let Ok(Some(row)) = sqlx::query(
         r#"
         SELECT stock_qty, reserved_qty, in_production, in_orders, snapshot_date::text
         FROM stock_snapshots
-        WHERE item_code = $1
+        WHERE TRIM(item_code) = $1
         ORDER BY snapshot_date DESC, id DESC
         LIMIT 1
         "#,
@@ -188,7 +189,7 @@ async fn hub_stock_for_code(pool: &sqlx::PgPool, code: &str) -> serde_json::Valu
     }
 
     if let Ok(Some(row)) = sqlx::query(
-        "SELECT estoque, producao, pedidos_aberto FROM estoque_atual WHERE codigo = $1",
+        "SELECT estoque, producao, pedidos_aberto FROM estoque_atual WHERE TRIM(codigo) = $1",
     )
     .bind(code)
     .fetch_optional(pool)
@@ -218,14 +219,25 @@ pub async fn audit_stock(
     let hub = hub_stock_for_code(pool, &code).await;
 
     let erp = match crate::core::legacy_db::fetch_erp_stock_live(pool, &code).await {
-        Ok(Some(live)) => json!({
-            "source": live.source,
-            "stockQty": live.stock_qty,
-            "reservedQty": live.reserved_qty,
-            "inProduction": live.in_production,
-            "inOrders": live.in_orders,
-            "availableQty": live.stock_qty - live.reserved_qty,
-        }),
+        Ok(Some(live)) => {
+            let mut obj = json!({
+                "source": live.source,
+                "stockQty": live.stock_qty,
+                "reservedQty": live.reserved_qty,
+                "inProduction": live.in_production,
+                "inOrders": live.in_orders,
+                "hubField": "nQtdeEstoque (tela Estoque atual)",
+            });
+            if let Some(raw) = live.stock_qty_raw {
+                obj["stockQtyRaw"] = json!(raw);
+                obj["stockQtyRawField"] = json!("nQtdeEstoque");
+            }
+            if let Some(a) = live.stock_qty_a {
+                obj["stockQtyA"] = json!(a);
+                obj["stockQtyAField"] = json!("nQtdeEstoqueA");
+            }
+            obj
+        }
         Ok(None) => json!({ "source": null, "error": "Código não encontrado no ERP" }),
         Err(e) => json!({ "source": null, "error": e.to_string() }),
     };
@@ -251,7 +263,7 @@ pub async fn audit_stock(
             "match": match_stock,
             "notes": {
                 "estoqueExibidoProdutos": "nQtdeEstoque (cadastro Produtos)",
-                "estoqueExibidoInsumos": "nQtdeEstoqueA (fallback nQtdeEstoque)",
+                "estoqueExibidoInsumos": "nQtdeEstoque (tela Estoque atual)",
                 "prevFutura": "cálculo interno Hub — não comparar com estoque ERP",
                 "efpProducao": "estoque + produção − pedidos (não é o estoque ERP)"
             }
@@ -289,7 +301,29 @@ pub async fn refresh_stock_from_erp(
     }
 }
 
-/// POST /api/admin/audit/stock/resync-insumos — regrava todos os snapshots D1 com nQtdeEstoqueA.
+/// POST /api/admin/audit/stock/verify-insumos — compara Hub × ERP e corrige divergências (nQtdeEstoque).
+pub async fn verify_insumo_stocks(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match crate::core::legacy_db::verify_and_repair_insumo_stocks(state.db.pool()).await {
+        Ok(r) => (
+            StatusCode::OK,
+            Json(json!({
+                "status": "ok",
+                "checked": r.checked,
+                "repaired": r.repaired,
+                "samples": r.samples,
+                "source": "nQtdeEstoque",
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// POST /api/admin/audit/stock/resync-insumos — regrava todos os snapshots D1 com nQtdeEstoque.
 pub async fn resync_insumo_stocks(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     match crate::core::legacy_db::resync_all_insumo_snapshots_from_erp(state.db.pool()).await {
         Ok(n) => (
@@ -297,7 +331,7 @@ pub async fn resync_insumo_stocks(State(state): State<Arc<AppState>>) -> impl In
             Json(json!({
                 "status": "ok",
                 "updated": n,
-                "source": "nQtdeEstoqueA",
+                "source": "nQtdeEstoque",
             })),
         )
             .into_response(),

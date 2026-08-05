@@ -134,6 +134,9 @@ pub struct DemandResult {
     pub reserved_qty_erp: Option<f64>,
     pub in_production: f64,
     pub in_orders: f64,
+    /// Consumo de insumos se produzir produtos em Produzir Urgente / Abrir Ordem.
+    #[serde(default)]
+    pub sim_producao: f64,
     pub avg2024: f64,
     pub avg2025: f64,
     pub avg2026: f64,

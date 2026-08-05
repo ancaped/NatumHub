@@ -2,7 +2,7 @@ import { apiFetch } from '../../../geral/lib/http';
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../geral/lib/api';
 import { DemandResult, Category, Item } from '../../../geral/lib/types';
-import { AlertCircle, ArrowDownToLine, Package, Filter, CheckCircle2, ShoppingCart, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, TrendingUp, BarChart3, FileText, ChevronRight, X, Info, RefreshCw, Database, Factory, Printer, PlusCircle, Settings, Layers } from 'lucide-react';
+import { AlertCircle, ArrowDownToLine, Package, Filter, CheckCircle2, ShoppingCart, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, TrendingUp, BarChart3, FileText, ChevronRight, X, Info, RefreshCw, Database, Factory, Printer, PlusCircle, Settings, Layers, Calculator } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
 import { getAuthUser, isSupervisor } from '../../../geral/lib/auth';
 import { LoteDetailsDrawer } from '../../../producao/gerenciamento/components/LoteDetailsDrawer';
@@ -92,6 +92,19 @@ interface InsumoDetalhes {
   consumedSinceLastReceived: number | null;
   daysSinceLastReceived: number | null;
   avgMonthlySinceLastReceived: number | null;
+  simulation?: {
+    totalInsumoQty: number;
+    productCount: number;
+    products: {
+      productCode: string;
+      description: string;
+      status: string;
+      statusLabel: string;
+      productionQty: number;
+      qtyPerUnit: number;
+      insumoQty: number;
+    }[];
+  };
 }
 
 type SortKey = 'itemCode' | 'description' | 'currentStock' | 'overallAvg' | 'futureStockForecast' | 'estimatedDurationDays' | 'recommendedQty';
@@ -126,7 +139,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   const [details, setDetails] = useState<InsumoDetalhes | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
-  const [drawerTab, setDrawerTab] = useState<'visao_geral' | 'consumo' | 'pedidos' | 'historico_pedidos' | 'producao' | 'configuracoes' | 'semelhantes'>('visao_geral');
+  const [drawerTab, setDrawerTab] = useState<'visao_geral' | 'consumo' | 'pedidos' | 'historico_pedidos' | 'producao' | 'simulacao' | 'configuracoes' | 'semelhantes'>('visao_geral');
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [tempNotes, setTempNotes] = useState('');
   
@@ -321,7 +334,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     if (!active) return;
     loadCategories();
     loadDemands();
-  }, [triggerDaysInput, targetDaysInput, active]);
+  }, [triggerDaysInput, targetDaysInput, active, selectedCategory, mode]);
 
   const loadCategories = async () => {
     try { setCategories(await api.getCategories()); }
@@ -331,8 +344,10 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   const loadDemands = async () => {
     setLoading(true);
     try {
+      // Subcategoria pinada/selecionada: só ela. Raiz MP/Emb: só cat_mp/cat_emb (sem filhos).
       const categoryId =
-        mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : undefined;
+        selectedCategory
+        || (mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : undefined);
       const [results, history] = await Promise.all([
         api.getDemands(categoryId, targetDaysInput),
         api.getImportHistory().catch(() => [] as Awaited<ReturnType<typeof api.getImportHistory>>),
@@ -440,33 +455,19 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
 
   const mainFilteredDemands = useMemo(() => {
     if (activeMainTab === 'ALL') return demands;
-    const allowedCategoryIds = new Set<string>();
-    if (selectedCategory) {
-      allowedCategoryIds.add(selectedCategory);
-    } else {
-      allowedCategoryIds.add(activeMainTab);
-      categories
-        .filter(c => c.parentId === activeMainTab)
-        .forEach(c => allowedCategoryIds.add(c.id));
-    }
-    return demands.filter(d => d.categoryId && allowedCategoryIds.has(d.categoryId));
-  }, [demands, activeMainTab, selectedCategory, categories]);
+    // Sem subcategoria selecionada: só itens da raiz (ex.: cat_mp), não os já classificados.
+    const allowedId = selectedCategory || activeMainTab;
+    return demands.filter(d => d.categoryId === allowedId);
+  }, [demands, activeMainTab, selectedCategory]);
 
   const filteredDemands = useMemo(() => {
     let result = demands;
     if (activeMainTab !== 'ALL') {
-      const allowedCategoryIds = new Set<string>();
-      if (selectedCategory) {
-        allowedCategoryIds.add(selectedCategory);
-      } else {
-        allowedCategoryIds.add(activeMainTab);
-        categories
-          .filter(c => c.parentId === activeMainTab)
-          .forEach(c => allowedCategoryIds.add(c.id));
-      }
-      result = result.filter(d => d.categoryId && allowedCategoryIds.has(d.categoryId));
+      const allowedId = selectedCategory || activeMainTab;
+      result = result.filter(d => d.categoryId === allowedId);
+    } else if (selectedCategory) {
+      result = result.filter(d => d.categoryId === selectedCategory);
     }
-    if (selectedCategory) result = result.filter(d => d.categoryId === selectedCategory);
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter(d => (d.itemCode || '').toLowerCase().includes(q) || (d.description || '').toLowerCase().includes(q));
@@ -479,7 +480,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
       return sortDir === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
     });
     return result;
-  }, [demands, activeMainTab, selectedCategory, categories, search, urgencyFilter, sortKey, sortDir]);
+  }, [demands, activeMainTab, selectedCategory, search, urgencyFilter, sortKey, sortDir]);
 
   const paginatedDemands = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -613,6 +614,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
           <td style="text-align: right;">${item.overallAvg.toLocaleString('pt-BR')} ${item.unit || ''}</td>
           <td style="text-align: center; font-size: 9px;">${item.triggerDays !== undefined ? `${item.triggerDays}d` : '-'}</td>
           <td style="text-align: center; font-size: 9px;">${item.targetDays !== undefined ? `${item.targetDays}d` : '-'}</td>
+          <td style="text-align: right;">${(item.simProducao ?? 0) > 0 ? (item.simProducao ?? 0).toLocaleString('pt-BR') : '-'}</td>
           <td style="text-align: right;">${item.futureStockForecast.toLocaleString('pt-BR')} ${item.unit || ''}</td>
           <td style="text-align: right; font-weight: ${item.estimatedDurationDays < 60 ? 'bold' : 'normal'};">
             ${item.estimatedDurationDays === 9999 ? '9999+' : `${item.estimatedDurationDays} dias`}
@@ -759,6 +761,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
               <th style="width: 70px; text-align: right;">Consumo Mês</th>
               <th style="width: 55px; text-align: center;">Disparo</th>
               <th style="width: 55px; text-align: center;">Objetivo</th>
+              <th style="width: 70px; text-align: right;">Sim. Prod.</th>
               <th style="width: 70px; text-align: right;">Prev. Futura</th>
               <th style="width: 70px; text-align: right;">Duração Est.</th>
               <th style="width: 85px; text-align: right; background-color: #f4f4f5; border-bottom: 2px solid #27272a;">Recomendado</th>
@@ -774,6 +777,8 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
           <ul style="margin: 0; padding-left: 12px; line-height: 1.4;">
             <li style="margin-bottom: 3px;"><strong>Consumo Mês (Média):</strong> Média mensal calculada com o período configurado por item (Tempo de Cálculo da Média), usando saídas reais de estoque ou faturamento. Na ausência de movimentação, usa mediana anual ajustada.</li>
             <li style="margin-bottom: 3px;"><strong>Disparo / Objetivo:</strong> Dias de cobertura por item conforme regras personalizadas (item → subcategoria → padrão do módulo).</li>
+            <li style="margin-bottom: 3px;"><strong>Sim. Produção:</strong> Consumo de insumos se produzir produtos em Produzir Urgente / Abrir Ordem (qtd recomendada × formulação).</li>
+            <li style="margin-bottom: 3px;"><strong>Prev. Futura:</strong> <code style="font-family: monospace;">estoque + pedidos abertos − sim. produção</code> (mais entradas/saídas manuais OPEN).</li>
             <li style="margin-bottom: 3px;"><strong>Duração de Estoque:</strong> Calculada como <code style="font-family: monospace;">Estoque Projetado Futuro / Consumo Diário</code>.</li>
             <li><strong>Recomendado:</strong> Quantidade sugerida para atingir o objetivo de cobertura do item quando a duração estimada está abaixo do objetivo.</li>
           </ul>
@@ -898,7 +903,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 <div className="flex items-center gap-2">
                   <Filter className="h-4 w-4 text-zinc-500" />
                   <select value={selectedCategory || ''} onChange={e => setSelectedCategory(e.target.value || null)} className="text-sm border border-zinc-300 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none">
-                    <option value="">{activeMainTab === 'ALL' ? 'Todas as Categorias' : 'Todas as Subcategorias'}</option>
+                    <option value="">{activeMainTab === 'ALL' ? 'Todas as Categorias' : 'Somente sem subcategoria'}</option>
                     {filteredSubcategories.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
                   </select>
                 </div>
@@ -992,6 +997,12 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                     <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-right cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('currentStock')}><span className="flex items-center justify-end gap-1">Estoque <SortIcon col="currentStock" /></span></th>
                     <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-right cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('overallAvg')}><span className="flex items-center justify-end gap-1">Média Mês <SortIcon col="overallAvg" /></span></th>
                     <th className="px-4 py-3 font-semibold text-zinc-500 border-b border-zinc-200 text-center text-[10px] uppercase tracking-wider">Médias (24 | 25 | 26)</th>
+                    <th
+                      className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-right"
+                      title="Consumo se produzir produtos em Produzir Urgente / Abrir Ordem (qtd recomendada)"
+                    >
+                      Sim. Produção
+                    </th>
                     <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-right cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('futureStockForecast')}><span className="flex items-center justify-end gap-1">Prev. Futura <SortIcon col="futureStockForecast" /></span></th>
                     <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-center cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('estimatedDurationDays')}><span className="flex items-center justify-center gap-1">Duração Est. <SortIcon col="estimatedDurationDays" /></span></th>
                     <th className="px-4 py-3 font-semibold text-zinc-900 border-b border-zinc-200 text-right cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('recommendedQty')}><span className="flex items-center justify-end gap-1">Qtd Recom. <SortIcon col="recommendedQty" /></span></th>
@@ -1017,8 +1028,8 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                           className="text-xs text-zinc-500"
                           title={
                             demand.reservedQtyErp != null && demand.reservedQtyErp > 0
-                              ? `R = reserva por lotes abertos (${demand.reservedQty}). ERP espelho: ${demand.reservedQtyErp}. P = pedidos em trânsito. Prev. Futura = estoque + pedidos.`
-                              : 'R = reserva por lotes abertos. P = pedidos em trânsito. Prev. Futura = estoque + pedidos.'
+                              ? `R = reserva por lotes abertos (${demand.reservedQty}). ERP espelho: ${demand.reservedQtyErp}. P = pedidos de compra abertos. Prev. Futura = estoque + pedidos − sim. produção.`
+                              : 'R = reserva por lotes abertos. P = pedidos de compra abertos. Prev. Futura = estoque + pedidos − sim. produção.'
                           }
                         >
                           -{demand.reservedQty} R / +{demand.inOrders} P
@@ -1027,6 +1038,18 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       <td className="px-4 py-3 text-right font-medium text-zinc-700">{demand.overallAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {demand.unit}</td>
                       <td className="px-4 py-3 text-center">
                         <div className="text-[10px] text-zinc-400 bg-zinc-50 py-1 rounded">{demand.avg2024.toFixed(0)} | {demand.avg2025.toFixed(0)} | {demand.avg2026.toFixed(0)}</div>
+                      </td>
+                      <td
+                        className="px-4 py-3 text-right font-medium"
+                        title="Consumo se produzir produtos em Produzir Urgente / Abrir Ordem (qtd recomendada)"
+                      >
+                        {(demand.simProducao ?? 0) > 0 ? (
+                          <span className="text-violet-700">
+                            −{(demand.simProducao ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {demand.unit}
+                          </span>
+                        ) : (
+                          <span className="text-zinc-300">-</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right font-medium text-zinc-900">{demand.futureStockForecast.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {demand.unit}</td>
                       <td className="px-4 py-3 text-center">
@@ -1106,6 +1129,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 { id: 'pedidos' as const, label: 'Pedidos Abertos', icon: Clock, show: true },
                 { id: 'historico_pedidos' as const, label: 'Histórico de Pedidos', icon: FileText, show: true },
                 { id: 'producao' as const, label: 'Produção', icon: Factory, show: true },
+                { id: 'simulacao' as const, label: 'Simulação', icon: Calculator, show: true },
                 { id: 'semelhantes' as const, label: '', icon: Layers, show: similarItems.length > 0 },
                 { id: 'configuracoes' as const, label: 'Configurações', icon: Settings, show: true },
               ]).filter(t => t.show).map(tab => (
@@ -1641,6 +1665,86 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                     </div>
                   </>
                 )}
+                {/* ===== TAB: Simulação ===== */}
+                {drawerTab === 'simulacao' && (
+                  <>
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 border-b border-zinc-105 pb-2">
+                        <Calculator className="h-4 w-4 text-zinc-650" />
+                        <h4 className="font-extrabold text-sm text-zinc-900">Simulação Automática (Produzir Urgente / Abrir Ordem)</h4>
+                      </div>
+                      {!details.simulation || details.simulation.products.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-12 text-zinc-400">
+                          <Calculator className="h-8 w-8 text-zinc-300 mb-2" />
+                          <p className="text-sm font-medium text-center px-4">
+                            Nenhum produto em Produzir Urgente / Abrir Ordem usa este insumo na simulação.
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-2 gap-2.5 mb-3">
+                            <div className="bg-amber-50/40 border border-amber-100 p-2.5 rounded-xl text-left">
+                              <span className="text-[9px] text-amber-600 font-bold uppercase tracking-wider block">Total Insumo</span>
+                              <p className="text-lg font-extrabold text-amber-700 mt-0.5">
+                                {details.simulation.totalInsumoQty.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
+                                <span className="text-[10px] font-semibold text-zinc-500 ml-1">{details.unit}</span>
+                              </p>
+                            </div>
+                            <div className="bg-zinc-50 border border-zinc-150 p-2.5 rounded-xl text-left">
+                              <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider block">Produtos</span>
+                              <p className="text-lg font-extrabold text-zinc-800 mt-0.5">{details.simulation.productCount}</p>
+                            </div>
+                          </div>
+                          <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                            <table className="w-full text-left text-xs whitespace-nowrap">
+                              <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                                <tr>
+                                  <th className="px-3 py-2.5">Código</th>
+                                  <th className="px-3 py-2.5">Produto</th>
+                                  <th className="px-3 py-2.5 text-center">Status</th>
+                                  <th className="px-3 py-2.5 text-right">Qtd produzir</th>
+                                  <th className="px-3 py-2.5 text-right">Uso/un</th>
+                                  <th className="px-3 py-2.5 text-right">Total insumo</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-zinc-100 text-[11px]">
+                                {details.simulation.products.map((p) => (
+                                  <tr key={p.productCode} className="hover:bg-zinc-50/50 transition-colors">
+                                    <td className="px-3 py-2.5 font-mono font-bold text-zinc-700">{p.productCode}</td>
+                                    <td className="px-3 py-2.5 font-semibold text-zinc-800 max-w-[160px] truncate" title={p.description}>
+                                      {p.description || '-'}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-center">
+                                      <span className={cn(
+                                        "px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide",
+                                        p.status === 'critico' && "bg-red-50 text-red-700",
+                                        p.status === 'ordem' && "bg-amber-50 text-amber-700",
+                                        p.status === 'saindo_de_linha' && "bg-orange-50 text-orange-700",
+                                        !['critico', 'ordem', 'saindo_de_linha'].includes(p.status) && "bg-zinc-100 text-zinc-600",
+                                      )}>
+                                        {p.statusLabel || p.status}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right text-zinc-800">
+                                      {p.productionQty.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right text-zinc-600">
+                                      {p.qtyPerUnit.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right font-bold text-zinc-900">
+                                      {p.insumoQty.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
+
                 {/* ===== TAB: Semelhantes ===== */}
                 {drawerTab === 'semelhantes' && (
                   <div className="space-y-6">
@@ -1668,6 +1772,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       const totalEstoque = currentDemand.currentStock + similarDemands.reduce((acc, s) => acc + s.currentStock, 0);
                       const totalMedia = currentDemand.overallAvg + similarDemands.reduce((acc, s) => acc + s.overallAvg, 0);
                       const totalPedidos = currentDemand.inOrders + similarDemands.reduce((acc, s) => acc + s.inOrders, 0);
+                      const totalSim = (currentDemand.simProducao ?? 0) + similarDemands.reduce((acc, s) => acc + (s.simProducao ?? 0), 0);
                       const totalFuturo = currentDemand.futureStockForecast + similarDemands.reduce((acc, s) => acc + s.futureStockForecast, 0);
                       const totalReservado = (currentDemand.reservedQty || 0) + similarDemands.reduce((acc, s) => acc + (s.reservedQty || 0), 0);
                       
@@ -1684,6 +1789,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                   <th className="px-4 py-3 text-right">Estoque</th>
                                   <th className="px-4 py-3 text-right">Média Mês</th>
                                   <th className="px-4 py-3 text-right">Pedidos</th>
+                                  <th className="px-4 py-3 text-right">Sim. Prod.</th>
                                   <th className="px-4 py-3 text-right">Prev. Futura</th>
                                   <th className="px-4 py-3 text-center">Duração</th>
                                 </tr>
@@ -1699,6 +1805,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                   <td className="px-4 py-3 text-right font-medium">{currentDemand.currentStock.toLocaleString('pt-BR')} {currentDemand.unit}</td>
                                   <td className="px-4 py-3 text-right font-medium">{currentDemand.overallAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {currentDemand.unit}</td>
                                   <td className="px-4 py-3 text-right text-zinc-500">+{currentDemand.inOrders.toLocaleString('pt-BR')}</td>
+                                  <td className="px-4 py-3 text-right text-violet-700">{(currentDemand.simProducao ?? 0) > 0 ? `−${(currentDemand.simProducao ?? 0).toLocaleString('pt-BR')}` : '-'}</td>
                                   <td className="px-4 py-3 text-right font-bold text-zinc-900">{currentDemand.futureStockForecast.toLocaleString('pt-BR')}</td>
                                   <td className="px-4 py-3 text-center">
                                     <span className={cn(
@@ -1721,6 +1828,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                     <td className="px-4 py-3 text-right text-zinc-650">{sim.currentStock.toLocaleString('pt-BR')} {sim.unit}</td>
                                     <td className="px-4 py-3 text-right text-zinc-650">{sim.overallAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {sim.unit}</td>
                                     <td className="px-4 py-3 text-right text-zinc-500">+{sim.inOrders.toLocaleString('pt-BR')}</td>
+                                    <td className="px-4 py-3 text-right text-violet-700">{(sim.simProducao ?? 0) > 0 ? `−${(sim.simProducao ?? 0).toLocaleString('pt-BR')}` : '-'}</td>
                                     <td className="px-4 py-3 text-right font-semibold text-zinc-800">{sim.futureStockForecast.toLocaleString('pt-BR')}</td>
                                     <td className="px-4 py-3 text-center">
                                       <span className={cn(
@@ -1740,6 +1848,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                   <td className="px-4 py-4 text-right">{totalEstoque.toLocaleString('pt-BR')} {currentDemand.unit}</td>
                                   <td className="px-4 py-4 text-right">{totalMedia.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {currentDemand.unit}</td>
                                   <td className="px-4 py-4 text-right text-zinc-400">+{totalPedidos.toLocaleString('pt-BR')}</td>
+                                  <td className="px-4 py-4 text-right text-violet-300">{totalSim > 0 ? `−${totalSim.toLocaleString('pt-BR')}` : '-'}</td>
                                   <td className="px-4 py-4 text-right text-emerald-400">{totalFuturo.toLocaleString('pt-BR')}</td>
                                   <td className="px-4 py-4 text-center">
                                     <span className={cn(

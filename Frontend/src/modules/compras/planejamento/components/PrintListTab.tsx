@@ -10,6 +10,7 @@ const COLUMN_METADATA: Record<string, { label: string; align: 'left' | 'center' 
   lastSupplierOrder: { label: 'Últ. Pedido', align: 'left' },
   currentStock: { label: 'Estoque', align: 'right' },
   overallAvg: { label: 'Média Mês', align: 'right' },
+  simProducao: { label: 'Sim. Produção', align: 'right' },
   futureStockForecast: { label: 'Prev. Futura', align: 'right' },
   estimatedDurationDays: { label: 'Duração Est.', align: 'center' },
   triggerDays: { label: 'Disp.', align: 'center' },
@@ -54,6 +55,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
     lastSupplierOrder: false,
     currentStock: true,
     overallAvg: true,
+    simProducao: true,
     futureStockForecast: true,
     estimatedDurationDays: true,
     triggerDays: true,
@@ -67,6 +69,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
     'lastSupplierOrder',
     'currentStock',
     'overallAvg',
+    'simProducao',
     'futureStockForecast',
     'estimatedDurationDays',
     'triggerDays',
@@ -97,6 +100,14 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
             newOrder.push('targetDays');
           }
         }
+        if (!newOrder.includes('simProducao')) {
+          const idx = newOrder.indexOf('futureStockForecast');
+          if (idx !== -1) {
+            newOrder.splice(idx, 0, 'simProducao');
+          } else {
+            newOrder.push('simProducao');
+          }
+        }
         setColumnOrder(newOrder);
       } catch (e) {
         console.error(e);
@@ -109,7 +120,9 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
         setColumns({
           triggerDays: true,
           targetDays: true,
-          ...parsed
+          ...parsed,
+          // Nova coluna: liga por padrão se ainda não estiver na config salva
+          simProducao: parsed.simProducao !== undefined ? parsed.simProducao : true,
         });
       } catch (e) {
         console.error(e);
@@ -415,6 +428,10 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
         if (colKey === 'overallAvg') {
           return `<td style="text-align: right;">${currentAvg.toLocaleString('pt-BR')} ${item.unit || ''}</td>`;
         }
+        if (colKey === 'simProducao') {
+          const sim = item.simProducao ?? 0;
+          return `<td style="text-align: right;">${sim > 0 ? sim.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '-'}</td>`;
+        }
         if (colKey === 'futureStockForecast') {
           return `<td style="text-align: right;">${item.futureStockForecast.toLocaleString('pt-BR')} ${item.unit || ''}</td>`;
         }
@@ -594,6 +611,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
           <ul style="margin: 0; padding-left: 12px; line-height: 1.4;">
             <li style="margin-bottom: 3px;"><strong>Consumo Mês (Média):</strong> Média mensal com o período configurado por item (Tempo de Cálculo da Média), priorizando saídas reais de estoque ou faturamento.</li>
             <li style="margin-bottom: 3px;"><strong>Disp. / Obj.:</strong> Dias de cobertura (disparo e meta) por item; exibidos de forma compacta (ex.: 45d).</li>
+            <li style="margin-bottom: 3px;"><strong>Sim. Produção:</strong> Consumo de insumos se produzir produtos em Produzir Urgente / Abrir Ordem (já descontado na Prev. Futura).</li>
             <li style="margin-bottom: 3px;"><strong>Duração de Estoque:</strong> Calculada como <code style="font-family: monospace;">Estoque Projetado Futuro / Consumo Diário</code>.</li>
             <li><strong>Recomendado:</strong> Quantidade sugerida para atingir o objetivo de cobertura do item.</li>
           </ul>
@@ -888,6 +906,24 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
                                 />
                                 <span className="text-[10px] text-zinc-400 font-medium">{demand.unit}/mês</span>
                               </div>
+                            </td>
+                          );
+                        }
+                        if (colKey === 'simProducao') {
+                          const sim = demand.simProducao ?? 0;
+                          return (
+                            <td
+                              key={colKey}
+                              className="px-4 py-2.5 text-right font-semibold"
+                              title="Consumo se produzir produtos em Produzir Urgente / Abrir Ordem"
+                            >
+                              {sim > 0 ? (
+                                <span className="text-violet-700">
+                                  −{sim.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {demand.unit}
+                                </span>
+                              ) : (
+                                <span className="text-zinc-300">-</span>
+                              )}
                             </td>
                           );
                         }

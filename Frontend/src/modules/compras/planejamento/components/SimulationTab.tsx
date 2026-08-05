@@ -14,11 +14,21 @@ interface SimulatedProduct {
   descricao: string;
   nome_linha: string;
   quantity: number;
+  status_label?: string;
 }
+
+type RequirementsSource = 'manual' | 'auto' | 'both';
 
 interface SimulationTabProps {
   active?: boolean;
   activeTab: string;
+}
+
+function isAutoProductionProduct(p: any): boolean {
+  const qty = Number(p?.producao_recomendada) || 0;
+  if (qty <= 0) return false;
+  const st = String(p?.status || '');
+  return st === 'critico' || st === 'ordem' || st === 'saindo_de_linha';
 }
 
 export function SimulationTab({ active = false, activeTab }: SimulationTabProps) {
@@ -34,11 +44,13 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
 
   // Simulation state
   const [simulatedProducts, setSimulatedProducts] = useState<SimulatedProduct[]>([]);
+  const [autoProducts, setAutoProducts] = useState<SimulatedProduct[]>([]);
   const [formulations, setFormulations] = useState<Record<string, FormulationLine[]>>({});
   const [fetchingFormulations, setFetchingFormulations] = useState<Record<string, boolean>>({});
 
   // Filter category of required items (ALL / MP / EMB)
   const [insumoTypeFilter, setInsumoTypeFilter] = useState<'ALL' | 'MP' | 'EMB'>('ALL');
+  const [requirementsSource, setRequirementsSource] = useState<RequirementsSource>('both');
 
   // Load products and demands on mount
   useEffect(() => {
@@ -69,6 +81,22 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     localStorage.setItem('natum_hub_simulated_products', JSON.stringify(list));
   };
 
+  const rebuildAutoProducts = (products: any[]) => {
+    const next: SimulatedProduct[] = products
+      .filter(isAutoProductionProduct)
+      .map((p: any) => ({
+        codigo: p.codigo,
+        descricao: p.descricao,
+        nome_linha: p.nome_linha || 'Outros',
+        quantity: p.producao_recomendada > 0 ? p.producao_recomendada : 100,
+        status_label: p.status_label || p.status,
+      }))
+      .sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR'));
+
+    setAutoProducts(next);
+    next.forEach((p) => fetchFormulationIfNeeded(p.codigo));
+  };
+
   const loadInitialData = async () => {
     setLoading(true);
     try {
@@ -79,7 +107,9 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
       
       if (prodRes.ok) {
         const data = await prodRes.json();
-        setAllProducts(data.items || []);
+        const items = data.items || [];
+        setAllProducts(items);
+        rebuildAutoProducts(items);
       }
       setDemands(demandList || []);
     } catch (e) {
@@ -209,6 +239,109 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     }
   };
 
+  // Import products from Produção → Aprovação (same-browser localStorage)
+  const handleImportFromApproval = async () => {
+    let approvalCodes: string[] = [];
+    let approvalQtys: Record<string, number> = {};
+    try {
+      const listRaw = localStorage.getItem('natum_hub_production_approval_list');
+      const qtysRaw = localStorage.getItem('natum_hub_production_approval_qtys');
+      if (listRaw) approvalCodes = JSON.parse(listRaw);
+      if (qtysRaw) approvalQtys = JSON.parse(qtysRaw);
+    } catch (e) {
+      console.error('Failed to read production approval queue:', e);
+      alert('Não foi possível ler a fila de aprovação de produção.');
+      return;
+    }
+
+    if (!Array.isArray(approvalCodes) || approvalCodes.length === 0) {
+      alert('Nenhum item na fila de Aprovação de Produção.');
+      return;
+    }
+
+    let products = allProducts;
+    if (products.length === 0) {
+      setLoading(true);
+      try {
+        const prodRes = await apiFetch('/products?limit=5000&show_hidden=true');
+        if (prodRes.ok) {
+          const data = await prodRes.json();
+          products = data.items || [];
+          setAllProducts(products);
+        }
+      } catch (e) {
+        console.error('Failed to load products for approval import:', e);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    const byCode = new Map(products.map((p: any) => [p.codigo, p]));
+    const existingByCode = new Map(simulatedProducts.map(p => [p.codigo, p]));
+    let imported = 0;
+    let updated = 0;
+    const missing: string[] = [];
+
+    for (const code of approvalCodes) {
+      const product = byCode.get(code);
+      if (!product) {
+        missing.push(code);
+        continue;
+      }
+
+      const qtyFromApproval = Number(approvalQtys[code]);
+      const quantity =
+        qtyFromApproval > 0
+          ? qtyFromApproval
+          : product.producao_recomendada > 0
+            ? product.producao_recomendada
+            : 100;
+
+      const existing = existingByCode.get(code);
+      if (existing) {
+        existingByCode.set(code, { ...existing, quantity });
+        updated += 1;
+      } else {
+        existingByCode.set(code, {
+          codigo: product.codigo,
+          descricao: product.descricao,
+          nome_linha: product.nome_linha || 'Outros',
+          quantity,
+        });
+        imported += 1;
+      }
+      fetchFormulationIfNeeded(code);
+    }
+
+    // Preserve order: current sim items (updated in place), then newly imported in approval order
+    const nextList: SimulatedProduct[] = [];
+    const seen = new Set<string>();
+    for (const p of simulatedProducts) {
+      const merged = existingByCode.get(p.codigo);
+      if (merged) {
+        nextList.push(merged);
+        seen.add(p.codigo);
+      }
+    }
+    for (const code of approvalCodes) {
+      if (seen.has(code)) continue;
+      const item = existingByCode.get(code);
+      if (item) {
+        nextList.push(item);
+        seen.add(code);
+      }
+    }
+
+    setSimulatedProducts(nextList);
+    saveToLocalStorage(nextList);
+
+    const parts = [`${imported + updated} item(ns) da aprovação`];
+    if (imported > 0) parts.push(`${imported} novo(s)`);
+    if (updated > 0) parts.push(`${updated} atualizado(s)`);
+    if (missing.length > 0) parts.push(`${missing.length} não encontrado(s) no catálogo`);
+    alert(`Importação concluída: ${parts.join(', ')}.`);
+  };
+
   // Create lookup map for item stocks and details from demands list
   const demandsByCode = useMemo(() => {
     const map: Record<string, DemandResult> = {};
@@ -220,6 +353,22 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     return map;
   }, [demands]);
 
+  const productsForRequirements = useMemo(() => {
+    if (requirementsSource === 'manual') return simulatedProducts;
+    if (requirementsSource === 'auto') return autoProducts;
+    // both: merge by code (sum quantities)
+    const byCode = new Map<string, SimulatedProduct>();
+    for (const p of [...simulatedProducts, ...autoProducts]) {
+      const existing = byCode.get(p.codigo);
+      if (existing) {
+        byCode.set(p.codigo, { ...existing, quantity: existing.quantity + p.quantity });
+      } else {
+        byCode.set(p.codigo, { ...p });
+      }
+    }
+    return Array.from(byCode.values());
+  }, [requirementsSource, simulatedProducts, autoProducts]);
+
   // Aggregate required ingredients (insumos)
   const calculatedRequirements = useMemo(() => {
     const reqs: Record<string, { 
@@ -230,7 +379,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
       category: string;
     }> = {};
 
-    simulatedProducts.forEach(simProd => {
+    productsForRequirements.forEach(simProd => {
       const lines = formulations[simProd.codigo] || [];
       lines.forEach(line => {
         const key = line.ingredientCode;
@@ -297,7 +446,17 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
 
     // Sort by code
     return list.sort((a, b) => a.code.localeCompare(b.code));
-  }, [simulatedProducts, formulations, demandsByCode, insumoTypeFilter, searchInsumo, onlyDeficit]);
+  }, [productsForRequirements, formulations, demandsByCode, insumoTypeFilter, searchInsumo, onlyDeficit]);
+
+  const handleUpdateAutoQty = (codigo: string, quantity: number) => {
+    setAutoProducts((prev) =>
+      prev.map((p) => (p.codigo === codigo ? { ...p, quantity: Math.max(0, quantity) } : p))
+    );
+  };
+
+  const handleRefreshAuto = () => {
+    rebuildAutoProducts(allProducts);
+  };
 
   // Summary Metrics
   const summary = useMemo(() => {
@@ -305,17 +464,8 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     let embCount = 0;
     let deficitCount = 0;
 
-    // Aggregate requirements without onlyDeficit filter to count globally
-    simulatedProducts.forEach(simProd => {
-      const lines = formulations[simProd.codigo] || [];
-      lines.forEach(line => {
-        // Just checking globally
-      });
-    });
-
-    // Loop through all requirements (unfiltered by onlyDeficit) to get accurate counts
     const globalReqs: Record<string, number> = {};
-    simulatedProducts.forEach(simProd => {
+    productsForRequirements.forEach(simProd => {
       const lines = formulations[simProd.codigo] || [];
       lines.forEach(line => {
         globalReqs[line.ingredientCode] = (globalReqs[line.ingredientCode] || 0) + (simProd.quantity * line.quantity);
@@ -344,12 +494,12 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     });
 
     return {
-      productsCount: simulatedProducts.length,
+      productsCount: productsForRequirements.length,
       mpCount,
       embCount,
       deficitCount
     };
-  }, [simulatedProducts, formulations, demandsByCode]);
+  }, [productsForRequirements, formulations, demandsByCode]);
 
   // Print Report matches layout of PrintListTab.tsx
   const handlePrint = () => {
@@ -399,7 +549,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
       minute: '2-digit'
     });
 
-    const productsRows = simulatedProducts.map(p => `
+    const productsRows = productsForRequirements.map(p => `
       <tr>
         <td style="font-family: monospace; font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px; text-align: left;">${p.codigo}</td>
         <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px; text-align: left; font-weight: 500;">${p.descricao}</td>
@@ -554,7 +704,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
           <div class="header-meta">
             <div>Gerado em: <strong>${today}</strong></div>
             <div class="meta-group">
-              <div>Produtos simulados: <strong>${simulatedProducts.length}</strong></div>
+              <div>Produtos simulados: <strong>${productsForRequirements.length}</strong></div>
               <div>Itens com deficit: <strong>${summary.deficitCount}</strong></div>
               ${onlyDeficit ? '<div>Filtro: <strong>Apenas Itens a Comprar</strong></div>' : ''}
             </div>
@@ -694,7 +844,91 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
       </div>
 
       {/* Main Content Areas based on activeTab prop */}
-      {activeTab === 'sim_products' ? (
+      {activeTab === 'sim_auto' ? (
+        <div className="bg-white border border-zinc-200 rounded-xl shadow-sm p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold text-zinc-900">Simulação Automática</h3>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Produtos com status Produzir Urgente / Abrir Ordem (e Saindo de Linha com produção recomendada). Quantidade = produção recomendada.
+              </p>
+            </div>
+            <button
+              onClick={handleRefreshAuto}
+              disabled={loading}
+              className="text-xs text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1.5 shrink-0"
+            >
+              {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              Atualizar da Produção
+            </button>
+          </div>
+
+          <div className="bg-white border border-zinc-200 rounded-xl shadow-sm overflow-hidden">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-zinc-50 border-b border-zinc-200 text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
+                  <th className="py-3 px-4">Código</th>
+                  <th className="py-3 px-4">Produto</th>
+                  <th className="py-3 px-4">Linha</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4 text-right" style={{ width: '160px' }}>Qtd Simulada</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {loading && autoProducts.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-10 text-center text-xs text-zinc-400">
+                      <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+                      Carregando produtos...
+                    </td>
+                  </tr>
+                ) : autoProducts.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-10 text-center text-xs text-zinc-400">
+                      Nenhum produto em Produzir Urgente / Abrir Ordem no momento.
+                    </td>
+                  </tr>
+                ) : (
+                  autoProducts.map((product) => (
+                    <tr key={product.codigo} className="hover:bg-zinc-50/80">
+                      <td className="py-2.5 px-4 font-mono text-xs font-bold text-indigo-600">{product.codigo}</td>
+                      <td className="py-2.5 px-4 text-xs font-semibold text-zinc-800">{product.descricao}</td>
+                      <td className="py-2.5 px-4 text-[10px] text-zinc-500">{product.nome_linha}</td>
+                      <td className="py-2.5 px-4">
+                        <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-100">
+                          {product.status_label || '—'}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 text-right">
+                        <div className="inline-flex items-center border border-zinc-200 bg-white rounded-lg shadow-sm">
+                          <button
+                            onClick={() => handleUpdateAutoQty(product.codigo, product.quantity - 50)}
+                            className="p-1.5 hover:bg-zinc-50 text-zinc-500"
+                          >
+                            <Minus className="h-3.5 w-3.5" />
+                          </button>
+                          <input
+                            type="number"
+                            value={product.quantity}
+                            onChange={(e) => handleUpdateAutoQty(product.codigo, Number(e.target.value) || 0)}
+                            className="w-16 text-center text-xs font-bold border-x border-zinc-200 py-1.5 focus:outline-none"
+                          />
+                          <button
+                            onClick={() => handleUpdateAutoQty(product.codigo, product.quantity + 50)}
+                            className="p-1.5 hover:bg-zinc-50 text-zinc-500"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : activeTab === 'sim_products' ? (
         <div className="bg-white border border-zinc-200 rounded-xl shadow-sm p-5 space-y-4">
           <div className="flex flex-col md:flex-row gap-3 justify-between items-start md:items-center">
             <div className="flex gap-2 flex-1 w-full max-w-[500px]">
@@ -731,6 +965,15 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
                   Adicionar Linha Inteira ({allProducts.filter(p => p.nome_linha === selectedLine).length})
                 </button>
               )}
+
+              <button
+                onClick={handleImportFromApproval}
+                className="text-xs text-indigo-600 hover:text-indigo-800 transition-colors flex items-center gap-1 font-bold shrink-0"
+                title="Importar produtos da fila de Aprovação de Produção"
+              >
+                <ClipboardList className="h-3.5 w-3.5" />
+                Importar da Aprovação
+              </button>
 
               {simulatedProducts.length > 0 && (
                 <button
@@ -863,21 +1106,44 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
         /* Requirements Table - Matches pre-established modules styling */
         <div className="bg-white border border-zinc-200 rounded-xl shadow-sm p-5 space-y-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-zinc-150 pb-3">
-            <div className="flex bg-zinc-100 p-0.5 rounded-lg border border-zinc-200/50 w-fit">
-              {(['ALL', 'MP', 'EMB'] as const).map(type => (
-                <button
-                  key={type}
-                  onClick={() => setInsumoTypeFilter(type)}
-                  className={cn(
-                    "px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all",
-                    insumoTypeFilter === type 
-                      ? "bg-white text-zinc-900 shadow-sm" 
-                      : "text-zinc-400 hover:text-zinc-650"
-                  )}
-                >
-                  {type === 'ALL' ? 'Todos Insumos' : type === 'MP' ? 'Matéria-Prima' : 'Embalagem'}
-                </button>
-              ))}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex bg-zinc-100 p-0.5 rounded-lg border border-zinc-200/50 w-fit">
+                {(['ALL', 'MP', 'EMB'] as const).map(type => (
+                  <button
+                    key={type}
+                    onClick={() => setInsumoTypeFilter(type)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all",
+                      insumoTypeFilter === type 
+                        ? "bg-white text-zinc-900 shadow-sm" 
+                        : "text-zinc-400 hover:text-zinc-650"
+                    )}
+                  >
+                    {type === 'ALL' ? 'Todos Insumos' : type === 'MP' ? 'Matéria-Prima' : 'Embalagem'}
+                  </button>
+                ))}
+              </div>
+              <div className="flex bg-violet-50 p-0.5 rounded-lg border border-violet-100 w-fit">
+                {([
+                  { id: 'manual' as const, label: 'Manual' },
+                  { id: 'auto' as const, label: 'Automática' },
+                  { id: 'both' as const, label: 'Ambas' },
+                ]).map(opt => (
+                  <button
+                    key={opt.id}
+                    onClick={() => setRequirementsSource(opt.id)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all",
+                      requirementsSource === opt.id
+                        ? "bg-white text-violet-800 shadow-sm"
+                        : "text-violet-400 hover:text-violet-700"
+                    )}
+                    title="Fonte dos produtos para mapear insumos"
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-3 self-end">

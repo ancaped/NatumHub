@@ -163,7 +163,14 @@ const DEMANDS_SQL_ITEMS: &str = "
              SELECT 
                  i.code, i.description, i.unit, i.category_id, COALESCE(c.name, 'Sem Categoria') as category_name,
                  COALESCE(s.stock_qty, 0) as stock_qty, COALESCE(s.reserved_qty, 0) as reserved_qty, 
-                 COALESCE(s.in_production, 0) as in_production, COALESCE(s.in_orders, 0) as in_orders,
+                 COALESCE(s.in_production, 0) as in_production,
+                 COALESCE((
+                     SELECT SUM(poi.n_qtde - poi.n_chegou)
+                     FROM purchase_order_items poi
+                     JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
+                     WHERE po.c_status <> 'T' AND (poi.n_qtde > poi.n_chegou)
+                       AND poi.c_referencia = i.code
+                 ), 0.0) as in_orders,
                  COALESCE(c2024.monthly_avg, 0) as monthly_avg_2024, 
                  COALESCE(c2025.monthly_avg, 0) as monthly_avg_2025, 
                  COALESCE(c2026.monthly_avg, 0) as monthly_avg_2026,
@@ -171,11 +178,11 @@ const DEMANDS_SQL_ITEMS: &str = "
              FROM items i
              LEFT JOIN categories c ON i.category_id = c.id
              LEFT JOIN (
-                 SELECT DISTINCT ON (item_code)
-                    item_code, stock_qty, reserved_qty, in_production, in_orders
+                 SELECT DISTINCT ON (TRIM(item_code))
+                    TRIM(item_code) as item_code, stock_qty, reserved_qty, in_production, in_orders
                  FROM stock_snapshots
-                 ORDER BY item_code, snapshot_date DESC, id DESC
-             ) s ON i.code = s.item_code
+                 ORDER BY TRIM(item_code), snapshot_date DESC, id DESC
+             ) s ON TRIM(i.code) = s.item_code
              LEFT JOIN consumption c2024 ON i.code = c2024.item_code AND c2024.year = 2024
              LEFT JOIN consumption c2025 ON i.code = c2025.item_code AND c2025.year = 2025
              LEFT JOIN consumption c2026 ON i.code = c2026.item_code AND c2026.year = 2026
@@ -251,6 +258,148 @@ fn build_demands_sql(include_products: bool) -> String {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct SimProducaoContribution {
+    pub ingredient_code: String,
+    pub product_code: String,
+    pub product_desc: String,
+    pub status: String,
+    pub status_label: String,
+    pub production_qty: f64,
+    pub qty_per_unit: f64,
+    pub insumo_qty: f64,
+}
+
+/// Contribuições por produto×insumo da simulação automática (Produzir Urgente / Abrir Ordem).
+pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProducaoContribution> {
+    let db = crate::core::db::Db::new(pool.clone());
+    let Ok((products, stocks, fat_map, configs, overrides, _)) =
+        crate::handlers::producao::fetch_calculation_data(&db).await
+    else {
+        return Vec::new();
+    };
+
+    let mut computed =
+        crate::modules::producao::gerenciamento::calculations::calculate_products(
+            &products,
+            &stocks,
+            &fat_map,
+            &configs,
+            &overrides,
+        );
+    let kit_composition = db.get_kit_composition().await.unwrap_or_default();
+    crate::handlers::producao::post_process_kit_only_production(&mut computed, &kit_composition);
+
+    let mut needed: Vec<(String, String, String, String, f64)> = Vec::new();
+    for p in &computed {
+        if p.producao_recomendada <= 0 {
+            continue;
+        }
+        if p.status == "critico" || p.status == "ordem" || p.status == "saindo_de_linha" {
+            needed.push((
+                p.codigo.clone(),
+                p.descricao.clone(),
+                p.status.clone(),
+                p.status_label.clone(),
+                p.producao_recomendada as f64,
+            ));
+        }
+    }
+    if needed.is_empty() {
+        return Vec::new();
+    }
+
+    let codes: Vec<String> = needed.iter().map(|(c, _, _, _, _)| c.clone()).collect();
+    let mut formulations: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+    if let Ok(rows) = sqlx::query(
+        "SELECT product_code, ingredient_code, quantity FROM formulations WHERE product_code = ANY($1)",
+    )
+    .bind(&codes)
+    .fetch_all(pool)
+    .await
+    {
+        for row in rows {
+            let p_code: String = row.get(0);
+            let ing: String = row.get(1);
+            let qty: f64 = row.get(2);
+            formulations.entry(p_code).or_default().push((ing, qty));
+        }
+    }
+
+    let mut out = Vec::new();
+    for (p_code, p_desc, status, status_label, prod_qty) in needed {
+        if let Some(ings) = formulations.get(&p_code) {
+            for (ing, unit_qty) in ings {
+                out.push(SimProducaoContribution {
+                    ingredient_code: ing.clone(),
+                    product_code: p_code.clone(),
+                    product_desc: p_desc.clone(),
+                    status: status.clone(),
+                    status_label: status_label.clone(),
+                    production_qty: prod_qty,
+                    qty_per_unit: *unit_qty,
+                    insumo_qty: prod_qty * unit_qty,
+                });
+            }
+        }
+    }
+    out
+}
+
+/// Demanda de insumos se produzir produtos critico/ordem (e saindo_de_linha com qty > 0).
+async fn compute_sim_producao_map(pool: &PgPool) -> HashMap<String, f64> {
+    let mut map: HashMap<String, f64> = HashMap::new();
+    for c in collect_sim_producao_contributions(pool).await {
+        *map.entry(c.ingredient_code).or_default() += c.insumo_qty;
+    }
+    map
+}
+
+/// Breakdown da simulação automática filtrado por código do insumo (match trimado).
+pub async fn get_insumo_simulation_breakdown(
+    pool: &PgPool,
+    ingredient_code: &str,
+) -> crate::models::InsumoSimulationBreakdown {
+    let target = ingredient_code.trim();
+    let mut by_product: HashMap<String, crate::models::InsumoSimulationProduct> = HashMap::new();
+
+    for c in collect_sim_producao_contributions(pool).await {
+        if c.ingredient_code.trim() != target {
+            continue;
+        }
+        by_product
+            .entry(c.product_code.clone())
+            .and_modify(|existing| {
+                existing.qty_per_unit += c.qty_per_unit;
+                existing.insumo_qty += c.insumo_qty;
+            })
+            .or_insert(crate::models::InsumoSimulationProduct {
+                product_code: c.product_code,
+                description: c.product_desc,
+                status: c.status,
+                status_label: c.status_label,
+                production_qty: c.production_qty,
+                qty_per_unit: c.qty_per_unit,
+                insumo_qty: c.insumo_qty,
+            });
+    }
+
+    let mut products: Vec<_> = by_product.into_values().collect();
+    products.sort_by(|a, b| {
+        b.insumo_qty
+            .partial_cmp(&a.insumo_qty)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let total_insumo_qty: f64 = products.iter().map(|p| p.insumo_qty).sum();
+    let product_count = products.len() as i32;
+
+    crate::models::InsumoSimulationBreakdown {
+        total_insumo_qty,
+        product_count,
+        products,
+    }
+}
+
 fn build_demand_result(
     row: sqlx::postgres::PgRow,
     target_days: i32,
@@ -267,6 +416,7 @@ fn build_demand_result(
     lead_time_map: &HashMap<String, i32>,
     override_period: Option<i32>,
     manual_pending: &HashMap<String, (f64, f64)>,
+    sim_producao_map: &HashMap<String, f64>,
 ) -> Result<DemandResult, String> {
     let code: String = row.get(0);
     let desc: String = row.get(1);
@@ -370,13 +520,20 @@ fn build_demand_result(
     };
     let daily_avg = overall_avg / 30.0;
 
-    // Estoque (nQtdeEstoqueA) já vem líquido da reserva no ERP — não descontar R/lotes de novo.
-    // Prev. Futura = estoque + pedidos + entradas manuais OPEN − saídas manuais OPEN.
+    // Estoque = nQtdeEstoque (tela ERP). Reserva (−R) é só informativa — não descontar de novo.
+    // pedidos = POs abertos (não nQtdePedidos do cadastro).
+    // Prev. Futura = estoque + pedidos + manuais − sim_producao (Produzir Urgente / Abrir Ordem).
     let (manual_in, manual_out) = manual_pending
         .get(&code)
         .copied()
         .unwrap_or((0.0, 0.0));
-    let future_stock_forecast = current_stock + in_orders + manual_in - manual_out;
+    let sim_producao = sim_producao_map
+        .get(&code)
+        .copied()
+        .unwrap_or(0.0)
+        .max(0.0);
+    let future_stock_forecast =
+        current_stock + in_orders + manual_in - manual_out - sim_producao;
     let max_forecast = if future_stock_forecast > 0.0 {
         future_stock_forecast
     } else {
@@ -484,6 +641,7 @@ fn build_demand_result(
         reserved_qty_erp,
         in_production,
         in_orders,
+        sim_producao,
         avg2024: avg24_corrected,
         avg2025: avg25_corrected,
         avg2026: avg26_corrected,
@@ -590,13 +748,10 @@ pub async fn get_demands_query(
         _ => true,
     };
     let demands_base = build_demands_sql(include_products);
+    // Filtro exato: cat_mp/cat_emb = só itens da raiz; subcategoria = só ela.
+    // (Itens já classificados em Fragrâncias etc. não entram na lista principal.)
     let sql = if category_id.is_some() {
-        format!(
-            "{demands_base} AND (
-                t.category_id = $1
-                OR t.category_id IN (SELECT id FROM categories WHERE parent_id = $1)
-             ) ORDER BY t.description"
-        )
+        format!("{demands_base} AND t.category_id = $1 ORDER BY t.description")
     } else {
         format!("{demands_base} ORDER BY t.description")
     };
@@ -773,6 +928,7 @@ pub async fn get_demands_query(
     .map_err(|e| e.to_string())?;
 
     let auto_ignored = get_auto_ignored_ingredients_query(pool.clone()).await?;
+    let sim_producao_map = compute_sim_producao_map(&pool).await;
 
     let mut results = Vec::with_capacity(rows.len());
     for row in rows {
@@ -792,6 +948,7 @@ pub async fn get_demands_query(
             &lead_time_map,
             override_period,
             &manual_pending,
+            &sim_producao_map,
         )?;
         if !auto_ignored.contains_key(&item.item_code) {
             results.push(item);

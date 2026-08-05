@@ -531,7 +531,9 @@ pub async fn get_item_extra_info(
         "SELECT po.n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, poi.n_preco 
          FROM purchase_order_items poi
          INNER JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
-         WHERE (poi.c_referencia = $1 OR poi.c_referencia = $2) AND poi.n_chegou < poi.n_qtde
+         WHERE (poi.c_referencia = $1 OR poi.c_referencia = $2)
+           AND po.c_status <> 'T'
+           AND poi.n_chegou < poi.n_qtde
          ORDER BY po.d_pedido DESC",
     )
     .bind(&code)
@@ -687,7 +689,7 @@ pub async fn get_insumo_detalhes(
     };
 
     let current_stock: f64 = sqlx::query_scalar(
-        "SELECT stock_qty FROM stock_snapshots WHERE item_code = $1 ORDER BY snapshot_date DESC, id DESC LIMIT 1",
+        "SELECT stock_qty FROM stock_snapshots WHERE TRIM(item_code) = TRIM($1) ORDER BY snapshot_date DESC, id DESC LIMIT 1",
     )
     .bind(&code)
     .fetch_optional(&pool)
@@ -697,7 +699,7 @@ pub async fn get_insumo_detalhes(
     .unwrap_or(0.0);
 
     let (reserved_qty, in_production, in_orders) = match sqlx::query(
-        "SELECT reserved_qty, in_production, in_orders FROM stock_snapshots WHERE item_code = $1 ORDER BY snapshot_date DESC, id DESC LIMIT 1",
+        "SELECT reserved_qty, in_production, in_orders FROM stock_snapshots WHERE TRIM(item_code) = TRIM($1) ORDER BY snapshot_date DESC, id DESC LIMIT 1",
     )
     .bind(&code)
     .fetch_optional(&pool)
@@ -926,7 +928,9 @@ pub async fn get_insumo_detalhes(
         "SELECT po.n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, poi.n_preco 
          FROM purchase_order_items poi
          INNER JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
-         WHERE (poi.c_referencia = $1 OR poi.c_referencia = $2) AND poi.n_chegou < poi.n_qtde
+         WHERE (poi.c_referencia = $1 OR poi.c_referencia = $2)
+           AND po.c_status <> 'T'
+           AND poi.n_chegou < poi.n_qtde
          ORDER BY po.d_pedido DESC",
     )
     .bind(&code)
@@ -1176,6 +1180,11 @@ pub async fn get_insumo_detalhes(
         }
     }
 
+    let simulation = crate::modules::compras::planejamento::commands::get_insumo_simulation_breakdown(
+        &pool, &code,
+    )
+    .await;
+
     let response = crate::models::InsumoDetalhesResponse {
         code: item_code,
         description,
@@ -1205,6 +1214,7 @@ pub async fn get_insumo_detalhes(
         consumed_since_last_received,
         days_since_last_received,
         avg_monthly_since_last_received,
+        simulation,
     };
 
     (StatusCode::OK, Json(response)).into_response()

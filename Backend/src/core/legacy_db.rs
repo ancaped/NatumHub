@@ -66,6 +66,10 @@ pub struct SyncResult {
     pub sales_orders: usize,
     pub mode: &'static str,
     pub since: String,
+    /// Insumos conferidos contra `nQtdeEstoque` após gravar snapshots.
+    pub stock_verified: usize,
+    /// Insumos corrigidos na verificação pós-sync.
+    pub stock_repaired: usize,
 }
 
 // Intermediate thread-safe structs to hold SQL Server data
@@ -107,12 +111,30 @@ struct MaterialRow {
     is_ignored: i32,
 }
 
+#[derive(Clone)]
 struct StockRow {
     code: String,
     stock_qty: f64,
     reserved_qty: f64,
     in_prod: f64,
     in_orders: f64,
+}
+
+/// Lê FLOAT/REAL/INT do SQL Server via Tiberius sem cair em 0 silencioso à toa.
+fn mssql_f64(row: &tiberius::Row, idx: usize) -> f64 {
+    if let Ok(Some(v)) = row.try_get::<f64, _>(idx) {
+        return v;
+    }
+    if let Ok(Some(v)) = row.try_get::<f32, _>(idx) {
+        return v as f64;
+    }
+    if let Ok(Some(v)) = row.try_get::<i64, _>(idx) {
+        return v as f64;
+    }
+    if let Ok(Some(v)) = row.try_get::<i32, _>(idx) {
+        return v as f64;
+    }
+    0.0
 }
 
 #[derive(Clone, Debug)]
@@ -896,18 +918,20 @@ WHERE cReferencia IS NOT NULL AND cReferencia <> '';
     }
 
     // D. Query Insumos Stocks & Snapshots
-    // Estoque canônico da tela ERP = nQtdeEstoqueA (fallback nQtdeEstoque)
+    // Estoque da tela ERP ("Estoque atual") = nQtdeEstoque
+    // Primeira passagem: NOLOCK (rápido). Reconsulta final usa query limpa (sem NOLOCK).
     let query_stocks = "
 SELECT 
     cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
-    CAST(COALESCE(nQtdeEstoqueA, nQtdeEstoque) AS FLOAT) as nQtdeEstoque,
+    CAST(nQtdeEstoque AS FLOAT) as nQtdeEstoque,
     CAST(nqtdeReserva AS FLOAT) as nqtdeReserva,
     CAST(nQtdeProducao AS FLOAT) as nQtdeProducao,
     CAST(nQtdePedidos AS FLOAT) as nQtdePedidos
 FROM Insumos WITH (NOLOCK)
 WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInativo IS NULL);
     ";
-    println!("Step D1: Querying Insumos Stocks (nQtdeEstoqueA)");
+    let query_stocks_clean = D1_INSUMOS_STOCKS_SQL_CLEAN;
+    println!("Step D1: Querying Insumos Stocks (nQtdeEstoque)");
     let stream = client.query(query_stocks, &[]).await?;
     let db_rows_stocks = stream.into_first_result().await?;
     let mut stocks_list = Vec::new();
@@ -916,10 +940,10 @@ WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInat
         if code.is_empty() { continue; }
         stocks_list.push(StockRow {
             code: code.trim().to_string(),
-            stock_qty: row.get(1).unwrap_or(0.0),
-            reserved_qty: row.get(2).unwrap_or(0.0),
-            in_prod: row.get(3).unwrap_or(0.0),
-            in_orders: row.get(4).unwrap_or(0.0),
+            stock_qty: mssql_f64(&row, 1),
+            reserved_qty: mssql_f64(&row, 2),
+            in_prod: mssql_f64(&row, 3),
+            in_orders: mssql_f64(&row, 4),
         });
     }
 
@@ -943,10 +967,10 @@ WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInat
         if code.is_empty() { continue; }
         mat_stocks_list.push(StockRow {
             code: code.trim().to_string(),
-            stock_qty: row.get(1).unwrap_or(0.0),
-            reserved_qty: row.get(2).unwrap_or(0.0),
-            in_prod: row.get(3).unwrap_or(0.0),
-            in_orders: row.get(4).unwrap_or(0.0),
+            stock_qty: mssql_f64(&row, 1),
+            reserved_qty: mssql_f64(&row, 2),
+            in_prod: mssql_f64(&row, 3),
+            in_orders: mssql_f64(&row, 4),
         });
     }
 
@@ -1542,6 +1566,9 @@ WHERE {po_date_filter};
 
     let po2_date_filter =
         format!("p1.dPedido >= '{since_dt}' OR (p1.cStatus <> 'T' AND p1.cStatus IS NOT NULL)");
+    // PedidoCpa2.nRegistro = PedidoCpa1.nRegistro (FK do cabeçalho).
+    // NÃO juntar por nPedido+dPedido: o número do pedido se repete entre fornecedores
+    // no mesmo dia e multiplica itens (fan-out) — ex.: 9.15.003 com 3 POs fantasma.
     let query_pedido_cpa2 = format!(
         "
 SELECT 
@@ -1557,7 +1584,7 @@ SELECT
     c2.nRegistro,
     c2.cChegada COLLATE Latin1_General_CI_AS as cChegada
 FROM PedidoCpa2 c2 WITH (NOLOCK)
-INNER JOIN PedidoCpa1 p1 WITH (NOLOCK) ON p1.nPedido = c2.nPedido AND p1.dPedido = c2.dPedido
+INNER JOIN PedidoCpa1 p1 WITH (NOLOCK) ON p1.nRegistro = c2.nRegistro
 WHERE ({po2_date_filter});
 "
     );
@@ -2014,10 +2041,10 @@ WHERE {so2_date_filter};
     eprintln!("[ERP Sync] Fase fornecedores/itens commitada.");
     let mut tx = pool.begin().await?;
 
-    // Re-lê D1/D2 imediatamente antes de gravar (reduz staleness/NOLOCK).
+    // Re-lê D1/D2 imediatamente antes de gravar (D1 limpo, sem NOLOCK).
     eprintln!("[ERP Sync] Reconsultando D1/D2 imediatamente antes dos snapshots...");
     {
-        let stream = client.query(query_stocks, &[]).await?;
+        let stream = client.query(query_stocks_clean, &[]).await?;
         let db_rows_stocks = stream.into_first_result().await?;
         stocks_list.clear();
         for row in db_rows_stocks {
@@ -2027,10 +2054,10 @@ WHERE {so2_date_filter};
             }
             stocks_list.push(StockRow {
                 code: code.trim().to_string(),
-                stock_qty: row.get(1).unwrap_or(0.0),
-                reserved_qty: row.get(2).unwrap_or(0.0),
-                in_prod: row.get(3).unwrap_or(0.0),
-                in_orders: row.get(4).unwrap_or(0.0),
+                stock_qty: mssql_f64(&row, 1),
+                reserved_qty: mssql_f64(&row, 2),
+                in_prod: mssql_f64(&row, 3),
+                in_orders: mssql_f64(&row, 4),
             });
         }
         let stream = client.query(query_mat_stocks, &[]).await?;
@@ -2043,17 +2070,28 @@ WHERE {so2_date_filter};
             }
             mat_stocks_list.push(StockRow {
                 code: code.trim().to_string(),
-                stock_qty: row.get(1).unwrap_or(0.0),
-                reserved_qty: row.get(2).unwrap_or(0.0),
-                in_prod: row.get(3).unwrap_or(0.0),
-                in_orders: row.get(4).unwrap_or(0.0),
+                stock_qty: mssql_f64(&row, 1),
+                reserved_qty: mssql_f64(&row, 2),
+                in_prod: mssql_f64(&row, 3),
+                in_orders: mssql_f64(&row, 4),
             });
         }
     }
 
-    // Write Stock Snapshots (Insumos + Materiais) — delete + insert em lote
+    // Write Stock Snapshots (Insumos + Materiais) — delete + insert em lote.
+    // Insumos ganha de Materiais no mesmo código (evita sobrescrever nQtdeEstoque da tela).
+    let mut merged_stocks: std::collections::HashMap<String, StockRow> =
+        std::collections::HashMap::with_capacity(stocks_list.len() + mat_stocks_list.len());
+    for stk in &mat_stocks_list {
+        merged_stocks.insert(stk.code.clone(), stk.clone());
+    }
+    for stk in &stocks_list {
+        merged_stocks.insert(stk.code.clone(), stk.clone());
+    }
+    let merged_list: Vec<StockRow> = merged_stocks.into_values().collect();
+
     let mut count_snapshots = 0;
-    let total_snapshots = stocks_list.len() + mat_stocks_list.len();
+    let total_snapshots = merged_list.len();
     if total_snapshots > 0 {
         eprintln!("[ERP Sync] Gravando snapshots ({total_snapshots})...");
         let stock_import_id = Uuid::new_v4().to_string();
@@ -2066,12 +2104,9 @@ WHERE {so2_date_filter};
         .execute(&mut *tx)
         .await?;
 
-        let all_stock_codes: Vec<String> = stocks_list
-            .iter()
-            .chain(mat_stocks_list.iter())
-            .map(|s| s.code.clone())
-            .collect();
-        sqlx::query("DELETE FROM stock_snapshots WHERE item_code = ANY($1)")
+        let all_stock_codes: Vec<String> = merged_list.iter().map(|s| s.code.clone()).collect();
+        // TRIM: remove órfãos com whitespace que o join da grade de Compras ignoraria.
+        sqlx::query("DELETE FROM stock_snapshots WHERE TRIM(item_code) = ANY($1)")
             .bind(&all_stock_codes)
             .execute(&mut *tx)
             .await?;
@@ -2084,7 +2119,7 @@ WHERE {so2_date_filter};
         let mut snap_prod: Vec<f64> = Vec::new();
         let mut snap_orders: Vec<f64> = Vec::new();
 
-        for stk in stocks_list.iter().chain(mat_stocks_list.iter()) {
+        for stk in &merged_list {
             snap_ids.push(Uuid::new_v4().to_string());
             snap_imports.push(stock_import_id.clone());
             snap_codes.push(stk.code.clone());
@@ -2114,7 +2149,7 @@ WHERE {so2_date_filter};
             .await?;
         }
         eprintln!(
-            "[ERP Sync] Snapshots gravados: {count_snapshots} (insumos via nQtdeEstoqueA)"
+            "[ERP Sync] Snapshots gravados: {count_snapshots} (insumos via nQtdeEstoque)"
         );
     }
 
@@ -2697,6 +2732,33 @@ WHERE {so2_date_filter};
         eprintln!("[ERP Sync]   purchase_orders {count_pos}");
     }
 
+    // Fecha no Hub pedidos que ainda estão "abertos" mas não vieram do ERP como abertos
+    // (cabeçalhos apagados / fantasma de join antigo nPedido+dPedido).
+    let open_regs: Vec<i32> = pedido_cpa1_list
+        .iter()
+        .filter(|p| p.c_status.as_deref() != Some("T"))
+        .map(|p| p.n_registro)
+        .collect();
+    if !open_regs.is_empty() {
+        let closed = sqlx::query(
+            r#"
+            UPDATE purchase_orders
+            SET c_status = 'T'
+            WHERE COALESCE(c_status, '') <> 'T'
+              AND NOT (n_registro = ANY($1))
+            "#,
+        )
+        .bind(&open_regs)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if closed > 0 {
+            eprintln!(
+                "[ERP Sync]   purchase_orders: {closed} cabeçalhos órfãos marcados como T"
+            );
+        }
+    }
+
     {
         let mut poi_preg: Vec<i32> = Vec::new();
         let mut poi_ped: Vec<i32> = Vec::new();
@@ -2940,6 +3002,21 @@ WHERE {so2_date_filter};
         );
     }
 
+    // Sempre conferir tela ERP (nQtdeEstoque) após gravar — cobre run_sync e API.
+    let (stock_verified, stock_repaired) = match verify_and_repair_insumo_stocks(pool).await {
+        Ok(vr) => {
+            eprintln!(
+                "[ERP Sync] Pós-sync estoque: checked={} repaired={}",
+                vr.checked, vr.repaired
+            );
+            (vr.checked, vr.repaired)
+        }
+        Err(e) => {
+            eprintln!("[ERP Sync] Verificação de estoque falhou após sync: {e}");
+            (0, 0)
+        }
+    };
+
     Ok(SyncResult {
         products: count_prod,
         suppliers: count_fornec,
@@ -2953,6 +3030,8 @@ WHERE {so2_date_filter};
         sales_orders: count_sales_orders,
         mode: mode.as_str(),
         since,
+        stock_verified,
+        stock_repaired,
     })
 }
 
@@ -3013,10 +3092,17 @@ pub async fn create_database_dump(pool: &PgPool) -> anyhow::Result<crate::models
 pub struct ErpStockLive {
     pub source: String,
     pub code: String,
+    /// Campo da tela ERP usado pelo Hub (insumos: `nQtdeEstoque`).
     pub stock_qty: f64,
     pub reserved_qty: f64,
     pub in_production: f64,
     pub in_orders: f64,
+    /// Só insumos: `nQtdeEstoque` (igual a `stock_qty` na regra atual).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stock_qty_raw: Option<f64>,
+    /// Só insumos: `nQtdeEstoqueA` (diagnóstico; pode divergir da tela).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stock_qty_a: Option<f64>,
 }
 
 pub async fn fetch_erp_stock_live(pool: &PgPool, code: &str) -> anyhow::Result<Option<ErpStockLive>> {
@@ -3026,14 +3112,17 @@ pub async fn fetch_erp_stock_live(pool: &PgPool, code: &str) -> anyhow::Result<O
     }
     let mut client = connect_sql_server(pool).await?;
 
+    // LTRIM/RTRIM evita mismatch por espaços no cadastro ERP.
     let query_insumo = "
 SELECT TOP 1
-    CAST(COALESCE(nQtdeEstoqueA, nQtdeEstoque) AS FLOAT),
+    CAST(nQtdeEstoque AS FLOAT),
     CAST(nqtdeReserva AS FLOAT),
     CAST(nQtdeProducao AS FLOAT),
-    CAST(nQtdePedidos AS FLOAT)
+    CAST(nQtdePedidos AS FLOAT),
+    CAST(nQtdeEstoque AS FLOAT),
+    CAST(nQtdeEstoqueA AS FLOAT)
 FROM Insumos WITH (NOLOCK)
-WHERE cReferencia = @P1
+WHERE LTRIM(RTRIM(cReferencia)) = @P1
 ";
     let stream = client.query(query_insumo, &[&code]).await?;
     let rows = stream.into_first_result().await?;
@@ -3041,10 +3130,12 @@ WHERE cReferencia = @P1
         return Ok(Some(ErpStockLive {
             source: "Insumos".into(),
             code: code.to_string(),
-            stock_qty: row.get::<f64, _>(0).unwrap_or(0.0),
-            reserved_qty: row.get::<f64, _>(1).unwrap_or(0.0),
-            in_production: row.get::<f64, _>(2).unwrap_or(0.0),
-            in_orders: row.get::<f64, _>(3).unwrap_or(0.0),
+            stock_qty: mssql_f64(row, 0),
+            reserved_qty: mssql_f64(row, 1),
+            in_production: mssql_f64(row, 2),
+            in_orders: mssql_f64(row, 3),
+            stock_qty_raw: Some(mssql_f64(row, 4)),
+            stock_qty_a: Some(mssql_f64(row, 5)),
         }));
     }
 
@@ -3055,7 +3146,7 @@ SELECT TOP 1
     CAST(nQtdeProducao AS FLOAT),
     CAST(nQtdePedidos AS FLOAT)
 FROM Materiais WITH (NOLOCK)
-WHERE cReferencia = @P1
+WHERE LTRIM(RTRIM(cReferencia)) = @P1
 ";
     let stream = client.query(query_mat, &[&code]).await?;
     let rows = stream.into_first_result().await?;
@@ -3063,10 +3154,12 @@ WHERE cReferencia = @P1
         return Ok(Some(ErpStockLive {
             source: "Materiais".into(),
             code: code.to_string(),
-            stock_qty: row.get::<f64, _>(0).unwrap_or(0.0),
+            stock_qty: mssql_f64(row, 0),
             reserved_qty: 0.0,
-            in_production: row.get::<f64, _>(2).unwrap_or(0.0),
-            in_orders: row.get::<f64, _>(3).unwrap_or(0.0),
+            in_production: mssql_f64(row, 2),
+            in_orders: mssql_f64(row, 3),
+            stock_qty_raw: None,
+            stock_qty_a: None,
         }));
     }
 
@@ -3077,7 +3170,7 @@ SELECT TOP 1
     CAST(nQtdeProducao AS FLOAT),
     CAST(nPedidos AS FLOAT)
 FROM Produtos WITH (NOLOCK)
-WHERE cCodProd = @P1
+WHERE LTRIM(RTRIM(cCodProd)) = @P1
 ";
     let stream = client.query(query_prod, &[&code]).await?;
     let rows = stream.into_first_result().await?;
@@ -3085,14 +3178,62 @@ WHERE cCodProd = @P1
         return Ok(Some(ErpStockLive {
             source: "Produtos".into(),
             code: code.to_string(),
-            stock_qty: row.get::<f64, _>(0).unwrap_or(0.0),
+            stock_qty: mssql_f64(row, 0),
             reserved_qty: 0.0,
-            in_production: row.get::<f64, _>(2).unwrap_or(0.0),
-            in_orders: row.get::<f64, _>(3).unwrap_or(0.0),
+            in_production: mssql_f64(row, 2),
+            in_orders: mssql_f64(row, 3),
+            stock_qty_raw: None,
+            stock_qty_a: None,
         }));
     }
 
     Ok(None)
+}
+
+/// Substitui todos os snapshots do código pelo valor vivo do ERP (insumos/materiais).
+async fn replace_item_stock_snapshot(
+    pool: &PgPool,
+    code: &str,
+    stock_qty: f64,
+    reserved_qty: f64,
+    in_production: f64,
+    in_orders: f64,
+    source_label: &str,
+) -> anyhow::Result<()> {
+    let code = code.trim();
+    sqlx::query("DELETE FROM stock_snapshots WHERE TRIM(item_code) = $1")
+        .bind(code)
+        .execute(pool)
+        .await?;
+
+    let import_id = Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO stock_imports (id, filename, source, item_count) VALUES ($1, $2, $3, 1)",
+    )
+    .bind(&import_id)
+    .bind(format!("{source_label}_{code}"))
+    .bind(source_label)
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO stock_snapshots (
+            id, import_id, item_code, stock_qty, reserved_qty, in_production, in_orders, snapshot_date
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+        "#,
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(&import_id)
+    .bind(code)
+    .bind(stock_qty)
+    .bind(reserved_qty)
+    .bind(in_production)
+    .bind(in_orders)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 /// Atualiza o snapshot mais recente do código com valores lidos do ERP (D1/D2/A pontual).
@@ -3124,69 +3265,188 @@ pub async fn refresh_stock_snapshot_from_erp(
         return Ok(live);
     }
 
-    let updated = sqlx::query(
-        r#"
-        UPDATE stock_snapshots SET
-            stock_qty = $1,
-            reserved_qty = $2,
-            in_production = $3,
-            in_orders = $4,
-            snapshot_date = NOW()
-        WHERE id = (
-            SELECT id FROM stock_snapshots
-            WHERE item_code = $5
-            ORDER BY snapshot_date DESC, id DESC
-            LIMIT 1
-        )
-        "#,
+    replace_item_stock_snapshot(
+        pool,
+        &live.code,
+        live.stock_qty,
+        live.reserved_qty,
+        live.in_production,
+        live.in_orders,
+        "audit_refresh",
     )
-    .bind(live.stock_qty)
-    .bind(live.reserved_qty)
-    .bind(live.in_production)
-    .bind(live.in_orders)
-    .bind(&live.code)
-    .execute(pool)
-    .await?
-    .rows_affected();
-
-    if updated == 0 {
-        let import_id = Uuid::new_v4().to_string();
-        sqlx::query(
-            "INSERT INTO stock_imports (id, filename, source, item_count) VALUES ($1, $2, $3, 1)",
-        )
-        .bind(&import_id)
-        .bind(format!("audit_refresh_{}", live.code))
-        .bind("audit_refresh")
-        .execute(pool)
-        .await
-        .ok();
-        sqlx::query(
-            r#"
-            INSERT INTO stock_snapshots (id, import_id, item_code, stock_qty, reserved_qty, in_production, in_orders, snapshot_date)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-            "#,
-        )
-        .bind(Uuid::new_v4().to_string())
-        .bind(&import_id)
-        .bind(&live.code)
-        .bind(live.stock_qty)
-        .bind(live.reserved_qty)
-        .bind(live.in_production)
-        .bind(live.in_orders)
-        .execute(pool)
-        .await?;
-    }
+    .await?;
 
     Ok(live)
 }
 
-/// Regrava todos os snapshots de insumos a partir de nQtdeEstoqueA (D1).
+/// Query D1 limpa (sem NOLOCK) — reconsulta final do sync e verificação pós-sync.
+const D1_INSUMOS_STOCKS_SQL_CLEAN: &str = r#"
+SELECT 
+    cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
+    CAST(nQtdeEstoque AS FLOAT) as nQtdeEstoque,
+    CAST(nqtdeReserva AS FLOAT) as nqtdeReserva,
+    CAST(nQtdeProducao AS FLOAT) as nQtdeProducao,
+    CAST(nQtdePedidos AS FLOAT) as nQtdePedidos
+FROM Insumos
+WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInativo IS NULL)
+"#;
+
+const STOCK_VERIFY_EPS: f64 = 0.01;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StockVerifySample {
+    pub code: String,
+    pub hub: f64,
+    pub erp: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerifyRepairResult {
+    pub checked: usize,
+    pub repaired: usize,
+    pub samples: Vec<StockVerifySample>,
+}
+
+/// Re-lê insumos no ERP (`nQtdeEstoque`) e corrige `stock_snapshots` divergentes.
+pub async fn verify_and_repair_insumo_stocks(pool: &PgPool) -> anyhow::Result<VerifyRepairResult> {
+    let mut client = connect_sql_server(pool).await?;
+    let stream = client.query(D1_INSUMOS_STOCKS_SQL_CLEAN, &[]).await?;
+    let rows = stream.into_first_result().await?;
+
+    // Dedupa por código trimado (última linha vence).
+    let mut erp_map: std::collections::HashMap<String, StockRow> =
+        std::collections::HashMap::with_capacity(rows.len());
+    for row in rows {
+        let code: &str = row.get(0).unwrap_or("");
+        let code = code.trim();
+        if code.is_empty() {
+            continue;
+        }
+        erp_map.insert(
+            code.to_string(),
+            StockRow {
+                code: code.to_string(),
+                stock_qty: mssql_f64(&row, 1),
+                reserved_qty: mssql_f64(&row, 2),
+                in_prod: mssql_f64(&row, 3),
+                in_orders: mssql_f64(&row, 4),
+            },
+        );
+    }
+
+    let hub_rows = sqlx::query(
+        r#"
+        SELECT DISTINCT ON (TRIM(item_code))
+            TRIM(item_code), stock_qty, reserved_qty, in_production, in_orders
+        FROM stock_snapshots
+        ORDER BY TRIM(item_code), snapshot_date DESC NULLS LAST, id DESC
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut hub_map: std::collections::HashMap<String, (f64, f64, f64, f64)> =
+        std::collections::HashMap::with_capacity(hub_rows.len());
+    for r in hub_rows {
+        let code: String = r.get(0);
+        hub_map.insert(
+            code.trim().to_string(),
+            (
+                r.get::<f64, _>(1),
+                r.get::<f64, _>(2),
+                r.get::<f64, _>(3),
+                r.get::<f64, _>(4),
+            ),
+        );
+    }
+
+    // Preferir o código canônico de `items` (mesmo que a grade usa no join).
+    let mut canonical: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    if let Ok(rows) = sqlx::query(
+        "SELECT TRIM(code), code FROM items WHERE code IS NOT NULL AND TRIM(code) <> ''",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for r in rows {
+            let trimmed: String = r.get(0);
+            let raw: String = r.get(1);
+            canonical
+                .entry(trimmed.trim().to_string())
+                .or_insert(raw.trim().to_string());
+        }
+    }
+
+    let mut repaired = 0usize;
+    let mut samples: Vec<StockVerifySample> = Vec::new();
+    let checked = erp_map.len();
+
+    for erp in erp_map.values() {
+        let needs = match hub_map.get(&erp.code) {
+            None => true,
+            Some((h_stock, h_res, h_prod, h_ord)) => {
+                (h_stock - erp.stock_qty).abs() > STOCK_VERIFY_EPS
+                    || (h_res - erp.reserved_qty).abs() > STOCK_VERIFY_EPS
+                    || (h_prod - erp.in_prod).abs() > STOCK_VERIFY_EPS
+                    || (h_ord - erp.in_orders).abs() > STOCK_VERIFY_EPS
+            }
+        };
+        if !needs {
+            continue;
+        }
+
+        let hub_stock = hub_map
+            .get(&erp.code)
+            .map(|(s, _, _, _)| *s)
+            .unwrap_or(0.0);
+
+        let write_code = canonical
+            .get(&erp.code)
+            .cloned()
+            .unwrap_or_else(|| erp.code.clone());
+
+        replace_item_stock_snapshot(
+            pool,
+            &write_code,
+            erp.stock_qty,
+            erp.reserved_qty,
+            erp.in_prod,
+            erp.in_orders,
+            "stock_verify",
+        )
+        .await?;
+
+        repaired += 1;
+        if samples.len() < 25 {
+            samples.push(StockVerifySample {
+                code: write_code,
+                hub: hub_stock,
+                erp: erp.stock_qty,
+            });
+        }
+    }
+
+    eprintln!(
+        "[ERP Sync] Verificação estoque insumos: checked={checked} repaired={repaired}"
+    );
+
+    Ok(VerifyRepairResult {
+        checked,
+        repaired,
+        samples,
+    })
+}
+
+/// Regrava todos os snapshots de insumos a partir de nQtdeEstoque (D1).
 pub async fn resync_all_insumo_snapshots_from_erp(pool: &PgPool) -> anyhow::Result<usize> {
     let mut client = connect_sql_server(pool).await?;
     let query = "
 SELECT 
     cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
-    CAST(COALESCE(nQtdeEstoqueA, nQtdeEstoque) AS FLOAT) as nQtdeEstoque,
+    CAST(nQtdeEstoque AS FLOAT) as nQtdeEstoque,
     CAST(nqtdeReserva AS FLOAT) as nqtdeReserva,
     CAST(nQtdeProducao AS FLOAT) as nQtdeProducao,
     CAST(nQtdePedidos AS FLOAT) as nQtdePedidos
@@ -3203,10 +3463,10 @@ WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInat
         }
         list.push(StockRow {
             code: code.trim().to_string(),
-            stock_qty: row.get(1).unwrap_or(0.0),
-            reserved_qty: row.get(2).unwrap_or(0.0),
-            in_prod: row.get(3).unwrap_or(0.0),
-            in_orders: row.get(4).unwrap_or(0.0),
+            stock_qty: mssql_f64(&row, 1),
+            reserved_qty: mssql_f64(&row, 2),
+            in_prod: mssql_f64(&row, 3),
+            in_orders: mssql_f64(&row, 4),
         });
     }
 
@@ -3216,14 +3476,14 @@ WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInat
         "INSERT INTO stock_imports (id, filename, source, item_count) VALUES ($1, $2, $3, $4)",
     )
     .bind(&import_id)
-    .bind("D1 nQtdeEstoqueA resync")
+    .bind("D1 nQtdeEstoque resync")
     .bind("ERP")
     .bind(list.len() as i32)
     .execute(&mut *tx)
     .await?;
 
     let codes: Vec<String> = list.iter().map(|s| s.code.clone()).collect();
-    sqlx::query("DELETE FROM stock_snapshots WHERE item_code = ANY($1)")
+    sqlx::query("DELETE FROM stock_snapshots WHERE TRIM(item_code) = ANY($1)")
         .bind(&codes)
         .execute(&mut *tx)
         .await?;

@@ -485,6 +485,28 @@ pub struct InsumoDetalhesResponse {
     pub consumed_since_last_received: Option<f64>,
     pub days_since_last_received: Option<i64>,
     pub avg_monthly_since_last_received: Option<f64>,
+    #[serde(default)]
+    pub simulation: InsumoSimulationBreakdown,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsumoSimulationBreakdown {
+    pub total_insumo_qty: f64,
+    pub product_count: i32,
+    pub products: Vec<InsumoSimulationProduct>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct InsumoSimulationProduct {
+    pub product_code: String,
+    pub description: String,
+    pub status: String,
+    pub status_label: String,
+    pub production_qty: f64,
+    pub qty_per_unit: f64,
+    pub insumo_qty: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -11,8 +11,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pool = pg_db::create_pool().await?;
     let res = sync_from_sql_server(&pool, mode).await?;
     println!(
-        "Sync {} finished (since {}): {} products, {} items, {} movements",
-        res.mode, res.since, res.products, res.items, res.movements
+        "Sync {} finished (since {}): {} products, {} items, {} movements | stock verify checked={} repaired={}",
+        res.mode,
+        res.since,
+        res.products,
+        res.items,
+        res.movements,
+        res.stock_verified,
+        res.stock_repaired
     );
     Ok(())
 }

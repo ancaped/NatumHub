@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  ArrowLeft, RefreshCw, Loader2, Check, X, Database, Clock, Plus, Trash2
+  ArrowLeft, RefreshCw, Loader2, Check, X, Database, Clock, Plus, Trash2, Search
 } from 'lucide-react';
 
 import ConexaoServidorPanel from './ConexaoServidorPanel';
@@ -86,6 +86,34 @@ export default function ConfiguracoesView({
     status?: string | null;
   } | null>(null);
   const [releasingLock, setReleasingLock] = useState(false);
+  const [verifyingStock, setVerifyingStock] = useState(false);
+  const [stockVerifyResult, setStockVerifyResult] = useState<{
+    checked: number;
+    repaired: number;
+    samples: { code: string; hub: number; erp: number }[];
+  } | null>(null);
+  const [auditCode, setAuditCode] = useState('9.15.104');
+  const [auditingCode, setAuditingCode] = useState(false);
+  const [refreshingCode, setRefreshingCode] = useState(false);
+  const [stockAuditResult, setStockAuditResult] = useState<{
+    code: string;
+    match: boolean;
+    deltaStock: number | null;
+    hub: {
+      source?: string | null;
+      stockQty?: number;
+      reservedQty?: number;
+      error?: string;
+    };
+    erp: {
+      source?: string | null;
+      stockQty?: number;
+      stockQtyA?: number;
+      reservedQty?: number;
+      hubField?: string;
+      error?: string;
+    };
+  } | null>(null);
 
   const fetchErpSchedule = async () => {
     if (!canEditInfra) return;
@@ -202,6 +230,115 @@ export default function ConfiguracoesView({
     } finally {
       setReleasingLock(false);
       setTimeout(() => setMessage(null), 5000);
+    }
+  };
+
+  const handleVerifyStock = async () => {
+    setVerifyingStock(true);
+    setStockVerifyResult(null);
+    try {
+      const data = await apiJson<{
+        checked: number;
+        repaired: number;
+        samples?: { code: string; hub: number; erp: number }[];
+      }>('/admin/audit/stock/verify-insumos', { method: 'POST' });
+      setStockVerifyResult({
+        checked: data.checked ?? 0,
+        repaired: data.repaired ?? 0,
+        samples: Array.isArray(data.samples) ? data.samples : [],
+      });
+      setMessage({
+        text:
+          (data.repaired ?? 0) > 0
+            ? `Estoque: ${data.checked} conferidos, ${data.repaired} corrigidos para o ERP. Recarregue Compras para ver os saldos.`
+            : `Estoque OK: ${data.checked} insumos batem com a tela do ERP.`,
+        type: 'success',
+      });
+    } catch (e: unknown) {
+      setMessage({
+        text: e instanceof Error ? e.message : 'Falha na verificação de estoque',
+        type: 'error',
+      });
+    } finally {
+      setVerifyingStock(false);
+      setTimeout(() => setMessage(null), 8000);
+    }
+  };
+
+  const handleAuditStockCode = async (codeOverride?: string) => {
+    const code = (codeOverride ?? auditCode).trim();
+    if (!code) {
+      setMessage({ text: 'Informe o código do item para auditar.', type: 'error' });
+      return;
+    }
+    setAuditingCode(true);
+    try {
+      const data = await apiJson<{
+        code: string;
+        match: boolean;
+        deltaStock: number | null;
+        hub: {
+          source?: string | null;
+          stockQty?: number;
+          reservedQty?: number;
+          error?: string;
+        };
+        erp: {
+          source?: string | null;
+          stockQty?: number;
+          stockQtyA?: number;
+          reservedQty?: number;
+          hubField?: string;
+          error?: string;
+        };
+      }>(`/admin/audit/stock/${encodeURIComponent(code)}`);
+      setStockAuditResult({
+        code: data.code,
+        match: !!data.match,
+        deltaStock: data.deltaStock ?? null,
+        hub: data.hub ?? {},
+        erp: data.erp ?? {},
+      });
+      setMessage({
+        text: data.match
+          ? `${code}: Hub bate com a tela do ERP (nQtdeEstoque).`
+          : `${code}: divergência Hub × ERP — use Corrigir do ERP se a tela estiver certa.`,
+        type: data.match ? 'success' : 'error',
+      });
+    } catch (e: unknown) {
+      setStockAuditResult(null);
+      setMessage({
+        text: e instanceof Error ? e.message : 'Falha ao auditar estoque do código',
+        type: 'error',
+      });
+    } finally {
+      setAuditingCode(false);
+      setTimeout(() => setMessage(null), 8000);
+    }
+  };
+
+  const handleRefreshStockCode = async () => {
+    const code = auditCode.trim();
+    if (!code) {
+      setMessage({ text: 'Informe o código do item para corrigir.', type: 'error' });
+      return;
+    }
+    setRefreshingCode(true);
+    try {
+      await apiJson(`/admin/audit/stock/${encodeURIComponent(code)}/refresh`, { method: 'POST' });
+      setMessage({
+        text: `${code}: snapshot atualizado do ERP. Recarregue Compras.`,
+        type: 'success',
+      });
+      await handleAuditStockCode(code);
+    } catch (e: unknown) {
+      setMessage({
+        text: e instanceof Error ? e.message : 'Falha ao corrigir estoque do ERP',
+        type: 'error',
+      });
+    } finally {
+      setRefreshingCode(false);
+      setTimeout(() => setMessage(null), 8000);
     }
   };
 
@@ -597,6 +734,147 @@ export default function ConfiguracoesView({
                 >
                   Sync completo
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => void handleVerifyStock()}
+                  disabled={verifyingStock || syncingSql}
+                  className="bg-white text-zinc-800 border border-zinc-300 hover:bg-zinc-50 px-4 py-2.5 rounded-xl text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5"
+                  title="Compara todos os insumos Hub × tela do ERP e corrige divergências"
+                >
+                  {verifyingStock ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Verificando…
+                    </>
+                  ) : (
+                    <>
+                      <Check className="h-3.5 w-3.5" />
+                      Verificar estoque Hub × ERP
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <p className="text-[11px] text-zinc-500 leading-relaxed">
+                A verificação de estoque (insumos / Compras) também roda <strong>sozinha após cada sync</strong>:
+                se algum saldo divergir da tela do ERP, o Hub corrige e avisa no sino.
+              </p>
+
+              {stockVerifyResult && (
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-700 space-y-1">
+                  <p className="font-bold text-zinc-900">
+                    Última verificação: {stockVerifyResult.checked} conferidos ·{' '}
+                    {stockVerifyResult.repaired} corrigidos
+                  </p>
+                  {stockVerifyResult.repaired > 0 && (
+                    <p className="text-[11px] text-amber-700">
+                      Recarregue a grade de Compras para ver os saldos corrigidos.
+                    </p>
+                  )}
+                  {stockVerifyResult.samples.length > 0 && (
+                    <ul className="text-[11px] text-zinc-600 space-y-0.5 font-mono">
+                      {stockVerifyResult.samples.slice(0, 8).map((s) => (
+                        <li key={s.code}>
+                          {s.code}: hub {s.hub.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} → erp{' '}
+                          {s.erp.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              <div className="rounded-xl border border-zinc-200 bg-white px-3 py-3 space-y-2.5">
+                <div className="flex items-center gap-2">
+                  <Search className="h-3.5 w-3.5 text-zinc-500" />
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                    Auditar item (ERP ao vivo)
+                  </span>
+                </div>
+                <p className="text-[11px] text-zinc-500 leading-relaxed">
+                  Compara o Hub com <strong>nQtdeEstoque</strong> da tela do ERP (não use nQtdeEstoqueA).
+                </p>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <input
+                    type="text"
+                    value={auditCode}
+                    onChange={(e) => setAuditCode(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void handleAuditStockCode();
+                    }}
+                    placeholder="Ex: 9.15.104"
+                    className="flex-1 min-w-[140px] px-3 py-2 rounded-lg border border-zinc-200 text-xs font-mono font-bold text-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-300"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleAuditStockCode()}
+                    disabled={auditingCode || refreshingCode || syncingSql}
+                    className="bg-zinc-900 text-white hover:bg-zinc-800 px-3 py-2 rounded-lg text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5"
+                  >
+                    {auditingCode ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                    Auditar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleRefreshStockCode()}
+                    disabled={auditingCode || refreshingCode || syncingSql || !auditCode.trim()}
+                    className="bg-white text-zinc-800 border border-zinc-300 hover:bg-zinc-50 px-3 py-2 rounded-lg text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5"
+                    title="Regrava o snapshot do Hub com o valor vivo do ERP"
+                  >
+                    {refreshingCode ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                    Corrigir do ERP
+                  </button>
+                </div>
+                {stockAuditResult && (
+                  <div className={`rounded-lg border px-3 py-2.5 text-xs space-y-1.5 ${
+                    stockAuditResult.match
+                      ? 'border-emerald-200 bg-emerald-50/60 text-emerald-900'
+                      : 'border-amber-200 bg-amber-50/60 text-amber-950'
+                  }`}>
+                    <p className="font-bold">
+                      {stockAuditResult.code}: {stockAuditResult.match ? 'Match' : 'Divergente'}
+                      {stockAuditResult.deltaStock != null && (
+                        <span className="font-mono font-semibold ml-2">
+                          Δ {(stockAuditResult.deltaStock).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
+                        </span>
+                      )}
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-[11px]">
+                      <div>
+                        <span className="font-sans font-bold uppercase tracking-wider text-[9px] opacity-70 block">Hub</span>
+                        {stockAuditResult.hub.error ? (
+                          <span>{stockAuditResult.hub.error}</span>
+                        ) : (
+                          <>
+                            {stockAuditResult.hub.stockQty?.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) ?? '—'}
+                            <span className="opacity-60"> ({stockAuditResult.hub.source || '—'})</span>
+                          </>
+                        )}
+                      </div>
+                      <div>
+                        <span className="font-sans font-bold uppercase tracking-wider text-[9px] opacity-70 block">ERP tela</span>
+                        {stockAuditResult.erp.error ? (
+                          <span>{stockAuditResult.erp.error}</span>
+                        ) : (
+                          <>
+                            {stockAuditResult.erp.stockQty?.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) ?? '—'}
+                            <span className="opacity-60"> ({stockAuditResult.erp.source || '—'})</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {typeof stockAuditResult.erp.stockQtyA === 'number' && (
+                      <p className="text-[10px] opacity-70">
+                        nQtdeEstoqueA (diagnóstico):{' '}
+                        <span className="font-mono">
+                          {stockAuditResult.erp.stockQtyA.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
+                        </span>
+                        {' '}— não é o estoque da tela.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="border-t border-zinc-200/60 pt-4 mt-2 space-y-3">

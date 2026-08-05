@@ -11,7 +11,7 @@ Documenta o que o NatumHub **já importa**, o que ainda falta, e como descobrir 
 | `Lotes` | H | `entrada` · **produto** | (não é insumo) |
 | `VENDAS*` | J | `saida` · **produto** | (não é insumo) |
 
-Saldos de insumos: passo **D1** → `stock_snapshots.stock_qty` = `nQtdeEstoqueA`.
+Saldos de insumos: passo **D1** → `stock_snapshots.stock_qty` = `nQtdeEstoque` (tela “Estoque atual”).
 
 ## Exemplos citados pelo negócio (ainda não mapeados)
 
