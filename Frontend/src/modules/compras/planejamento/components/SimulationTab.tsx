@@ -15,7 +15,11 @@ interface SimulatedProduct {
   nome_linha: string;
   quantity: number;
   status_label?: string;
+  produzir_apenas_kit?: boolean;
 }
+
+/** kit_codigo → lista de componentes (quantidade por kit) */
+type KitBomMap = Record<string, { codigo: string; quantidade: number; descricao?: string }[]>;
 
 type RequirementsSource = 'manual' | 'auto' | 'both';
 
@@ -29,6 +33,10 @@ function isAutoProductionProduct(p: any): boolean {
   if (qty <= 0) return false;
   const st = String(p?.status || '');
   return st === 'critico' || st === 'ordem' || st === 'saindo_de_linha';
+}
+
+function trimCode(code: string): string {
+  return String(code || '').trim();
 }
 
 export function SimulationTab({ active = false, activeTab }: SimulationTabProps) {
@@ -47,6 +55,8 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
   const [autoProducts, setAutoProducts] = useState<SimulatedProduct[]>([]);
   const [formulations, setFormulations] = useState<Record<string, FormulationLine[]>>({});
   const [fetchingFormulations, setFetchingFormulations] = useState<Record<string, boolean>>({});
+  const [kitBom, setKitBom] = useState<KitBomMap>({});
+  const [allKits, setAllKits] = useState<any[]>([]);
 
   // Filter category of required items (ALL / MP / EMB)
   const [insumoTypeFilter, setInsumoTypeFilter] = useState<'ALL' | 'MP' | 'EMB'>('ALL');
@@ -81,36 +91,93 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     localStorage.setItem('natum_hub_simulated_products', JSON.stringify(list));
   };
 
-  const rebuildAutoProducts = (products: any[]) => {
-    const next: SimulatedProduct[] = products
+  const rebuildAutoProducts = (products: any[], kits: any[] = allKits, bom: KitBomMap = kitBom) => {
+    const fromProducts: SimulatedProduct[] = products
       .filter(isAutoProductionProduct)
       .map((p: any) => ({
-        codigo: p.codigo,
+        codigo: trimCode(p.codigo),
         descricao: p.descricao,
         nome_linha: p.nome_linha || 'Outros',
         quantity: p.producao_recomendada > 0 ? p.producao_recomendada : 100,
         status_label: p.status_label || p.status,
-      }))
-      .sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR'));
+        produzir_apenas_kit: Number(p.produzir_apenas_kit) === 1,
+      }));
+
+    // Kits não vêm em /products — incluir urgentes de /kits.
+    const fromKits: SimulatedProduct[] = (kits || [])
+      .map((k: any) => k.kit_detalhes || k.kitDetalhes || k)
+      .filter(isAutoProductionProduct)
+      .map((p: any) => ({
+        codigo: trimCode(p.codigo),
+        descricao: p.descricao,
+        nome_linha: p.nome_linha || 'Kits Comerciais',
+        quantity: p.producao_recomendada > 0 ? p.producao_recomendada : 100,
+        status_label: p.status_label || p.status,
+        produzir_apenas_kit: false,
+      }));
+
+    const byCode = new Map<string, SimulatedProduct>();
+    for (const p of [...fromProducts, ...fromKits]) {
+      if (!byCode.has(p.codigo)) byCode.set(p.codigo, p);
+    }
+    const next = Array.from(byCode.values()).sort((a, b) =>
+      a.descricao.localeCompare(b.descricao, 'pt-BR')
+    );
 
     setAutoProducts(next);
-    next.forEach((p) => fetchFormulationIfNeeded(p.codigo));
+    next.forEach((p) => {
+      fetchFormulationIfNeeded(p.codigo);
+      const comps = bom[p.codigo] || bom[trimCode(p.codigo)];
+      if (comps) {
+        comps.forEach((c) => fetchFormulationIfNeeded(c.codigo));
+      }
+    });
   };
 
   const loadInitialData = async () => {
     setLoading(true);
     try {
-      const [prodRes, demandList] = await Promise.all([
+      const [prodRes, kitsRes, bomRes, demandList] = await Promise.all([
         apiFetch('/products?limit=5000&show_hidden=true'),
+        apiFetch('/kits?limit=5000&show_hidden=true'),
+        apiFetch('/kits/composicao'),
         api.getDemands().catch(() => [] as DemandResult[]),
       ]);
-      
+
+      let products: any[] = [];
       if (prodRes.ok) {
         const data = await prodRes.json();
-        const items = data.items || [];
-        setAllProducts(items);
-        rebuildAutoProducts(items);
+        products = data.items || [];
+        setAllProducts(products);
       }
+
+      let kits: any[] = [];
+      if (kitsRes.ok) {
+        const data = await kitsRes.json();
+        kits = data.items || [];
+        setAllKits(kits);
+      }
+
+      let bom: KitBomMap = {};
+      if (bomRes.ok) {
+        const rows = await bomRes.json();
+        const list = Array.isArray(rows) ? rows : [];
+        for (const row of list) {
+          const kit = trimCode(row.kit_codigo || row.kitCodigo);
+          const comp = trimCode(row.componente_codigo || row.componenteCodigo);
+          const qty = Number(row.quantidade) || 1;
+          if (!kit || !comp) continue;
+          if (!bom[kit]) bom[kit] = [];
+          bom[kit].push({
+            codigo: comp,
+            quantidade: qty,
+            descricao: row.componente_descricao || row.componenteDescricao,
+          });
+        }
+        setKitBom(bom);
+      }
+
+      rebuildAutoProducts(products, kits, bom);
       setDemands(demandList || []);
     } catch (e) {
       console.error('Failed to load simulation initial data:', e);
@@ -369,7 +436,40 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     return Array.from(byCode.values());
   }, [requirementsSource, simulatedProducts, autoProducts]);
 
-  // Aggregate required ingredients (insumos)
+  const addRequirementLine = (
+    reqs: Record<string, { code: string; description: string; qtyNeeded: number; unit: string; category: string }>,
+    ingredientCode: string,
+    description: string | undefined,
+    totalNeeded: number,
+  ) => {
+    const key = trimCode(ingredientCode);
+    if (!key || totalNeeded === 0) return;
+    const normKey = key.replace(/\./g, '');
+    const demandItem = demandsByCode[key] || demandsByCode[normKey];
+    const unit = demandItem?.unit || 'un';
+    let category = 'Outros';
+    const catId = demandItem?.categoryId || '';
+    if (catId.includes('mp') || catId.includes('materia')) {
+      category = 'Matéria-Prima';
+    } else if (catId.includes('emb') || catId.includes('embalagem')) {
+      category = 'Embalagem';
+    } else if (demandItem?.categoryName) {
+      category = demandItem.categoryName;
+    }
+    if (reqs[key]) {
+      reqs[key].qtyNeeded += totalNeeded;
+    } else {
+      reqs[key] = {
+        code: key,
+        description: description || demandItem?.description || 'Item não cadastrado',
+        qtyNeeded: totalNeeded,
+        unit,
+        category,
+      };
+    }
+  };
+
+  // Aggregate required ingredients (insumos) — kits explodem kit_composicao.
   const calculatedRequirements = useMemo(() => {
     const reqs: Record<string, { 
       code: string; 
@@ -379,37 +479,66 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
       category: string;
     }> = {};
 
+    const urgentKitCodes = new Set(
+      productsForRequirements
+        .filter((p) => (kitBom[p.codigo] || []).length > 0)
+        .map((p) => p.codigo)
+    );
+    const skipDirect = new Set<string>();
+    for (const kitCode of urgentKitCodes) {
+      for (const comp of kitBom[kitCode] || []) {
+        const meta = productsForRequirements.find((p) => p.codigo === comp.codigo)
+          || autoProducts.find((p) => p.codigo === comp.codigo)
+          || allProducts.find((p: any) => trimCode(p.codigo) === comp.codigo);
+        const apenasKit = meta
+          ? Boolean((meta as any).produzir_apenas_kit ?? Number((meta as any).produzir_apenas_kit) === 1)
+          : false;
+        // Meta from allProducts uses numeric flag
+        const fromCatalog = allProducts.find((p: any) => trimCode(p.codigo) === comp.codigo);
+        if (apenasKit || Number(fromCatalog?.produzir_apenas_kit) === 1) {
+          skipDirect.add(comp.codigo);
+        }
+      }
+    }
+
     productsForRequirements.forEach(simProd => {
-      const lines = formulations[simProd.codigo] || [];
-      lines.forEach(line => {
-        const key = line.ingredientCode;
-        const normKey = key.replace(/\./g, '');
-        const demandItem = demandsByCode[key] || demandsByCode[normKey];
-        const unit = demandItem?.unit || 'un';
-        
-        let category = 'Outros';
-        const catId = demandItem?.categoryId || '';
-        if (catId.includes('mp') || catId.includes('materia')) {
-          category = 'Matéria-Prima';
-        } else if (catId.includes('emb') || catId.includes('embalagem')) {
-          category = 'Embalagem';
-        } else if (demandItem?.categoryName) {
-          category = demandItem.categoryName;
-        }
+      const code = trimCode(simProd.codigo);
+      if (skipDirect.has(code)) return;
 
-        const totalNeeded = simProd.quantity * line.quantity;
+      const comps = kitBom[code];
+      if (comps && comps.length > 0) {
+        comps.forEach((comp) => {
+          const lines = formulations[comp.codigo] || [];
+          if (lines.length > 0) {
+            lines.forEach((line) => {
+              addRequirementLine(
+                reqs,
+                line.ingredientCode,
+                line.description,
+                simProd.quantity * comp.quantidade * line.quantity,
+              );
+            });
+          } else {
+            // Item direto (caixa) sem formulação
+            addRequirementLine(
+              reqs,
+              comp.codigo,
+              comp.descricao,
+              simProd.quantity * comp.quantidade,
+            );
+          }
+        });
+        return;
+      }
 
-        if (reqs[key]) {
-          reqs[key].qtyNeeded += totalNeeded;
-        } else {
-          reqs[key] = {
-            code: key,
-            description: line.description || demandItem?.description || 'Item não cadastrado',
-            qtyNeeded: totalNeeded,
-            unit,
-            category
-          };
-        }
+      const lines = formulations[code] || formulations[simProd.codigo] || [];
+      lines.forEach((line) => {
+        addRequirementLine(
+          reqs,
+          line.ingredientCode,
+          line.description,
+          simProd.quantity * line.quantity,
+        );
       });
     });
 
@@ -446,7 +575,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
 
     // Sort by code
     return list.sort((a, b) => a.code.localeCompare(b.code));
-  }, [productsForRequirements, formulations, demandsByCode, insumoTypeFilter, searchInsumo, onlyDeficit]);
+  }, [productsForRequirements, formulations, demandsByCode, insumoTypeFilter, searchInsumo, onlyDeficit, kitBom, autoProducts, allProducts]);
 
   const handleUpdateAutoQty = (codigo: string, quantity: number) => {
     setAutoProducts((prev) =>
@@ -455,7 +584,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
   };
 
   const handleRefreshAuto = () => {
-    rebuildAutoProducts(allProducts);
+    rebuildAutoProducts(allProducts, allKits, kitBom);
   };
 
   // Summary Metrics
@@ -465,10 +594,45 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     let deficitCount = 0;
 
     const globalReqs: Record<string, number> = {};
-    productsForRequirements.forEach(simProd => {
-      const lines = formulations[simProd.codigo] || [];
-      lines.forEach(line => {
-        globalReqs[line.ingredientCode] = (globalReqs[line.ingredientCode] || 0) + (simProd.quantity * line.quantity);
+    const urgentKitCodes = new Set(
+      productsForRequirements
+        .filter((p) => (kitBom[p.codigo] || []).length > 0)
+        .map((p) => p.codigo)
+    );
+    const skipDirect = new Set<string>();
+    for (const kitCode of urgentKitCodes) {
+      for (const comp of kitBom[kitCode] || []) {
+        const fromCatalog = allProducts.find((p: any) => trimCode(p.codigo) === comp.codigo);
+        if (Number(fromCatalog?.produzir_apenas_kit) === 1) {
+          skipDirect.add(comp.codigo);
+        }
+      }
+    }
+
+    productsForRequirements.forEach((simProd) => {
+      const code = trimCode(simProd.codigo);
+      if (skipDirect.has(code)) return;
+      const comps = kitBom[code];
+      if (comps && comps.length > 0) {
+        comps.forEach((comp) => {
+          const lines = formulations[comp.codigo] || [];
+          if (lines.length > 0) {
+            lines.forEach((line) => {
+              const key = trimCode(line.ingredientCode);
+              globalReqs[key] =
+                (globalReqs[key] || 0) + simProd.quantity * comp.quantidade * line.quantity;
+            });
+          } else {
+            globalReqs[comp.codigo] =
+              (globalReqs[comp.codigo] || 0) + simProd.quantity * comp.quantidade;
+          }
+        });
+        return;
+      }
+      const lines = formulations[code] || formulations[simProd.codigo] || [];
+      lines.forEach((line) => {
+        const key = trimCode(line.ingredientCode);
+        globalReqs[key] = (globalReqs[key] || 0) + simProd.quantity * line.quantity;
       });
     });
 
@@ -499,7 +663,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
       embCount,
       deficitCount
     };
-  }, [productsForRequirements, formulations, demandsByCode]);
+  }, [productsForRequirements, formulations, demandsByCode, kitBom, allProducts]);
 
   // Print Report matches layout of PrintListTab.tsx
   const handlePrint = () => {
@@ -747,7 +911,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
         <div style="margin-top: 20px; padding: 8px; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 8px; color: #4b5563; page-break-inside: avoid;">
           <strong style="color: #111827; display: block; margin-bottom: 4px; font-size: 9px; text-transform: uppercase;">Nota Metodológica da Simulação:</strong>
           <ul style="margin: 0; padding-left: 12px; line-height: 1.4;">
-            <li>As quantidades de insumos (matéria-prima e embalagens) são apuradas multiplicando a quantidade simulada de cada produto pelo consumo unitário descrito nas fichas de formulação originais.</li>
+            <li>As quantidades de insumos (matéria-prima e embalagens) são apuradas multiplicando a quantidade simulada de cada produto pelo consumo unitário das formulações. Kits usam a composição: fórmulas dos componentes e itens diretos (ex. caixa).</li>
             <li>O Estoque Físico corresponde ao saldo operacional em tempo real integrado com o sistema principal.</li>
             <li>A coluna "Em Trânsito" exibe as compras já efetuadas com fornecedores em pedidos de compra pendentes no sistema.</li>
             <li>O Saldo Projetado leva em conta a soma do Estoque Físico + Em Trânsito subtraindo a Qtd Necessária.</li>
@@ -850,7 +1014,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
             <div>
               <h3 className="text-sm font-bold text-zinc-900">Simulação Automática</h3>
               <p className="text-xs text-zinc-500 mt-0.5">
-                Produtos com status Produzir Urgente / Abrir Ordem (e Saindo de Linha com produção recomendada). Quantidade = produção recomendada.
+                Produtos e kits com Produzir Urgente / Abrir Ordem. Kits explodem a composição (componentes + itens diretos). Quantidade = produção recomendada.
               </p>
             </div>
             <button

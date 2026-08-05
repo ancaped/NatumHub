@@ -271,7 +271,10 @@ pub struct SimProducaoContribution {
 }
 
 /// Contribuições por produto×insumo da simulação automática (Produzir Urgente / Abrir Ordem).
+/// Kits: explode `kit_composicao` → formulações dos componentes + itens diretos (ex. caixa).
 pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProducaoContribution> {
+    use std::collections::HashSet;
+
     let db = crate::core::db::Db::new(pool.clone());
     let Ok((products, stocks, fat_map, configs, overrides, _)) =
         crate::handlers::producao::fetch_calculation_data(&db).await
@@ -290,6 +293,16 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
     let kit_composition = db.get_kit_composition().await.unwrap_or_default();
     crate::handlers::producao::post_process_kit_only_production(&mut computed, &kit_composition);
 
+    let produzir_apenas_kit: HashMap<String, bool> = computed
+        .iter()
+        .map(|p| {
+            (
+                p.codigo.trim().to_string(),
+                p.produzir_apenas_kit.unwrap_or(0) == 1,
+            )
+        })
+        .collect();
+
     let mut needed: Vec<(String, String, String, String, f64)> = Vec::new();
     for p in &computed {
         if p.producao_recomendada <= 0 {
@@ -297,7 +310,7 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
         }
         if p.status == "critico" || p.status == "ordem" || p.status == "saindo_de_linha" {
             needed.push((
-                p.codigo.clone(),
+                p.codigo.trim().to_string(),
                 p.descricao.clone(),
                 p.status.clone(),
                 p.status_label.clone(),
@@ -309,25 +322,103 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
         return Vec::new();
     }
 
-    let codes: Vec<String> = needed.iter().map(|(c, _, _, _, _)| c.clone()).collect();
+    let needed_codes: HashSet<String> = needed.iter().map(|(c, _, _, _, _)| c.clone()).collect();
+
+    // Kits urgentes → componentes cobertos pela explosão (anti double-count se produzir_apenas_kit).
+    let mut skip_direct: HashSet<String> = HashSet::new();
+    for (kit_code, comps) in &kit_composition {
+        let kit_key = kit_code.trim().to_string();
+        if !needed_codes.contains(&kit_key) {
+            continue;
+        }
+        for (comp, _, _, _) in comps {
+            let comp_key = comp.trim().to_string();
+            if *produzir_apenas_kit.get(&comp_key).unwrap_or(&false) {
+                skip_direct.insert(comp_key);
+            }
+        }
+    }
+
+    // Formulações: códigos needed + todos os componentes dos kits urgentes.
+    let mut form_codes: HashSet<String> = needed_codes.clone();
+    for (kit_code, comps) in &kit_composition {
+        if !needed_codes.contains(kit_code.trim()) {
+            continue;
+        }
+        for (comp, _, _, _) in comps {
+            form_codes.insert(comp.trim().to_string());
+        }
+    }
+    let form_codes_vec: Vec<String> = form_codes.into_iter().collect();
+
     let mut formulations: HashMap<String, Vec<(String, f64)>> = HashMap::new();
     if let Ok(rows) = sqlx::query(
         "SELECT product_code, ingredient_code, quantity FROM formulations WHERE product_code = ANY($1)",
     )
-    .bind(&codes)
+    .bind(&form_codes_vec)
     .fetch_all(pool)
     .await
     {
         for row in rows {
-            let p_code: String = row.get(0);
-            let ing: String = row.get(1);
+            let p_code: String = row.get::<String, _>(0).trim().to_string();
+            let ing: String = row.get::<String, _>(1).trim().to_string();
             let qty: f64 = row.get(2);
             formulations.entry(p_code).or_default().push((ing, qty));
         }
     }
 
+    // Index kit_composicao by trimmed kit code.
+    let mut kits_by_code: HashMap<String, &Vec<(String, f64, Option<f64>, Option<i32>)>> =
+        HashMap::new();
+    for (kit_code, comps) in &kit_composition {
+        kits_by_code.insert(kit_code.trim().to_string(), comps);
+    }
+
     let mut out = Vec::new();
     for (p_code, p_desc, status, status_label, prod_qty) in needed {
+        if skip_direct.contains(&p_code) {
+            continue;
+        }
+
+        if let Some(comps) = kits_by_code.get(&p_code) {
+            // Explode BOM do kit.
+            for (comp, qty_comp, _, _) in *comps {
+                let comp_key = comp.trim().to_string();
+                let qty_comp = *qty_comp;
+                if qty_comp <= 0.0 {
+                    continue;
+                }
+                if let Some(ings) = formulations.get(&comp_key) {
+                    for (ing, unit_qty) in ings {
+                        let per_kit = qty_comp * unit_qty;
+                        out.push(SimProducaoContribution {
+                            ingredient_code: ing.clone(),
+                            product_code: p_code.clone(),
+                            product_desc: p_desc.clone(),
+                            status: status.clone(),
+                            status_label: status_label.clone(),
+                            production_qty: prod_qty,
+                            qty_per_unit: per_kit,
+                            insumo_qty: prod_qty * per_kit,
+                        });
+                    }
+                } else {
+                    // Item direto na composição (caixa / embalagem sem fórmula).
+                    out.push(SimProducaoContribution {
+                        ingredient_code: comp_key,
+                        product_code: p_code.clone(),
+                        product_desc: p_desc.clone(),
+                        status: status.clone(),
+                        status_label: status_label.clone(),
+                        production_qty: prod_qty,
+                        qty_per_unit: qty_comp,
+                        insumo_qty: prod_qty * qty_comp,
+                    });
+                }
+            }
+            continue;
+        }
+
         if let Some(ings) = formulations.get(&p_code) {
             for (ing, unit_qty) in ings {
                 out.push(SimProducaoContribution {
