@@ -1700,8 +1700,8 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                               <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
                                 <tr>
                                   <th className="px-3 py-2.5">Código</th>
-                                  <th className="px-3 py-2.5">Produto</th>
-                                  <th className="px-3 py-2.5 text-center">Status</th>
+                                  <th className="px-3 py-2.5">Produto / componente</th>
+                                  <th className="px-3 py-2.5 text-center">Origem</th>
                                   <th className="px-3 py-2.5 text-right">Qtd produzir</th>
                                   <th className="px-3 py-2.5 text-right">Uso/un</th>
                                   <th className="px-3 py-2.5 text-right">Total insumo</th>

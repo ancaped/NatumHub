@@ -1014,7 +1014,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
             <div>
               <h3 className="text-sm font-bold text-zinc-900">Simulação Automática</h3>
               <p className="text-xs text-zinc-500 mt-0.5">
-                Produtos e kits com Produzir Urgente / Abrir Ordem. Kits explodem a composição (componentes + itens diretos). Quantidade = produção recomendada.
+                Produtos e kits urgentes. Em cada kit aparecem os componentes e a quantidade derivada (kits × qty na composição) para conferir as formulações.
               </p>
             </div>
             <button
@@ -1053,40 +1053,84 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
                     </td>
                   </tr>
                 ) : (
-                  autoProducts.map((product) => (
-                    <tr key={product.codigo} className="hover:bg-zinc-50/80">
-                      <td className="py-2.5 px-4 font-mono text-xs font-bold text-indigo-600">{product.codigo}</td>
-                      <td className="py-2.5 px-4 text-xs font-semibold text-zinc-800">{product.descricao}</td>
-                      <td className="py-2.5 px-4 text-[10px] text-zinc-500">{product.nome_linha}</td>
-                      <td className="py-2.5 px-4">
-                        <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-100">
-                          {product.status_label || '—'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-4 text-right">
-                        <div className="inline-flex items-center border border-zinc-200 bg-white rounded-lg shadow-sm">
-                          <button
-                            onClick={() => handleUpdateAutoQty(product.codigo, product.quantity - 50)}
-                            className="p-1.5 hover:bg-zinc-50 text-zinc-500"
-                          >
-                            <Minus className="h-3.5 w-3.5" />
-                          </button>
-                          <input
-                            type="number"
-                            value={product.quantity}
-                            onChange={(e) => handleUpdateAutoQty(product.codigo, Number(e.target.value) || 0)}
-                            className="w-16 text-center text-xs font-bold border-x border-zinc-200 py-1.5 focus:outline-none"
-                          />
-                          <button
-                            onClick={() => handleUpdateAutoQty(product.codigo, product.quantity + 50)}
-                            className="p-1.5 hover:bg-zinc-50 text-zinc-500"
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                  autoProducts.map((product) => {
+                    const comps = kitBom[product.codigo] || [];
+                    const isKit = comps.length > 0;
+                    return (
+                      <React.Fragment key={product.codigo}>
+                        <tr className="hover:bg-zinc-50/80">
+                          <td className="py-2.5 px-4 font-mono text-xs font-bold text-indigo-600">
+                            {product.codigo}
+                            {isKit && (
+                              <span className="ml-1.5 text-[9px] font-bold uppercase tracking-wide text-zinc-400">
+                                Kit
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-4 text-xs font-semibold text-zinc-800">{product.descricao}</td>
+                          <td className="py-2.5 px-4 text-[10px] text-zinc-500">{product.nome_linha}</td>
+                          <td className="py-2.5 px-4">
+                            <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-100">
+                              {product.status_label || '—'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4 text-right">
+                            <div className="inline-flex items-center border border-zinc-200 bg-white rounded-lg shadow-sm">
+                              <button
+                                onClick={() => handleUpdateAutoQty(product.codigo, product.quantity - 50)}
+                                className="p-1.5 hover:bg-zinc-50 text-zinc-500"
+                              >
+                                <Minus className="h-3.5 w-3.5" />
+                              </button>
+                              <input
+                                type="number"
+                                value={product.quantity}
+                                onChange={(e) => handleUpdateAutoQty(product.codigo, Number(e.target.value) || 0)}
+                                className="w-16 text-center text-xs font-bold border-x border-zinc-200 py-1.5 focus:outline-none"
+                              />
+                              <button
+                                onClick={() => handleUpdateAutoQty(product.codigo, product.quantity + 50)}
+                                className="p-1.5 hover:bg-zinc-50 text-zinc-500"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {comps.map((comp) => {
+                          const compQty = product.quantity * (comp.quantidade || 1);
+                          const hasForm = (formulations[comp.codigo] || []).length > 0;
+                          return (
+                            <tr
+                              key={`${product.codigo}::${comp.codigo}`}
+                              className="bg-zinc-50/70 border-t border-zinc-100"
+                            >
+                              <td className="py-2 px-4 pl-8 font-mono text-[11px] font-bold text-zinc-600">
+                                ↳ {comp.codigo}
+                              </td>
+                              <td className="py-2 px-4 text-[11px] text-zinc-700">
+                                <span className="font-semibold">{comp.descricao || comp.codigo}</span>
+                                <span className="block text-[9px] text-zinc-400 mt-0.5">
+                                  {hasForm
+                                    ? `${(formulations[comp.codigo] || []).length} insumos na fórmula · ${comp.quantidade} / kit`
+                                    : `Item direto do kit · ${comp.quantidade} / kit`}
+                                </span>
+                              </td>
+                              <td className="py-2 px-4 text-[10px] text-zinc-400">via {product.codigo}</td>
+                              <td className="py-2 px-4">
+                                <span className="inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold bg-zinc-100 text-zinc-600 border border-zinc-200">
+                                  Componente
+                                </span>
+                              </td>
+                              <td className="py-2 px-4 text-right font-mono text-xs font-bold text-zinc-800">
+                                {compQty.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
+                    );
+                  })
                 )}
               </tbody>
             </table>

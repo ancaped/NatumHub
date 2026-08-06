@@ -374,6 +374,39 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
         kits_by_code.insert(kit_code.trim().to_string(), comps);
     }
 
+    // Descrições dos componentes (produto ou item) para breakdown auditável.
+    let mut comp_descs: HashMap<String, String> = HashMap::new();
+    for p in &computed {
+        comp_descs.insert(p.codigo.trim().to_string(), p.descricao.clone());
+    }
+    let mut missing_desc: Vec<String> = Vec::new();
+    for (kit_code, comps) in &kit_composition {
+        if !needed_codes.contains(kit_code.trim()) {
+            continue;
+        }
+        for (comp, _, _, _) in comps {
+            let k = comp.trim().to_string();
+            if !comp_descs.contains_key(&k) {
+                missing_desc.push(k);
+            }
+        }
+    }
+    if !missing_desc.is_empty() {
+        if let Ok(rows) = sqlx::query(
+            "SELECT TRIM(code), description FROM items WHERE TRIM(code) = ANY($1)",
+        )
+        .bind(&missing_desc)
+        .fetch_all(pool)
+        .await
+        {
+            for row in rows {
+                let code: String = row.get(0);
+                let desc: String = row.get(1);
+                comp_descs.entry(code).or_insert(desc);
+            }
+        }
+    }
+
     let mut out = Vec::new();
     for (p_code, p_desc, status, status_label, prod_qty) in needed {
         if skip_direct.contains(&p_code) {
@@ -381,38 +414,43 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
         }
 
         if let Some(comps) = kits_by_code.get(&p_code) {
-            // Explode BOM do kit.
+            // Explode BOM: atribui ao componente (ou item direto) para auditoria na UI.
+            let via_label = format!("via {p_code} · {status_label}");
             for (comp, qty_comp, _, _) in *comps {
                 let comp_key = comp.trim().to_string();
                 let qty_comp = *qty_comp;
                 if qty_comp <= 0.0 {
                     continue;
                 }
+                let comp_desc = comp_descs
+                    .get(&comp_key)
+                    .cloned()
+                    .unwrap_or_else(|| comp_key.clone());
+                let comp_prod_qty = prod_qty * qty_comp;
                 if let Some(ings) = formulations.get(&comp_key) {
                     for (ing, unit_qty) in ings {
-                        let per_kit = qty_comp * unit_qty;
                         out.push(SimProducaoContribution {
                             ingredient_code: ing.clone(),
-                            product_code: p_code.clone(),
-                            product_desc: p_desc.clone(),
+                            product_code: comp_key.clone(),
+                            product_desc: comp_desc.clone(),
                             status: status.clone(),
-                            status_label: status_label.clone(),
-                            production_qty: prod_qty,
-                            qty_per_unit: per_kit,
-                            insumo_qty: prod_qty * per_kit,
+                            status_label: via_label.clone(),
+                            production_qty: comp_prod_qty,
+                            qty_per_unit: *unit_qty,
+                            insumo_qty: comp_prod_qty * unit_qty,
                         });
                     }
                 } else {
                     // Item direto na composição (caixa / embalagem sem fórmula).
                     out.push(SimProducaoContribution {
-                        ingredient_code: comp_key,
-                        product_code: p_code.clone(),
-                        product_desc: p_desc.clone(),
+                        ingredient_code: comp_key.clone(),
+                        product_code: comp_key.clone(),
+                        product_desc: format!("{comp_desc} (item do kit {p_code})"),
                         status: status.clone(),
-                        status_label: status_label.clone(),
-                        production_qty: prod_qty,
-                        qty_per_unit: qty_comp,
-                        insumo_qty: prod_qty * qty_comp,
+                        status_label: via_label.clone(),
+                        production_qty: comp_prod_qty,
+                        qty_per_unit: 1.0,
+                        insumo_qty: comp_prod_qty,
                     });
                 }
             }
