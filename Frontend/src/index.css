@@ -639,6 +639,12 @@ tr:hover td {
   border-color: hsl(var(--warning-border-hsl));
 }
 
+.status-badge.montar {
+  background-color: #fff7ed;
+  color: #c2410c;
+  border-color: #fdba74;
+}
+
 .status-badge.saudavel {
   background-color: hsl(var(--success-bg-hsl));
   color: hsl(var(--success-hsl));

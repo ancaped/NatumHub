@@ -999,6 +999,16 @@ pub async fn list_kits(
         let max_mont_val = min_stock.unwrap_or(0);
         let max_mont = if max_mont_val < 0 { 0 } else { max_mont_val };
 
+        // Kit-only alert: stock of components already covers recommended assembly qty.
+        // Do not keep "Produzir Urgente" / "Abrir Ordem" on the kit itself in that case.
+        if kit_calc.producao_recomendada > 0
+            && max_mont >= kit_calc.producao_recomendada
+            && (kit_calc.status == "critico" || kit_calc.status == "ordem")
+        {
+            kit_calc.status = "montar".to_string();
+            kit_calc.status_label = "Montar Urgente".to_string();
+        }
+
         kit_results.push(KitCalculationResult {
             kit_detalhes: kit_calc,
             componentes: components_detail,

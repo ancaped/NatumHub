@@ -735,12 +735,14 @@ fn build_demand_result(
         }
     }
 
+    // Usa Prev. Futura real (pode ser negativa por sim_producao). Clamp em max_forecast
+    // só para duração — senão o déficit da simulação some da compra recomendada.
     let recommended_qty = if daily_avg <= 0.0 {
         0.0
     } else if estimated_duration_days >= (target_days_val as f64) {
         0.0
     } else {
-        let raw_rec = target_stock - max_forecast;
+        let raw_rec = target_stock - future_stock_forecast;
         if raw_rec > 0.0 {
             raw_rec.round()
         } else {

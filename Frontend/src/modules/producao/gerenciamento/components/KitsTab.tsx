@@ -73,6 +73,7 @@ export function KitsTab({
             <option value="ALL">Todos os Alertas</option>
             <option value="critico">Crítico: Produzir</option>
             <option value="ordem">Abrir Ordem</option>
+            <option value="montar">Montar Urgente</option>
             <option value="saudavel">Estoque OK</option>
             <option value="abundante">Abundante</option>
           </select>
@@ -215,12 +216,16 @@ export function KitsTab({
                             <span className={`montagem-badge ${capacityClass}`}>
                               Máx: {k.max_montavel} un montáveis
                             </span>
-                            {k.componentes_criticos.length > 0 && (
+                            {p.status === 'montar' ? (
+                              <span style={{ fontSize: '0.625rem', color: '#c2410c', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                Componentes OK — montar kit
+                              </span>
+                            ) : k.componentes_criticos.length > 0 ? (
                               <span style={{ fontSize: '0.625rem', color: 'hsl(var(--warning-hsl))', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '2px' }}>
                                 <AlertTriangle size={10} />
                                 Falta produzir {k.componentes_criticos.length} itens
                               </span>
-                            )}
+                            ) : null}
                           </div>
                         </td>
                         <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>

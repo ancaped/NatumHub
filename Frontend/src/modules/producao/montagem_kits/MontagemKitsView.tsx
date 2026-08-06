@@ -1729,6 +1729,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                   <option value="ALL">Todos os Alertas</option>
                   <option value="critico">Crítico: Produzir</option>
                   <option value="ordem">Abrir Ordem</option>
+                  <option value="montar">Montar Urgente</option>
                   <option value="saudavel">Estoque OK</option>
                   <option value="abundante">Abundante</option>
                 </select>
@@ -1801,6 +1802,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                                 <span className={`px-2 py-1 rounded-full text-[9px] font-extrabold tracking-wide uppercase ${
                                   k.status === 'critico' ? 'bg-rose-50 text-rose-700 border border-rose-200' :
                                   k.status === 'ordem' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                  k.status === 'montar' ? 'bg-orange-50 text-orange-700 border border-orange-200' :
                                   'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                 }`}>
                                   {k.status_label}
