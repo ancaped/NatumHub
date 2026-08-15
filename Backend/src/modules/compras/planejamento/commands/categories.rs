@@ -19,13 +19,27 @@ pub async fn get_categories_query(pool: PgPool) -> Result<Vec<Category>, String>
 }
 
 pub async fn save_category_query(pool: PgPool, category: &Category) -> Result<(), String> {
+    let id = category.id.trim();
+    if id.is_empty() {
+        return Err("ID da categoria não pode ser vazio".into());
+    }
+    let name = category.name.trim();
+    if name.is_empty() {
+        return Err("Nome da categoria não pode ser vazio".into());
+    }
+    let parent_id = category
+        .parent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
     sqlx::query(
         "INSERT INTO categories (id, name, parent_id) VALUES ($1, $2, $3)
          ON CONFLICT(id) DO UPDATE SET name = EXCLUDED.name, parent_id = EXCLUDED.parent_id",
     )
-    .bind(&category.id)
-    .bind(&category.name)
-    .bind(&category.parent_id)
+    .bind(id)
+    .bind(name)
+    .bind(parent_id)
     .execute(&pool)
     .await
     .map_err(|e| e.to_string())?;

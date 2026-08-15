@@ -65,6 +65,8 @@ CREATE TABLE IF NOT EXISTS kit_composicao (
     quantidade NUMERIC(12,4) NOT NULL DEFAULT 1.0,
     fator_proporcao_qtd NUMERIC(12,4) DEFAULT 1.0,
     fator_proporcao_kits INTEGER DEFAULT 1,
+    -- erp = Passo P (sync); manual = CRUD/Excel (preservado no sync)
+    origem TEXT NOT NULL DEFAULT 'manual' CHECK (origem IN ('erp', 'manual')),
     PRIMARY KEY (kit_codigo, componente_codigo)
 );
 

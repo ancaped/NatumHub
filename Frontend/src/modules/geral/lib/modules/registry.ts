@@ -61,12 +61,14 @@ export const MODULE_KEYS = {
   QUALIDADE_LIMPEZA: 'qualidade_limpeza',
   QUALIDADE_RECEBIMENTO_MP: 'qualidade_recebimento_mp',
   QUALIDADE_DOCUMENTACAO: 'qualidade_documentacao',
+  QUALIDADE_DEVOLUCOES: 'qualidade_devolucoes',
   ADMINISTRATIVO: 'administrativo',
   /** @deprecated alias — use EXPEDICAO_ECOMMERCE */
   EXPEDICAO: 'expedicao',
   EXPEDICAO_ECOMMERCE: 'expedicao_ecommerce',
   EXPEDICAO_SEPARACAO: 'expedicao_separacao',
   FINANCEIRO: 'financeiro',
+  FERRAMENTAS_ETIQUETAS: 'ferramentas_etiquetas',
   CONFIGURACOES: 'hub_settings',
   OPERADORES: 'hub_operadores',
 } as const;
@@ -161,6 +163,7 @@ export function moduleRegistry(): ModuleGroup[] {
       hubView: 'qualidade_hub',
       children: [
         { key: MODULE_KEYS.CONTROLE_QUALIDADE, label: 'Controle de Qualidade' },
+        { key: MODULE_KEYS.QUALIDADE_DEVOLUCOES, label: 'Devoluções' },
         { key: MODULE_KEYS.QUALIDADE_POPS, label: 'POPs' },
         { key: MODULE_KEYS.QUALIDADE_TREINAMENTOS, label: 'Treinamentos' },
         { key: MODULE_KEYS.QUALIDADE_TEMPERATURA, label: 'Temperatura' },
@@ -192,6 +195,12 @@ export function moduleRegistry(): ModuleGroup[] {
       label: 'Financeiro',
       hubView: 'financeiro',
       children: [{ key: MODULE_KEYS.FINANCEIRO, label: 'Financeiro' }],
+    },
+    {
+      key: 'ferramentas',
+      label: 'Ferramentas',
+      hubView: 'ferramentas_hub',
+      children: [{ key: MODULE_KEYS.FERRAMENTAS_ETIQUETAS, label: 'Editor de Etiquetas' }],
     },
     {
       key: 'sistema',
@@ -259,6 +268,7 @@ export function defaultModulesForRole(role: string): string[] {
     case 'qualidade':
       return [
         MODULE_KEYS.CONTROLE_QUALIDADE,
+        MODULE_KEYS.QUALIDADE_DEVOLUCOES,
         MODULE_KEYS.QUALIDADE_POPS,
         MODULE_KEYS.QUALIDADE_TREINAMENTOS,
         MODULE_KEYS.QUALIDADE_TEMPERATURA,

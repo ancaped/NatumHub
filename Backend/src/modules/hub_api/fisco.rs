@@ -74,8 +74,23 @@ async fn delete_analysis_handler(State(state): State<Arc<AppState>>, Path(id): P
     }
 }
 
+async fn get_config_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match with_pool(&state, |pool| get_fisco_config_query(pool)).await {
+        Ok(v) => ok_json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn save_config_handler(State(state): State<Arc<AppState>>, Json(config): Json<serde_json::Value>) -> impl IntoResponse {
+    match with_pool(&state, |pool| save_config_fisco_query(pool, &config)).await {
+        Ok(()) => ok_status().into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
+        .route("/api/hub/fisco/config", get(get_config_handler).post(save_config_handler))
         .route("/api/hub/fisco/patterns", get(get_patterns_handler).post(save_pattern_handler))
         .route("/api/hub/fisco/patterns/:code", delete(delete_pattern_handler))
         .route("/api/hub/fisco/agents", get(get_agents_handler).post(save_agent_handler))

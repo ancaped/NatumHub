@@ -8,7 +8,7 @@ import OperadoresPanel from './OperadoresPanel';
 import PostgresUsagePanel from './PostgresUsagePanel';
 import PostgresBackupPanel from './PostgresBackupPanel';
 import AuditoriaPanel from './AuditoriaPanel';
-import { apiJson, getSetting, setSetting } from '../lib/http';
+import { apiFetch, apiJson, getSetting, setSetting } from '../lib/http';
 import { isSupervisor, type AuthUser } from '../lib/auth';
 
 interface ConfiguracoesViewProps {
@@ -87,10 +87,18 @@ export default function ConfiguracoesView({
   } | null>(null);
   const [releasingLock, setReleasingLock] = useState(false);
   const [verifyingStock, setVerifyingStock] = useState(false);
+  const [stockVerifyProgress, setStockVerifyProgress] = useState<{
+    processed: number;
+    total: number;
+    repaired: number;
+    phase?: string;
+    currentCode?: string;
+  } | null>(null);
   const [stockVerifyResult, setStockVerifyResult] = useState<{
     checked: number;
     repaired: number;
-    samples: { code: string; hub: number; erp: number }[];
+    samples: { code: string; hub: number; erp: number; source?: string }[];
+    bySource?: { insumos: number; materiais: number; produtos: number };
   } | null>(null);
   const [auditCode, setAuditCode] = useState('9.15.104');
   const [auditingCode, setAuditingCode] = useState(false);
@@ -98,11 +106,18 @@ export default function ConfiguracoesView({
   const [stockAuditResult, setStockAuditResult] = useState<{
     code: string;
     match: boolean;
+    matchStock?: boolean;
+    matchReserved?: boolean;
+    matchProduction?: boolean;
+    matchOrders?: boolean;
     deltaStock: number | null;
+    warnings?: string[];
     hub: {
       source?: string | null;
       stockQty?: number;
       reservedQty?: number;
+      inProduction?: number;
+      inOrders?: number;
       error?: string;
     };
     erp: {
@@ -110,6 +125,8 @@ export default function ConfiguracoesView({
       stockQty?: number;
       stockQtyA?: number;
       reservedQty?: number;
+      inProduction?: number;
+      inOrders?: number;
       hubField?: string;
       error?: string;
     };
@@ -235,26 +252,85 @@ export default function ConfiguracoesView({
 
   const handleVerifyStock = async () => {
     setVerifyingStock(true);
+    setStockVerifyProgress({ processed: 0, total: 0, repaired: 0, phase: 'iniciando' });
     setStockVerifyResult(null);
     try {
-      const data = await apiJson<{
-        checked: number;
-        repaired: number;
-        samples?: { code: string; hub: number; erp: number }[];
-      }>('/admin/audit/stock/verify-insumos', { method: 'POST' });
+      const res = await apiFetch('/admin/audit/stock/verify-all', { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({} as { error?: string }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('Resposta sem stream de progresso');
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let donePayload: {
+        checked?: number;
+        repaired?: number;
+        samples?: { code: string; hub: number; erp: number; source?: string }[];
+        bySource?: { insumos: number; materiais: number; produtos: number };
+      } | null = null;
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          let ev: Record<string, unknown>;
+          try {
+            ev = JSON.parse(trimmed);
+          } catch {
+            continue;
+          }
+          if (ev.type === 'progress') {
+            setStockVerifyProgress({
+              processed: Number(ev.processed ?? 0),
+              total: Number(ev.total ?? 0),
+              repaired: Number(ev.repaired ?? 0),
+              phase: typeof ev.phase === 'string' ? ev.phase : undefined,
+              currentCode: typeof ev.currentCode === 'string' ? ev.currentCode : undefined,
+            });
+          } else if (ev.type === 'done') {
+            donePayload = ev as typeof donePayload;
+          } else if (ev.type === 'error') {
+            throw new Error(String(ev.error || 'Falha na verificação de estoque'));
+          }
+        }
+      }
+      if (buffer.trim()) {
+        try {
+          const ev = JSON.parse(buffer.trim());
+          if (ev.type === 'done') donePayload = ev;
+          else if (ev.type === 'error') throw new Error(String(ev.error || 'Falha na verificação'));
+        } catch (e) {
+          if (e instanceof Error && e.message.startsWith('Falha')) throw e;
+        }
+      }
+      if (!donePayload) throw new Error('Auditoria terminou sem resultado final');
+
       setStockVerifyResult({
-        checked: data.checked ?? 0,
-        repaired: data.repaired ?? 0,
-        samples: Array.isArray(data.samples) ? data.samples : [],
+        checked: donePayload.checked ?? 0,
+        repaired: donePayload.repaired ?? 0,
+        samples: Array.isArray(donePayload.samples) ? donePayload.samples : [],
+        bySource: donePayload.bySource,
       });
+      setStockVerifyProgress(null);
+      const bs = donePayload.bySource;
+      const bySrc =
+        bs != null ? ` (I ${bs.insumos} · M ${bs.materiais} · P ${bs.produtos})` : '';
       setMessage({
         text:
-          (data.repaired ?? 0) > 0
-            ? `Estoque: ${data.checked} conferidos, ${data.repaired} corrigidos para o ERP. Recarregue Compras para ver os saldos.`
-            : `Estoque OK: ${data.checked} insumos batem com a tela do ERP.`,
+          (donePayload.repaired ?? 0) > 0
+            ? `Estoque: ${donePayload.checked} conferidos, ${donePayload.repaired} divergências corrigidas${bySrc}. Recarregue Compras.`
+            : `0 divergências de estoque: ${donePayload.checked} itens batem com nQtdeEstoque do ERP. (R/P na grade de Compras são campos à parte — não entram nesta auditoria.)`,
         type: 'success',
       });
     } catch (e: unknown) {
+      setStockVerifyProgress(null);
       setMessage({
         text: e instanceof Error ? e.message : 'Falha na verificação de estoque',
         type: 'error',
@@ -276,11 +352,18 @@ export default function ConfiguracoesView({
       const data = await apiJson<{
         code: string;
         match: boolean;
+        matchStock?: boolean;
+        matchReserved?: boolean;
+        matchProduction?: boolean;
+        matchOrders?: boolean;
         deltaStock: number | null;
+        warnings?: string[];
         hub: {
           source?: string | null;
           stockQty?: number;
           reservedQty?: number;
+          inProduction?: number;
+          inOrders?: number;
           error?: string;
         };
         erp: {
@@ -288,6 +371,8 @@ export default function ConfiguracoesView({
           stockQty?: number;
           stockQtyA?: number;
           reservedQty?: number;
+          inProduction?: number;
+          inOrders?: number;
           hubField?: string;
           error?: string;
         };
@@ -295,13 +380,18 @@ export default function ConfiguracoesView({
       setStockAuditResult({
         code: data.code,
         match: !!data.match,
+        matchStock: data.matchStock,
+        matchReserved: data.matchReserved,
+        matchProduction: data.matchProduction,
+        matchOrders: data.matchOrders,
         deltaStock: data.deltaStock ?? null,
+        warnings: data.warnings ?? [],
         hub: data.hub ?? {},
         erp: data.erp ?? {},
       });
       setMessage({
         text: data.match
-          ? `${code}: Hub bate com a tela do ERP (nQtdeEstoque).`
+          ? `${code}: Hub bate com a tela do ERP (nQtdeEstoque + R/P/Ped).`
           : `${code}: divergência Hub × ERP — use Corrigir do ERP se a tela estiver certa.`,
         type: data.match ? 'success' : 'error',
       });
@@ -740,7 +830,7 @@ export default function ConfiguracoesView({
                   onClick={() => void handleVerifyStock()}
                   disabled={verifyingStock || syncingSql}
                   className="bg-white text-zinc-800 border border-zinc-300 hover:bg-zinc-50 px-4 py-2.5 rounded-xl text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5"
-                  title="Compara todos os insumos Hub × tela do ERP e corrige divergências"
+                  title="Compara insumos, materiais e produtos Hub × tela do ERP e corrige divergências"
                 >
                   {verifyingStock ? (
                     <>
@@ -757,27 +847,78 @@ export default function ConfiguracoesView({
               </div>
 
               <p className="text-[11px] text-zinc-500 leading-relaxed">
-                A verificação de estoque (insumos / Compras) também roda <strong>sozinha após cada sync</strong>:
-                se algum saldo divergir da tela do ERP, o Hub corrige e avisa no sino.
+                Confere <strong>insumos + materiais + produtos</strong> (estoque, reserva, produção e pedidos do
+                snapshot) contra a tela do ERP. Lista até 200 códigos corrigidos. Também roda{' '}
+                <strong>após cada sync</strong>. Em Compras, subtítulo −R/+P não é o critério desta auditoria
+                (R = nqtdeReserva; P = pedidos Hub).
               </p>
+
+              {stockVerifyProgress && (
+                <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 px-3 py-3 text-xs text-indigo-950 space-y-2">
+                  <div className="flex items-center justify-between gap-2 font-bold">
+                    <span>
+                      Auditoria {stockVerifyProgress.phase ? `(${stockVerifyProgress.phase})` : ''}…
+                    </span>
+                    <span className="font-mono tabular-nums">
+                      {stockVerifyProgress.processed}/{stockVerifyProgress.total || '—'}
+                      {' · '}
+                      {stockVerifyProgress.repaired} corrigidos
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-indigo-100 overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-600 transition-all duration-300"
+                      style={{
+                        width: `${
+                          stockVerifyProgress.total > 0
+                            ? Math.min(
+                                100,
+                                (100 * stockVerifyProgress.processed) / stockVerifyProgress.total
+                              )
+                            : 4
+                        }%`,
+                      }}
+                    />
+                  </div>
+                  {stockVerifyProgress.currentCode && (
+                    <p className="text-[10px] font-mono text-indigo-700/80 truncate">
+                      {stockVerifyProgress.currentCode}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {stockVerifyResult && (
                 <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-700 space-y-1">
                   <p className="font-bold text-zinc-900">
-                    Última verificação: {stockVerifyResult.checked} conferidos ·{' '}
-                    {stockVerifyResult.repaired} corrigidos
+                    {stockVerifyResult.repaired === 0
+                      ? `0 divergências de estoque · ${stockVerifyResult.checked} conferidos`
+                      : `Última verificação: ${stockVerifyResult.checked} conferidos · ${stockVerifyResult.repaired} corrigidos`}
+                    {stockVerifyResult.bySource && stockVerifyResult.repaired > 0 && (
+                      <span className="font-normal text-zinc-500 ml-1">
+                        (I {stockVerifyResult.bySource.insumos} · M {stockVerifyResult.bySource.materiais} · P{' '}
+                        {stockVerifyResult.bySource.produtos})
+                      </span>
+                    )}
                   </p>
-                  {stockVerifyResult.repaired > 0 && (
+                  {stockVerifyResult.repaired === 0 ? (
+                    <p className="text-[11px] text-zinc-500">
+                      Snapshots Hub = nQtdeEstoque do ERP. Se Compras parecer diferente, confira −R (nqtdeReserva) e
+                      +P (pedidos Hub) — não são o estoque da tela.
+                    </p>
+                  ) : (
                     <p className="text-[11px] text-amber-700">
                       Recarregue a grade de Compras para ver os saldos corrigidos.
                     </p>
                   )}
                   {stockVerifyResult.samples.length > 0 && (
-                    <ul className="text-[11px] text-zinc-600 space-y-0.5 font-mono">
-                      {stockVerifyResult.samples.slice(0, 8).map((s) => (
-                        <li key={s.code}>
-                          {s.code}: hub {s.hub.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} → erp{' '}
-                          {s.erp.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
+                    <ul className="max-h-48 overflow-y-auto text-[11px] text-zinc-600 space-y-0.5 font-mono">
+                      {stockVerifyResult.samples.map((s) => (
+                        <li key={`${s.source || 'x'}-${s.code}`}>
+                          {s.source ? `[${s.source}] ` : ''}
+                          {s.code}: hub{' '}
+                          {s.hub.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} → erp{' '}
+                          {s.erp.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
                         </li>
                       ))}
                     </ul>
@@ -793,7 +934,8 @@ export default function ConfiguracoesView({
                   </span>
                 </div>
                 <p className="text-[11px] text-zinc-500 leading-relaxed">
-                  Compara o Hub com <strong>nQtdeEstoque</strong> da tela do ERP (não use nQtdeEstoqueA).
+                  Compara estoque, reserva, produção e pedidos com <strong>nQtdeEstoque</strong> da tela
+                  (não use nQtdeEstoqueA).
                 </p>
                 <div className="flex flex-wrap gap-2 items-center">
                   <input
@@ -836,10 +978,29 @@ export default function ConfiguracoesView({
                       {stockAuditResult.code}: {stockAuditResult.match ? 'Match' : 'Divergente'}
                       {stockAuditResult.deltaStock != null && (
                         <span className="font-mono font-semibold ml-2">
-                          Δ {(stockAuditResult.deltaStock).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
+                          Δ estoque {(stockAuditResult.deltaStock).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
                         </span>
                       )}
                     </p>
+                    <div className="flex flex-wrap gap-1.5 text-[10px] font-bold">
+                      {[
+                        ['Estoque', stockAuditResult.matchStock],
+                        ['Reserva', stockAuditResult.matchReserved],
+                        ['Produção', stockAuditResult.matchProduction],
+                        ['Pedidos', stockAuditResult.matchOrders],
+                      ].map(([label, ok]) => (
+                        <span
+                          key={String(label)}
+                          className={`px-1.5 py-0.5 rounded border ${
+                            ok
+                              ? 'bg-emerald-100/80 border-emerald-200 text-emerald-800'
+                              : 'bg-amber-100/80 border-amber-200 text-amber-900'
+                          }`}
+                        >
+                          {label}: {ok ? 'ok' : 'Δ'}
+                        </span>
+                      ))}
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-[11px]">
                       <div>
                         <span className="font-sans font-bold uppercase tracking-wider text-[9px] opacity-70 block">Hub</span>
@@ -847,8 +1008,11 @@ export default function ConfiguracoesView({
                           <span>{stockAuditResult.hub.error}</span>
                         ) : (
                           <>
-                            {stockAuditResult.hub.stockQty?.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) ?? '—'}
-                            <span className="opacity-60"> ({stockAuditResult.hub.source || '—'})</span>
+                            est {stockAuditResult.hub.stockQty?.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) ?? '—'}
+                            {' · '}R {stockAuditResult.hub.reservedQty?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}
+                            {' · '}P {stockAuditResult.hub.inProduction?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}
+                            {' · '}Ped {stockAuditResult.hub.inOrders?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}
+                            <span className="opacity-60 block font-sans text-[10px]">({stockAuditResult.hub.source || '—'})</span>
                           </>
                         )}
                       </div>
@@ -858,8 +1022,11 @@ export default function ConfiguracoesView({
                           <span>{stockAuditResult.erp.error}</span>
                         ) : (
                           <>
-                            {stockAuditResult.erp.stockQty?.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) ?? '—'}
-                            <span className="opacity-60"> ({stockAuditResult.erp.source || '—'})</span>
+                            est {stockAuditResult.erp.stockQty?.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) ?? '—'}
+                            {' · '}R {stockAuditResult.erp.reservedQty?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}
+                            {' · '}P {stockAuditResult.erp.inProduction?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}
+                            {' · '}Ped {stockAuditResult.erp.inOrders?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}
+                            <span className="opacity-60 block font-sans text-[10px]">({stockAuditResult.erp.source || '—'})</span>
                           </>
                         )}
                       </div>
@@ -870,8 +1037,15 @@ export default function ConfiguracoesView({
                         <span className="font-mono">
                           {stockAuditResult.erp.stockQtyA.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
                         </span>
-                        {' '}— não é o estoque da tela.
+                        {' '}— <strong>não</strong> é o estoque da tela.
                       </p>
+                    )}
+                    {(stockAuditResult.warnings?.length ?? 0) > 0 && (
+                      <ul className="text-[10px] text-amber-800 space-y-0.5 list-disc pl-4">
+                        {stockAuditResult.warnings!.map((w) => (
+                          <li key={w}>{w}</li>
+                        ))}
+                      </ul>
                     )}
                   </div>
                 )}

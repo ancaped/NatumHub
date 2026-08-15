@@ -212,7 +212,8 @@ pub async fn parse_kits_excel<P: AsRef<Path>>(
 
     let mut tx = pool.begin().await?;
 
-    sqlx::query("DELETE FROM kit_composicao")
+    // Não apaga origem=erp (Passo P). Só regrava linhas manuais do Excel.
+    sqlx::query("DELETE FROM kit_composicao WHERE COALESCE(origem, 'manual') = 'manual'")
         .execute(&mut *tx)
         .await?;
 
@@ -282,8 +283,13 @@ pub async fn parse_kits_excel<P: AsRef<Path>>(
             .await?;
 
             sqlx::query(
-                "INSERT INTO kit_composicao (kit_codigo, componente_codigo, quantidade, fator_proporcao_qtd, fator_proporcao_kits) VALUES ($1, $2, $3::numeric, 1.0, 1)
-                 ON CONFLICT(kit_codigo, componente_codigo) DO UPDATE SET quantidade = EXCLUDED.quantidade, fator_proporcao_qtd = 1.0, fator_proporcao_kits = 1",
+                "INSERT INTO kit_composicao (kit_codigo, componente_codigo, quantidade, fator_proporcao_qtd, fator_proporcao_kits, origem)
+                 VALUES ($1, $2, $3::numeric, 1.0, 1, 'manual')
+                 ON CONFLICT(kit_codigo, componente_codigo) DO UPDATE SET
+                    quantidade = EXCLUDED.quantidade,
+                    fator_proporcao_qtd = 1.0,
+                    fator_proporcao_kits = 1,
+                    origem = 'manual'",
             )
             .bind(&kit_code)
             .bind(&comp_code)

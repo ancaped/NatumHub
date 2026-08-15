@@ -645,6 +645,12 @@ tr:hover td {
   border-color: #fdba74;
 }
 
+.status-badge.aguardando {
+  background-color: #eff6ff;
+  color: #1d4ed8;
+  border-color: #93c5fd;
+}
+
 .status-badge.saudavel {
   background-color: hsl(var(--success-bg-hsl));
   color: hsl(var(--success-hsl));

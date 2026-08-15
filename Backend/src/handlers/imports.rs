@@ -248,7 +248,7 @@ pub async fn execute_erp_sync(
             );
             if res.stock_repaired > 0 {
                 let body = format!(
-                    "{} insumo(s) corrigidos para bater com a tela do ERP (nQtdeEstoque).",
+                    "{} item(ns) corrigidos para bater com a tela do ERP (nQtdeEstoque).",
                     res.stock_repaired
                 );
                 crate::modules::geral::notifications::notify_config(
@@ -282,11 +282,12 @@ pub async fn execute_erp_sync(
                 + res.suppliers
                 + res.invoices
                 + res.formulations
+                + res.kit_composicao
                 + res.movements
                 + res.purchase_orders
                 + res.sales_orders) as i64;
             let detail_msg = format!(
-                "[{}] since={} — {} produtos, {} insumos/materiais, {} fornecedores, {} compras, {} consumos, {} receitas, {} movimentações, {} pedidos de compra, {} pedidos de venda{}",
+                "[{}] since={} — {} produtos, {} insumos/materiais, {} fornecedores, {} compras, {} consumos, {} receitas, {} kits, {} movimentações, {} pedidos de compra, {} pedidos de venda{}",
                 res.mode,
                 res.since,
                 res.products,
@@ -295,6 +296,7 @@ pub async fn execute_erp_sync(
                 res.invoices,
                 res.consumption,
                 res.formulations,
+                res.kit_composicao,
                 res.movements,
                 res.purchase_orders,
                 res.sales_orders,
@@ -371,6 +373,7 @@ pub async fn trigger_db_sync(
                     "invoices": res.invoices,
                     "consumption": res.consumption,
                     "formulations": res.formulations,
+                    "kit_composicao": res.kit_composicao,
                     "movements": res.movements,
                     "purchase_orders": res.purchase_orders,
                     "sales_orders": res.sales_orders

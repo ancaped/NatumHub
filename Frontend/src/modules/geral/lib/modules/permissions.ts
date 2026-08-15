@@ -6,7 +6,7 @@ const ALL_KEYS = new Set(moduleRegistry().flatMap((g) => g.children.map((c) => c
 
 function viewToModuleKey(view: string): string | null {
   if (view === 'hub') return null;
-  if (view === 'estoque_hub' || view === 'almoxarifado_hub' || view === 'producao_hub' || view === 'compras_hub' || view === 'vendas_hub' || view === 'qualidade_hub' || view === 'expedicao_hub') return null;
+  if (view === 'estoque_hub' || view === 'almoxarifado_hub' || view === 'producao_hub' || view === 'compras_hub' || view === 'vendas_hub' || view === 'qualidade_hub' || view === 'expedicao_hub' || view === 'ferramentas_hub') return null;
   if (view === 'expedicao') return 'expedicao_ecommerce';
   if (view === 'linha_produtos' || view === 'estoque_ativos') return 'admin_linha_produtos';
   if (view === 'admin_linha_produtos') return 'admin_linha_produtos';

@@ -137,10 +137,13 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [selectedForQuote, setSelectedForQuote] = useState<Set<string>>(new Set());
 
-  // Print list
+  // Print list & report options
   const [printList, setPrintList] = useState<string[]>([]);
   const [showPrintModal, setShowPrintModal] = useState(false);
-  const [printFilterType, setPrintFilterType] = useState<'needed' | 'list' | 'all'>('needed');
+  const [reportType, setReportType] = useState<'disponibilidade' | 'sugestao'>(statusFilter === 'coloracao' ? 'disponibilidade' : 'sugestao');
+  const [printFilterType, setPrintFilterType] = useState<'all' | 'selected' | 'disponiveis' | 'com_pedidos' | 'ruptura' | 'needed' | 'list'>('all');
+  const [includeTransitInReport, setIncludeTransitInReport] = useState<boolean>(false);
+  const [modalSearchTerm, setModalSearchTerm] = useState<string>('');
   const [lastErpStockSync, setLastErpStockSync] = useState<{ at: string; count: number } | null>(null);
 
   useEffect(() => {
@@ -173,6 +176,18 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     setPrintList(newList);
     localStorage.setItem('natum_hub_print_list', JSON.stringify(newList));
     window.dispatchEvent(new Event('storage'));
+  };
+
+  const handleAddSelectedToPrintList = () => {
+    if (selectedForQuote.size === 0) return;
+    const toAdd = Array.from(selectedForQuote);
+    const existing = new Set(printList.map(c => (c || '').replace(/\./g, '')));
+    const newItems = toAdd.filter(code => !existing.has((code || '').replace(/\./g, '')));
+    const newList = [...printList, ...newItems];
+    setPrintList(newList);
+    localStorage.setItem('natum_hub_print_list', JSON.stringify(newList));
+    window.dispatchEvent(new Event('storage'));
+    setSelectedForQuote(new Set());
   };
 
   const loadCustomConfigs = async () => {
@@ -726,14 +741,36 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     setShowPrintModal(false);
 
     let itemsToPrint = filteredProducts;
-    if (printFilterType === 'needed') {
-      itemsToPrint = filteredProducts.filter(p => p.sugestao_compra_computed > 0);
-    } else if (printFilterType === 'list') {
-      itemsToPrint = filteredProducts.filter(p => isInPrintList(p.codigo));
+    if (reportType === 'disponibilidade') {
+      if (printFilterType === 'selected') {
+        itemsToPrint = filteredProducts.filter(p => selectedForQuote.has(p.codigo));
+      } else if (printFilterType === 'disponiveis') {
+        itemsToPrint = filteredProducts.filter(p => {
+          const s = includeTransitInReport ? p.future_stock_computed : (p.estoque - (p.faltas_ativas || 0));
+          return s > 0;
+        });
+      } else if (printFilterType === 'com_pedidos') {
+        itemsToPrint = filteredProducts.filter(p => (p.faltas_ativas || 0) > 0);
+      } else if (printFilterType === 'ruptura') {
+        itemsToPrint = filteredProducts.filter(p => {
+          const s = includeTransitInReport ? p.future_stock_computed : (p.estoque - (p.faltas_ativas || 0));
+          return s <= 0;
+        });
+      } else if (printFilterType === 'list') {
+        itemsToPrint = filteredProducts.filter(p => isInPrintList(p.codigo));
+      }
+    } else {
+      if (printFilterType === 'selected') {
+        itemsToPrint = filteredProducts.filter(p => selectedForQuote.has(p.codigo));
+      } else if (printFilterType === 'needed') {
+        itemsToPrint = filteredProducts.filter(p => p.sugestao_compra_computed > 0);
+      } else if (printFilterType === 'list') {
+        itemsToPrint = filteredProducts.filter(p => isInPrintList(p.codigo));
+      }
     }
 
     if (itemsToPrint.length === 0) {
-      alert("Não há itens para imprimir com o filtro selecionado.");
+      alert("Não há itens para imprimir com os filtros selecionados.");
       return;
     }
 
@@ -764,39 +801,113 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     });
 
     const isColor = statusFilter === 'coloracao';
+    const isDisponibilidade = reportType === 'disponibilidade';
 
-    const rowsHtml = itemsToPrint.map(p => `
-      <tr>
-        <td style="font-family: monospace; font-size: 10px;">${p.codigo}</td>
-        <td style="text-align: left; font-weight: 500; font-size: 10px;">${p.descricao}</td>
-        ${isColor ? '' : `<td>${p.nome_linha || '-'}</td>`}
-        <td style="text-align: right;">${p.estoque.toLocaleString('pt-BR')} un</td>
-        <td style="text-align: right;">${(p.media_vendas || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} un</td>
-        ${isColor ? '' : `
-        <td style="text-align: center; font-size: 9px;">${(p as any).trigger_days_computed ?? '-'}d</td>
-        <td style="text-align: center; font-size: 9px;">${(p as any).target_days_computed ?? '-'}d</td>
-        `}
-        <td style="text-align: right;">${(p.faltas_ativas || 0).toLocaleString('pt-BR')} un</td>
-        <td style="text-align: right;">${(p.pedidos_compra_aberto || 0).toLocaleString('pt-BR')} un</td>
-        <td style="text-align: right; font-weight: ${p.cobertura_dias_computed < 60 ? 'bold' : 'normal'};">
-          ${p.cobertura_dias_computed === 9999 ? '∞' : `${p.cobertura_dias_computed} dias`}
-        </td>
-        <td style="text-align: right; font-weight: bold; background-color: ${p.sugestao_compra_computed > 0 ? '#f4f4f5' : 'transparent'};">
-          ${p.sugestao_compra_computed > 0 ? `${p.sugestao_compra_computed.toLocaleString('pt-BR')} un` : '-'}
-        </td>
-      </tr>
-    `).join('');
+    // Summary calculations
+    const totalFaltas = itemsToPrint.reduce((acc, p) => acc + (p.faltas_ativas || 0), 0);
+    const countDisponiveis = itemsToPrint.filter(p => {
+      const s = includeTransitInReport ? p.future_stock_computed : (p.estoque - (p.faltas_ativas || 0));
+      return s > 0;
+    }).length;
+    const countRuptura = itemsToPrint.filter(p => {
+      const s = includeTransitInReport ? p.future_stock_computed : (p.estoque - (p.faltas_ativas || 0));
+      return s <= 0;
+    }).length;
+
+    let filterLabel = 'Todos os Itens Filtrados';
+    if (reportType === 'disponibilidade') {
+      if (printFilterType === 'selected') filterLabel = `Colorações Selecionadas (${selectedForQuote.size})`;
+      else if (printFilterType === 'disponiveis') filterLabel = 'Apenas Disponíveis (Saldo > 0)';
+      else if (printFilterType === 'com_pedidos') filterLabel = 'Apenas com Pedidos de Venda / Faltas';
+      else if (printFilterType === 'ruptura') filterLabel = 'Apenas em Ruptura / Falta (Saldo ≤ 0)';
+      else if (printFilterType === 'list') filterLabel = `Itens Marcados (${printList.length})`;
+    } else {
+      if (printFilterType === 'selected') filterLabel = `Itens Selecionados (${selectedForQuote.size})`;
+      else if (printFilterType === 'needed') filterLabel = 'Apenas Recomendados para Compra';
+      else if (printFilterType === 'list') filterLabel = `Itens Marcados (${printList.length})`;
+    }
+
+    const rowsHtml = itemsToPrint.map(p => {
+      if (isDisponibilidade) {
+        const faltas = p.faltas_ativas || 0;
+        const transito = p.pedidos_compra_aberto || 0;
+        const saldo = includeTransitInReport
+          ? p.future_stock_computed
+          : (p.estoque - faltas);
+        const isDisponivel = saldo > 0;
+        const isEmFalta = saldo <= 0;
+        const cobertoPorTransito = includeTransitInReport && p.estoque < faltas && (p.estoque + transito) >= faltas;
+
+        let statusText = isDisponivel ? `Disponível (+${saldo.toLocaleString('pt-BR')} un)` : `Em Falta (${saldo.toLocaleString('pt-BR')} un)`;
+        let statusBadgeBg = isDisponivel ? '#dcfce7' : '#fee2e2';
+        let statusBadgeColor = isDisponivel ? '#166534' : '#991b1b';
+        let statusBorder = isDisponivel ? '#bbf7d0' : '#fecaca';
+
+        if (cobertoPorTransito) {
+          statusText = `Coberto por Trânsito (+${transito.toLocaleString('pt-BR')} un)`;
+          statusBadgeBg = '#e0f2fe';
+          statusBadgeColor = '#075985';
+          statusBorder = '#bae6fd';
+        }
+
+        return `
+          <tr style="background-color: ${isEmFalta ? '#fff1f2' : 'transparent'};">
+            <td style="font-family: monospace; font-size: 10px; font-weight: bold; color: #475569;">${p.codigo}</td>
+            <td style="text-align: left; font-weight: 600; font-size: 10.5px; color: #0f172a;">${p.descricao}</td>
+            <td style="text-align: right; font-weight: 600; color: #1e293b;">${p.estoque.toLocaleString('pt-BR')} un</td>
+            <td style="text-align: right; color: ${faltas > 0 ? '#b91c1c' : '#64748b'}; font-weight: ${faltas > 0 ? '700' : 'normal'};">
+              ${faltas > 0 ? `${faltas.toLocaleString('pt-BR')} un` : '-'}
+            </td>
+            ${includeTransitInReport ? `
+            <td style="text-align: right; color: ${transito > 0 ? '#0369a1' : '#64748b'}; font-weight: ${transito > 0 ? '700' : 'normal'};">
+              ${transito > 0 ? `+${transito.toLocaleString('pt-BR')} un` : '-'}
+            </td>
+            ` : ''}
+            <td style="text-align: right; font-weight: 800; font-size: 11px; color: ${isDisponivel ? '#15803d' : '#b91c1c'}; background-color: ${isDisponivel ? '#f0fdf4' : '#fef2f2'};">
+              ${saldo.toLocaleString('pt-BR')} un
+            </td>
+            <td style="text-align: center;">
+              <span style="display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 8.5px; font-weight: 700; background-color: ${statusBadgeBg}; color: ${statusBadgeColor}; border: 1px solid ${statusBorder};">
+                ${statusText}
+              </span>
+            </td>
+          </tr>
+        `;
+      } else {
+        return `
+          <tr>
+            <td style="font-family: monospace; font-size: 10px;">${p.codigo}</td>
+            <td style="text-align: left; font-weight: 500; font-size: 10px;">${p.descricao}</td>
+            ${isColor ? '' : `<td>${p.nome_linha || '-'}</td>`}
+            <td style="text-align: right;">${p.estoque.toLocaleString('pt-BR')} un</td>
+            <td style="text-align: right;">${(p.media_vendas || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} un</td>
+            ${isColor ? '' : `
+            <td style="text-align: center; font-size: 9px;">${(p as any).trigger_days_computed ?? '-'}d</td>
+            <td style="text-align: center; font-size: 9px;">${(p as any).target_days_computed ?? '-'}d</td>
+            `}
+            <td style="text-align: right;">${(p.faltas_ativas || 0).toLocaleString('pt-BR')} un</td>
+            <td style="text-align: right;">${(p.pedidos_compra_aberto || 0).toLocaleString('pt-BR')} un</td>
+            <td style="text-align: right; font-weight: ${p.cobertura_dias_computed < 60 ? 'bold' : 'normal'};">
+              ${p.cobertura_dias_computed === 9999 ? '∞' : `${p.cobertura_dias_computed} dias`}
+            </td>
+            <td style="text-align: right; font-weight: bold; background-color: ${p.sugestao_compra_computed > 0 ? '#f4f4f5' : 'transparent'};">
+              ${p.sugestao_compra_computed > 0 ? `${p.sugestao_compra_computed.toLocaleString('pt-BR')} un` : '-'}
+            </td>
+          </tr>
+        `;
+      }
+    }).join('');
 
     const printHtml = `
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Relatório de Sugestão de Compras — ${title}</title>
+        <title>${isDisponibilidade ? 'Relatório de Disponibilidade de ' + title + (includeTransitInReport ? ' (Estoque + Trânsito - Pedidos)' : ' (Estoque Físico Atual - Pedidos)') : 'Relatório de Sugestão de Compras — ' + title}</title>
         <meta charset="utf-8">
         <style>
           @page {
             size: A4 portrait;
-            margin: 15mm 10mm 15mm 10mm;
+            margin: 12mm 10mm 15mm 10mm;
           }
           body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
@@ -808,32 +919,57 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
             line-height: 1.4;
           }
           header {
-            margin-bottom: 20px;
-            border-bottom: 2px solid #111827;
-            padding-bottom: 10px;
+            margin-bottom: 14px;
+            border-bottom: 2px solid #0f172a;
+            padding-bottom: 8px;
           }
           .header-title {
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 800;
-            color: #111827;
-            margin: 0 0 5px 0;
+            color: #0f172a;
+            margin: 0 0 4px 0;
             text-transform: uppercase;
             letter-spacing: 0.5px;
           }
           .header-meta {
             display: flex;
             justify-content: space-between;
-            color: #4b5563;
+            color: #475569;
             font-size: 9px;
+            margin-bottom: 8px;
           }
           .meta-group {
             display: flex;
             gap: 15px;
           }
+          .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 14px;
+          }
+          .summary-card {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 6px 10px;
+          }
+          .summary-card-label {
+            font-size: 8px;
+            text-transform: uppercase;
+            font-weight: 700;
+            color: #64748b;
+          }
+          .summary-card-value {
+            font-size: 13px;
+            font-weight: 800;
+            color: #0f172a;
+            margin-top: 2px;
+          }
           table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
             page-break-inside: auto;
           }
           tr {
@@ -844,23 +980,23 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
             display: table-header-group;
           }
           th {
-            background-color: #f9fafb;
-            border-bottom: 2px solid #d1d5db;
-            color: #374151;
+            background-color: #f1f5f9;
+            border-bottom: 2px solid #cbd5e1;
+            color: #1e293b;
             font-weight: 700;
-            padding: 6px 4px;
+            padding: 5px 4px;
             text-align: center;
-            font-size: 9px;
+            font-size: 8.5px;
             text-transform: uppercase;
           }
           td {
-            border-bottom: 1px solid #e5e7eb;
-            padding: 6px 4px;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 5px 4px;
             text-align: center;
             vertical-align: middle;
           }
           .signatures {
-            margin-top: 50px;
+            margin-top: 35px;
             display: flex;
             justify-content: space-between;
             page-break-inside: avoid;
@@ -870,13 +1006,13 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
             text-align: center;
           }
           .signature-line {
-            border-top: 1px solid #9ca3af;
-            margin-top: 35px;
-            margin-bottom: 5px;
+            border-top: 1px solid #94a3b8;
+            margin-top: 25px;
+            margin-bottom: 4px;
           }
           .signature-title {
-            font-size: 9px;
-            color: #6b7280;
+            font-size: 8.5px;
+            color: #64748b;
             font-weight: 600;
             text-transform: uppercase;
           }
@@ -888,9 +1024,9 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
             display: flex;
             justify-content: space-between;
             font-size: 8px;
-            color: #9ca3af;
-            border-top: 1px solid #f3f4f6;
-            padding-top: 5px;
+            color: #94a3b8;
+            border-top: 1px solid #f1f5f9;
+            padding-top: 4px;
           }
           @media print {
             body {
@@ -902,18 +1038,50 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
       </head>
       <body>
         <header>
-          <h1 class="header-title">Relatório de Compras de ${title}</h1>
+          <h1 class="header-title">${isDisponibilidade ? 'Relatório de Disponibilidade de ' + title : 'Relatório de Compras de ' + title}</h1>
           <div class="header-meta">
             <div>Gerado em: <strong>${today}</strong></div>
             <div class="meta-group">
               <div>Itens: <strong>${itemsToPrint.length}</strong></div>
-              <div>Filtro: <strong>${printFilterType === 'needed' ? 'Apenas Recomendados' : printFilterType === 'list' ? 'Apenas da Lista' : 'Lista Geral'}</strong></div>
+              <div>Filtro: <strong>${filterLabel}</strong></div>
+              ${isDisponibilidade ? `<div>Trânsito: <strong>${includeTransitInReport ? 'Considerado (+ Compras)' : 'Desconsiderado (Apenas Físico Atual)'}</strong></div>` : ''}
             </div>
           </div>
+          ${isDisponibilidade ? `
+          <div class="summary-cards">
+            <div class="summary-card">
+              <div class="summary-card-label">Total Listado</div>
+              <div class="summary-card-value">${itemsToPrint.length} itens</div>
+            </div>
+            <div class="summary-card" style="border-left: 3px solid #16a34a;">
+              <div class="summary-card-label" style="color: #16a34a;">Disponíveis (Saldo &gt; 0)</div>
+              <div class="summary-card-value" style="color: #16a34a;">${countDisponiveis} itens <span style="font-size: 9px; font-weight: normal;">(${itemsToPrint.length > 0 ? Math.round((countDisponiveis / itemsToPrint.length) * 100) : 0}%)</span></div>
+            </div>
+            <div class="summary-card" style="border-left: 3px solid #dc2626;">
+              <div class="summary-card-label" style="color: #dc2626;">Em Ruptura / Falta</div>
+              <div class="summary-card-value" style="color: #dc2626;">${countRuptura} itens</div>
+            </div>
+            <div class="summary-card" style="border-left: 3px solid #2563eb;">
+              <div class="summary-card-label" style="color: #2563eb;">Pedidos de Venda (Faltas)</div>
+              <div class="summary-card-value" style="color: #2563eb;">${totalFaltas.toLocaleString('pt-BR')} un</div>
+            </div>
+          </div>
+          ` : ''}
         </header>
 
         <table>
           <thead>
+            ${isDisponibilidade ? `
+            <tr>
+              <th style="width: 75px; text-align: left;">Código</th>
+              <th style="text-align: left;">Descrição / Tom</th>
+              <th style="width: 75px; text-align: right;">Estoque Físico</th>
+              <th style="width: 80px; text-align: right;">Pedidos Venda</th>
+              ${includeTransitInReport ? '<th style="width: 75px; text-align: right;">Em Trânsito</th>' : ''}
+              <th style="width: 95px; text-align: right; background-color: #e2e8f0; border-bottom: 2px solid #0f172a;">${includeTransitInReport ? 'Saldo Futuro' : 'Saldo Atual'}</th>
+              <th style="width: 110px; text-align: center;">Situação</th>
+            </tr>
+            ` : `
             <tr>
               <th style="width: 80px;">Código</th>
               <th>Descrição</th>
@@ -929,19 +1097,27 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
               <th style="width: 70px; text-align: right;">Duração Est.</th>
               <th style="width: 85px; text-align: right; background-color: #f4f4f5; border-bottom: 2px solid #27272a;">Recomendado</th>
             </tr>
+            `}
           </thead>
           <tbody>
             ${rowsHtml}
           </tbody>
         </table>
 
-        <div style="margin-top: 25px; padding: 10px; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 8px; color: #4b5563; page-break-inside: avoid;">
-          <strong style="color: #111827; display: block; margin-bottom: 4px; font-size: 9px; text-transform: uppercase;">Nota Explicativa (Metodologia de Cálculo):</strong>
+        <div style="margin-top: 18px; padding: 8px 12px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 8px; color: #475569; page-break-inside: avoid;">
+          <strong style="color: #0f172a; display: block; margin-bottom: 3px; font-size: 8.5px; text-transform: uppercase;">Nota Explicativa (Metodologia de Cálculo):</strong>
           <ul style="margin: 0; padding-left: 12px; line-height: 1.4;">
-            <li style="margin-bottom: 3px;"><strong>Média Vendas:</strong> Média mensal com período configurado por item (saídas/faturamento nos últimos N meses).</li>
-            ${isColor ? '' : '<li style="margin-bottom: 3px;"><strong>Disparo / Objetivo:</strong> Dias de cobertura por item (configuração personalizada).</li>'}
-            <li style="margin-bottom: 3px;"><strong>Duração Estimada:</strong> Calculada como <code style="font-family: monospace;">(Estoque Físico + Em Trânsito - Faltas de Venda) / Consumo Diário</code>.</li>
+            ${isDisponibilidade ? `
+            <li style="margin-bottom: 2px;"><strong>Estoque Físico:</strong> Estoque real registrado no ERP Natum.</li>
+            <li style="margin-bottom: 2px;"><strong>Pedidos Venda:</strong> Pedidos de venda em aberto catalogados e acompanhados na Produção (faltas de vendas).</li>
+            ${includeTransitInReport ? '<li style="margin-bottom: 2px;"><strong>Em Trânsito:</strong> Pedidos de compra já emitidos e pendentes de entrega pelo fornecedor.</li>' : ''}
+            <li><strong>${includeTransitInReport ? 'Saldo Futuro' : 'Saldo Atual'}:</strong> Calculado como <code style="font-family: monospace;">${includeTransitInReport ? 'Estoque Físico + Em Trânsito - Pedidos Venda' : 'Estoque Físico - Pedidos Venda'}</code>. Valores positivos indicam pronta entrega real / saldo livre.</li>
+            ` : `
+            <li style="margin-bottom: 2px;"><strong>Média Vendas:</strong> Média mensal com período configurado por item (saídas/faturamento nos últimos N meses).</li>
+            ${isColor ? '' : '<li style="margin-bottom: 2px;"><strong>Disparo / Objetivo:</strong> Dias de cobertura por item (configuração personalizada).</li>'}
+            <li style="margin-bottom: 2px;"><strong>Duração Estimada:</strong> Calculada como <code style="font-family: monospace;">(Estoque Físico + Em Trânsito - Faltas de Venda) / Consumo Diário</code>.</li>
             <li><strong>Recomendado:</strong> Sugestão de compras expressa por: <code style="font-family: monospace;">Estoque Ideal + Faltas de Venda - Estoque Físico - Em Trânsito</code>.</li>
+            `}
           </ul>
         </div>
 
@@ -957,8 +1133,8 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
         </div>
 
         <footer>
-          <div>NatumHub — Sistema de Gestão Unificado</div>
-          <div>Impressão Direta</div>
+          <div>NatumHub &bull; Sistema de Gestão Industrial</div>
+          <div>Página 1 de 1</div>
         </footer>
       </body>
       </html>
@@ -973,8 +1149,8 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
       iframe.contentWindow?.print();
       setTimeout(() => {
         document.body.removeChild(iframe);
-      }, 1000);
-    }, 500);
+      }, 2000);
+    }, 300);
   };
 
   return (
@@ -1104,10 +1280,35 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
               <ShoppingCart className="h-3.5 w-3.5" />
               Cotar ({selectedForQuote.size})
             </button>
+            {selectedForQuote.size > 0 && (
+              <button
+                onClick={handleAddSelectedToPrintList}
+                className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                title="Adicionar produtos selecionados à aba Lista"
+              >
+                <PlusCircle className="h-3.5 w-3.5" />
+                Adicionar à Lista ({selectedForQuote.size})
+              </button>
+            )}
             <button 
               onClick={() => {
-                const neededCount = filteredProducts.filter(p => p.sugestao_compra_computed > 0).length;
-                setPrintFilterType(neededCount > 0 ? 'needed' : 'all');
+                if (statusFilter === 'coloracao') {
+                  setReportType('disponibilidade');
+                  if (selectedForQuote.size > 0) {
+                    setPrintFilterType('selected');
+                  } else {
+                    setPrintFilterType('all');
+                  }
+                } else {
+                  const neededCount = filteredProducts.filter(p => p.sugestao_compra_computed > 0).length;
+                  setReportType('sugestao');
+                  if (selectedForQuote.size > 0) {
+                    setPrintFilterType('selected');
+                  } else {
+                    setPrintFilterType(neededCount > 0 ? 'needed' : 'all');
+                  }
+                }
+                setModalSearchTerm('');
                 setShowPrintModal(true);
               }} 
               className="text-xs bg-zinc-900 hover:bg-zinc-800 text-white px-3.5 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer border border-zinc-950"
@@ -2137,67 +2338,414 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
 
       {/* Print Options Modal */}
       {showPrintModal && (
-        <div className="fixed inset-0 bg-black/45 backdrop-blur-sm z-50 flex items-center justify-center">
+        <div className="fixed inset-0 bg-black/45 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 cursor-pointer" onClick={() => setShowPrintModal(false)} />
-          <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-xl border border-zinc-150 p-6 z-10 text-left animate-in zoom-in-95 duration-200">
-            <h3 className="font-extrabold text-zinc-900 text-sm flex items-center gap-1.5 border-b border-zinc-100 pb-2.5 uppercase tracking-wide">
-              <Printer className="h-4 w-4 text-zinc-500" /> Opções de Relatório de Compra
-            </h3>
-            <div className="py-4 space-y-3">
-              <label className="flex items-center gap-3 p-3 bg-zinc-50 border border-zinc-200 hover:border-zinc-350 rounded-xl cursor-pointer transition-colors">
-                <input 
-                  type="radio" 
-                  name="print_filter" 
-                  checked={printFilterType === 'needed'} 
-                  onChange={() => setPrintFilterType('needed')} 
-                  className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900" 
-                />
-                <div className="text-xs">
-                  <strong className="block text-zinc-800 font-bold">Sugestão de Compra &gt; 0</strong>
-                  <span className="text-zinc-500 font-semibold text-[10px]">Apenas itens com recomendação de compras ativa</span>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-3 p-3 bg-zinc-50 border border-zinc-200 hover:border-zinc-355 rounded-xl cursor-pointer transition-colors">
-                <input 
-                  type="radio" 
-                  name="print_filter" 
-                  checked={printFilterType === 'list'} 
-                  onChange={() => setPrintFilterType('list')} 
-                  className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900" 
-                />
-                <div className="text-xs">
-                  <strong className="block text-zinc-800 font-bold">Apenas Itens da Lista ({printList.length})</strong>
-                  <span className="text-zinc-500 font-semibold text-[10px]">Apenas os itens marcados na tabela com (+)</span>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-3 p-3 bg-zinc-50 border border-zinc-200 hover:border-zinc-355 rounded-xl cursor-pointer transition-colors">
-                <input 
-                  type="radio" 
-                  name="print_filter" 
-                  checked={printFilterType === 'all'} 
-                  onChange={() => setPrintFilterType('all')} 
-                  className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900" 
-                />
-                <div className="text-xs">
-                  <strong className="block text-zinc-800 font-bold">Todos os Itens Filtrados ({filteredProducts.length})</strong>
-                  <span className="text-zinc-500 font-semibold text-[10px]">Lista completa com base nos filtros atuais</span>
-                </div>
-              </label>
-            </div>
-            <div className="flex gap-3 justify-end pt-2">
+          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-zinc-150 p-6 z-10 text-left animate-in zoom-in-95 duration-200 max-h-[92vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-3 shrink-0">
+              <div>
+                <h3 className="font-extrabold text-zinc-900 text-sm flex items-center gap-2 uppercase tracking-wide">
+                  <Printer className="h-4 w-4 text-zinc-700" /> Relatório de {title}
+                </h3>
+                <p className="text-[11px] text-zinc-500 mt-0.5">Defina os parâmetros de disponibilidade e selecione os itens</p>
+              </div>
               <button 
+                type="button"
                 onClick={() => setShowPrintModal(false)}
-                className="px-4 py-2 border border-zinc-250 hover:bg-zinc-50 text-zinc-700 text-xs font-bold rounded-lg cursor-pointer"
+                className="text-zinc-400 hover:text-zinc-700 p-1 rounded-md transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 py-4 space-y-4 pr-1">
+              {/* Type Selector Tabs */}
+              <div>
+                <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block mb-2">Tipo de Relatório:</span>
+                <div className="grid grid-cols-2 gap-1.5 p-1 bg-zinc-100 rounded-xl border border-zinc-200">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportType('disponibilidade');
+                    }}
+                    className={cn(
+                      "py-2 px-3 rounded-lg text-xs font-bold transition-all text-center cursor-pointer",
+                      reportType === 'disponibilidade'
+                        ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
+                        : "text-zinc-600 hover:text-zinc-900"
+                    )}
+                  >
+                    Disponibilidade
+                    <span className="block text-[9px] font-normal text-zinc-400 mt-0.5">Estoque + Pedidos</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportType('sugestao');
+                    }}
+                    className={cn(
+                      "py-2 px-3 rounded-lg text-xs font-bold transition-all text-center cursor-pointer",
+                      reportType === 'sugestao'
+                        ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
+                        : "text-zinc-600 hover:text-zinc-900"
+                    )}
+                  >
+                    Sugestão de Compra
+                    <span className="block text-[9px] font-normal text-zinc-400 mt-0.5">Metas de Reposição</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Transit Toggle (Only for Disponibilidade) */}
+              {reportType === 'disponibilidade' && (
+                <div 
+                  className={cn(
+                    "p-3 rounded-xl border transition-colors flex items-start gap-3 cursor-pointer",
+                    includeTransitInReport ? "bg-sky-50/70 border-sky-200" : "bg-amber-50/60 border-amber-200"
+                  )} 
+                  onClick={() => setIncludeTransitInReport(!includeTransitInReport)}
+                >
+                  <input
+                    type="checkbox"
+                    checked={includeTransitInReport}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      setIncludeTransitInReport(e.target.checked);
+                    }}
+                    className="mt-0.5 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 h-4 w-4 cursor-pointer shrink-0"
+                  />
+                  <div className="flex-1 text-xs">
+                    <strong className={cn("block font-bold", includeTransitInReport ? "text-sky-950" : "text-amber-950")}>
+                      {includeTransitInReport ? "Considerar Pedidos de Compra em Trânsito" : "Desconsiderar Trânsito (Apenas Estoque Físico Atual)"}
+                    </strong>
+                    <span className={cn("text-[10px] leading-tight block mt-0.5", includeTransitInReport ? "text-sky-800" : "text-amber-800")}>
+                      {includeTransitInReport 
+                        ? "Previsão Futura: Saldo = Estoque Físico + Pedidos de Compra − Pedidos de Venda." 
+                        : "Estoque Atual Real: Saldo = Estoque Físico Atual − Pedidos de Venda (mostra exatamente o que você tem no estoque físico hoje)."}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Filter Options */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">Filtro de Escopo:</span>
+                  {selectedForQuote.size > 0 && (
+                    <span className="text-[10px] font-extrabold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                      {selectedForQuote.size} item(ns) marcado(s)
+                    </span>
+                  )}
+                </div>
+
+                {reportType === 'disponibilidade' ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <label className={cn(
+                      "flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer transition-all",
+                      printFilterType === 'all' ? "bg-zinc-900 text-white border-zinc-900 shadow-sm" : "bg-zinc-50 border-zinc-200 hover:border-zinc-300 text-zinc-800"
+                    )}>
+                      <input 
+                        type="radio" 
+                        name="print_filter" 
+                        checked={printFilterType === 'all'} 
+                        onChange={() => setPrintFilterType('all')} 
+                        className="hidden" 
+                      />
+                      <div className="flex-1 text-xs">
+                        <div className="flex justify-between items-center font-bold">
+                          <span>Todas as Colorações</span>
+                          <span className={cn("text-[10px] px-1.5 py-0.2 rounded", printFilterType === 'all' ? "bg-zinc-800 text-zinc-200" : "bg-zinc-200 text-zinc-700")}>
+                            {filteredProducts.length}
+                          </span>
+                        </div>
+                        <span className={cn("text-[9.5px] block truncate", printFilterType === 'all' ? "text-zinc-300" : "text-zinc-500")}>
+                          Catálogo completo
+                        </span>
+                      </div>
+                    </label>
+
+                    <label className={cn(
+                      "flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer transition-all",
+                      printFilterType === 'selected' ? "bg-zinc-900 text-white border-zinc-900 shadow-sm" : "bg-zinc-50 border-zinc-200 hover:border-zinc-300 text-zinc-800"
+                    )}>
+                      <input 
+                        type="radio" 
+                        name="print_filter" 
+                        checked={printFilterType === 'selected'} 
+                        onChange={() => setPrintFilterType('selected')} 
+                        className="hidden" 
+                      />
+                      <div className="flex-1 text-xs">
+                        <div className="flex justify-between items-center font-bold">
+                          <span>Apenas Selecionadas</span>
+                          <span className={cn("text-[10px] px-1.5 py-0.2 rounded font-extrabold", printFilterType === 'selected' ? "bg-zinc-800 text-zinc-200" : "bg-blue-100 text-blue-800")}>
+                            {selectedForQuote.size}
+                          </span>
+                        </div>
+                        <span className={cn("text-[9.5px] block truncate", printFilterType === 'selected' ? "text-zinc-300" : "text-zinc-500")}>
+                          Marcadas individualmente
+                        </span>
+                      </div>
+                    </label>
+
+                    <label className={cn(
+                      "flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer transition-all",
+                      printFilterType === 'disponiveis' ? "bg-emerald-900 text-white border-emerald-900 shadow-sm" : "bg-emerald-50/50 border-emerald-200 hover:border-emerald-300 text-zinc-800"
+                    )}>
+                      <input 
+                        type="radio" 
+                        name="print_filter" 
+                        checked={printFilterType === 'disponiveis'} 
+                        onChange={() => setPrintFilterType('disponiveis')} 
+                        className="hidden" 
+                      />
+                      <div className="flex-1 text-xs">
+                        <div className="flex justify-between items-center font-bold">
+                          <span className={printFilterType === 'disponiveis' ? "text-white" : "text-emerald-900"}>Apenas Disponíveis</span>
+                          <span className={cn("text-[10px] px-1.5 py-0.2 rounded font-extrabold", printFilterType === 'disponiveis' ? "bg-emerald-800 text-emerald-100" : "bg-emerald-100 text-emerald-800")}>
+                            {filteredProducts.filter(p => {
+                              const s = includeTransitInReport ? p.future_stock_computed : (p.estoque - (p.faltas_ativas || 0));
+                              return s > 0;
+                            }).length}
+                          </span>
+                        </div>
+                        <span className={cn("text-[9.5px] block truncate", printFilterType === 'disponiveis' ? "text-emerald-200" : "text-emerald-700")}>
+                          Saldo livre &gt; 0
+                        </span>
+                      </div>
+                    </label>
+
+                    <label className={cn(
+                      "flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer transition-all",
+                      printFilterType === 'com_pedidos' ? "bg-blue-900 text-white border-blue-900 shadow-sm" : "bg-blue-50/50 border-blue-200 hover:border-blue-300 text-zinc-800"
+                    )}>
+                      <input 
+                        type="radio" 
+                        name="print_filter" 
+                        checked={printFilterType === 'com_pedidos'} 
+                        onChange={() => setPrintFilterType('com_pedidos')} 
+                        className="hidden" 
+                      />
+                      <div className="flex-1 text-xs">
+                        <div className="flex justify-between items-center font-bold">
+                          <span className={printFilterType === 'com_pedidos' ? "text-white" : "text-blue-900"}>Com Pedidos Venda</span>
+                          <span className={cn("text-[10px] px-1.5 py-0.2 rounded font-extrabold", printFilterType === 'com_pedidos' ? "bg-blue-800 text-blue-100" : "bg-blue-100 text-blue-800")}>
+                            {filteredProducts.filter(p => (p.faltas_ativas || 0) > 0).length}
+                          </span>
+                        </div>
+                        <span className={cn("text-[9.5px] block truncate", printFilterType === 'com_pedidos' ? "text-blue-200" : "text-blue-700")}>
+                          Com faltas catalogadas
+                        </span>
+                      </div>
+                    </label>
+
+                    <label className={cn(
+                      "flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer transition-all sm:col-span-2",
+                      printFilterType === 'ruptura' ? "bg-red-900 text-white border-red-900 shadow-sm" : "bg-red-50/50 border-red-200 hover:border-red-300 text-zinc-800"
+                    )}>
+                      <input 
+                        type="radio" 
+                        name="print_filter" 
+                        checked={printFilterType === 'ruptura'} 
+                        onChange={() => setPrintFilterType('ruptura')} 
+                        className="hidden" 
+                      />
+                      <div className="flex-1 text-xs">
+                        <div className="flex justify-between items-center font-bold">
+                          <span className={printFilterType === 'ruptura' ? "text-white" : "text-red-900"}>Em Ruptura / Falta (Saldo &le; 0)</span>
+                          <span className={cn("text-[10px] px-1.5 py-0.2 rounded font-extrabold", printFilterType === 'ruptura' ? "bg-red-800 text-red-100" : "bg-red-100 text-red-800")}>
+                            {filteredProducts.filter(p => {
+                              const s = includeTransitInReport ? p.future_stock_computed : (p.estoque - (p.faltas_ativas || 0));
+                              return s <= 0;
+                            }).length} itens
+                          </span>
+                        </div>
+                        <span className={cn("text-[9.5px] block", printFilterType === 'ruptura' ? "text-red-200" : "text-red-700")}>
+                          Colorações zeradas ou com estoque insuficiente para os pedidos
+                        </span>
+                      </div>
+                    </label>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <label className={cn(
+                      "flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer transition-all",
+                      printFilterType === 'needed' ? "bg-zinc-900 text-white border-zinc-900 shadow-sm" : "bg-zinc-50 border-zinc-200 hover:border-zinc-300 text-zinc-800"
+                    )}>
+                      <input 
+                        type="radio" 
+                        name="print_filter" 
+                        checked={printFilterType === 'needed'} 
+                        onChange={() => setPrintFilterType('needed')} 
+                        className="hidden" 
+                      />
+                      <div className="flex-1 text-xs">
+                        <div className="flex justify-between items-center font-bold">
+                          <span>Sugestão &gt; 0</span>
+                          <span className={cn("text-[10px] px-1.5 py-0.2 rounded", printFilterType === 'needed' ? "bg-zinc-800 text-zinc-200" : "bg-zinc-200 text-zinc-700")}>
+                            {filteredProducts.filter(p => p.sugestao_compra_computed > 0).length}
+                          </span>
+                        </div>
+                        <span className={cn("text-[9.5px] block truncate", printFilterType === 'needed' ? "text-zinc-300" : "text-zinc-500")}>
+                          Recomendação ativa
+                        </span>
+                      </div>
+                    </label>
+
+                    <label className={cn(
+                      "flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer transition-all",
+                      printFilterType === 'selected' ? "bg-zinc-900 text-white border-zinc-900 shadow-sm" : "bg-zinc-50 border-zinc-200 hover:border-zinc-300 text-zinc-800"
+                    )}>
+                      <input 
+                        type="radio" 
+                        name="print_filter" 
+                        checked={printFilterType === 'selected'} 
+                        onChange={() => setPrintFilterType('selected')} 
+                        className="hidden" 
+                      />
+                      <div className="flex-1 text-xs">
+                        <div className="flex justify-between items-center font-bold">
+                          <span>Selecionadas</span>
+                          <span className={cn("text-[10px] px-1.5 py-0.2 rounded font-extrabold", printFilterType === 'selected' ? "bg-zinc-800 text-zinc-200" : "bg-blue-100 text-blue-800")}>
+                            {selectedForQuote.size}
+                          </span>
+                        </div>
+                        <span className={cn("text-[9.5px] block truncate", printFilterType === 'selected' ? "text-zinc-300" : "text-zinc-500")}>
+                          Itens marcados
+                        </span>
+                      </div>
+                    </label>
+
+                    <label className={cn(
+                      "flex items-center gap-2.5 p-2.5 border rounded-xl cursor-pointer transition-all sm:col-span-2",
+                      printFilterType === 'all' ? "bg-zinc-900 text-white border-zinc-900 shadow-sm" : "bg-zinc-50 border-zinc-200 hover:border-zinc-300 text-zinc-800"
+                    )}>
+                      <input 
+                        type="radio" 
+                        name="print_filter" 
+                        checked={printFilterType === 'all'} 
+                        onChange={() => setPrintFilterType('all')} 
+                        className="hidden" 
+                      />
+                      <div className="flex-1 text-xs">
+                        <div className="flex justify-between items-center font-bold">
+                          <span>Todos os Itens Filtrados</span>
+                          <span className={cn("text-[10px] px-1.5 py-0.2 rounded", printFilterType === 'all' ? "bg-zinc-800 text-zinc-200" : "bg-zinc-200 text-zinc-700")}>
+                            {filteredProducts.length}
+                          </span>
+                        </div>
+                        <span className={cn("text-[9.5px] block truncate", printFilterType === 'all' ? "text-zinc-300" : "text-zinc-500")}>
+                          Lista completa com base nos filtros atuais
+                        </span>
+                      </div>
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              {/* Interactive Item Selection Box */}
+              <div className="border border-zinc-200 rounded-xl p-3 bg-zinc-50/50">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-bold text-zinc-700 uppercase tracking-wider flex items-center gap-1.5">
+                    Marcar / Desmarcar Colorações Específicas:
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = new Set(selectedForQuote);
+                        filteredProducts
+                          .filter(p => !modalSearchTerm || p.codigo.toLowerCase().includes(modalSearchTerm.toLowerCase()) || p.descricao.toLowerCase().includes(modalSearchTerm.toLowerCase()))
+                          .forEach(p => next.add(p.codigo));
+                        setSelectedForQuote(next);
+                        setPrintFilterType('selected');
+                      }}
+                      className="text-[10px] text-zinc-700 font-bold hover:underline cursor-pointer"
+                    >
+                      Marcar Todas
+                    </button>
+                    <span className="text-zinc-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedForQuote(new Set());
+                      }}
+                      className="text-[10px] text-zinc-500 hover:text-zinc-800 cursor-pointer"
+                    >
+                      Limpar
+                    </button>
+                  </div>
+                </div>
+
+                <div className="relative mb-2">
+                  <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-zinc-400" />
+                  <input
+                    type="text"
+                    value={modalSearchTerm}
+                    onChange={(e) => setModalSearchTerm(e.target.value)}
+                    placeholder="Filtrar colorações por código ou tom..."
+                    className="w-full pl-8 pr-3 py-1 text-xs bg-white border border-zinc-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  />
+                </div>
+
+                <div className="max-h-36 overflow-y-auto space-y-1 divide-y divide-zinc-100 bg-white border border-zinc-200 rounded-lg p-1.5">
+                  {filteredProducts
+                    .filter(p => !modalSearchTerm || p.codigo.toLowerCase().includes(modalSearchTerm.toLowerCase()) || p.descricao.toLowerCase().includes(modalSearchTerm.toLowerCase()))
+                    .map(p => {
+                      const isChecked = selectedForQuote.has(p.codigo);
+                      const saldo = includeTransitInReport ? p.future_stock_computed : (p.estoque - (p.faltas_ativas || 0));
+                      return (
+                        <label 
+                          key={p.codigo}
+                          className={cn(
+                            "flex items-center gap-2 px-2 py-1 rounded cursor-pointer transition-colors text-xs select-none",
+                            isChecked ? "bg-zinc-100" : "hover:bg-zinc-50"
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              const next = new Set(selectedForQuote);
+                              if (isChecked) next.delete(p.codigo);
+                              else next.add(p.codigo);
+                              setSelectedForQuote(next);
+                              if (next.size > 0 && printFilterType !== 'selected') {
+                                setPrintFilterType('selected');
+                              }
+                            }}
+                            className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 h-3.5 w-3.5 cursor-pointer"
+                          />
+                          <span className="font-mono font-bold text-[10.5px] text-zinc-600 w-16">{p.codigo}</span>
+                          <span className="flex-1 truncate font-medium text-zinc-800 text-[11px]">{p.descricao}</span>
+                          <span className="text-[10px] text-zinc-500 font-mono">Físico: {p.estoque}</span>
+                          <span className={cn(
+                            "text-[10px] font-bold font-mono px-1 rounded",
+                            saldo > 0 ? "text-emerald-700 bg-emerald-50" : "text-red-700 bg-red-50"
+                          )}>
+                            Saldo: {saldo}
+                          </span>
+                        </label>
+                      );
+                    })}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2.5 justify-end pt-3 border-t border-zinc-100 shrink-0">
+              <button 
+                type="button"
+                onClick={() => setShowPrintModal(false)}
+                className="px-4 py-2 border border-zinc-250 hover:bg-zinc-50 text-zinc-700 text-xs font-bold rounded-lg cursor-pointer transition-colors"
               >
                 Cancelar
               </button>
               <button 
+                type="button"
                 onClick={handlePrint}
-                className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-lg shadow-md cursor-pointer border border-zinc-955"
+                className="px-5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-lg shadow-md cursor-pointer border border-zinc-950 flex items-center gap-1.5 transition-all"
               >
-                Confirmar e Imprimir
+                <Printer className="h-3.5 w-3.5" />
+                Gerar e Imprimir
               </button>
             </div>
           </div>

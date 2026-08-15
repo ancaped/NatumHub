@@ -1730,6 +1730,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                   <option value="critico">Crítico: Produzir</option>
                   <option value="ordem">Abrir Ordem</option>
                   <option value="montar">Montar Urgente</option>
+                  <option value="aguardando">Aguardando Produção</option>
                   <option value="saudavel">Estoque OK</option>
                   <option value="abundante">Abundante</option>
                 </select>
@@ -1803,6 +1804,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                                   k.status === 'critico' ? 'bg-rose-50 text-rose-700 border border-rose-200' :
                                   k.status === 'ordem' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
                                   k.status === 'montar' ? 'bg-orange-50 text-orange-700 border border-orange-200' :
+                                  k.status === 'aguardando' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
                                   'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                 }`}>
                                   {k.status_label}
@@ -1913,6 +1915,9 @@ export default function MontagemKitsView({ onBackToHub }) {
                     className="w-full pl-9 pr-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-900 text-xs font-medium transition-all"
                   />
                 </div>
+                <p className="hidden lg:block text-[11px] text-zinc-400 font-medium max-w-xs leading-snug shrink-0">
+                  Estrutura principal vem do ERP (sync). Excel/CRUD só alteram linhas manuais.
+                </p>
               </div>
 
               {/* Excel import & Compor Novo Kit */}

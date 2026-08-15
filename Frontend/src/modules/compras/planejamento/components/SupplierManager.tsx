@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../geral/lib/api';
 import { Supplier, Invoice, PricePoint } from '../../../geral/lib/types';
 import { Users, Plus, Search, ArrowLeft, Phone, Mail, FileText, TrendingUp, X, ArrowUp, ArrowDown } from 'lucide-react';
-import { cn } from '../../../geral/lib/utils';
+import { cn, randomId } from '../../../geral/lib/utils';
 
 export function SupplierManager({ mode = 'all', active = false }: { mode?: string; active?: boolean }) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -178,7 +178,7 @@ export function SupplierManager({ mode = 'all', active = false }: { mode?: strin
           </button>
         </div>
         {mode === 'all' && (
-          <button onClick={() => setEditing({ id: crypto.randomUUID(), name: '', contact: '', email: '', notes: '' })}
+          <button onClick={() => setEditing({ id: randomId(), name: '', contact: '', email: '', notes: '' })}
             className="text-sm bg-zinc-900 text-white px-4 py-2 rounded-md font-medium hover:bg-zinc-800 flex items-center gap-2 ml-auto">
             <Plus className="h-4 w-4" /> Novo Fornecedor
           </button>

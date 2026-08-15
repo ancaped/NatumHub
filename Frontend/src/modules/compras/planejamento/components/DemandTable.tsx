@@ -267,18 +267,34 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     return () => window.removeEventListener('storage', loadPrintList);
   }, []);
 
-  const isInPrintList = (code: string) => printList.includes(code);
+  const isInPrintList = (code: string) => {
+    const clean = (code || '').replace(/\./g, '');
+    return printList.some(c => (c || '').replace(/\./g, '') === clean);
+  };
 
   const handleTogglePrintList = (code: string) => {
+    const clean = (code || '').replace(/\./g, '');
     let newList: string[];
-    if (printList.includes(code)) {
-      newList = printList.filter(c => c !== code);
+    if (printList.some(c => (c || '').replace(/\./g, '') === clean)) {
+      newList = printList.filter(c => (c || '').replace(/\./g, '') !== clean);
     } else {
       newList = [...printList, code];
     }
     setPrintList(newList);
     localStorage.setItem('natum_hub_print_list', JSON.stringify(newList));
     window.dispatchEvent(new Event('storage'));
+  };
+
+  const handleAddSelectedToPrintList = () => {
+    if (selectedItems.size === 0) return;
+    const toAdd = Array.from(selectedItems);
+    const existing = new Set(printList.map(c => (c || '').replace(/\./g, '')));
+    const newItems = toAdd.filter(code => !existing.has((code || '').replace(/\./g, '')));
+    const newList = [...printList, ...newItems];
+    setPrintList(newList);
+    localStorage.setItem('natum_hub_print_list', JSON.stringify(newList));
+    window.dispatchEvent(new Event('storage'));
+    setSelectedItems(new Set());
   };
 
   useEffect(() => {
@@ -344,10 +360,9 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   const loadDemands = async () => {
     setLoading(true);
     try {
-      // Subcategoria pinada/selecionada: só ela. Raiz MP/Emb: só cat_mp/cat_emb (sem filhos).
-      const categoryId =
-        selectedCategory
-        || (mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : undefined);
+      const categoryId = (selectedCategory && selectedCategory !== 'unassigned')
+        ? selectedCategory
+        : (mode === 'all' && activeMainTab !== 'ALL' ? activeMainTab : undefined);
       const [results, history] = await Promise.all([
         api.getDemands(categoryId, targetDaysInput),
         api.getImportHistory().catch(() => [] as Awaited<ReturnType<typeof api.getImportHistory>>),
@@ -411,63 +426,104 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   useEffect(() => {
     if (selectedItemCode) {
       loadDetails(selectedItemCode);
-      loadItemConfig(selectedItemCode);
-      setDrawerTab('visao_geral');
       setIsEditingNotes(false);
-      setTempNotes('');
-      setSimilarSearch('');
-      api.getSimilarItems(selectedItemCode)
-        .then(data => setSimilarItems(data))
-        .catch(err => console.error("Erro ao carregar semelhantes:", err));
     } else {
       setDetails(null);
-      setItemConfig(null);
-      setSimilarItems([]);
     }
   }, [selectedItemCode]);
-
-  useEffect(() => {
-    if (selectedItemCode && drawerTab === 'configuracoes') {
-      loadSimilarItems();
-    }
-  }, [selectedItemCode, drawerTab]);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [search, selectedCategory, urgencyFilter, activeMainTab]);
 
   const filteredSubcategories = useMemo(() => {
+    if (mode === 'embalagens') {
+      return categories.filter(c => c.parentId === 'cat_emb' || c.parentId === 'cat_mat');
+    }
+    if (mode === 'materia_prima') {
+      return categories.filter(c => c.parentId === 'cat_mp');
+    }
     if (activeMainTab === 'ALL') {
       return categories.filter(c => c.parentId !== null);
     }
     return categories.filter(c => c.parentId === activeMainTab);
-  }, [categories, activeMainTab]);
+  }, [categories, activeMainTab, mode]);
+
+  const resolveRootCategory = (catId: string | null) => {
+    if (!catId) return null;
+    let current = catId;
+    let visited = new Set<string>();
+    while (current && !visited.has(current)) {
+      visited.add(current);
+      const cat = categories.find(c => c.id === current);
+      if (!cat || !cat.parentId) break;
+      current = cat.parentId;
+    }
+    return current;
+  };
+
+  const isPackagingItem = (d: DemandResult) => {
+    const root = resolveRootCategory(d.categoryId);
+    if (root === 'cat_emb' || root === 'cat_mat') return true;
+    const code = d.itemCode || '';
+    if (code.startsWith('08.')) return true;
+    if (code.startsWith('9.') && !code.startsWith('9.15.')) return true;
+    return false;
+  };
+
+  const isMateriaPrimaItem = (d: DemandResult) => {
+    const root = resolveRootCategory(d.categoryId);
+    if (root === 'cat_mp') return true;
+    const code = d.itemCode || '';
+    if (code.startsWith('9.15.')) return true;
+    return false;
+  };
 
   const counts = useMemo(() => {
     let mp = 0;
     let emb = 0;
     demands.forEach(d => {
-      if (d.categoryId === 'cat_mp') mp++;
-      if (d.categoryId === 'cat_emb') emb++;
+      if (isMateriaPrimaItem(d)) mp++;
+      if (isPackagingItem(d)) emb++;
     });
     return { all: demands.length, mp, emb };
-  }, [demands]);
+  }, [demands, categories]);
 
   const mainFilteredDemands = useMemo(() => {
+    if (mode === 'materia_prima') {
+      return demands.filter(isMateriaPrimaItem);
+    }
+    if (mode === 'embalagens') {
+      return demands.filter(isPackagingItem);
+    }
     if (activeMainTab === 'ALL') return demands;
-    // Sem subcategoria selecionada: só itens da raiz (ex.: cat_mp), não os já classificados.
     const allowedId = selectedCategory || activeMainTab;
-    return demands.filter(d => d.categoryId === allowedId);
-  }, [demands, activeMainTab, selectedCategory]);
+    return demands.filter(d => d.categoryId === allowedId || resolveRootCategory(d.categoryId) === allowedId);
+  }, [demands, activeMainTab, selectedCategory, mode, categories]);
 
   const filteredDemands = useMemo(() => {
     let result = demands;
-    if (activeMainTab !== 'ALL') {
+    if (mode === 'materia_prima') {
+      result = result.filter(isMateriaPrimaItem);
+    } else if (mode === 'embalagens') {
+      result = result.filter(isPackagingItem);
+    } else if (activeMainTab !== 'ALL') {
       const allowedId = selectedCategory || activeMainTab;
-      result = result.filter(d => d.categoryId === allowedId);
+      result = result.filter(d => d.categoryId === allowedId || resolveRootCategory(d.categoryId) === allowedId);
+    }
+
+    if (selectedCategory === 'unassigned') {
+      if (mode === 'embalagens') {
+        result = result.filter(d => !d.categoryId || d.categoryId === 'cat_emb' || d.categoryId === 'cat_mat');
+      } else if (mode === 'materia_prima') {
+        result = result.filter(d => !d.categoryId || d.categoryId === 'cat_mp');
+      } else {
+        result = result.filter(d => !d.categoryId || d.categoryId === 'cat_mp' || d.categoryId === 'cat_emb' || d.categoryId === 'cat_mat');
+      }
     } else if (selectedCategory) {
       result = result.filter(d => d.categoryId === selectedCategory);
     }
+
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter(d => (d.itemCode || '').toLowerCase().includes(q) || (d.description || '').toLowerCase().includes(q));
@@ -480,7 +536,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
       return sortDir === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
     });
     return result;
-  }, [demands, activeMainTab, selectedCategory, search, urgencyFilter, sortKey, sortDir]);
+  }, [demands, activeMainTab, selectedCategory, search, urgencyFilter, sortKey, sortDir, mode, categories]);
 
   const paginatedDemands = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -580,12 +636,19 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     iframe.style.border = 'none';
     iframe.style.opacity = '0';
     iframe.style.pointerEvents = 'none';
+    iframe.setAttribute('data-natum-print', '1');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.src = 'about:blank';
+    if (!document.body) {
+      alert("Não foi possível iniciar a impressão.");
+      return;
+    }
     document.body.appendChild(iframe);
-    
-    const doc = iframe.contentWindow?.document;
+
+    const doc = iframe.contentDocument || iframe.contentWindow?.document;
     if (!doc) {
       alert("Não foi possível iniciar a impressão.");
-      document.body.removeChild(iframe);
+      try { iframe.remove(); } catch { /* ignore */ }
       return;
     }
     
@@ -809,13 +872,29 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     
     // Trigger print in the iframe
     setTimeout(() => {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-      
-      // Clean up DOM after printing
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-      }, 1000);
+      try {
+        const win = iframe.contentWindow;
+        if (!win) {
+          iframe.remove();
+          return;
+        }
+        const cleanup = () => {
+          try {
+            if (document.activeElement === iframe) iframe.blur();
+            window.focus();
+            iframe.src = 'about:blank';
+            iframe.remove();
+          } catch {
+            try { iframe.remove(); } catch { /* ignore */ }
+          }
+        };
+        win.addEventListener('afterprint', cleanup, { once: true });
+        win.focus();
+        win.print();
+        setTimeout(cleanup, 60_000);
+      } catch {
+        try { iframe.remove(); } catch { /* ignore */ }
+      }
     }, 500);
   };
 
@@ -888,7 +967,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 {lastErpStockSync.count > 0 && ` (${lastErpStockSync.count.toLocaleString('pt-BR')} itens)`}
               </span>
               <span className="text-zinc-400 hidden sm:inline">
-                · Coluna Estoque = nQtdeEstoque do ERP. Se divergir, rode Sync ERP em Configurações.
+                · Estoque = nQtdeEstoque do ERP · R = nqtdeReserva · P = pedidos de compra abertos (não confundir com a tela). Se o estoque divergir, use Verificar estoque / Sync em Configurações.
               </span>
             </div>
           )}
@@ -903,7 +982,8 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 <div className="flex items-center gap-2">
                   <Filter className="h-4 w-4 text-zinc-500" />
                   <select value={selectedCategory || ''} onChange={e => setSelectedCategory(e.target.value || null)} className="text-sm border border-zinc-300 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none">
-                    <option value="">{activeMainTab === 'ALL' ? 'Todas as Categorias' : 'Somente sem subcategoria'}</option>
+                    <option value="">{mode === 'embalagens' ? 'Todas as Embalagens' : mode === 'materia_prima' ? 'Todas as Matérias-Primas' : (activeMainTab === 'ALL' ? 'Todas as Categorias' : 'Todas deste grupo')}</option>
+                    <option value="unassigned">Somente sem subcategoria</option>
                     {filteredSubcategories.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
                   </select>
                 </div>
@@ -954,6 +1034,16 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
             </div>
             <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
               <span className="text-xs text-zinc-500">{filteredDemands.length} itens</span>
+              {selectedItems.size > 0 && (
+                <button 
+                  onClick={handleAddSelectedToPrintList}
+                  className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-md font-medium flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                  title="Adicionar itens selecionados à aba Lista"
+                >
+                  <PlusCircle className="h-3.5 w-3.5" />
+                  <span>Adicionar à Lista ({selectedItems.size})</span>
+                </button>
+              )}
               <button 
                 onClick={() => {
                   const neededCount = filteredDemands.filter(d => d.recommendedQty > 0).length;
@@ -1023,16 +1113,31 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                         {demand.notes && <div className="text-[10px] text-zinc-400 italic mt-0.5 truncate max-w-xs">Obs: {demand.notes}</div>}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <div className="font-medium">{demand.currentStock.toLocaleString('pt-BR')} {demand.unit}</div>
+                        <div
+                          className="font-medium"
+                          title="Estoque = nQtdeEstoque da tela do ERP (último sync)"
+                        >
+                          {demand.currentStock.toLocaleString('pt-BR', {
+                            maximumFractionDigits: 4,
+                            minimumFractionDigits: 0,
+                          })}{' '}
+                          {demand.unit}
+                        </div>
                         <div
                           className="text-xs text-zinc-500"
                           title={
-                            demand.reservedQtyErp != null && demand.reservedQtyErp > 0
-                              ? `R = reserva por lotes abertos (${demand.reservedQty}). ERP espelho: ${demand.reservedQtyErp}. P = pedidos de compra abertos. Prev. Futura = estoque + pedidos − sim. produção.`
-                              : 'R = reserva por lotes abertos. P = pedidos de compra abertos. Prev. Futura = estoque + pedidos − sim. produção.'
+                            'R = nqtdeReserva do ERP (espelho). P = pedidos de compra abertos no Hub (não é nQtdePedidos do cadastro). Prev. Futura = estoque + pedidos − sim. produção — não comparar com estoque da tela.'
                           }
                         >
-                          -{demand.reservedQty} R / +{demand.inOrders} P
+                          −
+                          {(demand.reservedQty ?? 0).toLocaleString('pt-BR', {
+                            maximumFractionDigits: 3,
+                          })}{' '}
+                          R / +
+                          {(demand.inOrders ?? 0).toLocaleString('pt-BR', {
+                            maximumFractionDigits: 3,
+                          })}{' '}
+                          P
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right font-medium text-zinc-700">{demand.overallAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {demand.unit}</td>

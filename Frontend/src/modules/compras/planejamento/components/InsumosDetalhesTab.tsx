@@ -125,14 +125,21 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
 
   const displayedCategories = useMemo(() => {
     if (!parentCategoryFilter) return categories;
+    if (parentCategoryFilter === 'cat_emb') {
+      return categories.filter(c => c.parentId === 'cat_emb' || c.parentId === 'cat_mat');
+    }
     return categories.filter(c => c.parentId === parentCategoryFilter);
   }, [categories, parentCategoryFilter]);
 
   const filteredItems = useMemo(() => {
     const allowedCategoryIds = new Set<string>();
     if (parentCategoryFilter) {
+      allowedCategoryIds.add(parentCategoryFilter);
+      if (parentCategoryFilter === 'cat_emb') {
+        allowedCategoryIds.add('cat_mat');
+      }
       categories.forEach(c => {
-        if (c.parentId === parentCategoryFilter) {
+        if (c.parentId === parentCategoryFilter || (parentCategoryFilter === 'cat_emb' && c.parentId === 'cat_mat')) {
           allowedCategoryIds.add(c.id);
         }
       });
@@ -143,10 +150,20 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
         (i.description || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (i.code || '').toLowerCase().includes(searchTerm.toLowerCase());
       
-      const matchesCategory = 
-        selectedCategory === 'ALL'
-          ? (!parentCategoryFilter || (i.categoryId && allowedCategoryIds.has(i.categoryId)))
-          : i.categoryId === selectedCategory;
+      let matchesCategory = false;
+      if (selectedCategory === 'ALL') {
+        if (!parentCategoryFilter) {
+          matchesCategory = true;
+        } else {
+          const isCategoryMatch = i.categoryId && allowedCategoryIds.has(i.categoryId);
+          const isCodeMatch = parentCategoryFilter === 'cat_emb'
+            ? (i.code && (i.code.startsWith('08.') || (!i.code.startsWith('9.15.') && i.code.startsWith('9.'))))
+            : (i.code && i.code.startsWith('9.15.'));
+          matchesCategory = Boolean(isCategoryMatch || isCodeMatch);
+        }
+      } else {
+        matchesCategory = i.categoryId === selectedCategory;
+      }
 
       return matchesSearch && matchesCategory;
     });

@@ -16,5 +16,6 @@ Tabelas principais (referência rápida):
 | Pedidos ERP | `purchase_orders`, `sales_orders`, `*_items` |
 | Qualidade | `products`, `reports`, `fisco_quimica_*`, `doc_families`, `doc_types`, `documents`, `document_files` (`016`), `pop_sectors`, `pop_documents`, `pop_versions` (`023`) |
 | Financeiro | `tiny_contas_pagar`, `tiny_contas_receber` |
+| Ferramentas | `hub_label_templates` (`029`) |
 
 Mapeamento ERP → Postgres: `erp-import/PASSOS.md` e `erp-import/DESTINO-POSTGRES.md`.

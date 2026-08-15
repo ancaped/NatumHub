@@ -830,6 +830,22 @@ pub async fn logo_bytes(pool: &PgPool) -> Result<(Vec<u8>, String), String> {
     Ok((bytes, mime.into()))
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeedBodyEntry {
+    pub body: String,
+    #[serde(default)]
+    pub revision: Option<i32>,
+    #[serde(default)]
+    pub effective_date: Option<String>,
+    #[serde(default)]
+    pub elaborated_by: Option<String>,
+    #[serde(default)]
+    pub reviewed_by: Option<String>,
+    #[serde(default)]
+    pub approved_by: Option<String>,
+}
+
 pub async fn seed_inventory(
     pool: &PgPool,
     created_by: Option<&str>,
@@ -849,13 +865,20 @@ pub async fn seed_inventory(
             .await
             .map_err(|e| e.to_string())?;
 
-        let body = bodies
-            .get(*code)
-            .map(|s| s.as_str())
-            .unwrap_or("");
+        let entry = bodies.get(*code);
+        let body = entry.map(|e| e.body.as_str()).unwrap_or("");
+        let rev = entry.and_then(|e| e.revision).unwrap_or(1);
+        let elab = entry
+            .and_then(|e| e.elaborated_by.clone())
+            .or_else(|| Some("Responsável Técnico".into()));
+        let rev_by = entry
+            .and_then(|e| e.reviewed_by.clone())
+            .or_else(|| Some("Equipe de Controle de Qualidade".into()));
+        let app_by = entry.and_then(|e| e.approved_by.clone());
+        let eff_date = entry.and_then(|e| e.effective_date.clone());
 
         if !exists {
-            create_document(
+            let doc = create_document(
                 pool,
                 DocumentInput {
                     code: code.to_string(),
@@ -863,15 +886,53 @@ pub async fn seed_inventory(
                     sector_id: sector.to_string(),
                     content: Some(PopContent {
                         body: body.to_string(),
-                        ..Default::default()
+                        elaborated_at: eff_date.clone(),
+                        reviewed_at: eff_date.clone(),
+                        approved_at: eff_date.clone(),
                     }),
-                    elaborated_by: Some("Responsável Técnico".into()),
-                    reviewed_by: Some("Equipe de Controle de Qualidade".into()),
-                    approved_by: None,
+                    elaborated_by: elab.clone(),
+                    reviewed_by: rev_by.clone(),
+                    approved_by: app_by.clone(),
                 },
                 created_by,
             )
             .await?;
+
+            if let Some(ref vid) = doc.current_version_id {
+                let eff = eff_date
+                    .as_deref()
+                    .and_then(|s| parse_date(s).ok())
+                    .unwrap_or_else(today);
+                let next = plus_year(eff);
+                let _ = sqlx::query(
+                    r#"
+                    UPDATE pop_versions
+                    SET revision = $2, effective_date = $3, next_review_date = $4
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(vid)
+                .bind(rev)
+                .bind(eff)
+                .bind(next)
+                .execute(pool)
+                .await;
+
+                let _ = sqlx::query(
+                    r#"
+                    UPDATE pop_documents
+                    SET current_revision = $2, effective_date = $3, next_review_date = $4
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(&doc.id)
+                .bind(rev)
+                .bind(eff)
+                .bind(next)
+                .execute(pool)
+                .await;
+            }
+
             created += 1;
             if !body.is_empty() {
                 bodies_filled += 1;
@@ -915,17 +976,74 @@ pub async fn seed_inventory(
 
         let mut next = current;
         next.body = body.to_string();
-        sqlx::query("UPDATE pop_versions SET content_json = $2 WHERE id = $1")
-            .bind(&vid)
-            .bind(next.to_value())
-            .execute(pool)
-            .await
-            .map_err(|e| e.to_string())?;
-        sqlx::query("UPDATE pop_documents SET updated_at = NOW() WHERE code = $1")
-            .bind(code)
-            .execute(pool)
-            .await
-            .map_err(|e| e.to_string())?;
+        if let Some(ref d) = eff_date {
+            next.elaborated_at = Some(d.clone());
+            next.reviewed_at = Some(d.clone());
+        }
+        sqlx::query(
+            r#"
+            UPDATE pop_versions
+            SET content_json = $2,
+                elaborated_by = COALESCE($3, elaborated_by),
+                reviewed_by = COALESCE($4, reviewed_by),
+                approved_by = COALESCE($5, approved_by)
+            WHERE id = $1
+            "#,
+        )
+        .bind(&vid)
+        .bind(next.to_value())
+        .bind(&elab)
+        .bind(&rev_by)
+        .bind(&app_by)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        let eff = eff_date
+            .as_deref()
+            .and_then(|s| parse_date(s).ok())
+            .unwrap_or_else(today);
+        let next_dt = plus_year(eff);
+
+        sqlx::query(
+            r#"
+            UPDATE pop_versions
+            SET revision = $2, effective_date = $3, next_review_date = $4
+            WHERE id = $1
+            "#,
+        )
+        .bind(&vid)
+        .bind(rev)
+        .bind(eff)
+        .bind(next_dt)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        sqlx::query(
+            r#"
+            UPDATE pop_documents
+            SET current_revision = $2,
+                effective_date = $3,
+                next_review_date = $4,
+                elaborated_by = COALESCE($5, elaborated_by),
+                reviewed_by = COALESCE($6, reviewed_by),
+                approved_by = COALESCE($7, approved_by),
+                updated_at = NOW()
+            WHERE code = $1
+            "#,
+        )
+        .bind(code)
+        .bind(rev)
+        .bind(eff)
+        .bind(next_dt)
+        .bind(&elab)
+        .bind(&rev_by)
+        .bind(&app_by)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
         bodies_filled += 1;
     }
 
@@ -937,20 +1055,16 @@ pub async fn seed_inventory(
     })
 }
 
-fn load_seed_bodies() -> std::collections::HashMap<String, String> {
+fn load_seed_bodies() -> std::collections::HashMap<String, SeedBodyEntry> {
     let raw = include_str!("seed_bodies.json");
     let parsed: serde_json::Value = serde_json::from_str(raw).unwrap_or(serde_json::json!({}));
     let mut map = std::collections::HashMap::new();
     if let Some(obj) = parsed.as_object() {
         for (code, v) in obj {
-            let body = v
-                .get("body")
-                .and_then(|b| b.as_str())
-                .or_else(|| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            if !body.is_empty() {
-                map.insert(code.clone(), body);
+            if let Ok(entry) = serde_json::from_value::<SeedBodyEntry>(v.clone()) {
+                if !entry.body.is_empty() {
+                    map.insert(code.clone(), entry);
+                }
             }
         }
     }

@@ -51,6 +51,7 @@ pub const MODULE_QUALIDADE_TEMPERATURA: &str = "qualidade_temperatura";
 pub const MODULE_QUALIDADE_LIMPEZA: &str = "qualidade_limpeza";
 pub const MODULE_QUALIDADE_RECEBIMENTO_MP: &str = "qualidade_recebimento_mp";
 pub const MODULE_QUALIDADE_DOCUMENTACAO: &str = "qualidade_documentacao";
+pub const MODULE_QUALIDADE_DEVOLUCOES: &str = "qualidade_devolucoes";
 /// Placeholder legado — hub Administrativo usa filhos (`admin_linha_produtos`, …).
 pub const MODULE_ADMINISTRATIVO: &str = "administrativo";
 /// Legado — use [`MODULE_EXPEDICAO_ECOMMERCE`].
@@ -59,6 +60,7 @@ pub const MODULE_EXPEDICAO_ECOMMERCE: &str = "expedicao_ecommerce";
 /// Acesso somente à aba Expedição (marcar enviado / separação).
 pub const MODULE_EXPEDICAO_SEPARACAO: &str = "expedicao_separacao";
 pub const MODULE_FINANCEIRO: &str = "financeiro";
+pub const MODULE_FERRAMENTAS_ETIQUETAS: &str = "ferramentas_etiquetas";
 pub const MODULE_CONFIGURACOES: &str = "hub_settings";
 pub const MODULE_OPERADORES: &str = "hub_operadores";
 
@@ -98,6 +100,7 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_VENDAS,
     MODULE_VENDAS_ONLINE,
     MODULE_CONTROLE_QUALIDADE,
+    MODULE_QUALIDADE_DEVOLUCOES,
     MODULE_QUALIDADE_POPS,
     MODULE_QUALIDADE_TREINAMENTOS,
     MODULE_QUALIDADE_TEMPERATURA,
@@ -109,6 +112,7 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_EXPEDICAO_ECOMMERCE,
     MODULE_EXPEDICAO_SEPARACAO,
     MODULE_FINANCEIRO,
+    MODULE_FERRAMENTAS_ETIQUETAS,
     MODULE_CONFIGURACOES,
     MODULE_OPERADORES,
 ];
@@ -201,6 +205,7 @@ pub fn module_registry() -> Vec<ModuleGroup> {
             hub_view: "qualidade_hub".into(),
             children: vec![
                 leaf(MODULE_CONTROLE_QUALIDADE, "Controle de Qualidade"),
+                leaf(MODULE_QUALIDADE_DEVOLUCOES, "Devoluções"),
                 leaf(MODULE_QUALIDADE_POPS, "POPs"),
                 leaf(MODULE_QUALIDADE_TREINAMENTOS, "Treinamentos"),
                 leaf(MODULE_QUALIDADE_TEMPERATURA, "Temperatura"),
@@ -233,6 +238,12 @@ pub fn module_registry() -> Vec<ModuleGroup> {
             label: "Financeiro".into(),
             hub_view: "financeiro".into(),
             children: vec![leaf(MODULE_FINANCEIRO, "Financeiro")],
+        },
+        ModuleGroup {
+            key: "ferramentas".into(),
+            label: "Ferramentas".into(),
+            hub_view: "ferramentas_hub".into(),
+            children: vec![leaf(MODULE_FERRAMENTAS_ETIQUETAS, "Editor de Etiquetas")],
         },
         ModuleGroup {
             key: "sistema".into(),
@@ -308,6 +319,7 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
             .collect(),
         "qualidade" => vec![
             MODULE_CONTROLE_QUALIDADE,
+            MODULE_QUALIDADE_DEVOLUCOES,
             MODULE_QUALIDADE_POPS,
             MODULE_QUALIDADE_TREINAMENTOS,
             MODULE_QUALIDADE_TEMPERATURA,
@@ -339,6 +351,7 @@ pub fn view_to_module_key(view: &str) -> Option<&str> {
         "vendas_hub" => None,
         "qualidade_hub" => None,
         "expedicao_hub" => None,
+        "ferramentas_hub" => None,
         "expedicao" => Some(MODULE_EXPEDICAO_ECOMMERCE),
         "linha_produtos" | "estoque_ativos" => Some(MODULE_ADMIN_LINHA_PRODUTOS),
         other => {

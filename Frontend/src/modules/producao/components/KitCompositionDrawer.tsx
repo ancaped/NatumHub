@@ -13,6 +13,8 @@ export interface KitComposicaoRow {
   quantidade: number;
   fator_proporcao_qtd?: number | null;
   fator_proporcao_kits?: number | null;
+  /** `erp` (sync Passo P) ou `manual` (CRUD/Excel) */
+  origem?: string;
 }
 
 export interface ProductOption {
@@ -212,7 +214,11 @@ export default function KitCompositionDrawer({
     }
   };
 
-  const handleDeleteItem = async (compCode: string) => {
+  const handleDeleteItem = async (compCode: string, origem?: string) => {
+    if ((origem || 'manual') === 'erp') {
+      alert('Componente sincronizado do ERP não pode ser removido aqui. Altere no ERP e rode o sync.');
+      return;
+    }
     if (!window.confirm(`Deseja realmente desvincular o componente ${compCode} deste kit?`)) return;
     try {
       const res = await apiFetch(`/kits/composicao/${encodeURIComponent(kitCodigo.trim())}/${encodeURIComponent(compCode.trim())}`, {
@@ -222,7 +228,8 @@ export default function KitCompositionDrawer({
         setItems(prev => prev.filter(item => item.componente_codigo !== compCode));
         onCompositionUpdated?.();
       } else {
-        alert('Erro ao desvincular componente.');
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Erro ao desvincular componente.');
       }
     } catch (e) {
       console.error(e);
@@ -272,8 +279,8 @@ export default function KitCompositionDrawer({
         </div>
 
         {/* Stats Strip */}
-        <div className="px-6 py-3 bg-zinc-50/50 border-b border-zinc-150 flex items-center justify-between text-xs text-zinc-500">
-          <div className="flex items-center gap-2 font-semibold">
+        <div className="px-6 py-3 bg-zinc-50/50 border-b border-zinc-150 flex items-center justify-between text-xs text-zinc-500 gap-3">
+          <div className="flex items-center gap-2 font-semibold min-w-0">
             <span>Componentes Ativos:</span>
             <span className={`px-2.5 py-0.5 rounded-full font-bold text-[11px] border ${
               items.length > 0 
@@ -283,11 +290,9 @@ export default function KitCompositionDrawer({
               {items.length} {items.length === 1 ? 'item' : 'itens'}
             </span>
           </div>
-          {items.length === 0 && !loading && (
-            <span className="text-amber-600 font-bold flex items-center gap-1 text-[11px]">
-              <AlertCircle className="w-3.5 h-3.5" /> Kit sem insumos vinculados
-            </span>
-          )}
+          <span className="text-[10px] text-zinc-400 font-medium text-right shrink-0 max-w-[55%] leading-snug">
+            Composição do ERP via sync; extras manuais são preservados.
+          </span>
         </div>
 
         {/* Body content (Scrollable list of current components) */}
@@ -316,18 +321,29 @@ export default function KitCompositionDrawer({
             <div className="space-y-3">
               {items.map((item) => {
                 const hasProportion = item.fator_proporcao_kits != null && item.fator_proporcao_kits > 1;
+                const isErp = (item.origem || 'manual') === 'erp';
                 return (
                   <div 
                     key={`${item.kit_codigo}-${item.componente_codigo}`}
                     className="p-4 bg-zinc-50 border border-zinc-200 hover:border-zinc-350 hover:bg-zinc-50/50 rounded-2xl transition-all duration-200 shadow-xs flex items-center justify-between gap-4 group"
                   >
                     <div className="min-w-0 flex-1 space-y-1.5">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-xs font-bold text-zinc-700 bg-white border border-zinc-250 px-2 py-0.5 rounded-lg shrink-0">
                           {item.componente_codigo}
                         </span>
                         <span className="text-xs font-bold text-zinc-900 truncate group-hover:text-zinc-950 transition-colors">
                           {item.componente_descricao || 'Sem descrição'}
+                        </span>
+                        <span
+                          className={`text-[10px] font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded border shrink-0 ${
+                            isErp
+                              ? 'bg-sky-50 text-sky-800 border-sky-200'
+                              : 'bg-zinc-100 text-zinc-600 border-zinc-200'
+                          }`}
+                          title={isErp ? 'Sincronizado do ERP (Passo P)' : 'Cadastro manual ou Excel'}
+                        >
+                          {isErp ? 'ERP' : 'Manual'}
                         </span>
                       </div>
 
@@ -345,13 +361,22 @@ export default function KitCompositionDrawer({
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => handleDeleteItem(item.componente_codigo)}
-                      className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg border border-rose-150 transition-colors opacity-70 group-hover:opacity-100 cursor-pointer shrink-0"
-                      title="Desvincular componente"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {isErp ? (
+                      <span
+                        className="p-2 text-zinc-300 rounded-lg border border-transparent shrink-0"
+                        title="Linha do ERP — remova no ERP e sincronize"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleDeleteItem(item.componente_codigo, item.origem)}
+                        className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg border border-rose-150 transition-colors opacity-70 group-hover:opacity-100 cursor-pointer shrink-0"
+                        title="Desvincular componente"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 );
               })}

@@ -86,6 +86,8 @@ export function getModuleTitle(view: string): string {
       return 'Qualidade';
     case 'controle_qualidade':
       return 'Qualidade > Controle de Qualidade';
+    case 'qualidade_devolucoes':
+      return 'Qualidade > Devoluções';
     case 'qualidade_pops':
       return 'Qualidade > POPs';
     case 'qualidade_treinamentos':
@@ -109,6 +111,10 @@ export function getModuleTitle(view: string): string {
       return 'Administrativo > Linha de Produtos';
     case 'financeiro':
       return 'Financeiro';
+    case 'ferramentas_hub':
+      return 'Ferramentas';
+    case 'ferramentas_etiquetas':
+      return 'Ferramentas > Editor de Etiquetas';
     case 'hub_settings':
       return 'Configurações Gerais';
     case 'hub_supervisor':

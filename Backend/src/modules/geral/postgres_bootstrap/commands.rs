@@ -109,6 +109,34 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
         "023_qualidade_pops.sql",
         include_str!("../../../../supabase/023_qualidade_pops.sql"),
     ),
+    (
+        "024_manual_stock_print_batches.sql",
+        include_str!("../../../../supabase/024_manual_stock_print_batches.sql"),
+    ),
+    (
+        "025_manual_stock_sheet_registers.sql",
+        include_str!("../../../../supabase/025_manual_stock_sheet_registers.sql"),
+    ),
+    (
+        "026_qualidade_devolucoes.sql",
+        include_str!("../../../../supabase/026_qualidade_devolucoes.sql"),
+    ),
+    (
+        "027_kit_composicao_origem.sql",
+        include_str!("../../../../supabase/027_kit_composicao_origem.sql"),
+    ),
+    (
+        "028_reports_manufacturing_date.sql",
+        include_str!("../../../../supabase/028_reports_manufacturing_date.sql"),
+    ),
+    (
+        "029_ferramentas_label_templates.sql",
+        include_str!("../../../../supabase/029_ferramentas_label_templates.sql"),
+    ),
+    (
+        "030_reports_printed.sql",
+        include_str!("../../../../supabase/030_reports_printed.sql"),
+    ),
 ];
 
 #[derive(Debug, Serialize)]

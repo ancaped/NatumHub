@@ -231,6 +231,7 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
         .merge(modules::expedicao::router())
         .merge(modules::qualidade::router())
         .merge(modules::administrativo::router())
+        .merge(modules::ferramentas::router())
         .route(
             "/api/historico",
             get(handlers::list_producao).post(handlers::add_producao),

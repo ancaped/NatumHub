@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Settings, LogOut, UserCog, ClipboardList, Shield, ArrowLeft, Network, Loader2 } from 'lucide-react';
+import { ChevronDown, Settings, LogOut, UserCog, ClipboardList, Shield, ArrowLeft, Network, Loader2, RefreshCw } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { canAccessView } from '../../lib/modules/permissions';
 import { isSupervisor, canSeeFeedbacks } from '../../lib/auth';
 import type { AuthUser } from '../../lib/auth';
-import { apiJson } from '../../lib/http';
+import { apiJson, ApiError } from '../../lib/http';
 import Modal from '../ui/Modal';
 import NotificationsPanel from './NotificationsPanel';
 import {
@@ -86,6 +86,8 @@ export default function AppTopBar({
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [quickSyncing, setQuickSyncing] = useState(false);
+  const [quickSyncHint, setQuickSyncHint] = useState<string | null>(null);
   const barRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
@@ -94,6 +96,33 @@ export default function AppTopBar({
 
   const groups = getNavModuleGroups(currentUser);
   const activeGroup = getModuleGroupForView(view);
+  const canQuickSync = isSupervisor(currentUser);
+
+  const handleQuickErpSync = useCallback(async () => {
+    if (!canQuickSync || quickSyncing) return;
+    setQuickSyncing(true);
+    setQuickSyncHint(null);
+    try {
+      const lock = await apiJson<{ running?: boolean }>('/import/sync-lock');
+      if (lock.running) {
+        setQuickSyncHint('Sync já em andamento');
+        return;
+      }
+      const data = await apiJson<{ message?: string }>('/import/sync', { method: 'POST' });
+      setQuickSyncHint(data.message || 'Sync ERP concluído');
+    } catch (e: unknown) {
+      const msg =
+        e instanceof ApiError
+          ? String((e.body as { error?: string })?.error || e.message)
+          : e instanceof Error
+            ? e.message
+            : 'Falha no sync ERP';
+      setQuickSyncHint(msg);
+    } finally {
+      setQuickSyncing(false);
+      window.setTimeout(() => setQuickSyncHint(null), 6000);
+    }
+  }, [canQuickSync, quickSyncing]);
 
   const clearCloseTimer = useCallback(() => {
     if (closeTimerRef.current !== null) {
@@ -299,6 +328,8 @@ export default function AppTopBar({
 
   const moduleMenuPortal =
     menuAnchor &&
+    typeof document !== 'undefined' &&
+    document.body &&
     createPortal(
       <div
         ref={menuRef}
@@ -368,7 +399,27 @@ export default function AppTopBar({
         )}
 
         <div className="flex items-center gap-3 shrink-0">
-          <span className="text-xs text-zinc-400 font-mono hidden sm:inline">v0.0.11</span>
+          <span className="text-xs text-zinc-400 font-mono hidden sm:inline">v0.0.13</span>
+
+          {canQuickSync && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => void handleQuickErpSync()}
+                disabled={quickSyncing}
+                className="p-2 rounded-xl border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Sync ERP rápido (incremental)"
+                aria-label="Sync ERP rápido"
+              >
+                <RefreshCw className={cn('h-4 w-4', quickSyncing && 'animate-spin')} />
+              </button>
+              {quickSyncHint && (
+                <div className="absolute right-0 top-full mt-1 z-50 max-w-[220px] rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[10px] font-semibold text-zinc-700 shadow-md">
+                  {quickSyncHint}
+                </div>
+              )}
+            </div>
+          )}
 
           {currentUser && <NotificationsPanel currentUser={currentUser} />}
 

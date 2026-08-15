@@ -649,8 +649,9 @@ fn build_demand_result(
     };
     let daily_avg = overall_avg / 30.0;
 
-    // Estoque = nQtdeEstoque (tela ERP). Reserva (−R) é só informativa — não descontar de novo.
-    // pedidos = POs abertos (não nQtdePedidos do cadastro).
+    // Estoque = nQtdeEstoque (tela ERP). Reserva (−R) = nqtdeReserva do ERP (espelho);
+    // lotes abertos só como fallback quando o ERP não informa reserva. Não descontar de novo.
+    // pedidos (+P) = POs abertos (não nQtdePedidos do cadastro).
     // Prev. Futura = estoque + pedidos + manuais − sim_producao (Produzir Urgente / Abrir Ordem).
     let (manual_in, manual_out) = manual_pending
         .get(&code)
@@ -669,11 +670,13 @@ fn build_demand_result(
         0.0
     };
 
-    let reserved_display = remaining_reserved;
-    let reserved_qty_erp = if reserved_qty_imported > 0.0 {
-        Some(reserved_qty_imported)
+    // Preferir espelho ERP (nqtdeReserva). Lotes só se ERP vier zerado — evita "falso erro"
+    // Hub×ERP quando a reserva do cadastro existe e a de lotes diverge.
+    let reserved_qty_erp = Some(reserved_qty_imported);
+    let reserved_display = if reserved_qty_imported.abs() > 1e-9 {
+        reserved_qty_imported
     } else {
-        None
+        remaining_reserved
     };
 
     let estimated_duration_days = if daily_avg > 0.0 {

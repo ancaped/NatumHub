@@ -32,6 +32,35 @@ pub async fn save_config_microbio_query(pool: PgPool, config: &serde_json::Value
     Ok(())
 }
 
+pub async fn get_fisco_config_query(pool: PgPool) -> Result<Option<serde_json::Value>, String> {
+    let res: Result<String, sqlx::Error> =
+        sqlx::query_scalar("SELECT value FROM config WHERE key = 'fisco_main'")
+            .fetch_one(&pool)
+            .await;
+
+    match res {
+        Ok(val) => {
+            let config: serde_json::Value = serde_json::from_str(&val).map_err(|e| e.to_string())?;
+            Ok(Some(config))
+        }
+        Err(sqlx::Error::RowNotFound) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+pub async fn save_config_fisco_query(pool: PgPool, config: &serde_json::Value) -> Result<(), String> {
+    let val = serde_json::to_string(config).map_err(|e| e.to_string())?;
+    sqlx::query(
+        "INSERT INTO config (key, value) VALUES ('fisco_main', $1)
+         ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
+    )
+    .bind(val)
+    .execute(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub async fn get_products_query(pool: PgPool) -> Result<Vec<Product>, String> {
     let rows = sqlx::query("SELECT code, name, packaging, validity FROM products")
         .fetch_all(&pool)
@@ -74,9 +103,17 @@ pub async fn delete_product_query(pool: PgPool, code: &str) -> Result<(), String
 }
 
 pub async fn get_reports_query(pool: PgPool) -> Result<Vec<Report>, String> {
+    let _ = sqlx::query(r#"ALTER TABLE reports ADD COLUMN IF NOT EXISTS "manufacturingDate" TEXT"#)
+        .execute(&pool)
+        .await;
+
+    let _ = sqlx::query(r#"ALTER TABLE reports ADD COLUMN IF NOT EXISTS "manufacturingDate" TEXT, ADD COLUMN IF NOT EXISTS printed BOOLEAN DEFAULT FALSE, ADD COLUMN IF NOT EXISTS "printedAt" TEXT"#)
+        .execute(&pool)
+        .await;
+
     let rows = sqlx::query(
-        r#"SELECT id, "reportId", "reportRawNum", "productCode", "productName", batch, "collectionDate", technician, "createdAt"
-           FROM reports ORDER BY "reportRawNum" DESC LIMIT 1000"#,
+        r#"SELECT id, "reportId", "reportRawNum", "productCode", "productName", batch, "collectionDate", technician, "createdAt", "manufacturingDate", printed, "printedAt"
+           FROM reports ORDER BY "reportRawNum" DESC LIMIT 5000"#,
     )
     .fetch_all(&pool)
     .await
@@ -94,16 +131,24 @@ pub async fn get_reports_query(pool: PgPool) -> Result<Vec<Report>, String> {
             collection_date: row.get(6),
             technician: row.get(7),
             created_at: row.get(8),
+            manufacturing_date: row.try_get(9).ok(),
+            printed: row.try_get(10).ok(),
+            printed_at: row.try_get(11).ok(),
         })
         .collect())
 }
 
 pub async fn save_reports_query(pool: PgPool, reports: &[Report]) -> Result<(), String> {
+    let _ = sqlx::query(r#"ALTER TABLE reports ADD COLUMN IF NOT EXISTS "manufacturingDate" TEXT, ADD COLUMN IF NOT EXISTS printed BOOLEAN DEFAULT FALSE, ADD COLUMN IF NOT EXISTS "printedAt" TEXT"#)
+        .execute(&pool)
+        .await;
+
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
     for report in reports {
+        let is_printed = report.printed.unwrap_or(false);
         sqlx::query(
-            r#"INSERT INTO reports (id, "reportId", "reportRawNum", "productCode", "productName", batch, "collectionDate", technician, "createdAt")
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP::TEXT)
+            r#"INSERT INTO reports (id, "reportId", "reportRawNum", "productCode", "productName", batch, "collectionDate", technician, "createdAt", "manufacturingDate", printed, "printedAt")
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP::TEXT, $9, $10, $11)
              ON CONFLICT(id) DO UPDATE SET
                 "reportId" = EXCLUDED."reportId",
                 "reportRawNum" = EXCLUDED."reportRawNum",
@@ -112,7 +157,10 @@ pub async fn save_reports_query(pool: PgPool, reports: &[Report]) -> Result<(), 
                 batch = EXCLUDED.batch,
                 "collectionDate" = EXCLUDED."collectionDate",
                 technician = EXCLUDED.technician,
-                "createdAt" = CURRENT_TIMESTAMP::TEXT"#,
+                "createdAt" = CURRENT_TIMESTAMP::TEXT,
+                "manufacturingDate" = EXCLUDED."manufacturingDate",
+                printed = EXCLUDED.printed,
+                "printedAt" = EXCLUDED."printedAt""#,
         )
         .bind(&report.id)
         .bind(&report.report_id)
@@ -122,11 +170,37 @@ pub async fn save_reports_query(pool: PgPool, reports: &[Report]) -> Result<(), 
         .bind(&report.batch)
         .bind(&report.collection_date)
         .bind(&report.technician)
+        .bind(&report.manufacturing_date)
+        .bind(is_printed)
+        .bind(&report.printed_at)
         .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
     }
     tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub async fn update_reports_printed_query(
+    pool: PgPool,
+    report_ids: &[String],
+    printed: bool,
+) -> Result<(), String> {
+    let now = chrono::Local::now().to_rfc3339();
+    let printed_at = if printed { Some(now) } else { None };
+
+    sqlx::query(
+        r#"UPDATE reports 
+           SET printed = $1, "printedAt" = $2 
+           WHERE id = ANY($3)"#,
+    )
+    .bind(printed)
+    .bind(printed_at)
+    .bind(report_ids)
+    .execute(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
     Ok(())
 }
 
@@ -247,8 +321,12 @@ pub async fn delete_fisco_quimica_pattern_query(pool: PgPool, code: &str) -> Res
 }
 
 pub async fn get_fisco_quimica_agents_query(pool: PgPool) -> Result<Vec<FiscoQuimicaAgent>, String> {
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_corrective_agents ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'VISCOSIDADE'")
+        .execute(&pool)
+        .await;
+
     let rows = sqlx::query(
-        "SELECT id, name, created_at FROM fisco_quimica_corrective_agents ORDER BY name",
+        "SELECT id, name, category, created_at FROM fisco_quimica_corrective_agents ORDER BY name",
     )
     .fetch_all(&pool)
     .await
@@ -259,18 +337,26 @@ pub async fn get_fisco_quimica_agents_query(pool: PgPool) -> Result<Vec<FiscoQui
         .map(|row| FiscoQuimicaAgent {
             id: row.get(0),
             name: row.get(1),
-            created_at: row.get(2),
+            category: row.get(2),
+            created_at: row.get(3),
         })
         .collect())
 }
 
 pub async fn save_fisco_quimica_agent_query(pool: PgPool, agent: &FiscoQuimicaAgent) -> Result<(), String> {
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_corrective_agents ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'VISCOSIDADE'")
+        .execute(&pool)
+        .await;
+
+    let cat = agent.category.as_deref().unwrap_or("VISCOSIDADE");
+
     sqlx::query(
-        "INSERT INTO fisco_quimica_corrective_agents (id, name) VALUES ($1, $2)
-         ON CONFLICT(id) DO UPDATE SET name = EXCLUDED.name",
+        "INSERT INTO fisco_quimica_corrective_agents (id, name, category) VALUES ($1, $2, $3)
+         ON CONFLICT(id) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category",
     )
     .bind(&agent.id)
     .bind(&agent.name)
+    .bind(cat)
     .execute(&pool)
     .await
     .map_err(|e| e.to_string())?;

@@ -30,6 +30,27 @@ pub fn router() -> Router<Arc<AppState>> {
             "/api/estoque/ordens-manuais/tipos/:id",
             delete(handlers::delete_record_type),
         )
+        // Registros (folhas) antes de /:id
+        .route(
+            "/api/estoque/ordens-manuais/registros",
+            get(handlers::list_sheet_registers),
+        )
+        .route(
+            "/api/estoque/ordens-manuais/registros/bloco",
+            post(handlers::create_sheet_block),
+        )
+        .route(
+            "/api/estoque/ordens-manuais/registros/:id",
+            get(handlers::get_sheet_register),
+        )
+        .route(
+            "/api/estoque/ordens-manuais/registros/:id/conferir",
+            post(handlers::conferir_sheet_register),
+        )
+        .route(
+            "/api/estoque/ordens-manuais/registros/:id/reabrir",
+            post(handlers::reabrir_sheet_register),
+        )
         .route(
             "/api/estoque/ordens-manuais/:id",
             get(handlers::get_order)

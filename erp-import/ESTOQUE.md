@@ -54,17 +54,24 @@ Excel de levantamento e contagem física **não** são fonte canônica: sync A /
 
 ## Auditoria (supervisor)
 
+Algoritmo: `|Hub − ERP| > 0,01` em **estoque, reserva, produção e pedidos** (produtos: estoque/produção/pedidos em `estoque_atual`). Fonte de tela = **`nQtdeEstoque`**. Insumos ganha de Materiais no mesmo código.
+
 | Método | Rota | Uso |
 |--------|------|-----|
-| GET | `/api/admin/audit/stock/:code` | Compara Hub × ERP ao vivo (`stockQty` = tela; `stockQtyA` = diagnóstico) |
+| GET | `/api/admin/audit/stock/:code` | Compara Hub × ERP ao vivo (multi-campo; `match*` + `warnings`; `stockQtyA` só diagnóstico) |
 | POST | `/api/admin/audit/stock/:code/refresh` | Re-lê pontual e grava |
-| POST | `/api/admin/audit/stock/verify-insumos` | Confere todos os insumos Hub × tela; **corrige** divergências (`|Δ| > 0,01`) |
+| POST | `/api/admin/audit/stock/verify-all` | Stream NDJSON: progresso + correção **Insumos + Materiais + Produtos** |
+| POST | `/api/admin/audit/stock/verify-insumos` | Alias sem stream (mesmo núcleo I+M+P) |
 | POST | `/api/admin/audit/stock/resync-insumos` | Regrava todos os insumos com `nQtdeEstoque` |
 | POST | `/api/admin/audit/stock/resync-produtos` | Regrava `estoque_atual` com `Produtos.nQtdeEstoque` |
 
-**Pós-sync automático:** após cada sync ERP bem-sucedido o Hub roda `verify-insumos` (leitura limpa, sem `NOLOCK`). Se corrigir algum código, notifica no sino (Configurações + Compras MP). Botão manual em Configurações → Sync ERP.
+**Stream `verify-all`:** linhas `{ "type":"progress", processed, total, repaired, phase, currentCode }` e final `{ "type":"done", checked, repaired, samples, bySource }`. `samples` lista até **200** códigos corrigidos (hub→erp). `repaired === 0` = zero divergências de estoque (não significa que −R/+P da grade Compras batem com a tela — são fontes distintas).
 
-Caso de teste: `9.15.019` — Hub `stock_qty` ≈ ERP tela `nQtdeEstoque` (~−530 kg); `nQtdeEstoqueA` (~−85) só aparece em auditoria.
+**Pós-sync automático:** após cada sync ERP bem-sucedido o Hub roda `verify_and_repair_all_stocks` (I+M+P, leitura limpa). Se corrigir algum código, notifica no sino. Botão em Configurações → Sync ERP (com barra de progresso). Atalho: ícone de sync na top bar (supervisor).
+
+**Compras −R:** preferir `stock_snapshots.reserved_qty` (= `nqtdeReserva`); só usar soma de lotes se o espelho ERP ≈ 0. Formatar estoque com até 4 casas (ex.: `1,3331`).
+
+Caso de teste: `9.15.104` — Hub `stock_qty` = ERP `nQtdeEstoque` (`1,3331` kg na tela do ERP); −R = `nqtdeReserva` (`20,516`). `nQtdeEstoqueA` (`21,3331`) é campo interno do ERP e **não** deve ser usado.
 
 ## Checklist ao alterar importação de estoque
 

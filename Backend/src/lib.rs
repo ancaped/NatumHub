@@ -27,6 +27,7 @@ pub mod modules {
     pub mod expedicao;
     pub mod qualidade;
     pub mod administrativo;
+    pub mod ferramentas;
 }
 
 pub mod handlers;
@@ -65,6 +66,9 @@ pub struct Report {
     pub collection_date: String,
     pub technician: String,
     pub created_at: Option<String>,
+    pub manufacturing_date: Option<String>,
+    pub printed: Option<bool>,
+    pub printed_at: Option<String>,
 }
 
 pub use crate::modules::compras::compras_online::models::{OnlineOrder, OnlineStore};
@@ -89,6 +93,7 @@ pub struct FiscoQuimicaPattern {
 pub struct FiscoQuimicaAgent {
     pub id: String,
     pub name: String,
+    pub category: Option<String>,
     pub created_at: Option<String>,
 }
 

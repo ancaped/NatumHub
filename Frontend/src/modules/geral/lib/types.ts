@@ -295,6 +295,9 @@ export interface Report {
   collectionDate: string;
   technician: string;
   createdAt: any;
+  manufacturingDate?: string;
+  printed?: boolean;
+  printedAt?: string;
 }
 
 export interface TestDefinition {
@@ -316,6 +319,7 @@ export interface TemplateConfig {
   sampleType: string;
   technicianSignName: string;
   technicianSignTitle: string;
+  defaultTechnician?: string;
   defaultTests: TestDefinition[];
 }
 
@@ -358,6 +362,25 @@ export interface OnlineStore {
   createdAt?: string;
 }
 
+export interface FiscoTemplateConfig {
+  labName: string;
+  deptName: string;
+  companyName: string;
+  companyAddress: string;
+  companyEmail: string;
+  companyContact: string;
+  sampleType: string;
+  technicianSignName: string;
+  technicianSignTitle: string;
+  defaultTechnician?: string;
+  defaultAspect?: string;
+  defaultColorOdor?: string;
+}
+
+export interface FiscoAppConfig {
+  template?: FiscoTemplateConfig;
+}
+
 export interface FiscoQuimicaPattern {
   productCode: string;
   phMin: number;
@@ -374,6 +397,7 @@ export interface FiscoQuimicaPattern {
 export interface FiscoQuimicaAgent {
   id: string;
   name: string;
+  category?: 'VISCOSIDADE' | 'PH' | 'OUTROS' | string;
   createdAt?: string;
 }
 
@@ -415,6 +439,9 @@ export interface LoteLookup {
   productDescription: string;
   quantity: number;
   date: string;
+  dLote?: string;
+  dPesado?: string;
+  dEnvase?: string;
   status: string;
   statusLabel: string;
   fabricatedBy: string;

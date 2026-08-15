@@ -18,6 +18,7 @@
   "routePrefixes": [
     { "prefix": "/api/qualidade/documentacao", "moduleKey": "qualidade_documentacao", "summary": "CRUD documentação / PDF / alertas" },
     { "prefix": "/api/qualidade/pops", "moduleKey": "qualidade_pops", "summary": "POPs versionados / setores / logo / alertas" },
+    { "prefix": "/api/qualidade/devolucoes", "moduleKey": "qualidade_devolucoes", "summary": "Devoluções cliente: recepção, CQ, disposição, ERP" },
     { "prefix": "/api/almox", "moduleKey": "estoque_almoxarifado", "summary": "Almoxarifado ops (itens, movimentos, equipamentos)" },
     { "prefix": "/api/estoque/ordens-manuais", "moduleKey": "estoque_ordens_manuais", "summary": "Ordens manuais entrada/saída de insumos" },
     { "prefix": "/api/estoque", "moduleKey": "estoque_produtos", "summary": "Estoque / contagens / item-info" },
@@ -142,6 +143,47 @@
         "GET /api/qualidade/pops/settings/logo": "Bytes do logo",
         "POST /api/qualidade/pops/seed-inventory": "Importa inventário 31 POPs",
         "POST /api/qualidade/pops/check-alerts": "Alertas vencimento 30/15/7"
+      }
+    },
+    "qualidade_devolucoes": {
+      "label": "Devoluções",
+      "purpose": "Devoluções de produto acabado do cliente: recepção, conferência/disposição CQ por item, controle de relançamento ERP e impressão A4.",
+      "status": "live",
+      "frontend": {
+        "view": "DevolucoesView",
+        "path": "Frontend/src/modules/qualidade/devolucoes/"
+      },
+      "backend": {
+        "path": "Backend/src/modules/qualidade/devolucoes/",
+        "routerPrefix": "/api/qualidade/devolucoes"
+      },
+      "permissions": { "rolesDefault": ["qualidade", "admin"], "supervisorOnly": false },
+      "data": {
+        "tables": ["qualidade_devolucoes", "qualidade_devolucao_itens"],
+        "filesOnDisk": []
+      },
+      "connectsTo": [
+        { "target": "auth", "kind": "guard", "note": "module_key qualidade_devolucoes" },
+        { "target": "postgres", "kind": "data", "note": "migration 026" },
+        { "target": "erp", "kind": "process", "note": "só status por item (sem sync automático)" }
+      ],
+      "aiHints": [
+        "Sem vínculo obrigatório a NF/pedido ERP; autocomplete cliente via /vendas/clientes",
+        "Disposições fixas (não cadastráveis); lotes em texto livre",
+        "Impressão estilo PrintListTab: ficha completa + a lançar ERP",
+        "Status: rascunho→recebido→em_conferencia→disposto→parcialmente_lancado|finalizado"
+      ],
+      "routeSummaries": {
+        "GET /api/qualidade/devolucoes": "Lista devoluções (filtro status)",
+        "POST /api/qualidade/devolucoes": "Cria rascunho",
+        "GET /api/qualidade/devolucoes/:id": "Detalhe + itens",
+        "PUT /api/qualidade/devolucoes/:id": "Edita cabeçalho/itens (rascunho/recebido)",
+        "DELETE /api/qualidade/devolucoes/:id": "Remove só rascunho",
+        "POST /api/qualidade/devolucoes/:id/receber": "Assinatura recebedor → recebido",
+        "POST /api/qualidade/devolucoes/:id/iniciar-conferencia": "recebido → em_conferencia",
+        "POST /api/qualidade/devolucoes/:id/itens/:itemId/conferir": "Qtde conf. / análise / disposição",
+        "POST /api/qualidade/devolucoes/:id/fechar-cq": "Assinatura CQ → disposto",
+        "POST /api/qualidade/devolucoes/:id/itens/:itemId/erp": "em_processo|lancado"
       }
     },
     "estoque_ordens_manuais": {
@@ -387,7 +429,6 @@
       "status": "stub",
       "aiHints": ["Verificar se ainda é placeholder antes de expandir"]
     },
-    "qualidade_pops": { "label": "POPs", "purpose": "Procedimentos operacionais padrão.", "status": "stub" },
     "qualidade_treinamentos": { "label": "Treinamentos", "purpose": "Registro de treinamentos de qualidade.", "status": "stub" },
     "qualidade_temperatura": { "label": "Temperatura", "purpose": "Controle de temperatura.", "status": "stub" },
     "qualidade_limpeza": { "label": "Limpeza", "purpose": "Registros de limpeza.", "status": "stub" },

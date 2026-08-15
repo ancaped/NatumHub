@@ -3,7 +3,7 @@ import {
   Boxes, ShoppingCart, Activity, FlaskConical, ArrowRight, ArrowLeft,
   Settings, Database, RefreshCw, Upload, Download, Loader2, Check, X, Globe,
   FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp, DollarSign,
-  ClipboardCheck, Briefcase, Truck, Warehouse, Calculator
+  ClipboardCheck, Briefcase, Truck, Warehouse, Calculator, Wrench
 } from 'lucide-react';
 import { canAccessView } from '../lib/modules/permissions';
 import type { AuthUser } from '../lib/auth';
@@ -326,6 +326,26 @@ export default function DashboardView({
                 </div>
               </button>
               )}
+
+              {allow('ferramentas_hub') && (
+              <button 
+                onClick={() => setView('ferramentas_etiquetas')}
+                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <Wrench className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-zinc-900">Ferramentas</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Editor de etiquetas adesivas (100x50mm), impressão térmica, códigos de barra e utilitários.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Entrar no Módulo <ArrowRight className="h-4 w-4" />
+                </div>
+              </button>
+              )}
             </div>
           </div>
         ) : view === 'producao_hub' ? (
@@ -571,6 +591,44 @@ export default function DashboardView({
                   <div><h3 className="text-lg font-bold text-zinc-900">Almoxarifado</h3><p className="text-xs text-zinc-500 mt-1">Demandas locais de materiais do almox (abaixo do mínimo), marcar pedido e receber gerando entrada.</p></div>
                 </div>
                 <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar Almoxarifado <ArrowRight className="h-3 w-3" /></div>
+              </button>
+              )}
+            </div>
+          </div>
+        ) : view === 'ferramentas_hub' ? (
+          <div className="w-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="flex items-center gap-4 text-left">
+              <button 
+                onClick={() => setView('hub')}
+                className="bg-white border border-zinc-200 hover:bg-zinc-100 p-2 rounded-xl text-zinc-650 hover:text-zinc-900 transition-colors cursor-pointer"
+                title="Voltar ao Início"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+              <div>
+                <h2 className="text-2xl font-extrabold tracking-tight text-zinc-900">Módulo de Ferramentas</h2>
+                <p className="text-xs text-zinc-500">Selecione o utilitário desejado.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-2">
+              {allow('ferramentas_etiquetas') && (
+              <button 
+                onClick={() => setView('ferramentas_etiquetas')}
+                className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <Tag className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-zinc-900">Editor de Etiquetas</h3>
+                    <p className="text-xs text-zinc-500 mt-1">Crie e imprima etiquetas adesivas personalizadas (100x50mm), códigos de barras, QR codes e identificação de lotes.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Acessar Editor <ArrowRight className="h-3 w-3" />
+                </div>
               </button>
               )}
             </div>

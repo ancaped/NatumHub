@@ -13,9 +13,13 @@ use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
 
 use super::models::{
-    CreateManualOrderRequest, CreateRecordTypeRequest, ItemSearchHit, ManualOrderItemOut,
-    ManualOrderOut, PendingByItem, RecordTypeOut, UpdateManualOrderRequest,
+    CreateManualOrderRequest, CreateRecordTypeRequest, CreateSheetBlockRequest, ItemSearchHit,
+    ManualOrderItemOut, ManualOrderOut, PendingByItem, RecordTypeOut, SheetRegisterOut,
+    UpdateManualOrderRequest,
 };
+
+/// Linhas vazias na folha A4 de preenchimento manual.
+pub const BLANK_LINES_PER_SHEET: i32 = 18;
 
 pub async fn ensure_tables(pool: &PgPool) -> Result<(), String> {
     sqlx::query(
@@ -87,6 +91,40 @@ pub async fn ensure_tables(pool: &PgPool) -> Result<(), String> {
     .execute(pool)
     .await;
 
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS manual_stock_sheet_registers (
+            id BIGSERIAL PRIMARY KEY,
+            register_number TEXT UNIQUE NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('entrada', 'saida')),
+            status TEXT NOT NULL DEFAULT 'retirada' CHECK (status IN ('retirada', 'conferida')),
+            created_by TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            conferred_by TEXT,
+            conferred_at TIMESTAMPTZ
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let _ = sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_manual_stock_sheet_registers_status ON manual_stock_sheet_registers (status)",
+    )
+    .execute(pool)
+    .await;
+    let _ = sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_manual_stock_sheet_registers_kind ON manual_stock_sheet_registers (kind)",
+    )
+    .execute(pool)
+    .await;
+    let _ = sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_manual_stock_sheet_registers_created ON manual_stock_sheet_registers (created_at DESC)",
+    )
+    .execute(pool)
+    .await;
+
     Ok(())
 }
 
@@ -148,13 +186,11 @@ async fn next_order_number(pool: &PgPool) -> Result<String, String> {
     let next = match row {
         Some(r) => {
             let last: String = r.get(0);
-            let seq: u32 = last
-                .rsplit('-')
+            last.rsplit('-')
                 .next()
-                .and_then(|s| s.parse().ok())
+                .and_then(|s| s.parse::<u32>().ok())
                 .unwrap_or(0)
-                + 1;
-            seq
+                + 1
         }
         None => 1,
     };
@@ -321,33 +357,11 @@ pub async fn get_order(
             .into_response();
     }
 
-    let row = match sqlx::query(&format!("{ORDER_SELECT} WHERE id = $1"))
-        .bind(id)
-        .fetch_optional(pool)
-        .await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({ "error": "Ordem não encontrada" })),
-            )
-                .into_response();
-        }
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
-
-    match load_items(pool, id).await {
-        Ok(items) => (StatusCode::OK, Json(row_to_order(&row, items))).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
+    match load_full(pool, id).await {
+        Ok(o) => (StatusCode::OK, Json(o)).into_response(),
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Ordem não encontrada" })),
         )
             .into_response(),
     }
@@ -463,7 +477,6 @@ pub async fn create_order(
     };
     let id = crate::core::pg_row::pg_i64(&row, 0);
 
-    // Garante o tipo no cadastro (idempotente).
     let _ = sqlx::query(
         "INSERT INTO manual_stock_record_types (name) VALUES ($1) ON CONFLICT (name) DO NOTHING",
     )
@@ -1018,6 +1031,369 @@ pub async fn delete_record_type(
         )
             .into_response(),
         Ok(_) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+// ─── Folhas de registro (Controle Entrada/Saída de Insumo) ───
+
+fn sheet_prefix(kind: &str) -> &'static str {
+    if kind == "entrada" {
+        "CEI"
+    } else {
+        "CSI"
+    }
+}
+
+const SHEET_SELECT: &str = r#"
+    SELECT id, register_number, kind, status, created_at, created_by, conferred_at, conferred_by
+    FROM manual_stock_sheet_registers
+"#;
+
+fn row_to_sheet_register(r: &sqlx::postgres::PgRow) -> SheetRegisterOut {
+    let created_at: chrono::DateTime<chrono::Utc> = r.get(4);
+    let conferred_at: Option<chrono::DateTime<chrono::Utc>> = r.get(6);
+    SheetRegisterOut {
+        id: crate::core::pg_row::pg_i64(r, 0),
+        register_number: r.get(1),
+        kind: r.get(2),
+        status: r.get(3),
+        created_at: created_at.to_rfc3339(),
+        created_by: r.get(5),
+        conferred_at: conferred_at.map(|t| t.to_rfc3339()),
+        conferred_by: r.get(7),
+    }
+}
+
+async fn next_sheet_seq_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    kind: &str,
+) -> Result<u32, String> {
+    let year = chrono::Local::now().format("%Y").to_string();
+    let prefix = format!("{}-{}-", sheet_prefix(kind), year);
+    let row = sqlx::query(
+        r#"
+        SELECT register_number FROM manual_stock_sheet_registers
+        WHERE register_number LIKE $1
+        ORDER BY register_number DESC
+        LIMIT 1
+        FOR UPDATE
+        "#,
+    )
+    .bind(format!("{prefix}%"))
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(match row {
+        Some(r) => {
+            let last: String = r.get(0);
+            last.rsplit('-')
+                .next()
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(0)
+                + 1
+        }
+        None => 1,
+    })
+}
+
+pub async fn create_sheet_block(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Json(payload): Json<CreateSheetBlockRequest>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    if let Err(e) = ensure_tables(pool).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response();
+    }
+
+    let kind = match normalize_kind(&payload.kind) {
+        Ok(k) => k,
+        Err(e) => {
+            return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response();
+        }
+    };
+    let qty = payload.quantity;
+    if qty < 1 || qty > 100 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "quantity deve ser entre 1 e 100" })),
+        )
+            .into_response();
+    }
+
+    let mut tx = match pool.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    let mut next_seq = match next_sheet_seq_tx(&mut tx, kind).await {
+        Ok(n) => n,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e })),
+            )
+                .into_response();
+        }
+    };
+
+    let year = chrono::Local::now().format("%Y").to_string();
+    let prefix = sheet_prefix(kind);
+    let mut ids = Vec::with_capacity(qty as usize);
+
+    for _ in 0..qty {
+        let register_number = format!("{prefix}-{year}-{next_seq:04}");
+        let row = match sqlx::query(
+            r#"
+            INSERT INTO manual_stock_sheet_registers
+                (register_number, kind, status, created_by)
+            VALUES ($1, $2, 'retirada', $3)
+            RETURNING id
+            "#,
+        )
+        .bind(&register_number)
+        .bind(kind)
+        .bind(&ctx.display_name)
+        .fetch_one(&mut *tx)
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": e.to_string() })),
+                )
+                    .into_response();
+            }
+        };
+        ids.push(crate::core::pg_row::pg_i64(&row, 0));
+        next_seq += 1;
+    }
+
+    if let Err(e) = tx.commit().await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response();
+    }
+
+    let mut out = Vec::with_capacity(ids.len());
+    for id in ids {
+        match load_sheet(pool, id).await {
+            Ok(s) => out.push(s),
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": e })),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    (StatusCode::CREATED, Json(out)).into_response()
+}
+
+async fn load_sheet(pool: &PgPool, id: i64) -> Result<SheetRegisterOut, String> {
+    let row = sqlx::query(&format!("{SHEET_SELECT} WHERE id = $1"))
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(row_to_sheet_register(&row))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListSheetsQuery {
+    pub status: Option<String>,
+    pub kind: Option<String>,
+    pub q: Option<String>,
+}
+
+pub async fn list_sheet_registers(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ListSheetsQuery>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    if let Err(e) = ensure_tables(pool).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response();
+    }
+
+    let mut sql = String::from(SHEET_SELECT);
+    sql.push_str(" WHERE 1=1");
+    let mut binds: Vec<String> = Vec::new();
+
+    if let Some(ref st) = query.status {
+        let st = st.trim().to_lowercase();
+        if st == "retirada" || st == "conferida" {
+            binds.push(st);
+            sql.push_str(&format!(" AND status = ${}", binds.len()));
+        }
+    }
+    if let Some(ref kind) = query.kind {
+        if let Ok(k) = normalize_kind(kind) {
+            binds.push(k.to_string());
+            sql.push_str(&format!(" AND kind = ${}", binds.len()));
+        }
+    }
+    if let Some(ref q) = query.q {
+        let q = q.trim();
+        if !q.is_empty() {
+            binds.push(format!("%{q}%"));
+            let i = binds.len();
+            sql.push_str(&format!(" AND register_number ILIKE ${i}"));
+        }
+    }
+    sql.push_str(" ORDER BY created_at DESC, id DESC LIMIT 500");
+
+    let mut qb = sqlx::query(&sql);
+    for b in &binds {
+        qb = qb.bind(b);
+    }
+
+    match qb.fetch_all(pool).await {
+        Ok(rows) => {
+            let out: Vec<SheetRegisterOut> = rows.iter().map(row_to_sheet_register).collect();
+            (StatusCode::OK, Json(out)).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn get_sheet_register(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    if let Err(e) = ensure_tables(pool).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response();
+    }
+
+    match load_sheet(pool, id).await {
+        Ok(s) => (StatusCode::OK, Json(s)).into_response(),
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Registro não encontrado" })),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn conferir_sheet_register(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    if let Err(e) = ensure_tables(pool).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response();
+    }
+
+    let res = sqlx::query(
+        r#"
+        UPDATE manual_stock_sheet_registers
+        SET status = 'conferida', conferred_by = $2, conferred_at = NOW()
+        WHERE id = $1 AND status = 'retirada'
+        "#,
+    )
+    .bind(id)
+    .bind(&ctx.display_name)
+    .execute(pool)
+    .await;
+
+    match res {
+        Ok(r) if r.rows_affected() == 0 => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Registro não encontrado ou já conferido" })),
+        )
+            .into_response(),
+        Ok(_) => match load_sheet(pool, id).await {
+            Ok(s) => (StatusCode::OK, Json(s)).into_response(),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e })),
+            )
+                .into_response(),
+        },
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn reabrir_sheet_register(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    if let Err(e) = ensure_tables(pool).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response();
+    }
+
+    let res = sqlx::query(
+        r#"
+        UPDATE manual_stock_sheet_registers
+        SET status = 'retirada', conferred_by = NULL, conferred_at = NULL
+        WHERE id = $1 AND status = 'conferida'
+        "#,
+    )
+    .bind(id)
+    .execute(pool)
+    .await;
+
+    match res {
+        Ok(r) if r.rows_affected() == 0 => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Registro não encontrado ou não está conferido" })),
+        )
+            .into_response(),
+        Ok(_) => match load_sheet(pool, id).await {
+            Ok(s) => (StatusCode::OK, Json(s)).into_response(),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e })),
+            )
+                .into_response(),
+        },
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": e.to_string() })),

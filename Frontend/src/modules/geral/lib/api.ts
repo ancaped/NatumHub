@@ -4,7 +4,7 @@ import type {
   Category, Supplier, Item, Invoice,
   DemandResult, Quotation, QuotationItem, QuotationPrice,
   ImportResult, StockImport, PricePoint, SupplierSpend, CategorySpend,
-  ComprasAppConfig, MicrobioAppConfig, Feedback, Product, Report, OnlineOrder, OnlineStore,
+  ComprasAppConfig, MicrobioAppConfig, FiscoAppConfig, Feedback, Product, Report, OnlineOrder, OnlineStore,
   FiscoQuimicaPattern, FiscoQuimicaAgent, FiscoQuimicaAnalysis, LoteLookup,
   CustomPurchaseConfigRow
 } from './types';
@@ -185,6 +185,12 @@ export const api = {
     const list = Array.isArray(reports) ? reports : [reports];
     return hubJson('microbio/reports', { method: 'POST', body: JSON.stringify({ reports: list }) });
   },
+  markReportsPrinted(ids: string[], printed: boolean = true): Promise<void> {
+    return hubJson('microbio/reports/printed', {
+      method: 'POST',
+      body: JSON.stringify({ ids, printed }),
+    });
+  },
   deleteReport(id: string): Promise<void> {
     return hubJson(`microbio/reports/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
@@ -250,6 +256,12 @@ export const api = {
   },
 
   // === FÍSICO-QUÍMICA ===
+  getFiscoConfig(): Promise<FiscoAppConfig | null> {
+    return hubJson('fisco/config');
+  },
+  saveFiscoConfig(config: FiscoAppConfig): Promise<void> {
+    return hubJson('fisco/config', { method: 'POST', body: JSON.stringify(config) });
+  },
   getFiscoQuimicaPatterns(): Promise<FiscoQuimicaPattern[]> {
     return hubJson('fisco/patterns');
   },

@@ -253,7 +253,10 @@ pub struct KitCalculationResult {
     #[serde(flatten)]
     pub kit_detalhes: ProductCalculationResult,
     pub componentes: Vec<KitComponentDetail>,
+    /// Capacidade com EFP (estoque + produção − pedidos).
     pub max_montavel: i64,
+    /// Capacidade só com estoque físico dos componentes.
+    pub max_montavel_estoque: i64,
     pub componentes_criticos: Vec<String>,
 }
 
@@ -351,6 +354,13 @@ pub struct KitComposicaoRow {
     pub quantidade: f64,
     pub fator_proporcao_qtd: Option<f64>,
     pub fator_proporcao_kits: Option<i32>,
+    /// `erp` (Passo P) ou `manual` (CRUD/Excel).
+    #[serde(default = "default_kit_origem")]
+    pub origem: String,
+}
+
+fn default_kit_origem() -> String {
+    "manual".into()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

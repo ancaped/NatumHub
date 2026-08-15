@@ -111,11 +111,14 @@ pub async fn delete_kit_composicao_handler(
 ) -> impl IntoResponse {
     match state.db.delete_kit_composicao(&kit, &comp).await {
         Ok(_) => (StatusCode::OK, Json(json!({ "status": "success" }))).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao excluir relação de kit: {}", e) })),
-        )
-            .into_response(),
+        Err(e) => {
+            let status = if e.contains("sincronizado do ERP") {
+                StatusCode::FORBIDDEN
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (status, Json(json!({ "error": format!("Erro ao excluir relação de kit: {}", e) }))).into_response()
+        }
     }
 }
 
@@ -166,13 +169,7 @@ pub async fn upload_kit_composicao(
         )
             .into_response();
     }
-    if let Err(e) = state.db.delete_all_kit_composicao().await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao limpar composições existentes: {}", e) })),
-        )
-            .into_response();
-    }
+    // Limpeza de linhas manuais ocorre dentro de parse_kits_excel (tx).
     let pool = state.db.pool();
     match crate::modules::compras::planejamento::parser::parse_kits_excel(&temp_path, pool).await
     {

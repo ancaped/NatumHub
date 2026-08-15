@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, Layers, Plus, RefreshCw, Search, Settings, Upload } from 'lucide-react';
+import { AlertTriangle, BookOpen, CheckCircle2, Clock, FileText, Layers, Plus, RefreshCw, Search, Settings, Sparkles, Upload } from 'lucide-react';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import { apiFetch, apiJson } from '../../geral/lib/http';
 import PopDrawer from './components/PopDrawer';
@@ -96,6 +96,16 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
     [documents],
   );
 
+  const publishedCount = useMemo(
+    () => documents.filter((d) => d.status === 'published').length,
+    [documents],
+  );
+
+  const draftCount = useMemo(
+    () => documents.filter((d) => d.status === 'draft').length,
+    [documents],
+  );
+
   const sidebarItems = [
     { id: 'pops', label: 'POPs', icon: BookOpen, badge: overdueCount || undefined },
     { id: 'setores', label: 'Setores', icon: Layers },
@@ -150,7 +160,7 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
         body: JSON.stringify({ force }),
       });
       setSeedMsg(
-        `Inventário: ${res.created} criados, ${res.skipped} existentes, ${res.bodiesFilled} corpos preenchidos (${res.sectors} setores).`,
+        `Inventário atualizado: ${res.created} criados, ${res.skipped} verificados, ${res.bodiesFilled} corpos sanitizados (${res.sectors} setores).`,
       );
       await load();
     } catch (e: unknown) {
@@ -197,123 +207,178 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
       activeTab={activeTab}
       onTabChange={(id) => setActiveTab(id as TabId)}
     >
-      <div className="flex flex-col h-full p-4 md:p-6 gap-3">
+      <div className="flex flex-col h-full p-4 md:p-6 gap-4 overflow-y-auto">
         {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {error}
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-red-600" />
+            <span>{error}</span>
           </div>
         )}
 
         {activeTab === 'pops' && (
           <>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative flex-1 min-w-[180px]">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
-                <input
-                  className="w-full rounded-lg border border-zinc-300 pl-9 pr-3 py-2 text-sm"
-                  placeholder="Buscar código ou título…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
+            {/* Toolbar de Pesquisa e Filtros */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-zinc-200/80 shadow-sm">
+              <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                  <input
+                    className="w-full rounded-xl border border-zinc-200 pl-9 pr-3 py-2 text-sm bg-zinc-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900/10 focus:border-zinc-400 transition-all"
+                    placeholder="Buscar código ou título…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
+                <select
+                  className="rounded-xl border border-zinc-200 px-3 py-2 text-sm bg-zinc-50/50 focus:bg-white focus:outline-none focus:border-zinc-400 transition-all"
+                  value={sectorFilter}
+                  onChange={(e) => setSectorFilter(e.target.value)}
+                >
+                  <option value="">Todos os setores</option>
+                  {sectors.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="rounded-xl border border-zinc-200 px-3 py-2 text-sm bg-zinc-50/50 focus:bg-white focus:outline-none focus:border-zinc-400 transition-all"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <option value="">Todos os status</option>
+                  <option value="published">Publicado</option>
+                  <option value="draft">Rascunho</option>
+                  <option value="obsolete">Obsoleto</option>
+                </select>
               </div>
-              <select
-                className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-                value={sectorFilter}
-                onChange={(e) => setSectorFilter(e.target.value)}
-              >
-                <option value="">Todos os setores</option>
-                {sectors.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="">Todos os status</option>
-                <option value="draft">Rascunho</option>
-                <option value="published">Publicado</option>
-                <option value="obsolete">Obsoleto</option>
-              </select>
-              <button
-                type="button"
-                onClick={() => void load()}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-300 text-sm"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Atualizar
-              </button>
-              <button
-                type="button"
-                onClick={openNew}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-900 text-white text-sm"
-              >
-                <Plus className="w-4 h-4" />
-                Novo POP
-              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void load()}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-zinc-200 hover:border-zinc-300 text-sm font-medium text-zinc-700 bg-white hover:bg-zinc-50 transition-colors shadow-sm"
+                >
+                  <RefreshCw className="w-4 h-4 text-zinc-500" />
+                  Atualizar
+                </button>
+                <button
+                  type="button"
+                  onClick={openNew}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-medium transition-colors shadow-sm"
+                >
+                  <Plus className="w-4 h-4" />
+                  Novo POP
+                </button>
+              </div>
             </div>
 
             {loading ? (
-              <p className="text-sm text-zinc-500">Carregando…</p>
+              <div className="p-8 text-center text-sm text-zinc-500">Carregando procedimentos…</div>
             ) : documents.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-zinc-300 p-8 text-center space-y-3">
-                <p className="text-sm text-zinc-600">Nenhum POP cadastrado.</p>
+              <div className="rounded-2xl border border-dashed border-zinc-300 p-12 text-center space-y-4 bg-white shadow-sm">
+                <BookOpen className="w-10 h-10 text-zinc-400 mx-auto" />
+                <div className="max-w-md mx-auto">
+                  <h3 className="text-base font-semibold text-zinc-900">Nenhum POP encontrado</h3>
+                  <p className="text-sm text-zinc-500 mt-1">
+                    Não existem procedimentos operacionais cadastrados para os filtros selecionados.
+                  </p>
+                </div>
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => void seedInventory(false)}
-                  className="px-3 py-2 rounded-lg bg-zinc-900 text-white text-sm disabled:opacity-50"
+                  onClick={() => void seedInventory(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-medium transition-colors disabled:opacity-50 shadow-sm"
                 >
-                  Importar inventário (31 POPs)
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  Importar Inventário Oficial (31 POPs)
                 </button>
               </div>
             ) : (
-              <div className="space-y-5 overflow-y-auto">
+              <div className="space-y-6">
                 {grouped.map(([sector, docs]) => (
-                  <section key={sector}>
-                    <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 mb-2">
-                      {sector}
-                    </h2>
-                    <div className="rounded-xl border border-zinc-200 overflow-hidden">
-                      <table className="w-full text-sm">
-                        <thead className="bg-zinc-50 text-zinc-600 text-left">
+                  <section key={sector} className="bg-white rounded-2xl border border-zinc-200/80 shadow-sm overflow-hidden">
+                    <div className="px-4 py-3 bg-zinc-50/70 border-b border-zinc-200/70 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Layers className="w-4 h-4 text-zinc-500" />
+                        <h2 className="text-sm font-bold text-zinc-800 tracking-wide uppercase">
+                          {sector}
+                        </h2>
+                      </div>
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-zinc-200/60 text-zinc-700">
+                        {docs.length} {docs.length === 1 ? 'procedimento' : 'procedimentos'}
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left table-fixed">
+                        <thead className="bg-zinc-50/70 text-zinc-500 text-xs uppercase tracking-wider border-b border-zinc-200/80">
                           <tr>
-                            <th className="px-3 py-2 font-medium">Código</th>
-                            <th className="px-3 py-2 font-medium">Título</th>
-                            <th className="px-3 py-2 font-medium">Rev.</th>
-                            <th className="px-3 py-2 font-medium">Status</th>
-                            <th className="px-3 py-2 font-medium">Próx. revisão</th>
+                            <th className="w-36 px-4 py-3 font-semibold text-left">Código</th>
+                            <th className="px-4 py-3 font-semibold text-left">Título do POP</th>
+                            <th className="w-28 px-4 py-3 font-semibold text-center">Revisão</th>
+                            <th className="w-44 px-4 py-3 font-semibold text-center">Status</th>
+                            <th className="w-40 px-4 py-3 font-semibold text-right">Próxima Revisão</th>
                           </tr>
                         </thead>
-                        <tbody>
+                        <tbody className="divide-y divide-zinc-100">
                           {docs.map((d) => {
                             const badge = d.status === 'published' ? reviewBadge(d.daysToReview) : null;
+                            const isPublished = d.status === 'published';
+                            const isDraft = d.status === 'draft';
+
                             return (
                               <tr
                                 key={d.id}
-                                className="border-t border-zinc-100 hover:bg-zinc-50 cursor-pointer"
+                                className="hover:bg-zinc-50/80 cursor-pointer transition-colors group"
                                 onClick={() => void openDoc(d)}
                               >
-                                <td className="px-3 py-2 font-mono text-xs">{d.code}</td>
-                                <td className="px-3 py-2">{d.title}</td>
-                                <td className="px-3 py-2">{d.currentRevision}</td>
-                                <td className="px-3 py-2">
-                                  <span className="inline-flex items-center gap-1">
-                                    {d.status}
+                                <td className="w-36 px-4 py-3.5 font-mono text-xs font-bold text-zinc-900 group-hover:text-black align-middle text-left truncate">
+                                  {d.code}
+                                </td>
+                                <td className="px-4 py-3.5 font-medium text-zinc-900 align-middle text-left truncate">
+                                  {d.title}
+                                </td>
+                                <td className="w-28 px-4 py-3.5 text-center align-middle">
+                                  <span className="inline-flex items-center justify-center min-w-[3.5rem] px-2.5 py-0.5 rounded-full bg-zinc-100 text-zinc-800 text-xs font-semibold border border-zinc-200">
+                                    Rev {String(d.currentRevision).padStart(2, '0')}
+                                  </span>
+                                </td>
+                                <td className="w-44 px-4 py-3.5 text-center align-middle">
+                                  <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                    {isPublished && (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                        Publicado
+                                      </span>
+                                    )}
+                                    {isDraft && (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                        Rascunho
+                                      </span>
+                                    )}
+                                    {!isPublished && !isDraft && (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-zinc-100 text-zinc-600 border border-zinc-200">
+                                        {d.status}
+                                      </span>
+                                    )}
                                     {badge && (
-                                      <span
-                                        className={`text-[10px] px-1.5 py-0.5 rounded-full ${badge.className}`}
-                                      >
+                                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${badge.className}`}>
                                         {badge.label}
                                       </span>
                                     )}
-                                  </span>
+                                  </div>
                                 </td>
-                                <td className="px-3 py-2 text-zinc-600">
-                                  {d.nextReviewDate?.slice(0, 10) ?? '—'}
+                                <td className="w-40 px-4 py-3.5 text-right align-middle text-zinc-600 text-xs font-medium">
+                                  {d.nextReviewDate?.slice(0, 10) ? (
+                                    <span className="inline-flex items-center justify-end gap-1 w-full">
+                                      <Clock className="w-3.5 h-3.5 text-zinc-400" />
+                                      {d.nextReviewDate.slice(0, 10)}
+                                    </span>
+                                  ) : (
+                                    '—'
+                                  )}
                                 </td>
                               </tr>
                             );
@@ -329,11 +394,12 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
         )}
 
         {activeTab === 'setores' && (
-          <div className="max-w-xl space-y-4">
+          <div className="max-w-xl space-y-4 bg-white p-6 rounded-2xl border border-zinc-200/80 shadow-sm">
+            <h2 className="text-base font-bold text-zinc-900">Setores Cadastrados</h2>
             <div className="flex gap-2">
               <input
-                className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-                placeholder="Nome do setor"
+                className="flex-1 rounded-xl border border-zinc-200 px-3.5 py-2 text-sm bg-zinc-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900/10 focus:border-zinc-400 transition-all"
+                placeholder="Nome do novo setor"
                 value={newSectorName}
                 onChange={(e) => setNewSectorName(e.target.value)}
               />
@@ -341,16 +407,18 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
                 type="button"
                 disabled={busy || !newSectorName.trim()}
                 onClick={() => void createSector()}
-                className="px-3 py-2 rounded-lg bg-zinc-900 text-white text-sm disabled:opacity-50"
+                className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-medium transition-colors disabled:opacity-50 shadow-sm"
               >
                 Adicionar
               </button>
             </div>
-            <ul className="rounded-xl border border-zinc-200 divide-y divide-zinc-100">
+            <ul className="rounded-xl border border-zinc-200/80 divide-y divide-zinc-100 overflow-hidden">
               {sectors.map((s) => (
-                <li key={s.id} className="px-3 py-2 flex justify-between text-sm">
-                  <span>{s.name}</span>
-                  <span className="text-zinc-400 text-xs">{s.active ? 'ativo' : 'inativo'}</span>
+                <li key={s.id} className="px-4 py-3 flex items-center justify-between text-sm hover:bg-zinc-50/50">
+                  <span className="font-medium text-zinc-800">{s.name}</span>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${s.active ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-zinc-100 text-zinc-500'}`}>
+                    {s.active ? 'Ativo' : 'Inativo'}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -358,62 +426,68 @@ export default function QualidadePopsView({ onBackToHub }: Props) {
         )}
 
         {activeTab === 'config' && (
-          <div className="max-w-lg space-y-5">
-            <section className="space-y-2">
-              <p className="text-sm font-medium text-zinc-900">Logo impresso</p>
-              <p className="text-xs text-zinc-500">
-                Usado no cabeçalho de todos os POPs na impressão / PDF do navegador.
+          <div className="max-w-xl space-y-6 bg-white p-6 rounded-2xl border border-zinc-200/80 shadow-sm">
+            <section className="space-y-3">
+              <h2 className="text-base font-bold text-zinc-900">Logo do Cabeçalho Impresso</h2>
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                Logotipo exibido no topo do modelo oficial de impressão dos POPs.
               </p>
               {logoSrc ? (
-                <img
-                  src={logoSrc}
-                  alt="Logo POPs"
-                  className="h-16 object-contain border border-zinc-200 rounded-lg p-2 bg-white"
-                />
+                <div className="inline-block border border-zinc-200 rounded-xl p-3 bg-zinc-50">
+                  <img
+                    src={logoSrc}
+                    alt="Logo POPs"
+                    className="h-16 object-contain max-w-full"
+                  />
+                </div>
               ) : (
-                <p className="text-sm text-zinc-500">Nenhum logo configurado.</p>
+                <p className="text-sm text-zinc-500 italic">Nenhum logo configurado.</p>
               )}
-              <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-300 text-sm cursor-pointer">
-                <Upload className="w-4 h-4" />
-                Enviar logo
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) void uploadLogo(f);
-                    e.target.value = '';
-                  }}
-                />
-              </label>
-              {settings?.logoRelPath && (
-                <p className="text-xs text-zinc-400">{settings.logoRelPath}</p>
-              )}
+              <div>
+                <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-zinc-200 hover:border-zinc-300 text-sm font-medium text-zinc-700 bg-white hover:bg-zinc-50 transition-colors shadow-sm cursor-pointer">
+                  <Upload className="w-4 h-4 text-zinc-500" />
+                  Enviar logo corporativo
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) void uploadLogo(f);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
             </section>
 
-            <section className="space-y-2">
-              <p className="text-sm font-medium text-zinc-900">Inventário inicial</p>
-              <p className="text-xs text-zinc-500">
-                Cadastra os 31 POPs do estudo como rascunho (não sobrescreve códigos existentes).
+            <hr className="border-zinc-100" />
+
+            <section className="space-y-3">
+              <h2 className="text-base font-bold text-zinc-900">Sincronização do Inventário de POPs</h2>
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                Carrega o acervo original dos POPs cadastrados com limpeza automática de cabeçalhos e separação de revisões.
               </p>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void seedInventory(false)}
-                className="px-3 py-2 rounded-lg bg-zinc-900 text-white text-sm disabled:opacity-50"
-              >
-                Importar inventário
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void seedInventory(true)}
-                className="px-3 py-2 rounded-lg border border-zinc-300 text-sm disabled:opacity-50"
-              >
-                Reimportar corpos (force)
-              </button>
-              {seedMsg && <p className="text-sm text-emerald-700">{seedMsg}</p>}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void seedInventory(false)}
+                  className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-medium transition-colors disabled:opacity-50 shadow-sm"
+                >
+                  Importar Inventário (31 POPs)
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void seedInventory(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-800 text-sm font-medium transition-colors disabled:opacity-50"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-600" />
+                  Reimportar e Sanitizar Corpos (Force)
+                </button>
+              </div>
+              {seedMsg && <p className="text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl p-3">{seedMsg}</p>}
             </section>
           </div>
         )}

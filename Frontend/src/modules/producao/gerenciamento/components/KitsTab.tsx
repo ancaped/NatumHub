@@ -74,6 +74,7 @@ export function KitsTab({
             <option value="critico">Crítico: Produzir</option>
             <option value="ordem">Abrir Ordem</option>
             <option value="montar">Montar Urgente</option>
+            <option value="aguardando">Aguardando Produção</option>
             <option value="saudavel">Estoque OK</option>
             <option value="abundante">Abundante</option>
           </select>
@@ -219,6 +220,10 @@ export function KitsTab({
                             {p.status === 'montar' ? (
                               <span style={{ fontSize: '0.625rem', color: '#c2410c', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '2px' }}>
                                 Componentes OK — montar kit
+                              </span>
+                            ) : p.status === 'aguardando' ? (
+                              <span style={{ fontSize: '0.625rem', color: '#1d4ed8', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                Componentes em produção — aguardar OP
                               </span>
                             ) : k.componentes_criticos.length > 0 ? (
                               <span style={{ fontSize: '0.625rem', color: 'hsl(var(--warning-hsl))', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '2px' }}>

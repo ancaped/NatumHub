@@ -26,6 +26,7 @@ Banco centralizado no **PostgreSQL** do PC Principal (`Saves/postgres.env`). Sch
 | Postgres | Origem |
 |--------|--------|
 | `formulacoes` | Passo G |
+| `kit_composicao` (`origem=erp`) | Passo P (`Kits`); linhas `manual` vêm do CRUD/Excel e sobrevivem ao sync |
 | `lotes_baixas` | Passo I |
 | `stock_movements` | Passos H, I, J (entradas/saídas) |
 

@@ -927,7 +927,8 @@ pub async fn list_kits(
 
         // Gather components status
         let mut components_detail = Vec::new();
-        let mut min_stock: Option<i64> = None;
+        let mut min_efp: Option<i64> = None;
+        let mut min_estoque: Option<i64> = None;
         let mut critical_components = Vec::new();
 
         for (comp_code, comp_qty, fat_qtd, fat_kits) in &components_with_qty {
@@ -983,36 +984,98 @@ pub async fn list_kits(
             };
 
             if let Some(detail) = detail {
-                let possible_from_comp = if *comp_qty > 0.0 {
+                let from_efp = if *comp_qty > 0.0 {
                     (detail.estoque_futuro_com_producao as f64 / *comp_qty).floor() as i64
                 } else {
                     detail.estoque_futuro_com_producao
                 };
-                min_stock = Some(match min_stock {
-                    Some(m) => std::cmp::min(m, possible_from_comp),
-                    None => possible_from_comp,
+                let from_estoque = if *comp_qty > 0.0 {
+                    (detail.estoque as f64 / *comp_qty).floor() as i64
+                } else {
+                    detail.estoque
+                };
+                min_efp = Some(match min_efp {
+                    Some(m) => std::cmp::min(m, from_efp),
+                    None => from_efp,
+                });
+                min_estoque = Some(match min_estoque {
+                    Some(m) => std::cmp::min(m, from_estoque),
+                    None => from_estoque,
                 });
                 components_detail.push(detail);
             }
         }
 
-        let max_mont_val = min_stock.unwrap_or(0);
-        let max_mont = if max_mont_val < 0 { 0 } else { max_mont_val };
+        let max_mont_efp = min_efp.unwrap_or(0).max(0);
+        let max_mont_estoque = min_estoque.unwrap_or(0).max(0);
 
-        // Kit-only alert: stock of components already covers recommended assembly qty.
-        // Do not keep "Produzir Urgente" / "Abrir Ordem" on the kit itself in that case.
-        if kit_calc.producao_recomendada > 0
-            && max_mont >= kit_calc.producao_recomendada
+        // Capacidade só dos componentes-produto (ignora embalagem/insumo na sugestão de produção).
+        let mut min_prod_efp: Option<i64> = None;
+        let mut min_prod_estoque: Option<i64> = None;
+        for d in components_detail.iter().filter(|d| d.fonte.as_deref() == Some("produto")) {
+            let from_efp = if d.quantidade > 0.0 {
+                (d.estoque_futuro_com_producao as f64 / d.quantidade).floor() as i64
+            } else {
+                d.estoque_futuro_com_producao
+            };
+            let from_est = if d.quantidade > 0.0 {
+                (d.estoque as f64 / d.quantidade).floor() as i64
+            } else {
+                d.estoque
+            };
+            min_prod_efp = Some(match min_prod_efp {
+                Some(m) => std::cmp::min(m, from_efp),
+                None => from_efp,
+            });
+            min_prod_estoque = Some(match min_prod_estoque {
+                Some(m) => std::cmp::min(m, from_est),
+                None => from_est,
+            });
+        }
+        let max_mont_produtos_efp = min_prod_efp.unwrap_or(max_mont_efp).max(0);
+        let _max_mont_produtos_estoque = min_prod_estoque.unwrap_or(max_mont_estoque).max(0);
+
+        // Kit-only: sugestão = o que ainda falta produzir nos PRODUTOS da composição
+        // (embalagem/insumo não entra — senão kits com caixa zerada ficam "Produzir Urgente"
+        // mesmo com todos os itens já em OP).
+        let necessidade_kit = kit_calc.producao_recomendada;
+        if necessidade_kit > 0
             && (kit_calc.status == "critico" || kit_calc.status == "ordem")
         {
-            kit_calc.status = "montar".to_string();
-            kit_calc.status_label = "Montar Urgente".to_string();
+            let product_comps: Vec<_> = components_detail
+                .iter()
+                .filter(|d| d.fonte.as_deref() == Some("produto"))
+                .collect();
+            let product_bottlenecks_in_production = product_comps.is_empty()
+                || product_comps.iter().all(|d| {
+                    let kits_from_stock = if d.quantidade > 0.0 {
+                        (d.estoque as f64 / d.quantidade).floor() as i64
+                    } else {
+                        d.estoque
+                    };
+                    kits_from_stock >= necessidade_kit || d.producao > 0
+                });
+
+            if max_mont_estoque >= necessidade_kit {
+                // Físico completo (produtos + embalagens) — pode montar agora.
+                kit_calc.status = "montar".to_string();
+                kit_calc.status_label = "Montar Urgente".to_string();
+            } else if max_mont_produtos_efp >= necessidade_kit || product_bottlenecks_in_production
+            {
+                kit_calc.status = "aguardando".to_string();
+                kit_calc.status_label = "Aguardando Produção".to_string();
+            }
+        }
+        if necessidade_kit > 0 {
+            kit_calc.producao_recomendada =
+                (necessidade_kit - max_mont_produtos_efp).max(0);
         }
 
         kit_results.push(KitCalculationResult {
             kit_detalhes: kit_calc,
             componentes: components_detail,
-            max_montavel: max_mont,
+            max_montavel: max_mont_efp,
+            max_montavel_estoque: max_mont_estoque,
             componentes_criticos: critical_components,
         });
     }
@@ -2419,6 +2482,8 @@ pub async fn get_lote_lookup(
     let mut status = String::new();
     let mut fabricated_by = String::new();
     let mut authorized_by = String::new();
+    let mut d_pesado = String::new();
+    let mut d_envase = String::new();
     let details: String = rows[0].get(4);
     for part in details.split('|') {
         let part = part.trim();
@@ -2428,6 +2493,45 @@ pub async fn get_lote_lookup(
             fabricated_by = part.trim_start_matches("Fab:").trim().to_string();
         } else if part.starts_with("Aut:") {
             authorized_by = part.trim_start_matches("Aut:").trim().to_string();
+        } else if part.starts_with("dPesado:") {
+            let candidate = part.trim_start_matches("dPesado:").trim().to_string();
+            if candidate.len() >= 8 {
+                d_pesado = candidate;
+            }
+        } else if part.starts_with("dEnvase:") {
+            let candidate = part.trim_start_matches("dEnvase:").trim().to_string();
+            if candidate.len() >= 8 {
+                d_envase = candidate;
+            }
+        }
+    }
+
+    if d_envase.is_empty() || d_pesado.is_empty() {
+        if let Ok(other_movs) = sqlx::query(
+            "SELECT COALESCE(details, '') FROM stock_movements WHERE document_number = $1 AND details IS NOT NULL AND details != ''",
+        )
+        .bind(&lote_number)
+        .fetch_all(pool)
+        .await
+        {
+            for m in other_movs {
+                let det: String = m.get(0);
+                for part in det.split('|') {
+                    let part = part.trim();
+                    if d_envase.is_empty() && part.starts_with("dEnvase:") {
+                        let candidate = part.trim_start_matches("dEnvase:").trim().to_string();
+                        if candidate.len() >= 8 {
+                            d_envase = candidate;
+                        }
+                    }
+                    if d_pesado.is_empty() && part.starts_with("dPesado:") {
+                        let candidate = part.trim_start_matches("dPesado:").trim().to_string();
+                        if candidate.len() >= 8 {
+                            d_pesado = candidate;
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -2469,6 +2573,14 @@ pub async fn get_lote_lookup(
         }));
     }
 
+    let effective_date = if !d_envase.is_empty() {
+        d_envase.clone()
+    } else if !d_pesado.is_empty() {
+        d_pesado.clone()
+    } else {
+        date.clone()
+    };
+
     (
         StatusCode::OK,
         Json(json!({
@@ -2476,7 +2588,10 @@ pub async fn get_lote_lookup(
             "productCode": product_code_parts.join(" / "),
             "productDescription": product_desc_parts.join(" / "),
             "quantity": total_qty,
-            "date": date,
+            "date": effective_date,
+            "dLote": date,
+            "dPesado": d_pesado,
+            "dEnvase": d_envase,
             "status": status,
             "statusLabel": status_label,
             "fabricatedBy": fabricated_by,

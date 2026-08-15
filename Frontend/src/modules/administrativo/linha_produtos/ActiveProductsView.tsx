@@ -5,7 +5,7 @@ import {
   Edit, Info, Check, Filter, Layers, ListFilter, AlertTriangle, HelpCircle,
   Database, Trash2, Plus, PlusCircle, Loader2, Settings, Rocket, GraduationCap, UploadCloud
 } from 'lucide-react';
-import { cn } from '../../geral/lib/utils';
+import { cn, randomId } from '../../geral/lib/utils';
 import { Category, PRODUCT_LINE_STATUSES, GraduationCandidate } from '../../geral/lib/types';
 import { api } from '../../geral/lib/api';
 import KitCompositionDrawer from '../../producao/components/KitCompositionDrawer';
@@ -785,7 +785,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
     try {
       const newCat: Category = {
-        id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9),
+        id: randomId(),
         name: configNewCatName.trim(),
         parentId: configNewCatParent || null,
       };

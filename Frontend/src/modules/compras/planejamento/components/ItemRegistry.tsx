@@ -166,7 +166,7 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
     } else if (mode === 'embalagens') {
       result = result.filter(i => {
         const cat = categories.find(c => c.id === i.categoryId);
-        return i.categoryId === 'cat_emb' || (cat && cat.parentId === 'cat_emb');
+        return i.categoryId === 'cat_emb' || i.categoryId === 'cat_mat' || (cat && (cat.parentId === 'cat_emb' || cat.parentId === 'cat_mat')) || (i.code && (i.code.startsWith('08.') || (!i.code.startsWith('9.15.') && i.code.startsWith('9.'))));
       });
     }
 

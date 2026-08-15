@@ -657,7 +657,8 @@ impl Db {
                     COALESCE(pc.descricao, i.description, kc.componente_codigo) as comp_desc,
                     COALESCE(kc.quantidade, 1)::float8 as quantidade,
                     kc.fator_proporcao_qtd::float8,
-                    kc.fator_proporcao_kits
+                    kc.fator_proporcao_kits,
+                    COALESCE(NULLIF(TRIM(kc.origem), ''), 'manual') as origem
              FROM kit_composicao kc
              LEFT JOIN produtos pk
                ON TRIM(REPLACE(kc.kit_codigo, '\"', '')) = TRIM(REPLACE(pk.codigo, '\"', ''))
@@ -681,6 +682,7 @@ impl Db {
                 quantidade: pg_f64(&row, 4),
                 fator_proporcao_qtd: pg_opt_f64(&row, 5),
                 fator_proporcao_kits: pg_opt_i32(&row, 6),
+                origem: row.get(7),
             })
             .collect())
     }
@@ -769,11 +771,13 @@ impl Db {
             ));
         }
         sqlx::query(
-            "INSERT INTO kit_composicao (kit_codigo, componente_codigo, quantidade, fator_proporcao_qtd, fator_proporcao_kits) VALUES ($1, $2, $3::numeric, $4::numeric, $5::int4)
+            "INSERT INTO kit_composicao (kit_codigo, componente_codigo, quantidade, fator_proporcao_qtd, fator_proporcao_kits, origem)
+             VALUES ($1, $2, $3::numeric, $4::numeric, $5::int4, 'manual')
              ON CONFLICT(kit_codigo, componente_codigo) DO UPDATE SET
                 quantidade = EXCLUDED.quantidade,
                 fator_proporcao_qtd = EXCLUDED.fator_proporcao_qtd,
-                fator_proporcao_kits = EXCLUDED.fator_proporcao_kits",
+                fator_proporcao_kits = EXCLUDED.fator_proporcao_kits,
+                origem = 'manual'",
         )
         .bind(kit_codigo)
         .bind(componente_codigo)
@@ -791,19 +795,40 @@ impl Db {
         kit_codigo: &str,
         componente_codigo: &str,
     ) -> Result<(), String> {
-        sqlx::query(
-            "DELETE FROM kit_composicao WHERE kit_codigo = $1 AND componente_codigo = $2",
+        let deleted = sqlx::query(
+            "DELETE FROM kit_composicao
+             WHERE kit_codigo = $1 AND componente_codigo = $2 AND COALESCE(origem, 'manual') = 'manual'",
         )
         .bind(kit_codigo)
         .bind(componente_codigo)
         .execute(&self.pool)
         .await
         .map_err(|e| e.to_string())?;
+        if deleted.rows_affected() == 0 {
+            let is_erp: bool = sqlx::query_scalar(
+                "SELECT EXISTS(
+                    SELECT 1 FROM kit_composicao
+                    WHERE kit_codigo = $1 AND componente_codigo = $2 AND origem = 'erp'
+                 )",
+            )
+            .bind(kit_codigo)
+            .bind(componente_codigo)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+            if is_erp {
+                return Err(
+                    "Componente sincronizado do ERP não pode ser removido aqui. Altere no ERP e rode o sync."
+                        .into(),
+                );
+            }
+        }
         Ok(())
     }
 
-    pub async fn delete_all_kit_composicao(&self) -> Result<(), String> {
-        sqlx::query("DELETE FROM kit_composicao")
+    /// Remove só linhas manuais (Excel/CRUD). Linhas `erp` são preservadas.
+    pub async fn delete_manual_kit_composicao(&self) -> Result<(), String> {
+        sqlx::query("DELETE FROM kit_composicao WHERE COALESCE(origem, 'manual') = 'manual'")
             .execute(&self.pool)
             .await
             .map_err(|e| e.to_string())?;

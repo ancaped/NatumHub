@@ -22,6 +22,7 @@ import { SettingsTab } from './components/SettingsTab';
 import { LotesTab } from './components/LotesTab';
 import { AprovacaoTab } from './components/AprovacaoTab';
 import { LoteDetailsDrawer } from './components/LoteDetailsDrawer';
+import { StockHealthTab } from './components/StockHealthTab';
 
 type ProducaoLockedView = 'bases' | 'lotes';
 
@@ -38,6 +39,7 @@ export default function ProducaoView({
   useEffect(() => {
     const viewLabels = {
       dashboard: 'Dashboard',
+      stock_health: 'Saúde do Estoque',
       inventory: 'Gerenciamento de Produção',
       aprovacao: 'Aprovação de Produção',
       kits: 'Gestão de Kits',
@@ -139,6 +141,7 @@ export default function ProducaoView({
 
   // Kits Module States
   const [kits, setKits] = useState([]);
+  const [coloracoes, setColoracoes] = useState([]);
   const [kitsPage, setKitsPage] = useState(1);
   const [kitsTotalPages, setKitsTotalPages] = useState(1);
   const [kitsTotalItems, setKitsTotalItems] = useState(0);
@@ -185,6 +188,7 @@ export default function ProducaoView({
   const [detailsDrawerLoading, setDetailsDrawerLoading] = useState(false);
   const [detailsDrawerActiveTab, setDetailsDrawerActiveTab] = useState('geral');
   const [productPendingOrders, setProductPendingOrders] = useState(null);
+  const [simulatedBatchQty, setSimulatedBatchQty] = useState<number>(100);
 
   // Suspended Products States
   const [suspendedProducts, setSuspendedProducts] = useState([]);
@@ -741,6 +745,8 @@ export default function ProducaoView({
       if (detRes.ok) {
         const data = await detRes.json();
         setSelectedProductDetails(data);
+        const defaultQty = data.producao_recomendada > 0 ? data.producao_recomendada : 100;
+        setSimulatedBatchQty(defaultQty);
       } else {
         showToast("Erro ao buscar detalhes do produto", "error");
       }
@@ -1191,6 +1197,18 @@ export default function ProducaoView({
     }
   };
 
+  const fetchColoracoes = async () => {
+    try {
+      const res = await apiFetch(`/products?status=coloracao&limit=9999&show_hidden=true`);
+      if (res.ok) {
+        const data = await res.json();
+        setColoracoes(data.items || []);
+      }
+    } catch (e) {
+      console.error("Error fetching coloracoes:", e);
+    }
+  };
+
   const handleBulkApply = async (e) => {
     if (e) e.preventDefault();
     if (bulkSelected.length === 0) {
@@ -1231,6 +1249,7 @@ export default function ProducaoView({
   useEffect(() => {
     fetchConfigs();
     fetchAllProducts();
+    fetchColoracoes();
     fetchImportStatus();
     fetchImportHistory();
     fetchWatchConfig();
@@ -1262,6 +1281,7 @@ export default function ProducaoView({
 
   const gerenciamentoSidebarItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'stock_health', label: 'Saúde do Estoque', icon: BarChart3 },
     { id: 'inventory', label: 'Gerenciamento de Produção', icon: Table },
     { id: 'kits', label: 'Gerenciamento de Kits', icon: Layers },
     { id: 'aprovacao', label: 'Aprovação de Produção', icon: ClipboardCheck, badge: productionApprovalList.length },
@@ -1293,6 +1313,11 @@ export default function ProducaoView({
       setCurrentView('inventory');
       setSelectedStatus('ALL');
       setPage(1);
+    } else if (tabId === 'stock_health') {
+      setCurrentView('stock_health');
+      if (allProducts.length === 0) fetchAllProducts();
+      if (coloracoes.length === 0) fetchColoracoes();
+      if (kits.length === 0) fetchKits();
     } else if (tabId === 'erros') {
       setCurrentView('lotes');
       setSelectedLoteStatus('ERR_ANY_ERROR');
@@ -1335,6 +1360,18 @@ export default function ProducaoView({
               setCurrentView={setCurrentView}
               setSelectedStatus={setSelectedStatus}
               setSelectedBase={setSelectedBase}
+            />
+          )}
+
+          {currentView === 'stock_health' && (
+            <StockHealthTab
+              allProducts={allProducts}
+              coloracoes={coloracoes}
+              kits={kits}
+              configs={configs}
+              loading={loading}
+              onRefresh={() => { fetchProducts(); fetchAllProducts(); fetchColoracoes(); fetchKits(); }}
+              onShowDetails={fetchProductDetails}
             />
           )}
 
@@ -2130,18 +2167,57 @@ export default function ProducaoView({
                       </div>
                     )}
 
-                    {/* TAB: FÓRMULA & INGREDIENTES */}
+                    {/* TAB: FÓRMULA & INGREDIENTES & SIMULADOR DE PRODUÇÃO COMPLETA */}
                     {detailsDrawerActiveTab === 'formula' && (
-                      <div className="space-y-3 animate-in fade-in duration-150 text-left">
-                        <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
-                          <Layers className="h-4 w-4 text-zinc-650" />
-                          <h4 className="font-extrabold text-sm text-zinc-900">Fórmula & Ingredientes</h4>
+                      <div className="space-y-4 animate-in fade-in duration-150 text-left">
+                        <div className="flex items-center justify-between border-b border-zinc-150 pb-3">
+                          <div className="flex items-center gap-2">
+                            <Layers className="h-4 w-4 text-zinc-650" />
+                            <h4 className="font-extrabold text-sm text-zinc-900">Fórmula & Necessidade de Produção</h4>
+                          </div>
                         </div>
+
                         {selectedProductDetails.formulation.length === 0 ? (
                           <p className="text-xs text-zinc-400 py-3">Nenhuma fórmula registrada para este produto.</p>
                         ) : (() => {
-                          const rawMaterials = selectedProductDetails.formulation.filter(line => line.categoryId !== 'cat_emb');
-                          const packaging = selectedProductDetails.formulation.filter(line => line.categoryId === 'cat_emb');
+                          const formulation = selectedProductDetails.formulation || [];
+                          const batchQty = Math.max(1, simulatedBatchQty || 1);
+
+                          // Calculate bottlenecks and total requirements
+                          let maxPossibleBatches = Infinity;
+                          let bottleneckItem = null;
+                          let missingItemsCount = 0;
+
+                          const processedFormulation = formulation.map((line) => {
+                            const unitQty = line.quantity || 0;
+                            const totalNeeded = unitQty * batchQty;
+                            const currentStock = line.currentStock ?? 0;
+                            const missingQty = Math.max(0, totalNeeded - currentStock);
+                            const maxThisItem = unitQty > 0 ? Math.floor(currentStock / unitQty) : Infinity;
+
+                            if (maxThisItem < maxPossibleBatches) {
+                              maxPossibleBatches = maxThisItem;
+                              bottleneckItem = line;
+                            }
+
+                            if (missingQty > 0) {
+                              missingItemsCount++;
+                            }
+
+                            return {
+                              ...line,
+                              unitQty,
+                              totalNeeded,
+                              currentStock,
+                              missingQty,
+                              isSufficient: currentStock >= totalNeeded,
+                              maxThisItem
+                            };
+                          });
+
+                          const rawMaterials = processedFormulation.filter(line => line.categoryId !== 'cat_emb');
+                          const packaging = processedFormulation.filter(line => line.categoryId === 'cat_emb');
+                          const isFullyAvailable = missingItemsCount === 0;
 
                           const renderTable = (list, title) => {
                             if (list.length === 0) return null;
@@ -2152,39 +2228,49 @@ export default function ProducaoView({
                                   <table className="w-full text-left text-xs">
                                     <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
                                       <tr>
-                                        <th className="px-4 py-3">Ingrediente</th>
-                                        <th className="px-4 py-3 text-right">Qtd</th>
-                                        <th className="px-4 py-3 text-right">Fórmula %</th>
-                                        <th className="px-4 py-3 text-right">Estoque Insumo</th>
+                                        <th className="px-3 py-2.5">Componente</th>
+                                        <th className="px-3 py-2.5 text-right" title="Quantidade na fórmula unitária">Qtd Unit.</th>
+                                        <th className="px-3 py-2.5 text-right font-bold text-zinc-800" title={`Total necessário para produzir ${batchQty} un`}>Necessidade ({batchQty} un)</th>
+                                        <th className="px-3 py-2.5 text-right">Estoque Insumo</th>
+                                        <th className="px-3 py-2.5 text-right">Falta p/ Lote</th>
+                                        <th className="px-3 py-2.5 text-center">Status</th>
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-zinc-100">
                                       {list.map((line) => {
-                                        const needsPercentage = line.percentage !== null && line.percentage !== undefined;
-                                        const pctVal = needsPercentage ? line.percentage * 100 : 0;
-                                        const isOutOfStock = (line.currentStock ?? 0) <= 0;
-
                                         return (
                                           <tr key={line.ingredientCode} className="hover:bg-zinc-50/50 transition-colors">
-                                            <td className="px-4 py-2.5">
+                                            <td className="px-3 py-2">
                                               <div className="font-bold text-zinc-800">{line.description}</div>
                                               <div className="font-mono text-[9px] text-zinc-400">{line.ingredientCode}</div>
                                             </td>
-                                            <td className="px-4 py-2.5 text-right font-medium text-zinc-700">
-                                              {(line.quantity ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
+                                            <td className="px-3 py-2 text-right font-medium text-zinc-600">
+                                              {line.unitQty.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
                                             </td>
-                                            <td className="px-4 py-2.5 text-right text-zinc-550">
-                                              {needsPercentage ? `${pctVal.toFixed(3)}%` : '-'}
+                                            <td className="px-3 py-2 text-right font-bold text-zinc-900">
+                                              {line.totalNeeded.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
                                             </td>
-                                            <td className="px-4 py-2.5 text-right">
+                                            <td className="px-3 py-2 text-right font-medium text-zinc-700">
+                                              {line.currentStock.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+                                            </td>
+                                            <td className="px-3 py-2 text-right font-bold">
+                                              {line.missingQty > 0 ? (
+                                                <span className="text-red-600">
+                                                  -{line.missingQty.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+                                                </span>
+                                              ) : (
+                                                <span className="text-green-600">0 (OK)</span>
+                                              )}
+                                            </td>
+                                            <td className="px-3 py-2 text-center">
                                               <span
-                                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                                  isOutOfStock
-                                                    ? 'bg-red-100 text-red-700 border border-red-200'
-                                                    : 'bg-green-100 text-green-700 border border-green-200'
+                                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold inline-block ${
+                                                  line.isSufficient
+                                                    ? 'bg-green-100 text-green-700 border border-green-200'
+                                                    : 'bg-red-100 text-red-700 border border-red-200'
                                                 }`}
                                               >
-                                                {(line.currentStock ?? 0).toLocaleString('pt-BR')}
+                                                {line.isSufficient ? 'Disponível' : `Faltam ${line.missingQty.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}`}
                                               </span>
                                             </td>
                                           </tr>
@@ -2198,9 +2284,70 @@ export default function ProducaoView({
                           };
 
                           return (
-                            <div className="space-y-6">
-                              {renderTable(rawMaterials, "Matérias-Primas")}
-                              {renderTable(packaging, "Embalagens")}
+                            <div className="space-y-4">
+                              {/* Production Batch Simulator Header */}
+                              <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-xl space-y-3">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <div>
+                                    <span className="text-[10px] text-zinc-400 font-bold uppercase block">Simulação de Batelada</span>
+                                    <h5 className="font-bold text-xs text-zinc-800">O que é preciso para a produção completa deste item:</h5>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <label className="text-xs font-bold text-zinc-600">Qtd a Produzir ({selectedProductDetails.unit || 'UN'}):</label>
+                                    <input 
+                                      type="number"
+                                      min="1"
+                                      value={simulatedBatchQty}
+                                      onChange={(e) => setSimulatedBatchQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                                      className="w-24 px-2 py-1 text-sm font-bold text-zinc-900 border border-zinc-300 rounded-lg text-right focus:outline-none focus:border-zinc-800 bg-white"
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Viability Overview Cards */}
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
+                                  <div className="bg-white p-2.5 rounded-lg border border-zinc-150 shadow-2xs">
+                                    <span className="text-[9px] text-zinc-400 font-bold uppercase block">Capacidade Imediata</span>
+                                    <p className="text-sm font-extrabold text-zinc-900 mt-0.5">
+                                      {maxPossibleBatches === Infinity ? '0' : maxPossibleBatches.toLocaleString('pt-BR')} {selectedProductDetails.unit || 'UN'}
+                                    </p>
+                                    <span className="text-[9px] text-zinc-500 block truncate" title={bottleneckItem ? `Limitado por: ${bottleneckItem.description}` : ''}>
+                                      Gargalo: {bottleneckItem ? bottleneckItem.description : 'Nenhum'}
+                                    </span>
+                                  </div>
+
+                                  <div className="bg-white p-2.5 rounded-lg border border-zinc-150 shadow-2xs">
+                                    <span className="text-[9px] text-zinc-400 font-bold uppercase block">Itens com Falta</span>
+                                    <p className="text-sm font-extrabold text-zinc-900 mt-0.5">
+                                      <span className={missingItemsCount > 0 ? 'text-red-600' : 'text-green-600'}>
+                                        {missingItemsCount} {missingItemsCount === 1 ? 'componente' : 'componentes'}
+                                      </span>
+                                    </p>
+                                    <span className="text-[9px] text-zinc-500 block">
+                                      Para produzir {batchQty} {selectedProductDetails.unit || 'UN'}
+                                    </span>
+                                  </div>
+
+                                  <div className="bg-white p-2.5 rounded-lg border border-zinc-150 shadow-2xs col-span-2 sm:col-span-1">
+                                    <span className="text-[9px] text-zinc-400 font-bold uppercase block">Status da Produção</span>
+                                    <div className="mt-1">
+                                      {isFullyAvailable ? (
+                                        <span className="inline-flex items-center gap-1 text-xs font-extrabold text-green-700 bg-green-50 px-2 py-0.5 rounded border border-green-200">
+                                          <CheckCircle2 size={12} /> Pronto para Produzir
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 text-xs font-extrabold text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200">
+                                          <AlertTriangle size={12} /> Insumos Insuficientes
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Tables for Raw materials and packaging */}
+                              {renderTable(rawMaterials, "Matérias-Primas Necessárias")}
+                              {renderTable(packaging, "Embalagens Necessárias")}
                             </div>
                           );
                         })()}

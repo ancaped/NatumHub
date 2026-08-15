@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../geral/lib/api';
 import { Category, ComprasAppConfig, Item } from '../../../geral/lib/types';
 import { Settings, FolderTree, Plus, Trash2, X, Save, Package, Search, Link, Unlink } from 'lucide-react';
-import { cn } from '../../../geral/lib/utils';
+import { cn, randomId } from '../../../geral/lib/utils';
 import { getAuthUser, isSupervisor } from '../../../geral/lib/auth';
 
 export function SettingsPanel({ mode = 'all', active = false }: { mode?: string; active?: boolean }) {
@@ -203,23 +203,21 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
     if (!canConfig) return;
     if (!newCatName.trim()) return;
     try {
-      const parentId = 
-        mode === 'materia_prima' ? 'cat_mp' :
-        mode === 'coloracao' ? 'cat_coloracao' :
-        mode === 'embalagens' ? 'cat_emb' :
-        mode === 'apoio' ? 'cat_apoio' :
-        newCatParent;
-      await api.saveCategory({ id: crypto.randomUUID(), name: newCatName.trim(), parentId });
-      setNewCatName('');
-      const nextParent = 
+      const defaultParent = 
         mode === 'materia_prima' ? 'cat_mp' :
         mode === 'coloracao' ? 'cat_coloracao' :
         mode === 'embalagens' ? 'cat_emb' :
         mode === 'apoio' ? 'cat_apoio' :
         null;
-      setNewCatParent(nextParent);
-      loadCategories();
-    } catch (e) { console.error(e); alert('Erro ao criar categoria'); }
+      const parentId = newCatParent !== undefined ? newCatParent : defaultParent;
+      await api.saveCategory({ id: randomId(), name: newCatName.trim(), parentId: parentId || null });
+      setNewCatName('');
+      setNewCatParent(defaultParent);
+      await loadCategories();
+    } catch (e: any) { 
+      console.error(e); 
+      alert(e?.message ? `Erro ao criar categoria: ${e.message}` : 'Erro ao criar categoria'); 
+    }
   };
 
   const handleDeleteCategory = async (id: string) => {
@@ -294,7 +292,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
             return true;
           }
         } else if (mode === 'embalagens') {
-          if (cat.id === 'cat_mp' || cat.id === 'cat_mat' || cat.id === 'cat_coloracao' || cat.id === 'cat_apoio') {
+          if (cat.id === 'cat_mp' || cat.id === 'cat_coloracao' || cat.id === 'cat_apoio') {
             return true;
           }
         } else if (mode === 'apoio') {
@@ -315,7 +313,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
     } else if (mode === 'coloracao') {
       return false;
     } else if (mode === 'embalagens') {
-      if (code.startsWith('9.15.') || code.startsWith('08.') || code.startsWith('1.34.') || code.startsWith('1.33.') || code.startsWith('1.30.')) {
+      if (code.startsWith('9.15.') || code.startsWith('1.34.') || code.startsWith('1.33.') || code.startsWith('1.30.')) {
         return true;
       }
     } else if (mode === 'apoio') {
@@ -638,21 +636,26 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
 
               <div className="flex items-end gap-3 pt-4 border-t border-zinc-200">
                 <div className="flex-1">
-                  <label className="text-xs font-medium text-zinc-600 mb-1 block">Nova Categoria / Subcategoria</label>
+                  <label className="text-xs font-medium text-zinc-600 mb-1 block">
+                    {newCatParent ? 'Nova Subcategoria' : 'Nova Categoria'}
+                  </label>
                   <input type="text" value={newCatName} onChange={e => setNewCatName(e.target.value)}
-                    placeholder="Ex: Fragrâncias, Corantes..."
+                    placeholder={
+                      mode === 'embalagens' ? 'Ex: Frascos, Tampas, Caixas, Rótulos...' :
+                      mode === 'materia_prima' ? 'Ex: Fragrâncias, Corantes, Extratos...' :
+                      'Ex: Fragrâncias, Frascos, Corantes...'
+                    }
+                    onKeyDown={e => { if (e.key === 'Enter' && newCatName.trim()) { e.preventDefault(); handleAddCategory(); } }}
                     className="w-full border border-zinc-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white" />
                 </div>
-                {mode === 'all' && (
-                  <div>
-                    <label className="text-xs font-medium text-zinc-650 mb-1 block">Pai (opcional)</label>
-                    <select value={newCatParent || ''} onChange={e => setNewCatParent(e.target.value || null)}
-                      className="border border-zinc-300 rounded-md px-2 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white min-w-[120px]">
-                      <option value="">Raiz</option>
-                      {rootCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                  </div>
-                )}
+                <div>
+                  <label className="text-xs font-medium text-zinc-650 mb-1 block">Pai / Destino</label>
+                  <select value={newCatParent || ''} onChange={e => setNewCatParent(e.target.value || null)}
+                    className="border border-zinc-300 rounded-md px-2 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white min-w-[140px]">
+                    <option value="">Raiz (sem pai)</option>
+                    {rootCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
                 <button onClick={handleAddCategory} disabled={!newCatName.trim()}
                   className="text-sm bg-zinc-900 text-white px-4 py-2 rounded-md font-medium hover:bg-zinc-800 disabled:opacity-50 flex items-center gap-2 cursor-pointer shrink-0">
                   <Plus className="h-4 w-4" /> Adicionar

@@ -93,3 +93,23 @@ pub struct RecordTypeOut {
 pub struct CreateRecordTypeRequest {
     pub name: String,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSheetBlockRequest {
+    pub kind: String,
+    pub quantity: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SheetRegisterOut {
+    pub id: i64,
+    pub register_number: String,
+    pub kind: String,
+    pub status: String,
+    pub created_by: Option<String>,
+    pub created_at: String,
+    pub conferred_by: Option<String>,
+    pub conferred_at: Option<String>,
+}

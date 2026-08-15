@@ -1,4 +1,4 @@
-# Passos da importação ERP (A → N)
+# Passos da importação ERP (A → P)
 
 Cada passo corresponde a um bloco em `legacy_db.rs::sync_from_sql_server`.  
 Query SQL: pasta [`sql/`](sql/).
@@ -22,8 +22,10 @@ Query SQL: pasta [`sql/`](sql/).
 | **M** | `M-pedidos-venda-cab.sql` | `Pedidos1` | `sales_orders` | Vendas |
 | **N** | `N-pedidos-venda-itens.sql` | `Pedidos2` | `sales_order_items` | Vendas |
 | **O** | `O-movimentos-insumos.sql` (+ discovery) | Kardex/acertos insumos (quando mapeado) | `stock_movements` tipos extras | Estoque → Divergências |
+| **P** | `P-kit-composicao.sql` (+ discovery) | `Kits` (`cEntSaiEstoque='S'`) | `kit_composicao` (`origem=erp`) | Produção (montagem de kits), Compras |
 
-Discovery de tipos: [`MOVIMENTOS-INSUMOS.md`](MOVIMENTOS-INSUMOS.md) · [`sql/O-discover-movimentos-insumos.sql`](sql/O-discover-movimentos-insumos.sql).
+Discovery de tipos: [`MOVIMENTOS-INSUMOS.md`](MOVIMENTOS-INSUMOS.md) · [`sql/O-discover-movimentos-insumos.sql`](sql/O-discover-movimentos-insumos.sql).  
+Discovery kits: [`sql/P-discover-kit-composicao.sql`](sql/P-discover-kit-composicao.sql).
 
 ## Filtros embutidos nas queries (não configuráveis na UI)
 
@@ -38,6 +40,7 @@ Alguns passos limitam volume por janela de tempo **fixa no SQL** (performance):
 | K, L | Pedidos compra: desde o piso ou status aberto |
 | M, N | Pedidos venda: desde o piso ou status aberto |
 | **J** | `dVenda >= piso` no full; incremental usa watermark − 2 dias |
+| **P** | só linhas `cEntSaiEstoque = 'S'` (componentes); linhas `E` (entrada do kit) ignoradas |
 
 Setting supervisor **`erp_sync_history_floor`**: `YYYY-MM-DD` ou `all` (floor `1900-01-01`).
 
@@ -48,8 +51,9 @@ Para alterar janelas especiais, edite a query em `legacy_db.rs` **e** o `.sql` c
 - Setting `erp_sync_watermark` (JSON): `cursor`, `last_full_at`, `last_incremental_at`.
 - Sem cursor → primeiro sync é **full**.
 - `POST /api/import/sync` (default) = incremental; `?mode=full` = completo.
-- Cadastros/estoque (A–D, F, G) sempre full; E/H/I/J/K–N em delta.
+- Cadastros/estoque (A–D, F, G, **P**) sempre full; E/H/I/J/K–N em delta.
 - Scheduler automático usa incremental.
+- Passo **P** só apaga/regrava `kit_composicao` com `origem='erp'`; linhas `manual` (CRUD/Excel) são preservadas.
 
 ## Dump completo (opcional)
 

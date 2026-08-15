@@ -124,6 +124,12 @@ async fn migrate_kit_composicao_schema(pool: &PgPool) -> Result<(), String> {
     .execute(pool)
     .await;
 
+    let _ = sqlx::query(
+        "ALTER TABLE kit_composicao ADD COLUMN IF NOT EXISTS origem TEXT NOT NULL DEFAULT 'manual'",
+    )
+    .execute(pool)
+    .await;
+
     let ok: bool = sqlx::query_scalar(
         "SELECT EXISTS (
             SELECT 1 FROM information_schema.columns
@@ -131,6 +137,9 @@ async fn migrate_kit_composicao_schema(pool: &PgPool) -> Result<(), String> {
          ) AND EXISTS (
             SELECT 1 FROM information_schema.columns
             WHERE table_schema = 'public' AND table_name = 'kit_composicao' AND column_name = 'fator_proporcao_kits'
+         ) AND EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'kit_composicao' AND column_name = 'origem'
          )",
     )
     .fetch_one(pool)
@@ -139,8 +148,8 @@ async fn migrate_kit_composicao_schema(pool: &PgPool) -> Result<(), String> {
 
     if !ok {
         return Err(
-            "Tabela kit_composicao sem fator_proporcao_qtd/fator_proporcao_kits. \
-             Aplique Backend/supabase/005_kit_composicao.sql no Postgres."
+            "Tabela kit_composicao sem fator_proporcao_qtd/fator_proporcao_kits/origem. \
+             Aplique Backend/supabase/005_kit_composicao.sql e 027_kit_composicao_origem.sql no Postgres."
                 .into(),
         );
     }
@@ -1188,6 +1197,8 @@ pub fn requires_supervisor(path: &str, method: &str) -> bool {
     }
     if path == "/api/admin/audit/stock/resync-insumos"
         || path == "/api/admin/audit/stock/resync-produtos"
+        || path == "/api/admin/audit/stock/verify-insumos"
+        || path == "/api/admin/audit/stock/verify-all"
     {
         return matches!(method, "POST");
     }

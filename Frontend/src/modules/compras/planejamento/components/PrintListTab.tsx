@@ -198,8 +198,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [addItemSearch, setAddItemSearch] = useState('');
 
-  // Load print list from localStorage on mount
-  useEffect(() => {
+  const syncPrintListFromStorage = () => {
     const stored = localStorage.getItem('natum_hub_print_list');
     if (stored) {
       try {
@@ -207,7 +206,15 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
       } catch (e) {
         console.error("Error parsing print list:", e);
       }
+    } else {
+      setPrintList([]);
     }
+  };
+
+  // Load print list and categories from API / localStorage on mount and tab activation
+  useEffect(() => {
+    syncPrintListFromStorage();
+    api.getCategories().then(setCategories).catch(console.error);
   }, []);
 
   // Save print list to localStorage on changes
@@ -234,22 +241,15 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
 
   useEffect(() => {
     if (!active) return;
+    syncPrintListFromStorage();
+    api.getCategories().then(setCategories).catch(console.error);
     loadDemands();
   }, [targetDays, active]);
 
   // Sync with external localStorage updates (e.g. from DemandTable)
   useEffect(() => {
     const handleStorageChange = () => {
-      const stored = localStorage.getItem('natum_hub_print_list');
-      if (stored) {
-        try {
-          setPrintList(JSON.parse(stored));
-        } catch (e) {
-          console.error(e);
-        }
-      } else {
-        setPrintList([]);
-      }
+      syncPrintListFromStorage();
     };
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
@@ -262,9 +262,12 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
     
     // Mode-specific category isolation
     if (mode === 'materia_prima') {
-      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_mp');
+      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_mp' || (d.itemCode && d.itemCode.startsWith('9.15.')));
     } else if (mode === 'embalagens') {
-      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_emb');
+      result = result.filter(d => {
+        const root = resolveRootCategory(d.categoryId);
+        return root === 'cat_emb' || root === 'cat_mat' || (d.itemCode && (d.itemCode.startsWith('08.') || (!d.itemCode.startsWith('9.15.') && d.itemCode.startsWith('9.'))));
+      });
     } else if (mode === 'coloracao') {
       result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_coloracao' || (d.itemCode && d.itemCode.replace(/\./g, '').startsWith('134')));
     } else if (mode === 'apoio') {
@@ -291,9 +294,12 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
 
     // Mode-specific category isolation
     if (mode === 'materia_prima') {
-      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_mp');
+      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_mp' || (d.itemCode && d.itemCode.startsWith('9.15.')));
     } else if (mode === 'embalagens') {
-      result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_emb');
+      result = result.filter(d => {
+        const root = resolveRootCategory(d.categoryId);
+        return root === 'cat_emb' || root === 'cat_mat' || (d.itemCode && (d.itemCode.startsWith('08.') || (!d.itemCode.startsWith('9.15.') && d.itemCode.startsWith('9.'))));
+      });
     } else if (mode === 'coloracao') {
       result = result.filter(d => resolveRootCategory(d.categoryId) === 'cat_coloracao' || (d.itemCode && d.itemCode.replace(/\./g, '').startsWith('134')));
     } else if (mode === 'apoio') {

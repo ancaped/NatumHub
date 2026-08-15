@@ -93,7 +93,7 @@ export default function Header({
         {/* Right Side: Notifications + Profile */}
         <div className="flex items-center gap-3">
           <span className="text-xs text-zinc-400 font-mono hidden sm:inline">
-            v0.0.11
+            v0.0.13
           </span>
 
           {currentUser && <NotificationsPanel currentUser={currentUser} />}

@@ -1,7 +1,7 @@
 {
   "meta": {
     "name": "NatumHub",
-    "generatedAt": "2026-07-29T14:00:38.919Z",
+    "generatedAt": "2026-08-13T19:37:01.958Z",
     "version": "0.0.12",
     "generator": "scripts/generate-architecture-map.mjs",
     "schemaVersion": 2,
@@ -333,6 +333,24 @@
           "methods": [
             "GET"
           ],
+          "path": "/api/estoque/ordens-manuais/registros/:id",
+          "summary": "Ordens manuais entrada/saída de insumos",
+          "auth": "module",
+          "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs"
+        },
+        {
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/estoque/ordens-manuais/registros/:id/reabrir",
+          "summary": "Ordens manuais entrada/saída de insumos",
+          "auth": "module",
+          "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
           "path": "/api/estoque/ordens-manuais/tipos",
           "summary": "Ordens manuais entrada/saída de insumos",
           "auth": "module",
@@ -340,6 +358,7 @@
         },
         {
           "methods": [
+            "GET",
             "DELETE"
           ],
           "path": "/api/estoque/ordens-manuais/tipos/:id",
@@ -1349,6 +1368,15 @@
           "methods": [
             "GET"
           ],
+          "path": "/api/hub/compras/pinned-subcategories",
+          "summary": "Hub compras: cotações, itens, demandas, imports",
+          "auth": "module",
+          "source": "Backend/src/modules/hub_api/compras.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
           "path": "/api/hub/compras/quotations",
           "summary": "Hub compras: cotações, itens, demandas, imports",
           "auth": "module",
@@ -1701,17 +1729,32 @@
       "key": "qualidade_pops",
       "label": "POPs",
       "group": "qualidade",
-      "purpose": "Procedimentos operacionais padrão.",
-      "status": "stub",
-      "frontend": null,
-      "backend": null,
+      "purpose": "Procedimentos Operacionais Padrão em HTML/PDF no Hub, por setor, com validade anual, revisões versionadas, logo configurável e alertas 30/15/7.",
+      "status": "live",
+      "frontend": {
+        "view": "QualidadePopsView",
+        "path": "Frontend/src/modules/qualidade/pops/"
+      },
+      "backend": {
+        "path": "Backend/src/modules/qualidade/pops/",
+        "routerPrefix": "/api/qualidade/pops"
+      },
       "permissions": {
-        "rolesDefault": [],
+        "rolesDefault": [
+          "qualidade",
+          "admin"
+        ],
         "supervisorOnly": false
       },
       "data": {
-        "tables": [],
-        "filesOnDisk": []
+        "tables": [
+          "pop_sectors",
+          "pop_documents",
+          "pop_versions"
+        ],
+        "filesOnDisk": [
+          "Saves/pops/"
+        ]
       },
       "routes": [
         {
@@ -1719,7 +1762,7 @@
             "GET"
           ],
           "path": "/api/qualidade/pops/documents",
-          "summary": "POPs versionados / setores / logo / alertas",
+          "summary": "Lista POPs (filtro setor/status/q)",
           "auth": "module",
           "source": "Backend/src/modules/qualidade/pops/mod.rs"
         },
@@ -1728,7 +1771,7 @@
             "GET"
           ],
           "path": "/api/qualidade/pops/documents/:id",
-          "summary": "POPs versionados / setores / logo / alertas",
+          "summary": "Detalhe + versão atual",
           "auth": "module",
           "source": "Backend/src/modules/qualidade/pops/mod.rs"
         },
@@ -1737,7 +1780,7 @@
             "POST"
           ],
           "path": "/api/qualidade/pops/documents/:id/publish",
-          "summary": "POPs versionados / setores / logo / alertas",
+          "summary": "Publica initial ou content",
           "auth": "module",
           "source": "Backend/src/modules/qualidade/pops/mod.rs"
         },
@@ -1746,7 +1789,7 @@
             "GET"
           ],
           "path": "/api/qualidade/pops/documents/:id/versions",
-          "summary": "POPs versionados / setores / logo / alertas",
+          "summary": "Histórico de versões",
           "auth": "module",
           "source": "Backend/src/modules/qualidade/pops/mod.rs"
         },
@@ -1755,7 +1798,7 @@
             "GET"
           ],
           "path": "/api/qualidade/pops/sectors",
-          "summary": "POPs versionados / setores / logo / alertas",
+          "summary": "Lista setores",
           "auth": "module",
           "source": "Backend/src/modules/qualidade/pops/mod.rs"
         },
@@ -1764,7 +1807,7 @@
             "GET"
           ],
           "path": "/api/qualidade/pops/settings",
-          "summary": "POPs versionados / setores / logo / alertas",
+          "summary": "Config (logo)",
           "auth": "module",
           "source": "Backend/src/modules/qualidade/pops/mod.rs"
         },
@@ -1773,19 +1816,39 @@
             "GET"
           ],
           "path": "/api/qualidade/pops/settings/logo",
-          "summary": "POPs versionados / setores / logo / alertas",
+          "summary": "Bytes do logo",
           "auth": "module",
           "source": "Backend/src/modules/qualidade/pops/mod.rs"
         }
       ],
       "connectsTo": [
         {
+          "target": "notifications",
+          "kind": "notify",
+          "note": "check-alerts → hub_notifications"
+        },
+        {
           "target": "auth",
           "kind": "guard",
           "note": "module_key qualidade_pops"
+        },
+        {
+          "target": "saves",
+          "kind": "files",
+          "note": "logo em Saves/pops/"
+        },
+        {
+          "target": "postgres",
+          "kind": "data",
+          "note": "migration 023"
         }
       ],
-      "aiHints": []
+      "aiHints": [
+        "AppLayout: POPs / Setores / Configuração; sem h1 no main",
+        "Impressão HTML + window.print; logo configurável",
+        "Revalidar (mesmo conteúdo) vs publicar revisão (conteúdo + histórico)",
+        "Registros acompanhantes = fase 2 (não implementar na v1)"
+      ]
     },
     "qualidade_treinamentos": {
       "key": "qualidade_treinamentos",
@@ -2330,6 +2393,15 @@
           "methods": [
             "POST"
           ],
+          "path": "/api/admin/audit/stock/verify-all",
+          "summary": "Admin: backup, DB, audit estoque",
+          "auth": "supervisor",
+          "source": "Backend/src/modules/geral/mod.rs"
+        },
+        {
+          "methods": [
+            "POST"
+          ],
           "path": "/api/admin/db-reset",
           "summary": "Admin: backup, DB, audit estoque",
           "auth": "supervisor",
@@ -2654,6 +2726,59 @@
         "Espelhar MODULE_KEYS FE/BE ao adicionar permissão",
         "Nunca listar senhas; hash argon2"
       ]
+    },
+    "qualidade_devolucoes": {
+      "key": "qualidade_devolucoes",
+      "label": "Devoluções",
+      "group": "sistema",
+      "purpose": "Devoluções de produto acabado do cliente: recepção, conferência/disposição CQ por item, controle de relançamento ERP e impressão A4.",
+      "status": "live",
+      "frontend": {
+        "view": "DevolucoesView",
+        "path": "Frontend/src/modules/qualidade/devolucoes/"
+      },
+      "backend": {
+        "path": "Backend/src/modules/qualidade/devolucoes/",
+        "routerPrefix": "/api/qualidade/devolucoes"
+      },
+      "permissions": {
+        "rolesDefault": [
+          "qualidade",
+          "admin"
+        ],
+        "supervisorOnly": false
+      },
+      "data": {
+        "tables": [
+          "qualidade_devolucoes",
+          "qualidade_devolucao_itens"
+        ],
+        "filesOnDisk": []
+      },
+      "routes": [],
+      "connectsTo": [
+        {
+          "target": "auth",
+          "kind": "guard",
+          "note": "module_key qualidade_devolucoes"
+        },
+        {
+          "target": "postgres",
+          "kind": "data",
+          "note": "migration 026"
+        },
+        {
+          "target": "erp",
+          "kind": "process",
+          "note": "só status por item (sem sync automático)"
+        }
+      ],
+      "aiHints": [
+        "Sem vínculo obrigatório a NF/pedido ERP; autocomplete cliente via /vendas/clientes",
+        "Disposições fixas (não cadastráveis); lotes em texto livre",
+        "Impressão estilo PrintListTab: ficha completa + a lançar ERP",
+        "Status: rascunho→recebido→em_conferencia→disposto→parcialmente_lancado|finalizado"
+      ]
     }
   },
   "edges": [
@@ -2911,9 +3036,27 @@
     },
     {
       "from": "qualidade_pops",
+      "to": "notifications",
+      "kind": "notify",
+      "note": "check-alerts → hub_notifications"
+    },
+    {
+      "from": "qualidade_pops",
       "to": "auth",
       "kind": "guard",
       "note": "module_key qualidade_pops"
+    },
+    {
+      "from": "qualidade_pops",
+      "to": "saves",
+      "kind": "files",
+      "note": "logo em Saves/pops/"
+    },
+    {
+      "from": "qualidade_pops",
+      "to": "postgres",
+      "kind": "data",
+      "note": "migration 023"
     },
     {
       "from": "qualidade_treinamentos",
@@ -3046,6 +3189,24 @@
       "to": "postgres",
       "kind": "data",
       "note": "auth tables"
+    },
+    {
+      "from": "qualidade_devolucoes",
+      "to": "auth",
+      "kind": "guard",
+      "note": "module_key qualidade_devolucoes"
+    },
+    {
+      "from": "qualidade_devolucoes",
+      "to": "postgres",
+      "kind": "data",
+      "note": "migration 026"
+    },
+    {
+      "from": "qualidade_devolucoes",
+      "to": "erp",
+      "kind": "process",
+      "note": "só status por item (sem sync automático)"
     }
   ],
   "infraNodes": {
@@ -3114,6 +3275,16 @@
     },
     {
       "path": "/api/admin/audit/stock/resync-produtos",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/geral/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/admin/audit/stock/verify-all",
       "methods": [
         "POST"
       ],
@@ -3433,6 +3604,26 @@
       "auth": "module"
     },
     {
+      "path": "/api/estoque/ordens-manuais/registros/:id",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
+      "moduleKey": "estoque_ordens_manuais",
+      "summary": "Ordens manuais entrada/saída de insumos",
+      "auth": "module"
+    },
+    {
+      "path": "/api/estoque/ordens-manuais/registros/:id/reabrir",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
+      "moduleKey": "estoque_ordens_manuais",
+      "summary": "Ordens manuais entrada/saída de insumos",
+      "auth": "module"
+    },
+    {
       "path": "/api/estoque/ordens-manuais/tipos",
       "methods": [
         "GET"
@@ -3445,6 +3636,7 @@
     {
       "path": "/api/estoque/ordens-manuais/tipos/:id",
       "methods": [
+        "GET",
         "DELETE"
       ],
       "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
@@ -3540,6 +3732,26 @@
       "source": "Backend/src/modules/expedicao/mod.rs",
       "moduleKey": "expedicao_ecommerce",
       "summary": "Pedidos e-commerce e lookups",
+      "auth": "module"
+    },
+    {
+      "path": "/api/ferramentas/etiquetas/templates",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/ferramentas/etiquetas/mod.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/ferramentas/etiquetas/templates/:id",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/ferramentas/etiquetas/mod.rs",
+      "moduleKey": null,
+      "summary": "",
       "auth": "module"
     },
     {
@@ -3677,6 +3889,16 @@
       "path": "/api/hub/compras/online-orders/:id",
       "methods": [
         "DELETE"
+      ],
+      "source": "Backend/src/modules/hub_api/compras.rs",
+      "moduleKey": "compras_quotations",
+      "summary": "Hub compras: cotações, itens, demandas, imports",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/compras/pinned-subcategories",
+      "methods": [
+        "GET"
       ],
       "source": "Backend/src/modules/hub_api/compras.rs",
       "moduleKey": "compras_quotations",
@@ -4114,6 +4336,46 @@
       "auth": "module"
     },
     {
+      "path": "/api/qualidade/devolucoes",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/qualidade/devolucoes/mod.rs",
+      "moduleKey": "qualidade_devolucoes",
+      "summary": "Lista devoluções (filtro status)",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/devolucoes/:id",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/qualidade/devolucoes/mod.rs",
+      "moduleKey": "qualidade_devolucoes",
+      "summary": "Detalhe + itens",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/devolucoes/:id/fechar-cq",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/qualidade/devolucoes/mod.rs",
+      "moduleKey": "qualidade_devolucoes",
+      "summary": "Assinatura CQ → disposto",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/devolucoes/:id/receber",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/qualidade/devolucoes/mod.rs",
+      "moduleKey": "qualidade_devolucoes",
+      "summary": "Assinatura recebedor → recebido",
+      "auth": "module"
+    },
+    {
       "path": "/api/qualidade/documentacao/documents",
       "methods": [
         "GET"
@@ -4190,7 +4452,7 @@
       ],
       "source": "Backend/src/modules/qualidade/pops/mod.rs",
       "moduleKey": "qualidade_pops",
-      "summary": "POPs versionados / setores / logo / alertas",
+      "summary": "Lista POPs (filtro setor/status/q)",
       "auth": "module"
     },
     {
@@ -4200,7 +4462,7 @@
       ],
       "source": "Backend/src/modules/qualidade/pops/mod.rs",
       "moduleKey": "qualidade_pops",
-      "summary": "POPs versionados / setores / logo / alertas",
+      "summary": "Detalhe + versão atual",
       "auth": "module"
     },
     {
@@ -4210,7 +4472,7 @@
       ],
       "source": "Backend/src/modules/qualidade/pops/mod.rs",
       "moduleKey": "qualidade_pops",
-      "summary": "POPs versionados / setores / logo / alertas",
+      "summary": "Publica initial ou content",
       "auth": "module"
     },
     {
@@ -4220,7 +4482,7 @@
       ],
       "source": "Backend/src/modules/qualidade/pops/mod.rs",
       "moduleKey": "qualidade_pops",
-      "summary": "POPs versionados / setores / logo / alertas",
+      "summary": "Histórico de versões",
       "auth": "module"
     },
     {
@@ -4230,7 +4492,7 @@
       ],
       "source": "Backend/src/modules/qualidade/pops/mod.rs",
       "moduleKey": "qualidade_pops",
-      "summary": "POPs versionados / setores / logo / alertas",
+      "summary": "Lista setores",
       "auth": "module"
     },
     {
@@ -4240,7 +4502,7 @@
       ],
       "source": "Backend/src/modules/qualidade/pops/mod.rs",
       "moduleKey": "qualidade_pops",
-      "summary": "POPs versionados / setores / logo / alertas",
+      "summary": "Config (logo)",
       "auth": "module"
     },
     {
@@ -4250,7 +4512,7 @@
       ],
       "source": "Backend/src/modules/qualidade/pops/mod.rs",
       "moduleKey": "qualidade_pops",
-      "summary": "POPs versionados / setores / logo / alertas",
+      "summary": "Bytes do logo",
       "auth": "module"
     },
     {
@@ -4366,6 +4628,16 @@
       "auth": "supervisor"
     },
     {
+      "path": "/api/admin/audit/stock/verify-all",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/geral/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
       "path": "/api/admin/db-reset",
       "methods": [
         "POST"
@@ -4676,6 +4948,26 @@
       "auth": "module"
     },
     {
+      "path": "/api/estoque/ordens-manuais/registros/:id",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
+      "moduleKey": "estoque_ordens_manuais",
+      "summary": "Ordens manuais entrada/saída de insumos",
+      "auth": "module"
+    },
+    {
+      "path": "/api/estoque/ordens-manuais/registros/:id/reabrir",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
+      "moduleKey": "estoque_ordens_manuais",
+      "summary": "Ordens manuais entrada/saída de insumos",
+      "auth": "module"
+    },
+    {
       "path": "/api/estoque/ordens-manuais/tipos",
       "methods": [
         "GET"
@@ -4688,6 +4980,7 @@
     {
       "path": "/api/estoque/ordens-manuais/tipos/:id",
       "methods": [
+        "GET",
         "DELETE"
       ],
       "source": "Backend/src/modules/estoque/ordens_manuais/mod.rs",
@@ -4783,6 +5076,26 @@
       "source": "Backend/src/modules/expedicao/mod.rs",
       "moduleKey": "expedicao_ecommerce",
       "summary": "Pedidos e-commerce e lookups",
+      "auth": "module"
+    },
+    {
+      "path": "/api/ferramentas/etiquetas/templates",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/ferramentas/etiquetas/mod.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/ferramentas/etiquetas/templates/:id",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/ferramentas/etiquetas/mod.rs",
+      "moduleKey": null,
+      "summary": "",
       "auth": "module"
     },
     {
@@ -4920,6 +5233,16 @@
       "path": "/api/hub/compras/online-orders/:id",
       "methods": [
         "DELETE"
+      ],
+      "source": "Backend/src/modules/hub_api/compras.rs",
+      "moduleKey": "compras_quotations",
+      "summary": "Hub compras: cotações, itens, demandas, imports",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/compras/pinned-subcategories",
+      "methods": [
+        "GET"
       ],
       "source": "Backend/src/modules/hub_api/compras.rs",
       "moduleKey": "compras_quotations",
@@ -5357,6 +5680,46 @@
       "auth": "module"
     },
     {
+      "path": "/api/qualidade/devolucoes",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/qualidade/devolucoes/mod.rs",
+      "moduleKey": "qualidade_devolucoes",
+      "summary": "Lista devoluções (filtro status)",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/devolucoes/:id",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/qualidade/devolucoes/mod.rs",
+      "moduleKey": "qualidade_devolucoes",
+      "summary": "Detalhe + itens",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/devolucoes/:id/fechar-cq",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/qualidade/devolucoes/mod.rs",
+      "moduleKey": "qualidade_devolucoes",
+      "summary": "Assinatura CQ → disposto",
+      "auth": "module"
+    },
+    {
+      "path": "/api/qualidade/devolucoes/:id/receber",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/qualidade/devolucoes/mod.rs",
+      "moduleKey": "qualidade_devolucoes",
+      "summary": "Assinatura recebedor → recebido",
+      "auth": "module"
+    },
+    {
       "path": "/api/qualidade/documentacao/documents",
       "methods": [
         "GET"
@@ -5433,7 +5796,7 @@
       ],
       "source": "Backend/src/modules/qualidade/pops/mod.rs",
       "moduleKey": "qualidade_pops",
-      "summary": "POPs versionados / setores / logo / alertas",
+      "summary": "Lista POPs (filtro setor/status/q)",
       "auth": "module"
     },
     {
@@ -5443,7 +5806,7 @@
       ],
       "source": "Backend/src/modules/qualidade/pops/mod.rs",
       "moduleKey": "qualidade_pops",
-      "summary": "POPs versionados / setores / logo / alertas",
+      "summary": "Detalhe + versão atual",
       "auth": "module"
     },
     {
@@ -5453,7 +5816,7 @@
       ],
       "source": "Backend/src/modules/qualidade/pops/mod.rs",
       "moduleKey": "qualidade_pops",
-      "summary": "POPs versionados / setores / logo / alertas",
+      "summary": "Publica initial ou content",
       "auth": "module"
     },
     {
@@ -5463,7 +5826,7 @@
       ],
       "source": "Backend/src/modules/qualidade/pops/mod.rs",
       "moduleKey": "qualidade_pops",
-      "summary": "POPs versionados / setores / logo / alertas",
+      "summary": "Histórico de versões",
       "auth": "module"
     },
     {
@@ -5473,7 +5836,7 @@
       ],
       "source": "Backend/src/modules/qualidade/pops/mod.rs",
       "moduleKey": "qualidade_pops",
-      "summary": "POPs versionados / setores / logo / alertas",
+      "summary": "Lista setores",
       "auth": "module"
     },
     {
@@ -5483,7 +5846,7 @@
       ],
       "source": "Backend/src/modules/qualidade/pops/mod.rs",
       "moduleKey": "qualidade_pops",
-      "summary": "POPs versionados / setores / logo / alertas",
+      "summary": "Config (logo)",
       "auth": "module"
     },
     {
@@ -5493,7 +5856,7 @@
       ],
       "source": "Backend/src/modules/qualidade/pops/mod.rs",
       "moduleKey": "qualidade_pops",
-      "summary": "POPs versionados / setores / logo / alertas",
+      "summary": "Bytes do logo",
       "auth": "module"
     },
     {
@@ -5689,6 +6052,10 @@
       "path": "Frontend/src/modules/expedicao/ExpedicaoView.tsx"
     },
     {
+      "view": "EtiquetasView.tsx",
+      "path": "Frontend/src/modules/ferramentas/etiquetas/EtiquetasView.tsx"
+    },
+    {
       "view": "FinanceiroView.tsx",
       "path": "Frontend/src/modules/financeiro/FinanceiroView.tsx"
     },
@@ -5755,6 +6122,10 @@
     {
       "view": "ControleQualidadeView.tsx",
       "path": "Frontend/src/modules/qualidade/controle/ControleQualidadeView.tsx"
+    },
+    {
+      "view": "DevolucoesView.tsx",
+      "path": "Frontend/src/modules/qualidade/devolucoes/DevolucoesView.tsx"
     },
     {
       "view": "QualidadeDocumentacaoView.tsx",
@@ -5913,6 +6284,30 @@
     {
       "file": "Backend/supabase/023_qualidade_pops.sql",
       "id": "023_qualidade_pops"
+    },
+    {
+      "file": "Backend/supabase/024_manual_stock_print_batches.sql",
+      "id": "024_manual_stock_print_batches"
+    },
+    {
+      "file": "Backend/supabase/025_manual_stock_sheet_registers.sql",
+      "id": "025_manual_stock_sheet_registers"
+    },
+    {
+      "file": "Backend/supabase/026_qualidade_devolucoes.sql",
+      "id": "026_qualidade_devolucoes"
+    },
+    {
+      "file": "Backend/supabase/027_kit_composicao_origem.sql",
+      "id": "027_kit_composicao_origem"
+    },
+    {
+      "file": "Backend/supabase/028_reports_manufacturing_date.sql",
+      "id": "028_reports_manufacturing_date"
+    },
+    {
+      "file": "Backend/supabase/029_ferramentas_label_templates.sql",
+      "id": "029_ferramentas_label_templates"
     }
   ],
   "keyFlows": [
@@ -5961,10 +6356,10 @@
     "AGENTS.md"
   ],
   "stats": {
-    "httpRouteEntries": 124,
-    "migrations": 23,
-    "frontendViews": 40,
-    "modules": 44,
-    "edges": 65
+    "httpRouteEntries": 134,
+    "migrations": 29,
+    "frontendViews": 42,
+    "modules": 45,
+    "edges": 71
   }
 }

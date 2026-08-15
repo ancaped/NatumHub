@@ -36,9 +36,11 @@ import QualidadeTemperaturaView from './modules/qualidade/temperatura/QualidadeT
 import QualidadeLimpezaView from './modules/qualidade/limpeza/QualidadeLimpezaView';
 import QualidadeRecebimentoMpView from './modules/qualidade/recebimento_mp/QualidadeRecebimentoMpView';
 import QualidadeDocumentacaoView from './modules/qualidade/documentacao/QualidadeDocumentacaoView';
+import DevolucoesView from './modules/qualidade/devolucoes/DevolucoesView';
 import AdministrativoView from './modules/administrativo/AdministrativoView';
 import ExpedicaoView from './modules/expedicao/ExpedicaoView';
 import FinanceiroView from './modules/financeiro/FinanceiroView';
+import EtiquetasView from './modules/ferramentas/etiquetas/EtiquetasView';
 import { ErrorBoundary } from './modules/geral/components/ErrorBoundary';
 import { FeedbackWidget } from './modules/geral/components/FeedbackWidget';
 import { syncCurrentPageForView } from './modules/geral/lib/viewLabels';
@@ -46,13 +48,14 @@ import {
   Boxes, ShoppingCart, Activity, FlaskConical, ArrowRight, ArrowLeft,
   Settings, Database, Loader2, Globe,
   FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp, Warehouse,
-  Truck, ClipboardCheck, BookOpen, GraduationCap, Thermometer, Sparkles, PackageCheck, FolderOpen,
+  Truck, ClipboardCheck, BookOpen, GraduationCap, Thermometer, Sparkles, PackageCheck, FolderOpen, PackageX,
 } from 'lucide-react';
 import { APP_NAME } from './modules/geral/lib/utils';
 import { localAuth } from './modules/geral/lib/api';
 import { clearAuthSession, getAuthUser, validateSession, fetchSetupStatus, type AuthUser } from './modules/geral/lib/auth';
 import { canAccessView } from './modules/geral/lib/modules/permissions';
 import { apiJson, getSettings, setSettings } from './modules/geral/lib/http';
+import { cleanupPrintIframes } from './modules/geral/lib/printCleanup';
 
 import {
   isConnectionSetupCompleted,
@@ -63,7 +66,7 @@ import {
   ensureBrowserClientConfig,
 } from './modules/geral/lib/connectionConfig';
 
-type HubView = 'hub' | 'producao_hub' | 'producao' | 'producao_bases' | 'producao_lotes' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'compras_almoxarifado' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'mapa_arquitetura' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_ordens_manuais' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'qualidade_hub' | 'controle_qualidade' | 'qualidade_pops' | 'qualidade_treinamentos' | 'qualidade_temperatura' | 'qualidade_limpeza' | 'qualidade_recebimento_mp' | 'qualidade_documentacao' | 'administrativo' | 'admin_linha_produtos' | 'admin_produtos_ativos_relatorios' | 'admin_funcionarios' | 'expedicao_hub' | 'expedicao_ecommerce' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro';
+type HubView = 'hub' | 'producao_hub' | 'producao' | 'producao_bases' | 'producao_lotes' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'compras_almoxarifado' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'mapa_arquitetura' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_ordens_manuais' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'qualidade_hub' | 'controle_qualidade' | 'qualidade_devolucoes' | 'qualidade_pops' | 'qualidade_treinamentos' | 'qualidade_temperatura' | 'qualidade_limpeza' | 'qualidade_recebimento_mp' | 'qualidade_documentacao' | 'administrativo' | 'admin_linha_produtos' | 'admin_produtos_ativos_relatorios' | 'admin_funcionarios' | 'expedicao_hub' | 'expedicao_ecommerce' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro' | 'ferramentas_hub' | 'ferramentas_etiquetas';
 
 export default function App() {
   const [view, setView] = useState<HubView>('hub');
@@ -170,6 +173,11 @@ export default function App() {
       setView('hub');
     }
   }, [view, currentUser, authReady]);
+
+  // Firefox: iframe de impressão órfão → crash React "can't access property body"
+  useEffect(() => {
+    cleanupPrintIframes();
+  }, [view]);
 
   const finishSupervisorSetup = async () => {
     setNeedsSupervisorSetup(false);
@@ -982,6 +990,14 @@ export default function App() {
       );
     }
 
+    if (view === 'qualidade_devolucoes') {
+      return (
+        <ErrorBoundary onReset={() => setView('qualidade_hub')} fallbackTitle="Erro no módulo Devoluções">
+          <DevolucoesView onBackToHub={() => setView('qualidade_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
     if (view === 'qualidade_pops') {
       return (
         <ErrorBoundary onReset={() => setView('qualidade_hub')} fallbackTitle="Erro no módulo POPs">
@@ -1057,6 +1073,15 @@ export default function App() {
                   <div className="space-y-4">
                     <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><ClipboardCheck className="h-6 w-6" /></div>
                     <div><h3 className="text-xl font-bold text-zinc-900">Controle de Qualidade</h3><p className="text-sm text-zinc-500 mt-1">Visão geral, laudos e rastreabilidade de lotes.</p></div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+              {allow('qualidade_devolucoes') && (
+                <button onClick={() => setView('qualidade_devolucoes')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><PackageX className="h-6 w-6" /></div>
+                    <div><h3 className="text-xl font-bold text-zinc-900">Devoluções</h3><p className="text-sm text-zinc-500 mt-1">Recepção, conferência CQ e relançamento no ERP.</p></div>
                   </div>
                   <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar <ArrowRight className="h-4 w-4" /></div>
                 </button>
@@ -1178,6 +1203,14 @@ export default function App() {
       return (
         <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo Financeiro">
           <FinanceiroView onBackToHub={() => setView('hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'ferramentas_etiquetas') {
+      return (
+        <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo Editor de Etiquetas">
+          <EtiquetasView onBackToHub={() => setView('hub')} />
         </ErrorBoundary>
       );
     }

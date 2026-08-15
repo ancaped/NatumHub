@@ -17,6 +17,7 @@ import {
   Layers,
   Package,
   PackageCheck,
+  PackageX,
   Palette,
   FileSpreadsheet,
   ShoppingCart,
@@ -47,6 +48,7 @@ export const TOP_NAV_GROUP_KEYS = [
   'expedicao',
   'administrativo',
   'financeiro',
+  'ferramentas',
 ] as const;
 
 export type TopNavGroupKey = (typeof TOP_NAV_GROUP_KEYS)[number];
@@ -102,6 +104,7 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   vendas: TrendingUp,
   vendas_online: ShoppingBag,
   controle_qualidade: ClipboardCheck,
+  qualidade_devolucoes: PackageX,
   qualidade_pops: BookOpen,
   qualidade_treinamentos: GraduationCap,
   qualidade_temperatura: Thermometer,
@@ -112,9 +115,11 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   expedicao_ecommerce: Globe,
   expedicao: Truck,
   financeiro: DollarSign,
+  ferramentas: Wrench,
+  ferramentas_etiquetas: Tag,
 };
 
-const DEPRECATED_HUB_VIEWS = new Set(['compras_hub', 'producao_hub', 'estoque_hub', 'almoxarifado_hub', 'vendas_hub', 'qualidade_hub', 'expedicao_hub']);
+const DEPRECATED_HUB_VIEWS = new Set(['compras_hub', 'producao_hub', 'estoque_hub', 'almoxarifado_hub', 'vendas_hub', 'qualidade_hub', 'expedicao_hub', 'ferramentas_hub']);
 
 export function isDeprecatedHubView(view: string): boolean {
   return DEPRECATED_HUB_VIEWS.has(view);

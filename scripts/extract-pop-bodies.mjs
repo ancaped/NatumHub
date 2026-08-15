@@ -72,24 +72,6 @@ function codeFromFilename(filePath) {
   return null;
 }
 
-/** Remove faixa de cabeçalho/rodapé tipica do Word, mantém o miolo do procedimento. */
-function trimPopBoilerplate(text) {
-  let s = text;
-  const startRe =
-    /(?:^|\n)\s*(?:\d+\.\s*)?(OBJETIVO|1\.\s*OBJETIVO)\s*[:.]?/i;
-  const mStart = startRe.exec(s);
-  if (mStart && mStart.index > 0) {
-    s = s.slice(mStart.index).replace(/^\n+/, '');
-  }
-  const endRe =
-    /\n\s*(ELABORADO|REVISADO|APROVADO)\s*[:.]?\s*\n/i;
-  const mEnd = endRe.exec(s);
-  if (mEnd && mEnd.index > 80) {
-    s = s.slice(0, mEnd.index).trimEnd();
-  }
-  return s.trim();
-}
-
 function xmlToText(xml) {
   let s = xml
     .replace(/<\/w:p>/g, '\n')
@@ -139,18 +121,128 @@ function extractDocxText(docxPath) {
   }
 }
 
+/**
+ * Extrai e limpa o texto dos .docx dos POPs:
+ * - Extrai a revisão real (ex: 08, 09) do cabeçalho
+ * - Extrai datas de vigência (ex: 2025-09-02)
+ * - Extrai assinaturas (Elaborado, Revisado, Aprovado)
+ * - Remove TODOS os blocos de cabeçalho, rodapé e tabelas repetidas do corpo
+ *
+ * Gera: Backend/src/modules/qualidade/pops/seed_bodies.json
+ */
+function cleanPopTextAndMetadata(rawText) {
+  let s = rawText;
+
+  // 1. Extrai revisão (ex: REVISÃO:\n\n08 ou REVISÃO: 09)
+  let revision = 1;
+  const revMatch = s.match(/REVIS[ÃA]O\s*[:.]?\s*\n*\s*0*(\d+)/i);
+  if (revMatch) {
+    const r = parseInt(revMatch[1], 10);
+    if (!isNaN(r) && r > 0) revision = r;
+  }
+
+  // 2. Extrai datas no formato DD/MM/YYYY
+  const dateMatches = Array.from(s.matchAll(/\b(\d{2})\/(\d{2})\/(\d{4})\b/g));
+  let effectiveDate = null;
+  if (dateMatches.length > 0) {
+    // Pega a maior data (mais recente) encontrada no documento
+    const isoDates = dateMatches
+      .map((m) => `${m[3]}-${m[2]}-${m[1]}`)
+      .sort();
+    effectiveDate = isoDates[isoDates.length - 1];
+  }
+
+  // 3. Extrai assinaturas se existirem
+  let elaboratedBy = 'Responsável Técnico';
+  let reviewedBy = 'Equipe de Controle de Qualidade';
+  let approvedBy = null;
+
+  const elabM = s.match(/Elaborado\s+por\s*[:.]?\s*\n+([^\n]+(?:\n+[^\n]+)?)/i);
+  if (elabM) {
+    const lines = elabM[1].split('\n').map(l => l.trim()).filter(l => l && !/revisado|aprovado|data/i.test(l));
+    if (lines.length > 0) elaboratedBy = lines.join(' - ');
+  }
+
+  const revM = s.match(/Revisado\s+por\s*[:.]?\s*\n+([^\n]+(?:\n+[^\n]+)?)/i);
+  if (revM) {
+    const lines = revM[1].split('\n').map(l => l.trim()).filter(l => l && !/aprovado|data|elaborado/i.test(l));
+    if (lines.length > 0) reviewedBy = lines.join(' - ');
+  }
+
+  const aprM = s.match(/Aprovado\s+por\s*[:.]?\s*\n+([^\n]+)/i);
+  if (aprM) {
+    const line = aprM[1].trim();
+    if (line && !/^[\s_.-]+$/.test(line) && !/data/i.test(line)) {
+      approvedBy = line;
+    }
+  }
+
+  // 4. Limpeza rigorosa do corpo (Remover blocos repetidos de cabeçalhos e rodapés)
+
+  // Remove blocos de assinaturas (Elaborado por ... Aprovado por ... DATA: ...)
+  s = s.replace(
+    /Elaborado\s+por\s*[:.]?[\s\S]*?(?:Aprovado\s+por\s*[:.]?|DATA\s*[:.]?\s*\d{2}\/\d{2}\/\d{4})[\s\S]*?(?=\n\s*(?:\d+\.\s*)?[A-ZÁÉÍÓÚÇ]{3,}|$)/gi,
+    '\n'
+  );
+  s = s.replace(/Elaborado\s+por\s*[:.]?[\s\S]*?(?=\n\s*(?:\d+\.\s*)?[A-ZÁÉÍÓÚÇ]{3,}|$)/gi, '\n');
+  s = s.replace(/Revisado\s+por\s*[:.]?[\s\S]*?(?=\n\s*(?:\d+\.\s*)?[A-ZÁÉÍÓÚÇ]{3,}|$)/gi, '\n');
+  s = s.replace(/Aprovado\s+por\s*[:.]?[\s\S]*?(?=\n\s*(?:\d+\.\s*)?[A-ZÁÉÍÓÚÇ]{3,}|$)/gi, '\n');
+
+  // Remove blocos de cabeçalho do documento (Procedimento Operacional Padrão ... REVISÃO ... PÁGINA ...)
+  s = s.replace(
+    /Procedimento\s+Operacional\s+Padr[ãa]o[\s\S]*?(?:P[ÁA]GINA\s*[:.]?\s*\d+\s+de\s+\d+|CÓDIC?O\s*[:.]?\s*POP-[A-Z0-9-]+)/gi,
+    '\n'
+  );
+  s = s.replace(/(?:P[ÁA]GINA|PAGINA)\s*[:.]?\s*\n*\s*\d+\s+de\s+\d+/gi, '');
+  s = s.replace(/CÓDIC?O\s*[:.]?\s*\n*\s*POP-[A-Z0-9-]+/gi, '');
+  s = s.replace(/REVIS[ÃA]O\s*[:.]?\s*\n*\s*\d+/gi, '');
+
+  // Remove linhas de traços/sublinhados soltas e "DATA: xx/xx/xxxx" isolados no final
+  s = s.replace(/^[\s_.-]+$/gm, '');
+  s = s.replace(/^DATA\s*[:.]?\s*\n*\s*\d{2}\/\d{2}\/\d{4}$/gmi, '');
+
+  // Garante que o corpo comece no Objetivo (se existir)
+  const mStart = /(?:^|\n)\s*(?:\d+\.\s*|\d+\s*-\s*)?(OBJETIVO[S]?|1\.\s*OBJETIVO[S]?)\s*[:.]?/i.exec(s);
+  if (mStart && mStart.index > 0) {
+    s = s.slice(mStart.index);
+  }
+
+  // Normaliza quebras de linha múltiplas
+  s = s
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l, idx, arr) => {
+      // Remove linhas residuais isoladas de DATA ou assinaturas
+      if (/^DATA\s*[:.]?/i.test(l) && idx > arr.length - 5) return false;
+      if (/^Elaborado|^Revisado|^Aprovado/i.test(l)) return false;
+      return true;
+    })
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return {
+    body: s,
+    revision,
+    effectiveDate,
+    elaboratedBy,
+    reviewedBy,
+    approvedBy,
+  };
+}
+
 function main() {
   const argPath = process.argv[2];
   const root = argPath || desktopPops();
   if (!root) {
-    console.error('Pasta POP\'S não encontrada. Passe o caminho ou copie para Saves/pops/source/');
+    console.error("Pasta POP'S não encontrada. Passe o caminho ou copie para Saves/pops/source/");
     process.exit(1);
   }
   console.log('Fonte:', root);
   const files = walkDocx(root);
   console.log('Arquivos .docx:', files.length);
 
-  /** @type {Record<string, { body: string, source: string }>} */
+  /** @type {Record<string, { body: string, revision: number, effectiveDate: string|null, elaboratedBy: string, reviewedBy: string, approvedBy: string|null, source: string }>} */
   const bodies = {};
   let ok = 0;
   let fail = 0;
@@ -162,18 +254,19 @@ function main() {
       continue;
     }
     try {
-      const body = trimPopBoilerplate(extractDocxText(f));
-      if (!body) {
+      const rawText = extractDocxText(f);
+      const cleaned = cleanPopTextAndMetadata(rawText);
+      if (!cleaned.body) {
         console.warn('Vazio:', code, path.basename(f));
         fail++;
         continue;
       }
       bodies[code] = {
-        body,
+        ...cleaned,
         source: path.relative(root, f).split(path.sep).join('/'),
       };
       ok++;
-      console.log('OK', code, `(${body.length} chars)`);
+      console.log('OK', code, `(Rev ${cleaned.revision}, ${cleaned.body.length} chars)`);
     } catch (e) {
       console.warn('Erro', code, e.message || e);
       fail++;
