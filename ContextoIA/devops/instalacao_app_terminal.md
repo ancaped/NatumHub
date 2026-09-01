@@ -2,39 +2,52 @@
 
 Terminais **não** precisam de PostgreSQL, Rust, Node, SQL Server nem instalador `.exe`.
 
-## 1. Hosts / DNS
+URL fixa: `http://nexus.local:3001`
 
-No PC do terminal (admin), edite `C:\Windows\System32\drivers\etc\hosts` e adicione:
+## 1. Hosts → IP estável (Tailscale)
+
+O roteador troca o IP da Wi‑Fi. Nos clientes, `nexus.local` deve apontar para o IP **Tailscale** do notebook (`100.x.x.x`), que não muda. Ver [tailscale.md](tailscale.md).
+
+No PC do terminal, como administrador:
 
 ```text
-<IP-DO-PC-PRINCIPAL>  natumhub.local
+NatumHub-Setup-Hosts.bat 100.x.x.x
 ```
 
-Exemplo: `192.168.0.10  natumhub.local`
+(substitua pelo IP Tailscale do PC Principal, visível no app Tailscale do notebook.)
 
-(Alternativa: DNS interno da empresa apontando `natumhub.local` para o master.)
+Isso grava no `hosts`:
+
+```text
+100.x.x.x  nexus.local
+```
+
+**Não** rode o `.bat` sem argumento nos clientes — o padrão `127.0.0.1` é só no notebook.
+
+No notebook (master): `NatumHub-Setup-Hosts.bat` → `127.0.0.1  nexus.local`.
 
 ## 2. Abrir o Hub
 
 No navegador (Chrome/Edge):
 
 ```text
-http://natumhub.local:3001
+http://nexus.local:3001
 ```
 
-A UI e a API ficam na mesma origem. Faça login com **nome + senha** (cadastrado pelo supervisor no master).
+A UI e a API ficam na mesma origem. Login com **nome + senha** (cadastrado pelo supervisor no master).
 
-Teste rápido da API: `http://natumhub.local:3001/api/health`
+Teste: `http://nexus.local:3001/api/health`
+
+Firefox: se `nexus.local` não abrir, desligue DNS sobre HTTPS.
 
 ## 3. Comportamento
 
 - Sem app instalado: só o navegador.
 - Atualizações: o master faz `git pull` em `main` + rebuild do Frontend; no terminal basta **recarregar a página**.
-- Não há aba de atualizações GitHub.
 
 ## 4. Rede
 
-- O PC Principal precisa ter firewall liberando **TCP 3001**.
-- Se não estiver na mesma LAN, use [Tailscale](tailscale.md) e aponte `natumhub.local` (ou use o hostname MagicDNS) para o IP do master.
+- Firewall do PC Principal: **TCP 3001**.
+- Postgres **não** abre na rede (`5432` só no notebook).
 
 Ver também: [instalacao_app_master.md](instalacao_app_master.md) · [multi_usuario.md](../arquitetura/multi_usuario.md).

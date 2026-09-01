@@ -7,7 +7,7 @@ No **NatumHub Dev**, o wizard **PC Principal** pode instalar Postgres 17, criar 
 ## Papel do master
 
 - Sobe Axum em `0.0.0.0:3001` (API + **SPA** do Hub em `/`) — via app Tauri **ou** [`instalacao_servidor.md`](instalacao_servidor.md) (`natumhub-server`, sem janela).
-- Clientes abrem `http://natumhub.local:3001` no navegador — sem instalador.
+- Clientes abrem `http://nexus.local:3001` no navegador — sem instalador.
 - Produção = branch **`main`**. Outras branches só para desenvolvimento.
 
 ## 1. Subir a partir do repositório (recomendado)
@@ -34,7 +34,7 @@ Opcional: gerar `.exe` do master com `npm run build:stable` em `Backend/` — de
 
 - API + SPA em `0.0.0.0:3001`.
 - Firewall Windows: inbound **TCP 3001**.
-- Nos terminais: hosts `natumhub.local` → IP deste PC (ver [instalacao_app_terminal.md](instalacao_app_terminal.md)).
+- Nos terminais: hosts `nexus.local` → IP Tailscale deste PC (ver [instalacao_app_terminal.md](instalacao_app_terminal.md)).
 
 ## 4. Atualizar produção
 
@@ -58,4 +58,4 @@ Sync SQL Server: Configurações / Painel Supervisor (só no master).
 - [ ] `Frontend/dist` gerado (`npm run build`)
 - [ ] App sobe Axum em :3001 e `http://127.0.0.1:3001/` carrega o Hub
 - [ ] Supervisor loga
-- [ ] Porta 3001 acessível; terminais usam `http://natumhub.local:3001`
+- [ ] Porta 3001 acessível; terminais usam `http://nexus.local:3001`

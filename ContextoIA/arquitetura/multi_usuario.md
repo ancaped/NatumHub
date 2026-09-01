@@ -4,13 +4,13 @@
 
 ```
 Navegadores (clientes) ──HTTP──► PC Principal / servidor Axum :3001 ──► PostgreSQL local
-   http://natumhub.local:3001         └── SPA (Frontend/dist) + sync ERP / backups
+   http://nexus.local:3001         └── SPA (Frontend/dist) + sync ERP / backups
 ```
 
 | Papel | Comportamento |
 |-------|----------------|
 | **PC Principal** (`appMode: master`) | Axum `:3001`, Postgres (`Saves/postgres.env`), sync ERP, backups, **serve o Hub SPA**. Pode ser o app Tauri **ou** o binário headless `natumhub-server` (recomendado 24/7 / Linux) |
-| **Terminal / cliente** | **Só navegador** — sem instalador. Abre `http://natumhub.local:3001` (hosts/DNS → IP do master) |
+| **Terminal / cliente** | **Só navegador** — sem instalador. Abre `http://nexus.local:3001` (hosts → IP Tailscale do master) |
 | Banco | PostgreSQL **obrigatório** no master — não SQLite |
 | Cadastro de usuários | **Somente supervisor** |
 | Login | Nome digitado + senha (sem listar operadores) |
@@ -36,7 +36,7 @@ Supervisor-only: `GET/POST/PUT/DELETE /api/auth/operators/manage`, devices, sync
 ## Fluxo 1ª execução
 
 1. **Master:** wizard PC Principal + Postgres + supervisor.
-2. **Clientes:** no PC de cada terminal, hosts com `natumhub.local` → IP do master; abrir o navegador na URL acima e fazer login.
+2. **Clientes:** Tailscale + hosts `nexus.local` → IP `100.x.x.x` do master ([instalacao_app_terminal.md](../devops/instalacao_app_terminal.md)); abrir o navegador na URL acima e fazer login.
 3. Login com nome + senha; supervisor gerencia operadores.
 
 ## Notificações

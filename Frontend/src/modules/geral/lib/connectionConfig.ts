@@ -27,6 +27,11 @@ export interface ClientConfig {
 const STORAGE_KEY = 'natum_client_config';
 
 export const DEFAULT_API_PORT = 3001;
+/** Hostname local dos clientes (arquivo hosts → IP Tailscale ou 127.0.0.1 no master). */
+export const HUB_HOSTNAME = 'nexus.local';
+export function hubOrigin(port = DEFAULT_API_PORT): string {
+  return `http://${HUB_HOSTNAME}:${port}`;
+}
 
 export function defaultConfig(): ClientConfig {
   return {

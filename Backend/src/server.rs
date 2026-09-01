@@ -357,7 +357,8 @@ pub async fn run_hub_server(opts: HubServerOptions) -> Result<(), String> {
 
     println!("Axum REST server running on: http://{addr}");
     println!(
-        "Acesso clientes (navegador): http://natumhub.local:{}",
+        "Acesso clientes (navegador): http://{}:{}",
+        core::app_config::HUB_HOSTNAME,
         cfg.api_port
     );
 

@@ -1,44 +1,56 @@
-# Tailscale (rede sem LAN / “offline” remoto)
+# Tailscale (IP estável sem depender do roteador)
 
-Use Tailscale quando os PCs não estão na mesma Wi‑Fi/rede cabeada, mas precisam falar com o **PC Principal** (API `:3001`).
+Use Tailscale quando o DHCP da Wi‑Fi muda o IP do notebook, ou quando os PCs não estão na mesma rede, mas precisam da API `:3001`.
 
-Para Hub **sem janela Tauri** (serviço / VPS): [instalacao_servidor.md](instalacao_servidor.md) + Tailscale no host do `natumhub-server`.
+O domínio do Hub continua `http://nexus.local:3001`. O arquivo hosts dos **clientes** aponta esse nome para o IP Tailscale (`100.x.x.x`) do master — esse IP não muda quando o roteador renova o `192.168…`.
+
+Para Hub **sem janela Tauri**: [instalacao_servidor.md](instalacao_servidor.md) + Tailscale no host do `natumhub-server`.
 
 ## 1. Conta e instalação
 
 1. Crie conta em https://tailscale.com (gratuita para uso pequeno).
-2. Instale o cliente Tailscale em **todos** os PCs (master + terminais + notebook do supervisor).
-3. Faça login com a mesma organização/conta.
+2. Instale o cliente Tailscale em **todos** os PCs (master + terminais).
+3. Faça login com a mesma conta.
 
 ## 2. Rede
 
-- Cada PC recebe um IP `100.x.x.x` e, se MagicDNS estiver ativo, um hostname (ex.: `pc-escritorio`).
-- No master, confirme que o NatumHub está como **PC Principal** (app Tauri **ou** `natumhub-server`) e a API responde em `:3001`.
+- Cada PC recebe um IP `100.x.x.x` (estável) e, se MagicDNS estiver ativo, um hostname (ex.: `notebook-edson`).
+- No master, o NatumHub (Tauri **ou** `natumhub-server`) responde em `:3001`.
+- Anote o `100.x.x.x` do **notebook** (app Tailscale → máquina do PC Principal).
 
-## 3. Terminais / supervisor remoto
+## 3. Hosts `nexus.local`
 
-Abra no navegador:
+**Notebook (master):**
 
-```
-http://natumhub.local:3001
-```
-
-(com hosts apontando `natumhub.local` para o IP Tailscale do master), ou use direto:
-
-```
-http://<hostname-tailscale>:3001
-http://100.x.x.x:3001
+```text
+NatumHub-Setup-Hosts.bat
 ```
 
-Teste: `http://…:3001/api/health` e a UI em `/`. Login supervisor com nome + senha.
+grava `127.0.0.1  nexus.local`.
+
+**Cada outro PC** (como administrador), com o IP Tailscale do notebook:
+
+```text
+NatumHub-Setup-Hosts.bat 100.x.x.x
+```
+
+grava `100.x.x.x  nexus.local`.
+
+Depois, em todos os navegadores:
+
+```
+http://nexus.local:3001
+```
+
+Ainda funciona o atalho MagicDNS (`http://<hostname-tailscale>:3001`) se não quiser hosts.
+
+Teste: `http://nexus.local:3001/api/health`. Login com nome + senha.
 
 ## 4. Notas
 
 - Postgres continua **só no master** (localhost); não exponha `5432` na tailnet.
-- Firewall do Windows/Linux no master ainda precisa aceitar a API (Tailscale costuma contornar NAT).
-- “Offline” aqui = sem internet pública fixa; a mesh Tailscale precisa que os nós estejam online na VPN.
-- **Não** publique `:3001` na internet aberta nesta fase — só Tailscale (ou LAN).
+- Firewall do notebook: inbound **TCP 3001**.
+- A mesh Tailscale precisa que os nós estejam ligados; não substitui internet/VPN desligada.
+- **Não** publique `:3001` na internet aberta — só Tailscale (ou LAN).
 
-## 5. Alternativa preferida na LAN
-
-Se todos os PCs estão na mesma rede local, Tailscale é opcional — use hosts `natumhub.local` → IP LAN do master ([instalacao_app_terminal.md](instalacao_app_terminal.md)).
+Detalhe dos clientes: [instalacao_app_terminal.md](instalacao_app_terminal.md).

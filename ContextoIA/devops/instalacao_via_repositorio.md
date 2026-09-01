@@ -7,7 +7,7 @@ Há dois papéis:
 | Papel | Quem | Postgres? | SQL Server ERP? | O que sobe |
 |-------|------|-----------|-----------------|------------|
 | **PC Principal (master)** | 1 máquina servidor | **Sim, obrigatório** | Só se for fazer sync ERP | App Tauri **ou** `natumhub-server` ([instalacao_servidor.md](instalacao_servidor.md)) + Axum `:3001` (API + SPA) |
-| **Terminal (cliente)** | Demais PCs | Não | Não | **Navegador** → `http://natumhub.local:3001` |
+| **Terminal (cliente)** | Demais PCs | Não | Não | **Navegador** → `http://nexus.local:3001` |
 
 **Branches:** `main` = produção no master. Outras branches = desenvolvimento (não servir aos clientes).
 
@@ -25,8 +25,8 @@ Docs relacionadas: [instalacao_postgres_master.md](instalacao_postgres_master.md
 3. Postgres + postgres.env + schema
 4. npm run build no Frontend + suba o app master
 5. Wizard: PC Principal
-6. Firewall 3001 + hosts natumhub.local nos terminais
-7. Clientes abrem http://natumhub.local:3001 no navegador
+6. Firewall 3001 + hosts nexus.local nos terminais
+7. Clientes abrem http://nexus.local:3001 no navegador
 ```
 
 ---
@@ -217,7 +217,7 @@ npm run build:stable
 3. Crie o **supervisor** (única conta que cadastra usuários).
 4. Login: digite **nome + senha** (lista de usuários não aparece).
 5. **Firewall Windows:** permitir inbound **TCP 3001** (terminais na LAN).
-6. Anote o IP do master, ex.: `192.168.0.10`.
+6. Anote o IP **Tailscale** do master (`100.x.x.x`) — ver [tailscale.md](tailscale.md).
 7. (Opcional) Sync ERP: Configurações / Painel Supervisor — credenciais `sql_*` do SQL Server. Só no master.
 8. Cadastre operadores que vão logar nos terminais.
 
@@ -227,21 +227,26 @@ Não abra a porta do Postgres na rede — só a **3001**.
 
 ## Parte F — Terminais (clientes)
 
-Terminais **não** precisam de PostgreSQL nem de SQL Server.
+Terminais **não** precisam de PostgreSQL nem de SQL Server. Preferência: só o navegador.
 
-### F1 — Com o mesmo repositório / exe local
+### F1 — Navegador (`nexus.local`)
 
-1. No terminal: ou rode `npm run tauri:dev` a partir do clone, **ou** copie o `natum-hub.exe` gerado no master (Parte D2).
-2. Abra o app → wizard → **Terminal**.
-3. URL da API, exemplos:
-   - LAN: `http://192.168.0.10:3001`
-   - Tailscale: `http://100.x.x.x:3001` (ver [tailscale.md](tailscale.md))
-4. O app testa o health; se falhar, corrija firewall/IP.
+1. Tailscale no terminal, mesma conta do master ([tailscale.md](tailscale.md)).
+2. Como admin: `NatumHub-Setup-Hosts.bat 100.x.x.x` (IP Tailscale do notebook).
+3. Abra `http://nexus.local:3001`.
+4. Login com usuário criado pelo supervisor.
+
+### F2 — App Tauri no terminal (opcional)
+
+1. Rode `npm run tauri:dev` a partir do clone **ou** copie o `natum-hub.exe` gerado no master (Parte D2).
+2. Wizard → **Terminal**.
+3. URL da API: `http://nexus.local:3001` (hosts já apontando ao Tailscale).
+4. O app testa o health; se falhar, corrija firewall/hosts.
 5. Login com usuário criado pelo supervisor.
 
 Modo `client`: **não** sobe Axum local e **não** exige `postgres.env`.
 
-### F2 — Reconfigurar
+### F3 — Reconfigurar
 
 Na tela de login: **Reconfigurar dispositivo** (volta ao wizard).
 
@@ -265,8 +270,8 @@ Na tela de login: **Reconfigurar dispositivo** (volta ao wizard).
 
 ### Cada terminal
 
-- [ ] Hosts: `natumhub.local` → IP do master
-- [ ] Navegador em `http://natumhub.local:3001`
+- [ ] Hosts: `nexus.local` → IP Tailscale `100.x.x.x` do master
+- [ ] Navegador em `http://nexus.local:3001`
 - [ ] Health ok (`/api/health`)
 - [ ] Login com operador cadastrado no master
 
@@ -279,7 +284,7 @@ Na tela de login: **Reconfigurar dispositivo** (volta ao wizard).
 | API offline / `dbConnected: false` | Sem Postgres ou `postgres.env` errado | Parte C; reiniciar app |
 | `/` não carrega UI | Sem `Frontend/dist` | `cd Frontend; npm run build` e reiniciar master |
 | Panic / mismatch SQL no financeiro | Schema/tipos Postgres | Atualizar `git pull` + schema |
-| Terminal não conecta | Firewall, hosts ou IP errado | Liberar 3001; hosts `natumhub.local`; testar `/api/health` |
+| Terminal não conecta | Firewall, hosts ou IP Tailscale errado | Liberar 3001; `NatumHub-Setup-Hosts.bat 100.x.x.x`; testar `/api/health` |
 | 1ª compilação “travou” | Cargo baixando crates | Esperar; rede liberada; `cargo check --lib` no Backend |
 | Instalador NSIS da Release falha | Motivo deste guia | Use D1 (`tauri:dev`) ou D2 (exe em `target\release`) |
 | Pensou que “só SQLite basta” | Doc antiga | Ignore — master **exige** Postgres |
@@ -300,4 +305,4 @@ npm ci
 # reiniciar o app master (tauri:dev ou o .exe instalado)
 ```
 
-Clientes: só recarregar `http://natumhub.local:3001`. Ver [instalacao_app_master.md](instalacao_app_master.md) · [instalacao_app_terminal.md](instalacao_app_terminal.md).
+Clientes: só recarregar `http://nexus.local:3001`. Ver [instalacao_app_master.md](instalacao_app_master.md) · [instalacao_app_terminal.md](instalacao_app_terminal.md).

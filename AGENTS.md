@@ -41,4 +41,4 @@ Genérico            → ContextoIA/inicio/gemini.md
 
 ## Stack
 
-Tauri 2 (PC Principal) + React + Axum `:3001` (API + SPA) + **PostgreSQL** (`Saves/postgres.env`). Clientes: navegador em `http://natumhub.local:3001`. Produção = branch `main`. **Não** SQLite/`data.db`.
+Tauri 2 (PC Principal) + React + Axum `:3001` (API + SPA) + **PostgreSQL** (`Saves/postgres.env`). Clientes: navegador em `http://nexus.local:3001`. Produção = branch `main`. **Não** SQLite/`data.db`.

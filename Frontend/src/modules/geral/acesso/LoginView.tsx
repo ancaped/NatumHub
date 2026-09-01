@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Boxes, User, AlertCircle, Loader2, Lock } from 'lucide-react';
 import { loginOperator } from '../lib/auth';
-import { getApiOrigin, checkServerHealth } from '../lib/connectionConfig';
+import { getApiOrigin, checkServerHealth, hubOrigin } from '../lib/connectionConfig';
 
 interface LoginViewProps {
   message: { text: string; type: 'success' | 'error' } | null;
@@ -40,7 +40,7 @@ export default function LoginView({
         if (!health.ok) {
           setLoadError(
             health.error ||
-              `API inacessível em ${getApiOrigin()}. No mesmo Wi‑Fi use http://IP-DO-MASTER:3001 (PC Principal ligado). Verifique firewall na porta 3001.`
+              `API inacessível em ${getApiOrigin()}. Abra ${hubOrigin()} (hosts → IP Tailscale do PC Principal). Verifique firewall na porta 3001.`
           );
         }
       } catch (e: unknown) {

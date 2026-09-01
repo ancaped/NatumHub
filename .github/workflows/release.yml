@@ -187,7 +187,7 @@ jobs:
             - **Desenvolvedor:** `NatumHub Dev_*_x64-setup.exe`
 
             ## Clientes
-            Sem instalador: navegador em `http://natumhub.local:3001`.
+            Sem instalador: navegador em `http://nexus.local:3001`.
             Atualização = `main` no master + rebuild Frontend (sem update in-app).
           draft: false
           prerelease: false
