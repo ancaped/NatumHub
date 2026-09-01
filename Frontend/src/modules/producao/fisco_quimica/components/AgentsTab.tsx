@@ -167,7 +167,7 @@ export function AgentsTab({ agents, items, analyses, onRefresh }: AgentsTabProps
   };
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto animate-in fade-in duration-200">
+    <div className="view-container animate-in fade-in duration-200">
       
       {/* Barra de Sub-Navegação & Cabeçalho */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-zinc-200 pb-4">

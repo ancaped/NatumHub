@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, ArrowRight, CheckCircle2, FileSpreadsheet, Layers, Users } from 'lucide-react';
+import { ArrowRight, CheckCircle2, FileSpreadsheet, Layers, Users } from 'lucide-react';
 import { canAccessView } from '../geral/lib/modules/permissions';
 import { getAuthUser } from '../geral/lib/auth';
 import { MODULE_KEYS } from '../geral/lib/modules/registry';
@@ -9,21 +9,13 @@ interface Props {
   setView: (view: string) => void;
 }
 
-export default function AdministrativoView({ onBackToHub, setView }: Props) {
+export default function AdministrativoView({ setView }: Props) {
   const user = getAuthUser();
   const allow = (key: string) => canAccessView(user, key);
 
   return (
     <div className="min-h-screen bg-zinc-50 flex flex-col">
       <header className="bg-white border-b border-zinc-200 px-6 py-4 flex items-center gap-4">
-        <button
-          type="button"
-          onClick={onBackToHub}
-          className="inline-flex items-center gap-2 text-sm font-medium text-zinc-600 hover:text-zinc-900"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Início
-        </button>
         <div className="flex items-center gap-2">
           <Layers className="h-5 w-5 text-zinc-700" />
           <h1 className="text-lg font-bold text-zinc-900">Administrativo</h1>
@@ -59,10 +51,10 @@ export default function AdministrativoView({ onBackToHub, setView }: Props) {
             </button>
           )}
 
-          {allow(MODULE_KEYS.ADMIN_PRODUTOS_ATIVOS_RELATORIOS) && (
+          {(allow(MODULE_KEYS.ADMIN_RELATORIOS) || allow(MODULE_KEYS.ADMIN_PRODUTOS_ATIVOS_RELATORIOS)) && (
             <button
               type="button"
-              onClick={() => setView('admin_produtos_ativos_relatorios')}
+              onClick={() => setView('admin_relatorios')}
               className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between min-h-[220px] w-full"
             >
               <div className="space-y-4">
@@ -70,9 +62,9 @@ export default function AdministrativoView({ onBackToHub, setView }: Props) {
                   <FileSpreadsheet className="h-6 w-6" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-zinc-900">Relatórios · Produtos Ativos</h3>
+                  <h3 className="text-xl font-bold text-zinc-900">Relatórios</h3>
                   <p className="text-sm text-zinc-500 mt-1">
-                    Lista produtos ativos de linhas visíveis, filtra por categoria e exporta planilha com código de barras.
+                    Central de decisão executiva: Saúde do Estoque (giros, faltas e cobertura) e Relatórios de Produtos Ativos.
                   </p>
                 </div>
               </div>

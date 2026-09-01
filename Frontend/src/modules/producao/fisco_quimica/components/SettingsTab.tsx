@@ -48,7 +48,7 @@ export function SettingsTab({ config, onRefresh }: SettingsTabProps) {
   };
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto animate-in fade-in duration-200">
+    <div className="view-container animate-in fade-in duration-200">
       
       <div className="border-b border-zinc-200 pb-4">
         <h2 className="text-xl font-black text-zinc-900 flex items-center gap-2">
@@ -182,7 +182,7 @@ export function SettingsTab({ config, onRefresh }: SettingsTabProps) {
               />
             </div>
 
-            <div className="space-y-1.5 md:col-span-2">
+            <div className="space-y-1.5">
               <label className="text-[11px] font-bold text-zinc-600 uppercase tracking-wider block">
                 Analista Padrão Sugerido no Formulário
               </label>
@@ -191,6 +191,32 @@ export function SettingsTab({ config, onRefresh }: SettingsTabProps) {
                 value={template.defaultTechnician || ''}
                 onChange={(e) => handleChange('defaultTechnician', e.target.value)}
                 placeholder="Ex: EDSON FERRARI"
+                className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-sm text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-zinc-600 uppercase tracking-wider block">
+                Fabricado Por Padrão (Produção)
+              </label>
+              <input
+                type="text"
+                value={template.defaultFabricatedBy || ''}
+                onChange={(e) => handleChange('defaultFabricatedBy', e.target.value)}
+                placeholder="Ex: RODRIGO DE SOUSA PADILHA"
+                className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-sm text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
+              />
+            </div>
+
+            <div className="space-y-1.5 md:col-span-2">
+              <label className="text-[11px] font-bold text-zinc-600 uppercase tracking-wider block">
+                Autorizado / Responsável Produção Padrão
+              </label>
+              <input
+                type="text"
+                value={template.defaultAuthorizedBy || ''}
+                onChange={(e) => handleChange('defaultAuthorizedBy', e.target.value)}
+                placeholder="Ex: RAFAEL MARINHO DE MELO"
                 className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-sm text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
               />
             </div>

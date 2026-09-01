@@ -18,6 +18,7 @@ export interface AuthUser {
   role: string;
   photoURL: string;
   modules: string[];
+  permissions?: Record<string, 'view' | 'edit'>;
   /** Sempre 'stable' (compat API). */
   updateChannel: UpdateChannel;
   userUpdateChannel: UpdateChannel;
@@ -37,6 +38,7 @@ export interface OperatorDetail {
   role: string;
   active: boolean;
   modules: string[];
+  permissions?: Record<string, 'view' | 'edit'>;
   updateChannel: UpdateChannel;
   hasPassword: boolean;
 }
@@ -62,20 +64,31 @@ export interface LoginResult {
   expiresAt: string;
 }
 
-function parseChannel(_raw?: unknown): UpdateChannel {
+function parseChannel(raw: unknown): UpdateChannel {
   return 'stable';
+}
+
+function parsePermissions(raw: unknown): Record<string, 'view' | 'edit'> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<string, 'view' | 'edit'> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    out[k] = v === 'view' ? 'view' : 'edit';
+  }
+  return out;
 }
 
 function mapUser(raw: Record<string, unknown>): AuthUser {
   const modulesRaw = raw.modules ?? raw.module_keys;
   const modules = Array.isArray(modulesRaw) ? modulesRaw.map(String) : [];
   const role = String(raw.role ?? 'operador');
+  const permissions = parsePermissions(raw.permissions);
   return {
     id: String(raw.id ?? ''),
     displayName: String(raw.displayName ?? raw.display_name ?? ''),
     role,
     photoURL: String(raw.photoURL ?? raw.photo_url ?? ''),
     modules,
+    permissions,
     updateChannel: 'stable',
     userUpdateChannel: 'stable',
     deviceUpdateChannel: 'stable',
@@ -92,6 +105,7 @@ function mapOperator(raw: Record<string, unknown>): OperatorDetail {
     role: String(raw.role ?? 'operador'),
     active: raw.active !== false,
     modules: Array.isArray(modulesRaw) ? modulesRaw.map(String) : [],
+    permissions: parsePermissions(raw.permissions),
     updateChannel: parseChannel(raw.updateChannel ?? raw.update_channel),
     hasPassword: Boolean(raw.hasPassword ?? raw.has_password),
   };
@@ -231,6 +245,7 @@ export async function createOperator(data: {
   displayName: string;
   role: string;
   modules: string[];
+  permissions?: Record<string, 'view' | 'edit'>;
   updateChannel?: UpdateChannel;
   password: string;
 }): Promise<OperatorDetail> {
@@ -240,6 +255,7 @@ export async function createOperator(data: {
       displayName: data.displayName.trim(),
       role: data.role,
       modules: data.modules,
+      permissions: data.permissions,
       updateChannel: data.updateChannel,
       password: data.password,
     }),
@@ -254,6 +270,7 @@ export async function updateOperator(
     role: string;
     active: boolean;
     modules: string[];
+    permissions?: Record<string, 'view' | 'edit'>;
     updateChannel: UpdateChannel;
     password?: string;
     supervisorPassword?: string;
@@ -266,6 +283,7 @@ export async function updateOperator(
       role: data.role,
       active: data.active,
       modules: data.modules,
+      permissions: data.permissions,
       updateChannel: data.updateChannel,
       password: data.password,
       supervisorPassword: data.supervisorPassword,
@@ -348,4 +366,19 @@ export function isAdmin(user: AuthUser | null): boolean {
 
 export function canSeeFeedbacks(user: AuthUser | null): boolean {
   return isSupervisor(user);
+}
+
+/** Verifica se o usuário tem permissão para visualizar o módulo */
+export function canView(user: AuthUser | null, moduleKey: string): boolean {
+  if (!user) return false;
+  if (isSupervisor(user)) return true;
+  return user.modules.includes(moduleKey);
+}
+
+/** Verifica se o usuário tem permissão para editar/alterar dados no módulo */
+export function canEdit(user: AuthUser | null, moduleKey: string): boolean {
+  if (!user) return false;
+  if (isSupervisor(user)) return true;
+  if (!user.modules.includes(moduleKey)) return false;
+  return user.permissions?.[moduleKey] !== 'view';
 }

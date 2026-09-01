@@ -104,12 +104,15 @@ impl Db {
             lancamento_data_inicio: row.get(12),
             base_codigo: None,
             terceirizado_modo: row.get(13),
+            is_producao_programada: pg_opt_i32(row, 14),
+            producao_programada_disparo: pg_opt_i64(row, 15),
+            producao_programada_objetivo: pg_opt_i64(row, 16),
         }
     }
 
     pub async fn get_override(&self, codigo: &str) -> Result<Option<ProductOverride>, String> {
         let row = sqlx::query(
-            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo
+            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo, is_producao_programada, producao_programada_disparo, producao_programada_objetivo
              FROM overrides_produtos WHERE codigo = $1",
         )
         .bind(codigo)
@@ -122,7 +125,7 @@ impl Db {
 
     pub async fn get_all_overrides(&self) -> Result<Vec<ProductOverride>, String> {
         let rows = sqlx::query(
-            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo
+            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo, is_producao_programada, producao_programada_disparo, producao_programada_objetivo
              FROM overrides_produtos",
         )
         .fetch_all(&self.pool)
@@ -147,6 +150,9 @@ impl Db {
             && ovr.lancamento_data_inicio.is_none()
             && ovr.terceirizado_modo.is_none()
             && ovr.base_codigo.is_none()
+            && (ovr.is_producao_programada.is_none() || ovr.is_producao_programada == Some(0))
+            && ovr.producao_programada_disparo.is_none()
+            && ovr.producao_programada_objetivo.is_none()
         {
             sqlx::query("DELETE FROM overrides_produtos WHERE codigo = $1")
                 .bind(&ovr.codigo)
@@ -155,8 +161,8 @@ impl Db {
                 .map_err(|e| e.to_string())?;
         } else {
             sqlx::query(
-                "INSERT INTO overrides_produtos (codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                "INSERT INTO overrides_produtos (codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo, is_producao_programada, producao_programada_disparo, producao_programada_objetivo)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
                  ON CONFLICT(codigo) DO UPDATE SET
                     estoque_ideal_manual = EXCLUDED.estoque_ideal_manual,
                     pedidos_manual = EXCLUDED.pedidos_manual,
@@ -165,12 +171,15 @@ impl Db {
                     visivel = EXCLUDED.visivel,
                     observacao = EXCLUDED.observacao,
                     linha_prefix_manual = EXCLUDED.linha_prefix_manual,
-                    status_produto = EXCLUDED.status_produto,
-                    categoria_produto = EXCLUDED.categoria_produto,
+                    status_produto = COALESCE(EXCLUDED.status_produto, overrides_produtos.status_produto),
+                    categoria_produto = COALESCE(EXCLUDED.categoria_produto, overrides_produtos.categoria_produto),
                     produzir_apenas_kit = EXCLUDED.produzir_apenas_kit,
-                    lancamento_meta_meses = EXCLUDED.lancamento_meta_meses,
-                    lancamento_data_inicio = EXCLUDED.lancamento_data_inicio,
-                    terceirizado_modo = EXCLUDED.terceirizado_modo",
+                    lancamento_meta_meses = COALESCE(EXCLUDED.lancamento_meta_meses, overrides_produtos.lancamento_meta_meses),
+                    lancamento_data_inicio = COALESCE(EXCLUDED.lancamento_data_inicio, overrides_produtos.lancamento_data_inicio),
+                    terceirizado_modo = COALESCE(EXCLUDED.terceirizado_modo, overrides_produtos.terceirizado_modo),
+                    is_producao_programada = EXCLUDED.is_producao_programada,
+                    producao_programada_disparo = EXCLUDED.producao_programada_disparo,
+                    producao_programada_objetivo = EXCLUDED.producao_programada_objetivo",
             )
             .bind(&ovr.codigo)
             .bind(ovr.estoque_ideal_manual)
@@ -186,6 +195,9 @@ impl Db {
             .bind(ovr.lancamento_meta_meses)
             .bind(&ovr.lancamento_data_inicio)
             .bind(&ovr.terceirizado_modo)
+            .bind(ovr.is_producao_programada)
+            .bind(ovr.producao_programada_disparo)
+            .bind(ovr.producao_programada_objetivo)
             .execute(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -964,15 +976,24 @@ impl Db {
         let horarios_raw = self
             .get_setting("erp_sync_horarios")
             .await?
-            .unwrap_or_else(|| r#"["06:00","12:00","18:00","22:00"]"#.to_string());
+            .unwrap_or_else(|| r#"["06:00","08:30","10:30","12:30","14:30","16:30","18:30","22:00"]"#.to_string());
         let horarios: Vec<String> = serde_json::from_str(&horarios_raw).unwrap_or_else(|_| {
             vec![
                 "06:00".to_string(),
-                "12:00".to_string(),
-                "18:00".to_string(),
+                "08:30".to_string(),
+                "10:30".to_string(),
+                "12:30".to_string(),
+                "14:30".to_string(),
+                "16:30".to_string(),
+                "18:30".to_string(),
                 "22:00".to_string(),
             ]
         });
+        let auto_audit_interval_minutes = self
+            .get_setting("stock_auto_audit_interval_minutes")
+            .await?
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(15);
         Ok(
             crate::modules::geral::configuracoes::models::ErpSyncScheduleConfig {
                 ativo: self
@@ -981,6 +1002,7 @@ impl Db {
                     .map(|v| v == "1")
                     .unwrap_or(true),
                 horarios,
+                auto_audit_interval_minutes,
             },
         )
     }
@@ -994,6 +1016,11 @@ impl Db {
         self.save_setting("erp_sync_auto_ativo", if cfg.ativo { "1" } else { "0" })
             .await?;
         self.save_setting("erp_sync_horarios", &horarios_json).await?;
+        self.save_setting(
+            "stock_auto_audit_interval_minutes",
+            &cfg.auto_audit_interval_minutes.to_string(),
+        )
+        .await?;
         Ok(())
     }
 

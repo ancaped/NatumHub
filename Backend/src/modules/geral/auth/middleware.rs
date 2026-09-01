@@ -23,6 +23,12 @@ pub async fn auth_middleware(
     let method = req.method().as_str().to_string();
 
     if store::is_public_path(&path) {
+        if let Some(token) = extract_bearer(req.headers()) {
+            let pool = state.db.pool();
+            if let Ok(Some(ctx)) = store::resolve_session(pool, &token).await {
+                req.extensions_mut().insert(ctx);
+            }
+        }
         return next.run(req).await;
     }
 

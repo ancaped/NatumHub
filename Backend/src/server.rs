@@ -225,6 +225,11 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
             "/api/producao/recalcular/ajustar",
             post(handlers::apply_recalculation_adjustment),
         )
+        .route(
+            "/api/producao/insumos-status/:code",
+            get(handlers::get_insumos_status),
+        )
+        .merge(modules::producao::proc::router())
         .merge(modules::compras::router())
         .merge(modules::estoque::router())
         .merge(modules::financeiro::router())
@@ -256,6 +261,18 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
             "/api/produtos/:code/pedidos-pendentes",
             get(handlers::get_product_pending_orders),
         )
+        .route("/server-control", get(handlers::server_control_html))
+        .route("/api/server-manager/status", get(handlers::get_server_status))
+        .route("/api/server-manager/restart", post(handlers::restart_server_handler))
+        .route("/api/server-manager/stop", post(handlers::stop_server_handler))
+        .route("/api/server-manager/start", post(handlers::start_server_handler))
+        .route("/api/server-manager/links", get(handlers::get_server_links))
+        .route("/api/server-manager/devices", get(handlers::get_server_devices))
+        .route("/api/server-manager/logs", get(handlers::get_server_logs))
+        .route("/api/server-manager/clear-logs", post(handlers::clear_server_logs))
+        .route("/api/server-manager/autostart", post(handlers::toggle_autostart))
+        .route("/api/server-manager/open-browser", post(handlers::open_browser_handler))
+        .route("/api/server-manager/open-saves", post(handlers::open_saves_handler))
         .merge(modules::geral::router())
         .merge(modules::hub_api::router())
         .layer(middleware::from_fn_with_state(
@@ -279,8 +296,18 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
 }
 
 /// Sobe Axum + schedulers e bloqueia até o servidor encerrar.
-/// Em modo cliente, retorna Ok imediatamente sem bind.
 pub async fn run_hub_server(opts: HubServerOptions) -> Result<(), String> {
+    run_hub_server_with_shutdown(opts, std::future::pending()).await
+}
+
+/// Sobe Axum + schedulers com suporte a sinal de encerramento gracioso.
+pub async fn run_hub_server_with_shutdown<F>(
+    opts: HubServerOptions,
+    shutdown_signal: F,
+) -> Result<(), String>
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
     let cfg = core::app_config::load_client_config();
     if cfg.app_mode == core::app_config::AppMode::Client {
         println!("Modo cliente: servidor Axum local não iniciado.");
@@ -344,6 +371,12 @@ pub async fn run_hub_server(opts: HubServerOptions) -> Result<(), String> {
             .await;
     });
 
+    let stock_audit_state = state.clone();
+    tokio::spawn(async move {
+        modules::geral::configuracoes::erp_sync_scheduler::start_stock_auto_audit_scheduler(stock_audit_state)
+            .await;
+    });
+
     let backup_state = state.clone();
     tokio::spawn(async move {
         modules::geral::configuracoes::pg_backup::start_pg_backup_scheduler(backup_state).await;
@@ -360,8 +393,19 @@ pub async fn run_hub_server(opts: HubServerOptions) -> Result<(), String> {
         "Acesso clientes (navegador): http://natumhub.local:{}",
         cfg.api_port
     );
+    println!(
+        "Painel do Servidor: http://localhost:{}/server-control",
+        cfg.api_port
+    );
+
+    crate::server_manager::log_server(
+        "INFO",
+        &format!("Servidor HTTP Axum ativo em http://{} (Painel em /server-control)", addr),
+    )
+    .await;
 
     axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal)
         .await
         .map_err(|e| format!("Axum server error: {e}"))
 }

@@ -8,5 +8,5 @@ SELECT
     CAST(nqtdeReserva AS FLOAT) as nqtdeReserva,
     CAST(nQtdeProducao AS FLOAT) as nQtdeProducao,
     CAST(nQtdePedidos AS FLOAT) as nQtdePedidos
-FROM Insumos WITH (NOLOCK)
+FROM Insumos
 WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInativo IS NULL);

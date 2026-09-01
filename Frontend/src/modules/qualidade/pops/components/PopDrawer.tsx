@@ -36,7 +36,7 @@ function todayIso() {
 
 export default function PopDrawer({
   open,
-  document,
+  document: popDoc,
   sectors,
   logoSrc,
   onClose,
@@ -61,9 +61,9 @@ export default function PopDrawer({
     setMounted(true);
   }, []);
 
-  const isNew = !document;
-  const isDraft = document?.status === 'draft';
-  const isPublished = document?.status === 'published';
+  const isNew = !popDoc;
+  const isDraft = popDoc?.status === 'draft';
+  const isPublished = popDoc?.status === 'published';
 
   useEffect(() => {
     if (!open) return;
@@ -71,19 +71,19 @@ export default function PopDrawer({
     setTab('documento');
     setChangeSummary('');
     setPrintVersion(null);
-    if (document) {
-      setCode(document.code);
-      setTitle(document.title);
-      setSectorId(document.sectorId);
-      setContent(normalizeContent(document.currentVersion?.content));
-      setElaboratedBy(document.elaboratedBy ?? '');
-      setReviewedBy(document.reviewedBy ?? '');
-      setApprovedBy(document.approvedBy ?? '');
-      void apiJson<PopVersion[]>(`/qualidade/pops/documents/${document.id}/versions`)
+    if (popDoc) {
+      setCode(popDoc.code || '');
+      setTitle(popDoc.title || '');
+      setSectorId(popDoc.sectorId || '');
+      setContent(normalizeContent(popDoc.currentVersion?.content));
+      setElaboratedBy(popDoc.elaboratedBy ?? '');
+      setReviewedBy(popDoc.reviewedBy ?? '');
+      setApprovedBy(popDoc.approvedBy ?? '');
+      void apiJson<PopVersion[]>(`/qualidade/pops/documents/${popDoc.id}/versions`)
         .then((rows) =>
           setVersions(
             Array.isArray(rows)
-              ? rows.map((v) => ({ ...v, content: normalizeContent(v.content) }))
+              ? rows.map((v) => ({ ...v, content: normalizeContent(v?.content) }))
               : [],
           ),
         )
@@ -98,17 +98,17 @@ export default function PopDrawer({
       setApprovedBy('');
       setVersions([]);
     }
-  }, [open, document, sectors]);
+  }, [open, popDoc, sectors]);
 
   const sectorName = useMemo(
-    () => sectors.find((s) => s.id === sectorId)?.name ?? document?.sectorName ?? '',
-    [sectors, sectorId, document],
+    () => sectors.find((s) => s.id === sectorId)?.name ?? popDoc?.sectorName ?? '',
+    [sectors, sectorId, popDoc],
   );
 
-  const revisionLabel = document?.currentRevision ?? 0;
+  const revisionLabel = popDoc?.currentRevision ?? 0;
   const effectiveLabel =
-    document?.effectiveDate ??
-    document?.currentVersion?.effectiveDate ??
+    popDoc?.effectiveDate ??
+    popDoc?.currentVersion?.effectiveDate ??
     todayIso();
 
   const payloadContent = (): PopContent => ({
@@ -136,7 +136,7 @@ export default function PopDrawer({
           }),
         });
       } else {
-        await apiJson(`/qualidade/pops/documents/${document.id}`, {
+        await apiJson(`/qualidade/pops/documents/${popDoc.id}`, {
           method: 'PATCH',
           body: JSON.stringify({
             title,
@@ -158,11 +158,11 @@ export default function PopDrawer({
   };
 
   const publish = async () => {
-    if (!document) return;
+    if (!popDoc) return;
     try {
       setBusy(true);
       setError(null);
-      await apiJson(`/qualidade/pops/documents/${document.id}/publish`, {
+      await apiJson(`/qualidade/pops/documents/${popDoc.id}/publish`, {
         method: 'POST',
         body: JSON.stringify({
           content: payloadContent(),
@@ -182,11 +182,11 @@ export default function PopDrawer({
   };
 
   const revalidate = async () => {
-    if (!document) return;
+    if (!popDoc) return;
     try {
       setBusy(true);
       setError(null);
-      await apiJson(`/qualidade/pops/documents/${document.id}/revalidate`, {
+      await apiJson(`/qualidade/pops/documents/${popDoc.id}/revalidate`, {
         method: 'POST',
         body: JSON.stringify({
           changeSummary: changeSummary || undefined,
@@ -205,8 +205,8 @@ export default function PopDrawer({
     const v =
       version ??
       ({
-        revision: document?.currentRevision ?? 0,
-        effectiveDate: document?.effectiveDate ?? todayIso(),
+        revision: popDoc?.currentRevision ?? 0,
+        effectiveDate: popDoc?.effectiveDate ?? todayIso(),
         content: payloadContent(),
         elaboratedBy,
         reviewedBy,
@@ -221,7 +221,10 @@ export default function PopDrawer({
     }, 150);
   };
 
-  const portalTarget = mounted && typeof document !== 'undefined' ? document.body : null;
+  const portalTarget =
+    mounted && typeof window !== 'undefined' && window.document
+      ? window.document.body
+      : null;
 
   if (!open && !printVersion) return null;
 
@@ -236,9 +239,9 @@ export default function PopDrawer({
             <div className="min-w-0">
               <p className="text-xs uppercase tracking-wide text-zinc-500">POP</p>
               <p className="font-semibold text-zinc-900 truncate">
-                {isNew ? 'Novo procedimento' : document?.code}
+                {isNew ? 'Novo procedimento' : popDoc?.code}
               </p>
-              {!isNew && <p className="text-sm text-zinc-600 truncate">{document?.title}</p>}
+              {!isNew && <p className="text-sm text-zinc-600 truncate">{popDoc?.title}</p>}
             </div>
             <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-zinc-100">
               <X className="w-5 h-5" />
@@ -421,9 +424,9 @@ export default function PopDrawer({
                           <input
                             type="date"
                             className="w-full border border-zinc-200 rounded px-1 py-0.5"
-                            value={content.elaboratedAt?.slice(0, 10) || ''}
+                            value={content?.elaboratedAt?.slice(0, 10) || ''}
                             onChange={(e) =>
-                              setContent((c) => ({ ...c, elaboratedAt: e.target.value || null }))
+                              setContent((c) => ({ ...(c ?? emptyContent()), elaboratedAt: e.target.value || null }))
                             }
                           />
                         </td>
@@ -438,9 +441,9 @@ export default function PopDrawer({
                           <input
                             type="date"
                             className="w-full border border-zinc-200 rounded px-1 py-0.5"
-                            value={content.reviewedAt?.slice(0, 10) || ''}
+                            value={content?.reviewedAt?.slice(0, 10) || ''}
                             onChange={(e) =>
-                              setContent((c) => ({ ...c, reviewedAt: e.target.value || null }))
+                              setContent((c) => ({ ...(c ?? emptyContent()), reviewedAt: e.target.value || null }))
                             }
                           />
                         </td>
@@ -455,9 +458,9 @@ export default function PopDrawer({
                           <input
                             type="date"
                             className="w-full border border-zinc-200 rounded px-1 py-0.5"
-                            value={content.approvedAt?.slice(0, 10) || ''}
+                            value={content?.approvedAt?.slice(0, 10) || ''}
                             onChange={(e) =>
-                              setContent((c) => ({ ...c, approvedAt: e.target.value || null }))
+                              setContent((c) => ({ ...(c ?? emptyContent()), approvedAt: e.target.value || null }))
                             }
                           />
                         </td>
@@ -682,21 +685,21 @@ export default function PopDrawer({
                             <div style={{ fontWeight: 700, marginBottom: 2 }}>Elaborado:</div>
                             <div>{printVersion.elaboratedBy || elaboratedBy || 'Responsável Técnico'}</div>
                             <div style={{ marginTop: 6, fontSize: 9, color: '#333' }}>
-                              Data: {fmtDate(printVersion.content?.elaboratedAt || content.elaboratedAt)}
+                              Data: {fmtDate(printVersion.content?.elaboratedAt || content?.elaboratedAt)}
                             </div>
                           </td>
                           <td style={{ border: '1px solid #000', padding: '6px 8px', width: '33%', verticalAlign: 'top' }}>
                             <div style={{ fontWeight: 700, marginBottom: 2 }}>Revisado:</div>
                             <div>{printVersion.reviewedBy || reviewedBy || 'Equipe de Controle de Qualidade'}</div>
                             <div style={{ marginTop: 6, fontSize: 9, color: '#333' }}>
-                              Data: {fmtDate(printVersion.content?.reviewedAt || content.reviewedAt)}
+                              Data: {fmtDate(printVersion.content?.reviewedAt || content?.reviewedAt)}
                             </div>
                           </td>
                           <td style={{ border: '1px solid #000', padding: '6px 8px', width: '34%', verticalAlign: 'top' }}>
                             <div style={{ fontWeight: 700, marginBottom: 2 }}>Aprovado:</div>
                             <div>{printVersion.approvedBy || approvedBy || '—'}</div>
                             <div style={{ marginTop: 6, fontSize: 9, color: '#333' }}>
-                              Data: {fmtDate(printVersion.content?.approvedAt || content.approvedAt)}
+                              Data: {fmtDate(printVersion.content?.approvedAt || content?.approvedAt)}
                             </div>
                           </td>
                         </tr>

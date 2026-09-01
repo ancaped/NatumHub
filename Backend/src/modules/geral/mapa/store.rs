@@ -365,7 +365,7 @@ pub async fn ensure_seeded(pool: &PgPool) -> Result<(), String> {
     let stubs: Vec<(&str, &str, &str)> = vec![
         ("producao", "producao", "Gerenciamento"),
         ("producao", "producao_bases", "Gestão de Bases"),
-        ("producao", "producao_lotes", "Lotes"),
+        ("producao", "producao_proc", "Processos (PROC)"),
         ("producao", "montagem_kits", "Kits"),
         ("producao", "microbiologia", "Microbiologia"),
         ("producao", "fisco_quimica", "Físico-Química"),

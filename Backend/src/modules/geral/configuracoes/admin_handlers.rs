@@ -243,12 +243,6 @@ pub async fn audit_stock(
             if let Some(a) = live.stock_qty_a {
                 obj["stockQtyA"] = json!(a);
                 obj["stockQtyAField"] = json!("nQtdeEstoqueA");
-                if (a - live.stock_qty).abs() > crate::core::legacy_db::STOCK_VERIFY_EPS {
-                    warnings.push(
-                        "nQtdeEstoqueA difere da tela (nQtdeEstoque) — não use A para conferir estoque."
-                            .into(),
-                    );
-                }
             }
             obj
         }

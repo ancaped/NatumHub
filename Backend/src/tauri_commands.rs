@@ -146,6 +146,44 @@ pub async fn save_reports_query(pool: PgPool, reports: &[Report]) -> Result<(), 
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
     for report in reports {
         let is_printed = report.printed.unwrap_or(false);
+        let batch_trimmed = report.batch.trim();
+        
+        // Verifica se o lote + produto já foi registrado em outro relatório anteriormente
+        if !batch_trimmed.is_empty() {
+            let product_code_trimmed = report.product_code.trim();
+            let existing: Option<(String, String)> = if !product_code_trimmed.is_empty() {
+                sqlx::query_as(
+                    r#"SELECT id, "reportId" FROM reports WHERE LOWER(TRIM(batch)) = LOWER($1) AND LOWER(TRIM("productCode")) = LOWER($2) AND id != $3 LIMIT 1"#
+                )
+                .bind(batch_trimmed)
+                .bind(product_code_trimmed)
+                .bind(&report.id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| e.to_string())?
+            } else {
+                sqlx::query_as(
+                    r#"SELECT id, "reportId" FROM reports WHERE LOWER(TRIM(batch)) = LOWER($1) AND id != $2 LIMIT 1"#
+                )
+                .bind(batch_trimmed)
+                .bind(&report.id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| e.to_string())?
+            };
+
+            if let Some((_exist_id, exist_rep_id)) = existing {
+                let p_name = if !report.product_name.trim().is_empty() {
+                    format!(" ({})", report.product_name.trim())
+                } else if !product_code_trimmed.is_empty() {
+                    format!(" [{}]", product_code_trimmed)
+                } else {
+                    "".to_string()
+                };
+                return Err(format!("Lote '{}'{} já foi cadastrado anteriormente no laudo {}. Não é permitido registrar laudos duplicados para o mesmo produto.", batch_trimmed, p_name, exist_rep_id));
+            }
+        }
+
         sqlx::query(
             r#"INSERT INTO reports (id, "reportId", "reportRawNum", "productCode", "productName", batch, "collectionDate", technician, "createdAt", "manufacturingDate", printed, "printedAt")
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP::TEXT, $9, $10, $11)
@@ -222,8 +260,13 @@ pub async fn delete_all_products_query(pool: PgPool) -> Result<(), String> {
 }
 
 pub async fn get_fisco_quimica_patterns_query(pool: PgPool) -> Result<Vec<FiscoQuimicaPattern>, String> {
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_patterns ADD COLUMN IF NOT EXISTS aspect TEXT").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_patterns ADD COLUMN IF NOT EXISTS color TEXT").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_patterns ADD COLUMN IF NOT EXISTS odor TEXT").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_patterns ADD COLUMN IF NOT EXISTS image_url TEXT").execute(&pool).await;
+
     let rows = sqlx::query(
-        "SELECT product_code, ph_min, ph_max, viscosity_min, viscosity_max, density_target, density_tolerance, package_volume, package_unit FROM fisco_quimica_patterns",
+        "SELECT product_code, ph_min, ph_max, viscosity_min, viscosity_max, density_target, density_tolerance, package_volume, package_unit, aspect, color, odor, image_url FROM fisco_quimica_patterns",
     )
     .fetch_all(&pool)
     .await
@@ -253,15 +296,24 @@ pub async fn get_fisco_quimica_patterns_query(pool: PgPool) -> Result<Vec<FiscoQ
             package_volume: row.get(7),
             package_unit: row.get(8),
             allowed_agents: Some(allowed_agents),
+            aspect: row.try_get(9).ok(),
+            color: row.try_get(10).ok(),
+            odor: row.try_get(11).ok(),
+            image_url: row.try_get(12).ok(),
         });
     }
     Ok(patterns)
 }
 
 pub async fn save_fisco_quimica_pattern_query(pool: PgPool, pattern: &FiscoQuimicaPattern) -> Result<(), String> {
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_patterns ADD COLUMN IF NOT EXISTS aspect TEXT").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_patterns ADD COLUMN IF NOT EXISTS color TEXT").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_patterns ADD COLUMN IF NOT EXISTS odor TEXT").execute(&pool).await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_patterns ADD COLUMN IF NOT EXISTS image_url TEXT").execute(&pool).await;
+
     sqlx::query(
-        "INSERT INTO fisco_quimica_patterns (product_code, ph_min, ph_max, viscosity_min, viscosity_max, density_target, density_tolerance, package_volume, package_unit)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        "INSERT INTO fisco_quimica_patterns (product_code, ph_min, ph_max, viscosity_min, viscosity_max, density_target, density_tolerance, package_volume, package_unit, aspect, color, odor, image_url)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          ON CONFLICT(product_code) DO UPDATE SET
             ph_min = EXCLUDED.ph_min,
             ph_max = EXCLUDED.ph_max,
@@ -270,7 +322,11 @@ pub async fn save_fisco_quimica_pattern_query(pool: PgPool, pattern: &FiscoQuimi
             density_target = EXCLUDED.density_target,
             density_tolerance = EXCLUDED.density_tolerance,
             package_volume = EXCLUDED.package_volume,
-            package_unit = EXCLUDED.package_unit",
+            package_unit = EXCLUDED.package_unit,
+            aspect = EXCLUDED.aspect,
+            color = EXCLUDED.color,
+            odor = EXCLUDED.odor,
+            image_url = EXCLUDED.image_url",
     )
     .bind(&pattern.product_code)
     .bind(pattern.ph_min)
@@ -281,6 +337,10 @@ pub async fn save_fisco_quimica_pattern_query(pool: PgPool, pattern: &FiscoQuimi
     .bind(pattern.density_tolerance)
     .bind(pattern.package_volume)
     .bind(&pattern.package_unit)
+    .bind(&pattern.aspect)
+    .bind(&pattern.color)
+    .bind(&pattern.odor)
+    .bind(&pattern.image_url)
     .execute(&pool)
     .await
     .map_err(|e| e.to_string())?;
@@ -373,8 +433,33 @@ pub async fn delete_fisco_quimica_agent_query(pool: PgPool, id: &str) -> Result<
 }
 
 pub async fn get_fisco_quimica_analyses_query(pool: PgPool) -> Result<Vec<FiscoQuimicaAnalysis>, String> {
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'CONFORME'")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS media_url TEXT")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS aspect_ok BOOLEAN DEFAULT TRUE")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS aspect_result TEXT DEFAULT 'CONFORME'")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS color_ok BOOLEAN DEFAULT TRUE")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS color_result TEXT DEFAULT 'CONFORME'")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS odor_ok BOOLEAN DEFAULT TRUE")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS odor_result TEXT DEFAULT 'CARACTERÍSTICO'")
+        .execute(&pool)
+        .await;
+
     let rows = sqlx::query(
-        "SELECT id, product_code, product_name, batch, analysis_date, technician, ph_measured, viscosity_measured, density_measured, fraction_weight, envase_target_weight, envase_target_unit, has_adjustment, corrective_agent_id, initial_viscosity, trial_agent_qty, trial_viscosity, agent_qty_per_liter, batch_size, total_agent_required, notes, created_at FROM fisco_quimica_analyses ORDER BY created_at DESC",
+        "SELECT id, product_code, product_name, batch, analysis_date, technician, ph_measured, viscosity_measured, density_measured, fraction_weight, envase_target_weight, envase_target_unit, has_adjustment, corrective_agent_id, initial_viscosity, trial_agent_qty, trial_viscosity, agent_qty_per_liter, batch_size, total_agent_required, notes, created_at, fabricated_by, authorized_by, synced_to_erp, to_char(erp_synced_at, 'YYYY-MM-DD HH24:MI:SS'), COALESCE(status, 'CONFORME'), media_url, aspect_ok, aspect_result, color_ok, color_result, odor_ok, odor_result FROM fisco_quimica_analyses ORDER BY analysis_date DESC, created_at DESC",
     )
     .fetch_all(&pool)
     .await
@@ -383,7 +468,10 @@ pub async fn get_fisco_quimica_analyses_query(pool: PgPool) -> Result<Vec<FiscoQ
     Ok(rows
         .into_iter()
         .map(|row| {
-            let has_adj_int: i32 = row.get(12);
+            let has_adj: bool = match row.try_get::<i32, _>(12) {
+                Ok(v) => v == 1,
+                Err(_) => row.try_get::<bool, _>(12).unwrap_or(false),
+            };
             FiscoQuimicaAnalysis {
                 id: row.get(0),
                 product_code: row.get(1),
@@ -397,7 +485,7 @@ pub async fn get_fisco_quimica_analyses_query(pool: PgPool) -> Result<Vec<FiscoQ
                 fraction_weight: row.get(9),
                 envase_target_weight: row.get(10),
                 envase_target_unit: row.get(11),
-                has_adjustment: has_adj_int == 1,
+                has_adjustment: has_adj,
                 corrective_agent_id: row.get(13),
                 initial_viscosity: row.get(14),
                 trial_agent_qty: row.get(15),
@@ -407,6 +495,18 @@ pub async fn get_fisco_quimica_analyses_query(pool: PgPool) -> Result<Vec<FiscoQ
                 total_agent_required: row.get(19),
                 notes: row.get(20),
                 created_at: row.get(21),
+                fabricated_by: row.get(22),
+                authorized_by: row.get(23),
+                synced_to_erp: row.try_get(24).ok(),
+                erp_synced_at: row.try_get(25).ok(),
+                status: row.try_get(26).ok(),
+                media_url: row.try_get(27).ok(),
+                aspect_ok: row.try_get(28).ok(),
+                aspect_result: row.try_get(29).ok(),
+                color_ok: row.try_get(30).ok(),
+                color_result: row.try_get(31).ok(),
+                odor_ok: row.try_get(32).ok(),
+                odor_result: row.try_get(33).ok(),
             }
         })
         .collect())
@@ -416,9 +516,34 @@ pub async fn save_fisco_quimica_analysis_query(
     pool: PgPool,
     analysis: &FiscoQuimicaAnalysis,
 ) -> Result<(), String> {
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'CONFORME'")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS media_url TEXT")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS aspect_ok BOOLEAN DEFAULT TRUE")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS aspect_result TEXT DEFAULT 'CONFORME'")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS color_ok BOOLEAN DEFAULT TRUE")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS color_result TEXT DEFAULT 'CONFORME'")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS odor_ok BOOLEAN DEFAULT TRUE")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS odor_result TEXT DEFAULT 'CARACTERÍSTICO'")
+        .execute(&pool)
+        .await;
+
     sqlx::query(
-        "INSERT INTO fisco_quimica_analyses (id, product_code, product_name, batch, analysis_date, technician, ph_measured, viscosity_measured, density_measured, fraction_weight, envase_target_weight, envase_target_unit, has_adjustment, corrective_agent_id, initial_viscosity, trial_agent_qty, trial_viscosity, agent_qty_per_liter, batch_size, total_agent_required, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+        "INSERT INTO fisco_quimica_analyses (id, product_code, product_name, batch, analysis_date, technician, ph_measured, viscosity_measured, density_measured, fraction_weight, envase_target_weight, envase_target_unit, has_adjustment, corrective_agent_id, initial_viscosity, trial_agent_qty, trial_viscosity, agent_qty_per_liter, batch_size, total_agent_required, notes, fabricated_by, authorized_by, synced_to_erp, status, media_url, aspect_ok, aspect_result, color_ok, color_result, odor_ok, odor_result)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
          ON CONFLICT(id) DO UPDATE SET
             product_code = EXCLUDED.product_code,
             product_name = EXCLUDED.product_name,
@@ -439,7 +564,18 @@ pub async fn save_fisco_quimica_analysis_query(
             agent_qty_per_liter = EXCLUDED.agent_qty_per_liter,
             batch_size = EXCLUDED.batch_size,
             total_agent_required = EXCLUDED.total_agent_required,
-            notes = EXCLUDED.notes",
+            notes = EXCLUDED.notes,
+            fabricated_by = EXCLUDED.fabricated_by,
+            authorized_by = EXCLUDED.authorized_by,
+            synced_to_erp = EXCLUDED.synced_to_erp,
+            status = EXCLUDED.status,
+            media_url = EXCLUDED.media_url,
+            aspect_ok = EXCLUDED.aspect_ok,
+            aspect_result = EXCLUDED.aspect_result,
+            color_ok = EXCLUDED.color_ok,
+            color_result = EXCLUDED.color_result,
+            odor_ok = EXCLUDED.odor_ok,
+            odor_result = EXCLUDED.odor_result",
     )
     .bind(&analysis.id)
     .bind(&analysis.product_code)
@@ -462,6 +598,17 @@ pub async fn save_fisco_quimica_analysis_query(
     .bind(analysis.batch_size)
     .bind(analysis.total_agent_required)
     .bind(&analysis.notes)
+    .bind(&analysis.fabricated_by)
+    .bind(&analysis.authorized_by)
+    .bind(analysis.synced_to_erp.unwrap_or(false))
+    .bind(analysis.status.as_deref().unwrap_or("CONFORME"))
+    .bind(&analysis.media_url)
+    .bind(analysis.aspect_ok.unwrap_or(true))
+    .bind(analysis.aspect_result.as_deref().unwrap_or("CONFORME"))
+    .bind(analysis.color_ok.unwrap_or(true))
+    .bind(analysis.color_result.as_deref().unwrap_or("CONFORME"))
+    .bind(analysis.odor_ok.unwrap_or(true))
+    .bind(analysis.odor_result.as_deref().unwrap_or("CARACTERÍSTICO"))
     .execute(&pool)
     .await
     .map_err(|e| e.to_string())?;

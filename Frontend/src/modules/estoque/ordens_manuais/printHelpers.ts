@@ -307,7 +307,7 @@ export function printBlankSheets(sheets: PrintSheet[]) {
   <header>
     <h1 class="header-title">${escapeHtml(sheetTitle(sheet.kind))}</h1>
     <div class="header-meta">
-      <div>NatumHub · Ordens Manuais</div>
+      <div>Nexus · Ordens Manuais</div>
       <div>Nº Registro: <strong class="mono font-bold">${escapeHtml(sheet.registerNumber)}</strong></div>
       <div>Data Emissão: <strong>${todayStr}</strong></div>
     </div>
@@ -366,7 +366,7 @@ export function printBlankSheets(sheets: PrintSheet[]) {
   </div>
 
   <footer>
-    <div>NatumHub — Sistema de Gestão Unificado</div>
+    <div>Nexus — Sistema de Gestão Unificado</div>
     <div>Folha de Registro Físico (CEI/CSI)</div>
   </footer>
 </section>`;
@@ -482,7 +482,7 @@ ${blocks}
 </div>
 
 <footer>
-  <div>NatumHub — Sistema de Gestão Unificado</div>
+  <div>Nexus — Sistema de Gestão Unificado</div>
   <div>Relatório de Lançamento ERP</div>
 </footer>`;
 
@@ -512,7 +512,7 @@ export function printSingleOrder(o: PrintOrder) {
 <header>
   <h1 class="header-title">ORDEM MANUAL DE ${kindLabel.toUpperCase()} — Nº ${escapeHtml(o.orderNumber)}</h1>
   <div class="header-meta">
-    <div>NatumHub · Gestão Operacional de Estoque</div>
+    <div>Nexus · Gestão Operacional de Estoque</div>
     <div>Emissão: <strong>${escapeHtml(o.orderDate || todayStr)}</strong></div>
     <div>Situação: <strong>Registrada</strong></div>
   </div>
@@ -566,7 +566,7 @@ export function printSingleOrder(o: PrintOrder) {
 </div>
 
 <footer>
-  <div>NatumHub — Sistema de Gestão Unificado</div>
+  <div>Nexus — Sistema de Gestão Unificado</div>
   <div>Documento Operacional de Estoque</div>
 </footer>`;
 

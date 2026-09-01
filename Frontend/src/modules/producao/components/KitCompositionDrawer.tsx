@@ -39,6 +39,8 @@ export default function KitCompositionDrawer({
   onCompositionUpdated
 }: KitCompositionDrawerProps) {
   const [items, setItems] = useState<KitComposicaoRow[]>([]);
+  const [overridesMap, setOverridesMap] = useState<Record<string, any>>({});
+  const [togglingComp, setTogglingComp] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -64,9 +66,12 @@ export default function KitCompositionDrawer({
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await apiFetch(`/kits/composicao`);
-      if (res.ok) {
-        const data: KitComposicaoRow[] = await res.json();
+      const [resKits, resOvr] = await Promise.all([
+        apiFetch(`/kits/composicao`),
+        apiFetch(`/overrides`)
+      ]);
+      if (resKits.ok) {
+        const data: KitComposicaoRow[] = await resKits.json();
         const filtered = (Array.isArray(data) ? data : []).filter(
           row => (row.kit_codigo || '').replace(/['"]/g, '').trim().toLowerCase() === 
                  kitCodigo.replace(/['"]/g, '').trim().toLowerCase()
@@ -75,6 +80,14 @@ export default function KitCompositionDrawer({
       } else {
         setErrorMsg('Falha ao carregar itens da composição.');
       }
+      if (resOvr.ok) {
+        const ovrList = await resOvr.json();
+        const map: Record<string, any> = {};
+        (Array.isArray(ovrList) ? ovrList : []).forEach((o: any) => {
+          if (o.codigo) map[o.codigo] = o;
+        });
+        setOverridesMap(map);
+      }
     } catch (e) {
       console.error('Erro ao buscar composição no Drawer:', e);
       setErrorMsg('Erro de conexão ao carregar itens.');
@@ -82,6 +95,34 @@ export default function KitCompositionDrawer({
       setLoading(false);
     }
   }, [kitCodigo]);
+
+  const handleToggleApenasKit = async (compCode: string, newValue: number) => {
+    setTogglingComp(compCode);
+    try {
+      const existing = overridesMap[compCode] || {};
+      const payload = {
+        ...existing,
+        codigo: compCode,
+        produzir_apenas_kit: newValue
+      };
+      const res = await apiFetch(`/overrides`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        setOverridesMap(prev => ({
+          ...prev,
+          [compCode]: { ...(prev[compCode] || {}), produzir_apenas_kit: newValue }
+        }));
+        onCompositionUpdated?.();
+      }
+    } catch (e) {
+      console.error('Erro ao alternar modo do componente:', e);
+    } finally {
+      setTogglingComp(null);
+    }
+  };
 
   useEffect(() => {
     if (isOpen && kitCodigo) {
@@ -347,7 +388,7 @@ export default function KitCompositionDrawer({
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-2 text-[11px]">
+                      <div className="flex items-center gap-2 flex-wrap text-[11px] pt-0.5">
                         {hasProportion ? (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-indigo-50 text-indigo-700 font-bold rounded-md border border-indigo-150">
                             <Calculator className="w-3.5 h-3.5 text-indigo-500" />
@@ -358,6 +399,35 @@ export default function KitCompositionDrawer({
                             Qtd por Kit: <strong className="text-emerald-800 font-extrabold">{Number(item.quantidade)}</strong> {Number(item.quantidade) === 1 ? 'unidade' : 'unidades'}
                           </span>
                         )}
+
+                        <button
+                          type="button"
+                          disabled={togglingComp === item.componente_codigo}
+                          onClick={() => {
+                            const compOvr = overridesMap[item.componente_codigo];
+                            const isOnlyKit = compOvr?.produzir_apenas_kit === 1;
+                            handleToggleApenasKit(item.componente_codigo, isOnlyKit ? 0 : 1);
+                          }}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all flex items-center gap-1 cursor-pointer ${
+                            overridesMap[item.componente_codigo]?.produzir_apenas_kit === 1
+                              ? 'bg-purple-50 text-purple-700 border-purple-250 hover:bg-purple-100'
+                              : 'bg-zinc-100 text-zinc-600 border-zinc-200 hover:bg-zinc-200'
+                          }`}
+                          title={
+                            overridesMap[item.componente_codigo]?.produzir_apenas_kit === 1
+                              ? 'Produzido apenas para kits (demanda vem dos kits). Clique para mudar para Vendido Individual.'
+                              : 'Vendido individualmente também. Clique para mudar para Produzir Apenas para Kit.'
+                          }
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            overridesMap[item.componente_codigo]?.produzir_apenas_kit === 1 ? 'bg-purple-600' : 'bg-zinc-400'
+                          }`} />
+                          {togglingComp === item.componente_codigo
+                            ? 'Salvando...'
+                            : overridesMap[item.componente_codigo]?.produzir_apenas_kit === 1
+                            ? 'Apenas Kit'
+                            : 'Vendido Avulso'}
+                        </button>
                       </div>
                     </div>
 

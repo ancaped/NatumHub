@@ -2332,38 +2332,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "natum-hub"
-version = "0.0.12"
-dependencies = [
- "anyhow",
- "argon2",
- "axum",
- "base64 0.22.1",
- "bytes",
- "calamine",
- "chrono",
- "csv",
- "flate2",
- "futures-util",
- "rand_core",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sqlx",
- "tauri",
- "tauri-build",
- "tiberius",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tower-http 0.5.2",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "ndk"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2392,6 +2360,39 @@ name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
+
+[[package]]
+name = "nexus"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "calamine",
+ "chrono",
+ "csv",
+ "flate2",
+ "futures-util",
+ "rand_core",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tauri",
+ "tauri-build",
+ "tiberius",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+ "windows-sys 0.59.0",
+]
 
 [[package]]
 name = "nu-ansi-term"

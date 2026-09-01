@@ -32,11 +32,13 @@ export const MODULE_KEYS = {
   /** @deprecated alias — use ADMIN_LINHA_PRODUTOS */
   ESTOQUE_ATIVOS: 'estoque_ativos',
   ADMIN_LINHA_PRODUTOS: 'admin_linha_produtos',
+  ADMIN_RELATORIOS: 'admin_relatorios',
   ADMIN_PRODUTOS_ATIVOS_RELATORIOS: 'admin_produtos_ativos_relatorios',
   ADMIN_FUNCIONARIOS: 'admin_funcionarios',
   PRODUCAO: 'producao',
   PRODUCAO_BASES: 'producao_bases',
   PRODUCAO_LOTES: 'producao_lotes',
+  PRODUCAO_PROC: 'producao_proc',
   MONTAGEM_KITS: 'montagem_kits',
   MICROBIOLOGIA: 'microbiologia',
   FISCO_QUIMICA: 'fisco_quimica',
@@ -69,6 +71,8 @@ export const MODULE_KEYS = {
   EXPEDICAO_SEPARACAO: 'expedicao_separacao',
   FINANCEIRO: 'financeiro',
   FERRAMENTAS_ETIQUETAS: 'ferramentas_etiquetas',
+  FERRAMENTAS_EDITOR: 'ferramentas_editor',
+  FERRAMENTAS_IMPRESSORAS: 'ferramentas_impressoras',
   CONFIGURACOES: 'hub_settings',
   OPERADORES: 'hub_operadores',
 } as const;
@@ -101,7 +105,6 @@ export function moduleRegistry(): ModuleGroup[] {
         { key: MODULE_KEYS.ESTOQUE_APOIO, label: 'Material de Apoio' },
         { key: MODULE_KEYS.ESTOQUE_ORDENS_MANUAIS, label: 'Ordens Manuais' },
         { key: MODULE_KEYS.ESTOQUE_PRODUTOS, label: 'Produtos Acabados' },
-        { key: MODULE_KEYS.ESTOQUE_PREVISAO_USO, label: 'Previsão de Uso' },
       ],
     },
     {
@@ -124,8 +127,7 @@ export function moduleRegistry(): ModuleGroup[] {
       hubView: 'producao_hub',
       children: [
         { key: MODULE_KEYS.PRODUCAO, label: 'Gerenciamento' },
-        { key: MODULE_KEYS.PRODUCAO_BASES, label: 'Gestão de Bases' },
-        { key: MODULE_KEYS.PRODUCAO_LOTES, label: 'Lotes de Produção' },
+        { key: MODULE_KEYS.PRODUCAO_PROC, label: 'PROC (Processos)' },
         { key: MODULE_KEYS.MONTAGEM_KITS, label: 'Kits' },
         { key: MODULE_KEYS.MICROBIOLOGIA, label: 'Microbiologia' },
         { key: MODULE_KEYS.FISCO_QUIMICA, label: 'Físico-Química' },
@@ -140,11 +142,8 @@ export function moduleRegistry(): ModuleGroup[] {
         { key: MODULE_KEYS.COMPRAS_EMB, label: 'Embalagens' },
         { key: MODULE_KEYS.COMPRAS_COLOR, label: 'Coloração' },
         { key: MODULE_KEYS.COMPRAS_APOIO, label: 'Material de Apoio' },
-        { key: MODULE_KEYS.COMPRAS_COT, label: 'Cotações' },
-        { key: MODULE_KEYS.COMPRAS_ONLINE, label: 'Compras Online' },
         { key: MODULE_KEYS.COMPRAS_PEDIDOS, label: 'Pedidos' },
         { key: MODULE_KEYS.COMPRAS_NOTAS, label: 'Notas Fiscais' },
-        { key: MODULE_KEYS.COMPRAS_ALMOX, label: 'Almoxarifado' },
         { key: MODULE_KEYS.COMPRAS_SIMULATION, label: 'Simulador' },
       ],
     },
@@ -178,10 +177,7 @@ export function moduleRegistry(): ModuleGroup[] {
       hubView: 'administrativo',
       children: [
         { key: MODULE_KEYS.ADMIN_LINHA_PRODUTOS, label: 'Linha de Produtos' },
-        {
-          key: MODULE_KEYS.ADMIN_PRODUTOS_ATIVOS_RELATORIOS,
-          label: 'Relatórios · Produtos Ativos',
-        },
+        { key: MODULE_KEYS.ADMIN_RELATORIOS, label: 'Relatórios' },
         { key: MODULE_KEYS.ADMIN_FUNCIONARIOS, label: 'Funcionários' },
       ],
     },
@@ -200,7 +196,11 @@ export function moduleRegistry(): ModuleGroup[] {
       key: 'ferramentas',
       label: 'Ferramentas',
       hubView: 'ferramentas_hub',
-      children: [{ key: MODULE_KEYS.FERRAMENTAS_ETIQUETAS, label: 'Editor de Etiquetas' }],
+      children: [
+        { key: MODULE_KEYS.FERRAMENTAS_ETIQUETAS, label: 'Etiquetas' },
+        { key: MODULE_KEYS.FERRAMENTAS_EDITOR, label: 'Editor de Etiquetas' },
+        { key: MODULE_KEYS.FERRAMENTAS_IMPRESSORAS, label: 'Central de Impressoras' },
+      ],
     },
     {
       key: 'sistema',
@@ -232,13 +232,11 @@ export function defaultModulesForRole(role: string): string[] {
         MODULE_KEYS.ESTOQUE_MANUTENCOES,
         MODULE_KEYS.ESTOQUE_MOVIMENTACOES,
         MODULE_KEYS.ESTOQUE_PRODUTOS,
-        MODULE_KEYS.ESTOQUE_PREVISAO_USO,
       ];
     case 'producao':
     case 'produção':
       return [
         MODULE_KEYS.PRODUCAO,
-        MODULE_KEYS.PRODUCAO_BASES,
         MODULE_KEYS.PRODUCAO_LOTES,
         MODULE_KEYS.MONTAGEM_KITS,
       ];

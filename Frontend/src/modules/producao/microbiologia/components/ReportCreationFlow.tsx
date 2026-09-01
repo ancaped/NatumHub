@@ -191,6 +191,45 @@ export function ReportCreationFlow({
         };
       }
 
+      // 1. Validação de Lote Repetido (Regra: não permitir repetir o mesmo lote para o mesmo produto)
+      const batchTrimmed = entry.batch.trim().toLowerCase();
+      const codeTrimmed = entry.code.trim().toLowerCase();
+      const existingReportWithBatch = (existingReports || []).find(
+        (r) =>
+          r.batch &&
+          r.batch.trim().toLowerCase() === batchTrimmed &&
+          (!codeTrimmed || !r.productCode || r.productCode.trim().toLowerCase() === codeTrimmed)
+      );
+      if (existingReportWithBatch) {
+        return {
+          ...entry,
+          allocatedReportId: allocated.reportId,
+          allocatedRawNum: allocated.rawNum,
+          isBlocked: true,
+          validationStatus: 'duplicate_batch' as const,
+          statusMessage: `Lote já registrado no Laudo ${existingReportWithBatch.reportId || existingReportWithBatch.id} (${existingReportWithBatch.collectionDate || 'Histórico'})`,
+        };
+      }
+
+      // Validação de duplicidade dentro do próprio formulário (linhas idênticas: mesmo lote e mesmo produto)
+      const formDuplicateCount = entries.filter(
+        (e) =>
+          e.id !== entry.id &&
+          e.batch &&
+          e.batch.trim().toLowerCase() === batchTrimmed &&
+          (!codeTrimmed || !e.code || e.code.trim().toLowerCase() === codeTrimmed)
+      ).length;
+      if (formDuplicateCount > 0) {
+        return {
+          ...entry,
+          allocatedReportId: allocated.reportId,
+          allocatedRawNum: allocated.rawNum,
+          isBlocked: true,
+          validationStatus: 'duplicate_batch' as const,
+          statusMessage: 'Lote duplicado na lista atual',
+        };
+      }
+
       monthBatchOffsets[myKey] = currentOffset + 1;
       const dateVal = validateProductionDate(targetDate);
 
@@ -286,8 +325,17 @@ export function ReportCreationFlow({
       delete debounceTimers.current[id];
     }
 
+    // Alerta se o lote já foi registrado em algum laudo
+    let initialHint: string | null = null;
+    const alreadySaved = (existingReports || []).find(
+      (r) => r.batch && r.batch.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (alreadySaved) {
+      initialHint = `Atenção: O lote ${trimmed} já possui laudo registrado: ${alreadySaved.reportId || alreadySaved.id} (${alreadySaved.productName || alreadySaved.productCode || alreadySaved.collectionDate || ''}).`;
+    }
+
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, loading: true } : e)));
-    setLoteHint(null);
+    setLoteHint(initialHint);
 
     try {
       const lote = await api.getLoteByNumber(trimmed);
@@ -506,24 +554,12 @@ export function ReportCreationFlow({
         </div>
       </div>
 
-      {/* Technician Toolbar & Monthly Tags */}
-      <div className="toolbar-section flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
-        <div className="flex items-center gap-3 flex-1 min-w-[240px]">
-          <label className="text-[10px] font-bold uppercase text-zinc-500 shrink-0">
-            Técnico Responsável:
-          </label>
-          <input
-            type="text"
-            value={technicianName}
-            onChange={(e) => setTechnicianName(e.target.value)}
-            className="search-input font-medium"
-            placeholder="Nome do responsável técnico..."
-            style={{ paddingLeft: '0.75rem' }}
-          />
-        </div>
-
-        {/* Date & Month summary tags from detected lots */}
-        {formDatesSummary.length > 0 && (
+      {/* Monthly Tags & Dates Summary */}
+      {formDatesSummary.length > 0 && (
+        <div className="toolbar-section flex flex-wrap items-center justify-between gap-3">
+          <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">
+            Capacidade Diária por Mês ({DAILY_LIMIT} laudos/dia):
+          </span>
           <div className="flex flex-wrap items-center gap-2">
             {formDatesSummary.map((s) => (
               <div
@@ -546,14 +582,15 @@ export function ReportCreationFlow({
               </div>
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {loteHint && <div className="info-note-card text-sm mb-3">{loteHint}</div>}
 
-      {/* Main Form Table */}
+      {/* Main Form Table / Card List */}
       <div className="table-card overflow-hidden">
-        <div className="px-4 py-3 border-b border-zinc-200 bg-zinc-50 flex items-center text-[10px] font-bold uppercase text-zinc-500 tracking-wider gap-3">
+        {/* Desktop Table Header */}
+        <div className="hidden md:flex px-4 py-3 border-b border-zinc-200 bg-zinc-50 items-center text-[10px] font-bold uppercase text-zinc-500 tracking-wider gap-3">
           <span className="w-24 text-center">Nº Laudo</span>
           <span className="w-32">Lote ERP</span>
           <span className="w-24">Código</span>
@@ -564,16 +601,17 @@ export function ReportCreationFlow({
           <span className="w-8" />
         </div>
 
-        <div className="divide-y divide-zinc-100">
+        {/* Desktop Rows (hidden on mobile) */}
+        <div className="hidden md:block divide-y divide-zinc-100">
           {evaluatedEntries.map((entry) => (
             <div
               key={entry.id}
-              className={`flex flex-col md:flex-row items-stretch md:items-center gap-2 p-3 transition-colors ${
+              className={`flex items-center gap-2 p-3 transition-colors ${
                 entry.isBlocked ? 'bg-red-50/40' : 'bg-white'
               }`}
             >
               {/* Allocated Monthly Report ID */}
-              <div className="w-full md:w-24 text-center">
+              <div className="w-24 text-center">
                 <span
                   className="font-mono text-xs font-black px-2 py-1 rounded bg-zinc-900 text-white shadow-xs inline-block min-w-[64px]"
                   title="Número sequencial de laudo alocado automaticamente"
@@ -583,7 +621,7 @@ export function ReportCreationFlow({
               </div>
 
               {/* Lote Input */}
-              <div className="w-full md:w-32 relative">
+              <div className="w-32 relative">
                 <input
                   value={entry.batch}
                   onChange={(e) => handleBatchChange(entry.id, e.target.value)}
@@ -617,7 +655,7 @@ export function ReportCreationFlow({
               </div>
 
               {/* Product Code */}
-              <div className="w-full md:w-24 px-2 py-2 text-xs font-mono font-bold text-zinc-700 bg-zinc-50 border border-zinc-200 rounded-md text-center truncate">
+              <div className="w-24 px-2 py-2 text-xs font-mono font-bold text-zinc-700 bg-zinc-50 border border-zinc-200 rounded-md text-center truncate">
                 {entry.code || '—'}
               </div>
 
@@ -631,7 +669,7 @@ export function ReportCreationFlow({
               </div>
 
               {/* Editable Manufacturing Date (Pesagem) */}
-              <div className="w-full md:w-32 relative">
+              <div className="w-32 relative">
                 <input
                   type="date"
                   value={toIsoDate(entry.manufacturingDate)}
@@ -646,7 +684,7 @@ export function ReportCreationFlow({
               </div>
 
               {/* Editable Envase Date (Coleta) */}
-              <div className="w-full md:w-32 relative">
+              <div className="w-32 relative">
                 <input
                   type="date"
                   value={toIsoDate(entry.collectionDate)}
@@ -661,15 +699,15 @@ export function ReportCreationFlow({
               </div>
 
               {/* Validation Status Badge */}
-              <div className="w-full md:w-44">
+              <div className="w-44">
                 <div
                   className={`px-2.5 py-2 text-[11px] font-bold rounded-md border flex items-center justify-center gap-1.5 truncate ${
                     entry.validationStatus === 'valid'
                       ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                      : entry.validationStatus === 'blocked_date'
-                      ? 'bg-red-50 text-red-800 border-red-200'
-                      : entry.validationStatus === 'limit_reached' ||
-                        entry.validationStatus === 'limit_exceeded'
+                      : entry.validationStatus === 'blocked_date' ||
+                        entry.validationStatus === 'limit_reached' ||
+                        entry.validationStatus === 'limit_exceeded' ||
+                        entry.validationStatus === 'duplicate_batch'
                       ? 'bg-red-50 text-red-800 border-red-200'
                       : 'bg-zinc-50 text-zinc-400 border-zinc-200'
                   }`}
@@ -689,11 +727,137 @@ export function ReportCreationFlow({
               {/* Delete row button */}
               <button
                 onClick={() => removeEntry(entry.id)}
-                className="p-1.5 text-zinc-400 hover:text-red-600 transition-colors shrink-0 cursor-pointer self-end md:self-center"
+                className="p-1.5 text-zinc-400 hover:text-red-600 transition-colors shrink-0 cursor-pointer"
                 title="Remover linha"
               >
                 <X className="h-4 w-4" />
               </button>
+            </div>
+          ))}
+        </div>
+
+        {/* Mobile Cards (md:hidden) */}
+        <div className="md:hidden divide-y divide-zinc-200">
+          {evaluatedEntries.map((entry) => (
+            <div
+              key={entry.id}
+              className={`p-3.5 space-y-3 transition-colors ${
+                entry.isBlocked ? 'bg-red-50/50' : 'bg-white'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2 pb-2 border-b border-zinc-100">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold text-zinc-400 uppercase">Laudo:</span>
+                  <span className="font-mono text-xs font-black px-2 py-0.5 rounded bg-zinc-900 text-white shadow-xs">
+                    {entry.allocatedReportId}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeEntry(entry.id)}
+                  className="p-1 text-zinc-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
+                  title="Remover este lote"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="space-y-2.5">
+                <div>
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
+                    Nº Lote ERP
+                  </label>
+                  <div className="relative">
+                    <input
+                      value={entry.batch}
+                      onChange={(e) => handleBatchChange(entry.id, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          searchLote(entry.id, entry.batch);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (entry.batch.trim().length >= 2 && !entry.code) {
+                          searchLote(entry.id, entry.batch);
+                        }
+                      }}
+                      placeholder="Digite o nº do lote..."
+                      className="search-input font-bold pr-9 w-full"
+                      style={{ paddingLeft: '0.75rem' }}
+                    />
+                    {entry.loading ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-zinc-400 absolute right-2.5 top-2.5" />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => searchLote(entry.id, entry.batch)}
+                        className="absolute right-2.5 top-2.5 text-zinc-400 hover:text-zinc-700 cursor-pointer"
+                        title="Buscar no ERP"
+                      >
+                        <Search className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Produto Código e Nome */}
+                <div className="bg-zinc-50 border border-zinc-200/80 rounded-xl p-2.5 space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase">Código:</span>
+                    <span className="font-mono text-xs font-bold text-zinc-800">{entry.code || '—'}</span>
+                  </div>
+                  <p className="text-xs font-semibold text-zinc-800 truncate">
+                    {entry.productName || (entry.batch.trim().length >= 3 ? 'Lote não encontrado' : 'Aguardando lote...')}
+                  </p>
+                </div>
+
+                {/* Datas (Fabricação e Envase) */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
+                      Data Fab.
+                    </label>
+                    <input
+                      type="date"
+                      value={toIsoDate(entry.manufacturingDate)}
+                      onChange={(e) => handleMfgDateChange(entry.id, e.target.value)}
+                      className="w-full px-2 py-1.5 text-xs font-mono font-bold rounded-xl border border-zinc-300 bg-white text-zinc-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
+                      Data Envase
+                    </label>
+                    <input
+                      type="date"
+                      value={toIsoDate(entry.collectionDate)}
+                      onChange={(e) => handleDateChange(entry.id, e.target.value)}
+                      className="w-full px-2 py-1.5 text-xs font-mono font-bold rounded-xl border border-zinc-300 bg-white text-zinc-900"
+                    />
+                  </div>
+                </div>
+
+                {/* Status de Validação */}
+                <div
+                  className={`px-2.5 py-2 text-[11px] font-bold rounded-xl border flex items-center gap-1.5 ${
+                    entry.validationStatus === 'valid'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                      : entry.isBlocked
+                      ? 'bg-red-50 text-red-800 border-red-200'
+                      : 'bg-zinc-50 text-zinc-400 border-zinc-200'
+                  }`}
+                >
+                  {entry.validationStatus === 'valid' ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                  ) : entry.isBlocked ? (
+                    <AlertTriangle className="h-3.5 w-3.5 text-red-600 shrink-0" />
+                  ) : (
+                    <Clock className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+                  )}
+                  <span className="truncate">{entry.statusMessage}</span>
+                </div>
+              </div>
             </div>
           ))}
         </div>

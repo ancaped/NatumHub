@@ -6,19 +6,19 @@ Erros de quantidade em Compras (Matéria-Prima, Embalagens, Coloração, Materia
 
 | Tipo de item | Tabela ERP | Campo estoque (tela) | Reserva | Destino Postgres | Módulos |
 |--------------|------------|----------------------|---------|------------------|---------|
-| Insumos (MP / embalagens) | `Insumos` | **`nQtdeEstoque`** (“Estoque atual”) | `nqtdeReserva` | `stock_snapshots` (passo D1) | Compras MP/Emb, Estoque |
+| Insumos (MP / embalagens) | `Insumos` | **`nQtdeEstoque`** (“Estoque atual” / tela do ERP) | `nqtdeReserva` | `stock_snapshots` (passo D1) | Compras MP/Emb, Estoque |
 | Materiais | `Materiais` | `nQtdeEstoque` (sem coluna A) | `0` | `stock_snapshots` (passo D2) | Compras |
 | Produtos (Coloração `1.34.*`, Apoio `1.30.*`, acabados) | `Produtos` | `nQtdeEstoque` | — | `estoque_atual.estoque` (passo A) | Compras Coloração/Apoio, Produção |
 
-Mapeamento complementar (insumos) — espelho da planilha ERP:
+Mapeamento complementar (insumos) — espelho da tela/planilha ERP:
 
 | ERP | Hub | Uso na UI |
 |-----|-----|-----------|
-| `nQtdeEstoque` | `stock_snapshots.stock_qty` | Coluna **Estoque** (igual à pesquisa do ERP) |
-| `nqtdeReserva` | `stock_snapshots.reserved_qty` | Subtítulo **−R** (informativo; não descontar de novo) |
+| `nQtdeEstoque` | `stock_snapshots.stock_qty` | Coluna **Estoque** (igual à tela de pesquisa do ERP, aceitando saldos negativos reais) |
+| `nqtdeReserva` | `stock_snapshots.reserved_qty` | Subtítulo **−R** (informativo visual do ERP) |
 | `nQtdePedidos` | `stock_snapshots.in_orders` | Espelho do cadastro ERP (auditoria). **+P / Prev. Futura em Compras** usam pedidos de compra abertos (`purchase_order_items`, status ≠ `T`) |
 | `nQtdeProducao` | `stock_snapshots.in_production` | Importado; **não** entra na Prev. Futura de Compras |
-| `nQtdeEstoqueA` | (só auditoria) | Campo interno do ERP; **não** é o estoque da tela |
+| `nQtdeEstoqueA` | `stock_qty_a` (só auditoria) | Campo interno do ERP; **não** é o estoque da tela |
 
 Produtos (passo A): `nQtdeProducao` → `producao`; `nPedidos` → `pedidos_aberto` (espelho ERP).
 
@@ -35,12 +35,12 @@ Excel de levantamento e contagem física **não** são fonte canônica: sync A /
 
 **Vendas / faltas / Compras:** mesma setting e `d_pedido::date` (coluna é `text` no Postgres).
 
-**Importante:** em centenas de insumos `nQtdeEstoque ≠ nQtdeEstoqueA`. O Hub espelha o da **tela** (`nQtdeEstoque`). **Não** inventar coluna “Disponível”.
+**Importante:** o Hub espelha fielmente o da **tela do ERP** (`nQtdeEstoque`). **Não** inventar fórmulas alternativas nem usar `nQtdeEstoqueA`.
 
 ## Regras
 
-1. **Estoque exibido (insumos)** = `nQtdeEstoque` do ERP, **sem truncar** (FLOAT/REAL) — mesmo valor da pesquisa “Estoque atual”.
-2. **Reserva exibida** em Compras = `nqtdeReserva` (ou fallback de lotes só para exibição) — informativa; **não** subtrair de novo do estoque nem da Prev. Futura.
+1. **Estoque exibido (insumos)** = `nQtdeEstoque` do ERP, **sem truncar** (FLOAT/REAL) — mesmo valor da pesquisa “Estoque atual” do ERP (mesmo que negativo).
+2. **Reserva exibida** em Compras = `nqtdeReserva` (ou fallback de lotes só para exibição) — informativa visual.
 3. **Previsão futura** (planejamento Compras MP/Emb):
    - `pedidos` = `SUM(n_qtde − n_chegou)` em pedidos de compra com `c_status <> 'T'` (não o `nQtdePedidos` do cadastro).
    - `sim_producao` = consumo de insumos se produzir produtos em **Produzir Urgente** / **Abrir Ordem** (`producao_recomendada` × formulação).
@@ -58,20 +58,20 @@ Algoritmo: `|Hub − ERP| > 0,01` em **estoque, reserva, produção e pedidos** 
 
 | Método | Rota | Uso |
 |--------|------|-----|
-| GET | `/api/admin/audit/stock/:code` | Compara Hub × ERP ao vivo (multi-campo; `match*` + `warnings`; `stockQtyA` só diagnóstico) |
+| GET | `/api/admin/audit/stock/:code` | Compara Hub × ERP ao vivo (multi-campo; `match*` + `warnings`) |
 | POST | `/api/admin/audit/stock/:code/refresh` | Re-lê pontual e grava |
 | POST | `/api/admin/audit/stock/verify-all` | Stream NDJSON: progresso + correção **Insumos + Materiais + Produtos** |
 | POST | `/api/admin/audit/stock/verify-insumos` | Alias sem stream (mesmo núcleo I+M+P) |
 | POST | `/api/admin/audit/stock/resync-insumos` | Regrava todos os insumos com `nQtdeEstoque` |
 | POST | `/api/admin/audit/stock/resync-produtos` | Regrava `estoque_atual` com `Produtos.nQtdeEstoque` |
 
-**Stream `verify-all`:** linhas `{ "type":"progress", processed, total, repaired, phase, currentCode }` e final `{ "type":"done", checked, repaired, samples, bySource }`. `samples` lista até **200** códigos corrigidos (hub→erp). `repaired === 0` = zero divergências de estoque (não significa que −R/+P da grade Compras batem com a tela — são fontes distintas).
+**Stream `verify-all`:** linhas `{ "type":"progress", processed, total, repaired, phase, currentCode }` e final `{ "type":"done", checked, repaired, samples, bySource }`. `samples` lista até **200** códigos corrigidos (hub→erp). `repaired === 0` = zero divergências de estoque.
 
 **Pós-sync automático:** após cada sync ERP bem-sucedido o Hub roda `verify_and_repair_all_stocks` (I+M+P, leitura limpa). Se corrigir algum código, notifica no sino. Botão em Configurações → Sync ERP (com barra de progresso). Atalho: ícone de sync na top bar (supervisor).
 
-**Compras −R:** preferir `stock_snapshots.reserved_qty` (= `nqtdeReserva`); só usar soma de lotes se o espelho ERP ≈ 0. Formatar estoque com até 4 casas (ex.: `1,3331`).
+**Compras −R:** preferir `stock_snapshots.reserved_qty` (= `nqtdeReserva`); só usar soma de lotes se o espelho ERP ≈ 0. Formatar estoque com até 4 casas (ex.: `-3,5180`).
 
-Caso de teste: `9.15.104` — Hub `stock_qty` = ERP `nQtdeEstoque` (`1,3331` kg na tela do ERP); −R = `nqtdeReserva` (`20,516`). `nQtdeEstoqueA` (`21,3331`) é campo interno do ERP e **não** deve ser usado.
+Caso de teste: `9.15.034` — Hub `stock_qty` = ERP `nQtdeEstoque` (`-3,5180` kg na tela do ERP); −R = `nqtdeReserva` (`501,945`).
 
 ## Checklist ao alterar importação de estoque
 

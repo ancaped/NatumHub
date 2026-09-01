@@ -22,8 +22,13 @@ import {
   Layers,
   ArrowDownUp,
   ArrowLeftRight,
+  Tag,
+  Settings,
+  Database,
+  Info,
 } from 'lucide-react';
 import type { LabelElement, LabelTemplate, BarcodeFormat, TextFontFamily, TextFontWeight } from '../lib/types';
+import { getAllSystemVariables, type SystemVariable } from '../lib/systemVariables';
 
 interface ElementPropertiesPanelProps {
   template: LabelTemplate;
@@ -52,6 +57,8 @@ interface ElementPropertiesPanelProps {
       | 'same_height'
       | 'stack_column'
   ) => void;
+  onTemplateChange?: (updates: Partial<LabelTemplate>) => void;
+  onOpenSystemVariablesModal?: () => void;
 }
 
 export default function ElementPropertiesPanel({
@@ -65,6 +72,7 @@ export default function ElementPropertiesPanel({
   onDuplicateElement,
   onAlignElement,
   onAlignGroup,
+  onTemplateChange,
 }: ElementPropertiesPanelProps) {
   const isPortrait = template.orientation === 'portrait';
   const labelWidth = isPortrait ? template.height_mm : template.width_mm;
@@ -176,7 +184,7 @@ export default function ElementPropertiesPanel({
                 className="flex items-center justify-center gap-2 p-2.5 bg-zinc-50 border border-zinc-200 hover:border-blue-500 rounded-xl text-zinc-800 font-semibold cursor-pointer text-xs transition-colors"
               >
                 <Rows className="h-4 w-4 text-blue-600" />
-                <span>Espaço Vertical Igual</span>
+                <span>Espaço Vertical</span>
               </button>
 
               <button
@@ -185,7 +193,7 @@ export default function ElementPropertiesPanel({
                 className="flex items-center justify-center gap-2 p-2.5 bg-zinc-50 border border-zinc-200 hover:border-blue-500 rounded-xl text-zinc-800 font-semibold cursor-pointer text-xs transition-colors"
               >
                 <Columns className="h-4 w-4 text-blue-600" />
-                <span>Espaço Horiz. Igual</span>
+                <span>Espaço Horiz.</span>
               </button>
             </div>
           </div>
@@ -201,73 +209,156 @@ export default function ElementPropertiesPanel({
               className="w-full flex items-center justify-center gap-2 bg-blue-50 border border-blue-200 hover:bg-blue-100/80 text-blue-700 font-bold p-3 rounded-xl cursor-pointer shadow-2xs text-xs transition-all"
             >
               <Sparkles className="h-4 w-4" />
-              <span>Empilhar em Coluna com 2mm de Respiro</span>
+              <span>Empilhar em Coluna (Cascata)</span>
             </button>
-            <p className="text-[10px] text-zinc-400 mt-1.5 text-center leading-relaxed">
-              Alinha a margem esquerda de todos os itens e ajusta a posição vertical de cada um em cascata ordenada.
-            </p>
-          </div>
-
-          {/* Equalize Dimensions */}
-          <div>
-            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-2">
-              Equalizar Dimensões
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => onAlignGroup('same_width')}
-                className="flex items-center justify-center gap-1.5 p-2 bg-zinc-50 border border-zinc-200 hover:bg-zinc-100 rounded-lg text-zinc-700 font-medium cursor-pointer text-xs"
-              >
-                <ArrowLeftRight className="h-3.5 w-3.5 text-zinc-500" />
-                <span>Mesma Largura</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onAlignGroup('same_height')}
-                className="flex items-center justify-center gap-1.5 p-2 bg-zinc-50 border border-zinc-200 hover:bg-zinc-100 rounded-lg text-zinc-700 font-medium cursor-pointer text-xs"
-              >
-                <ArrowDownUp className="h-3.5 w-3.5 text-zinc-500" />
-                <span>Mesma Altura</span>
-              </button>
-            </div>
           </div>
         </div>
       </div>
     );
   }
 
-  // Case 2: No element selected
+  // Case 2: No element selected -> Render Label Template Settings & Category
   if (selectedIds.length === 0) {
     return (
-      <div className="w-80 border-l border-zinc-200 bg-white p-6 flex flex-col items-center justify-center text-center text-zinc-400 space-y-4 select-none">
-        <Sparkles className="h-10 w-10 text-zinc-300 stroke-1" />
-        <div className="space-y-1">
-          <p className="text-sm font-bold text-zinc-700">Nenhum elemento selecionado</p>
-          <p className="text-xs text-zinc-500">
-            Clique em qualquer texto, código de barras ou forma para editar. Segure <strong>Shift</strong> para selecionar múltiplos itens.
-          </p>
+      <div className="w-80 border-l border-zinc-200 bg-white flex flex-col h-full overflow-y-auto select-none">
+        {/* Header */}
+        <div className="p-4 border-b border-zinc-100 flex items-center gap-2 bg-zinc-50/80">
+          <div className="p-1.5 bg-zinc-900 text-white rounded-md">
+            <Settings className="h-4 w-4" />
+          </div>
+          <div>
+            <h3 className="text-xs font-bold text-zinc-900">Configurações da Etiqueta</h3>
+            <p className="text-[10px] text-zinc-500">Definições gerais do modelo e categoria</p>
+          </div>
         </div>
 
-        <div className="w-full pt-4 border-t border-zinc-100 space-y-2">
-          <button
-            type="button"
-            onClick={onSelectAll}
-            className="w-full flex items-center justify-center gap-2 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-700 font-semibold p-2 rounded-xl text-xs cursor-pointer"
-          >
-            <Layers className="h-3.5 w-3.5" />
-            <span>Selecionar Todos os Elementos ({template.elements_json.length})</span>
-          </button>
+        <div className="p-4 space-y-4 text-xs text-zinc-700">
+          {/* Template Name */}
+          <div>
+            <label className="text-xs font-bold text-zinc-900 block mb-1">Nome do Modelo:</label>
+            <input
+              type="text"
+              value={template.name}
+              onChange={(e) => onTemplateChange?.({ name: e.target.value })}
+              placeholder="Ex: Identificação de Caixa Nátum"
+              className="w-full p-2.5 border border-zinc-300 rounded-xl bg-zinc-50 font-bold focus:bg-white text-xs"
+            />
+          </div>
 
-          <button
-            type="button"
-            onClick={() => onAlignGroup('stack_column')}
-            className="w-full flex items-center justify-center gap-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 font-semibold p-2 rounded-xl text-xs cursor-pointer"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            <span>Auto-Organizar Textos da Etiqueta</span>
-          </button>
+          {/* Template Category (Directly sets category for sidebar classification) */}
+          <div>
+            <label className="text-xs font-bold text-zinc-900 block mb-1">
+              Classificação / Categoria da Sidebar:
+            </label>
+            <select
+              value={template.category || 'custom'}
+              onChange={(e) => onTemplateChange?.({ category: e.target.value })}
+              className="w-full p-2.5 border border-zinc-300 rounded-xl bg-zinc-50 font-bold text-zinc-900 focus:bg-white text-xs"
+            >
+              <option value="expedicao">📦 Caixas / Volumes (DUN-14)</option>
+              <option value="producao">🧴 Produtos Acabados (EAN-13)</option>
+              <option value="estoque">🧪 Matérias-Primas</option>
+              <option value="embalagens">📦 Embalagens & Apoio</option>
+              <option value="qualidade">🛡️ Controle de Qualidade</option>
+              <option value="custom">⭐ Personalizada</option>
+            </select>
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="text-xs font-bold text-zinc-900 block mb-1">Descrição / Notas:</label>
+            <textarea
+              rows={2}
+              value={template.description || ''}
+              onChange={(e) => onTemplateChange?.({ description: e.target.value })}
+              placeholder="Finalidade desta etiqueta..."
+              className="w-full p-2 border border-zinc-300 rounded-xl bg-zinc-50 focus:bg-white text-xs"
+            />
+          </div>
+
+          {/* Dimensions & Orientation */}
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <div>
+              <span className="text-[11px] font-bold text-zinc-600 block mb-1">Largura (mm):</span>
+              <input
+                type="number"
+                value={template.width_mm}
+                onChange={(e) =>
+                  onTemplateChange?.({ width_mm: Math.max(10, parseInt(e.target.value, 10) || 100) })
+                }
+                className="w-full p-2 border border-zinc-300 rounded-xl font-mono text-center font-bold bg-zinc-50"
+              />
+            </div>
+            <div>
+              <span className="text-[11px] font-bold text-zinc-600 block mb-1">Altura (mm):</span>
+              <input
+                type="number"
+                value={template.height_mm}
+                onChange={(e) =>
+                  onTemplateChange?.({ height_mm: Math.max(10, parseInt(e.target.value, 10) || 50) })
+                }
+                className="w-full p-2 border border-zinc-300 rounded-xl font-mono text-center font-bold bg-zinc-50"
+              />
+            </div>
+          </div>
+
+          <div>
+            <span className="text-[11px] font-bold text-zinc-600 block mb-1">Orientação:</span>
+            <div className="grid grid-cols-2 gap-1 bg-zinc-100 p-1 rounded-xl font-bold text-xs">
+              <button
+                type="button"
+                onClick={() => onTemplateChange?.({ orientation: 'landscape' })}
+                className={`py-1.5 rounded-lg cursor-pointer transition-all ${
+                  template.orientation === 'landscape' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-600'
+                }`}
+              >
+                Paisagem (Horizontal)
+              </button>
+              <button
+                type="button"
+                onClick={() => onTemplateChange?.({ orientation: 'portrait' })}
+                className={`py-1.5 rounded-lg cursor-pointer transition-all ${
+                  template.orientation === 'portrait' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-600'
+                }`}
+              >
+                Retrato (Vertical)
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="pt-3 border-t border-zinc-100 space-y-2">
+            <button
+              type="button"
+              onClick={onSelectAll}
+              className="w-full flex items-center justify-center gap-2 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-800 font-bold p-2.5 rounded-xl text-xs cursor-pointer shadow-2xs"
+            >
+              <Layers className="h-3.5 w-3.5" />
+              <span>Selecionar Todos ({template.elements_json.length} itens)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onAlignGroup('stack_column')}
+              className="w-full flex items-center justify-center gap-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 font-bold p-2.5 rounded-xl text-xs cursor-pointer"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>Auto-Organizar Textos</span>
+            </button>
+          </div>
+
+          {/* Integration Guide Box */}
+          <div className="p-3 bg-zinc-50 rounded-xl border border-zinc-200 space-y-1.5 text-[11px] text-zinc-600">
+            <p className="font-bold text-zinc-900 flex items-center gap-1.5">
+              <Database className="h-3.5 w-3.5 text-blue-600" />
+              <span>Como Funciona a Integração:</span>
+            </p>
+            <p className="leading-relaxed">
+              Clique em qualquer texto ou código de barras para inserir tags como <strong>{'{product_code}'}</strong>,{' '}
+              <strong>{'{lot}'}</strong> ou <strong>{'{barcode}'}</strong>. Ao gerar etiquetas, o sistema preencherá
+              tudo automaticamente!
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -285,6 +376,11 @@ export default function ElementPropertiesPanel({
     onUpdateProps(element.id, { ...p, [key]: value });
   };
 
+  const insertVariable = (token: string, targetKey: 'text' | 'value' = 'text') => {
+    const current = (p[targetKey] || '') as string;
+    handlePropChange(targetKey, current ? `${current} ${token}` : token);
+  };
+
   const getElementIcon = () => {
     switch (element.type) {
       case 'text':
@@ -297,6 +393,8 @@ export default function ElementPropertiesPanel({
         return <Square className="h-4 w-4 text-blue-600" />;
       case 'line':
         return <Minus className="h-4 w-4 text-blue-600" />;
+      case 'badge':
+        return <Tag className="h-4 w-4 text-blue-600" />;
       default:
         return <Sparkles className="h-4 w-4 text-blue-600" />;
     }
@@ -316,8 +414,6 @@ export default function ElementPropertiesPanel({
         return 'Linha Divisória';
       case 'badge':
         return 'Badge de Destaque';
-      case 'image':
-        return 'Imagem / Logo';
       default:
         return 'Elemento';
     }
@@ -326,9 +422,9 @@ export default function ElementPropertiesPanel({
   return (
     <div className="w-80 border-l border-zinc-200 bg-white flex flex-col h-full overflow-y-auto select-none">
       {/* Header */}
-      <div className="p-4 border-b border-zinc-100 flex items-center justify-between">
+      <div className="p-4 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/70 shrink-0">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 bg-blue-50 rounded-md">{getElementIcon()}</div>
+          <div className="p-1.5 bg-blue-50 rounded-lg">{getElementIcon()}</div>
           <div>
             <h3 className="text-xs font-bold text-zinc-900">{getElementTypeName()}</h3>
             <p className="text-[10px] text-zinc-400 font-mono">ID: {element.id}</p>
@@ -339,14 +435,14 @@ export default function ElementPropertiesPanel({
           <button
             onClick={() => onDuplicateElement(element.id)}
             title="Duplicar Elemento"
-            className="p-1.5 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded cursor-pointer transition-colors"
+            className="p-1.5 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg cursor-pointer transition-colors"
           >
             <Copy className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => onDeleteElement(element.id)}
             title="Excluir Elemento (Delete)"
-            className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded cursor-pointer transition-colors"
+            className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg cursor-pointer transition-colors"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -362,43 +458,43 @@ export default function ElementPropertiesPanel({
           <div className="grid grid-cols-6 gap-1 bg-zinc-50 p-1.5 rounded-lg border border-zinc-200">
             <button
               onClick={() => onAlignElement(element.id, 'left')}
-              title="Alinhar à Esquerda (1mm)"
-              className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-white rounded transition-colors text-center flex items-center justify-center cursor-pointer shadow-2xs"
+              title="Alinhar à Esquerda"
+              className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-white rounded transition-colors flex items-center justify-center cursor-pointer shadow-2xs"
             >
               <AlignLeft className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={() => onAlignElement(element.id, 'center_h')}
               title="Centralizar Horizontalmente"
-              className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-white rounded transition-colors text-center flex items-center justify-center cursor-pointer shadow-2xs"
+              className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-white rounded transition-colors flex items-center justify-center cursor-pointer shadow-2xs"
             >
               <AlignCenter className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={() => onAlignElement(element.id, 'right')}
               title="Alinhar à Direita"
-              className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-white rounded transition-colors text-center flex items-center justify-center cursor-pointer shadow-2xs"
+              className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-white rounded transition-colors flex items-center justify-center cursor-pointer shadow-2xs"
             >
               <AlignRight className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={() => onAlignElement(element.id, 'top')}
-              title="Alinhar ao Topo (1mm)"
-              className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-white rounded transition-colors text-center flex items-center justify-center cursor-pointer shadow-2xs text-[10px] font-bold"
+              title="Alinhar ao Topo"
+              className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-white rounded transition-colors flex items-center justify-center cursor-pointer shadow-2xs text-[10px] font-bold"
             >
               Topo
             </button>
             <button
               onClick={() => onAlignElement(element.id, 'center_v')}
               title="Centralizar Verticalmente"
-              className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-white rounded transition-colors text-center flex items-center justify-center cursor-pointer shadow-2xs text-[10px] font-bold"
+              className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-white rounded transition-colors flex items-center justify-center cursor-pointer shadow-2xs text-[10px] font-bold"
             >
               Meio
             </button>
             <button
               onClick={() => onAlignElement(element.id, 'bottom')}
               title="Alinhar à Base"
-              className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-white rounded transition-colors text-center flex items-center justify-center cursor-pointer shadow-2xs text-[10px] font-bold"
+              className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-white rounded transition-colors flex items-center justify-center cursor-pointer shadow-2xs text-[10px] font-bold"
             >
               Base
             </button>
@@ -421,7 +517,7 @@ export default function ElementPropertiesPanel({
                   max={labelWidth}
                   value={element.x_mm}
                   onChange={(e) => onUpdateElement(element.id, { x_mm: parseFloat(e.target.value) || 0 })}
-                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono pr-7 focus:outline-none focus:border-blue-500"
+                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono pr-7 focus:outline-none focus:border-blue-500 bg-zinc-50 focus:bg-white"
                 />
                 <span className="absolute right-2 text-[10px] text-zinc-400">mm</span>
               </div>
@@ -437,7 +533,7 @@ export default function ElementPropertiesPanel({
                   max={labelHeight}
                   value={element.y_mm}
                   onChange={(e) => onUpdateElement(element.id, { y_mm: parseFloat(e.target.value) || 0 })}
-                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono pr-7 focus:outline-none focus:border-blue-500"
+                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono pr-7 focus:outline-none focus:border-blue-500 bg-zinc-50 focus:bg-white"
                 />
                 <span className="absolute right-2 text-[10px] text-zinc-400">mm</span>
               </div>
@@ -455,7 +551,7 @@ export default function ElementPropertiesPanel({
                   onChange={(e) =>
                     onUpdateElement(element.id, { width_mm: Math.max(1, parseFloat(e.target.value) || 1) })
                   }
-                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono pr-7 focus:outline-none focus:border-blue-500"
+                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono pr-7 focus:outline-none focus:border-blue-500 bg-zinc-50 focus:bg-white"
                 />
                 <span className="absolute right-2 text-[10px] text-zinc-400">mm</span>
               </div>
@@ -473,7 +569,7 @@ export default function ElementPropertiesPanel({
                   onChange={(e) =>
                     onUpdateElement(element.id, { height_mm: Math.max(1, parseFloat(e.target.value) || 1) })
                   }
-                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono pr-7 focus:outline-none focus:border-blue-500"
+                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono pr-7 focus:outline-none focus:border-blue-500 bg-zinc-50 focus:bg-white"
                 />
                 <span className="absolute right-2 text-[10px] text-zinc-400">mm</span>
               </div>
@@ -492,34 +588,40 @@ export default function ElementPropertiesPanel({
                 rows={3}
                 value={p.text || ''}
                 onChange={(e) => handlePropChange('text', e.target.value)}
-                placeholder="Digite o texto da etiqueta..."
-                className="w-full border border-zinc-200 rounded-md p-2 text-xs focus:outline-none focus:border-blue-500 leading-normal"
+                placeholder="Digite o texto ou insira variáveis abaixo..."
+                className="w-full border border-zinc-200 rounded-md p-2 text-xs focus:outline-none focus:border-blue-500 leading-normal bg-zinc-50 focus:bg-white font-medium"
               />
-              <div className="flex flex-wrap gap-1 mt-1.5">
-                <button
-                  type="button"
-                  onClick={() => handlePropChange('text', (p.text || '') + ' {seq}')}
-                  className="text-[9px] font-mono bg-zinc-100 hover:bg-zinc-200 px-1.5 py-0.5 rounded cursor-pointer text-zinc-600"
-                  title="Número sequencial da cópia"
-                >
-                  +{'{seq}'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handlePropChange('text', (p.text || '') + ' {total}')}
-                  className="text-[9px] font-mono bg-zinc-100 hover:bg-zinc-200 px-1.5 py-0.5 rounded cursor-pointer text-zinc-600"
-                  title="Total de cópias"
-                >
-                  +{'{total}'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handlePropChange('text', (p.text || '') + ' {date}')}
-                  className="text-[9px] font-mono bg-zinc-100 hover:bg-zinc-200 px-1.5 py-0.5 rounded cursor-pointer text-zinc-600"
-                  title="Data atual"
-                >
-                  +{'{date}'}
-                </button>
+
+              {/* System Variables Injection Grid */}
+              <div className="mt-2 space-y-1.5 bg-blue-50/50 p-2.5 rounded-xl border border-blue-100">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-blue-900 flex items-center gap-1">
+                    <Database className="h-3 w-3 text-blue-600" />
+                    <span>Inserir Dados do Sistema:</span>
+                  </span>
+                  {onOpenSystemVariablesModal && (
+                    <button
+                      type="button"
+                      onClick={onOpenSystemVariablesModal}
+                      className="text-[10px] text-blue-700 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
+                    >
+                      <span>Mais Dados / Criar (+)</span>
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {getAllSystemVariables().slice(0, 10).map((v) => (
+                    <button
+                      key={v.token}
+                      type="button"
+                      onClick={() => insertVariable(v.token, 'text')}
+                      className="text-[9px] font-mono bg-white hover:bg-blue-600 hover:text-white border border-blue-200 px-1.5 py-0.5 rounded cursor-pointer text-blue-800 transition-colors shadow-2xs font-bold"
+                      title={`${v.label} (Ex: ${v.sample})`}
+                    >
+                      +{v.token}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -532,7 +634,7 @@ export default function ElementPropertiesPanel({
                   max="48"
                   value={p.fontSize || 10}
                   onChange={(e) => handlePropChange('fontSize', parseInt(e.target.value, 10) || 10)}
-                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono mt-1 focus:outline-none focus:border-blue-500"
+                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono mt-1 focus:outline-none focus:border-blue-500 bg-white"
                 />
               </div>
 
@@ -561,70 +663,28 @@ export default function ElementPropertiesPanel({
                   className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs mt-1 focus:outline-none focus:border-blue-500 bg-white"
                 >
                   <option value="Inter">Padrão (Inter)</option>
-                  <option value="JetBrains Mono">Monoespaçada (Código)</option>
+                  <option value="JetBrains Mono">Mono (Código)</option>
                   <option value="serif">Serifada</option>
                 </select>
               </div>
 
               <div>
-                <span className="text-[10px] text-zinc-500">Alinhamento do Texto:</span>
-                <div className="flex border border-zinc-200 rounded-md mt-1 overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => handlePropChange('textAlign', 'left')}
-                    className={`flex-1 py-1.5 flex justify-center cursor-pointer ${
-                      p.textAlign === 'left' || !p.textAlign ? 'bg-zinc-200 font-bold' : 'hover:bg-zinc-50'
-                    }`}
-                  >
-                    <AlignLeft className="h-3 w-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handlePropChange('textAlign', 'center')}
-                    className={`flex-1 py-1.5 flex justify-center cursor-pointer border-l border-zinc-200 ${
-                      p.textAlign === 'center' ? 'bg-zinc-200 font-bold' : 'hover:bg-zinc-50'
-                    }`}
-                  >
-                    <AlignCenter className="h-3 w-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handlePropChange('textAlign', 'right')}
-                    className={`flex-1 py-1.5 flex justify-center cursor-pointer border-l border-zinc-200 ${
-                      p.textAlign === 'right' ? 'bg-zinc-200 font-bold' : 'hover:bg-zinc-50'
-                    }`}
-                  >
-                    <AlignRight className="h-3 w-3" />
-                  </button>
-                </div>
+                <span className="text-[10px] text-zinc-500">Alinhamento:</span>
+                <select
+                  value={p.textAlign || 'left'}
+                  onChange={(e) => handlePropChange('textAlign', e.target.value)}
+                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs mt-1 focus:outline-none focus:border-blue-500 bg-white"
+                >
+                  <option value="left">Esquerda</option>
+                  <option value="center">Centralizado</option>
+                  <option value="right">Direita</option>
+                </select>
               </div>
-            </div>
-
-            <div className="flex items-center gap-4 pt-1">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={Boolean(p.uppercase)}
-                  onChange={(e) => handlePropChange('uppercase', e.target.checked)}
-                  className="rounded text-blue-600"
-                />
-                <span className="text-xs">MAIÚSCULAS</span>
-              </label>
-
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={Boolean(p.multiline)}
-                  onChange={(e) => handlePropChange('multiline', e.target.checked)}
-                  className="rounded text-blue-600"
-                />
-                <span className="text-xs">Múltiplas Linhas</span>
-              </label>
             </div>
           </div>
         )}
 
-        {/* Barcode Properties */}
+        {/* Barcode Element Properties */}
         {element.type === 'barcode' && (
           <div className="space-y-3 pt-2 border-t border-zinc-100">
             <div>
@@ -635,9 +695,54 @@ export default function ElementPropertiesPanel({
                 type="text"
                 value={p.value || ''}
                 onChange={(e) => handlePropChange('value', e.target.value)}
-                placeholder="Ex: 7898912345678 ou MP0012"
-                className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-blue-500"
+                placeholder="Ex: {barcode}, {box_barcode}, 789..."
+                className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono font-bold focus:outline-none focus:border-blue-500 bg-zinc-50 focus:bg-white"
               />
+
+              <div className="mt-2 space-y-1.5 bg-blue-50/50 p-2.5 rounded-xl border border-blue-100">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-blue-900 block">Vincular Código do Sistema:</span>
+                  {onOpenSystemVariablesModal && (
+                    <button
+                      type="button"
+                      onClick={onOpenSystemVariablesModal}
+                      className="text-[10px] text-blue-700 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
+                    >
+                      <span>Mais Dados (+)</span>
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handlePropChange('value', '{barcode}')}
+                    className="text-[9px] font-mono bg-white hover:bg-blue-600 hover:text-white border border-blue-200 px-1.5 py-0.5 rounded cursor-pointer text-blue-800 font-bold"
+                  >
+                    +{'{barcode}'} (EAN-13)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePropChange('value', '{box_barcode}')}
+                    className="text-[9px] font-mono bg-white hover:bg-blue-600 hover:text-white border border-blue-200 px-1.5 py-0.5 rounded cursor-pointer text-blue-800 font-bold"
+                  >
+                    +{'{box_barcode}'} (DUN-14 Caixa)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePropChange('value', '{product_code}')}
+                    className="text-[9px] font-mono bg-white hover:bg-blue-600 hover:text-white border border-blue-200 px-1.5 py-0.5 rounded cursor-pointer text-blue-800 font-bold"
+                  >
+                    +{'{product_code}'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePropChange('value', '{lot}')}
+                    className="text-[9px] font-mono bg-white hover:bg-blue-600 hover:text-white border border-blue-200 px-1.5 py-0.5 rounded cursor-pointer text-blue-800 font-bold"
+                  >
+                    +{'{lot}'}
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -662,7 +767,7 @@ export default function ElementPropertiesPanel({
                   max="14"
                   value={p.fontSize || 7.5}
                   onChange={(e) => handlePropChange('fontSize', parseFloat(e.target.value) || 7.5)}
-                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono mt-1 focus:outline-none focus:border-blue-500"
+                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono mt-1 focus:outline-none focus:border-blue-500 bg-white"
                 />
               </div>
             </div>
@@ -691,22 +796,8 @@ export default function ElementPropertiesPanel({
                 value={p.value || ''}
                 onChange={(e) => handlePropChange('value', e.target.value)}
                 placeholder="Texto, URL, Lote ou Dados estruturados..."
-                className="w-full border border-zinc-200 rounded-md p-2 text-xs font-mono focus:outline-none focus:border-blue-500"
+                className="w-full border border-zinc-200 rounded-md p-2 text-xs font-mono focus:outline-none focus:border-blue-500 bg-zinc-50 focus:bg-white"
               />
-            </div>
-
-            <div>
-              <span className="text-[10px] text-zinc-500">Correção de Erros:</span>
-              <select
-                value={p.errorCorrectionLevel || 'M'}
-                onChange={(e) => handlePropChange('errorCorrectionLevel', e.target.value)}
-                className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs mt-1 focus:outline-none focus:border-blue-500 bg-white"
-              >
-                <option value="L">Nível L (7% de recuperação)</option>
-                <option value="M">Nível M (15% - Padrão Recomendado)</option>
-                <option value="Q">Nível Q (25% de recuperação)</option>
-                <option value="H">Nível H (30% - Máxima redundância)</option>
-              </select>
             </div>
           </div>
         )}
@@ -722,114 +813,8 @@ export default function ElementPropertiesPanel({
                 type="text"
                 value={p.text || ''}
                 onChange={(e) => handlePropChange('text', e.target.value)}
-                className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-bold uppercase focus:outline-none focus:border-blue-500"
+                className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-bold uppercase focus:outline-none focus:border-blue-500 bg-zinc-50 focus:bg-white"
               />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <span className="text-[10px] text-zinc-500">Estilo Visual:</span>
-                <select
-                  value={p.variant || 'black'}
-                  onChange={(e) => handlePropChange('variant', e.target.value)}
-                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs mt-1 focus:outline-none focus:border-blue-500 bg-white"
-                >
-                  <option value="black">Fundo Preto (Texto Branco)</option>
-                  <option value="outline">Apenas Borda Preta</option>
-                  <option value="gray">Fundo Cinza</option>
-                </select>
-              </div>
-
-              <div>
-                <span className="text-[10px] text-zinc-500">Arredondamento (mm):</span>
-                <input
-                  type="number"
-                  min="0"
-                  max="10"
-                  step="0.5"
-                  value={p.borderRadius || 2}
-                  onChange={(e) => handlePropChange('borderRadius', parseFloat(e.target.value) || 0)}
-                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono mt-1 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Box Properties */}
-        {element.type === 'box' && (
-          <div className="space-y-3 pt-2 border-t border-zinc-100">
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <span className="text-[10px] text-zinc-500">Espessura Borda (mm):</span>
-                <input
-                  type="number"
-                  min="0.2"
-                  max="5"
-                  step="0.2"
-                  value={p.borderWidth || 0.6}
-                  onChange={(e) => handlePropChange('borderWidth', parseFloat(e.target.value) || 0.6)}
-                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono mt-1 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <span className="text-[10px] text-zinc-500">Arredondamento (mm):</span>
-                <input
-                  type="number"
-                  min="0"
-                  max="10"
-                  step="0.5"
-                  value={p.borderRadius || 0}
-                  onChange={(e) => handlePropChange('borderRadius', parseFloat(e.target.value) || 0)}
-                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono mt-1 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-            </div>
-
-            <div>
-              <span className="text-[10px] text-zinc-500">Estilo da Borda:</span>
-              <select
-                value={p.borderStyle || 'solid'}
-                onChange={(e) => handlePropChange('borderStyle', e.target.value)}
-                className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs mt-1 focus:outline-none focus:border-blue-500 bg-white"
-              >
-                <option value="solid">Linha Contínua (Sólida)</option>
-                <option value="dashed">Tracejada</option>
-                <option value="dotted">Pontilhada</option>
-              </select>
-            </div>
-          </div>
-        )}
-
-        {/* Line Properties */}
-        {element.type === 'line' && (
-          <div className="space-y-3 pt-2 border-t border-zinc-100">
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <span className="text-[10px] text-zinc-500">Orientação:</span>
-                <select
-                  value={p.orientation || 'horizontal'}
-                  onChange={(e) => handlePropChange('orientation', e.target.value)}
-                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs mt-1 focus:outline-none focus:border-blue-500 bg-white"
-                >
-                  <option value="horizontal">Horizontal</option>
-                  <option value="vertical">Vertical</option>
-                </select>
-              </div>
-
-              <div>
-                <span className="text-[10px] text-zinc-500">Espessura (mm):</span>
-                <input
-                  type="number"
-                  min="0.2"
-                  max="5"
-                  step="0.2"
-                  value={p.strokeWidth || 0.5}
-                  onChange={(e) => handlePropChange('strokeWidth', parseFloat(e.target.value) || 0.5)}
-                  className="w-full border border-zinc-200 rounded-md px-2 py-1.5 text-xs font-mono mt-1 focus:outline-none focus:border-blue-500"
-                />
-              </div>
             </div>
           </div>
         )}

@@ -216,15 +216,52 @@ pub async fn fetch_calculation_data(state: &Db) -> anyhow::Result<(
     .await?;
 
     let mut products = Vec::new();
+    let mut known_codes = std::collections::HashSet::new();
     for row in product_rows {
+        let code: String = row.get(0);
+        known_codes.insert(clean_product_code(&code));
         products.push(Product {
-            codigo: row.get(0),
+            codigo: code,
             descricao: row.get(1),
             linha_prefix: row.get(2),
             base: row.get(3),
             base_codigo: None,
             media_levantamento: row.get(4),
         });
+    }
+
+    // Include Kits from kit_composicao and overrides that are not in produtos table
+    if let Ok(kit_rows) = sqlx::query(
+        "SELECT DISTINCT kit_codigo FROM kit_composicao"
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for row in kit_rows {
+            let raw_kit: String = row.get(0);
+            let clean_k = clean_product_code(&raw_kit);
+            if !clean_k.is_empty() && !known_codes.contains(&clean_k) {
+                known_codes.insert(clean_k.clone());
+                let desc = sqlx::query_scalar::<_, String>(
+                    "SELECT description FROM items WHERE TRIM(REPLACE(code, '\"', '')) = $1 LIMIT 1"
+                )
+                .bind(&clean_k)
+                .fetch_optional(pool)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| format!("Kit {}", clean_k));
+
+                products.push(Product {
+                    codigo: raw_kit,
+                    descricao: desc,
+                    linha_prefix: "".to_string(),
+                    base: None,
+                    base_codigo: None,
+                    media_levantamento: 0.0,
+                });
+            }
+        }
     }
 
     // Pedidos na Produção = residual M/N (allowlist ERP). Não usar estoque_atual.pedidos_aberto (nPedidos).
@@ -287,39 +324,107 @@ pub fn post_process_kit_only_production(
     computed: &mut [ProductCalculationResult],
     kit_composition: &HashMap<String, Vec<(String, f64, Option<f64>, Option<i32>)>>,
 ) {
-    // 1. Build a map of product code -> index in computed slice
-    let mut code_to_idx = HashMap::new();
-    for (i, p) in computed.iter().enumerate() {
-        code_to_idx.insert(p.codigo.clone(), i);
+    let mut kit_codes_set = std::collections::HashSet::new();
+    for k in kit_composition.keys() {
+        kit_codes_set.insert(clean_product_code(k));
+        kit_codes_set.insert(k.trim().to_string());
+        kit_codes_set.insert(k.replace('.', "").trim().to_string());
     }
-
-    // 2. Build a map of component -> list of parent kits
-    let mut component_to_kits: HashMap<String, Vec<String>> = HashMap::new();
-    for (kit_code, components) in kit_composition {
-        for (comp, _qty, _fq, _fk) in components {
-            component_to_kits.entry(comp.clone()).or_default().push(kit_code.clone());
+    for p in computed.iter_mut() {
+        let clean = clean_product_code(&p.codigo);
+        let norm = p.codigo.replace('.', "").trim().to_string();
+        if kit_codes_set.contains(&clean) || kit_codes_set.contains(p.codigo.trim()) || kit_codes_set.contains(&norm) || p.categoria_produto.as_deref() == Some("kit") {
+            p.is_kit = Some(true);
+            if p.categoria_produto.is_none() {
+                p.categoria_produto = Some("kit".to_string());
+            }
         }
     }
 
-    // 3. For each computed product, if it's marked `produzir_apenas_kit`, check parent kits
+    // 1. Build a map of clean product code -> index in computed slice
+    let mut code_to_idx = HashMap::new();
+    for (i, p) in computed.iter().enumerate() {
+        code_to_idx.insert(clean_product_code(&p.codigo), i);
+        code_to_idx.insert(p.codigo.trim().to_string(), i);
+        code_to_idx.insert(p.codigo.replace('.', "").trim().to_string(), i);
+    }
+
+    // 2. Build a map of component -> list of (parent_kit_code, qty_per_kit)
+    let mut component_to_kits: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+    for (kit_code, components) in kit_composition {
+        let clean_kit = clean_product_code(kit_code);
+        for (comp, qty, _fq, _fk) in components {
+            let clean_comp = clean_product_code(comp);
+            let comp_trim = comp.trim().to_string();
+            let comp_dotless = comp.replace('.', "").trim().to_string();
+            component_to_kits.entry(clean_comp).or_default().push((clean_kit.clone(), *qty));
+            component_to_kits.entry(comp_trim).or_default().push((clean_kit.clone(), *qty));
+            component_to_kits.entry(comp_dotless).or_default().push((clean_kit.clone(), *qty));
+        }
+    }
+
+    // 3. For each computed product, if it's a component of kits, propagate demand
     for i in 0..computed.len() {
-        if computed[i].produzir_apenas_kit.unwrap_or(0) == 1 {
-            if let Some(kits) = component_to_kits.get(&computed[i].codigo) {
-                let mut all_kits_ok = true;
-                for kit_code in kits {
-                    if let Some(&kit_idx) = code_to_idx.get(kit_code) {
-                        let kit_rec_prod = computed[kit_idx].producao_recomendada;
-                        if kit_rec_prod > 0 {
-                            all_kits_ok = false;
-                            break;
-                        }
-                    }
+        let comp_code = clean_product_code(&computed[i].codigo);
+        if let Some(kits) = component_to_kits.get(&comp_code) {
+            let mut total_kit_demand: f64 = 0.0;
+            let mut parent_kit_labels: Vec<String> = Vec::new();
+            let mut seen_parent_kits = std::collections::HashSet::new();
+
+            for (kit_code, qty_per_kit) in kits {
+                if seen_parent_kits.contains(kit_code) {
+                    continue;
                 }
-                
-                if all_kits_ok {
+                seen_parent_kits.insert(kit_code.clone());
+
+                if let Some(&kit_idx) = code_to_idx.get(kit_code) {
+                    let kit_rec_prod = computed[kit_idx].producao_recomendada;
+                    if kit_rec_prod > 0 {
+                        let demand_from_kit = kit_rec_prod as f64 * (*qty_per_kit);
+                        total_kit_demand += demand_from_kit;
+                        parent_kit_labels.push(format!("{} ({} un)", kit_code, demand_from_kit.round() as i64));
+                    } else {
+                        parent_kit_labels.push(kit_code.clone());
+                    }
+                } else {
+                    parent_kit_labels.push(kit_code.clone());
+                }
+            }
+
+            if !parent_kit_labels.is_empty() {
+                computed[i].is_kit_component = Some(true);
+                computed[i].parent_kits = Some(parent_kit_labels);
+            }
+
+            let apenas_kit = computed[i].produzir_apenas_kit.unwrap_or(0) == 1;
+
+            if apenas_kit {
+                let total_needed = total_kit_demand.round() as i64;
+                let efp = computed[i].estoque_futuro_com_producao;
+                let deficit = (total_needed - efp).max(0);
+
+                if deficit > 0 {
+                    computed[i].producao_recomendada = deficit;
+                    computed[i].status = "critico".to_string();
+                    computed[i].status_label = "Produzir para Kit".to_string();
+                } else {
                     computed[i].producao_recomendada = 0;
                     computed[i].status = "saudavel".to_string();
                     computed[i].status_label = "Estoque OK (Apenas Kit)".to_string();
+                }
+            } else if total_kit_demand > 0.0 {
+                // Item is sold individually AND used in kits.
+                // Total requirement = direct ideal stock + demand from kits!
+                let total_target = computed[i].estoque_ideal_qtd + total_kit_demand;
+                let efp = computed[i].estoque_futuro_com_producao;
+                let deficit = (total_target.round() as i64 - efp).max(0);
+
+                if deficit > computed[i].producao_recomendada {
+                    computed[i].producao_recomendada = deficit;
+                    if computed[i].status == "saudavel" || computed[i].status == "abundante" {
+                        computed[i].status = "critico".to_string();
+                        computed[i].status_label = "Demanda de Kits".to_string();
+                    }
                 }
             }
         }
@@ -470,8 +575,33 @@ pub async fn list_products(
         }
     }
 
+    let mut component_to_kits: HashMap<String, Vec<String>> = HashMap::new();
+    for (kit_code, components) in &kit_composition {
+        let clean_kit = clean_product_code(kit_code);
+        for (comp, _qty, _fq, _fk) in components {
+            let clean_comp = clean_product_code(comp);
+            let entry = component_to_kits.entry(clean_comp).or_default();
+            if !entry.contains(&clean_kit) {
+                entry.push(clean_kit.clone());
+            }
+        }
+    }
+
     // Decorate computed items with formulation and missing ingredients info
     for p in &mut computed {
+        let clean_code = clean_product_code(&p.codigo);
+        let is_kit = kit_composition.contains_key(&p.codigo) || kit_composition.contains_key(&clean_code) || p.is_kit == Some(true);
+        p.is_kit = Some(is_kit);
+        if is_kit && p.categoria_produto.is_none() {
+            p.categoria_produto = Some("kit".to_string());
+        }
+        if p.is_kit_component.is_none() || p.is_kit_component == Some(false) {
+            p.is_kit_component = Some(kit_components_set.contains(&p.codigo) || kit_components_set.contains(&clean_code));
+        }
+        if p.parent_kits.is_none() {
+            p.parent_kits = component_to_kits.get(&clean_code).cloned();
+        }
+
         let has_form = formulations_map.contains_key(&p.codigo);
         let mut missing = Vec::new();
         if has_form && p.producao_recomendada > 0 {
@@ -487,7 +617,6 @@ pub async fn list_products(
         }
         p.has_formulation = has_form;
         p.missing_ingredients = missing;
-        p.is_kit_component = Some(kit_components_set.contains(&p.codigo));
 
         // Populate sales order faltas and purchase transit
         let active_faltas = *sales_faltas_map.get(&p.codigo).unwrap_or(&0);
@@ -527,7 +656,8 @@ pub async fn list_products(
     // Filter out kits, coloracao, and apoio from the general production list!
     // Bases (cat_base) ficam na lista geral a menos que o filtro peça só bases.
     computed.retain(|p| {
-        let is_kit = kit_composition.contains_key(&p.codigo);
+        let clean_code = clean_product_code(&p.codigo);
+        let is_kit = kit_composition.contains_key(&p.codigo) || kit_composition.contains_key(&clean_code);
         let cat_p = p.categoria_produto.as_deref().unwrap_or("");
         let root_cat = if !cat_p.is_empty() {
             resolve_root_category(cat_p, &category_parent_map)
@@ -538,7 +668,14 @@ pub async fn list_products(
         let is_apoio = root_cat == "cat_apoio";
         let is_base = root_cat == "cat_base" || p.status_produto.as_deref() == Some("bases") || p.status == "bases";
 
+        if params.programadas_only == Some(true) || params.status.as_deref() == Some("programadas") {
+            return p.is_producao_programada == Some(1);
+        }
+
         if let Some(ref status) = params.status {
+            if (status == "kit" || status == "kits") && is_kit {
+                return true;
+            }
             if status == "coloracao" && is_coloracao {
                 return true;
             }
@@ -550,6 +687,9 @@ pub async fn list_products(
             }
         }
         if let Some(ref cat) = params.categoria {
+            if (cat == "kit" || cat == "kits" || cat == "cat_kit" || cat == "cat_kits") && is_kit {
+                return true;
+            }
             if cat == "cat_base" && is_base {
                 return true;
             }
@@ -559,6 +699,17 @@ pub async fn list_products(
             if cat == "cat_apoio" && is_apoio {
                 return true;
             }
+        }
+
+        if params.include_kits == Some(true) {
+            if params.include_programadas != Some(true) && params.show_hidden != Some(true) && p.is_producao_programada == Some(1) {
+                return false;
+            }
+            return true;
+        }
+
+        if params.include_programadas != Some(true) && params.show_hidden != Some(true) && p.is_producao_programada == Some(1) {
+            return false;
         }
 
         !is_kit && !is_coloracao && !is_apoio
@@ -583,9 +734,10 @@ pub async fn list_products(
     let count_lancamentos = visible_products.iter().filter(|p| p.is_lancamento).count();
     let total_visible = visible_products.len();
 
-    // Apply visibility filter
+    // Apply visibility filter (skip for programadas_only — items programados devem aparecer mesmo que ocultos)
+    let is_programadas_view = params.programadas_only == Some(true) || params.status.as_deref() == Some("programadas");
     let show_hidden = params.show_hidden.unwrap_or(false);
-    if !show_hidden && !params.suspended_only.unwrap_or(false) {
+    if !show_hidden && !params.suspended_only.unwrap_or(false) && !is_programadas_view {
         computed.retain(|p| {
             let status = p.status_produto.as_deref().unwrap_or("ativo");
             !ignored_statuses.contains(&status.to_string()) && p.visivel.unwrap_or(1) != 0
@@ -824,17 +976,20 @@ pub async fn list_kits(
     post_process_kit_only_production(&mut computed, &kit_composition);
 
     // Create a HashMap of computed products for fast lookup of component details
-    let computed_map: HashMap<String, ProductCalculationResult> = computed
-        .iter()
-        .map(|p| (clean_product_code(&p.codigo), p.clone()))
-        .collect();
+    let mut computed_map: HashMap<String, ProductCalculationResult> = HashMap::new();
+    for p in &computed {
+        computed_map.insert(clean_product_code(&p.codigo), p.clone());
+        computed_map.insert(p.codigo.trim().to_string(), p.clone());
+        computed_map.insert(p.codigo.replace('.', "").trim().to_string(), p.clone());
+    }
 
     // Insumos/embalagens da composição (não estão em produtos)
     let mut item_codes: Vec<String> = Vec::new();
     for comps in kit_composition.values() {
         for (c, _, _, _) in comps {
             let code = clean_product_code(c);
-            if !computed_map.contains_key(&code) && !item_codes.contains(&code) {
+            let code_norm = c.replace('.', "").trim().to_string();
+            if !computed_map.contains_key(&code) && !computed_map.contains_key(&code_norm) && !item_codes.contains(&code) {
                 item_codes.push(code);
             }
         }
@@ -847,13 +1002,16 @@ pub async fn list_kits(
 
     for (raw_kit_code, raw_components_codes) in &kit_composition {
         let kit_code = clean_product_code(raw_kit_code);
+        let kit_norm = raw_kit_code.replace('.', "").trim().to_string();
         let components_with_qty: Vec<(String, f64, Option<f64>, Option<i32>)> = raw_components_codes
             .iter()
             .map(|(c, q, fq, fk)| (clean_product_code(c), *q, *fq, *fk))
             .collect();
 
         // Find kit calculation details
-        let mut kit_calc = match computed_map.get(&kit_code) {
+        let mut kit_calc = match computed_map.get(&kit_code)
+            .or_else(|| computed_map.get(raw_kit_code.trim()))
+            .or_else(|| computed_map.get(&kit_norm)) {
             Some(c) => c.clone(),
             None => {
                 let cleaned_code = clean_product_code(&kit_code);
@@ -872,10 +1030,24 @@ pub async fn list_kits(
                 let prod_val = kit_stock.map(|s| s.producao).unwrap_or(0);
                 let pedidos_val = kit_stock.map(|s| s.pedidos_aberto).unwrap_or(0);
 
+                let ovr = overrides.iter().find(|o| {
+                    clean_product_code(&o.codigo) == kit_code || o.codigo.replace('.', "").trim() == kit_norm
+                });
+
+                let ideal_manual = ovr.and_then(|o| o.estoque_ideal_manual);
+                let ideal_qtd = ideal_manual.map(|v| v as f64).unwrap_or(0.0);
+                let efp = estoque_val + prod_val - pedidos_val;
+                let rec = if ideal_qtd > efp as f64 { (ideal_qtd - efp as f64).round() as i64 } else { 0 };
+                let (status, status_label) = if rec > 0 {
+                    ("critico".to_string(), "Produzir Urgente".to_string())
+                } else {
+                    ("saudavel".to_string(), "Estoque OK".to_string())
+                };
+
                 ProductCalculationResult {
                     codigo: kit_code.clone(),
                     descricao: kit_desc,
-                    linha_prefix: "".to_string(),
+                    linha_prefix: ovr.and_then(|o| o.linha_prefix_manual.clone()).unwrap_or_default(),
                     nome_linha: "Kits Comerciais".to_string(),
                     base: None,
                     base_codigo: None,
@@ -884,41 +1056,46 @@ pub async fn list_kits(
                     producao: prod_val,
                     pedidos_aberto: pedidos_val,
                     estoque_futuro: estoque_val - pedidos_val,
-                    estoque_futuro_com_producao: estoque_val + prod_val - pedidos_val,
-                    estoque_ideal_manual: None,
-                    pedidos_manual: None,
-                    media_manual: None,
-                    is_lancamento_manual: None,
-                    visivel: Some(1),
-                    observacao: None,
-                    linha_prefix_manual: None,
-                    status_produto: Some("ativo".to_string()),
-                    categoria_produto: Some("kit".to_string()),
+                    estoque_futuro_com_producao: efp,
+                    estoque_ideal_manual: ideal_manual,
+                    pedidos_manual: ovr.and_then(|o| o.pedidos_manual),
+                    media_manual: ovr.and_then(|o| o.media_manual),
+                    is_lancamento_manual: ovr.and_then(|o| o.is_lancamento_manual),
+                    visivel: ovr.and_then(|o| o.visivel).or(Some(1)),
+                    observacao: ovr.and_then(|o| o.observacao.clone()),
+                    linha_prefix_manual: ovr.and_then(|o| o.linha_prefix_manual.clone()),
+                    status_produto: ovr.and_then(|o| o.status_produto.clone()).or(Some("ativo".to_string())),
+                    categoria_produto: ovr.and_then(|o| o.categoria_produto.clone()).or(Some("kit".to_string())),
                     produzir_apenas_kit: Some(0),
-                    lancamento_meta_meses: None,
-                    lancamento_data_inicio: None,
-                    terceirizado_modo: None,
+                    lancamento_meta_meses: ovr.and_then(|o| o.lancamento_meta_meses),
+                    lancamento_data_inicio: ovr.and_then(|o| o.lancamento_data_inicio.clone()),
+                    terceirizado_modo: ovr.and_then(|o| o.terceirizado_modo.clone()),
                     is_kit_component: Some(false),
-                    media_vendas: 0.0,
+                    is_producao_programada: ovr.and_then(|o| o.is_producao_programada),
+                    producao_programada_disparo: ovr.and_then(|o| o.producao_programada_disparo),
+                    producao_programada_objetivo: ovr.and_then(|o| o.producao_programada_objetivo),
+                    media_vendas: ovr.and_then(|o| o.media_manual).unwrap_or(0.0),
                     desvio_padrao: 0.0,
-                    demanda_ajustada: 0.0,
+                    demanda_ajustada: ovr.and_then(|o| o.media_manual).unwrap_or(0.0),
                     is_lancamento: false,
                     estoque_ideal_meses: 0.0,
                     abrir_ordem_meses: 0.0,
                     abrir_prod_meses: 0.0,
-                    estoque_ideal_qtd: 0.0,
+                    estoque_ideal_qtd: ideal_qtd,
                     abrir_ordem_qtd: 0.0,
                     abrir_prod_qtd: 0.0,
                     duracao_meses: 99.0,
                     duracao_dias: 999.0,
-                    status: "saudavel".to_string(),
-                    status_label: "Estoque OK".to_string(),
-                    producao_recomendada: 0,
+                    status,
+                    status_label,
+                    producao_recomendada: rec,
                     has_formulation: true,
                     missing_ingredients: Vec::new(),
                     faltas_ativas: None,
                     pedidos_compra_aberto: None,
                     sugestao_compra: None,
+                    is_kit: Some(true),
+                    parent_kits: None,
                 }
             }
         };
@@ -932,7 +1109,8 @@ pub async fn list_kits(
         let mut critical_components = Vec::new();
 
         for (comp_code, comp_qty, fat_qtd, fat_kits) in &components_with_qty {
-            let detail = if let Some(comp_calc) = computed_map.get(comp_code) {
+            let comp_norm = comp_code.replace('.', "").trim().to_string();
+            let detail = if let Some(comp_calc) = computed_map.get(comp_code).or_else(|| computed_map.get(&comp_norm)) {
                 if comp_calc.producao_recomendada > 0 {
                     critical_components.push(comp_code.clone());
                 }
@@ -1086,6 +1264,15 @@ pub async fn list_kits(
         kit_results.retain(|k| k.kit_detalhes.visivel.unwrap_or(1) != 0);
     }
 
+    // Extract stats for metadata based on visible kits (before search/status filters)
+    let count_montar = kit_results.iter().filter(|k| k.kit_detalhes.status == "montar").count();
+    let count_critico = kit_results.iter().filter(|k| k.kit_detalhes.status == "critico").count();
+    let count_aguardando = kit_results.iter().filter(|k| k.kit_detalhes.status == "aguardando").count();
+    let count_ordem = kit_results.iter().filter(|k| k.kit_detalhes.status == "ordem").count();
+    let count_saudavel = kit_results.iter().filter(|k| k.kit_detalhes.status == "saudavel").count();
+    let count_abundante = kit_results.iter().filter(|k| k.kit_detalhes.status == "abundante").count();
+    let total_kits = kit_results.len();
+
     // Apply filtering
     if let Some(ref search) = params.search {
         if !search.trim().is_empty() {
@@ -1189,6 +1376,15 @@ pub async fn list_kits(
             "page": page,
             "limit": limit,
             "total_pages": total_pages,
+            "stats": {
+                "total": total_kits,
+                "montar": count_montar,
+                "critico": count_critico,
+                "aguardando": count_aguardando,
+                "ordem": count_ordem,
+                "saudavel": count_saudavel,
+                "abundante": count_abundante,
+            }
         }))
     ).into_response()
 }
@@ -1534,6 +1730,18 @@ pub async fn get_production_lotes(
                 conferencia_error: None,
                 is_resolved: rl.is_resolved,
                 resolution_obs: rl.resolution_obs,
+                snap_estoque: None,
+                snap_producao: None,
+                snap_pedidos: None,
+                snap_efp: None,
+                snap_media_vendas: None,
+                snap_duracao_meses: None,
+                snap_status: None,
+                snap_status_label: None,
+                snap_producao_recomendada: None,
+                snap_estoque_ideal_qtd: None,
+                snap_demanda_ajustada: None,
+                observacoes: None,
             };
             lote_indices.insert(rl.lote_number, grouped_lotes.len());
             grouped_lotes.push(new_lote);
@@ -1747,6 +1955,185 @@ pub async fn get_production_lotes(
             lote.pesagem_error = Some(pesagem_err);
             lote.envase_error = Some(envase_err);
             lote.conferencia_error = Some(conferencia_err);
+        }
+    }
+
+    // 1. Carrega snapshots existentes em historico_producao
+    type SnapTuple = (
+        Option<i64>, Option<i64>, Option<i64>, Option<i64>,
+        Option<f64>, Option<f64>, Option<String>, Option<String>,
+        Option<i64>, Option<f64>, Option<f64>, Option<String>,
+    );
+    let mut history_by_lote: StdHashMap<String, SnapTuple> = StdHashMap::new();
+    let mut history_by_prod_date: StdHashMap<String, SnapTuple> = StdHashMap::new();
+
+    if let Ok(rows) = sqlx::query(
+        "SELECT lote_erp, codigo, data_producao, snap_estoque, snap_producao, snap_pedidos, snap_efp,
+                snap_media_vendas, snap_duracao_meses, snap_status, snap_status_label,
+                snap_producao_recomendada, snap_estoque_ideal_qtd, snap_demanda_ajustada, observacoes
+         FROM historico_producao"
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for r in rows {
+            let lote_erp: Option<String> = r.get(0);
+            let codigo: String = r.get(1);
+            let data_prod: String = r.get(2);
+            let snap: SnapTuple = (
+                r.get::<Option<i32>, _>(3).map(|v| v as i64),
+                r.get::<Option<i32>, _>(4).map(|v| v as i64),
+                r.get::<Option<i32>, _>(5).map(|v| v as i64),
+                r.get::<Option<i32>, _>(6).map(|v| v as i64),
+                r.get::<Option<f64>, _>(7),
+                r.get::<Option<f64>, _>(8),
+                r.get::<Option<String>, _>(9),
+                r.get::<Option<String>, _>(10),
+                r.get::<Option<i32>, _>(11).map(|v| v as i64),
+                r.get::<Option<f64>, _>(12),
+                r.get::<Option<f64>, _>(13),
+                r.get::<Option<String>, _>(14),
+            );
+            if let Some(ref le) = lote_erp {
+                let le_clean = le.trim();
+                if !le_clean.is_empty() {
+                    history_by_lote.insert(le_clean.to_string(), snap.clone());
+                }
+            }
+            let d_clean = data_prod.split('T').next().unwrap_or(&data_prod).split(' ').next().unwrap_or(&data_prod);
+            history_by_prod_date.insert(format!("{}_{}", codigo.trim(), d_clean), snap);
+        }
+    }
+
+    // 2. Carrega métricas reais calculadas dos produtos para auto-snapshot de novos lotes ERP
+    type ProdCalcTuple = (i64, i64, i64, f64, i64, String, String, i64, f64, f64, f64);
+    let mut prod_metrics_map: StdHashMap<String, ProdCalcTuple> = StdHashMap::new();
+
+    if let Ok((products, stocks, fat_map, configs, overrides, _)) = fetch_calculation_data(&state.db).await {
+        let computed = calculate_products(&products, &stocks, &fat_map, &configs, &overrides);
+        for item in computed {
+            let tuple: ProdCalcTuple = (
+                item.estoque,
+                item.producao,
+                item.pedidos_aberto,
+                item.media_vendas,
+                item.estoque_futuro_com_producao,
+                item.status,
+                item.status_label,
+                item.producao_recomendada,
+                item.duracao_meses,
+                item.estoque_ideal_qtd,
+                item.demanda_ajustada,
+            );
+            let raw_code = item.codigo.trim().to_string();
+            let clean_code = clean_product_code(&raw_code);
+            prod_metrics_map.insert(raw_code, tuple.clone());
+            if !clean_code.is_empty() {
+                prod_metrics_map.insert(clean_code, tuple);
+            }
+        }
+    }
+
+    // 3. Itera pelos lotes e associa snapshot ou cria snapshot automático
+    let mut auto_inserts: Vec<(String, String, i32, Option<String>, i32, i32, i32, i32, f64, f64, String, String, i32, String)> = Vec::new();
+
+    for lote in &mut grouped_lotes {
+        let l_num = lote.lote_number.trim();
+        let raw_p_code = lote.product_code.split(" / ").next().unwrap_or(&lote.product_code).trim();
+        let p_code = clean_product_code(raw_p_code);
+        let d_clean = lote.date.split('T').next().unwrap_or(&lote.date).split(' ').next().unwrap_or(&lote.date);
+        let prod_date_key = format!("{}_{}", raw_p_code, d_clean);
+        let clean_prod_date_key = format!("{}_{}", p_code, d_clean);
+
+        if let Some(snap) = history_by_lote
+            .get(l_num)
+            .or_else(|| history_by_prod_date.get(&prod_date_key))
+            .or_else(|| history_by_prod_date.get(&clean_prod_date_key))
+        {
+            lote.snap_estoque = snap.0;
+            lote.snap_producao = snap.1;
+            lote.snap_pedidos = snap.2;
+            lote.snap_efp = snap.3;
+            lote.snap_media_vendas = snap.4;
+            lote.snap_duracao_meses = snap.5;
+            lote.snap_status = snap.6.clone();
+            lote.snap_status_label = snap.7.clone();
+            lote.snap_producao_recomendada = snap.8;
+            lote.snap_estoque_ideal_qtd = snap.9;
+            lote.snap_demanda_ajustada = snap.10;
+            lote.observacoes = snap.11.clone();
+        } else if let Some(m) = prod_metrics_map.get(raw_p_code).or_else(|| prod_metrics_map.get(&p_code)) {
+            lote.snap_estoque = Some(m.0);
+            lote.snap_producao = Some(m.1);
+            lote.snap_pedidos = Some(m.2);
+            lote.snap_media_vendas = Some(m.3);
+            lote.snap_efp = Some(m.4);
+            lote.snap_status = Some(m.5.clone());
+            lote.snap_status_label = Some(m.6.clone());
+            lote.snap_producao_recomendada = Some(m.7);
+            lote.snap_duracao_meses = Some(m.8);
+            lote.snap_estoque_ideal_qtd = Some(m.9);
+            lote.snap_demanda_ajustada = Some(m.10);
+            lote.observacoes = Some("Registrado automaticamente via sincronização ERP".to_string());
+
+            if !l_num.is_empty() {
+                auto_inserts.push((
+                    lote.date.clone(),
+                    raw_p_code.to_string(),
+                    lote.quantity.round() as i32,
+                    Some("Sincronizado automaticamente via ERP".to_string()),
+                    m.0 as i32,
+                    m.1 as i32,
+                    m.2 as i32,
+                    m.4 as i32,
+                    m.3,
+                    m.8,
+                    m.5.clone(),
+                    m.6.clone(),
+                    m.7 as i32,
+                    l_num.to_string(),
+                ));
+            }
+        }
+    }
+
+    // 4. Salva em historico_producao os novos lotes para persistência
+    if !auto_inserts.is_empty() {
+        for item in auto_inserts {
+            let exists: Option<i32> = sqlx::query_scalar(
+                "SELECT id FROM historico_producao WHERE lote_erp = $1 LIMIT 1"
+            )
+            .bind(&item.13)
+            .fetch_optional(pool)
+            .await
+            .unwrap_or(None);
+
+            if exists.is_none() {
+                let _ = sqlx::query(
+                    "INSERT INTO historico_producao (
+                        data_producao, codigo, quantidade, observacoes,
+                        snap_estoque, snap_producao, snap_pedidos, snap_efp,
+                        snap_media_vendas, snap_duracao_meses, snap_status, snap_status_label,
+                        snap_producao_recomendada, lote_erp
+                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)"
+                )
+                .bind(&item.0)
+                .bind(&item.1)
+                .bind(item.2)
+                .bind(&item.3)
+                .bind(item.4)
+                .bind(item.5)
+                .bind(item.6)
+                .bind(item.7)
+                .bind(item.8)
+                .bind(item.9)
+                .bind(&item.10)
+                .bind(&item.11)
+                .bind(item.12)
+                .bind(&item.13)
+                .execute(pool)
+                .await;
+            }
         }
     }
 
@@ -3213,4 +3600,215 @@ pub async fn delete_lote_resolution(
         Ok(_) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct InsumosStatusParams {
+    pub qty: Option<f64>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct InsumoPurchaseOrderInfo {
+    pub n_pedido: i32,
+    pub c_nome_f: Option<String>,
+    pub d_previsao: Option<String>,
+    pub n_qtde: f64,
+    pub n_chegou: f64,
+    pub n_pendente: f64,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct InsumoStatusDetail {
+    pub ingredient_code: String,
+    pub description: String,
+    pub qty_per_unit: f64,
+    pub total_required: f64,
+    pub current_stock: f64,
+    pub missing_qty: f64,
+    pub is_missing: bool,
+    pub purchase_orders: Vec<InsumoPurchaseOrderInfo>,
+    pub next_delivery_date: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ProductInsumosStatusResponse {
+    pub product_code: String,
+    pub batch_qty: f64,
+    pub has_formulation: bool,
+    pub all_in_stock: bool,
+    pub missing_count: usize,
+    pub previsao_normalizacao: Option<String>,
+    pub status_insumos: String,
+    pub ingredients: Vec<InsumoStatusDetail>,
+}
+
+// GET /api/producao/insumos-status/:code?qty=...
+pub async fn get_insumos_status(
+    State(state): State<Arc<AppState>>,
+    Path(code): Path<String>,
+    Query(params): Query<InsumosStatusParams>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    let batch_qty = params.qty.unwrap_or(100.0).max(1.0);
+
+    let clean_code = code.trim().replace('"', "");
+    let query_form = r#"
+        SELECT f.ingredient_code,
+               COALESCE(f.description, i.description, '') as description,
+               f.quantity,
+               COALESCE(s.stock_qty, e.estoque::float8, 0.0)::float8 as current_stock
+        FROM formulations f
+        LEFT JOIN items i ON TRIM(REPLACE(i.code, '"', '')) = TRIM(REPLACE(f.ingredient_code, '"', ''))
+        LEFT JOIN estoque_atual e ON TRIM(REPLACE(e.codigo, '"', '')) = TRIM(REPLACE(f.ingredient_code, '"', ''))
+        LEFT JOIN LATERAL (
+            SELECT stock_qty FROM stock_snapshots ss
+            WHERE TRIM(REPLACE(ss.item_code, '"', '')) = TRIM(REPLACE(f.ingredient_code, '"', ''))
+            ORDER BY ss.snapshot_date DESC, ss.id DESC LIMIT 1
+        ) s ON true
+        WHERE f.product_code = $1
+           OR (f.product_code LIKE '0%' AND SUBSTR(f.product_code, 2) = $1)
+           OR ($1 LIKE '0%' AND f.product_code = SUBSTR($1, 2))
+        ORDER BY f.quantity DESC
+    "#;
+
+    let rows = match sqlx::query(query_form)
+        .bind(&clean_code)
+        .fetch_all(pool)
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    if rows.is_empty() {
+        return (
+            StatusCode::OK,
+            Json(ProductInsumosStatusResponse {
+                product_code: clean_code,
+                batch_qty,
+                has_formulation: false,
+                all_in_stock: false,
+                missing_count: 0,
+                previsao_normalizacao: None,
+                status_insumos: "sem_formula".to_string(),
+                ingredients: Vec::new(),
+            }),
+        )
+            .into_response();
+    }
+
+    let mut ingredients = Vec::new();
+    let mut missing_count = 0;
+    let mut max_delivery_date: Option<String> = None;
+    let mut missing_without_po = false;
+
+    for row in rows {
+        let ing_code: String = row.get(0);
+        let ing_desc: String = row.get(1);
+        let qty_per_unit: f64 = row.get(2);
+        let current_stock: f64 = row.get(3);
+
+        let total_required = qty_per_unit * batch_qty;
+        let is_missing = current_stock < total_required;
+        let missing_qty = if is_missing {
+            total_required - current_stock
+        } else {
+            0.0
+        };
+
+        let mut purchase_orders = Vec::new();
+        let mut next_delivery_date: Option<String> = None;
+
+        if is_missing {
+            missing_count += 1;
+            let ing_clean = ing_code.replace('.', "");
+            let po_query = r#"
+                SELECT po.n_pedido, po.c_nome_f, po.d_previsao, poi.n_qtde, poi.n_chegou,
+                       (poi.n_qtde - poi.n_chegou) as n_pendente
+                FROM purchase_order_items poi
+                JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
+                WHERE (poi.c_referencia = $1 OR poi.c_referencia = $2)
+                  AND po.c_status <> 'T'
+                  AND (poi.n_qtde > poi.n_chegou)
+                ORDER BY po.d_previsao ASC NULLS LAST
+            "#;
+
+            if let Ok(po_rows) = sqlx::query(po_query)
+                .bind(&ing_code)
+                .bind(&ing_clean)
+                .fetch_all(pool)
+                .await
+            {
+                for po_row in po_rows {
+                    let prev_date: Option<String> = po_row.get(2);
+                    if next_delivery_date.is_none() && prev_date.is_some() {
+                        next_delivery_date = prev_date.clone();
+                    }
+                    purchase_orders.push(InsumoPurchaseOrderInfo {
+                        n_pedido: crate::core::pg_row::pg_i32(&po_row, 0),
+                        c_nome_f: po_row.get(1),
+                        d_previsao: prev_date,
+                        n_qtde: crate::core::pg_row::pg_f64(&po_row, 3),
+                        n_chegou: crate::core::pg_row::pg_f64(&po_row, 4),
+                        n_pendente: crate::core::pg_row::pg_f64(&po_row, 5),
+                    });
+                }
+            }
+
+            if purchase_orders.is_empty() {
+                missing_without_po = true;
+            } else if let Some(ref d) = next_delivery_date {
+                match &max_delivery_date {
+                    None => max_delivery_date = Some(d.clone()),
+                    Some(curr) => {
+                        if d > curr {
+                            max_delivery_date = Some(d.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        ingredients.push(InsumoStatusDetail {
+            ingredient_code: ing_code,
+            description: ing_desc,
+            qty_per_unit,
+            total_required,
+            current_stock,
+            missing_qty,
+            is_missing,
+            purchase_orders,
+            next_delivery_date,
+        });
+    }
+
+    let all_in_stock = missing_count == 0;
+    let status_insumos = if all_in_stock {
+        "disponivel".to_string()
+    } else if missing_without_po {
+        "sem_pedidos_compra".to_string()
+    } else {
+        "aguardando_compras".to_string()
+    };
+
+    (
+        StatusCode::OK,
+        Json(ProductInsumosStatusResponse {
+            product_code: clean_code,
+            batch_qty,
+            has_formulation: true,
+            all_in_stock,
+            missing_count,
+            previsao_normalizacao: max_delivery_date,
+            status_insumos,
+            ingredients,
+        }),
+    )
+        .into_response()
 }

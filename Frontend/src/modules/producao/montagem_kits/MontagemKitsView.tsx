@@ -76,11 +76,16 @@ export default function MontagemKitsView({ onBackToHub }) {
   const [newComponentLotes, setNewComponentLotes] = useState({}); // code -> lote
   const [submittingNewOrder, setSubmittingNewOrder] = useState(false);
 
+  // Quantidades editáveis inline para kits na aba Componentes e Alertas
+  const [kitMontarQtys, setKitMontarQtys] = useState<Record<string, number | string>>({});
+
   // Modal: Editar/Visualizar Ordem
   const [showEditOrderModal, setShowEditOrderModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   
   // Form: Editar Ordem
+  const [editOrderNumber, setEditOrderNumber] = useState('');
+  const [editQuantity, setEditQuantity] = useState<number | string>(10);
   const [editStatus, setEditStatus] = useState('PENDING');
   const [editAssembledBy, setEditAssembledBy] = useState('');
   const [editCheckedBy, setEditCheckedBy] = useState('');
@@ -767,7 +772,13 @@ export default function MontagemKitsView({ onBackToHub }) {
     await fetchAllKitsDropdown();
     await fetchNextOrderNumber();
     setSelectedKitCode(preselectedKitCode);
-    setNewKitQty(10);
+    const foundKit = kits.find(k => k.codigo === preselectedKitCode) || allKitsDropdown.find(k => k.codigo === preselectedKitCode);
+    const customQty = preselectedKitCode 
+      ? (kitMontarQtys[preselectedKitCode] !== undefined 
+          ? kitMontarQtys[preselectedKitCode] 
+          : (foundKit?.producao_recomendada > 0 ? foundKit.producao_recomendada : (foundKit?.max_montavel > 0 ? foundKit.max_montavel : 10))) 
+      : 10;
+    setNewKitQty(customQty);
     setNewKitNotes('');
     setNewComponentLotes({});
     setShowNewOrderModal(true);
@@ -777,12 +788,19 @@ export default function MontagemKitsView({ onBackToHub }) {
   const handleKitChange = (kitCode) => {
     setSelectedKitCode(kitCode);
     setNewComponentLotes({});
+    const foundKit = kits.find(k => k.codigo === kitCode) || allKitsDropdown.find(k => k.codigo === kitCode);
+    if (foundKit) {
+      const defaultQty = kitMontarQtys[kitCode] !== undefined
+        ? kitMontarQtys[kitCode]
+        : (foundKit.producao_recomendada > 0 ? foundKit.producao_recomendada : (foundKit.max_montavel > 0 ? foundKit.max_montavel : 10));
+      setNewKitQty(defaultQty);
+    }
   };
 
   // Select Kit Object from dropdown list
   const selectedKitObj = allKitsDropdown.find(k => k.codigo === selectedKitCode);
 
-  const handleCreateOrder = async (e) => {
+  const handleCreateOrder = async (e, andPrint = false) => {
     if (e) e.preventDefault();
     if (!newOrderNumber.trim()) {
       alert("Por favor, preencha o número do lote/ordem.");
@@ -819,7 +837,7 @@ export default function MontagemKitsView({ onBackToHub }) {
         orderNumber: newOrderNumber,
         kitProductCode: selectedKitCode,
         kitProductDescription: selectedKitObj?.descricao || "",
-        quantity: parseFloat(newKitQty),
+        quantity: kitQty,
         status: "PENDING",
         assembledBy: "",
         checkedBy: "",
@@ -834,8 +852,31 @@ export default function MontagemKitsView({ onBackToHub }) {
       });
 
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const createdOrder = {
+          id: data.id,
+          orderNumber: newOrderNumber,
+          kitProductCode: selectedKitCode,
+          kitProductDescription: selectedKitObj?.descricao || "",
+          quantity: kitQty,
+          quantityAssembled: null,
+          status: "PENDING",
+          createdAt: data.createdAt || new Date().toLocaleString('pt-BR'),
+          completedAt: null,
+          assembledBy: "",
+          checkedBy: "",
+          observations: newKitNotes,
+          erpLaunched: 0,
+          componentsLotes: JSON.stringify(lotesList)
+        };
+
         setShowNewOrderModal(false);
         fetchOrders();
+        fetchNextOrderNumber();
+
+        if (andPrint) {
+          handlePrintOrder(createdOrder);
+        }
       } else {
         const err = await res.json();
         alert(err.error || "Erro ao criar ordem de montagem");
@@ -845,6 +886,91 @@ export default function MontagemKitsView({ onBackToHub }) {
       alert("Falha de rede ao criar ordem");
     } finally {
       setSubmittingNewOrder(false);
+    }
+  };
+
+  const handleQuickCreateAndPrintKit = async (kit, customQty) => {
+    try {
+      await fetchAllKitsDropdown();
+      let orderNum = nextOrderNumber;
+      try {
+        const resNext = await apiFetch('/kits/next-order-number');
+        if (resNext.ok) {
+          const d = await resNext.json();
+          if (d.nextOrderNumber) orderNum = d.nextOrderNumber;
+        }
+      } catch (e) {}
+
+      if (!orderNum) orderNum = `KIT-${Date.now()}`;
+
+      const kitObj = allKitsDropdown.find(k => k.codigo === kit.codigo) || kit;
+      const kitQty = parseFloat(String(customQty !== undefined ? customQty : (kitMontarQtys[kit.codigo] || (kit.producao_recomendada > 0 ? kit.producao_recomendada : (kit.max_montavel > 0 ? kit.max_montavel : 10))))) || 10;
+
+      const lotesList = kitObj?.componentes?.map(comp => {
+        const perKit = Number(comp.quantidade) || 1;
+        const need = kitComponentNeedQty(
+          perKit,
+          kitQty,
+          comp.fator_proporcao_qtd,
+          comp.fator_proporcao_kits,
+        );
+        return {
+          code: comp.codigo,
+          description: comp.descricao,
+          expected_qty: perKit,
+          fator_proporcao_qtd: comp.fator_proporcao_qtd ?? null,
+          fator_proporcao_kits: comp.fator_proporcao_kits ?? null,
+          need_qty: need,
+          lote: "",
+        };
+      }) || [];
+
+      const payload = {
+        orderNumber: orderNum,
+        kitProductCode: kit.codigo,
+        kitProductDescription: kit.descricao || "",
+        quantity: kitQty,
+        status: "PENDING",
+        assembledBy: "",
+        checkedBy: "",
+        observations: "",
+        componentsLotes: JSON.stringify(lotesList)
+      };
+
+      const res = await apiFetch(`/kits/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const created = {
+          id: data.id,
+          orderNumber: orderNum,
+          kitProductCode: kit.codigo,
+          kitProductDescription: kit.descricao || "",
+          quantity: kitQty,
+          quantityAssembled: null,
+          status: "PENDING",
+          createdAt: data.createdAt || new Date().toLocaleString('pt-BR'),
+          completedAt: null,
+          assembledBy: "",
+          checkedBy: "",
+          observations: "",
+          erpLaunched: 0,
+          componentsLotes: JSON.stringify(lotesList)
+        };
+        fetchOrders();
+        fetchNextOrderNumber();
+        handlePrintOrder(created);
+      } else {
+        const err = await res.json();
+        alert(err.error || "Erro ao gerar ordem de montagem");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Falha de rede ao gerar e imprimir ordem");
     }
   };
 
@@ -862,6 +988,8 @@ export default function MontagemKitsView({ onBackToHub }) {
 
   const handleOpenEditModal = (order) => {
     setSelectedOrder(order);
+    setEditOrderNumber(order.orderNumber || '');
+    setEditQuantity(order.quantity);
     setEditStatus(order.status);
     setEditAssembledBy(order.assembledBy || '');
     setEditCheckedBy(order.checkedBy || '');
@@ -894,10 +1022,11 @@ export default function MontagemKitsView({ onBackToHub }) {
     setShowEditOrderModal(true);
   };
 
-  const handleUpdateOrder = async (e) => {
+  const handleUpdateOrder = async (e, andPrint = false) => {
     if (e) e.preventDefault();
     setSubmittingEditOrder(true);
     try {
+      const parsedEditQty = parseFloat(String(editQuantity)) || selectedOrder.quantity || 0;
       // Parse and rebuild components lotes
       let list = [];
       try {
@@ -910,7 +1039,7 @@ export default function MontagemKitsView({ onBackToHub }) {
               editComponentUsedQty[item.code] !== undefined
                 ? parseFloat(editComponentUsedQty[item.code])
                 : kitOrderComponentNeed(item, parseFloat(editQuantityAssembled) || 0),
-            need_qty: kitOrderComponentNeed(item, selectedOrder.quantity || 0),
+            need_qty: kitOrderComponentNeed(item, parsedEditQty),
           }));
         }
       } catch (err) {
@@ -918,6 +1047,8 @@ export default function MontagemKitsView({ onBackToHub }) {
       }
 
       const payload = {
+        orderNumber: editOrderNumber || selectedOrder.orderNumber,
+        quantity: parsedEditQty,
         status: editStatus,
         assembledBy: editAssembledBy,
         checkedBy: editCheckedBy,
@@ -934,8 +1065,25 @@ export default function MontagemKitsView({ onBackToHub }) {
       });
 
       if (res.ok) {
+        const updatedOrder = {
+          ...selectedOrder,
+          orderNumber: editOrderNumber || selectedOrder.orderNumber,
+          quantity: parsedEditQty,
+          quantityAssembled: parseFloat(editQuantityAssembled) || 0,
+          status: editStatus,
+          assembledBy: editAssembledBy,
+          checkedBy: editCheckedBy,
+          observations: editNotes,
+          erpLaunched: editErpLaunched ? 1 : 0,
+          componentsLotes: list.length > 0 ? JSON.stringify(list) : null,
+        };
+
         setShowEditOrderModal(false);
         fetchOrders();
+
+        if (andPrint) {
+          handlePrintOrder(updatedOrder);
+        }
       } else {
         alert("Erro ao atualizar ordem de montagem");
       }
@@ -1273,7 +1421,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                 <h3 className="text-[9px] font-black text-zinc-950 uppercase tracking-widest">
                   Instruções e Componentes do Kit
                 </h3>
-                <span className="text-[8px] text-zinc-450 font-bold uppercase">NatumHub — Controle de Fluxo</span>
+                <span className="text-[8px] text-zinc-450 font-bold uppercase">Nexus — Controle de Fluxo</span>
               </div>
               <table className="w-full text-[9px] border-collapse">
                 <thead>
@@ -1497,7 +1645,7 @@ export default function MontagemKitsView({ onBackToHub }) {
           {/* Info/Stats Block */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             <div className="bg-zinc-50 rounded-xl p-4 space-y-3 border border-zinc-100">
-              <h3 className="text-xs font-bold text-zinc-700 uppercase tracking-wider">Módulos NatumHub</h3>
+              <h3 className="text-xs font-bold text-zinc-700 uppercase tracking-wider">Módulos Nexus</h3>
               <p className="text-xs text-zinc-550 leading-relaxed">
                 Controle o fluxo fabril e logístico. Gerencie montagens de kits comerciais e ordens de conversão de produtos (reetiquetagem e reenvase).
               </p>
@@ -1763,13 +1911,14 @@ export default function MontagemKitsView({ onBackToHub }) {
                     <thead>
                       <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-550 font-bold uppercase text-[9px]">
                         <th style={{ width: '4%' }}></th>
-                        <th style={{ width: '12%' }}>Código</th>
-                        <th style={{ width: '30%' }}>Descrição</th>
-                        <th style={{ width: '12%' }} className="text-right">Estoque</th>
-                        <th style={{ width: '15%' }}>Status Alerta</th>
-                        <th style={{ width: '12%' }} className="text-right">Sug. Produção</th>
-                        <th style={{ width: '15%' }}>Capacidade Montagem</th>
-                        <th style={{ width: '10%', textRight: 'center' }}>Gerar Ordem</th>
+                        <th style={{ width: '10%' }}>Código</th>
+                        <th style={{ width: '26%' }}>Descrição</th>
+                        <th style={{ width: '10%' }} className="text-right">Estoque</th>
+                        <th style={{ width: '12%' }}>Status Alerta</th>
+                        <th style={{ width: '10%' }} className="text-right">Sug. Produção</th>
+                        <th style={{ width: '12%' }}>Capacidade</th>
+                        <th style={{ width: '12%' }} className="text-right">Qtd a Montar</th>
+                        <th style={{ width: '8%', textAlign: 'center' }}>Ações</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1781,6 +1930,10 @@ export default function MontagemKitsView({ onBackToHub }) {
                         } else if (k.max_montavel < k.producao_recomendada) {
                           capacityClass = "bg-amber-50 text-amber-700 border-amber-255";
                         }
+
+                        const currentQty = kitMontarQtys[k.codigo] !== undefined
+                          ? kitMontarQtys[k.codigo]
+                          : (k.producao_recomendada > 0 ? k.producao_recomendada : (k.max_montavel > 0 ? k.max_montavel : 10));
 
                         return (
                           <React.Fragment key={k.codigo}>
@@ -1822,21 +1975,46 @@ export default function MontagemKitsView({ onBackToHub }) {
                                   Máx: {k.max_montavel} un
                                 </span>
                               </td>
+                              <td className="p-3 text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={currentQty}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setKitMontarQtys(prev => ({ ...prev, [k.codigo]: val }));
+                                    }}
+                                    className="w-16 text-right border border-zinc-300 rounded-lg px-2 py-1 text-xs font-bold text-zinc-900 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                                    title="Editar quantidade a montar para este kit"
+                                  />
+                                  <span className="text-[10px] text-zinc-400 font-semibold">un</span>
+                                </div>
+                              </td>
                               <td className="p-3 text-center">
-                                <button 
-                                  onClick={() => handleOpenNewOrderModal(k.codigo)}
-                                  className="p-1.5 hover:bg-zinc-100 text-zinc-900 rounded-lg cursor-pointer"
-                                  title="Iniciar Ordem de Montagem para este Kit"
-                                >
-                                  <PlusCircle size={15} />
-                                </button>
+                                <div className="flex items-center justify-center gap-1">
+                                  <button 
+                                    onClick={() => handleQuickCreateAndPrintKit(k, currentQty)}
+                                    className="p-1.5 hover:bg-zinc-100 text-zinc-700 hover:text-zinc-950 rounded-lg cursor-pointer"
+                                    title="Gerar e Imprimir Ordem de Montagem diretamente com esta quantidade"
+                                  >
+                                    <Printer size={15} />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleOpenNewOrderModal(k.codigo)}
+                                    className="p-1.5 hover:bg-zinc-100 text-zinc-700 hover:text-zinc-950 rounded-lg cursor-pointer"
+                                    title="Configurar Ordem de Montagem detalhada"
+                                  >
+                                    <PlusCircle size={15} />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
 
                             {/* Expanded components list */}
                             {isExpanded && (
                               <tr className="bg-zinc-50/50">
-                                <td colSpan="8" className="p-4 border-b border-zinc-200">
+                                <td colSpan={9} className="p-4 border-b border-zinc-200">
                                   <div className="bg-white rounded-xl border border-zinc-200 shadow-sm p-4 text-xs">
                                     <h4 className="font-extrabold text-zinc-900 border-b pb-2 mb-3">Componentes do Kit ({k.componentes?.length || 0})</h4>
                                     <table className="w-full text-xs text-left border-collapse">
@@ -2671,7 +2849,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                 />
               </div>
 
-              <div className="flex gap-3 justify-end pt-2">
+              <div className="flex gap-2 justify-end pt-2">
                 <button 
                   type="button"
                   onClick={() => setShowNewOrderModal(false)}
@@ -2680,11 +2858,21 @@ export default function MontagemKitsView({ onBackToHub }) {
                   Cancelar
                 </button>
                 <button 
+                  type="button"
+                  disabled={submittingNewOrder}
+                  onClick={(e) => handleCreateOrder(e, true)}
+                  className="px-4 py-2 bg-white border border-zinc-300 hover:bg-zinc-50 text-zinc-900 rounded-xl text-xs font-bold disabled:opacity-50 cursor-pointer flex items-center gap-1.5 shadow-sm"
+                  title="Criar a ordem e abrir imediatamente a janela de impressão"
+                >
+                  <Printer size={14} />
+                  {submittingNewOrder ? "Gerando..." : "Gerar e Imprimir"}
+                </button>
+                <button 
                   type="submit"
                   disabled={submittingNewOrder}
                   className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold disabled:opacity-50 cursor-pointer"
                 >
-                  {submittingNewOrder ? "Gerando..." : "Gerar Ordem de Montagem"}
+                  {submittingNewOrder ? "Gerando..." : "Gerar Ordem"}
                 </button>
               </div>
             </form>
@@ -2699,30 +2887,88 @@ export default function MontagemKitsView({ onBackToHub }) {
             <div className="flex justify-between items-center border-b pb-3">
               <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-1.5">
                 <ClipboardList className="h-5 w-5 text-zinc-900" />
-                Retorno de Ordem: Lote {selectedOrder.orderNumber}
+                Retorno / Edição de Ordem: Lote {editOrderNumber || selectedOrder.orderNumber}
               </h3>
-              <button 
-                onClick={() => setShowEditOrderModal(false)}
-                className="p-1 hover:bg-zinc-100 rounded-full text-zinc-455 hover:text-zinc-900 cursor-pointer"
-              >
-                <X size={16} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const parsedEditQty = parseFloat(String(editQuantity)) || selectedOrder.quantity || 0;
+                    let list = [];
+                    try {
+                      if (selectedOrder.componentsLotes) {
+                        const originalList = JSON.parse(selectedOrder.componentsLotes);
+                        list = originalList.map(item => ({
+                          ...item,
+                          lote: editComponentLotes[item.code] || "",
+                          used_qty:
+                            editComponentUsedQty[item.code] !== undefined
+                              ? parseFloat(editComponentUsedQty[item.code])
+                              : kitOrderComponentNeed(item, parseFloat(editQuantityAssembled) || 0),
+                          need_qty: kitOrderComponentNeed(item, parsedEditQty),
+                        }));
+                      }
+                    } catch (err) {}
+                    handlePrintOrder({
+                      ...selectedOrder,
+                      orderNumber: editOrderNumber || selectedOrder.orderNumber,
+                      quantity: parsedEditQty,
+                      quantityAssembled: parseFloat(editQuantityAssembled) || 0,
+                      status: editStatus,
+                      assembledBy: editAssembledBy,
+                      checkedBy: editCheckedBy,
+                      observations: editNotes,
+                      erpLaunched: editErpLaunched ? 1 : 0,
+                      componentsLotes: list.length > 0 ? JSON.stringify(list) : selectedOrder.componentsLotes,
+                    });
+                  }}
+                  className="px-2.5 py-1 hover:bg-zinc-100 rounded-lg text-zinc-700 hover:text-zinc-950 flex items-center gap-1 text-xs font-bold border border-zinc-200 cursor-pointer shadow-xs"
+                  title="Imprimir folha desta ordem com os valores atuais"
+                >
+                  <Printer size={13} />
+                  <span>Imprimir Folha</span>
+                </button>
+                <button 
+                  onClick={() => setShowEditOrderModal(false)}
+                  className="p-1 hover:bg-zinc-100 rounded-full text-zinc-455 hover:text-zinc-900 cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
 
             <form onSubmit={handleUpdateOrder} className="space-y-4 text-xs font-medium text-zinc-700">
-              <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-3.5 space-y-2">
+              <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-3.5 space-y-3">
                 <div>
                   <span className="text-[10px] text-zinc-400 font-extrabold uppercase block">Produto Kit</span>
                   <span className="font-bold text-zinc-900">{selectedOrder.kitProductDescription} ({selectedOrder.kitProductCode})</span>
                 </div>
-                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-zinc-200/50">
-                  <div>
-                    <span className="text-[10px] text-zinc-400 font-extrabold uppercase block">Qtd Emitida</span>
-                    <span className="font-bold text-zinc-800">{selectedOrder.quantity} un</span>
+                <div className="grid grid-cols-3 gap-3 pt-2 border-t border-zinc-200/60">
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Lote da Ordem</label>
+                    <input 
+                      type="text"
+                      value={editOrderNumber}
+                      onChange={(e) => setEditOrderNumber(e.target.value)}
+                      className="w-full border border-zinc-300 rounded-lg p-2 text-xs font-mono font-bold text-zinc-900 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Qtd a Montar (Prog.)</label>
+                    <input 
+                      type="number"
+                      step="any"
+                      min="1"
+                      value={editQuantity}
+                      onChange={(e) => setEditQuantity(e.target.value)}
+                      className="w-full border border-zinc-300 rounded-lg p-2 text-xs font-bold text-zinc-900 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                      required
+                    />
                   </div>
                   <div>
                     <span className="text-[10px] text-zinc-400 font-extrabold uppercase block">Data Emissão</span>
-                    <span className="font-bold text-zinc-800">{selectedOrder.createdAt}</span>
+                    <span className="font-bold text-zinc-800 text-xs mt-2 block">{selectedOrder.createdAt}</span>
                   </div>
                 </div>
               </div>
@@ -2806,6 +3052,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                 try {
                   if (selectedOrder.componentsLotes) {
                     const list = JSON.parse(selectedOrder.componentsLotes);
+                    const parsedPlannedKitQty = parseFloat(String(editQuantity)) || selectedOrder.quantity || 0;
                     return (
                       <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-3">
                         <div className="flex items-center gap-1.5 text-zinc-800 font-bold border-b pb-1.5">
@@ -2818,13 +3065,13 @@ export default function MontagemKitsView({ onBackToHub }) {
                         
                         <div className="space-y-2.5 max-h-48 overflow-y-auto pr-1">
                           {list.map(item => {
-                            const planned = kitOrderComponentNeed(item, selectedOrder.quantity || 0);
+                            const planned = kitOrderComponentNeed(item, parsedPlannedKitQty);
                             const used =
                               editComponentUsedQty[item.code] !== undefined
                                 ? editComponentUsedQty[item.code]
                                 : kitOrderComponentNeed(
                                     item,
-                                    parseFloat(editQuantityAssembled) || selectedOrder.quantity || 0,
+                                    parseFloat(editQuantityAssembled) || parsedPlannedKitQty || 0,
                                   );
                             return (
                             <div key={item.code} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-150 pb-2 last:border-none">
@@ -2897,13 +3144,23 @@ export default function MontagemKitsView({ onBackToHub }) {
                 />
               </div>
 
-              <div className="flex gap-3 justify-end pt-2">
+              <div className="flex gap-2 justify-end pt-2">
                 <button 
                   type="button"
                   onClick={() => setShowEditOrderModal(false)}
                   className="px-4 py-2 border border-zinc-300 rounded-xl hover:bg-zinc-50 text-xs font-bold cursor-pointer"
                 >
                   Cancelar
+                </button>
+                <button 
+                  type="button"
+                  disabled={submittingEditOrder}
+                  onClick={(e) => handleUpdateOrder(e, true)}
+                  className="px-4 py-2 bg-white border border-zinc-300 hover:bg-zinc-50 text-zinc-900 rounded-xl text-xs font-bold disabled:opacity-50 cursor-pointer flex items-center gap-1.5 shadow-sm"
+                  title="Salvar alterações e imprimir a folha de montagem atualizada"
+                >
+                  <Printer size={14} />
+                  {submittingEditOrder ? "Salvando..." : "Salvar e Imprimir"}
                 </button>
                 <button 
                   type="submit"

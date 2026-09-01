@@ -293,16 +293,6 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
     let kit_composition = db.get_kit_composition().await.unwrap_or_default();
     crate::handlers::producao::post_process_kit_only_production(&mut computed, &kit_composition);
 
-    let produzir_apenas_kit: HashMap<String, bool> = computed
-        .iter()
-        .map(|p| {
-            (
-                p.codigo.trim().to_string(),
-                p.produzir_apenas_kit.unwrap_or(0) == 1,
-            )
-        })
-        .collect();
-
     let mut needed: Vec<(String, String, String, String, f64)> = Vec::new();
     for p in &computed {
         if p.producao_recomendada <= 0 {
@@ -323,21 +313,6 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
     }
 
     let needed_codes: HashSet<String> = needed.iter().map(|(c, _, _, _, _)| c.clone()).collect();
-
-    // Kits urgentes → componentes cobertos pela explosão (anti double-count se produzir_apenas_kit).
-    let mut skip_direct: HashSet<String> = HashSet::new();
-    for (kit_code, comps) in &kit_composition {
-        let kit_key = kit_code.trim().to_string();
-        if !needed_codes.contains(&kit_key) {
-            continue;
-        }
-        for (comp, _, _, _) in comps {
-            let comp_key = comp.trim().to_string();
-            if *produzir_apenas_kit.get(&comp_key).unwrap_or(&false) {
-                skip_direct.insert(comp_key);
-            }
-        }
-    }
 
     // Formulações: códigos needed + todos os componentes dos kits urgentes.
     let mut form_codes: HashSet<String> = needed_codes.clone();
@@ -364,6 +339,32 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
             let ing: String = row.get::<String, _>(1).trim().to_string();
             let qty: f64 = row.get(2);
             formulations.entry(p_code).or_default().push((ing, qty));
+        }
+    }
+
+    // Carrega formulações de bases/semi-acabados (sub-ingredientes de receitas)
+    let mut sub_codes: HashSet<String> = HashSet::new();
+    for list in formulations.values() {
+        for (ing, _) in list {
+            sub_codes.insert(ing.trim().to_string());
+        }
+    }
+    let sub_codes_vec: Vec<String> = sub_codes.into_iter().collect();
+    let mut base_formulations: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+    if !sub_codes_vec.is_empty() {
+        if let Ok(rows) = sqlx::query(
+            "SELECT product_code, ingredient_code, quantity FROM formulations WHERE product_code = ANY($1)",
+        )
+        .bind(&sub_codes_vec)
+        .fetch_all(pool)
+        .await
+        {
+            for row in rows {
+                let p_code: String = row.get::<String, _>(0).trim().to_string();
+                let ing: String = row.get::<String, _>(1).trim().to_string();
+                let qty: f64 = row.get(2);
+                base_formulations.entry(p_code).or_default().push((ing, qty));
+            }
         }
     }
 
@@ -408,16 +409,65 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
     }
 
     let mut out = Vec::new();
-    for (p_code, p_desc, status, status_label, prod_qty) in needed {
-        if skip_direct.contains(&p_code) {
-            continue;
-        }
 
+    let push_item_demand = |
+        out_vec: &mut Vec<SimProducaoContribution>,
+        ing_code: &str,
+        unit_qty: f64,
+        comp_prod_qty: f64,
+        product_code: &str,
+        product_desc: &str,
+        status: &str,
+        status_label: &str,
+        bases_map: &HashMap<String, Vec<(String, f64)>>,
+    | {
+        let ing_key = ing_code.trim();
+        if let Some(sub_ings) = bases_map.get(ing_key) {
+            // Explode base em matérias-primas reais
+            for (sub_ing, sub_unit_qty) in sub_ings {
+                let effective_unit_qty = unit_qty * sub_unit_qty;
+                out_vec.push(SimProducaoContribution {
+                    ingredient_code: sub_ing.clone(),
+                    product_code: product_code.to_string(),
+                    product_desc: product_desc.to_string(),
+                    status: status.to_string(),
+                    status_label: status_label.to_string(),
+                    production_qty: comp_prod_qty,
+                    qty_per_unit: effective_unit_qty,
+                    insumo_qty: comp_prod_qty * effective_unit_qty,
+                });
+            }
+        } else {
+            // Item direto de embalagem ou matéria-prima direta
+            out_vec.push(SimProducaoContribution {
+                ingredient_code: ing_key.to_string(),
+                product_code: product_code.to_string(),
+                product_desc: product_desc.to_string(),
+                status: status.to_string(),
+                status_label: status_label.to_string(),
+                production_qty: comp_prod_qty,
+                qty_per_unit: unit_qty,
+                insumo_qty: comp_prod_qty * unit_qty,
+            });
+        }
+    };
+
+    for (p_code, p_desc, status, status_label, prod_qty) in needed {
         if let Some(comps) = kits_by_code.get(&p_code) {
-            // Explode BOM: atribui ao componente (ou item direto) para auditoria na UI.
+            // Explode BOM do Kit: atribui aos componentes e suas bases
             let via_label = format!("via {p_code} · {status_label}");
             for (comp, qty_comp, _, _) in *comps {
                 let comp_key = comp.trim().to_string();
+                let comp_norm = comp_key.replace('.', "");
+                let is_comp_in_needed = needed_codes.contains(&comp_key) || needed_codes.contains(&comp_norm);
+                let has_own_formulation = formulations.contains_key(&comp_key) || formulations.contains_key(&comp_norm);
+
+                // Se o componente é um produto fabricado e já está na lista de produtos a produzir,
+                // não duplicar a necessidade de insumos através do kit.
+                if has_own_formulation && is_comp_in_needed {
+                    continue;
+                }
+
                 let qty_comp = *qty_comp;
                 if qty_comp <= 0.0 {
                     continue;
@@ -429,16 +479,17 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
                 let comp_prod_qty = prod_qty * qty_comp;
                 if let Some(ings) = formulations.get(&comp_key) {
                     for (ing, unit_qty) in ings {
-                        out.push(SimProducaoContribution {
-                            ingredient_code: ing.clone(),
-                            product_code: comp_key.clone(),
-                            product_desc: comp_desc.clone(),
-                            status: status.clone(),
-                            status_label: via_label.clone(),
-                            production_qty: comp_prod_qty,
-                            qty_per_unit: *unit_qty,
-                            insumo_qty: comp_prod_qty * unit_qty,
-                        });
+                        push_item_demand(
+                            &mut out,
+                            ing,
+                            *unit_qty,
+                            comp_prod_qty,
+                            &comp_key,
+                            &comp_desc,
+                            &status,
+                            &via_label,
+                            &base_formulations,
+                        );
                     }
                 } else {
                     // Item direto na composição (caixa / embalagem sem fórmula).
@@ -449,7 +500,7 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
                         status: status.clone(),
                         status_label: via_label.clone(),
                         production_qty: comp_prod_qty,
-                        qty_per_unit: 1.0,
+                        qty_per_unit: qty_comp,
                         insumo_qty: comp_prod_qty,
                     });
                 }
@@ -459,16 +510,17 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
 
         if let Some(ings) = formulations.get(&p_code) {
             for (ing, unit_qty) in ings {
-                out.push(SimProducaoContribution {
-                    ingredient_code: ing.clone(),
-                    product_code: p_code.clone(),
-                    product_desc: p_desc.clone(),
-                    status: status.clone(),
-                    status_label: status_label.clone(),
-                    production_qty: prod_qty,
-                    qty_per_unit: *unit_qty,
-                    insumo_qty: prod_qty * unit_qty,
-                });
+                push_item_demand(
+                    &mut out,
+                    ing,
+                    *unit_qty,
+                    prod_qty,
+                    &p_code,
+                    &p_desc,
+                    &status,
+                    &status_label,
+                    &base_formulations,
+                );
             }
         }
     }

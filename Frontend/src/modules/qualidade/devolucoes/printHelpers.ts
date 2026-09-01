@@ -67,7 +67,7 @@ export function printHtmlDocument(title: string, bodyHtml: string) {
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8" />
-  <title>${escapeHtml(title)} — NatumHub</title>
+  <title>${escapeHtml(title)} — Nexus</title>
   <style>
     @page { size: A4 portrait; margin: 15mm 10mm 15mm 10mm; }
     body {
@@ -311,7 +311,7 @@ export function printDevolucaoFicha(d: PrintDevolucao) {
   </div>
 </div>
 <footer>
-  <div>NatumHub — Sistema de Gestão Unificado</div>
+  <div>Nexus — Sistema de Gestão Unificado</div>
   <div>Qualidade · Devoluções</div>
 </footer>`;
 
@@ -369,7 +369,7 @@ export function printErpPending(d: PrintDevolucao) {
   </div>
 </div>
 <footer>
-  <div>NatumHub — Sistema de Gestão Unificado</div>
+  <div>Nexus — Sistema de Gestão Unificado</div>
   <div>Qualidade · Devoluções · A lançar no ERP</div>
 </footer>`;
 

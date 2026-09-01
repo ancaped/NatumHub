@@ -296,7 +296,12 @@ pub async fn create_kit_order(
             let last_id = crate::core::pg_row::pg_i64(&row, 0);
             (
                 StatusCode::CREATED,
-                Json(json!({ "id": last_id, "message": "Ordem de montagem criada" })),
+                Json(json!({
+                    "id": last_id,
+                    "orderNumber": payload.order_number,
+                    "createdAt": created_at,
+                    "message": "Ordem de montagem criada"
+                })),
             )
                 .into_response()
         }
@@ -319,6 +324,16 @@ pub async fn update_kit_order(
 
     let mut separated = qb.separated(", ");
 
+    if let Some(ref order_number) = payload.order_number {
+        separated.push("order_number = ");
+        separated.push_bind_unseparated(order_number);
+        has_set = true;
+    }
+    if let Some(quantity) = payload.quantity {
+        separated.push("quantity = ");
+        separated.push_bind_unseparated(quantity);
+        has_set = true;
+    }
     if let Some(ref status) = payload.status {
         separated.push("status = ");
         separated.push_bind_unseparated(status);

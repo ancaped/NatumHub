@@ -688,6 +688,13 @@ pub async fn get_insumo_detalhes(
         }
     };
 
+    // Consulta ao vivo pontual no ERP (com timeout de 2s) para garantir dado fresco no Drawer
+    let _ = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        crate::core::legacy_db::refresh_stock_snapshot_from_erp(&pool, &code),
+    )
+    .await;
+
     let current_stock: f64 = sqlx::query_scalar(
         "SELECT stock_qty FROM stock_snapshots WHERE TRIM(item_code) = TRIM($1) ORDER BY snapshot_date DESC, id DESC LIMIT 1",
     )

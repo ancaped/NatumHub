@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Shield, Lock, User, Loader2, AlertCircle } from 'lucide-react';
 import { setupSupervisor } from '../lib/auth';
 import { APP_NAME } from '../lib/utils';
+import NexusLogo from '../components/NexusLogo';
 
 interface SetupSupervisorViewProps {
   onComplete: () => void;
@@ -45,15 +46,15 @@ export default function SetupSupervisorView({ onComplete }: SetupSupervisorViewP
   return (
     <div className="h-full w-full min-h-0 flex flex-col items-center justify-center bg-zinc-50 font-sans text-zinc-900 p-4 sm:p-6 overflow-y-auto">
       <div className="w-full max-w-[400px] my-auto bg-white border border-zinc-200 rounded-2xl shadow-sm p-6 sm:p-8 space-y-6">
-        <div className="text-center space-y-2">
-          <div className="mx-auto bg-violet-100 text-violet-700 p-3 rounded-xl w-fit">
-            <Shield className="h-7 w-7" />
+        <div className="text-center space-y-3 flex flex-col items-center">
+          <NexusLogo variant="badge" size="lg" />
+          <div className="space-y-1">
+            <h1 className="text-2xl font-black tracking-tight text-zinc-900 uppercase">Configurar Supervisor — Nexus</h1>
+            <p className="text-xs text-zinc-500">
+              Primeira execução: crie a conta <strong>supervisor</strong> com senha forte.
+              Somente ela cadastra outros usuários e gerencia infraestrutura (sync ERP, dispositivos).
+            </p>
           </div>
-          <h1 className="text-xl font-bold tracking-tight">Configurar Supervisor — {APP_NAME}</h1>
-          <p className="text-sm text-zinc-500">
-            Primeira execução: crie a conta <strong>supervisor</strong> com senha forte.
-            Somente ela cadastra outros usuários e gerencia infraestrutura (sync ERP, dispositivos).
-          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

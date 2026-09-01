@@ -48,3 +48,52 @@ pub struct UpdateLabelTemplatePayload {
     #[serde(alias = "isDefault")]
     pub is_default: Option<bool>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct LabelPrintHistoryRecord {
+    pub id: Uuid,
+    pub template_id: Option<Uuid>,
+    pub template_name: String,
+    pub product_code: Option<String>,
+    pub product_name: Option<String>,
+    pub lot_number: Option<String>,
+    pub operator_id: Option<String>,
+    pub operator_name: Option<String>,
+    pub copies: i32,
+    pub printer_name: Option<String>,
+    pub printed_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePrintHistoryPayload {
+    pub template_id: Option<Uuid>,
+    pub template_name: String,
+    pub product_code: Option<String>,
+    pub product_name: Option<String>,
+    pub lot_number: Option<String>,
+    pub copies: Option<i32>,
+    pub printer_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CatalogProductInfo {
+    pub codigo: String,
+    pub descricao: String,
+    pub codigo_barras: Option<String>,
+    pub codigo_barras_caixa: Option<String>,
+    pub quantidade_caixa: Option<i32>,
+    pub linha: Option<String>,
+    pub categoria: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProductionLotItem {
+    pub id: i32,
+    pub codigo: String,
+    pub descricao: String,
+    pub lote: String,
+    pub quantidade: i32,
+    pub data_producao: Option<String>,
+    pub codigo_barras: Option<String>,
+    pub codigo_barras_caixa: Option<String>,
+}

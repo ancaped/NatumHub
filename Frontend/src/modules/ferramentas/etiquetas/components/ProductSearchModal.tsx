@@ -214,7 +214,7 @@ export default function ProductSearchModal({
               <Search className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-zinc-900">Buscar do Catálogo NatumHub</h2>
+              <h2 className="text-base font-bold text-zinc-900">Buscar do Catálogo Nexus</h2>
               <p className="text-xs text-zinc-500">
                 Selecione um item do sistema para preencher os dados da etiqueta automaticamente
               </p>

@@ -1,22 +1,40 @@
 [package]
-name = "natum-hub"
-version = "0.0.12"
-description = "Natum Unified Hub"
-authors = ["Natum"]
+name = "nexus"
+version = "0.1.0"
+description = "Nexus Industrial Hub"
+authors = ["Nexus"]
 edition = "2021"
 rust-version = "1.77.2"
-default-run = "natum-hub"
+default-run = "nexus-hub"
 # Utilitários em src/bin/ (ferramentas de sync/dev). Preferir `cargo check --lib` no dia a dia.
-autobins = true
+autobins = false
 
 [[bin]]
-name = "natum-hub"
+name = "nexus-hub"
 path = "src/main.rs"
 required-features = ["desktop"]
 
 [[bin]]
-name = "natumhub-server"
-path = "src/bin/natumhub_server.rs"
+name = "nexus-server"
+path = "src/bin/nexus_server.rs"
+
+[[bin]]
+name = "nexus-server-control"
+path = "src/bin/nexus_server_control.rs"
+
+[[bin]]
+name = "discover_laudos_erp"
+path = "src/bin/discover_laudos_erp.rs"
+
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59.0", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+] }
 
 [lib]
 name = "app_lib"

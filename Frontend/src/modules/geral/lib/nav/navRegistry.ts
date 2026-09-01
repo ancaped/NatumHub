@@ -32,6 +32,7 @@ import {
   Wrench,
   Warehouse,
   Calculator,
+  Printer,
 } from 'lucide-react';
 import type { AuthUser } from '../auth';
 import { canAccessView } from '../modules/permissions';
@@ -98,6 +99,7 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   estoque_manutencoes: ClipboardList,
   compras_almoxarifado: Warehouse,
   admin_linha_produtos: CheckCircle2,
+  admin_relatorios: FileSpreadsheet,
   admin_produtos_ativos_relatorios: FileSpreadsheet,
   admin_funcionarios: Users,
   estoque_ativos: CheckCircle2,
@@ -117,6 +119,8 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   financeiro: DollarSign,
   ferramentas: Wrench,
   ferramentas_etiquetas: Tag,
+  ferramentas_editor: Palette,
+  ferramentas_impressoras: Printer,
 };
 
 const DEPRECATED_HUB_VIEWS = new Set(['compras_hub', 'producao_hub', 'estoque_hub', 'almoxarifado_hub', 'vendas_hub', 'qualidade_hub', 'expedicao_hub', 'ferramentas_hub']);

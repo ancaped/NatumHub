@@ -52,36 +52,96 @@ pub async fn get_stock_movements(
     }
 }
 
-// GET /api/produtos/formulacao/:code
-pub async fn get_product_formulation(
-    State(state): State<Arc<AppState>>,
-    Path(code): Path<String>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
-    match sqlx::query(
+/// Busca formulação explodida multinível (explodindo bases/semi-acabados em matérias-primas reais e embalagens)
+pub async fn fetch_exploded_formulation_internal(
+    pool: &sqlx::PgPool,
+    code: &str,
+) -> Result<Vec<crate::models::FormulationLine>, sqlx::Error> {
+    let raw_rows = sqlx::query(
         "SELECT product_code, ingredient_code, description, quantity, percentage FROM formulations
          WHERE product_code = $1
             OR (product_code LIKE '0%' AND SUBSTR(product_code, 2) = $1)
             OR ($1 LIKE '0%' AND product_code = SUBSTR($1, 2))
          ORDER BY quantity DESC",
     )
-    .bind(&code)
+    .bind(code)
     .fetch_all(pool)
-    .await
-    {
-        Ok(rows) => {
-            let list: Vec<crate::models::FormulationLine> = rows
-                .iter()
-                .map(|row| crate::models::FormulationLine {
-                    product_code: row.get(0),
-                    ingredient_code: row.get(1),
-                    description: row.get(2),
-                    quantity: row.get(3),
-                    percentage: row.get(4),
-                })
-                .collect();
-            (StatusCode::OK, Json(list)).into_response()
+    .await?;
+
+    let direct_lines: Vec<crate::models::FormulationLine> = raw_rows
+        .iter()
+        .map(|row| crate::models::FormulationLine {
+            product_code: row.get(0),
+            ingredient_code: row.get(1),
+            description: row.get(2),
+            quantity: row.get(3),
+            percentage: row.get(4),
+        })
+        .collect();
+
+    if direct_lines.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let ing_codes: Vec<String> = direct_lines
+        .iter()
+        .map(|l| l.ingredient_code.trim().to_string())
+        .collect();
+
+    let sub_rows = sqlx::query(
+        "SELECT product_code, ingredient_code, description, quantity, percentage FROM formulations
+         WHERE product_code = ANY($1)
+         ORDER BY quantity DESC",
+    )
+    .bind(&ing_codes)
+    .fetch_all(pool)
+    .await?;
+
+    let mut sub_map: HashMap<String, Vec<crate::models::FormulationLine>> = HashMap::new();
+    for row in sub_rows {
+        let p_code: String = row.get(0);
+        sub_map
+            .entry(p_code.trim().to_string())
+            .or_default()
+            .push(crate::models::FormulationLine {
+                product_code: row.get(0),
+                ingredient_code: row.get(1),
+                description: row.get(2),
+                quantity: row.get(3),
+                percentage: row.get(4),
+            });
+    }
+
+    let mut result = Vec::new();
+    for line in direct_lines {
+        let ing_key = line.ingredient_code.trim().to_string();
+        if let Some(sub_lines) = sub_map.get(&ing_key) {
+            let base_qty = line.quantity;
+            for sub in sub_lines {
+                result.push(crate::models::FormulationLine {
+                    product_code: line.product_code.clone(),
+                    ingredient_code: sub.ingredient_code.clone(),
+                    description: sub.description.clone(),
+                    quantity: base_qty * sub.quantity,
+                    percentage: sub.percentage.map(|p| p * base_qty),
+                });
+            }
+        } else {
+            result.push(line);
         }
+    }
+
+    Ok(result)
+}
+
+// GET /api/produtos/formulacao/:code
+pub async fn get_product_formulation(
+    State(state): State<Arc<AppState>>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    match fetch_exploded_formulation_internal(pool, &code).await {
+        Ok(list) => (StatusCode::OK, Json(list)).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": e.to_string() })),
@@ -264,6 +324,13 @@ pub async fn get_product_detalhes(
 ) -> impl IntoResponse {
     let pool = state.db.pool();
 
+    // Consulta ao vivo pontual no ERP (com timeout de 2s) para garantir dado fresco no Drawer de produto
+    let _ = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        crate::core::legacy_db::refresh_stock_snapshot_from_erp(pool, &code),
+    )
+    .await;
+
     let product_row = sqlx::query(
         "SELECT p.codigo, p.descricao, COALESCE(i.unit, 'UN') as unidade, COALESCE(e.estoque, 0.0)
          FROM produtos p
@@ -326,37 +393,53 @@ pub async fn get_product_detalhes(
         };
 
     let mut formulation = Vec::new();
-    if let Ok(rows) = sqlx::query(
-        "SELECT f.product_code, f.ingredient_code, f.description, f.quantity, f.percentage,
-                COALESCE(s.stock_qty, 0.0) as ingredient_stock, i.category_id
-         FROM formulations f
-         LEFT JOIN items i ON f.ingredient_code = i.code
-         LEFT JOIN (
-             SELECT ss.item_code, ss.stock_qty
-             FROM stock_snapshots ss
-             WHERE ss.id = (
-                 SELECT id FROM stock_snapshots ss2
-                 WHERE ss2.item_code = ss.item_code
-                 ORDER BY ss2.snapshot_date DESC, ss2.id DESC LIMIT 1
-             )
-         ) s ON f.ingredient_code = s.item_code
-         WHERE f.product_code = $1
-         ORDER BY f.quantity DESC",
-    )
-    .bind(&code)
-    .fetch_all(pool)
-    .await
-    {
-        for row in rows {
-            let cat_id: Option<String> = row.get(6);
-            let root_cat = cat_id.map(|cid| resolve_root_category(&cid, &category_parent_map));
+    let exploded_lines = fetch_exploded_formulation_internal(pool, &code).await.unwrap_or_default();
+    if !exploded_lines.is_empty() {
+        let ing_codes: Vec<String> = exploded_lines.iter().map(|l| l.ingredient_code.clone()).collect();
+        let mut stock_map: HashMap<String, f64> = HashMap::new();
+        let mut cat_map: HashMap<String, Option<String>> = HashMap::new();
+
+        if let Ok(rows) = sqlx::query(
+            "SELECT i.code, COALESCE(s.stock_qty, 0.0), i.category_id
+             FROM items i
+             LEFT JOIN (
+                 SELECT ss.item_code, ss.stock_qty
+                 FROM stock_snapshots ss
+                 WHERE ss.id = (
+                     SELECT id FROM stock_snapshots ss2
+                     WHERE ss2.item_code = ss.item_code
+                     ORDER BY ss2.snapshot_date DESC, ss2.id DESC LIMIT 1
+                 )
+             ) s ON i.code = s.item_code
+             WHERE i.code = ANY($1)",
+        )
+        .bind(&ing_codes)
+        .fetch_all(pool)
+        .await
+        {
+            for row in rows {
+                let c: String = row.get(0);
+                let st: f64 = row.get(1);
+                let cat: Option<String> = row.get(2);
+                stock_map.insert(c.clone(), st);
+                cat_map.insert(c, cat);
+            }
+        }
+
+        for line in exploded_lines {
+            let root_cat = cat_map
+                .get(&line.ingredient_code)
+                .and_then(|c| c.as_ref())
+                .map(|cid| resolve_root_category(cid, &category_parent_map));
+            let current_st = *stock_map.get(&line.ingredient_code).unwrap_or(&0.0);
+
             formulation.push(crate::models::ProductFormulationLine {
-                product_code: row.get(0),
-                ingredient_code: row.get(1),
-                description: row.get::<Option<String>, _>(2).unwrap_or_default(),
-                quantity: row.get(3),
-                percentage: row.get(4),
-                current_stock: row.get(5),
+                product_code: line.product_code,
+                ingredient_code: line.ingredient_code,
+                description: line.description.unwrap_or_default(),
+                quantity: line.quantity,
+                percentage: line.percentage,
+                current_stock: current_st,
                 category_id: root_cat,
             });
         }
@@ -495,6 +578,18 @@ pub async fn get_product_detalhes(
                 conferencia_error: None,
                 is_resolved: None,
                 resolution_obs: None,
+                snap_estoque: None,
+                snap_producao: None,
+                snap_pedidos: None,
+                snap_efp: None,
+                snap_media_vendas: None,
+                snap_duracao_meses: None,
+                snap_status: None,
+                snap_status_label: None,
+                snap_producao_recomendada: None,
+                snap_estoque_ideal_qtd: None,
+                snap_demanda_ajustada: None,
+                observacoes: None,
             };
 
             if status == "EA" || status == "FP" || status == "CF" {

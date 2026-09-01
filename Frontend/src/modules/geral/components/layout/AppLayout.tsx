@@ -108,14 +108,14 @@ export default function AppLayout({
       </aside>
 
       {mobileMenuOpen && (
-        <div className="no-print md:hidden fixed inset-0 top-14 bg-black/35 backdrop-blur-xs z-30 animate-in fade-in duration-200">
+        <div className="no-print md:hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex flex-col justify-start animate-in fade-in duration-200">
           <div className="absolute inset-0" onClick={() => setMobileMenuOpen(false)} />
-          <nav className="relative bg-white border-b border-zinc-200 p-4 space-y-1 max-h-[80vh] overflow-y-auto shadow-2xl animate-in slide-in-from-top duration-250">
+          <nav className="relative bg-white border-b border-zinc-200 p-4 space-y-2 max-h-[85vh] overflow-y-auto shadow-2xl animate-in slide-in-from-top duration-200">
             <div className="flex justify-between items-center pb-2 mb-2 border-b border-zinc-100">
-              <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">{moduleTitle}</span>
+              <span className="text-xs font-bold text-zinc-600 uppercase tracking-wider">{moduleTitle}</span>
               <button
                 onClick={() => setMobileMenuOpen(false)}
-                className="p-1 hover:bg-zinc-100 rounded-lg text-zinc-500 cursor-pointer"
+                className="p-1.5 hover:bg-zinc-100 rounded-lg text-zinc-500 cursor-pointer"
               >
                 <X className="h-4.5 w-4.5" />
               </button>
@@ -131,26 +131,62 @@ export default function AppLayout({
       )}
 
       <div className="flex-1 flex flex-col overflow-hidden relative">
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6 bg-zinc-50/50">
-          <div className="no-print flex md:hidden items-center justify-between mb-4 bg-white border border-zinc-200 p-2.5 rounded-xl shadow-sm shrink-0">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 bg-zinc-50/50">
+          {/* Top Mobile Bar */}
+          <div className="no-print flex md:hidden items-center justify-between mb-3 bg-white border border-zinc-200 p-2.5 rounded-xl shadow-sm shrink-0">
             {!globalNav && (
               <button
                 onClick={onBackToHub}
-                className="flex items-center gap-1.5 px-3 py-1.5 border border-zinc-200 rounded-lg text-xs font-bold text-zinc-650 hover:bg-zinc-50 cursor-pointer bg-white"
+                className="flex items-center gap-1 px-2.5 py-1.5 border border-zinc-200 rounded-lg text-xs font-bold text-zinc-650 hover:bg-zinc-50 cursor-pointer bg-white shrink-0"
               >
-                <ArrowLeft className="h-4 w-4" /> Voltar
+                <ArrowLeft className="h-4 w-4" /> Hub
               </button>
             )}
-            <div className={cn('flex items-center gap-2', globalNav && 'ml-auto w-full justify-end')}>
+            <div className={cn('flex items-center gap-1.5', globalNav && 'ml-auto w-full justify-end')}>
               {headerActions}
               <button
                 onClick={() => setMobileMenuOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 text-white rounded-lg text-xs font-bold cursor-pointer"
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-zinc-900 text-white rounded-lg text-xs font-bold cursor-pointer shrink-0"
               >
                 <Menu className="h-4 w-4" /> Menu
               </button>
             </div>
           </div>
+
+          {/* Mobile Horizontal Tabs - Fast 1-touch navigation */}
+          {sidebarItems && sidebarItems.length > 1 && (
+            <div className="no-print md:hidden flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-2 mb-3 -mx-1 px-1 touch-pan-x">
+              {sidebarItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => onTabChange(item.id)}
+                    className={cn(
+                      'shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer select-none',
+                      isActive
+                        ? 'bg-zinc-900 text-white border-zinc-900 shadow-xs'
+                        : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
+                    )}
+                  >
+                    <Icon className={cn('h-3.5 w-3.5 shrink-0', isActive ? 'text-white' : 'text-zinc-500')} />
+                    <span>{item.label}</span>
+                    {item.badge !== undefined && item.badge !== 0 && (
+                      <span
+                        className={cn(
+                          'text-[10px] font-black px-1.5 py-0.2 rounded-full',
+                          isActive ? 'bg-zinc-800 text-white' : 'bg-zinc-100 text-zinc-800'
+                        )}
+                      >
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {headerActions && (
             <div className="no-print hidden md:flex justify-end mb-4 gap-2">

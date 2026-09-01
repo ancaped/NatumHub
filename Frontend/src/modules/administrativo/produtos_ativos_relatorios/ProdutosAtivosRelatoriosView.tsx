@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeft,
   Download,
   FileSpreadsheet,
   Loader2,
@@ -169,14 +168,6 @@ export default function ProdutosAtivosRelatoriosView({ onBackToHub }: Props) {
   return (
     <div className="min-h-screen bg-zinc-50 flex flex-col">
       <header className="bg-white border-b border-zinc-200 px-6 py-4 flex flex-wrap items-center gap-4">
-        <button
-          type="button"
-          onClick={onBackToHub}
-          className="inline-flex items-center gap-2 text-sm font-medium text-zinc-600 hover:text-zinc-900"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Administrativo
-        </button>
         <div className="flex items-center gap-2">
           <FileSpreadsheet className="h-5 w-5 text-zinc-700" />
           <h1 className="text-lg font-bold text-zinc-900">Relatórios · Produtos Ativos</h1>

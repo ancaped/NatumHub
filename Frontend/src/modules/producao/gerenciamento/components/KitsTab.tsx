@@ -1,11 +1,13 @@
 import React from 'react';
 import { 
   Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, HelpCircle, 
-  ChevronDown, AlertTriangle, Edit3, ChevronLeft, ChevronRight, CheckCircle2, PlusCircle
+  ChevronDown, AlertTriangle, Edit3, ChevronLeft, ChevronRight, CheckCircle2, PlusCircle,
+  Layers, Zap, CalendarClock
 } from 'lucide-react';
 import { ChevronRight as ChevronRightIcon } from 'lucide-react';
 
 export function KitsTab({
+  kitsStats,
   kits,
   configs,
   kitsActiveTab,
@@ -34,10 +36,70 @@ export function KitsTab({
   expandedKits,
   toggleKitExpanded,
   productionApprovalList = [],
-  onToggleApprovalList
-}) {
+  onToggleApprovalList,
+  onOpenComposition,
+  onToggleApenasKit
+}: any) {
   return (
     <div className="view-container animate-in fade-in duration-200">
+      {/* Summary KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <div 
+          className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-indigo-300 hover:shadow-md ${kitsSelectedStatus === 'montar' ? 'ring-2 ring-indigo-500 border-indigo-500 bg-indigo-50/20' : 'border-zinc-200'}`}
+          onClick={() => { setKitsSelectedStatus(kitsSelectedStatus === 'montar' ? 'ALL' : 'montar'); setKitsPage(1); }}
+          title="Clique para filtrar por kits prontos para montar"
+        >
+          <div className="p-2.5 rounded-lg bg-indigo-50 text-indigo-600 shrink-0">
+            <Layers size={20} />
+          </div>
+          <div>
+            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Montar Urgente</div>
+            <div className="text-xl font-bold text-indigo-600">{kitsStats?.montar ?? 0}</div>
+          </div>
+        </div>
+
+        <div 
+          className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-rose-300 hover:shadow-md ${kitsSelectedStatus === 'critico' ? 'ring-2 ring-rose-500 border-rose-500 bg-rose-50/20' : 'border-zinc-200'}`}
+          onClick={() => { setKitsSelectedStatus(kitsSelectedStatus === 'critico' ? 'ALL' : 'critico'); setKitsPage(1); }}
+          title="Clique para filtrar por kits críticos"
+        >
+          <div className="p-2.5 rounded-lg bg-rose-50 text-rose-600 shrink-0">
+            <Zap size={20} />
+          </div>
+          <div>
+            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Crítico: Produzir</div>
+            <div className="text-xl font-bold text-rose-600">{kitsStats?.critico ?? 0}</div>
+          </div>
+        </div>
+
+        <div 
+          className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-amber-300 hover:shadow-md ${kitsSelectedStatus === 'aguardando' ? 'ring-2 ring-amber-500 border-amber-500 bg-amber-50/20' : 'border-zinc-200'}`}
+          onClick={() => { setKitsSelectedStatus(kitsSelectedStatus === 'aguardando' ? 'ALL' : 'aguardando'); setKitsPage(1); }}
+          title="Clique para filtrar por kits aguardando produção"
+        >
+          <div className="p-2.5 rounded-lg bg-amber-50 text-amber-600 shrink-0">
+            <CalendarClock size={20} />
+          </div>
+          <div>
+            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Aguardando Produção</div>
+            <div className="text-xl font-bold text-amber-600">{kitsStats?.aguardando ?? 0}</div>
+          </div>
+        </div>
+
+        <div 
+          className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-emerald-300 hover:shadow-md ${kitsSelectedStatus === 'saudavel' ? 'ring-2 ring-emerald-500 border-emerald-500 bg-emerald-50/20' : 'border-zinc-200'}`}
+          onClick={() => { setKitsSelectedStatus(kitsSelectedStatus === 'saudavel' ? 'ALL' : 'saudavel'); setKitsPage(1); }}
+          title="Clique para filtrar por estoque saudável"
+        >
+          <div className="p-2.5 rounded-lg bg-emerald-50 text-emerald-600 shrink-0">
+            <CheckCircle2 size={20} />
+          </div>
+          <div>
+            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Estoque Estável</div>
+            <div className="text-xl font-bold text-emerald-600">{(kitsStats?.saudavel ?? 0) + (kitsStats?.abundante ?? 0)}</div>
+          </div>
+        </div>
+      </div>
       {/* Tabs Nav */}
       <div className="tabs-container">
         {tabOptions.map((opt) => (
@@ -253,6 +315,13 @@ export function KitsTab({
                           </button>
                         </td>
                         <td style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                          <button 
+                            className="action-btn cursor-pointer" 
+                            onClick={() => onOpenComposition?.(p.codigo, p.descricao)} 
+                            title="Editar composição de itens deste kit"
+                          >
+                            <Layers size={14} />
+                          </button>
                           <button className="action-btn cursor-pointer" onClick={() => onEditOverrides(p)} title="Ajustar overrides manuais">
                             <Edit3 size={14} />
                           </button>
@@ -264,17 +333,36 @@ export function KitsTab({
                         <tr className="expanded-row-tr">
                           <td colSpan="9" style={{ padding: 0 }}>
                             <div className="components-detail-panel">
-                              <div className="components-panel-title">Componentes do Kit ({k.componentes.length})</div>
+                              <div className="components-panel-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <span>Componentes do Kit ({k.componentes.length})</span>
+                                <button 
+                                  onClick={() => onOpenComposition?.(p.codigo, p.descricao)}
+                                  style={{ 
+                                    background: 'none', 
+                                    border: 'none', 
+                                    color: 'hsl(var(--primary-hsl, 220 90% 56%))', 
+                                    fontSize: '0.75rem', 
+                                    fontWeight: 700, 
+                                    display: 'inline-flex', 
+                                    alignItems: 'center', 
+                                    gap: '4px', 
+                                    cursor: 'pointer' 
+                                  }}
+                                >
+                                  <Layers size={13} /> Gerenciar Composição do Kit
+                                </button>
+                              </div>
                               <table className="components-table">
                                 <thead>
                                   <tr>
-                                    <th style={{ width: '15%' }}>REF Componente</th>
-                                    <th style={{ width: '35%' }}>Descrição do Componente</th>
-                                    <th className="numeric-col" style={{ width: '10%' }}>Estoque</th>
-                                    <th className="numeric-col" style={{ width: '10%' }}>Produção</th>
-                                    <th className="numeric-col" style={{ width: '10%' }}>Pedidos</th>
+                                    <th style={{ width: '13%' }}>REF Componente</th>
+                                    <th style={{ width: '30%' }}>Descrição do Componente</th>
+                                    <th className="numeric-col" style={{ width: '9%' }}>Estoque</th>
+                                    <th className="numeric-col" style={{ width: '9%' }}>Produção</th>
+                                    <th className="numeric-col" style={{ width: '9%' }}>Pedidos</th>
                                     <th style={{ width: '10%' }}>Necessita Prod.</th>
-                                    <th style={{ width: '10%', textAlign: 'center' }}>Produzir</th>
+                                    <th style={{ width: '12%', textAlign: 'center' }}>Política de Uso</th>
+                                    <th style={{ width: '8%', textAlign: 'center' }}>Produzir</th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -301,6 +389,43 @@ export function KitsTab({
                                           <span className="status-badge saudavel" style={{ padding: '1px 4px', fontSize: '0.65rem' }}>
                                             Suficiente
                                           </span>
+                                        )}
+                                      </td>
+                                      <td style={{ textAlign: 'center' }}>
+                                        {comp.fonte === 'item' ? (
+                                          <span style={{ color: '#a3a3a3', fontSize: '0.65rem' }}>Item Direto</span>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => onToggleApenasKit?.(comp.codigo, comp.produzir_apenas_kit ?? 0)}
+                                            style={{
+                                              fontSize: '0.65rem',
+                                              fontWeight: 700,
+                                              padding: '2px 6px',
+                                              borderRadius: 4,
+                                              border: '1px solid',
+                                              cursor: 'pointer',
+                                              backgroundColor: comp.produzir_apenas_kit === 1 ? '#f5f3ff' : '#f4f4f5',
+                                              color: comp.produzir_apenas_kit === 1 ? '#7c3aed' : '#52525b',
+                                              borderColor: comp.produzir_apenas_kit === 1 ? '#ddd6fe' : '#e4e4e7',
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: 4
+                                            }}
+                                            title={
+                                              comp.produzir_apenas_kit === 1
+                                                ? 'Produzido apenas para kits (demanda calculada via kits). Clique para alternar.'
+                                                : 'Vendido avulso também (demanda direta + kits). Clique para alternar.'
+                                            }
+                                          >
+                                            <span style={{
+                                              width: 6,
+                                              height: 6,
+                                              borderRadius: '50%',
+                                              backgroundColor: comp.produzir_apenas_kit === 1 ? '#7c3aed' : '#a1a1aa'
+                                            }} />
+                                            {comp.produzir_apenas_kit === 1 ? 'Apenas Kit' : 'Vendido Avulso'}
+                                          </button>
                                         )}
                                       </td>
                                       <td style={{ textAlign: 'center' }}>

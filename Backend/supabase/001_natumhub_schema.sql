@@ -50,7 +50,10 @@ CREATE TABLE IF NOT EXISTS overrides_produtos (
     produzir_apenas_kit INTEGER DEFAULT 0,
     lancamento_meta_meses INTEGER DEFAULT 6,
     lancamento_data_inicio TEXT,
-    terceirizado_modo TEXT
+    terceirizado_modo TEXT,
+    is_producao_programada INTEGER DEFAULT 0,
+    producao_programada_disparo BIGINT,
+    producao_programada_objetivo BIGINT
 );
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -558,6 +561,7 @@ CREATE TABLE IF NOT EXISTS hub_operators (
 CREATE TABLE IF NOT EXISTS hub_operator_modules (
     operator_id TEXT NOT NULL REFERENCES hub_operators(id) ON DELETE CASCADE,
     module_key TEXT NOT NULL,
+    access_level TEXT NOT NULL DEFAULT 'edit',
     PRIMARY KEY (operator_id, module_key)
 );
 

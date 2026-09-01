@@ -1,13 +1,13 @@
 {
   "meta": {
     "name": "NatumHub",
-    "generatedAt": "2026-08-13T19:37:01.958Z",
-    "version": "0.0.12",
+    "generatedAt": "2026-08-19T13:40:39.576Z",
+    "version": "0.1.0",
     "generator": "scripts/generate-architecture-map.mjs",
     "schemaVersion": 2,
     "editable": {
       "version": {
-        "value": "0.0.12",
+        "value": "0.1.0",
         "targets": [
           "Frontend/package.json",
           "Backend/package.json",
@@ -895,6 +895,15 @@
           "methods": [
             "GET"
           ],
+          "path": "/api/producao/insumos-status/:code",
+          "summary": "Lotes e recálculo",
+          "auth": "module",
+          "source": "Backend/src/server.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
           "path": "/api/producao/lotes/:number/detalhes",
           "summary": "Lotes e recálculo",
           "auth": "module",
@@ -908,6 +917,33 @@
           "summary": "Lotes e recálculo",
           "auth": "module",
           "source": "Backend/src/server.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/producao/proc",
+          "summary": "Lotes e recálculo",
+          "auth": "module",
+          "source": "Backend/src/modules/producao/proc/mod.rs"
+        },
+        {
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/producao/proc/generate",
+          "summary": "Lotes e recálculo",
+          "auth": "module",
+          "source": "Backend/src/modules/producao/proc/mod.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/producao/proc/map",
+          "summary": "Lotes e recálculo",
+          "auth": "module",
+          "source": "Backend/src/modules/producao/proc/mod.rs"
         },
         {
           "methods": [
@@ -1073,6 +1109,15 @@
           "summary": "Laudos e config microbiologia",
           "auth": "module",
           "source": "Backend/src/modules/hub_api/microbio.rs"
+        },
+        {
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/hub/microbio/reports/printed",
+          "summary": "Laudos e config microbiologia",
+          "auth": "module",
+          "source": "Backend/src/modules/hub_api/microbio.rs"
         }
       ],
       "connectsTo": [
@@ -1113,6 +1158,51 @@
             "DELETE"
           ],
           "path": "/api/hub/fisco/agents/:id",
+          "summary": "Análises físico-químicas",
+          "auth": "module",
+          "source": "Backend/src/modules/hub_api/fisco.rs"
+        },
+        {
+          "methods": [
+            "DELETE"
+          ],
+          "path": "/api/hub/fisco/analyses/:id",
+          "summary": "Análises físico-químicas",
+          "auth": "module",
+          "source": "Backend/src/modules/hub_api/fisco.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/hub/fisco/config",
+          "summary": "Análises físico-químicas",
+          "auth": "module",
+          "source": "Backend/src/modules/hub_api/fisco.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/hub/fisco/corrective-batches",
+          "summary": "Análises físico-químicas",
+          "auth": "module",
+          "source": "Backend/src/modules/hub_api/fisco.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/hub/fisco/erp-lotes/:lote/insumos",
+          "summary": "Análises físico-químicas",
+          "auth": "module",
+          "source": "Backend/src/modules/hub_api/fisco.rs"
+        },
+        {
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/hub/fisco/migrate-erp-history",
           "summary": "Análises físico-químicas",
           "auth": "module",
           "source": "Backend/src/modules/hub_api/fisco.rs"
@@ -2472,7 +2562,7 @@
         },
         {
           "methods": [
-            "POST"
+            "GET"
           ],
           "path": "/api/hub/feedbacks",
           "summary": "Feedbacks admin",
@@ -2481,18 +2571,18 @@
         },
         {
           "methods": [
-            "GET"
+            "POST"
           ],
-          "path": "/api/hub/feedbacks/:id",
+          "path": "/api/hub/feedbacks/:id/notes",
           "summary": "Feedbacks admin",
           "auth": "module",
           "source": "Backend/src/modules/geral/feedbacks/handlers.rs"
         },
         {
           "methods": [
-            "POST"
+            "GET"
           ],
-          "path": "/api/hub/feedbacks/reorder",
+          "path": "/api/hub/feedbacks/manage",
           "summary": "Feedbacks admin",
           "auth": "module",
           "source": "Backend/src/modules/geral/feedbacks/handlers.rs"
@@ -3514,6 +3604,26 @@
       "auth": "module"
     },
     {
+      "path": "/api/chat/conversations",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/geral/chat/mod.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/chat/verify-password",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/geral/chat/mod.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
       "path": "/api/compras/lojas",
       "methods": [
         "GET"
@@ -3735,6 +3845,26 @@
       "auth": "module"
     },
     {
+      "path": "/api/ferramentas/etiquetas/catalog-products",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/ferramentas/etiquetas/mod.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/ferramentas/etiquetas/history",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/ferramentas/etiquetas/mod.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
       "path": "/api/ferramentas/etiquetas/templates",
       "methods": [
         "GET"
@@ -3750,6 +3880,36 @@
         "GET"
       ],
       "source": "Backend/src/modules/ferramentas/etiquetas/mod.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/ferramentas/impressoras",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/ferramentas/impressoras/mod.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/ferramentas/impressoras/jobs/:id/cancel",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/ferramentas/impressoras/mod.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/ferramentas/impressoras/system-scan",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/ferramentas/impressoras/mod.rs",
       "moduleKey": null,
       "summary": "",
       "auth": "module"
@@ -3978,16 +4138,6 @@
     {
       "path": "/api/hub/feedbacks",
       "methods": [
-        "POST"
-      ],
-      "source": "Backend/src/modules/geral/feedbacks/handlers.rs",
-      "moduleKey": "hub_settings",
-      "summary": "Feedbacks admin",
-      "auth": "module"
-    },
-    {
-      "path": "/api/hub/feedbacks/:id",
-      "methods": [
         "GET"
       ],
       "source": "Backend/src/modules/geral/feedbacks/handlers.rs",
@@ -3996,9 +4146,19 @@
       "auth": "module"
     },
     {
-      "path": "/api/hub/feedbacks/reorder",
+      "path": "/api/hub/feedbacks/:id/notes",
       "methods": [
         "POST"
+      ],
+      "source": "Backend/src/modules/geral/feedbacks/handlers.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Feedbacks admin",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/feedbacks/manage",
+      "methods": [
+        "GET"
       ],
       "source": "Backend/src/modules/geral/feedbacks/handlers.rs",
       "moduleKey": "hub_settings",
@@ -4009,6 +4169,56 @@
       "path": "/api/hub/fisco/agents/:id",
       "methods": [
         "DELETE"
+      ],
+      "source": "Backend/src/modules/hub_api/fisco.rs",
+      "moduleKey": "fisco_quimica",
+      "summary": "Análises físico-químicas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/fisco/analyses/:id",
+      "methods": [
+        "DELETE"
+      ],
+      "source": "Backend/src/modules/hub_api/fisco.rs",
+      "moduleKey": "fisco_quimica",
+      "summary": "Análises físico-químicas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/fisco/config",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/hub_api/fisco.rs",
+      "moduleKey": "fisco_quimica",
+      "summary": "Análises físico-químicas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/fisco/corrective-batches",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/hub_api/fisco.rs",
+      "moduleKey": "fisco_quimica",
+      "summary": "Análises físico-químicas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/fisco/erp-lotes/:lote/insumos",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/hub_api/fisco.rs",
+      "moduleKey": "fisco_quimica",
+      "summary": "Análises físico-químicas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/fisco/migrate-erp-history",
+      "methods": [
+        "POST"
       ],
       "source": "Backend/src/modules/hub_api/fisco.rs",
       "moduleKey": "fisco_quimica",
@@ -4059,6 +4269,16 @@
       "path": "/api/hub/microbio/products/:code",
       "methods": [
         "DELETE"
+      ],
+      "source": "Backend/src/modules/hub_api/microbio.rs",
+      "moduleKey": "microbiologia",
+      "summary": "Laudos e config microbiologia",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/microbio/reports/printed",
+      "methods": [
+        "POST"
       ],
       "source": "Backend/src/modules/hub_api/microbio.rs",
       "moduleKey": "microbiologia",
@@ -4276,6 +4496,16 @@
       "auth": "module"
     },
     {
+      "path": "/api/producao/insumos-status/:code",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": "producao_lotes",
+      "summary": "Lotes e recálculo",
+      "auth": "module"
+    },
+    {
       "path": "/api/producao/lotes/:number/detalhes",
       "methods": [
         "GET"
@@ -4291,6 +4521,36 @@
         "POST"
       ],
       "source": "Backend/src/server.rs",
+      "moduleKey": "producao_lotes",
+      "summary": "Lotes e recálculo",
+      "auth": "module"
+    },
+    {
+      "path": "/api/producao/proc",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/producao/proc/mod.rs",
+      "moduleKey": "producao_lotes",
+      "summary": "Lotes e recálculo",
+      "auth": "module"
+    },
+    {
+      "path": "/api/producao/proc/generate",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/producao/proc/mod.rs",
+      "moduleKey": "producao_lotes",
+      "summary": "Lotes e recálculo",
+      "auth": "module"
+    },
+    {
+      "path": "/api/producao/proc/map",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/producao/proc/mod.rs",
       "moduleKey": "producao_lotes",
       "summary": "Lotes e recálculo",
       "auth": "module"
@@ -4516,6 +4776,56 @@
       "auth": "module"
     },
     {
+      "path": "/api/server-manager/clear-logs",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/server-manager/devices",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/server-manager/open-browser",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/server-manager/restart",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/server-manager/start",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
       "path": "/api/turnovers/composicao/:de/:para",
       "methods": [
         "DELETE"
@@ -4591,6 +4901,16 @@
         "GET"
       ],
       "source": "Backend/src/modules/geral/mapa/mod.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/server-control",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/server.rs",
       "moduleKey": null,
       "summary": "",
       "auth": "module"
@@ -4858,6 +5178,26 @@
       "auth": "module"
     },
     {
+      "path": "/api/chat/conversations",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/geral/chat/mod.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/chat/verify-password",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/geral/chat/mod.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
       "path": "/api/compras/lojas",
       "methods": [
         "GET"
@@ -5079,6 +5419,26 @@
       "auth": "module"
     },
     {
+      "path": "/api/ferramentas/etiquetas/catalog-products",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/ferramentas/etiquetas/mod.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/ferramentas/etiquetas/history",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/ferramentas/etiquetas/mod.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
       "path": "/api/ferramentas/etiquetas/templates",
       "methods": [
         "GET"
@@ -5094,6 +5454,36 @@
         "GET"
       ],
       "source": "Backend/src/modules/ferramentas/etiquetas/mod.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/ferramentas/impressoras",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/ferramentas/impressoras/mod.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/ferramentas/impressoras/jobs/:id/cancel",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/ferramentas/impressoras/mod.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/ferramentas/impressoras/system-scan",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/ferramentas/impressoras/mod.rs",
       "moduleKey": null,
       "summary": "",
       "auth": "module"
@@ -5322,16 +5712,6 @@
     {
       "path": "/api/hub/feedbacks",
       "methods": [
-        "POST"
-      ],
-      "source": "Backend/src/modules/geral/feedbacks/handlers.rs",
-      "moduleKey": "hub_settings",
-      "summary": "Feedbacks admin",
-      "auth": "module"
-    },
-    {
-      "path": "/api/hub/feedbacks/:id",
-      "methods": [
         "GET"
       ],
       "source": "Backend/src/modules/geral/feedbacks/handlers.rs",
@@ -5340,9 +5720,19 @@
       "auth": "module"
     },
     {
-      "path": "/api/hub/feedbacks/reorder",
+      "path": "/api/hub/feedbacks/:id/notes",
       "methods": [
         "POST"
+      ],
+      "source": "Backend/src/modules/geral/feedbacks/handlers.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Feedbacks admin",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/feedbacks/manage",
+      "methods": [
+        "GET"
       ],
       "source": "Backend/src/modules/geral/feedbacks/handlers.rs",
       "moduleKey": "hub_settings",
@@ -5353,6 +5743,56 @@
       "path": "/api/hub/fisco/agents/:id",
       "methods": [
         "DELETE"
+      ],
+      "source": "Backend/src/modules/hub_api/fisco.rs",
+      "moduleKey": "fisco_quimica",
+      "summary": "Análises físico-químicas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/fisco/analyses/:id",
+      "methods": [
+        "DELETE"
+      ],
+      "source": "Backend/src/modules/hub_api/fisco.rs",
+      "moduleKey": "fisco_quimica",
+      "summary": "Análises físico-químicas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/fisco/config",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/hub_api/fisco.rs",
+      "moduleKey": "fisco_quimica",
+      "summary": "Análises físico-químicas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/fisco/corrective-batches",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/hub_api/fisco.rs",
+      "moduleKey": "fisco_quimica",
+      "summary": "Análises físico-químicas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/fisco/erp-lotes/:lote/insumos",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/hub_api/fisco.rs",
+      "moduleKey": "fisco_quimica",
+      "summary": "Análises físico-químicas",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/fisco/migrate-erp-history",
+      "methods": [
+        "POST"
       ],
       "source": "Backend/src/modules/hub_api/fisco.rs",
       "moduleKey": "fisco_quimica",
@@ -5403,6 +5843,16 @@
       "path": "/api/hub/microbio/products/:code",
       "methods": [
         "DELETE"
+      ],
+      "source": "Backend/src/modules/hub_api/microbio.rs",
+      "moduleKey": "microbiologia",
+      "summary": "Laudos e config microbiologia",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/microbio/reports/printed",
+      "methods": [
+        "POST"
       ],
       "source": "Backend/src/modules/hub_api/microbio.rs",
       "moduleKey": "microbiologia",
@@ -5620,6 +6070,16 @@
       "auth": "module"
     },
     {
+      "path": "/api/producao/insumos-status/:code",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": "producao_lotes",
+      "summary": "Lotes e recálculo",
+      "auth": "module"
+    },
+    {
       "path": "/api/producao/lotes/:number/detalhes",
       "methods": [
         "GET"
@@ -5635,6 +6095,36 @@
         "POST"
       ],
       "source": "Backend/src/server.rs",
+      "moduleKey": "producao_lotes",
+      "summary": "Lotes e recálculo",
+      "auth": "module"
+    },
+    {
+      "path": "/api/producao/proc",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/producao/proc/mod.rs",
+      "moduleKey": "producao_lotes",
+      "summary": "Lotes e recálculo",
+      "auth": "module"
+    },
+    {
+      "path": "/api/producao/proc/generate",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/producao/proc/mod.rs",
+      "moduleKey": "producao_lotes",
+      "summary": "Lotes e recálculo",
+      "auth": "module"
+    },
+    {
+      "path": "/api/producao/proc/map",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/producao/proc/mod.rs",
       "moduleKey": "producao_lotes",
       "summary": "Lotes e recálculo",
       "auth": "module"
@@ -5860,6 +6350,56 @@
       "auth": "module"
     },
     {
+      "path": "/api/server-manager/clear-logs",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/server-manager/devices",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/server-manager/open-browser",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/server-manager/restart",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
+      "path": "/api/server-manager/start",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
+    },
+    {
       "path": "/api/turnovers/composicao/:de/:para",
       "methods": [
         "DELETE"
@@ -5938,6 +6478,16 @@
       "moduleKey": null,
       "summary": "",
       "auth": "module"
+    },
+    {
+      "path": "/server-control",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/server.rs",
+      "moduleKey": null,
+      "summary": "",
+      "auth": "module"
     }
   ],
   "backendModules": [
@@ -6008,6 +6558,10 @@
       "path": "Frontend/src/modules/administrativo/produtos_ativos_relatorios/ProdutosAtivosRelatoriosView.tsx"
     },
     {
+      "view": "RelatoriosView.tsx",
+      "path": "Frontend/src/modules/administrativo/relatorios/RelatoriosView.tsx"
+    },
+    {
       "view": "ComprasAlmoxarifadoView.tsx",
       "path": "Frontend/src/modules/compras/almoxarifado/ComprasAlmoxarifadoView.tsx"
     },
@@ -6052,8 +6606,16 @@
       "path": "Frontend/src/modules/expedicao/ExpedicaoView.tsx"
     },
     {
+      "view": "EditorEtiquetasView.tsx",
+      "path": "Frontend/src/modules/ferramentas/editor/EditorEtiquetasView.tsx"
+    },
+    {
       "view": "EtiquetasView.tsx",
       "path": "Frontend/src/modules/ferramentas/etiquetas/EtiquetasView.tsx"
+    },
+    {
+      "view": "ImpressorasView.tsx",
+      "path": "Frontend/src/modules/ferramentas/impressoras/ImpressorasView.tsx"
     },
     {
       "view": "FinanceiroView.tsx",
@@ -6118,6 +6680,10 @@
     {
       "view": "MontagemKitsView.tsx",
       "path": "Frontend/src/modules/producao/montagem_kits/MontagemKitsView.tsx"
+    },
+    {
+      "view": "ProcView.tsx",
+      "path": "Frontend/src/modules/producao/proc/ProcView.tsx"
     },
     {
       "view": "ControleQualidadeView.tsx",
@@ -6308,6 +6874,34 @@
     {
       "file": "Backend/supabase/029_ferramentas_label_templates.sql",
       "id": "029_ferramentas_label_templates"
+    },
+    {
+      "file": "Backend/supabase/030_reports_printed.sql",
+      "id": "030_reports_printed"
+    },
+    {
+      "file": "Backend/supabase/031_hub_operator_modules_access_level.sql",
+      "id": "031_hub_operator_modules_access_level"
+    },
+    {
+      "file": "Backend/supabase/031_procs_produtos.sql",
+      "id": "031_procs_produtos"
+    },
+    {
+      "file": "Backend/supabase/032_hub_chat_messages.sql",
+      "id": "032_hub_chat_messages"
+    },
+    {
+      "file": "Backend/supabase/033_hub_chat_attachments.sql",
+      "id": "033_hub_chat_attachments"
+    },
+    {
+      "file": "Backend/supabase/034_hub_chat_groups_passwords.sql",
+      "id": "034_hub_chat_groups_passwords"
+    },
+    {
+      "file": "Backend/supabase/20260819_create_procs_produtos.sql",
+      "id": "20260819_create_procs_produtos"
     }
   ],
   "keyFlows": [
@@ -6356,9 +6950,9 @@
     "AGENTS.md"
   ],
   "stats": {
-    "httpRouteEntries": 134,
-    "migrations": 29,
-    "frontendViews": 42,
+    "httpRouteEntries": 157,
+    "migrations": 36,
+    "frontendViews": 46,
     "modules": 45,
     "edges": 71
   }

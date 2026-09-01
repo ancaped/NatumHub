@@ -478,7 +478,7 @@ function LoteInicioTab({
               <div>
                 <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Base de produção consumida</p>
                 <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
-                  Quando o ERP pesou só fragrância/aditivos, selecione a base pré-produzida. O NatumHub gera a baixa local de estoque.
+                  Quando o ERP pesou só fragrância/aditivos, selecione a base pré-produzida. O Nexus gera a baixa local de estoque.
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3">

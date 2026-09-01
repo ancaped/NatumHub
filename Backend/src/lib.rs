@@ -10,6 +10,7 @@ pub mod core {
     pub mod pg_row;
     pub mod sales_open;
     pub mod production_reserve;
+    pub mod mdns;
 }
 
 pub mod modules {
@@ -19,6 +20,7 @@ pub mod modules {
             pub mod calculations;
             pub mod watcher;
         }
+        pub mod proc;
     }
     pub mod compras;
     pub mod estoque;
@@ -33,6 +35,8 @@ pub mod modules {
 pub mod handlers;
 pub mod models;
 pub mod server;
+pub mod server_manager;
+pub mod server_control_app;
 pub mod tauri_commands;
 
 // === TYPE DEFINITIONS ===
@@ -86,6 +90,10 @@ pub struct FiscoQuimicaPattern {
     pub package_volume: f64,
     pub package_unit: String,
     pub allowed_agents: Option<Vec<String>>,
+    pub aspect: Option<String>,
+    pub color: Option<String>,
+    pub odor: Option<String>,
+    pub image_url: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -121,7 +129,19 @@ pub struct FiscoQuimicaAnalysis {
     pub batch_size: Option<f64>,
     pub total_agent_required: Option<f64>,
     pub notes: Option<String>,
+    pub fabricated_by: Option<String>,
+    pub authorized_by: Option<String>,
+    pub synced_to_erp: Option<bool>,
+    pub erp_synced_at: Option<String>,
     pub created_at: Option<String>,
+    pub status: Option<String>,
+    pub media_url: Option<String>,
+    pub aspect_ok: Option<bool>,
+    pub aspect_result: Option<String>,
+    pub color_ok: Option<bool>,
+    pub color_result: Option<String>,
+    pub odor_ok: Option<bool>,
+    pub odor_result: Option<String>,
 }
 
 // === STATE ===
@@ -265,6 +285,7 @@ async fn hub_check_server_health(api_origin: String) -> Result<ServerHealthCheck
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlx::Row;
 
     #[tokio::test]
     async fn test_sync_execution() {
@@ -325,3 +346,4 @@ mod tests {
         }
     }
 }
+

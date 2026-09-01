@@ -2,25 +2,32 @@ import React, { useState } from 'react';
 import { Printer, X, Check, AlertCircle, Sparkles, Hash, Copy, Layout, Loader2, ExternalLink } from 'lucide-react';
 import type { LabelTemplate, PrintConfig } from '../lib/types';
 import { printLabelBatch, openPrintWindow } from '../lib/printService';
+import { labelsApi } from '../lib/labelsApi';
+import { printersApi } from '../../impressoras/lib/printersApi';
+import type { HubPrinter } from '../../impressoras/lib/types';
+import PrinterSelector from './PrinterSelector';
 
 interface PrintModalProps {
   template: LabelTemplate;
   isOpen: boolean;
   onClose: () => void;
+  onPrintSuccess?: () => void;
 }
 
-export default function PrintModal({ template, isOpen, onClose }: PrintModalProps) {
+export default function PrintModal({ template, isOpen, onClose, onPrintSuccess }: PrintModalProps) {
   const [copies, setCopies] = useState<number>(1);
   const [enableSequence, setEnableSequence] = useState<boolean>(false);
   const [sequenceStart, setSequenceStart] = useState<number>(1);
   const [sequenceTotal, setSequenceTotal] = useState<number>(10);
   const [sequencePadding, setSequencePadding] = useState<number>(2);
+  const [selectedPrinter, setSelectedPrinter] = useState<HubPrinter | null>(null);
 
   if (!isOpen) return null;
 
-  const handleConfirmPrint = () => {
+  const handleConfirmPrint = async () => {
+    const totalCopies = enableSequence ? Math.max(1, sequenceTotal - sequenceStart + 1) : copies;
     const config: PrintConfig = {
-      copies: enableSequence ? Math.max(1, sequenceTotal - sequenceStart + 1) : copies,
+      copies: totalCopies,
       enableSequence,
       sequenceStart,
       sequenceTotal: enableSequence ? sequenceTotal : copies,
@@ -28,12 +35,43 @@ export default function PrintModal({ template, isOpen, onClose }: PrintModalProp
     };
 
     printLabelBatch(template, config);
+
+    // Record in history & spooler queue
+    try {
+      await labelsApi.recordPrint({
+        template_id: template.id.startsWith('template_') ? undefined : template.id,
+        template_name: template.name,
+        copies: totalCopies,
+        printer_name: selectedPrinter?.name || 'Térmica 100x50mm',
+      });
+
+      if (selectedPrinter) {
+        try {
+          await printersApi.createPrintJob({
+            printer_id: selectedPrinter.id,
+            title: `Etiquetas ${template.name}`,
+            template_id: template.id.startsWith('template_') ? undefined : template.id,
+            payload_type: 'label_canvas_json',
+            payload_data: JSON.stringify(template),
+            copies: totalCopies,
+          });
+        } catch (jobErr) {
+          console.warn('Não foi possível enfileirar print job:', jobErr);
+        }
+      }
+
+      if (onPrintSuccess) onPrintSuccess();
+    } catch (e) {
+      console.warn('Erro ao salvar histórico de impressão:', e);
+    }
+
     onClose();
   };
 
   const handleOpenWindow = () => {
+    const totalCopies = enableSequence ? Math.max(1, sequenceTotal - sequenceStart + 1) : copies;
     const config: PrintConfig = {
-      copies: enableSequence ? Math.max(1, sequenceTotal - sequenceStart + 1) : copies,
+      copies: totalCopies,
       enableSequence,
       sequenceStart,
       sequenceTotal: enableSequence ? sequenceTotal : copies,
@@ -62,6 +100,7 @@ export default function PrintModal({ template, isOpen, onClose }: PrintModalProp
           </div>
 
           <button
+            type="button"
             onClick={onClose}
             className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-lg cursor-pointer transition-colors"
           >
@@ -98,19 +137,16 @@ export default function PrintModal({ template, isOpen, onClose }: PrintModalProp
             </div>
 
             {!enableSequence ? (
-              <div className="bg-zinc-50 p-3 rounded-xl border border-zinc-200 flex items-center justify-between">
-                <span className="font-semibold text-zinc-800 text-xs">Total de Cópias:</span>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="1"
-                    max="1000"
-                    value={copies}
-                    onChange={(e) => setCopies(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                    className="w-20 border border-zinc-300 rounded-lg px-2 py-1.5 text-center font-bold text-sm focus:outline-none focus:border-zinc-900 bg-white"
-                  />
-                  <span className="text-xs text-zinc-400">un.</span>
-                </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  min="1"
+                  max="1000"
+                  value={copies}
+                  onChange={(e) => setCopies(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className="w-24 border border-zinc-300 rounded-xl p-2 font-mono text-center font-bold text-sm bg-zinc-50 focus:bg-white"
+                />
+                <span className="text-xs text-zinc-500">etiquetas idênticas</span>
               </div>
             ) : (
               <div className="bg-zinc-50 p-3 rounded-xl border border-zinc-200 space-y-2">
@@ -125,7 +161,6 @@ export default function PrintModal({ template, isOpen, onClose }: PrintModalProp
                       className="w-full border border-zinc-300 rounded-lg p-1.5 font-mono text-center font-bold text-xs bg-white"
                     />
                   </div>
-
                   <div>
                     <span className="text-[11px] text-zinc-500 block mb-1">Fim / Total:</span>
                     <input
@@ -141,15 +176,20 @@ export default function PrintModal({ template, isOpen, onClose }: PrintModalProp
             )}
           </div>
 
+          {/* Integrated Printer Selector */}
+          <PrinterSelector
+            selectedPrinter={selectedPrinter}
+            onSelectPrinter={setSelectedPrinter}
+          />
+
           <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 space-y-1.5">
             <p className="font-bold flex items-center gap-1.5">
               <Layout className="h-4 w-4 text-blue-600 shrink-0" />
-              <span>Configuração na Caixa de Impressão:</span>
+              <span>Dica de Impressão Térmica:</span>
             </p>
             <p className="text-[11px] text-blue-800 leading-relaxed">
-              1. No campo <strong>Layout</strong>, selecione <strong>Paisagem (Horizontal)</strong>.<br />
-              2. Em <strong>Mais definições &gt; Margens</strong>, selecione <strong>Nenhuma (0mm)</strong>.<br />
-              3. Isso fará a etiqueta preencher 100% da área do adesivo perfeitamente!
+              1. No diálogo, selecione Layout <strong>Paisagem (Horizontal)</strong>.<br />
+              2. Em Margens, escolha <strong>Nenhuma (0mm)</strong> para preenchimento total de 100x50mm.
             </p>
           </div>
         </div>

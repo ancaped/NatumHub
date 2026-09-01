@@ -55,6 +55,9 @@ pub struct ProductOverride {
     /// Atualiza `produtos.base_codigo` quando informado (não persiste em overrides).
     pub base_codigo: Option<String>,
     pub terceirizado_modo: Option<String>,
+    pub is_producao_programada: Option<i32>,
+    pub producao_programada_disparo: Option<i64>,
+    pub producao_programada_objetivo: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -90,6 +93,9 @@ pub struct ProductCalculationResult {
     pub lancamento_data_inicio: Option<String>,
     pub terceirizado_modo: Option<String>,
     pub is_kit_component: Option<bool>,
+    pub is_producao_programada: Option<i32>,
+    pub producao_programada_disparo: Option<i64>,
+    pub producao_programada_objetivo: Option<i64>,
 
     // Sales Statistics
     pub media_vendas: f64,          // Mean of sales
@@ -121,6 +127,9 @@ pub struct ProductCalculationResult {
     pub faltas_ativas: Option<i64>,
     pub pedidos_compra_aberto: Option<i64>,
     pub sugestao_compra: Option<i64>,
+
+    pub is_kit: Option<bool>,
+    pub parent_kits: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,6 +145,9 @@ pub struct QueryParams {
     pub sort: Option<String>,
     pub order: Option<String>,
     pub suspended_only: Option<bool>,
+    pub programadas_only: Option<bool>,
+    pub include_programadas: Option<bool>,
+    pub include_kits: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -646,6 +658,18 @@ pub struct ProductionLote {
     pub conferencia_error: Option<bool>,
     pub is_resolved: Option<bool>,
     pub resolution_obs: Option<String>,
+    pub snap_estoque: Option<i64>,
+    pub snap_producao: Option<i64>,
+    pub snap_pedidos: Option<i64>,
+    pub snap_efp: Option<i64>,
+    pub snap_media_vendas: Option<f64>,
+    pub snap_duracao_meses: Option<f64>,
+    pub snap_status: Option<String>,
+    pub snap_status_label: Option<String>,
+    pub snap_producao_recomendada: Option<i64>,
+    pub snap_estoque_ideal_qtd: Option<f64>,
+    pub snap_demanda_ajustada: Option<f64>,
+    pub observacoes: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -695,6 +719,8 @@ pub struct CreateKitOrderRequest {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateKitOrderRequest {
+    pub order_number: Option<String>,
+    pub quantity: Option<f64>,
     pub status: Option<String>,
     pub completed_at: Option<String>,
     pub assembled_by: Option<String>,

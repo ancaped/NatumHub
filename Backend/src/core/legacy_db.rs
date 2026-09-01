@@ -205,6 +205,14 @@ struct LoteRow {
     unidades: Option<f64>,
     d_pesado: Option<String>,
     d_envase: Option<String>,
+    ph: Option<f64>,
+    viscosidade: Option<f64>,
+    densidade: Option<f64>,
+    viscosidade_24h: Option<f64>,
+    responsavel: Option<String>,
+    resultado: Option<String>,
+    data_inspecao: Option<String>,
+    observacoes: Option<String>,
 }
 
 struct LoteBaixaRow {
@@ -929,7 +937,7 @@ WHERE cReferencia IS NOT NULL AND cReferencia <> '';
 
     // D. Query Insumos Stocks & Snapshots
     // Estoque da tela ERP ("Estoque atual") = nQtdeEstoque
-    // Primeira passagem: NOLOCK (rápido). Reconsulta final usa query limpa (sem NOLOCK).
+    // Primeira passagem D1: lê estoque da tela do ERP (nQtdeEstoque).
     let query_stocks = "
 SELECT 
     cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
@@ -937,7 +945,7 @@ SELECT
     CAST(nqtdeReserva AS FLOAT) as nqtdeReserva,
     CAST(nQtdeProducao AS FLOAT) as nQtdeProducao,
     CAST(nQtdePedidos AS FLOAT) as nQtdePedidos
-FROM Insumos WITH (NOLOCK)
+FROM Insumos
 WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInativo IS NULL);
     ";
     let query_stocks_clean = D1_INSUMOS_STOCKS_SQL_CLEAN;
@@ -1355,7 +1363,15 @@ SELECT
     CONVERT(varchar, l.dEnvase2, 120) COLLATE Latin1_General_CI_AS as dEnvase2,
     CONVERT(varchar, l.dEnvase3, 120) COLLATE Latin1_General_CI_AS as dEnvase3,
     CONVERT(varchar, l.dEnvase4, 120) COLLATE Latin1_General_CI_AS as dEnvase4,
-    CONVERT(varchar, l.dConf1, 120) COLLATE Latin1_General_CI_AS as dConf1
+    CONVERT(varchar, l.dConf1, 120) COLLATE Latin1_General_CI_AS as dConf1,
+    CAST(l.nPH AS FLOAT) as nPH,
+    CAST(l.nviscosidade AS FLOAT) as nviscosidade,
+    CAST(l.ndensidade AS FLOAT) as ndensidade,
+    CAST(l.nViscosidade24 AS FLOAT) as nViscosidade24,
+    l.cResponsavel1 COLLATE Latin1_General_CI_AS as cResponsavel1,
+    l.cResultado1 COLLATE Latin1_General_CI_AS as cResultado1,
+    CONVERT(varchar, l.dinspecao1, 120) COLLATE Latin1_General_CI_AS as dinspecao1,
+    CAST(l.mObservac AS VARCHAR(1000)) COLLATE Latin1_General_CI_AS as mObservac
 FROM Lotes l WITH (NOLOCK)
 WHERE l.dLote >= '{since_dt}'
   AND (
@@ -1377,17 +1393,26 @@ WHERE l.dLote >= '{since_dt}'
         let date_str = d_lote.unwrap().to_string();
 
         let status = row.get::<&str, _>(11).map(|s| s.trim().to_string());
-        let fab = row.get::<&str, _>(12).map(|s| s.trim().to_string());
-        let aut = row.get::<&str, _>(13).map(|s| s.trim().to_string());
-        let d_pesado = row.get::<&str, _>(23).map(|s| s.trim().to_string());
-        let d_envasado = row.get::<&str, _>(24).map(|s| s.trim().to_string());
+        let fab = row.get::<&str, _>(12).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let aut = row.get::<&str, _>(13).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let d_pesado = row.get::<&str, _>(23).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let d_envasado = row.get::<&str, _>(24).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
         let d_envase_arr = [
             row.get::<&str, _>(25).map(|s| s.trim().to_string()),
             row.get::<&str, _>(26).map(|s| s.trim().to_string()),
             row.get::<&str, _>(27).map(|s| s.trim().to_string()),
             row.get::<&str, _>(28).map(|s| s.trim().to_string()),
         ];
-        let d_conf1 = row.get::<&str, _>(29).map(|s| s.trim().to_string());
+        let d_conf1 = row.get::<&str, _>(29).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+
+        let ph = row.get::<f64, _>(30).filter(|v| *v > 0.0);
+        let visc = row.get::<f64, _>(31).filter(|v| *v > 0.0);
+        let dens = row.get::<f64, _>(32).filter(|v| *v > 0.0);
+        let visc24 = row.get::<f64, _>(33).filter(|v| *v > 0.0);
+        let resp = row.get::<&str, _>(34).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let res = row.get::<&str, _>(35).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let dinsp = row.get::<&str, _>(36).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let obs = row.get::<&str, _>(37).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
 
         let prods = [
             (row.get::<&str, _>(1), row.get::<f64, _>(6), row.get::<f64, _>(15), row.get::<f64, _>(19)),
@@ -1449,6 +1474,14 @@ WHERE l.dLote >= '{since_dt}'
                     unidades: Some(unidades),
                     d_pesado: d_pesado.clone(),
                     d_envase: item_envase,
+                    ph,
+                    viscosidade: visc,
+                    densidade: dens,
+                    viscosidade_24h: visc24,
+                    responsavel: resp.clone(),
+                    resultado: res.clone(),
+                    data_inspecao: dinsp.clone(),
+                    observacoes: obs.clone(),
                 });
             }
         }
@@ -2369,6 +2402,23 @@ WHERE {so2_date_filter};
                 eprintln!("[ERP Sync]   invoices {end}/{}", inv_ids.len());
             }
         }
+
+        // Preenche CNPJ dos fornecedores a partir das notas fiscais inseridas
+        let _ = sqlx::query(
+            "UPDATE suppliers s
+             SET cnpj = inv.supplier_cnpj
+             FROM (
+                 SELECT DISTINCT ON (supplier_id) supplier_id, supplier_cnpj
+                 FROM invoices
+                 WHERE supplier_id IS NOT NULL 
+                   AND supplier_cnpj IS NOT NULL 
+                   AND TRIM(supplier_cnpj) <> ''
+                 ORDER BY supplier_id, invoice_date DESC
+             ) inv
+             WHERE s.id = inv.supplier_id AND (s.cnpj IS NULL OR TRIM(s.cnpj) = '')"
+        )
+        .execute(&mut *tx)
+        .await;
     }
 
     eprintln!("[ERP Sync] Invoices OK — gravando consumption...");
@@ -2726,6 +2776,131 @@ WHERE {so2_date_filter};
         if end % 5000 == 0 || end == lb_reg.len() {
             eprintln!("[ERP Sync]   lotes_baixas {end}/{}", lb_reg.len());
         }
+    }
+
+    // Criar e atualizar erp_lotes_laudos
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS erp_lotes_laudos (
+            lote TEXT NOT NULL,
+            product_code TEXT NOT NULL,
+            ph FLOAT8,
+            viscosidade FLOAT8,
+            densidade FLOAT8,
+            viscosidade_24h FLOAT8,
+            fabricado_por TEXT,
+            autorizado_por TEXT,
+            responsavel TEXT,
+            resultado TEXT,
+            data_inspecao TEXT,
+            data_lote TEXT,
+            data_pesado TEXT,
+            data_envase TEXT,
+            quantidade_kg FLOAT8,
+            unidades FLOAT8,
+            observacoes TEXT,
+            updated_at TIMESTAMPTZ DEFAULT NOW(),
+            PRIMARY KEY (lote, product_code)
+        )
+        "#
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_erp_lotes_laudos_lote ON erp_lotes_laudos(lote)")
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_erp_lotes_laudos_prod ON erp_lotes_laudos(product_code)")
+        .execute(&mut *tx)
+        .await?;
+
+    let mut laudos_dedup: HashMap<(String, String), &LoteRow> = HashMap::new();
+    for l in &lotes_list {
+        laudos_dedup.insert((l.lote.to_string(), l.product_code.clone()), l);
+    }
+    let laudos_records: Vec<&LoteRow> = laudos_dedup.into_values().collect();
+    for chunk in laudos_records.chunks(3000) {
+        let lotes: Vec<String> = chunk.iter().map(|r| r.lote.to_string()).collect();
+        let prods: Vec<String> = chunk.iter().map(|r| r.product_code.clone()).collect();
+        let phs: Vec<Option<f64>> = chunk.iter().map(|r| r.ph).collect();
+        let viscs: Vec<Option<f64>> = chunk.iter().map(|r| r.viscosidade).collect();
+        let denss: Vec<Option<f64>> = chunk.iter().map(|r| r.densidade).collect();
+        let visc24s: Vec<Option<f64>> = chunk.iter().map(|r| r.viscosidade_24h).collect();
+        let fabs: Vec<Option<String>> = chunk.iter().map(|r| r.fab.clone()).collect();
+        let auts: Vec<Option<String>> = chunk.iter().map(|r| r.aut.clone()).collect();
+        let resps: Vec<Option<String>> = chunk.iter().map(|r| r.responsavel.clone()).collect();
+        let ress: Vec<Option<String>> = chunk.iter().map(|r| r.resultado.clone()).collect();
+        let dinsp_arr: Vec<Option<String>> = chunk.iter().map(|r| r.data_inspecao.clone()).collect();
+        let dlote_arr: Vec<Option<String>> = chunk.iter().map(|r| Some(r.date_str.clone())).collect();
+        let dpesado_arr: Vec<Option<String>> = chunk.iter().map(|r| r.d_pesado.clone()).collect();
+        let denvase_arr: Vec<Option<String>> = chunk.iter().map(|r| r.d_envase.clone()).collect();
+        let qtd_arr: Vec<f64> = chunk.iter().map(|r| r.qty).collect();
+        let un_arr: Vec<f64> = chunk.iter().map(|r| r.unidades.unwrap_or(0.0)).collect();
+        let obs_arr: Vec<Option<String>> = chunk.iter().map(|r| r.observacoes.clone()).collect();
+
+        sqlx::query(
+            r#"
+            INSERT INTO erp_lotes_laudos (
+                lote, product_code, ph, viscosidade, densidade, viscosidade_24h,
+                fabricado_por, autorizado_por, responsavel, resultado,
+                data_inspecao, data_lote, data_pesado, data_envase,
+                quantidade_kg, unidades, observacoes, updated_at
+            )
+            SELECT 
+                u.lote, u.product_code, u.ph, u.viscosidade, u.densidade, u.viscosidade_24h,
+                u.fabricado_por, u.autorizado_por, u.responsavel, u.resultado,
+                u.data_inspecao, u.data_lote, u.data_pesado, u.data_envase,
+                u.quantidade_kg, u.unidades, u.observacoes, NOW()
+            FROM UNNEST(
+                $1::text[], $2::text[], $3::float8[], $4::float8[], $5::float8[], $6::float8[],
+                $7::text[], $8::text[], $9::text[], $10::text[],
+                $11::text[], $12::text[], $13::text[], $14::text[],
+                $15::float8[], $16::float8[], $17::text[]
+            ) AS u(
+                lote, product_code, ph, viscosidade, densidade, viscosidade_24h,
+                fabricado_por, autorizado_por, responsavel, resultado,
+                data_inspecao, data_lote, data_pesado, data_envase,
+                quantidade_kg, unidades, observacoes
+            )
+            ON CONFLICT (lote, product_code) DO UPDATE SET
+                ph = EXCLUDED.ph,
+                viscosidade = EXCLUDED.viscosidade,
+                densidade = EXCLUDED.densidade,
+                viscosidade_24h = EXCLUDED.viscosidade_24h,
+                fabricado_por = EXCLUDED.fabricado_por,
+                autorizado_por = EXCLUDED.autorizado_por,
+                responsavel = EXCLUDED.responsavel,
+                resultado = EXCLUDED.resultado,
+                data_inspecao = EXCLUDED.data_inspecao,
+                data_lote = EXCLUDED.data_lote,
+                data_pesado = EXCLUDED.data_pesado,
+                data_envase = EXCLUDED.data_envase,
+                quantidade_kg = EXCLUDED.quantidade_kg,
+                unidades = EXCLUDED.unidades,
+                observacoes = EXCLUDED.observacoes,
+                updated_at = NOW();
+            "#,
+        )
+        .bind(&lotes)
+        .bind(&prods)
+        .bind(&phs)
+        .bind(&viscs)
+        .bind(&denss)
+        .bind(&visc24s)
+        .bind(&fabs)
+        .bind(&auts)
+        .bind(&resps)
+        .bind(&ress)
+        .bind(&dinsp_arr)
+        .bind(&dlote_arr)
+        .bind(&dpesado_arr)
+        .bind(&denvase_arr)
+        .bind(&qtd_arr)
+        .bind(&un_arr)
+        .bind(&obs_arr)
+        .execute(&mut *tx)
+        .await?;
     }
 
     for l in &lotes_list {
@@ -3269,6 +3444,7 @@ pub async fn fetch_erp_stock_live(pool: &PgPool, code: &str) -> anyhow::Result<O
     let mut client = connect_sql_server(pool).await?;
 
     // Query limpa (sem NOLOCK); ORDER BY estabiliza TOP 1 se houver duplicata.
+    // Lê estoque da tela do ERP (nQtdeEstoque).
     let query_insumo = "
 SELECT TOP 1
     CAST(nQtdeEstoque AS FLOAT),
@@ -3442,6 +3618,7 @@ pub async fn refresh_stock_snapshot_from_erp(
 pub const STOCK_VERIFY_EPS: f64 = 0.01;
 
 /// Query D1 limpa (sem NOLOCK) — reconsulta final do sync e verificação pós-sync.
+/// Lê estoque da tela do ERP (nQtdeEstoque).
 const D1_INSUMOS_STOCKS_SQL_CLEAN: &str = r#"
 SELECT 
     cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
@@ -3924,7 +4101,7 @@ SELECT
     CAST(nqtdeReserva AS FLOAT) as nqtdeReserva,
     CAST(nQtdeProducao AS FLOAT) as nQtdeProducao,
     CAST(nQtdePedidos AS FLOAT) as nQtdePedidos
-FROM Insumos WITH (NOLOCK)
+FROM Insumos
 WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInativo IS NULL);
 ";
     let stream = client.query(query, &[]).await?;
@@ -3950,7 +4127,7 @@ WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInat
         "INSERT INTO stock_imports (id, filename, source, item_count) VALUES ($1, $2, $3, $4)",
     )
     .bind(&import_id)
-    .bind("D1 nQtdeEstoque resync")
+    .bind("D1 nQtdeEstoqueA resync")
     .bind("ERP")
     .bind(list.len() as i32)
     .execute(&mut *tx)

@@ -1,7 +1,7 @@
 import { apiFetch } from '../../../geral/lib/http';
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../geral/lib/api';
-import { DemandResult, Category, Item } from '../../../geral/lib/types';
+import { DemandResult, Category, Item, ActiveRequestedItemSummary } from '../../../geral/lib/types';
 import { AlertCircle, ArrowDownToLine, Package, Filter, CheckCircle2, ShoppingCart, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, TrendingUp, BarChart3, FileText, ChevronRight, X, Info, RefreshCw, Database, Factory, Printer, PlusCircle, Settings, Layers, Calculator } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
 import { getAuthUser, isSupervisor } from '../../../geral/lib/auth';
@@ -138,6 +138,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   const [selectedItemCode, setSelectedItemCode] = useState<string | null>(null);
   const [details, setDetails] = useState<InsumoDetalhes | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [syncingDrawerStock, setSyncingDrawerStock] = useState(false);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [drawerTab, setDrawerTab] = useState<'visao_geral' | 'consumo' | 'pedidos' | 'historico_pedidos' | 'producao' | 'simulacao' | 'configuracoes' | 'semelhantes'>('visao_geral');
   const [isEditingNotes, setIsEditingNotes] = useState(false);
@@ -158,6 +159,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   const [printFilterType, setPrintFilterType] = useState<'needed' | 'all'>('needed');
 
   const [printList, setPrintList] = useState<string[]>([]);
+  const [activeRequests, setActiveRequests] = useState<Record<string, ActiveRequestedItemSummary>>({});
   const [lastErpStockSync, setLastErpStockSync] = useState<{ at: string; count: number } | null>(null);
   const [loteDetailsNumber, setLoteDetailsNumber] = useState<string | null>(null);
 
@@ -190,6 +192,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
         periodoMedia: existing?.periodoMedia ?? null
       });
       await loadCustomConfigs();
+      window.dispatchEvent(new CustomEvent('compras_config_updated'));
     } catch (e) {
       console.error(e);
     }
@@ -212,6 +215,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
         periodoMedia: existing?.periodoMedia ?? null
       });
       await loadCustomConfigs();
+      window.dispatchEvent(new CustomEvent('compras_config_updated'));
     } catch (e) {
       console.error(e);
     }
@@ -247,12 +251,37 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     try {
       await api.saveCustomPurchaseConfig(updated);
       await loadCustomConfigs();
-      loadDemands();
+      window.dispatchEvent(new CustomEvent('compras_config_updated'));
     } catch (e) {
       console.error(e);
     }
   };
 
+  const loadCategories = async () => {
+    try {
+      const cats = await api.getCategories();
+      setCategories(cats);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const loadActiveRequests = async () => {
+    try {
+      const list = await api.getActiveRequestedItems();
+      const map: Record<string, ActiveRequestedItemSummary> = {};
+      for (const item of list) {
+        const clean = (item.itemCode || '').replace(/\./g, '');
+        map[clean] = item;
+        map[item.itemCode] = item;
+      }
+      setActiveRequests(map);
+    } catch (e) {
+      console.error('Erro ao carregar solicitações ativas:', e);
+    }
+  };
+
+  // Sync printList with localStorage on mount & changes
   useEffect(() => {
     const loadPrintList = () => {
       const stored = localStorage.getItem('natum_hub_print_list');
@@ -267,6 +296,13 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     return () => window.removeEventListener('storage', loadPrintList);
   }, []);
 
+  useEffect(() => {
+    loadActiveRequests();
+    const handleUpdate = () => loadActiveRequests();
+    window.addEventListener('compras_solicitacoes_updated', handleUpdate);
+    return () => window.removeEventListener('compras_solicitacoes_updated', handleUpdate);
+  }, []);
+
   const isInPrintList = (code: string) => {
     const clean = (code || '').replace(/\./g, '');
     return printList.some(c => (c || '').replace(/\./g, '') === clean);
@@ -278,6 +314,14 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     if (printList.some(c => (c || '').replace(/\./g, '') === clean)) {
       newList = printList.filter(c => (c || '').replace(/\./g, '') !== clean);
     } else {
+      const activeReq = activeRequests[clean] || activeRequests[code];
+      if (activeReq && activeReq.status !== 'entregue') {
+        const dateStr = activeReq.createdAt ? new Date(activeReq.createdAt).toLocaleDateString('pt-BR') : '';
+        const msg = `⚠️ Atenção: O item "${code}" já foi solicitado no ${activeReq.loteNumero} em ${dateStr} (Qtd: ${activeReq.quantityRequested}).\n\nDeseja adicionar à nova lista mesmo assim?`;
+        if (!window.confirm(msg)) {
+          return;
+        }
+      }
       newList = [...printList, code];
     }
     setPrintList(newList);
@@ -305,6 +349,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   useEffect(() => {
     if (!active) return;
     loadCustomConfigs();
+    loadCategories();
     
     const loadGlobalConfig = async () => {
       try {
@@ -318,6 +363,13 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
       }
     };
     loadGlobalConfig();
+
+    const handleConfigUpdate = () => {
+      loadCustomConfigs();
+      loadCategories();
+    };
+    window.addEventListener('compras_config_updated', handleConfigUpdate);
+    return () => window.removeEventListener('compras_config_updated', handleConfigUpdate);
   }, [active, mode]);
 
   useEffect(() => {
@@ -351,11 +403,6 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     loadCategories();
     loadDemands();
   }, [triggerDaysInput, targetDaysInput, active, selectedCategory, mode]);
-
-  const loadCategories = async () => {
-    try { setCategories(await api.getCategories()); }
-    catch (e) { console.error(e); }
-  };
 
   const loadDemands = async () => {
     setLoading(true);
@@ -406,7 +453,22 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     }
   };
 
+  const handleSyncDrawerStockLive = async (code: string) => {
+    if (syncingDrawerStock) return;
+    setSyncingDrawerStock(true);
+    try {
+      await api.refreshItemStockLive(code);
+      await loadDetails(code);
+      loadDemands();
+    } catch (e) {
+      console.error("Erro ao sincronizar estoque do ERP:", e);
+    } finally {
+      setSyncingDrawerStock(false);
+    }
+  };
+
   const loadSimilarItems = async () => {
+
     if (!selectedItemCode) return;
     setSimilarLoading(true);
     try {
@@ -598,21 +660,6 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     else setSelectedItems(new Set(filteredDemands.map(d => d.itemCode)));
   };
 
-  const handleCreateQuotation = async () => {
-    if (selectedItems.size === 0) return;
-    const title = prompt('Título para a nova cotação:');
-    if (!title) return;
-    try {
-      const selectedDemands = demands.filter(d => selectedItems.has(d.itemCode));
-      await api.createQuotation(title, selectedDemands.map(d => d.itemCode), selectedDemands.map(d => d.recommendedQty));
-      alert('Cotação criada com sucesso!');
-      setSelectedItems(new Set());
-    } catch (e) { 
-      console.error(e); 
-      alert('Erro ao criar cotação: ' + (e instanceof Error ? e.message : String(e))); 
-    }
-  };
-
   const handlePrint = () => {
     setShowPrintModal(false);
     
@@ -694,7 +741,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Relatório de Necessidade de Compras — NatumHub</title>
+        <title>Relatório de Necessidade de Compras — Nexus</title>
         <meta charset="utf-8">
         <style>
           @page {
@@ -859,7 +906,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
         </div>
 
         <footer>
-          <div>NatumHub — Sistema de Gestão Unificado</div>
+          <div>Nexus — Sistema de Gestão Unificado</div>
           <div>Impressão Direta</div>
         </footer>
       </body>
@@ -1056,13 +1103,6 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 <span className="sm:hidden">Imprimir</span>
                 <span className="hidden sm:inline">Imprimir Relatório</span>
               </button>
-              {mode !== 'materia_prima' && mode !== 'embalagens' && (
-                <button onClick={handleCreateQuotation} disabled={selectedItems.size === 0} className="text-sm bg-zinc-900 text-white px-3 sm:px-4 py-2 rounded-md font-medium hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
-                  <ShoppingCart className="h-4 w-4" />
-                  <span className="hidden sm:inline">Criar Cotação</span>
-                  <span>({selectedItems.size})</span>
-                </button>
-              )}
             </div>
           </div>
 
@@ -1110,6 +1150,30 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       <td className="px-4 py-3">
                         <div className="font-mono text-xs text-zinc-500">{demand.itemCode}</div>
                         <div className="font-medium text-zinc-900" title={demand.description}>{demand.description}</div>
+                        {(() => {
+                          const cleanCode = (demand.itemCode || '').replace(/\./g, '');
+                          const activeReq = activeRequests[cleanCode] || activeRequests[demand.itemCode];
+                          if (!activeReq) return null;
+                          return (
+                            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                              {activeReq.erpPedidoNumero ? (
+                                <span 
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200"
+                                  title={`Pedido ERP #${activeReq.erpPedidoNumero} em ${activeReq.erpPedidoData || ''} (${activeReq.erpFornecedor || ''}) - Qtd: ${activeReq.erpPedidoQtd || ''}`}
+                                >
+                                  <Package className="h-3 w-3" /> Pedido ERP #{activeReq.erpPedidoNumero}
+                                </span>
+                              ) : (
+                                <span 
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200"
+                                  title={`Solicitado no ${activeReq.loteNumero} há ${activeReq.daysAgo} dias (Qtd: ${activeReq.quantityRequested})`}
+                                >
+                                  <Clock className="h-3 w-3" /> Solicitado ({activeReq.loteNumero} · {activeReq.daysAgo === 0 ? 'hoje' : `há ${activeReq.daysAgo}d`})
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                         {demand.notes && <div className="text-[10px] text-zinc-400 italic mt-0.5 truncate max-w-xs">Obs: {demand.notes}</div>}
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -1266,12 +1330,23 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                   <>
                     {/* Info Stats Cards */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-                      <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
-                        <span className="text-[9px] text-zinc-400 font-bold uppercase block tracking-wider">Estoque Atual</span>
+                      <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left relative group">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] text-zinc-400 font-bold uppercase block tracking-wider">Estoque Atual</span>
+                          <button
+                            onClick={() => handleSyncDrawerStockLive(details.code)}
+                            disabled={syncingDrawerStock}
+                            title="Reconsultar saldo do ERP em tempo real"
+                            className="p-1 text-zinc-400 hover:text-zinc-800 hover:bg-zinc-200 rounded transition-all cursor-pointer disabled:opacity-50"
+                          >
+                            <RefreshCw className={cn("h-3 w-3", syncingDrawerStock && "animate-spin text-zinc-700")} />
+                          </button>
+                        </div>
                         <p className="text-lg font-extrabold text-zinc-900 mt-1">
                           {details.currentStock.toLocaleString('pt-BR')} <span className="text-xs font-semibold text-zinc-500">{details.unit}</span>
                         </p>
                       </div>
+
                       <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
                         <span className="text-[9px] text-zinc-400 font-bold uppercase block tracking-wider">Último Recebimento</span>
                         <p className="text-xs font-bold text-zinc-805 mt-2 truncate" title={details.lastReceivedDoc ? `NF #${details.lastReceivedDoc}` : undefined}>

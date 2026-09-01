@@ -3,7 +3,8 @@ import {
   AlertTriangle, CheckCircle2, X, RefreshCw, Database, Check, Play,
   ArrowUpDown, ArrowUp, ArrowDown, LayoutDashboard, Table, Layers, History,
   Settings, ArrowLeft, ClipboardList, User, TrendingUp, BarChart3,
-  Scale, Package, FileText, EyeOff, HelpCircle, Info, Search, ClipboardCheck
+  Scale, Package, FileText, EyeOff, HelpCircle, Info, Search, ClipboardCheck, Calendar,
+  CalendarClock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import AppLayout from '../../geral/components/layout/AppLayout';
@@ -12,17 +13,18 @@ import { salesOrderStatusLabel } from '../../geral/lib/salesOrderStatus';
 
 
 // Import subcomponents
-import { DashboardTab } from './components/DashboardTab';
 import { InventoryTab } from './components/InventoryTab';
+import { ProgramadasTab } from './components/ProgramadasTab';
 import { KitsTab } from './components/KitsTab';
 import { BasesTab } from './components/BasesTab';
 import ItemRegistry from '../../compras/planejamento/components/ItemRegistry';
 import { HistoryTab } from './components/HistoryTab';
 import { SettingsTab } from './components/SettingsTab';
 import { LotesTab } from './components/LotesTab';
+import { LotesCalendarTab } from './components/LotesCalendarTab';
 import { AprovacaoTab } from './components/AprovacaoTab';
 import { LoteDetailsDrawer } from './components/LoteDetailsDrawer';
-import { StockHealthTab } from './components/StockHealthTab';
+import KitCompositionDrawer from '../components/KitCompositionDrawer';
 
 type ProducaoLockedView = 'bases' | 'lotes';
 
@@ -34,17 +36,20 @@ export default function ProducaoView({
   lockedView?: ProducaoLockedView | null;
 }) {
   // Navigation State
-  const [currentView, setCurrentView] = useState(lockedView || 'dashboard');
+  const [currentView, setCurrentView] = useState(lockedView || 'inventory');
 
   useEffect(() => {
     const viewLabels = {
-      dashboard: 'Dashboard',
-      stock_health: 'Saúde do Estoque',
       inventory: 'Gerenciamento de Produção',
-      aprovacao: 'Aprovação de Produção',
-      kits: 'Gestão de Kits',
+      kits: 'Gerenciamento de Kits',
+      programadas: 'Produções Programadas',
+      aprovacao: 'Fila de Produção',
+      calendar: 'Calendário',
+      lotes: 'Lotes de Produção',
+      erros: 'Erros de Estoque',
       bases: 'Gestão de Bases',
-      history: 'Histórico de Produção',
+      history: 'Histórico',
+      ignored_items: 'Produtos Suspensos',
       imports: 'Importações ERP',
       settings: 'Configurações'
     };
@@ -126,7 +131,22 @@ export default function ProducaoView({
   const [overrideLine, setOverrideLine] = useState('AUTO'); // 'AUTO' ou prefixo da linha
   const [overrideObs, setOverrideObs] = useState('');
   const [overrideApenasKit, setOverrideApenasKit] = useState(0);
+  const [overrideIsProgramada, setOverrideIsProgramada] = useState(0);
+  const [overrideProgramadaDisparo, setOverrideProgramadaDisparo] = useState('');
+  const [overrideProgramadaObjetivo, setOverrideProgramadaObjetivo] = useState('');
   const [showHidden, setShowHidden] = useState(false);
+
+  // Programadas Module States
+  const [programadasProducts, setProgramadasProducts] = useState([]);
+  const [programadasPage, setProgramadasPage] = useState(1);
+  const [programadasTotalPages, setProgramadasTotalPages] = useState(1);
+  const [programadasTotalItems, setProgramadasTotalItems] = useState(0);
+  const [programadasSearch, setProgramadasSearch] = useState('');
+  const [programadasSelectedStatus, setProgramadasSelectedStatus] = useState('ALL');
+  const [programadasActiveTab, setProgramadasActiveTab] = useState('ALL');
+  const [programadasSortField, setProgramadasSortField] = useState('codigo');
+  const [programadasSortDir, setProgramadasSortDir] = useState<'asc' | 'desc'>('asc');
+  const [programadasLoading, setProgramadasLoading] = useState(false);
 
   // Bulk Edit States
   const [allProducts, setAllProducts] = useState([]);
@@ -141,6 +161,7 @@ export default function ProducaoView({
 
   // Kits Module States
   const [kits, setKits] = useState([]);
+  const [kitsStats, setKitsStats] = useState({ total: 0, montar: 0, critico: 0, aguardando: 0, ordem: 0, saudavel: 0, abundante: 0 });
   const [coloracoes, setColoracoes] = useState([]);
   const [kitsPage, setKitsPage] = useState(1);
   const [kitsTotalPages, setKitsTotalPages] = useState(1);
@@ -181,6 +202,7 @@ export default function ProducaoView({
   const [lotes, setLotes] = useState([]);
   const [lotesLoading, setLotesLoading] = useState(false);
   const [selectedLoteStatus, setSelectedLoteStatus] = useState('ALL');
+  const [loteViewMode, setLoteViewMode] = useState<'table' | 'calendar'>('table');
 
   // Product Details Drawer State
   const [selectedProductDetails, setSelectedProductDetails] = useState(null);
@@ -198,6 +220,42 @@ export default function ProducaoView({
   // Lote Details Drawer State
   const [loteDetailsDrawerOpen, setLoteDetailsDrawerOpen] = useState(false);
   const [loteDetailsNumber, setLoteDetailsNumber] = useState<string | null>(null);
+
+  // Kit Composition Drawer State
+  const [compositionDrawerOpen, setCompositionDrawerOpen] = useState(false);
+  const [selectedKitForComposition, setSelectedKitForComposition] = useState<{ codigo: string; descricao?: string } | null>(null);
+
+  const handleOpenKitComposition = (kitCode: string, kitDesc?: string) => {
+    setSelectedKitForComposition({ codigo: kitCode, descricao: kitDesc });
+    setCompositionDrawerOpen(true);
+  };
+
+  const handleToggleComponentApenasKit = async (compCode: string, currentValue: number) => {
+    const newValue = currentValue === 1 ? 0 : 1;
+    try {
+      const res = await apiFetch(`/overrides`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          codigo: compCode,
+          produzir_apenas_kit: newValue,
+        }),
+      });
+      if (res.ok) {
+        showToast(
+          `Item ${compCode} alterado para: ${newValue === 1 ? 'Apenas Kit (Demanda via Kits)' : 'Vendido Avulso (Demanda Direta + Kits)'}`,
+          'success'
+        );
+        fetchProducts();
+        fetchKits();
+      } else {
+        showToast('Erro ao atualizar política do componente', 'error');
+      }
+    } catch (e) {
+      console.error(e);
+      showToast('Falha de conexão', 'error');
+    }
+  };
 
   useEffect(() => {
     if (!launchingProduct) {
@@ -578,6 +636,7 @@ export default function ProducaoView({
         setKits(data.items || []);
         setKitsTotalItems(data.total || 0);
         setKitsTotalPages(data.total_pages || 1);
+        if (data.stats) setKitsStats(data.stats);
       } else {
         showToast("Erro ao buscar kits da API", "error");
       }
@@ -590,11 +649,49 @@ export default function ProducaoView({
   }, [kitsSearch, kitsActiveTab, kitsSelectedStatus, kitsPage, limitPerPage, showHidden, kitSortField, kitSortDir]);
 
   useEffect(() => {
-    // Kits só sob demanda (evita /products + /kits no mount)
-    if (kitsSearch || kitsActiveTab !== 'ALL' || kitsSelectedStatus !== 'ALL' || kitsPage > 1) {
+    if (currentView === 'kits') {
       fetchKits();
     }
-  }, [fetchKits, kitsSearch, kitsActiveTab, kitsSelectedStatus, kitsPage]);
+  }, [currentView, fetchKits]);
+
+  // Fetch programadas from API
+  const fetchProgramadas = useCallback(async () => {
+    setProgramadasLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.append('programadas_only', 'true');
+      if (programadasSearch.trim()) params.append('search', programadasSearch.trim());
+      if (programadasActiveTab !== 'ALL') params.append('linha', programadasActiveTab);
+      if (programadasSelectedStatus !== 'ALL') params.append('status', programadasSelectedStatus);
+      params.append('page', programadasPage.toString());
+      params.append('limit', limitPerPage.toString());
+      if (programadasSortField) {
+        params.append('sort', programadasSortField);
+        params.append('order', programadasSortDir);
+      }
+
+      const res = await apiFetch(`/products?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setProgramadasProducts(data.items || []);
+        setProgramadasTotalItems(data.total || 0);
+        setProgramadasTotalPages(data.total_pages || 1);
+      } else {
+        showToast("Erro ao buscar produções programadas da API", "error");
+      }
+    } catch (e) {
+      console.error("Error fetching programadas:", e);
+      showToast("Falha de conexão ao carregar produções programadas", "error");
+    } finally {
+      setProgramadasLoading(false);
+    }
+  }, [programadasSearch, programadasActiveTab, programadasSelectedStatus, programadasPage, limitPerPage, programadasSortField, programadasSortDir]);
+
+  useEffect(() => {
+    if (currentView === 'programadas') {
+      fetchProgramadas();
+    }
+  }, [currentView, fetchProgramadas]);
 
   // Fetch production history from API
   const fetchHistory = useCallback(async () => {
@@ -650,7 +747,7 @@ export default function ProducaoView({
   }, []);
 
   useEffect(() => {
-    if (currentView === 'lotes' || lockedView === 'lotes') {
+    if (currentView === 'lotes' || currentView === 'calendar' || currentView === 'erros' || lockedView === 'lotes') {
       fetchLotes();
     }
   }, [currentView, lockedView, fetchLotes]);
@@ -1148,10 +1245,17 @@ export default function ProducaoView({
     setOverrideLine(prod.linha_prefix_manual !== null ? prod.linha_prefix_manual : 'AUTO');
     setOverrideObs(prod.observacao !== null ? prod.observacao : '');
     setOverrideApenasKit(prod.produzir_apenas_kit !== null ? prod.produzir_apenas_kit : 0);
+    setOverrideIsProgramada(prod.is_producao_programada === 1 ? 1 : 0);
+    setOverrideProgramadaDisparo(prod.producao_programada_disparo !== null && prod.producao_programada_disparo !== undefined ? prod.producao_programada_disparo.toString() : '');
+    setOverrideProgramadaObjetivo(prod.producao_programada_objetivo !== null && prod.producao_programada_objetivo !== undefined ? prod.producao_programada_objetivo.toString() : '');
   };
 
   const handleSaveOverrides = async () => {
     if (!editingProduct) return;
+
+    const isProg = overrideIsProgramada === 1 || 
+      (overrideProgramadaDisparo.trim() !== '' && parseInt(overrideProgramadaDisparo, 10) > 0) ||
+      (overrideProgramadaObjetivo.trim() !== '' && parseInt(overrideProgramadaObjetivo, 10) > 0);
 
     const payload = {
       codigo: editingProduct.codigo,
@@ -1163,6 +1267,9 @@ export default function ProducaoView({
       linha_prefix_manual: overrideLine === 'AUTO' ? null : overrideLine,
       observacao: overrideObs.trim() === '' ? null : overrideObs,
       produzir_apenas_kit: overrideApenasKit,
+      is_producao_programada: isProg ? 1 : 0,
+      producao_programada_disparo: isProg && overrideProgramadaDisparo.trim() !== '' ? parseInt(overrideProgramadaDisparo, 10) || 0 : null,
+      producao_programada_objetivo: isProg && overrideProgramadaObjetivo.trim() !== '' ? parseInt(overrideProgramadaObjetivo, 10) || 0 : null,
     };
 
     try {
@@ -1173,9 +1280,15 @@ export default function ProducaoView({
       });
 
       if (res.ok) {
-        showToast(`Overrides salvos para ${editingProduct.codigo}`, "success");
+        showToast(
+          isProg 
+            ? `Produto ${editingProduct.codigo} configurado na Produção Programada!` 
+            : `Overrides salvos para ${editingProduct.codigo}`, 
+          "success"
+        );
         setEditingProduct(null);
         fetchProducts();
+        fetchProgramadas();
       } else {
         showToast("Erro ao salvar overrides manuais", "error");
       }
@@ -1280,12 +1393,12 @@ export default function ProducaoView({
   ];
 
   const gerenciamentoSidebarItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'stock_health', label: 'Saúde do Estoque', icon: BarChart3 },
     { id: 'inventory', label: 'Gerenciamento de Produção', icon: Table },
     { id: 'kits', label: 'Gerenciamento de Kits', icon: Layers },
-    { id: 'aprovacao', label: 'Aprovação de Produção', icon: ClipboardCheck, badge: productionApprovalList.length },
-    { id: 'history', label: 'Histórico de Produção', icon: History },
+    { id: 'programadas', label: 'Produções Programadas', icon: CalendarClock },
+    { id: 'aprovacao', label: 'Fila de Produção', icon: ClipboardCheck, badge: productionApprovalList.length },
+    { id: 'calendar', label: 'Calendário', icon: Calendar },
+    { id: 'history', label: 'Histórico', icon: History },
     { id: 'ignored_items', label: 'Produtos Suspensos', icon: EyeOff },
     { id: 'settings', label: 'Configurações', icon: Settings },
   ];
@@ -1293,37 +1406,48 @@ export default function ProducaoView({
   const sidebarItems =
     lockedView === 'bases'
       ? [{ id: 'bases', label: 'Gestão de Bases', icon: Database }]
-      : lockedView === 'lotes'
-        ? [
-            { id: 'lotes', label: 'Lotes de Produção', icon: ClipboardList },
-            { id: 'erros', label: 'Erros de Estoque', icon: AlertTriangle },
-          ]
-        : gerenciamentoSidebarItems;
+      : gerenciamentoSidebarItems;
 
-  const layoutActiveTab = (() => {
-    if (currentView === 'lotes') {
-      if (selectedLoteStatus === 'ERR_ANY_ERROR') return 'erros';
-      return 'lotes';
-    }
-    return currentView;
-  })();
+  const layoutActiveTab = currentView;
 
   const handleLayoutTabChange = (tabId) => {
     if (tabId === 'inventory') {
       setCurrentView('inventory');
       setSelectedStatus('ALL');
       setPage(1);
-    } else if (tabId === 'stock_health') {
-      setCurrentView('stock_health');
-      if (allProducts.length === 0) fetchAllProducts();
-      if (coloracoes.length === 0) fetchColoracoes();
-      if (kits.length === 0) fetchKits();
-    } else if (tabId === 'erros') {
-      setCurrentView('lotes');
-      setSelectedLoteStatus('ERR_ANY_ERROR');
+    } else if (tabId === 'programadas') {
+      setCurrentView('programadas');
+      setProgramadasActiveTab('ALL');
+      setProgramadasSearch('');
+      setProgramadasSelectedStatus('ALL');
+      setProgramadasPage(1);
+      fetchProgramadas();
+    } else if (tabId === 'aprovacao') {
+      setCurrentView('aprovacao');
+    } else if (tabId === 'calendar') {
+      setCurrentView('calendar');
+      fetchLotes();
     } else if (tabId === 'lotes') {
       setCurrentView('lotes');
       setSelectedLoteStatus('ALL');
+      fetchLotes();
+    } else if (tabId === 'erros') {
+      setCurrentView('erros');
+      setSelectedLoteStatus('ERR_ANY_ERROR');
+      fetchLotes();
+    } else if (tabId === 'kits') {
+      setCurrentView('kits');
+      setKitsActiveTab('ALL');
+      setKitsSearch('');
+      setKitsSelectedStatus('ALL');
+      setKitsPage(1);
+      fetchKits();
+    } else if (tabId === 'history') {
+      setCurrentView('history');
+      fetchHistory();
+    } else if (tabId === 'ignored_items') {
+      setCurrentView('ignored_items');
+      fetchSuspendedProducts();
     } else if (tabId === 'settings') {
       setCurrentView('settings');
       fetchKitComposicao();
@@ -1350,34 +1474,10 @@ export default function ProducaoView({
       headerActions={headerActions}
     >
           
-          {/* VIEW: DASHBOARD */}
-          {currentView === 'dashboard' && (
-            <DashboardTab
-              stats={stats}
-              totalItems={totalItems}
-              bases={bases}
-              productsLength={products.length}
-              setCurrentView={setCurrentView}
-              setSelectedStatus={setSelectedStatus}
-              setSelectedBase={setSelectedBase}
-            />
-          )}
-
-          {currentView === 'stock_health' && (
-            <StockHealthTab
-              allProducts={allProducts}
-              coloracoes={coloracoes}
-              kits={kits}
-              configs={configs}
-              loading={loading}
-              onRefresh={() => { fetchProducts(); fetchAllProducts(); fetchColoracoes(); fetchKits(); }}
-              onShowDetails={fetchProductDetails}
-            />
-          )}
-
           {/* VIEW: STOCK & ALERTS */}
           {currentView === 'inventory' && (
             <InventoryTab
+              stats={stats}
               onShowDetails={fetchProductDetails}
               products={products}
               configs={configs}
@@ -1422,6 +1522,40 @@ export default function ProducaoView({
             />
           )}
 
+          {/* VIEW: PRODUÇÕES PROGRAMADAS */}
+          {currentView === 'programadas' && (
+            <ProgramadasTab
+              products={programadasProducts}
+              configs={configs}
+              bases={bases}
+              activeTab={programadasActiveTab}
+              handleTabChange={(t) => { setProgramadasActiveTab(t); setProgramadasPage(1); }}
+              search={programadasSearch}
+              setSearch={setProgramadasSearch}
+              selectedStatus={programadasSelectedStatus}
+              setSelectedStatus={setProgramadasSelectedStatus}
+              page={programadasPage}
+              setPage={setProgramadasPage}
+              totalPages={programadasTotalPages}
+              totalItems={programadasTotalItems}
+              limitPerPage={limitPerPage}
+              diasComerciais={diasComerciais}
+              sortField={programadasSortField}
+              setSortField={setProgramadasSortField}
+              sortDir={programadasSortDir}
+              setSortDir={setProgramadasSortDir}
+              onEditOverrides={openEditModal}
+              onRefresh={fetchProgramadas}
+              loading={programadasLoading}
+              tabOptions={tabOptions}
+              toggleSort={toggleSort}
+              SortIcon={SortIcon}
+              onShowDetails={fetchProductDetails}
+              productionApprovalList={productionApprovalList}
+              onToggleApprovalList={handleToggleApprovalList}
+            />
+          )}
+
           {/* VIEW: APPROVAL QUEUE */}
           {currentView === 'aprovacao' && (
             <AprovacaoTab
@@ -1461,6 +1595,7 @@ export default function ProducaoView({
           {/* VIEW: KITS MANAGEMENT */}
           {currentView === 'kits' && (
             <KitsTab
+              kitsStats={kitsStats}
               kits={kits}
               configs={configs}
               kitsActiveTab={kitsActiveTab}
@@ -1498,6 +1633,8 @@ export default function ProducaoView({
               toggleKitExpanded={toggleKitExpanded}
               productionApprovalList={productionApprovalList}
               onToggleApprovalList={handleToggleApprovalList}
+              onOpenComposition={handleOpenKitComposition}
+              onToggleApenasKit={handleToggleComponentApenasKit}
             />
           )}
 
@@ -1526,14 +1663,36 @@ export default function ProducaoView({
             />
           )}
 
-          {/* VIEW: PRODUCTION LOTS (ERP) */}
+          {/* VIEW: CALENDÁRIO DE PRODUÇÃO */}
+          {currentView === 'calendar' && (
+            <LotesCalendarTab
+              lotes={lotes}
+              onRefresh={fetchLotes}
+              loading={lotesLoading}
+              onOpenDetails={fetchLoteDetails}
+            />
+          )}
+
+          {/* VIEW: LOTES DE PRODUÇÃO (ERP) */}
           {currentView === 'lotes' && (
             <LotesTab 
               lotes={lotes} 
               onRefresh={fetchLotes} 
               loading={lotesLoading} 
               onOpenDetails={fetchLoteDetails}
-              selectedStatus={selectedLoteStatus}
+              selectedStatus="ALL"
+              setSelectedStatus={setSelectedLoteStatus}
+            />
+          )}
+
+          {/* VIEW: ERROS DE ESTOQUE */}
+          {currentView === 'erros' && (
+            <LotesTab 
+              lotes={lotes} 
+              onRefresh={fetchLotes} 
+              loading={lotesLoading} 
+              onOpenDetails={fetchLoteDetails}
+              selectedStatus="ERR_ANY_ERROR"
               setSelectedStatus={setSelectedLoteStatus}
             />
           )}
@@ -1766,6 +1925,61 @@ export default function ProducaoView({
                 <label htmlFor="produzir_apenas_kit" style={{ cursor: 'pointer', margin: 0, fontWeight: '500' }}>
                   Produzir apenas se houver demanda no Kit (Zera recomendação se kits estão OK)
                 </label>
+              </div>
+
+              {/* Seção Produção Programada */}
+              <div className="bg-blue-50/60 border border-blue-200 rounded-lg p-3 my-3">
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="checkbox"
+                    id="is_producao_programada"
+                    checked={overrideIsProgramada === 1}
+                    onChange={(e) => setOverrideIsProgramada(e.target.checked ? 1 : 0)}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="is_producao_programada" className="cursor-pointer font-bold text-blue-900 text-xs select-none">
+                    Habilitar Produção Programada (Gatilho e Objetivo)
+                  </label>
+                </div>
+                <p className="text-[11px] text-blue-700/80 mt-1">
+                  Ao marcar como Produção Programada, o item sairá da listagem de Gerenciamento de Produção e será gerenciado exclusivamente na aba <strong>Produções Programadas</strong>.
+                </p>
+
+                {overrideIsProgramada === 1 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 pt-3 border-t border-blue-200/60">
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="text-xs font-semibold text-zinc-700">
+                        Estoque de Disparo (Gatilho)
+                      </label>
+                      <input 
+                        type="number" 
+                        className="form-control text-zinc-900 mt-1" 
+                        placeholder="Ex: 500 (Dispara se EFP ≤ valor)"
+                        value={overrideProgramadaDisparo}
+                        onChange={(e) => setOverrideProgramadaDisparo(e.target.value)}
+                      />
+                      <span className="text-[10px] text-zinc-500 mt-0.5 block">
+                        Dispara sugestão quando EFP for menor ou igual a este valor.
+                      </span>
+                    </div>
+
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="text-xs font-semibold text-zinc-700">
+                        Quantidade Objetivo (Lote)
+                      </label>
+                      <input 
+                        type="number" 
+                        className="form-control text-zinc-900 mt-1" 
+                        placeholder="Ex: 1000 (Lote a produzir)"
+                        value={overrideProgramadaObjetivo}
+                        onChange={(e) => setOverrideProgramadaObjetivo(e.target.value)}
+                      />
+                      <span className="text-[10px] text-zinc-500 mt-0.5 block">
+                        Quantidade fixa sugerida a cada ciclo de produção.
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="form-group" style={{ marginTop: '0.75rem' }}>
@@ -2526,6 +2740,20 @@ export default function ProducaoView({
           onClose={() => setLoteDetailsDrawerOpen(false)}
           onToast={(message, type) => showToast(message, type || 'success')}
           onResolved={fetchLotes}
+        />
+
+        <KitCompositionDrawer
+          isOpen={compositionDrawerOpen}
+          onClose={() => {
+            setCompositionDrawerOpen(false);
+            setSelectedKitForComposition(null);
+          }}
+          kitCodigo={selectedKitForComposition?.codigo || ''}
+          kitDescricao={selectedKitForComposition?.descricao || ''}
+          onCompositionUpdated={() => {
+            fetchProducts();
+            fetchKits();
+          }}
         />
 
       {/* Action status notification Toast */}

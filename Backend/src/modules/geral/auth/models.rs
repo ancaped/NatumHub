@@ -71,6 +71,15 @@ pub struct OperatorPublic {
     pub role: String,
 }
 
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModulePermission {
+    pub module_key: String,
+    pub access_level: String, // "view" | "edit"
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OperatorDetail {
@@ -79,6 +88,8 @@ pub struct OperatorDetail {
     pub role: String,
     pub active: bool,
     pub modules: Vec<String>,
+    #[serde(default)]
+    pub permissions: HashMap<String, String>,
     pub update_channel: String,
     pub has_password: bool,
 }
@@ -90,6 +101,8 @@ pub struct SaveOperatorRequest {
     pub role: String,
     pub active: Option<bool>,
     pub modules: Vec<String>,
+    #[serde(default)]
+    pub permissions: Option<HashMap<String, String>>,
     #[serde(default)]
     pub update_channel: Option<String>,
     #[serde(default)]
@@ -158,6 +171,8 @@ pub struct AuthUser {
     pub role: String,
     pub photo_url: String,
     pub modules: Vec<String>,
+    #[serde(default)]
+    pub permissions: HashMap<String, String>,
     pub update_channel: String,
     pub user_update_channel: String,
     pub device_update_channel: String,
@@ -179,6 +194,7 @@ pub struct AuthContext {
     pub display_name: String,
     pub role: OperatorRole,
     pub modules: Vec<String>,
+    pub permissions: HashMap<String, String>,
 }
 
 impl AuthContext {
@@ -196,5 +212,20 @@ impl AuthContext {
 
     pub fn has_module(&self, key: &str) -> bool {
         self.role.is_supervisor() || self.modules.iter().any(|m| m == key)
+    }
+
+    pub fn can_view_module(&self, key: &str) -> bool {
+        self.has_module(key)
+    }
+
+    pub fn can_edit_module(&self, key: &str) -> bool {
+        if self.role.is_supervisor() {
+            return true;
+        }
+        if !self.modules.iter().any(|m| m == key) {
+            return false;
+        }
+        // If not explicitly "view", defaults to "edit"
+        self.permissions.get(key).map(|lvl| lvl != "view").unwrap_or(true)
     }
 }

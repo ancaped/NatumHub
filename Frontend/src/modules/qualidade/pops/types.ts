@@ -66,16 +66,25 @@ export function emptyContent(): PopContent {
   };
 }
 
-/** Aceita formato novo (body) ou legado (8 seções). */
+/** Aceita formato novo (body) ou legado (8 seções) ou string JSON. */
 export function normalizeContent(raw: unknown): PopContent {
-  if (!raw || typeof raw !== 'object') return emptyContent();
-  const o = raw as Record<string, unknown>;
-  if (typeof o.body === 'string') {
+  if (!raw) return emptyContent();
+  let o = raw;
+  if (typeof o === 'string') {
+    try {
+      o = JSON.parse(o);
+    } catch {
+      return { body: o as string, elaboratedAt: null, reviewedAt: null, approvedAt: null };
+    }
+  }
+  if (!o || typeof o !== 'object') return emptyContent();
+  const rec = o as Record<string, unknown>;
+  if (typeof rec.body === 'string') {
     return {
-      body: o.body,
-      elaboratedAt: (o.elaboratedAt as string) ?? null,
-      reviewedAt: (o.reviewedAt as string) ?? null,
-      approvedAt: (o.approvedAt as string) ?? null,
+      body: rec.body,
+      elaboratedAt: (rec.elaboratedAt as string) ?? null,
+      reviewedAt: (rec.reviewedAt as string) ?? null,
+      approvedAt: (rec.approvedAt as string) ?? null,
     };
   }
   const sections: [string, string][] = [

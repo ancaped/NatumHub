@@ -62,3 +62,12 @@ export function getAccessibleModules(user: AuthUser | null): string[] {
   if (isSupervisor(user)) return Array.from(ALL_KEYS);
   return user.modules ?? [];
 }
+
+export function canEditView(user: AuthUser | null, view: string): boolean {
+  if (!user) return false;
+  if (isSupervisor(user)) return true;
+  if (!canAccessView(user, view)) return false;
+  const key = viewToModuleKey(view);
+  if (!key) return true;
+  return user.permissions?.[key] !== 'view';
+}

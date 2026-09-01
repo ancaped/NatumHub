@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { apiFetch } from '../../../geral/lib/http';
 import { api } from '../../../geral/lib/api';
 import { DemandResult, FormulationLine } from '../../../geral/lib/types';
 import { 
   Search, Calculator, Trash2, Plus, Minus, Printer, 
   AlertTriangle, Check, Layers, Boxes, ShieldAlert,
-  Info, Loader2, Sparkles, ClipboardList, TrendingUp
+  Info, Loader2, Sparkles, ClipboardList, TrendingUp,
+  Filter, ChevronDown, ChevronRight, Percent, RotateCcw,
+  Sliders, ArrowUpRight
 } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
 
@@ -16,6 +18,29 @@ interface SimulatedProduct {
   quantity: number;
   status_label?: string;
   produzir_apenas_kit?: boolean;
+  media_vendas?: number;
+  estoque_ideal_qtd?: number;
+  estoque?: number;
+  estoque_futuro?: number;
+}
+
+export interface InsumoContribution {
+  productCode: string;
+  productDesc: string;
+  productLine: string;
+  qtyProduct: number;
+  unitMultiplier: number;
+  totalInsumo: number;
+  viaKit?: string;
+}
+
+export interface CalculatedInsumoRequirement {
+  code: string;
+  description: string;
+  qtyNeeded: number;
+  unit: string;
+  category: string;
+  contributions: InsumoContribution[];
 }
 
 /** kit_codigo → lista de componentes (quantidade por kit) */
@@ -49,6 +74,14 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
   
   // Search filter for insumos table
   const [searchInsumo, setSearchInsumo] = useState('');
+  const [insumoLineFilter, setInsumoLineFilter] = useState('ALL');
+
+  // Expanded insumo drill-down (traceability)
+  const [expandedInsumo, setExpandedInsumo] = useState<string | null>(null);
+
+  // Line quick actions state
+  const [lineMonthsInput, setLineMonthsInput] = useState<string>('2');
+  const [showLineActions, setShowLineActions] = useState(false);
 
   // Simulation state
   const [simulatedProducts, setSimulatedProducts] = useState<SimulatedProduct[]>([]);
@@ -62,36 +95,48 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
   const [insumoTypeFilter, setInsumoTypeFilter] = useState<'ALL' | 'MP' | 'EMB'>('ALL');
   const [requirementsSource, setRequirementsSource] = useState<RequirementsSource>('both');
 
-  // Load products and demands on mount
-  useEffect(() => {
-    if (active) {
-      loadInitialData();
-    }
-  }, [active]);
+  const fetchFormulationIfNeeded = useCallback(async (productCode: string) => {
+    const clean = trimCode(productCode);
+    if (!clean) return;
+    const norm = clean.replace(/\./g, '');
 
-  // Load from localStorage
-  useEffect(() => {
-    const stored = localStorage.getItem('natum_hub_simulated_products');
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        setSimulatedProducts(parsed);
-        // Fetch formulations for the restored products
-        parsed.forEach((p: SimulatedProduct) => {
-          fetchFormulationIfNeeded(p.codigo);
-        });
-      } catch (e) {
-        console.error('Failed to load simulated products from localStorage:', e);
-      }
-    }
+    setFormulations((currentForms) => {
+      if (currentForms[clean] || currentForms[norm]) return currentForms;
+
+      setFetchingFormulations((prevFetching) => {
+        if (prevFetching[clean] || prevFetching[norm]) return prevFetching;
+
+        (async () => {
+          try {
+            const res = await apiFetch(`/produtos/formulacao/${encodeURIComponent(clean)}`);
+            if (res.ok) {
+              const data = await res.json();
+              setFormulations((prev) => ({
+                ...prev,
+                [clean]: data,
+                [norm]: data,
+              }));
+            }
+          } catch (e) {
+            console.error(`Failed to fetch formulation for product ${clean}:`, e);
+          } finally {
+            setFetchingFormulations((prev) => {
+              const next = { ...prev };
+              delete next[clean];
+              delete next[norm];
+              return next;
+            });
+          }
+        })();
+
+        return { ...prevFetching, [clean]: true, [norm]: true };
+      });
+
+      return currentForms;
+    });
   }, []);
 
-  // Save to localStorage
-  const saveToLocalStorage = (list: SimulatedProduct[]) => {
-    localStorage.setItem('natum_hub_simulated_products', JSON.stringify(list));
-  };
-
-  const rebuildAutoProducts = (products: any[], kits: any[] = allKits, bom: KitBomMap = kitBom) => {
+  const rebuildAutoProducts = useCallback((products: any[], kits: any[] = allKits, bom: KitBomMap = kitBom) => {
     const fromProducts: SimulatedProduct[] = products
       .filter(isAutoProductionProduct)
       .map((p: any) => ({
@@ -101,9 +146,12 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
         quantity: p.producao_recomendada > 0 ? p.producao_recomendada : 100,
         status_label: p.status_label || p.status,
         produzir_apenas_kit: Number(p.produzir_apenas_kit) === 1,
+        media_vendas: Number(p.media_vendas) || 0,
+        estoque_ideal_qtd: Number(p.estoque_ideal_qtd) || 0,
+        estoque: Number(p.estoque) || 0,
+        estoque_futuro: Number(p.estoque_futuro) || 0,
       }));
 
-    // Kits não vêm em /products — incluir urgentes de /kits.
     const fromKits: SimulatedProduct[] = (kits || [])
       .map((k: any) => k.kit_detalhes || k.kitDetalhes || k)
       .filter(isAutoProductionProduct)
@@ -114,6 +162,10 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
         quantity: p.producao_recomendada > 0 ? p.producao_recomendada : 100,
         status_label: p.status_label || p.status,
         produzir_apenas_kit: false,
+        media_vendas: Number(p.media_vendas) || 0,
+        estoque_ideal_qtd: Number(p.estoque_ideal_qtd) || 0,
+        estoque: Number(p.estoque) || 0,
+        estoque_futuro: Number(p.estoque_futuro) || 0,
       }));
 
     const byCode = new Map<string, SimulatedProduct>();
@@ -132,13 +184,13 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
         comps.forEach((c) => fetchFormulationIfNeeded(c.codigo));
       }
     });
-  };
+  }, [allKits, kitBom, fetchFormulationIfNeeded]);
 
   const loadInitialData = async () => {
     setLoading(true);
     try {
       const [prodRes, kitsRes, bomRes, demandList] = await Promise.all([
-        apiFetch('/products?limit=5000&show_hidden=true'),
+        apiFetch('/products?limit=5000&show_hidden=true&include_kits=true'),
         apiFetch('/kits?limit=5000&show_hidden=true'),
         apiFetch('/kits/composicao'),
         api.getDemands().catch(() => [] as DemandResult[]),
@@ -186,24 +238,31 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     }
   };
 
-  const fetchFormulationIfNeeded = async (productCode: string) => {
-    if (formulations[productCode] || fetchingFormulations[productCode]) return;
-
-    setFetchingFormulations(prev => ({ ...prev, [productCode]: true }));
-    try {
-      const res = await apiFetch(`/produtos/formulacao/${encodeURIComponent(productCode)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setFormulations(prev => ({ ...prev, [productCode]: data }));
-      }
-    } catch (e) {
-      console.error(`Failed to fetch formulation for product ${productCode}:`, e);
-    } finally {
-      setFetchingFormulations(prev => ({ ...prev, [productCode]: false }));
+  useEffect(() => {
+    if (active) {
+      loadInitialData();
     }
+  }, [active]);
+
+  useEffect(() => {
+    const stored = localStorage.getItem('natum_hub_simulated_products');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        setSimulatedProducts(parsed);
+        parsed.forEach((p: SimulatedProduct) => {
+          fetchFormulationIfNeeded(p.codigo);
+        });
+      } catch (e) {
+        console.error('Failed to load simulated products from localStorage:', e);
+      }
+    }
+  }, [fetchFormulationIfNeeded]);
+
+  const saveToLocalStorage = (list: SimulatedProduct[]) => {
+    localStorage.setItem('natum_hub_simulated_products', JSON.stringify(list));
   };
 
-  // Get unique lines for the filter dropdown
   const productLines = useMemo(() => {
     const lines = new Set<string>();
     allProducts.forEach(p => {
@@ -212,7 +271,6 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     return Array.from(lines).sort();
   }, [allProducts]);
 
-  // Filter products list for selection
   const filteredProductsToSelect = useMemo(() => {
     let list = allProducts;
     
@@ -228,52 +286,77 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
       );
     }
 
-    // Don't show already selected products in the selection dropdown/list
     const selectedCodes = new Set(simulatedProducts.map(p => p.codigo));
-    return list.filter(p => !selectedCodes.has(p.codigo)).slice(0, 15);
+    return list.filter(p => !selectedCodes.has(trimCode(p.codigo))).slice(0, 15);
   }, [allProducts, selectedLine, searchProduct, simulatedProducts]);
 
-  // Handle adding a product
   const handleAddProduct = (product: any) => {
     const nextList = [
       ...simulatedProducts,
       {
-        codigo: product.codigo,
+        codigo: trimCode(product.codigo),
         descricao: product.descricao,
         nome_linha: product.nome_linha || 'Outros',
-        quantity: product.producao_recomendada > 0 ? product.producao_recomendada : 100,
+        quantity: product.producao_recomendada > 0 ? product.producao_recomendada : (Math.round(product.estoque_ideal_qtd) || 100),
+        status_label: product.status_label || product.status,
+        produzir_apenas_kit: Number(product.produzir_apenas_kit) === 1,
+        media_vendas: Number(product.media_vendas) || 0,
+        estoque_ideal_qtd: Number(product.estoque_ideal_qtd) || 0,
+        estoque: Number(product.estoque) || 0,
+        estoque_futuro: Number(product.estoque_futuro) || 0,
       }
     ];
     setSimulatedProducts(nextList);
     saveToLocalStorage(nextList);
     fetchFormulationIfNeeded(product.codigo);
+    
+    const comps = kitBom[product.codigo] || kitBom[trimCode(product.codigo)];
+    if (comps) {
+      comps.forEach(c => fetchFormulationIfNeeded(c.codigo));
+    }
+
     setSearchProduct('');
   };
 
-  // Add the entire selected line to the simulation
-  const handleAddEntireLine = () => {
-    if (selectedLine === 'ALL') return;
+  const handleAddEntireLine = (lineName: string = selectedLine) => {
+    if (lineName === 'ALL') return;
 
-    const productsInLine = allProducts.filter(p => p.nome_linha === selectedLine);
+    const productsInLine = allProducts.filter(p => p.nome_linha === lineName);
     if (productsInLine.length === 0) return;
 
     const currentSelectedCodes = new Set(simulatedProducts.map(p => p.codigo));
     const itemsToAdd: SimulatedProduct[] = [];
 
     productsInLine.forEach(product => {
-      if (!currentSelectedCodes.has(product.codigo)) {
+      const code = trimCode(product.codigo);
+      if (!currentSelectedCodes.has(code)) {
+        const qty = product.producao_recomendada > 0 
+          ? product.producao_recomendada 
+          : (Math.round(product.estoque_ideal_qtd) > 0 ? Math.round(product.estoque_ideal_qtd) : 100);
+
         itemsToAdd.push({
-          codigo: product.codigo,
+          codigo: code,
           descricao: product.descricao,
           nome_linha: product.nome_linha || 'Outros',
-          quantity: product.producao_recomendada > 0 ? product.producao_recomendada : 100,
+          quantity: qty,
+          status_label: product.status_label || product.status,
+          produzir_apenas_kit: Number(product.produzir_apenas_kit) === 1,
+          media_vendas: Number(product.media_vendas) || 0,
+          estoque_ideal_qtd: Number(product.estoque_ideal_qtd) || 0,
+          estoque: Number(product.estoque) || 0,
+          estoque_futuro: Number(product.estoque_futuro) || 0,
         });
-        fetchFormulationIfNeeded(product.codigo);
+
+        fetchFormulationIfNeeded(code);
+        const comps = kitBom[code] || kitBom[product.codigo];
+        if (comps) {
+          comps.forEach(c => fetchFormulationIfNeeded(c.codigo));
+        }
       }
     });
 
     if (itemsToAdd.length === 0) {
-      alert(`Todos os itens da linha "${selectedLine}" já estão na simulação.`);
+      alert(`Todos os produtos da linha "${lineName}" já estão na simulação.`);
       return;
     }
 
@@ -282,7 +365,65 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     saveToLocalStorage(nextList);
   };
 
-  // Handle changing quantity
+  const handleAdjustLinePercentage = (lineName: string, pct: number) => {
+    if (lineName === 'ALL') return;
+    const factor = 1 + (pct / 100);
+    const nextList = simulatedProducts.map(p => {
+      if (p.nome_linha === lineName) {
+        return {
+          ...p,
+          quantity: Math.max(0, Math.round(p.quantity * factor))
+        };
+      }
+      return p;
+    });
+    setSimulatedProducts(nextList);
+    saveToLocalStorage(nextList);
+  };
+
+  const handleSetLineCoverage = (lineName: string, months: number) => {
+    if (lineName === 'ALL' || months <= 0) return;
+    const nextList = simulatedProducts.map(p => {
+      if (p.nome_linha === lineName) {
+        const avg = p.media_vendas || 0;
+        const target = Math.max(0, Math.round(avg * months));
+        return {
+          ...p,
+          quantity: target > 0 ? target : p.quantity
+        };
+      }
+      return p;
+    });
+    setSimulatedProducts(nextList);
+    saveToLocalStorage(nextList);
+  };
+
+  const handleFillLineIdealDemand = (lineName: string) => {
+    if (lineName === 'ALL') return;
+    const nextList = simulatedProducts.map(p => {
+      if (p.nome_linha === lineName) {
+        const ideal = Math.round(p.estoque_ideal_qtd || 0);
+        return {
+          ...p,
+          quantity: ideal > 0 ? ideal : 100
+        };
+      }
+      return p;
+    });
+    setSimulatedProducts(nextList);
+    saveToLocalStorage(nextList);
+  };
+
+  const handleClearLine = (lineName: string) => {
+    if (lineName === 'ALL') {
+      handleClearAll();
+      return;
+    }
+    const nextList = simulatedProducts.filter(p => p.nome_linha !== lineName);
+    setSimulatedProducts(nextList);
+    saveToLocalStorage(nextList);
+  };
+
   const handleUpdateQty = (codigo: string, quantity: number) => {
     const nextList = simulatedProducts.map(p => 
       p.codigo === codigo ? { ...p, quantity: Math.max(0, quantity) } : p
@@ -291,22 +432,19 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     saveToLocalStorage(nextList);
   };
 
-  // Handle removing a product
   const handleRemoveProduct = (codigo: string) => {
     const nextList = simulatedProducts.filter(p => p.codigo !== codigo);
     setSimulatedProducts(nextList);
     saveToLocalStorage(nextList);
   };
 
-  // Handle resetting the simulation
   const handleClearAll = () => {
-    if (confirm('Limpar toda a simulação atual?')) {
+    if (confirm('Limpar todos os produtos da simulação atual?')) {
       setSimulatedProducts([]);
       saveToLocalStorage([]);
     }
   };
 
-  // Import products from Produção → Aprovação (same-browser localStorage)
   const handleImportFromApproval = async () => {
     let approvalCodes: string[] = [];
     let approvalQtys: Record<string, number> = {};
@@ -330,7 +468,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     if (products.length === 0) {
       setLoading(true);
       try {
-        const prodRes = await apiFetch('/products?limit=5000&show_hidden=true');
+        const prodRes = await apiFetch('/products?limit=5000&show_hidden=true&include_kits=true');
         if (prodRes.ok) {
           const data = await prodRes.json();
           products = data.items || [];
@@ -343,26 +481,27 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
       }
     }
 
-    const byCode = new Map(products.map((p: any) => [p.codigo, p]));
+    const byCode = new Map(products.map((p: any) => [trimCode(p.codigo), p]));
     const existingByCode = new Map(simulatedProducts.map(p => [p.codigo, p]));
     let imported = 0;
     let updated = 0;
     const missing: string[] = [];
 
-    for (const code of approvalCodes) {
+    for (const rawCode of approvalCodes) {
+      const code = trimCode(rawCode);
       const product = byCode.get(code);
       if (!product) {
         missing.push(code);
         continue;
       }
 
-      const qtyFromApproval = Number(approvalQtys[code]);
+      const qtyFromApproval = Number(approvalQtys[rawCode] || approvalQtys[code]);
       const quantity =
         qtyFromApproval > 0
           ? qtyFromApproval
           : product.producao_recomendada > 0
             ? product.producao_recomendada
-            : 100;
+            : (Math.round(product.estoque_ideal_qtd) > 0 ? Math.round(product.estoque_ideal_qtd) : 100);
 
       const existing = existingByCode.get(code);
       if (existing) {
@@ -374,13 +513,22 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
           descricao: product.descricao,
           nome_linha: product.nome_linha || 'Outros',
           quantity,
+          status_label: product.status_label || product.status,
+          produzir_apenas_kit: Number(product.produzir_apenas_kit) === 1,
+          media_vendas: Number(product.media_vendas) || 0,
+          estoque_ideal_qtd: Number(product.estoque_ideal_qtd) || 0,
+          estoque: Number(product.estoque) || 0,
+          estoque_futuro: Number(product.estoque_futuro) || 0,
         });
         imported += 1;
       }
       fetchFormulationIfNeeded(code);
+      const comps = kitBom[code] || kitBom[product.codigo];
+      if (comps) {
+        comps.forEach(c => fetchFormulationIfNeeded(c.codigo));
+      }
     }
 
-    // Preserve order: current sim items (updated in place), then newly imported in approval order
     const nextList: SimulatedProduct[] = [];
     const seen = new Set<string>();
     for (const p of simulatedProducts) {
@@ -390,7 +538,8 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
         seen.add(p.codigo);
       }
     }
-    for (const code of approvalCodes) {
+    for (const rawCode of approvalCodes) {
+      const code = trimCode(rawCode);
       if (seen.has(code)) continue;
       const item = existingByCode.get(code);
       if (item) {
@@ -409,12 +558,12 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     alert(`Importação concluída: ${parts.join(', ')}.`);
   };
 
-  // Create lookup map for item stocks and details from demands list
   const demandsByCode = useMemo(() => {
     const map: Record<string, DemandResult> = {};
     demands.forEach(d => {
-      map[d.itemCode] = d;
-      const normalized = d.itemCode.replace(/\./g, '');
+      const code = trimCode(d.itemCode);
+      map[code] = d;
+      const normalized = code.replace(/\./g, '');
       map[normalized] = d;
     });
     return map;
@@ -423,7 +572,6 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
   const productsForRequirements = useMemo(() => {
     if (requirementsSource === 'manual') return simulatedProducts;
     if (requirementsSource === 'auto') return autoProducts;
-    // both: merge by code (sum quantities)
     const byCode = new Map<string, SimulatedProduct>();
     for (const p of [...simulatedProducts, ...autoProducts]) {
       const existing = byCode.get(p.codigo);
@@ -436,123 +584,177 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     return Array.from(byCode.values());
   }, [requirementsSource, simulatedProducts, autoProducts]);
 
-  const addRequirementLine = (
-    reqs: Record<string, { code: string; description: string; qtyNeeded: number; unit: string; category: string }>,
-    ingredientCode: string,
-    description: string | undefined,
-    totalNeeded: number,
-  ) => {
-    const key = trimCode(ingredientCode);
-    if (!key || totalNeeded === 0) return;
-    const normKey = key.replace(/\./g, '');
-    const demandItem = demandsByCode[key] || demandsByCode[normKey];
-    const unit = demandItem?.unit || 'un';
-    let category = 'Outros';
-    const catId = demandItem?.categoryId || '';
-    if (catId.includes('mp') || catId.includes('materia')) {
-      category = 'Matéria-Prima';
-    } else if (catId.includes('emb') || catId.includes('embalagem')) {
-      category = 'Embalagem';
-    } else if (demandItem?.categoryName) {
-      category = demandItem.categoryName;
-    }
-    if (reqs[key]) {
-      reqs[key].qtyNeeded += totalNeeded;
-    } else {
-      reqs[key] = {
-        code: key,
-        description: description || demandItem?.description || 'Item não cadastrado',
-        qtyNeeded: totalNeeded,
-        unit,
-        category,
-      };
-    }
-  };
-
-  // Aggregate required ingredients (insumos) — kits explodem kit_composicao.
-  const calculatedRequirements = useMemo(() => {
-    const reqs: Record<string, { 
-      code: string; 
-      description: string; 
-      qtyNeeded: number; 
-      unit: string;
-      category: string;
-    }> = {};
-
-    const urgentKitCodes = new Set(
-      productsForRequirements
-        .filter((p) => (kitBom[p.codigo] || []).length > 0)
-        .map((p) => p.codigo)
-    );
-    const skipDirect = new Set<string>();
-    for (const kitCode of urgentKitCodes) {
-      for (const comp of kitBom[kitCode] || []) {
-        const meta = productsForRequirements.find((p) => p.codigo === comp.codigo)
-          || autoProducts.find((p) => p.codigo === comp.codigo)
-          || allProducts.find((p: any) => trimCode(p.codigo) === comp.codigo);
-        const apenasKit = meta
-          ? Boolean((meta as any).produzir_apenas_kit ?? Number((meta as any).produzir_apenas_kit) === 1)
-          : false;
-        // Meta from allProducts uses numeric flag
-        const fromCatalog = allProducts.find((p: any) => trimCode(p.codigo) === comp.codigo);
-        if (apenasKit || Number(fromCatalog?.produzir_apenas_kit) === 1) {
-          skipDirect.add(comp.codigo);
-        }
-      }
-    }
-
-    productsForRequirements.forEach(simProd => {
-      const code = trimCode(simProd.codigo);
-      if (skipDirect.has(code)) return;
-
-      const comps = kitBom[code];
-      if (comps && comps.length > 0) {
+  // Garante carregamento de formulações para todos os produtos e componentes de kit da simulação
+  useEffect(() => {
+    productsForRequirements.forEach((p) => {
+      const c = trimCode(p.codigo);
+      if (c) {
+        fetchFormulationIfNeeded(c);
+        const norm = c.replace(/\./g, '');
+        const comps = kitBom[c] || kitBom[norm] || [];
         comps.forEach((comp) => {
-          const lines = formulations[comp.codigo] || [];
+          if (comp.codigo) fetchFormulationIfNeeded(comp.codigo);
+        });
+      }
+    });
+  }, [productsForRequirements, kitBom, fetchFormulationIfNeeded]);
+
+  const calculatedRequirements = useMemo(() => {
+    const reqs: Record<string, CalculatedInsumoRequirement> = {};
+
+    const addRequirement = (
+      ingredientCode: string,
+      description: string | undefined,
+      neededQty: number,
+      contrib: InsumoContribution
+    ) => {
+      const key = trimCode(ingredientCode);
+      if (!key || neededQty <= 0) return;
+      const normKey = key.replace(/\./g, '');
+      const demandItem = demandsByCode[key] || demandsByCode[normKey];
+      const unit = demandItem?.unit || 'un';
+      
+      let category = 'Outros';
+      const catId = (demandItem?.categoryId || '').toLowerCase();
+      const catName = (demandItem?.categoryName || '').toLowerCase();
+      const k = key.toLowerCase();
+
+      if (
+        k.startsWith('9.15.') || 
+        k.startsWith('1.') || 
+        catId.includes('mp') || 
+        catId.includes('materia') || 
+        catName.includes('mat') || 
+        catName.includes('prima') || 
+        catName.includes('mp')
+      ) {
+        category = 'Matéria-Prima';
+      } else if (
+        k.startsWith('9.07.') || 
+        k.startsWith('9.11.') || 
+        k.startsWith('9.04.') || 
+        k.startsWith('9.01.') || 
+        k.startsWith('9.02.') || 
+        k.startsWith('9.03.') || 
+        k.startsWith('9.08.') || 
+        k.startsWith('9.09.') || 
+        k.startsWith('9.10.') || 
+        k.startsWith('9.12.') || 
+        k.startsWith('9.13.') || 
+        k.startsWith('4.') || 
+        catId.includes('emb') || 
+        catId.includes('embalagem') || 
+        catName.includes('emb') || 
+        catName.includes('embalag')
+      ) {
+        category = 'Embalagem';
+      } else if (demandItem?.categoryName) {
+        category = demandItem.categoryName;
+      }
+
+      if (!reqs[key]) {
+        reqs[key] = {
+          code: key,
+          description: description || demandItem?.description || 'Item não cadastrado',
+          qtyNeeded: 0,
+          unit,
+          category,
+          contributions: [],
+        };
+      }
+
+      reqs[key].qtyNeeded += neededQty;
+      reqs[key].contributions.push(contrib);
+    };
+
+    const simProductCodes = new Set(
+      productsForRequirements.map((p) => trimCode(p.codigo))
+    );
+    const simProductNormCodes = new Set(
+      productsForRequirements.map((p) => trimCode(p.codigo).replace(/\./g, ''))
+    );
+
+    productsForRequirements.forEach((simProd) => {
+      const code = trimCode(simProd.codigo);
+      const normCode = code.replace(/\./g, '');
+      const comps = kitBom[code] || kitBom[normCode];
+
+      if (comps && comps.length > 0) {
+        // Item é um Kit Comercial
+        comps.forEach((comp) => {
+          const compCode = trimCode(comp.codigo);
+          const normComp = compCode.replace(/\./g, '');
+          const lines = formulations[compCode] || formulations[normComp] || [];
+          const hasOwnFormulation = lines.length > 0;
+          const isCompInSimulation = simProductCodes.has(compCode) || simProductNormCodes.has(normComp);
+
+          // Se o componente é um produto fabricado e já está na fila de simulação,
+          // não duplicar seus insumos através do kit (a demanda vem diretamente do produto fabricado).
+          if (hasOwnFormulation && isCompInSimulation) {
+            return;
+          }
+
+          const compProdQty = simProd.quantity * comp.quantidade;
           if (lines.length > 0) {
             lines.forEach((line) => {
-              addRequirementLine(
-                reqs,
-                line.ingredientCode,
-                line.description,
-                simProd.quantity * comp.quantidade * line.quantity,
-              );
+              const ingCode = trimCode(line.ingredientCode);
+              const totalNeeded = compProdQty * line.quantity;
+              addRequirement(ingCode, line.description, totalNeeded, {
+                productCode: compCode,
+                productDesc: comp.descricao || compCode,
+                productLine: simProd.nome_linha,
+                qtyProduct: compProdQty,
+                unitMultiplier: line.quantity,
+                totalInsumo: totalNeeded,
+                viaKit: `${simProd.codigo} (${simProd.descricao})`,
+              });
             });
           } else {
-            // Item direto (caixa) sem formulação
-            addRequirementLine(
-              reqs,
-              comp.codigo,
-              comp.descricao,
-              simProd.quantity * comp.quantidade,
-            );
+            // Item direto do kit (ex: caixa do kit, sleeve, berço sem fórmula)
+            addRequirement(compCode, comp.descricao, compProdQty, {
+              productCode: compCode,
+              productDesc: comp.descricao || compCode,
+              productLine: simProd.nome_linha,
+              qtyProduct: compProdQty,
+              unitMultiplier: comp.quantidade,
+              totalInsumo: compProdQty,
+              viaKit: `${simProd.codigo} (${simProd.descricao})`,
+            });
           }
         });
         return;
       }
 
-      const lines = formulations[code] || formulations[simProd.codigo] || [];
+      // Produto acabado regular
+      const lines = formulations[code] || formulations[normCode] || [];
       lines.forEach((line) => {
-        addRequirementLine(
-          reqs,
-          line.ingredientCode,
-          line.description,
-          simProd.quantity * line.quantity,
-        );
+        const ingCode = trimCode(line.ingredientCode);
+        const totalNeeded = simProd.quantity * line.quantity;
+        addRequirement(ingCode, line.description, totalNeeded, {
+          productCode: simProd.codigo,
+          productDesc: simProd.descricao,
+          productLine: simProd.nome_linha,
+          qtyProduct: simProd.quantity,
+          unitMultiplier: line.quantity,
+          totalInsumo: totalNeeded,
+        });
       });
     });
 
-    // Convert to list
     let list = Object.values(reqs);
 
-    // Apply category filter
     if (insumoTypeFilter === 'MP') {
-      list = list.filter(item => item.category === 'Matéria-Prima');
+      list = list.filter(item => item.category === 'Matéria-Prima' || item.category.toLowerCase().includes('mat') || item.code.startsWith('9.15.'));
     } else if (insumoTypeFilter === 'EMB') {
-      list = list.filter(item => item.category === 'Embalagem');
+      list = list.filter(item => item.category === 'Embalagem' || item.category.toLowerCase().includes('emb') || item.code.startsWith('9.07.') || item.code.startsWith('9.11.') || item.code.startsWith('9.04.'));
     }
 
-    // Apply search filter
+    if (insumoLineFilter !== 'ALL') {
+      list = list.filter(item => 
+        item.contributions.some(c => c.productLine === insumoLineFilter)
+      );
+    }
+
     if (searchInsumo.trim() !== '') {
       const q = searchInsumo.toLowerCase().trim();
       list = list.filter(item => 
@@ -561,7 +763,6 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
       );
     }
 
-    // Apply deficit filter if selected
     if (onlyDeficit) {
       list = list.filter(item => {
         const normCode = item.code.replace(/\./g, '');
@@ -573,9 +774,8 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
       });
     }
 
-    // Sort by code
     return list.sort((a, b) => a.code.localeCompare(b.code));
-  }, [productsForRequirements, formulations, demandsByCode, insumoTypeFilter, searchInsumo, onlyDeficit, kitBom, autoProducts, allProducts]);
+  }, [productsForRequirements, formulations, demandsByCode, insumoTypeFilter, insumoLineFilter, searchInsumo, onlyDeficit, kitBom, autoProducts, allProducts]);
 
   const handleUpdateAutoQty = (codigo: string, quantity: number) => {
     setAutoProducts((prev) =>
@@ -587,106 +787,51 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     rebuildAutoProducts(allProducts, allKits, kitBom);
   };
 
-  // Summary Metrics
   const summary = useMemo(() => {
+    let totalUnits = 0;
     let mpCount = 0;
     let embCount = 0;
     let deficitCount = 0;
 
-    const globalReqs: Record<string, number> = {};
-    const urgentKitCodes = new Set(
-      productsForRequirements
-        .filter((p) => (kitBom[p.codigo] || []).length > 0)
-        .map((p) => p.codigo)
-    );
-    const skipDirect = new Set<string>();
-    for (const kitCode of urgentKitCodes) {
-      for (const comp of kitBom[kitCode] || []) {
-        const fromCatalog = allProducts.find((p: any) => trimCode(p.codigo) === comp.codigo);
-        if (Number(fromCatalog?.produzir_apenas_kit) === 1) {
-          skipDirect.add(comp.codigo);
-        }
-      }
-    }
-
-    productsForRequirements.forEach((simProd) => {
-      const code = trimCode(simProd.codigo);
-      if (skipDirect.has(code)) return;
-      const comps = kitBom[code];
-      if (comps && comps.length > 0) {
-        comps.forEach((comp) => {
-          const lines = formulations[comp.codigo] || [];
-          if (lines.length > 0) {
-            lines.forEach((line) => {
-              const key = trimCode(line.ingredientCode);
-              globalReqs[key] =
-                (globalReqs[key] || 0) + simProd.quantity * comp.quantidade * line.quantity;
-            });
-          } else {
-            globalReqs[comp.codigo] =
-              (globalReqs[comp.codigo] || 0) + simProd.quantity * comp.quantidade;
-          }
-        });
-        return;
-      }
-      const lines = formulations[code] || formulations[simProd.codigo] || [];
-      lines.forEach((line) => {
-        const key = trimCode(line.ingredientCode);
-        globalReqs[key] = (globalReqs[key] || 0) + simProd.quantity * line.quantity;
-      });
+    productsForRequirements.forEach(p => {
+      totalUnits += p.quantity;
     });
 
-    Object.entries(globalReqs).forEach(([code, qtyNeeded]) => {
-      const normCode = code.replace(/\./g, '');
-      const d = demandsByCode[code] || demandsByCode[normCode];
-      
-      let category = 'Outros';
-      const catId = d?.categoryId || '';
-      if (catId.includes('mp') || catId.includes('materia')) {
-        category = 'Matéria-Prima';
-      } else if (catId.includes('emb') || catId.includes('embalagem')) {
-        category = 'Embalagem';
-      }
+    calculatedRequirements.forEach(req => {
+      if (req.category === 'Matéria-Prima') mpCount++;
+      else if (req.category === 'Embalagem') embCount++;
 
-      if (category === 'Matéria-Prima') mpCount++;
-      if (category === 'Embalagem') embCount++;
-
+      const normCode = req.code.replace(/\./g, '');
+      const d = demandsByCode[req.code] || demandsByCode[normCode];
       const currentStock = d?.currentStock || 0;
       const inOrders = d?.inOrders || 0;
-      const net = (currentStock + inOrders) - qtyNeeded;
+      const net = (currentStock + inOrders) - req.qtyNeeded;
       if (net < 0) deficitCount++;
     });
 
     return {
       productsCount: productsForRequirements.length,
+      totalUnits,
       mpCount,
       embCount,
       deficitCount
     };
-  }, [productsForRequirements, formulations, demandsByCode, kitBom, allProducts]);
+  }, [productsForRequirements, calculatedRequirements, demandsByCode]);
 
-  // Print Report matches layout of PrintListTab.tsx
   const handlePrint = () => {
     if (calculatedRequirements.length === 0) {
-      alert("A simulação de insumos está vazia.");
+      alert("A lista de insumos calculados está vazia.");
       return;
     }
 
-    let reportTitle = 'Relatório de Previsão de Insumos (Simulação)';
-    let sectionTitle = '2. Necessidade Consolidada de Insumos Requeridos';
-    let descHeader = 'Descrição do Insumo';
+    const reportTitle = insumoTypeFilter === 'MP'
+      ? 'Previsão de Matéria-Prima (Simulação)'
+      : insumoTypeFilter === 'EMB'
+      ? 'Previsão de Embalagens (Simulação)'
+      : 'Previsão Consolidada de Insumos & Embalagens';
 
-    if (insumoTypeFilter === 'MP') {
-      reportTitle = 'Relatório de Previsão de Matéria-Prima (Simulação)';
-      sectionTitle = '2. Necessidade Consolidada de Matérias-Primas Requeridas';
-      descHeader = 'Descrição da Matéria-Prima';
-    } else if (insumoTypeFilter === 'EMB') {
-      reportTitle = 'Relatório de Previsão de Embalagens (Simulação)';
-      sectionTitle = '2. Necessidade Consolidada de Embalagens Requeridas';
-      descHeader = 'Descrição da Embalagem';
-    }
+    const today = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-    // Create hidden iframe
     const iframe = document.createElement('iframe');
     iframe.style.position = 'fixed';
     iframe.style.left = '0';
@@ -695,28 +840,18 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
     iframe.style.height = '0';
     iframe.style.border = 'none';
     iframe.style.opacity = '0';
-    iframe.style.pointerEvents = 'none';
     document.body.appendChild(iframe);
     
     const doc = iframe.contentWindow?.document;
     if (!doc) {
       alert("Não foi possível iniciar a impressão.");
-      document.body.removeChild(iframe);
       return;
     }
-    
-    const today = new Date().toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
 
     const productsRows = productsForRequirements.map(p => `
       <tr>
         <td style="font-family: monospace; font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px; text-align: left;">${p.codigo}</td>
-        <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px; text-align: left; font-weight: 500;">${p.descricao}</td>
+        <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px; text-align: left; font-weight: 600;">${p.descricao}</td>
         <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px; text-align: left; color: #4b5563;">${p.nome_linha}</td>
         <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px; text-align: right; font-weight: bold;">${p.quantity.toLocaleString('pt-BR')} un</td>
       </tr>
@@ -733,12 +868,13 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
       return `
         <tr>
           <td style="font-family: monospace; font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px 4px; text-align: left;">${req.code}</td>
-          <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px 4px; text-align: left; font-weight: 500;">${req.description}</td>
-          <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px 4px; text-align: right; font-weight: bold; background-color: #fafafa;">${req.qtyNeeded.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ${req.unit}</td>
+          <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px 4px; text-align: left; font-weight: 600;">${req.description}</td>
+          <td style="font-size: 9px; border-bottom: 1px solid #e5e7eb; padding: 6px 4px; text-align: left; color: #6b7280;">${req.category}</td>
+          <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px 4px; text-align: right; font-weight: bold; background-color: #f9fafb;">${req.qtyNeeded.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ${req.unit}</td>
           <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px 4px; text-align: right;">${currentStock.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ${req.unit}</td>
-          <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px 4px; text-align: right; color: ${inOrders > 0 ? '#2563eb' : '#4b5563'}; font-weight: ${inOrders > 0 ? 'bold' : 'normal'};">${inOrders > 0 ? `${inOrders.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ${req.unit}` : '-'}</td>
+          <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px 4px; text-align: right; color: ${inOrders > 0 ? '#1d4ed8' : '#6b7280'};">${inOrders > 0 ? `+${inOrders.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}` : '-'}</td>
           <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px 4px; text-align: right; font-weight: bold; color: ${net < 0 ? '#b91c1c' : '#047857'}">${net.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ${req.unit}</td>
-          <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px 4px; text-align: right; font-weight: bold; background-color: #fef2f2; color: #b91c1c;">
+          <td style="font-size: 10px; border-bottom: 1px solid #e5e7eb; padding: 6px 4px; text-align: right; font-weight: bold; background-color: ${buy > 0 ? '#fef2f2' : '#ffffff'}; color: ${buy > 0 ? '#b91c1c' : '#9ca3af'};">
             ${buy > 0 ? `${buy.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ${req.unit}` : '-'}
           </td>
         </tr>
@@ -752,188 +888,54 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
         <title>${reportTitle} — NatumHub</title>
         <meta charset="utf-8">
         <style>
-          @page {
-            size: A4 portrait;
-            margin: 15mm 10mm 15mm 10mm;
-          }
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            color: #1f2937;
-            background-color: #ffffff;
-            margin: 0;
-            padding: 0;
-            font-size: 10px;
-            line-height: 1.4;
-          }
-          header {
-            margin-bottom: 20px;
-            border-bottom: 2px solid #111827;
-            padding-bottom: 10px;
-          }
-          .header-title {
-            font-size: 16px;
-            font-weight: 800;
-            color: #111827;
-            margin: 0 0 5px 0;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-          }
-          .header-meta {
-            display: flex;
-            justify-content: space-between;
-            color: #4b5563;
-            font-size: 9px;
-          }
-          .meta-group {
-            display: flex;
-            gap: 15px;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 25px;
-            page-break-inside: auto;
-          }
-          tr {
-            page-break-inside: avoid;
-            page-break-after: auto;
-          }
-          thead {
-            display: table-header-group;
-          }
-          th {
-            background-color: #f9fafb;
-            border-bottom: 2px solid #d1d5db;
-            color: #374151;
-            font-weight: 700;
-            padding: 6px 4px;
-            text-align: center;
-            font-size: 8px;
-            text-transform: uppercase;
-          }
-          h2 {
-            font-size: 12px;
-            font-weight: 800;
-            text-transform: uppercase;
-            border-bottom: 1px solid #e5e7eb;
-            padding-bottom: 4px;
-            margin-top: 20px;
-            margin-bottom: 10px;
-            color: #111827;
-          }
-          .signatures {
-            margin-top: 40px;
-            display: flex;
-            justify-content: space-between;
-            page-break-inside: avoid;
-          }
-          .signature-box {
-            width: 45%;
-            text-align: center;
-          }
-          .signature-line {
-            border-top: 1px solid #9ca3af;
-            margin-top: 30px;
-            margin-bottom: 5px;
-          }
-          .signature-title {
-            font-size: 8px;
-            color: #6b7280;
-            font-weight: 600;
-            text-transform: uppercase;
-          }
-          footer {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            display: flex;
-            justify-content: space-between;
-            font-size: 8px;
-            color: #9ca3af;
-            border-top: 1px solid #f3f4f6;
-            padding-top: 5px;
-          }
-          @media print {
-            body {
-              -webkit-print-color-adjust: exact;
-              print-color-adjust: exact;
-            }
-          }
+          @page { size: A4 portrait; margin: 12mm 10mm 12mm 10mm; }
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #18181b; background: #fff; margin: 0; font-size: 10px; line-height: 1.4; }
+          header { margin-bottom: 16px; border-bottom: 2px solid #18181b; padding-bottom: 8px; }
+          .header-title { font-size: 15px; font-weight: 800; color: #18181b; margin: 0 0 4px 0; text-transform: uppercase; }
+          .header-meta { display: flex; justify-content: space-between; color: #71717a; font-size: 9px; font-weight: 500; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+          th { background: #f4f4f5; font-weight: 700; font-size: 9px; text-transform: uppercase; color: #71717a; padding: 6px 4px; border-bottom: 1px solid #e4e4e7; }
+          .section-title { font-size: 11px; font-weight: 700; color: #18181b; margin: 16px 0 8px 0; text-transform: uppercase; border-left: 3px solid #18181b; padding-left: 6px; }
         </style>
       </head>
       <body>
         <header>
-          <h1 class="header-title">${reportTitle}</h1>
+          <div class="header-title">${reportTitle}</div>
           <div class="header-meta">
-            <div>Gerado em: <strong>${today}</strong></div>
-            <div class="meta-group">
-              <div>Produtos simulados: <strong>${productsForRequirements.length}</strong></div>
-              <div>Itens com deficit: <strong>${summary.deficitCount}</strong></div>
-              ${onlyDeficit ? '<div>Filtro: <strong>Apenas Itens a Comprar</strong></div>' : ''}
-            </div>
+            <span>NatumHub · Planejamento de Insumos & Produção</span>
+            <span>Gerado em: ${today}</span>
           </div>
         </header>
 
-        <h2>1. Produtos Incluídos na Simulação</h2>
+        <div class="section-title">1. Produtos e Quantidades no Cenário (${productsForRequirements.length} itens)</div>
         <table>
           <thead>
             <tr>
-              <th style="width: 80px; text-align: left;">Referência</th>
-              <th style="text-align: left;">Descrição do Produto</th>
-              <th style="width: 120px; text-align: left;">Linha</th>
-              <th style="width: 100px; text-align: right;">Quantidade Simulada</th>
+              <th style="width: 15%; text-align: left;">Código</th>
+              <th style="width: 50%; text-align: left;">Descrição do Produto</th>
+              <th style="width: 20%; text-align: left;">Linha</th>
+              <th style="width: 15%; text-align: right;">Qtd Planejada</th>
             </tr>
           </thead>
-          <tbody>
-            ${productsRows || '<tr><td colspan="4" style="text-align: center; padding: 10px;">Nenhum produto selecionado</td></tr>'}
-          </tbody>
+          <tbody>${productsRows}</tbody>
         </table>
 
-        <h2>${sectionTitle}</h2>
+        <div class="section-title">2. Necessidade Consolidada de Insumos (${calculatedRequirements.length} insumos)</div>
         <table>
           <thead>
             <tr>
-              <th style="width: 80px; text-align: left;">Código</th>
-              <th style="text-align: left;">${descHeader}</th>
-              <th style="width: 95px; text-align: right;">Qtd Necessária</th>
-              <th style="width: 95px; text-align: right;">Estoque Físico</th>
-              <th style="width: 95px; text-align: right;">Em Trânsito</th>
-              <th style="width: 95px; text-align: right;">Saldo Projetado</th>
-              <th style="width: 95px; text-align: right; background-color: #f3f4f6;">A Comprar</th>
+              <th style="width: 12%; text-align: left;">Código</th>
+              <th style="width: 32%; text-align: left;">Insumo / Embalagem</th>
+              <th style="width: 12%; text-align: left;">Tipo</th>
+              <th style="width: 11%; text-align: right;">Requerido</th>
+              <th style="width: 11%; text-align: right;">Estoque</th>
+              <th style="width: 11%; text-align: right;">Trânsito</th>
+              <th style="width: 11%; text-align: right;">Saldo Proj.</th>
+              <th style="width: 12%; text-align: right;">Comprar</th>
             </tr>
           </thead>
-          <tbody>
-            ${insumosRows || '<tr><td colspan="7" style="text-align: center; padding: 10px;">Nenhum insumo calculado</td></tr>'}
-          </tbody>
+          <tbody>${insumosRows}</tbody>
         </table>
-
-        <div style="margin-top: 20px; padding: 8px; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 8px; color: #4b5563; page-break-inside: avoid;">
-          <strong style="color: #111827; display: block; margin-bottom: 4px; font-size: 9px; text-transform: uppercase;">Nota Metodológica da Simulação:</strong>
-          <ul style="margin: 0; padding-left: 12px; line-height: 1.4;">
-            <li>As quantidades de insumos (matéria-prima e embalagens) são apuradas multiplicando a quantidade simulada de cada produto pelo consumo unitário das formulações. Kits usam a composição: fórmulas dos componentes e itens diretos (ex. caixa).</li>
-            <li>O Estoque Físico corresponde ao saldo operacional em tempo real integrado com o sistema principal.</li>
-            <li>A coluna "Em Trânsito" exibe as compras já efetuadas com fornecedores em pedidos de compra pendentes no sistema.</li>
-            <li>O Saldo Projetado leva em conta a soma do Estoque Físico + Em Trânsito subtraindo a Qtd Necessária.</li>
-            <li>A coluna "A Comprar" é ativada exclusivamente para insumos cujo Saldo Projetado resulte em saldo deficitário.</li>
-          </ul>
-        </div>
-
-        <div class="signatures">
-          <div class="signature-box">
-            <div class="signature-line"></div>
-            <div class="signature-title">PCP / Responsável pelo Planejamento</div>
-          </div>
-          <div class="signature-box">
-            <div class="signature-line"></div>
-            <div class="signature-title">Diretoria / Autorização de Compra</div>
-          </div>
-        </div>
-
-        <footer>
-          <div>NatumHub — Sistema de Gestão Unificado</div>
-          <div>Impressão de Simulação</div>
-        </footer>
       </body>
       </html>
     `;
@@ -948,94 +950,102 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
       setTimeout(() => {
         document.body.removeChild(iframe);
       }, 1000);
-    }, 500);
+    }, 400);
   };
 
+  const displayedSimulatedProducts = useMemo(() => {
+    if (selectedLine === 'ALL') return simulatedProducts;
+    return simulatedProducts.filter(p => p.nome_linha === selectedLine);
+  }, [simulatedProducts, selectedLine]);
+
   return (
-    <div className="space-y-6">
-      {/* Simulation Dashboard Header Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="bg-white border border-zinc-200 shadow-sm rounded-xl p-4 flex items-center justify-between">
+    <div className="space-y-4 text-zinc-900">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="bg-white border border-zinc-200 rounded-xl p-3.5 shadow-xs flex items-center justify-between">
           <div>
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Produtos Simulados</span>
-            <span className="text-2xl font-black text-zinc-900 mt-1 block">{summary.productsCount}</span>
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Produtos no Cenário</span>
+            <div className="flex items-baseline gap-1.5 mt-0.5">
+              <span className="text-xl font-bold text-zinc-900">{summary.productsCount}</span>
+              <span className="text-[11px] text-zinc-400 font-semibold">({summary.totalUnits.toLocaleString('pt-BR')} un)</span>
+            </div>
           </div>
-          <div className="bg-indigo-50 text-indigo-700 rounded-lg p-2.5">
-            <Calculator className="h-5 w-5" />
+          <div className="p-2 rounded-lg bg-zinc-100 text-zinc-700">
+            <Calculator className="h-4 w-4" />
           </div>
         </div>
 
-        <div className="bg-white border border-zinc-200 shadow-sm rounded-xl p-4 flex items-center justify-between">
+        <div className="bg-white border border-zinc-200 rounded-xl p-3.5 shadow-xs flex items-center justify-between">
           <div>
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Matérias-Primas Requeridas</span>
-            <span className="text-2xl font-black text-zinc-900 mt-1 block">{summary.mpCount}</span>
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Matérias-Primas</span>
+            <span className="text-xl font-bold text-zinc-900 mt-0.5 block">{summary.mpCount}</span>
           </div>
-          <div className="bg-emerald-50 text-emerald-700 rounded-lg p-2.5">
-            <Boxes className="h-5 w-5" />
+          <div className="p-2 rounded-lg bg-zinc-100 text-zinc-700">
+            <Boxes className="h-4 w-4" />
           </div>
         </div>
 
-        <div className="bg-white border border-zinc-200 shadow-sm rounded-xl p-4 flex items-center justify-between">
+        <div className="bg-white border border-zinc-200 rounded-xl p-3.5 shadow-xs flex items-center justify-between">
           <div>
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Embalagens Requeridas</span>
-            <span className="text-2xl font-black text-zinc-900 mt-1 block">{summary.embCount}</span>
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Embalagens</span>
+            <span className="text-xl font-bold text-zinc-900 mt-0.5 block">{summary.embCount}</span>
           </div>
-          <div className="bg-purple-50 text-purple-700 rounded-lg p-2.5">
-            <Layers className="h-5 w-5" />
+          <div className="p-2 rounded-lg bg-zinc-100 text-zinc-700">
+            <Layers className="h-4 w-4" />
           </div>
         </div>
 
         <div className={cn(
-          "border rounded-xl p-4 flex items-center justify-between shadow-sm transition-all bg-white",
+          "border rounded-xl p-3.5 shadow-xs flex items-center justify-between transition-all",
           summary.deficitCount > 0 
-            ? "border-red-200 bg-red-50/20 text-red-900" 
-            : "border-zinc-200"
+            ? "border-rose-200 bg-rose-50/30" 
+            : "bg-white border-zinc-200"
         )}>
           <div>
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Itens com Estoque Insuficiente</span>
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Insumos com Déficit</span>
             <span className={cn(
-              "text-2xl font-black mt-1 block",
-              summary.deficitCount > 0 ? "text-red-600" : "text-zinc-900"
-            )}>{summary.deficitCount}</span>
+              "text-xl font-bold mt-0.5 block",
+              summary.deficitCount > 0 ? "text-rose-600" : "text-zinc-900"
+            )}>
+              {summary.deficitCount} {summary.deficitCount === 1 ? 'item' : 'itens'}
+            </span>
           </div>
           <div className={cn(
-            "rounded-lg p-2.5",
-            summary.deficitCount > 0 ? "bg-red-100 text-red-700" : "bg-zinc-50 text-zinc-500"
+            "p-2 rounded-lg",
+            summary.deficitCount > 0 ? "bg-rose-100 text-rose-700" : "bg-zinc-100 text-zinc-700"
           )}>
-            <ShieldAlert className="h-5 w-5" />
+            <ShieldAlert className="h-4 w-4" />
           </div>
         </div>
       </div>
 
-      {/* Main Content Areas based on activeTab prop */}
       {activeTab === 'sim_auto' ? (
-        <div className="bg-white border border-zinc-200 rounded-xl shadow-sm p-5 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="bg-white border border-zinc-200 rounded-xl shadow-xs p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-150 pb-3">
             <div>
-              <h3 className="text-sm font-bold text-zinc-900">Simulação Automática</h3>
+              <h3 className="text-sm font-bold text-zinc-900">Demanda da Produção Ativa (Urgentes & Ordens)</h3>
               <p className="text-xs text-zinc-500 mt-0.5">
-                Produtos e kits urgentes. Em cada kit aparecem os componentes e a quantidade derivada (kits × qty na composição) para conferir as formulações.
+                Produtos e kits que atingiram ponto de reposição na fábrica. Componentes de kits são explodidos proporcionalmente.
               </p>
             </div>
             <button
               onClick={handleRefreshAuto}
               disabled={loading}
-              className="text-xs text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1.5 shrink-0"
+              className="text-xs text-zinc-700 hover:text-zinc-950 font-bold flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 rounded-lg transition-colors cursor-pointer shrink-0"
             >
-              {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              Atualizar da Produção
+              {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+              Recarregar da Produção
             </button>
           </div>
 
-          <div className="bg-white border border-zinc-200 rounded-xl shadow-sm overflow-hidden">
-            <table className="w-full text-left border-collapse">
+          <div className="border border-zinc-200 rounded-xl overflow-hidden">
+            <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-zinc-50 border-b border-zinc-200 text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
-                  <th className="py-3 px-4">Código</th>
-                  <th className="py-3 px-4">Produto</th>
-                  <th className="py-3 px-4">Linha</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4 text-right" style={{ width: '160px' }}>Qtd Simulada</th>
+                  <th className="py-2.5 px-4 w-28">Código</th>
+                  <th className="py-2.5 px-4">Produto / Kit</th>
+                  <th className="py-2.5 px-4 w-40">Linha</th>
+                  <th className="py-2.5 px-4 w-32">Status</th>
+                  <th className="py-2.5 px-4 text-right w-44">Qtd Produção</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
@@ -1049,7 +1059,7 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
                 ) : autoProducts.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="py-10 text-center text-xs text-zinc-400">
-                      Nenhum produto em Produzir Urgente / Abrir Ordem no momento.
+                      Nenhum produto em ponto crítico de produção no momento.
                     </td>
                   </tr>
                 ) : (
@@ -1058,41 +1068,41 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
                     const isKit = comps.length > 0;
                     return (
                       <React.Fragment key={product.codigo}>
-                        <tr className="hover:bg-zinc-50/80">
-                          <td className="py-2.5 px-4 font-mono text-xs font-bold text-indigo-600">
+                        <tr className="hover:bg-zinc-50/70 transition-colors">
+                          <td className="py-2.5 px-4 font-mono font-bold text-zinc-700">
                             {product.codigo}
                             {isKit && (
-                              <span className="ml-1.5 text-[9px] font-bold uppercase tracking-wide text-zinc-400">
+                              <span className="ml-1.5 px-1.5 py-0.5 text-[9px] font-extrabold uppercase bg-purple-50 text-purple-700 border border-purple-200 rounded">
                                 Kit
                               </span>
                             )}
                           </td>
-                          <td className="py-2.5 px-4 text-xs font-semibold text-zinc-800">{product.descricao}</td>
-                          <td className="py-2.5 px-4 text-[10px] text-zinc-500">{product.nome_linha}</td>
+                          <td className="py-2.5 px-4 font-semibold text-zinc-900">{product.descricao}</td>
+                          <td className="py-2.5 px-4 text-zinc-500">{product.nome_linha}</td>
                           <td className="py-2.5 px-4">
-                            <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-100">
-                              {product.status_label || '—'}
+                            <span className="inline-flex px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                              {product.status_label || 'Crítico'}
                             </span>
                           </td>
                           <td className="py-2.5 px-4 text-right">
-                            <div className="inline-flex items-center border border-zinc-200 bg-white rounded-lg shadow-sm">
+                            <div className="inline-flex items-center border border-zinc-200 bg-white rounded-lg shadow-2xs">
                               <button
                                 onClick={() => handleUpdateAutoQty(product.codigo, product.quantity - 50)}
-                                className="p-1.5 hover:bg-zinc-50 text-zinc-500"
+                                className="p-1.5 hover:bg-zinc-100 text-zinc-500 transition-colors cursor-pointer"
                               >
-                                <Minus className="h-3.5 w-3.5" />
+                                <Minus className="h-3 w-3" />
                               </button>
                               <input
                                 type="number"
                                 value={product.quantity}
                                 onChange={(e) => handleUpdateAutoQty(product.codigo, Number(e.target.value) || 0)}
-                                className="w-16 text-center text-xs font-bold border-x border-zinc-200 py-1.5 focus:outline-none"
+                                className="w-16 text-center text-xs font-bold border-x border-zinc-200 py-1 focus:outline-none"
                               />
                               <button
                                 onClick={() => handleUpdateAutoQty(product.codigo, product.quantity + 50)}
-                                className="p-1.5 hover:bg-zinc-50 text-zinc-500"
+                                className="p-1.5 hover:bg-zinc-100 text-zinc-500 transition-colors cursor-pointer"
                               >
-                                <Plus className="h-3.5 w-3.5" />
+                                <Plus className="h-3 w-3" />
                               </button>
                             </div>
                           </td>
@@ -1103,27 +1113,27 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
                           return (
                             <tr
                               key={`${product.codigo}::${comp.codigo}`}
-                              className="bg-zinc-50/70 border-t border-zinc-100"
+                              className="bg-zinc-50/60 border-t border-zinc-100"
                             >
-                              <td className="py-2 px-4 pl-8 font-mono text-[11px] font-bold text-zinc-600">
+                              <td className="py-2 px-4 pl-7 font-mono text-[11px] font-bold text-zinc-500">
                                 ↳ {comp.codigo}
                               </td>
                               <td className="py-2 px-4 text-[11px] text-zinc-700">
                                 <span className="font-semibold">{comp.descricao || comp.codigo}</span>
-                                <span className="block text-[9px] text-zinc-400 mt-0.5">
+                                <span className="block text-[10px] text-zinc-400">
                                   {hasForm
-                                    ? `${(formulations[comp.codigo] || []).length} insumos na fórmula · ${comp.quantidade} / kit`
-                                    : `Item direto do kit · ${comp.quantidade} / kit`}
+                                    ? `${(formulations[comp.codigo] || []).length} insumos mapeados · ${comp.quantidade}/kit`
+                                    : `Item direto do kit · ${comp.quantidade}/kit`}
                                 </span>
                               </td>
-                              <td className="py-2 px-4 text-[10px] text-zinc-400">via {product.codigo}</td>
+                              <td className="py-2 px-4 text-[10px] text-zinc-400">via kit {product.codigo}</td>
                               <td className="py-2 px-4">
-                                <span className="inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold bg-zinc-100 text-zinc-600 border border-zinc-200">
+                                <span className="inline-flex px-1.5 py-0.5 rounded text-[9px] font-medium bg-zinc-100 text-zinc-600 border border-zinc-200">
                                   Componente
                                 </span>
                               </td>
                               <td className="py-2 px-4 text-right font-mono text-xs font-bold text-zinc-800">
-                                {compQty.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+                                {compQty.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un
                               </td>
                             </tr>
                           );
@@ -1137,67 +1147,151 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
           </div>
         </div>
       ) : activeTab === 'sim_products' ? (
-        <div className="bg-white border border-zinc-200 rounded-xl shadow-sm p-5 space-y-4">
-          <div className="flex flex-col md:flex-row gap-3 justify-between items-start md:items-center">
-            <div className="flex gap-2 flex-1 w-full max-w-[500px]">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-zinc-400" />
+        <div className="bg-white border border-zinc-200 rounded-xl shadow-xs p-5 space-y-4">
+          <div className="flex flex-col lg:flex-row gap-3 justify-between items-start lg:items-center border-b border-zinc-150 pb-3">
+            <div className="flex flex-wrap items-center gap-2.5 flex-1 w-full max-w-2xl">
+              <div className="relative flex-1 min-w-[220px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
                 <input
                   type="text"
                   value={searchProduct}
                   onChange={(e) => setSearchProduct(e.target.value)}
-                  placeholder="Adicionar produto por código ou nome..."
-                  className="w-full bg-zinc-50 hover:bg-zinc-100/70 focus:bg-white text-zinc-900 border border-zinc-200 rounded-xl pl-9 pr-4 py-2 text-xs transition-all focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                  placeholder="Pesquisar e adicionar produto ou kit..."
+                  className="w-full bg-zinc-50 hover:bg-zinc-100/60 focus:bg-white text-zinc-900 border border-zinc-200 rounded-xl pl-8 pr-3 py-1.5 text-xs transition-all focus:outline-none focus:ring-1 focus:ring-zinc-900"
                 />
               </div>
               
-              <select
-                value={selectedLine}
-                onChange={(e) => setSelectedLine(e.target.value)}
-                className="bg-zinc-50 text-zinc-800 border border-zinc-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-zinc-400 max-w-[150px]"
-              >
-                <option value="ALL">Todas Linhas</option>
-                {productLines.map(line => (
-                  <option key={line} value={line}>{line}</option>
-                ))}
-              </select>
-            </div>
+              <div className="relative shrink-0">
+                <select
+                  value={selectedLine}
+                  onChange={(e) => setSelectedLine(e.target.value)}
+                  className="bg-zinc-50 hover:bg-zinc-100 text-zinc-800 border border-zinc-200 rounded-xl px-3 py-1.5 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-zinc-900 cursor-pointer"
+                >
+                  <option value="ALL">Todas as Linhas</option>
+                  {productLines.map(line => (
+                    <option key={line} value={line}>{line}</option>
+                  ))}
+                </select>
+              </div>
 
-            <div className="flex items-center gap-3 w-full md:w-auto">
               {selectedLine !== 'ALL' && (
                 <button
-                  onClick={handleAddEntireLine}
-                  className="bg-zinc-900 hover:bg-zinc-850 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 transition-all shadow-sm shrink-0"
+                  type="button"
+                  onClick={() => setShowLineActions(!showLineActions)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border",
+                    showLineActions 
+                      ? "bg-zinc-900 text-white border-zinc-900" 
+                      : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
+                  )}
                 >
-                  <Sparkles className="h-4 w-4" />
-                  Adicionar Linha Inteira ({allProducts.filter(p => p.nome_linha === selectedLine).length})
+                  <Sliders className="w-3.5 h-3.5" />
+                  Ações da Linha
                 </button>
               )}
+            </div>
 
+            <div className="flex items-center gap-2 self-end lg:self-center shrink-0">
               <button
                 onClick={handleImportFromApproval}
-                className="text-xs text-indigo-600 hover:text-indigo-800 transition-colors flex items-center gap-1 font-bold shrink-0"
-                title="Importar produtos da fila de Aprovação de Produção"
+                className="text-xs text-zinc-700 hover:text-zinc-900 bg-zinc-100 hover:bg-zinc-200 border border-zinc-200/60 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Importar produtos salvos na Fila de Aprovação da Produção"
               >
-                <ClipboardList className="h-3.5 w-3.5" />
+                <ClipboardList className="h-3.5 w-3.5 text-zinc-600" />
                 Importar da Aprovação
               </button>
 
               {simulatedProducts.length > 0 && (
                 <button
                   onClick={handleClearAll}
-                  className="text-xs text-zinc-400 hover:text-red-650 transition-colors flex items-center gap-1 font-bold shrink-0 ml-auto"
+                  className="text-xs text-zinc-400 hover:text-rose-600 px-2.5 py-1.5 font-bold transition-colors cursor-pointer"
+                  title="Remover todos os itens do cenário atual"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Limpar Simulação
+                  Limpar Cenário
                 </button>
               )}
             </div>
           </div>
 
-          {/* Dropdown popup for selection */}
+          {selectedLine !== 'ALL' && showLineActions && (
+            <div className="p-3.5 bg-zinc-50 border border-zinc-200 rounded-xl space-y-3 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-zinc-800 flex items-center gap-1.5">
+                  <Sliders className="w-4 h-4 text-zinc-600" />
+                  Simulação da Linha: <strong className="text-zinc-950 underline">{selectedLine}</strong>
+                  <span className="text-[10px] text-zinc-400 font-normal ml-1">
+                    ({allProducts.filter(p => p.nome_linha === selectedLine).length} produtos no catálogo)
+                  </span>
+                </span>
+                <button
+                  onClick={() => handleClearLine(selectedLine)}
+                  className="text-[11px] font-bold text-zinc-400 hover:text-rose-600 transition-colors cursor-pointer"
+                >
+                  Limpar itens desta linha
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-zinc-200/60">
+                <button
+                  onClick={() => handleAddEntireLine(selectedLine)}
+                  className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-850 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Adicionar Todos da Linha
+                </button>
+
+                <button
+                  onClick={() => handleFillLineIdealDemand(selectedLine)}
+                  className="px-3 py-1.5 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-200 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                  title="Preencher com o estoque ideal da linha (Média × Multiplicador)"
+                >
+                  Preencher com Meta da Linha
+                </button>
+
+                <div className="h-4 w-px bg-zinc-300 mx-1 hidden sm:block" />
+
+                <span className="text-[11px] font-semibold text-zinc-500">Ajuste:</span>
+                {[
+                  { label: '+10%', val: 10 },
+                  { label: '+25%', val: 25 },
+                  { label: '+50%', val: 50 },
+                  { label: '-20%', val: -20 },
+                ].map(b => (
+                  <button
+                    key={b.label}
+                    onClick={() => handleAdjustLinePercentage(selectedLine, b.val)}
+                    className="px-2 py-1 bg-white hover:bg-zinc-100 border border-zinc-200 rounded-md text-[11px] font-bold text-zinc-700 cursor-pointer transition-colors"
+                  >
+                    {b.label}
+                  </button>
+                ))}
+
+                <div className="h-4 w-px bg-zinc-300 mx-1 hidden sm:block" />
+
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-700">
+                  <span>Cobertura:</span>
+                  <input
+                    type="number"
+                    min="0.5"
+                    step="0.5"
+                    value={lineMonthsInput}
+                    onChange={(e) => setLineMonthsInput(e.target.value)}
+                    className="w-12 px-1.5 py-0.5 bg-white border border-zinc-200 rounded text-center text-xs font-bold"
+                  />
+                  <span className="text-[11px] text-zinc-500">meses</span>
+                  <button
+                    onClick={() => handleSetLineCoverage(selectedLine, parseFloat(lineMonthsInput) || 2)}
+                    className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-900 text-white rounded text-[11px] font-bold transition-colors cursor-pointer"
+                  >
+                    Aplicar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {searchProduct.trim() !== '' && (
-            <div className="bg-white border border-zinc-200 rounded-xl shadow-lg max-h-[220px] overflow-y-auto divide-y divide-zinc-100 absolute z-10 w-[calc(100%-40px)] max-w-[500px]">
+            <div className="bg-white border border-zinc-200 rounded-xl shadow-lg max-h-56 overflow-y-auto divide-y divide-zinc-100 z-20">
               {filteredProductsToSelect.length === 0 ? (
                 <div className="p-3 text-xs text-zinc-400 text-center">Nenhum produto correspondente encontrado</div>
               ) : (
@@ -1205,12 +1299,12 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
                   <button
                     key={product.codigo}
                     onClick={() => handleAddProduct(product)}
-                    className="w-full text-left p-3 hover:bg-zinc-50 flex items-center justify-between text-xs transition-colors"
+                    className="w-full text-left p-2.5 hover:bg-zinc-50 flex items-center justify-between text-xs transition-colors cursor-pointer"
                   >
-                    <div className="pr-4">
-                      <span className="font-mono font-bold text-indigo-600 block">{product.codigo}</span>
+                    <div>
+                      <span className="font-mono font-bold text-zinc-900 block">{product.codigo}</span>
                       <span className="text-zinc-800 font-semibold">{product.descricao}</span>
-                      <span className="text-[10px] text-zinc-400 block mt-0.5">{product.nome_linha}</span>
+                      <span className="text-[10px] text-zinc-400 block">{product.nome_linha}</span>
                     </div>
                     <Plus className="h-4 w-4 text-zinc-400" />
                   </button>
@@ -1219,83 +1313,95 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
             </div>
           )}
 
-          {/* List of simulated products - Structured like pre-established modules */}
-          <div className="bg-white border border-zinc-200 rounded-xl shadow-sm overflow-hidden">
-            <table className="w-full text-left border-collapse">
+          <div className="border border-zinc-200 rounded-xl overflow-hidden">
+            <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-zinc-50 border-b border-zinc-200 text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
-                  <th className="py-3 px-4">Código</th>
-                  <th className="py-3 px-4">Descrição do Produto</th>
-                  <th className="py-3 px-4">Linha</th>
-                  <th className="py-3 px-4">Ficha Técnica / Receita</th>
-                  <th className="py-3 px-4 text-right" style={{ width: '180px' }}>Quantidade a Produzir</th>
+                  <th className="py-2.5 px-4 w-28">Código</th>
+                  <th className="py-2.5 px-4">Descrição do Produto</th>
+                  <th className="py-2.5 px-4 w-36">Linha</th>
+                  <th className="py-2.5 px-4 w-36">Ficha Técnica</th>
+                  <th className="py-2.5 px-4 text-right w-44">Quantidade</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100 text-xs text-zinc-900">
-                {simulatedProducts.length === 0 ? (
+              <tbody className="divide-y divide-zinc-100">
+                {displayedSimulatedProducts.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="text-center py-16 text-zinc-400 font-semibold">
-                      Nenhum produto adicionado. Use a barra de pesquisa acima ou selecione uma linha para começar.
+                    <td colSpan={5} className="text-center py-12 text-zinc-400 font-medium">
+                      {selectedLine === 'ALL' 
+                        ? 'Nenhum produto adicionado ao cenário. Use a barra de pesquisa acima ou selecione uma linha para começar.'
+                        : `Nenhum produto da linha "${selectedLine}" está no cenário atual. Clique em "Adicionar Todos da Linha" acima.`}
                     </td>
                   </tr>
                 ) : (
-                  simulatedProducts.map((product) => {
+                  displayedSimulatedProducts.map((product) => {
+                    const comps = kitBom[product.codigo] || [];
+                    const isKit = comps.length > 0;
                     const hasFormulation = !!formulations[product.codigo];
                     const isFetching = !!fetchingFormulations[product.codigo];
 
                     return (
-                      <tr key={product.codigo} className="hover:bg-zinc-50/50">
-                        <td className="py-3 px-4 font-mono font-bold text-zinc-950">{product.codigo}</td>
-                        <td className="py-3 px-4 font-bold">{product.descricao}</td>
-                        <td className="py-3 px-4 font-semibold text-zinc-500">{product.nome_linha}</td>
-                        <td className="py-3 px-4">
-                          {isFetching && (
-                            <span className="text-[10px] text-zinc-400 flex items-center gap-1 font-semibold">
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              Carregando receita...
-                            </span>
-                          )}
-                          {!isFetching && !hasFormulation && (
-                            <span className="text-[10px] text-red-500 font-semibold flex items-center gap-1">
-                              <AlertTriangle className="h-3.5 w-3.5" />
-                              Sem receita cadastrada
-                            </span>
-                          )}
-                          {hasFormulation && (
-                            <span className="text-[10px] text-emerald-700 font-semibold flex items-center gap-0.5">
-                              <Check className="h-3.5 w-3.5" />
-                              {formulations[product.codigo].length} insumos mapeados
+                      <tr key={product.codigo} className="hover:bg-zinc-50/70 transition-colors">
+                        <td className="py-2.5 px-4 font-mono font-bold text-zinc-800">
+                          {product.codigo}
+                          {isKit && (
+                            <span className="ml-1.5 px-1.5 py-0.5 text-[9px] font-extrabold uppercase bg-purple-50 text-purple-700 border border-purple-200 rounded">
+                              Kit
                             </span>
                           )}
                         </td>
-                        <td className="py-3 px-4 text-right">
+                        <td className="py-2.5 px-4 font-bold text-zinc-900">{product.descricao}</td>
+                        <td className="py-2.5 px-4 text-zinc-500 font-medium">{product.nome_linha}</td>
+                        <td className="py-2.5 px-4">
+                          {isFetching ? (
+                            <span className="text-[10px] text-zinc-400 flex items-center gap-1">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              Lendo receita...
+                            </span>
+                          ) : isKit ? (
+                            <span className="text-[10px] text-purple-700 font-bold flex items-center gap-1">
+                              <Layers className="h-3 w-3" />
+                              {comps.length} {comps.length === 1 ? 'componente' : 'componentes'}
+                            </span>
+                          ) : hasFormulation ? (
+                            <span className="text-[10px] text-emerald-700 font-bold flex items-center gap-1">
+                              <Check className="h-3 w-3" />
+                              {formulations[product.codigo].length} insumos
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-amber-600 font-medium flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" />
+                              Sem receita
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            <div className="flex items-center border border-zinc-200 bg-white rounded-lg shadow-sm">
+                            <div className="inline-flex items-center border border-zinc-200 bg-white rounded-lg shadow-2xs">
                               <button
                                 onClick={() => handleUpdateQty(product.codigo, product.quantity - 50)}
-                                className="p-1.5 hover:bg-zinc-50 text-zinc-500 transition-colors"
+                                className="p-1.5 hover:bg-zinc-100 text-zinc-500 transition-colors cursor-pointer"
                               >
-                                <Minus className="h-3.5 w-3.5" />
+                                <Minus className="h-3 w-3" />
                               </button>
-                              
                               <input
                                 type="number"
+                                min="0"
                                 value={product.quantity}
                                 onChange={(e) => handleUpdateQty(product.codigo, parseInt(e.target.value) || 0)}
-                                className="w-16 text-center text-xs font-bold bg-transparent text-zinc-900 border-none focus:outline-none focus:ring-0 p-1"
+                                className="w-16 text-center text-xs font-bold border-x border-zinc-200 py-1 focus:outline-none"
                               />
-
                               <button
                                 onClick={() => handleUpdateQty(product.codigo, product.quantity + 50)}
-                                className="p-1.5 hover:bg-zinc-50 text-zinc-500 transition-colors"
+                                className="p-1.5 hover:bg-zinc-100 text-zinc-500 transition-colors cursor-pointer"
                               >
-                                <Plus className="h-3.5 w-3.5" />
+                                <Plus className="h-3 w-3" />
                               </button>
                             </div>
 
                             <button
                               onClick={() => handleRemoveProduct(product.codigo)}
-                              className="p-2 text-zinc-300 hover:text-red-550 hover:bg-red-50 rounded-lg transition-all"
+                              className="p-1.5 text-zinc-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                               title="Remover"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -1311,104 +1417,112 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
           </div>
         </div>
       ) : (
-        /* Requirements Table - Matches pre-established modules styling */
-        <div className="bg-white border border-zinc-200 rounded-xl shadow-sm p-5 space-y-4">
+        <div className="bg-white border border-zinc-200 rounded-xl shadow-xs p-5 space-y-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-zinc-150 pb-3">
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex bg-zinc-100 p-0.5 rounded-lg border border-zinc-200/50 w-fit">
+              <div className="flex bg-zinc-100 p-0.5 rounded-lg border border-zinc-200/60">
                 {(['ALL', 'MP', 'EMB'] as const).map(type => (
                   <button
                     key={type}
                     onClick={() => setInsumoTypeFilter(type)}
                     className={cn(
-                      "px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all",
+                      "px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer",
                       insumoTypeFilter === type 
-                        ? "bg-white text-zinc-900 shadow-sm" 
-                        : "text-zinc-400 hover:text-zinc-650"
+                        ? "bg-white text-zinc-900 shadow-2xs" 
+                        : "text-zinc-500 hover:text-zinc-800"
                     )}
                   >
                     {type === 'ALL' ? 'Todos Insumos' : type === 'MP' ? 'Matéria-Prima' : 'Embalagem'}
                   </button>
                 ))}
               </div>
-              <div className="flex bg-violet-50 p-0.5 rounded-lg border border-violet-100 w-fit">
+
+              <div className="flex bg-zinc-100 p-0.5 rounded-lg border border-zinc-200/60">
                 {([
-                  { id: 'manual' as const, label: 'Manual' },
-                  { id: 'auto' as const, label: 'Automática' },
-                  { id: 'both' as const, label: 'Ambas' },
+                  { id: 'manual' as const, label: 'Cenário Manual' },
+                  { id: 'auto' as const, label: 'Produção Urgente' },
+                  { id: 'both' as const, label: 'Consolidado' },
                 ]).map(opt => (
                   <button
                     key={opt.id}
                     onClick={() => setRequirementsSource(opt.id)}
                     className={cn(
-                      "px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all",
+                      "px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer",
                       requirementsSource === opt.id
-                        ? "bg-white text-violet-800 shadow-sm"
-                        : "text-violet-400 hover:text-violet-700"
+                        ? "bg-white text-zinc-900 shadow-2xs" 
+                        : "text-zinc-500 hover:text-zinc-800"
                     )}
-                    title="Fonte dos produtos para mapear insumos"
                   >
                     {opt.label}
                   </button>
                 ))}
               </div>
+
+              <select
+                value={insumoLineFilter}
+                onChange={(e) => setInsumoLineFilter(e.target.value)}
+                className="bg-zinc-50 text-zinc-700 border border-zinc-200 rounded-lg px-2.5 py-1 text-xs font-semibold focus:outline-none cursor-pointer"
+              >
+                <option value="ALL">Todas as Linhas de Origem</option>
+                {productLines.map(l => (
+                  <option key={l} value={l}>Origem: {l}</option>
+                ))}
+              </select>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 self-end">
-              {/* Search filter for Insumos */}
-              <div className="relative w-48 sm:w-60">
-                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-400" />
+            <div className="flex flex-wrap items-center gap-2.5 self-end md:self-auto">
+              <div className="relative w-48">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400" />
                 <input
                   type="text"
                   value={searchInsumo}
                   onChange={(e) => setSearchInsumo(e.target.value)}
                   placeholder="Filtrar insumo..."
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-lg pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-lg pl-7 pr-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900"
                 />
               </div>
 
-              {/* Only Deficit Filter */}
-              <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-zinc-700 bg-zinc-50 hover:bg-zinc-100/80 border border-zinc-200 px-3 py-1.5 rounded-lg select-none transition-all shadow-sm">
+              <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-zinc-700 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 px-2.5 py-1 rounded-lg select-none transition-colors">
                 <input
                   type="checkbox"
                   checked={onlyDeficit}
                   onChange={(e) => setOnlyDeficit(e.target.checked)}
-                  className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5"
+                  className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 h-3.5 w-3.5"
                 />
-                Apenas Itens a Comprar
+                Apenas a Comprar
               </label>
 
               {calculatedRequirements.length > 0 && (
                 <button
                   onClick={handlePrint}
-                  className="bg-zinc-950 text-white hover:bg-zinc-800 font-bold text-xs px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-all shadow"
+                  className="bg-zinc-900 hover:bg-zinc-850 text-white font-bold text-xs px-3 py-1 rounded-lg flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
                 >
                   <Printer className="h-3.5 w-3.5" />
-                  Imprimir Relatório
+                  Imprimir
                 </button>
               )}
             </div>
           </div>
 
-          <div className="bg-white border border-zinc-200 rounded-xl shadow-sm overflow-hidden">
-            <table className="w-full text-left border-collapse">
+          <div className="border border-zinc-200 rounded-xl overflow-hidden">
+            <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-zinc-50 border-b border-zinc-200 text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
-                  <th className="py-3 px-4">Código</th>
-                  <th className="py-3 px-4">Insumo / Descrição</th>
-                  <th className="py-3 px-4">Categoria</th>
-                  <th className="py-3 px-4 text-right">Qtd Requerida</th>
-                  <th className="py-3 px-4 text-right">Estoque Físico</th>
-                  <th className="py-3 px-4 text-right">Em Trânsito</th>
-                  <th className="py-3 px-4 text-right">Saldo Projetado</th>
-                  <th className="py-3 px-4 text-right" style={{ width: '150px' }}>Recomendação de Compra</th>
+                  <th className="py-2.5 px-4 w-28">Código</th>
+                  <th className="py-2.5 px-4">Insumo / Embalagem</th>
+                  <th className="py-2.5 px-4 w-28">Tipo</th>
+                  <th className="py-2.5 px-4 text-right w-32">Qtd Requerida</th>
+                  <th className="py-2.5 px-4 text-right w-28">Estoque Físico</th>
+                  <th className="py-2.5 px-4 text-right w-28">Em Trânsito</th>
+                  <th className="py-2.5 px-4 text-right w-32">Saldo Projetado</th>
+                  <th className="py-2.5 px-4 text-right w-36">Sugestão Compra</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100 text-xs text-zinc-900">
+              <tbody className="divide-y divide-zinc-100">
                 {calculatedRequirements.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-16 text-zinc-400 font-semibold">
-                      Nenhum insumo mapeado ou correspondente aos filtros.
+                    <td colSpan={8} className="text-center py-12 text-zinc-400 font-medium">
+                      Nenhum insumo mapeado para os filtros selecionados.
                     </td>
                   </tr>
                 ) : (
@@ -1419,65 +1533,126 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
                     const inOrders = d?.inOrders || 0;
                     const netBalance = (currentStock + inOrders) - req.qtyNeeded;
                     const toBuy = netBalance < 0 ? Math.abs(netBalance) : 0;
+                    const isExpanded = expandedInsumo === req.code;
 
                     return (
-                      <tr key={req.code} className="hover:bg-zinc-50/50">
-                        <td className="py-3.5 px-4 font-mono font-bold text-zinc-400">{req.code}</td>
-                        <td className="py-3.5 px-4 pr-4">
-                          <span className="font-bold text-zinc-950 block leading-tight">{req.description}</span>
-                          {toBuy > 0 && (
-                            <span className="text-[10px] text-red-500 font-semibold flex items-center gap-0.5 mt-0.5">
-                              <AlertTriangle className="h-3 w-3" />
-                              Déficit de {toBuy.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} {req.unit}
-                            </span>
+                      <React.Fragment key={req.code}>
+                        <tr 
+                          onClick={() => setExpandedInsumo(isExpanded ? null : req.code)}
+                          className={cn(
+                            "hover:bg-zinc-50/70 transition-colors cursor-pointer group",
+                            isExpanded && "bg-zinc-50/60"
                           )}
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <span className={cn(
-                            "text-[10px] font-bold px-2 py-0.5 rounded-full border",
-                            req.category === 'Matéria-Prima' 
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-100" 
-                              : req.category === 'Embalagem' 
-                                ? "bg-purple-50 text-purple-700 border-purple-100" 
-                                : "bg-zinc-50 text-zinc-600 border-zinc-100"
+                        >
+                          <td className="py-2.5 px-4 font-mono font-bold text-zinc-600">
+                            <span className="inline-flex items-center gap-1">
+                              {isExpanded ? <ChevronDown className="w-3.5 h-3.5 text-zinc-400" /> : <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />}
+                              {req.code}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4">
+                            <span className="font-bold text-zinc-900 block leading-tight">{req.description}</span>
+                            <span className="text-[10px] text-zinc-400 font-medium mt-0.5 block">
+                              Consumido por {req.contributions.length} {req.contributions.length === 1 ? 'produto' : 'produtos/kits'} · clique para detalhar
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4">
+                            <span className={cn(
+                              "text-[10px] font-bold px-2 py-0.5 rounded border",
+                              req.category === 'Matéria-Prima' 
+                                ? "bg-emerald-50 text-emerald-800 border-emerald-200" 
+                                : req.category === 'Embalagem' 
+                                  ? "bg-purple-50 text-purple-800 border-purple-200" 
+                                  : "bg-zinc-100 text-zinc-700 border-zinc-200"
+                            )}>
+                              {req.category}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4 text-right font-mono font-bold text-zinc-900">
+                            {req.qtyNeeded.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}
+                            <span className="text-zinc-400 font-normal text-[10px] ml-1">{req.unit}</span>
+                          </td>
+                          <td className="py-2.5 px-4 text-right font-mono text-zinc-700 font-medium">
+                            {currentStock.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                            <span className="text-zinc-400 text-[10px] ml-1">{req.unit}</span>
+                          </td>
+                          <td className={cn(
+                            "py-2.5 px-4 text-right font-mono font-medium",
+                            inOrders > 0 ? "text-blue-600 font-bold" : "text-zinc-400"
                           )}>
-                            {req.category}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-black text-zinc-950">
-                          {req.qtyNeeded.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
-                          <span className="text-zinc-400 font-semibold text-[10px] ml-1">{req.unit}</span>
-                        </td>
-                        <td className="py-3.5 px-4 text-right text-zinc-650 font-medium">
-                          {currentStock.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
-                          <span className="text-zinc-400 font-semibold text-[10px] ml-1">{req.unit}</span>
-                        </td>
-                        <td className={cn(
-                          "py-3.5 px-4 text-right font-semibold",
-                          inOrders > 0 ? "text-blue-600" : "text-zinc-400"
-                        )}>
-                          {inOrders > 0 ? `+${inOrders.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}` : '-'}
-                          {inOrders > 0 && <span className="text-[10px] ml-1">{req.unit}</span>}
-                        </td>
-                        <td className={cn(
-                          "py-3.5 px-4 text-right font-bold",
-                          netBalance < 0 ? "text-red-650" : "text-emerald-700"
-                        )}>
-                          {netBalance > 0 ? '+' : ''}
-                          {netBalance.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
-                          <span className="text-[10px] ml-1">{req.unit}</span>
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-black">
-                          {toBuy > 0 ? (
-                            <span className="text-red-700 bg-red-50 px-2 py-1 rounded-lg border border-red-100 inline-block font-extrabold shadow-sm">
-                              {toBuy.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
-                              <span className="text-[10px] ml-1">{req.unit}</span>
-                            </span>
-                          ) : (
-                            <span className="text-emerald-700 font-bold block pr-2">-</span>
-                          )}
-                        </td>
-                      </tr>
+                            {inOrders > 0 ? `+${inOrders.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}` : '-'}
+                            {inOrders > 0 && <span className="text-[10px] ml-1">{req.unit}</span>}
+                          </td>
+                          <td className={cn(
+                            "py-2.5 px-4 text-right font-mono font-bold",
+                            netBalance < 0 ? "text-rose-600" : "text-emerald-700"
+                          )}>
+                            {netBalance > 0 ? '+' : ''}
+                            {netBalance.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                            <span className="text-[10px] ml-1">{req.unit}</span>
+                          </td>
+                          <td className="py-2.5 px-4 text-right font-mono font-bold">
+                            {toBuy > 0 ? (
+                              <span className="text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 inline-block font-extrabold">
+                                {toBuy.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                                <span className="text-[10px] ml-1">{req.unit}</span>
+                              </span>
+                            ) : (
+                              <span className="text-zinc-400 font-medium block pr-2">-</span>
+                            )}
+                          </td>
+                        </tr>
+
+                        {isExpanded && (
+                          <tr className="bg-zinc-50 border-t border-b border-zinc-200">
+                            <td colSpan={8} className="p-3 pl-8">
+                              <div className="space-y-2">
+                                <div className="text-[11px] font-bold text-zinc-700 flex items-center gap-1.5">
+                                  <ArrowUpRight className="w-3.5 h-3.5 text-zinc-500" />
+                                  Origens da Demanda para: <strong className="text-zinc-900">{req.code} — {req.description}</strong>
+                                </div>
+                                <div className="border border-zinc-200 rounded-lg overflow-hidden bg-white">
+                                  <table className="w-full text-left text-[11px] border-collapse">
+                                    <thead>
+                                      <tr className="bg-zinc-100/70 border-b border-zinc-200 text-[10px] text-zinc-500 font-bold uppercase">
+                                        <th className="py-1.5 px-3">Código Produto</th>
+                                        <th className="py-1.5 px-3">Descrição</th>
+                                        <th className="py-1.5 px-3">Linha</th>
+                                        <th className="py-1.5 px-3 text-right">Qtd Produto</th>
+                                        <th className="py-1.5 px-3 text-right">Qtd por Unidade</th>
+                                        <th className="py-1.5 px-3 text-right">Consumo Total</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-zinc-100">
+                                      {req.contributions.map((c, i) => (
+                                        <tr key={`${c.productCode}-${i}`} className="hover:bg-zinc-50">
+                                          <td className="py-1.5 px-3 font-mono font-bold text-zinc-700">{c.productCode}</td>
+                                          <td className="py-1.5 px-3 text-zinc-800">
+                                            {c.productDesc}
+                                            {c.viaKit && (
+                                              <span className="block text-[9px] text-purple-600 font-medium mt-0.5">
+                                                ↳ via kit {c.viaKit}
+                                              </span>
+                                            )}
+                                          </td>
+                                          <td className="py-1.5 px-3 text-zinc-500">{c.productLine}</td>
+                                          <td className="py-1.5 px-3 text-right font-mono font-medium">{c.qtyProduct.toLocaleString('pt-BR')} un</td>
+                                          <td className="py-1.5 px-3 text-right font-mono text-zinc-500">
+                                            {c.unitMultiplier.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
+                                          </td>
+                                          <td className="py-1.5 px-3 text-right font-mono font-bold text-zinc-900">
+                                            {c.totalInsumo.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} {req.unit}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })
                 )}
@@ -1485,10 +1660,10 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
             </table>
           </div>
 
-          <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-3.5 flex items-start gap-2.5 text-[11px] text-zinc-500">
+          <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-3 flex items-start gap-2.5 text-[11px] text-zinc-500">
             <Info className="h-4 w-4 text-zinc-400 shrink-0 mt-0.5" />
             <div className="leading-relaxed">
-              <strong>Nota sobre o Cálculo de Saldo Projetado:</strong> A fórmula aplicada leva em conta compras em andamento: <code className="bg-zinc-200/50 px-1 py-0.5 rounded font-mono text-[10px] font-bold text-zinc-700">Saldo Projetado = (Estoque Físico + Em Trânsito) - Qtd Requerida</code>. Isso impede a recomendação duplicada de compras para itens que já foram adquiridos e aguardam entrega de fornecedores.
+              <strong>Rastreabilidade de Insumos:</strong> A necessidade de cada matéria-prima e embalagem é calculada proporcionalmente pela receita de produtos acabados e pela explosão multinível de kits comerciais. Clique em qualquer linha de insumo para auditar exatamente os produtos que compõem sua demanda.
             </div>
           </div>
         </div>

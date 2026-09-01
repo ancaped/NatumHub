@@ -25,6 +25,7 @@ pub const MODULE_ADMIN_FUNCIONARIOS: &str = "admin_funcionarios";
 pub const MODULE_PRODUCAO: &str = "producao";
 pub const MODULE_PRODUCAO_BASES: &str = "producao_bases";
 pub const MODULE_PRODUCAO_LOTES: &str = "producao_lotes";
+pub const MODULE_PRODUCAO_PROC: &str = "producao_proc";
 pub const MODULE_MONTAGEM_KITS: &str = "montagem_kits";
 pub const MODULE_MICROBIOLOGIA: &str = "microbiologia";
 pub const MODULE_FISCO_QUIMICA: &str = "fisco_quimica";
@@ -61,6 +62,8 @@ pub const MODULE_EXPEDICAO_ECOMMERCE: &str = "expedicao_ecommerce";
 pub const MODULE_EXPEDICAO_SEPARACAO: &str = "expedicao_separacao";
 pub const MODULE_FINANCEIRO: &str = "financeiro";
 pub const MODULE_FERRAMENTAS_ETIQUETAS: &str = "ferramentas_etiquetas";
+pub const MODULE_FERRAMENTAS_EDITOR: &str = "ferramentas_editor";
+pub const MODULE_FERRAMENTAS_IMPRESSORAS: &str = "ferramentas_impressoras";
 pub const MODULE_CONFIGURACOES: &str = "hub_settings";
 pub const MODULE_OPERADORES: &str = "hub_operadores";
 
@@ -84,6 +87,7 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_PRODUCAO,
     MODULE_PRODUCAO_BASES,
     MODULE_PRODUCAO_LOTES,
+    MODULE_PRODUCAO_PROC,
     MODULE_MONTAGEM_KITS,
     MODULE_MICROBIOLOGIA,
     MODULE_FISCO_QUIMICA,
@@ -113,6 +117,8 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_EXPEDICAO_SEPARACAO,
     MODULE_FINANCEIRO,
     MODULE_FERRAMENTAS_ETIQUETAS,
+    MODULE_FERRAMENTAS_EDITOR,
+    MODULE_FERRAMENTAS_IMPRESSORAS,
     MODULE_CONFIGURACOES,
     MODULE_OPERADORES,
 ];
@@ -167,7 +173,7 @@ pub fn module_registry() -> Vec<ModuleGroup> {
             children: vec![
                 leaf(MODULE_PRODUCAO, "Gerenciamento"),
                 leaf(MODULE_PRODUCAO_BASES, "Gestão de Bases"),
-                leaf(MODULE_PRODUCAO_LOTES, "Lotes de Produção"),
+                leaf(MODULE_PRODUCAO_PROC, "PROC (Processos)"),
                 leaf(MODULE_MONTAGEM_KITS, "Montagem de Kits"),
                 leaf(MODULE_MICROBIOLOGIA, "Microbiologia"),
                 leaf(MODULE_FISCO_QUIMICA, "Físico-Química"),
@@ -243,7 +249,11 @@ pub fn module_registry() -> Vec<ModuleGroup> {
             key: "ferramentas".into(),
             label: "Ferramentas".into(),
             hub_view: "ferramentas_hub".into(),
-            children: vec![leaf(MODULE_FERRAMENTAS_ETIQUETAS, "Editor de Etiquetas")],
+            children: vec![
+                leaf(MODULE_FERRAMENTAS_ETIQUETAS, "Etiquetas"),
+                leaf(MODULE_FERRAMENTAS_EDITOR, "Editor de Etiquetas"),
+                leaf(MODULE_FERRAMENTAS_IMPRESSORAS, "Central de Impressoras"),
+            ],
         },
         ModuleGroup {
             key: "sistema".into(),
@@ -291,6 +301,7 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
             MODULE_PRODUCAO,
             MODULE_PRODUCAO_BASES,
             MODULE_PRODUCAO_LOTES,
+            MODULE_PRODUCAO_PROC,
             MODULE_MONTAGEM_KITS,
         ]
         .into_iter()

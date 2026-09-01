@@ -22,6 +22,7 @@ import {
   SlidersHorizontal,
   Layers,
   Settings,
+  Database,
   Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -33,6 +34,7 @@ import { DEFAULT_FISCO_TEMPLATE } from './lib/fiscoUtils';
 import { AnalysisCreationFlow } from './components/AnalysisCreationFlow';
 import { CalendarTab } from './components/CalendarTab';
 import { AnalysisHistory } from './components/AnalysisHistory';
+import { CorrectiveBatchesTab } from './components/CorrectiveBatchesTab';
 import { PatternsTab } from './components/PatternsTab';
 import { AgentsTab } from './components/AgentsTab';
 import { SettingsTab } from './components/SettingsTab';
@@ -42,9 +44,10 @@ interface FiscoQuimicaViewProps {
 }
 
 export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps) {
-  const [activeTab, setActiveTab] = useState<'new' | 'calendar' | 'history' | 'patterns' | 'agents' | 'settings'>('new');
+  const [activeTab, setActiveTab] = useState<'new' | 'calendar' | 'history' | 'correctives' | 'patterns' | 'agents' | 'settings'>('new');
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
+  const [selectedLoteForNew, setSelectedLoteForNew] = useState<{ productCode?: string; batch?: string } | null>(null);
 
   // Dados centrais
   const [products, setProducts] = useState<Product[]>([]);
@@ -53,6 +56,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
   const [analyses, setAnalyses] = useState<FiscoQuimicaAnalysis[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [config, setConfig] = useState<FiscoAppConfig | null>(null);
+  const [editingAnalysis, setEditingAnalysis] = useState<FiscoQuimicaAnalysis | null>(null);
 
   // Seleção no histórico para impressão
   const [selectedReportIds, setSelectedReportIds] = useState<Set<string>>(new Set());
@@ -88,6 +92,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
       new: 'Registrar Físico-Química',
       calendar: 'Calendário de Produção',
       history: 'Histórico de Laudos',
+      correctives: 'Baixas de Corretivos',
       patterns: 'Padrões por Produto',
       agents: 'Agentes Corretivos',
       settings: 'Configurações'
@@ -116,7 +121,20 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
       ]);
 
       let catalogProducts: Product[] = [];
-      if (prodsRes.ok) {
+      try {
+        const fiscoProdsRes = await apiFetch('/api/hub/fisco/products');
+        if (fiscoProdsRes.ok) {
+          const list = await fiscoProdsRes.json();
+          catalogProducts = (list || []).map((p: { codigo: string; descricao?: string }) => ({
+            code: p.codigo,
+            name: p.descricao || p.codigo,
+            packaging: 'Pote',
+            validity: '3 anos',
+          }));
+        }
+      } catch (_) {}
+
+      if (!catalogProducts.length && prodsRes.ok) {
         const data = await prodsRes.json();
         catalogProducts = (data.items || []).map((p: { codigo: string; descricao?: string }) => ({
           code: p.codigo,
@@ -292,8 +310,9 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
     { id: 'new', label: 'Registrar Análise', icon: FlaskConical },
     { id: 'calendar', label: 'Calendário', icon: CalendarIcon },
     { id: 'history', label: 'Histórico de Laudos', icon: Activity },
-    { id: 'patterns', label: 'Padrões por Produto', icon: SlidersHorizontal },
-    { id: 'agents', label: 'Agentes Corretivos', icon: Layers },
+    { id: 'correctives', label: 'Baixas de Corretivos', icon: SlidersHorizontal },
+    { id: 'patterns', label: 'Padrões por Produto', icon: Layers },
+    { id: 'agents', label: 'Agentes Corretivos', icon: SlidersHorizontal },
     { id: 'settings', label: 'Configurações', icon: Settings },
   ];
 
@@ -322,10 +341,16 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
               products={products}
               patterns={patterns}
               agents={agents}
+              analyses={analyses}
               technicianName={technicianName}
               setTechnicianName={handleTechnicianChange}
               config={config?.template}
+              initialBatch={selectedLoteForNew?.batch}
+              initialProductCode={selectedLoteForNew?.productCode}
+              editingAnalysis={editingAnalysis}
+              onCancelEdit={() => setEditingAnalysis(null)}
               onSaved={() => {
+                setEditingAnalysis(null);
                 fetchData();
                 setActiveTab('history');
               }}
@@ -360,6 +385,19 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
               onClearSelection={handleClearSelection}
               onDeleteAnalysis={handleDeleteAnalysis}
               onRefresh={fetchData}
+              onEditAnalysis={(a) => {
+                setEditingAnalysis(a);
+                setActiveTab('new');
+              }}
+            />
+          </motion.div>
+        )}
+
+        {activeTab === 'correctives' && (
+          <motion.div key="correctives" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+            <CorrectiveBatchesTab
+              agents={agents}
+              onRefreshHistory={fetchData}
             />
           </motion.div>
         )}

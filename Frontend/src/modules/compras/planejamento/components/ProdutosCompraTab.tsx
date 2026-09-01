@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
 import { api } from '../../../geral/lib/api';
-import type { DemandResult } from '../../../geral/lib/types';
+import type { DemandResult, ActiveRequestedItemSummary } from '../../../geral/lib/types';
 import { getAuthUser, isSupervisor } from '../../../geral/lib/auth';
 
 interface ProductRow {
@@ -139,12 +139,35 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
 
   // Print list & report options
   const [printList, setPrintList] = useState<string[]>([]);
+  const [activeRequests, setActiveRequests] = useState<Record<string, ActiveRequestedItemSummary>>({});
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [reportType, setReportType] = useState<'disponibilidade' | 'sugestao'>(statusFilter === 'coloracao' ? 'disponibilidade' : 'sugestao');
   const [printFilterType, setPrintFilterType] = useState<'all' | 'selected' | 'disponiveis' | 'com_pedidos' | 'ruptura' | 'needed' | 'list'>('all');
   const [includeTransitInReport, setIncludeTransitInReport] = useState<boolean>(false);
   const [modalSearchTerm, setModalSearchTerm] = useState<string>('');
   const [lastErpStockSync, setLastErpStockSync] = useState<{ at: string; count: number } | null>(null);
+
+  const loadActiveRequests = async () => {
+    try {
+      const list = await api.getActiveRequestedItems();
+      const map: Record<string, ActiveRequestedItemSummary> = {};
+      for (const item of list) {
+        const clean = (item.itemCode || '').replace(/\./g, '');
+        map[clean] = item;
+        map[item.itemCode] = item;
+      }
+      setActiveRequests(map);
+    } catch (e) {
+      console.error('Erro ao carregar solicitações ativas:', e);
+    }
+  };
+
+  useEffect(() => {
+    loadActiveRequests();
+    const handleUpdate = () => loadActiveRequests();
+    window.addEventListener('compras_solicitacoes_updated', handleUpdate);
+    return () => window.removeEventListener('compras_solicitacoes_updated', handleUpdate);
+  }, []);
 
   useEffect(() => {
     const loadPrintList = () => {
@@ -171,6 +194,14 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     if (printList.some(c => c.replace(/\./g, '') === cleanCode)) {
       newList = printList.filter(c => c.replace(/\./g, '') !== cleanCode);
     } else {
+      const activeReq = activeRequests[cleanCode] || activeRequests[code];
+      if (activeReq && activeReq.status !== 'entregue') {
+        const dateStr = activeReq.createdAt ? new Date(activeReq.createdAt).toLocaleDateString('pt-BR') : '';
+        const msg = `⚠️ Atenção: O item "${code}" já foi solicitado no ${activeReq.loteNumero} em ${dateStr} (Qtd: ${activeReq.quantityRequested}).\n\nDeseja adicionar à nova lista mesmo assim?`;
+        if (!window.confirm(msg)) {
+          return;
+        }
+      }
       newList = [...printList, code];
     }
     setPrintList(newList);
@@ -216,6 +247,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
         periodoMedia: existing?.periodoMedia ?? null
       });
       await loadCustomConfigs();
+      window.dispatchEvent(new CustomEvent('compras_config_updated'));
       await loadDemands();
     } catch (e) {
       console.error(e);
@@ -239,6 +271,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
         periodoMedia: existing?.periodoMedia ?? null
       });
       await loadCustomConfigs();
+      window.dispatchEvent(new CustomEvent('compras_config_updated'));
       await loadDemands();
     } catch (e) {
       console.error(e);
@@ -316,6 +349,14 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
         }
       };
       loadGlobalConfig();
+
+      const handleConfigUpdate = () => {
+        loadCustomConfigs();
+        api.getCategories().then(setCategories).catch(console.error);
+        loadDemands();
+      };
+      window.addEventListener('compras_config_updated', handleConfigUpdate);
+      return () => window.removeEventListener('compras_config_updated', handleConfigUpdate);
     }
   }, [statusFilter, active, targetDaysInput]);
 
@@ -1133,7 +1174,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
         </div>
 
         <footer>
-          <div>NatumHub &bull; Sistema de Gestão Industrial</div>
+          <div>Nexus &bull; Sistema de Gestão Industrial</div>
           <div>Página 1 de 1</div>
         </footer>
       </body>
@@ -1254,32 +1295,6 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
 
           <div className="flex items-center gap-3">
             <span className="text-xs text-zinc-500 font-semibold">{filteredProducts.length} itens</span>
-            <button
-              type="button"
-              disabled={selectedForQuote.size === 0}
-              onClick={async () => {
-                if (selectedForQuote.size === 0) return;
-                const title = prompt('Título para a nova cotação:');
-                if (!title) return;
-                try {
-                  const selected = computedProducts.filter((p) => selectedForQuote.has(p.codigo));
-                  await api.createQuotation(
-                    title,
-                    selected.map((p) => p.codigo),
-                    selected.map((p) => p.sugestao_compra_computed || 0),
-                  );
-                  alert('Cotação criada com sucesso! Abra Compras > Cotações para continuar.');
-                  setSelectedForQuote(new Set());
-                } catch (e) {
-                  console.error(e);
-                  alert('Erro ao criar cotação: ' + (e instanceof Error ? e.message : String(e)));
-                }
-              }}
-              className="text-xs bg-white border border-zinc-300 hover:bg-zinc-50 disabled:opacity-40 text-zinc-800 px-3.5 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:cursor-not-allowed"
-            >
-              <ShoppingCart className="h-3.5 w-3.5" />
-              Cotar ({selectedForQuote.size})
-            </button>
             {selectedForQuote.size > 0 && (
               <button
                 onClick={handleAddSelectedToPrintList}
@@ -1414,6 +1429,30 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                       <td className="px-4 py-3 truncate">
                         <div className="font-mono text-[10px] font-bold text-zinc-400">{p.codigo}</div>
                         <div className="font-bold text-zinc-900 truncate" title={p.descricao}>{p.descricao}</div>
+                        {(() => {
+                          const cleanCode = (p.codigo || '').replace(/\./g, '');
+                          const activeReq = activeRequests[cleanCode] || activeRequests[p.codigo];
+                          if (!activeReq) return null;
+                          return (
+                            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                              {activeReq.erpPedidoNumero ? (
+                                <span 
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200"
+                                  title={`Pedido ERP #${activeReq.erpPedidoNumero} em ${activeReq.erpPedidoData || ''} (${activeReq.erpFornecedor || ''}) - Qtd: ${activeReq.erpPedidoQtd || ''}`}
+                                >
+                                  <Package className="h-3 w-3" /> Pedido ERP #{activeReq.erpPedidoNumero}
+                                </span>
+                              ) : (
+                                <span 
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200"
+                                  title={`Solicitado no ${activeReq.loteNumero} há ${activeReq.daysAgo} dias (Qtd: ${activeReq.quantityRequested})`}
+                                >
+                                  <Clock className="h-3 w-3" /> Solicitado ({activeReq.loteNumero} · {activeReq.daysAgo === 0 ? 'hoje' : `há ${activeReq.daysAgo}d`})
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                         {p.nome_linha && (
                           <span className="inline-block px-1.5 py-0.5 bg-zinc-100 text-zinc-600 rounded text-[9px] font-extrabold uppercase mt-0.5">
                             {p.nome_linha}

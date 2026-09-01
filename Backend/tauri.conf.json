@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "NatumHub",
-  "version": "0.0.12",
-  "identifier": "com.natum.hub",
+  "productName": "Nexus",
+  "version": "0.1.0",
+  "identifier": "com.nexus.hub",
   "build": {
     "frontendDist": "../Frontend/dist",
     "devUrl": "http://localhost:5175",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Natum Hub",
+        "title": "Nexus",
         "width": 1280,
         "height": 850,
         "minWidth": 900,

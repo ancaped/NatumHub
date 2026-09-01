@@ -52,7 +52,7 @@ function getDefaultDeviceLabel(): string {
   if (typeof window !== 'undefined' && window.location?.hostname) {
     return window.location.hostname;
   }
-  return 'NatumHub';
+  return 'Nexus';
 }
 
 export function ensureDeviceId(config: ClientConfig): ClientConfig {
@@ -206,7 +206,7 @@ export async function getBuildInfo(): Promise<BuildInfo | null> {
     return {
       channel: String(info.channel ?? ''),
       identifier: String(info.identifier ?? ''),
-      productName: String(info.productName ?? info.product_name ?? 'NatumHub'),
+      productName: String(info.productName ?? info.product_name ?? 'Nexus'),
       version: String(info.version ?? ''),
       canBePrincipalServer: Boolean(
         info.canBePrincipalServer ?? info.can_be_principal_server

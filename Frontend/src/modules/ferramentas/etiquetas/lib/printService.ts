@@ -210,7 +210,7 @@ function buildPrintHtml(template: LabelTemplate, config: PrintConfig): string {
     <html>
       <head>
         <meta charset="utf-8" />
-        <title>Imprimir Etiquetas - NatumHub</title>
+        <title>Imprimir Etiquetas - Nexus</title>
         <style>
           @page {
             margin: 0mm !important;

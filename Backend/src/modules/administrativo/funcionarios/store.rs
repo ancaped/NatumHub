@@ -119,11 +119,22 @@ SELECT
     p.address_zip,
     p.notes,
     p.updated_at,
-    (SELECT MAX(s.created_at) FROM hub_sessions s WHERE s.operator_id = o.id) AS last_session_at,
+    COALESCE(
+        (SELECT MAX(a.created_at::text) FROM hub_audit_events a WHERE a.actor_id = o.id),
+        (SELECT MAX(s.created_at::text) FROM hub_sessions s WHERE s.operator_id = o.id)
+    ) AS last_session_at,
     EXISTS (
         SELECT 1 FROM hub_sessions s
         WHERE s.operator_id = o.id
           AND s.expires_at > to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')
+          AND (
+              s.created_at::timestamptz > NOW() - INTERVAL '15 minutes'
+              OR EXISTS (
+                  SELECT 1 FROM hub_audit_events a
+                  WHERE a.actor_id = o.id
+                    AND a.created_at > NOW() - INTERVAL '15 minutes'
+              )
+          )
     ) AS session_active
 FROM hub_operators o
 LEFT JOIN hub_operator_profiles p ON p.operator_id = o.id

@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../geral/lib/api';
 import { DemandResult } from '../../../geral/lib/types';
-import { Trash2, Printer, Search, Plus, FileText, RefreshCw, X, Package, Settings, ShoppingCart } from 'lucide-react';
+import { Trash2, Printer, Search, Plus, FileText, RefreshCw, X, Package, Settings, Layers, Tag, CheckCircle2, ClipboardList, Check } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
+import { getAuthUser } from '../../../geral/lib/auth';
+
 
 const COLUMN_METADATA: Record<string, { label: string; align: 'left' | 'center' | 'right' }> = {
   itemCode: { label: 'Ref / Item', align: 'left' },
@@ -14,7 +16,7 @@ const COLUMN_METADATA: Record<string, { label: string; align: 'left' | 'center' 
   futureStockForecast: { label: 'Prev. Futura', align: 'right' },
   estimatedDurationDays: { label: 'Duração Est.', align: 'center' },
   triggerDays: { label: 'Disp.', align: 'center' },
-  targetDays: { label: 'Obj.', align: 'center' },
+  targetDays: { label: 'Obj. (Meta)', align: 'center' },
   recommendedQty: { label: 'Qtd Recomendada', align: 'right' }
 };
 
@@ -22,7 +24,6 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
   const [printList, setPrintList] = useState<string[]>([]);
   const [demands, setDemands] = useState<DemandResult[]>([]);
   const [loading, setLoading] = useState(true);
-  const [targetDays, setTargetDays] = useState(90);
   const [search, setSearch] = useState('');
   const [categories, setCategories] = useState<any[]>([]);
   const [manualQtys, setManualQtys] = useState<Record<string, number>>(() => {
@@ -58,8 +59,8 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
     simProducao: true,
     futureStockForecast: true,
     estimatedDurationDays: true,
-    triggerDays: true,
-    targetDays: true,
+    triggerDays: false,
+    targetDays: false,
     recommendedQty: true
   });
   
@@ -121,7 +122,6 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
           triggerDays: true,
           targetDays: true,
           ...parsed,
-          // Nova coluna: liga por padrão se ainda não estiver na config salva
           simProducao: parsed.simProducao !== undefined ? parsed.simProducao : true,
         });
       } catch (e) {
@@ -149,11 +149,6 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
     newOrder[targetIndex] = temp;
     saveColumnOrder(newOrder);
   };
-
-  // Load categories on mount
-  useEffect(() => {
-    api.getCategories().then(setCategories).catch(console.error);
-  }, []);
 
   const handleUpdateManualQty = (code: string, qty: number | '') => {
     const newQtys = { ...manualQtys };
@@ -211,26 +206,12 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
     }
   };
 
-  // Load print list and categories from API / localStorage on mount and tab activation
-  useEffect(() => {
-    syncPrintListFromStorage();
-    api.getCategories().then(setCategories).catch(console.error);
-  }, []);
-
-  // Save print list to localStorage on changes
-  const savePrintList = (newList: string[]) => {
-    setPrintList(newList);
-    localStorage.setItem('natum_hub_print_list', JSON.stringify(newList));
-    // Dispatch a storage event so other tabs/components sync instantly
-    window.dispatchEvent(new Event('storage'));
-  };
-
-  // Load all demands so we have calculations and description matching
+  // Load all demands respecting individual category/subcategory target days
   const loadDemands = async () => {
     setLoading(true);
     try {
-      // Fetching all demands with the active meta days
-      const results = await api.getDemands(undefined, targetDays);
+      // Backend automatically resolves target_days and trigger_days per subcategory/item
+      const results = await api.getDemands();
       setDemands(results);
     } catch (e) {
       console.error("Error loading demands for print list:", e);
@@ -240,20 +221,36 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
   };
 
   useEffect(() => {
-    if (!active) return;
     syncPrintListFromStorage();
     api.getCategories().then(setCategories).catch(console.error);
-    loadDemands();
-  }, [targetDays, active]);
+    if (active) {
+      loadDemands();
+    }
+  }, [active, mode]);
 
-  // Sync with external localStorage updates (e.g. from DemandTable)
+  // Sync with external events and storage updates
   useEffect(() => {
     const handleStorageChange = () => {
       syncPrintListFromStorage();
     };
+    const handleConfigUpdate = () => {
+      loadDemands();
+      api.getCategories().then(setCategories).catch(console.error);
+    };
     window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    window.addEventListener('compras_config_updated', handleConfigUpdate);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('compras_config_updated', handleConfigUpdate);
+    };
   }, []);
+
+  // Save print list to localStorage on changes
+  const savePrintList = (newList: string[]) => {
+    setPrintList(newList);
+    localStorage.setItem('natum_hub_print_list', JSON.stringify(newList));
+    window.dispatchEvent(new Event('storage'));
+  };
 
   // Filter print list items currently listed
   const selectedDemands = useMemo(() => {
@@ -311,7 +308,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
         (d.itemCode || '').toLowerCase().includes(q) || 
         (d.description || '').toLowerCase().includes(q)
       )
-      .slice(0, 15); // limit preview
+      .slice(0, 15);
   }, [demands, printList, addItemSearch, mode, categories]);
 
   const handleAddItem = (code: string) => {
@@ -335,47 +332,25 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
     }
   };
 
-  const handleCreateQuotationFromList = async () => {
-    if (selectedDemands.length === 0) {
-      alert("A lista está vazia.");
-      return;
-    }
-    const title = prompt('Título para a nova cotação:');
-    if (!title) return;
-    try {
-      const itemCodes = selectedDemands.map(d => d.itemCode);
-      const recommendedQtys = selectedDemands.map(d => {
-        const manual = manualQtys[d.itemCode];
-        const val = manual !== undefined ? manual : Math.max(0, Math.round(d.recommendedQty));
-        return isNaN(val) ? 0 : val;
-      });
-      await api.createQuotation(title, itemCodes, recommendedQtys);
-      alert('Cotação criada a partir da lista com sucesso!');
-      if (confirm('Deseja limpar os itens adicionados da lista?')) {
-        savePrintList(printList.filter(code => !itemCodes.includes(code)));
-      }
-    } catch (e) {
-      console.error(e);
-      alert('Erro ao criar cotação a partir da lista: ' + (e instanceof Error ? e.message : String(e)));
-    }
-  };
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [batchTitle, setBatchTitle] = useState('');
+  const [batchNotes, setBatchNotes] = useState('');
+  const [batchGenerating, setBatchGenerating] = useState(false);
+  const [lastGeneratedLote, setLastGeneratedLote] = useState<string | null>(null);
 
-  const handlePrint = () => {
+  const handlePrint = (customLoteNumero?: string, customTitle?: string) => {
     if (selectedDemands.length === 0) {
       alert("A lista está vazia ou os itens filtrados não correspondem.");
       return;
     }
 
-    let reportTitle = 'Relatório de Compras';
-    if (mode === 'materia_prima') {
-      reportTitle = 'Relatório de Compras de Matéria-Prima';
-    } else if (mode === 'embalagens') {
-      reportTitle = 'Relatório de Compras de Embalagens';
-    } else if (mode === 'coloracao') {
-      reportTitle = 'Relatório de Compras de Coloração';
-    } else if (mode === 'apoio') {
-      reportTitle = 'Relatório de Compras de Material de Apoio';
-    }
+    let reportTitle = customTitle || (
+      mode === 'materia_prima' ? 'Relatório de Compras — Matéria-Prima' :
+      mode === 'embalagens' ? 'Relatório de Compras — Embalagens' :
+      mode === 'coloracao' ? 'Relatório de Compras — Coloração' :
+      mode === 'apoio' ? 'Relatório de Compras — Material de Apoio' :
+      'Relatório de Compras'
+    );
 
     // Create hidden iframe
     const iframe = document.createElement('iframe');
@@ -407,8 +382,11 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
     const rowsHtml = selectedDemands.map(item => {
       const currentAvg = manualAvgs[item.itemCode] !== undefined ? manualAvgs[item.itemCode] : item.overallAvg;
       const daily = currentAvg / 30.0;
-      const qty = manualQtys[item.itemCode] !== undefined ? manualQtys[item.itemCode] : Math.max(0, Math.round(item.recommendedQty));
+      const itemTargetDays = item.target_days || 90;
+      const calcTargetStock = itemTargetDays * daily;
       const futureStock = item.futureStockForecast || 0;
+      const autoRec = Math.max(0, Math.round(calcTargetStock - futureStock));
+      const qty = manualQtys[item.itemCode] !== undefined ? manualQtys[item.itemCode] : (item.recommendedQty !== undefined ? Math.round(item.recommendedQty) : autoRec);
       const postStock = Math.max(0, futureStock + qty);
       const postDuration = daily > 0 ? Math.round(postStock / daily) : 9999;
       const currentDuration = daily > 0 ? Math.round(futureStock / daily) : 9999;
@@ -419,7 +397,10 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
         if (colKey === 'itemCode') {
           return `
             <td style="font-family: monospace; font-size: 10px;">${item.itemCode || '-'}</td>
-            <td style="text-align: left; font-weight: 500; font-size: 10px;">${item.description || '-'}</td>
+            <td style="text-align: left; font-weight: 500; font-size: 10px;">
+              ${item.description || '-'}
+              ${item.category_name ? `<span style="font-size: 8px; color: #6b7280; display: block;">${item.category_name}</span>` : ''}
+            </td>
           `;
         }
         if (colKey === 'lastSupplierInvoice') {
@@ -443,23 +424,23 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
         }
         if (colKey === 'estimatedDurationDays') {
           return `
-            <td style="text-align: center; font-weight: ${currentDuration < 60 ? 'bold' : 'normal'};">
+            <td style="text-align: center; font-weight: ${currentDuration < (item.trigger_days || 30) ? 'bold' : 'normal'}; color: ${currentDuration < (item.trigger_days || 30) ? '#b91c1c' : '#374151'};">
               ${currentDuration === 9999 ? '9999+' : `${currentDuration} dias`}
             </td>
           `;
         }
         if (colKey === 'triggerDays') {
-          return `<td style="text-align: center; font-size: 9px;">${item.triggerDays !== undefined ? `${item.triggerDays}d` : '-'}</td>`;
+          return `<td style="text-align: center; font-size: 9px;">${item.trigger_days !== undefined ? `${item.trigger_days}d` : '-'}</td>`;
         }
         if (colKey === 'targetDays') {
-          return `<td style="text-align: center; font-size: 9px;">${item.targetDays !== undefined ? `${item.targetDays}d` : '-'}</td>`;
+          return `<td style="text-align: center; font-size: 9px; font-weight: bold;">${item.target_days !== undefined ? `${item.target_days}d` : '90d'}</td>`;
         }
         if (colKey === 'recommendedQty') {
           return `
             <td style="text-align: right; font-weight: bold; background-color: #f4f4f5;">
               <div>${qty > 0 ? `${qty.toLocaleString('pt-BR')} ${item.unit || ''}` : '-'}</div>
-              <div style="font-size: 8px; color: ${postDuration < 60 ? '#b91c1c' : postDuration < 90 ? '#b45309' : '#047857'}; font-weight: normal; margin-top: 2px; text-align: right;">
-                Pós: ${postDuration === 9999 ? '∞' : `${postDuration}d (${Math.round(postDuration / 30)}m)`}
+              <div style="font-size: 8px; color: ${postDuration < (item.trigger_days || 30) ? '#b91c1c' : postDuration < itemTargetDays ? '#b45309' : '#047857'}; font-weight: normal; margin-top: 2px; text-align: right;">
+                Pós: ${postDuration === 9999 ? '∞' : `${postDuration}d`}
               </div>
             </td>
           `;
@@ -474,7 +455,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
       <!DOCTYPE html>
       <html>
       <head>
-        <title>${reportTitle} — NatumHub</title>
+        <title>${reportTitle}${customLoteNumero ? ` — ${customLoteNumero}` : ''}</title>
         <meta charset="utf-8">
         <style>
           @page {
@@ -491,23 +472,38 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
             line-height: 1.4;
           }
           header {
-            margin-bottom: 20px;
+            margin-bottom: 16px;
             border-bottom: 2px solid #111827;
-            padding-bottom: 10px;
+            padding-bottom: 8px;
+          }
+          .title-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
           }
           .header-title {
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 800;
             color: #111827;
-            margin: 0 0 5px 0;
+            margin: 0 0 4px 0;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+          }
+          .lote-badge {
+            background: #111827;
+            color: #ffffff;
+            font-weight: 800;
+            font-size: 13px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-family: monospace;
           }
           .header-meta {
             display: flex;
             justify-content: space-between;
             color: #4b5563;
             font-size: 9px;
+            margin-top: 6px;
           }
           .meta-group {
             display: flex;
@@ -516,7 +512,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
           table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 30px;
+            margin-bottom: 25px;
             page-break-inside: auto;
           }
           tr {
@@ -527,70 +523,73 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
             display: table-header-group;
           }
           th {
-            background-color: #f9fafb;
-            border-bottom: 2px solid #d1d5db;
-            color: #374151;
+            background-color: #f3f4f6;
+            border-bottom: 1px solid #d1d5db;
+            border-top: 1px solid #d1d5db;
+            padding: 5px 6px;
             font-weight: 700;
-            padding: 6px 4px;
-            text-align: center;
+            color: #374151;
             font-size: 9px;
             text-transform: uppercase;
+            letter-spacing: 0.5px;
           }
           td {
             border-bottom: 1px solid #e5e7eb;
-            padding: 6px 4px;
-            text-align: center;
+            padding: 5px 6px;
             vertical-align: middle;
+            font-size: 9px;
+          }
+          tfoot {
+            display: table-footer-group;
           }
           .signatures {
-            margin-top: 50px;
+            margin-top: 45px;
             display: flex;
             justify-content: space-between;
             page-break-inside: avoid;
           }
-          .signature-box {
-            width: 45%;
+          .sig-box {
+            width: 42%;
             text-align: center;
           }
-          .signature-line {
+          .sig-line {
             border-top: 1px solid #9ca3af;
-            margin-top: 35px;
-            margin-bottom: 5px;
+            margin-top: 30px;
+            margin-bottom: 4px;
           }
-          .signature-title {
+          .sig-label {
             font-size: 9px;
             color: #6b7280;
-            font-weight: 600;
+            font-weight: bold;
             text-transform: uppercase;
           }
-          footer {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
+          .footer-note {
+            margin-top: 15px;
+            font-size: 8.5px;
+            color: #6b7280;
+            border-top: 1px dashed #d1d5db;
+            padding-top: 6px;
             display: flex;
             justify-content: space-between;
-            font-size: 8px;
-            color: #9ca3af;
-            border-top: 1px solid #f3f4f6;
-            padding-top: 5px;
           }
           @media print {
-            body {
-              -webkit-print-color-adjust: exact;
-              print-color-adjust: exact;
-            }
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           }
         </style>
       </head>
       <body>
         <header>
-          <h1 class="header-title">${reportTitle}</h1>
+          <div class="title-container">
+            <div class="header-title">${reportTitle}</div>
+            ${customLoteNumero ? `<div class="lote-badge">${customLoteNumero}</div>` : ''}
+          </div>
           <div class="header-meta">
-            <div>Gerado em: <strong>${today}</strong></div>
             <div class="meta-group">
-              <div>Itens Selecionados: <strong>${selectedDemands.length}</strong></div>
+              <div><strong>Gerado em:</strong> ${today}</div>
+              <div><strong>Itens no Relatório:</strong> ${selectedDemands.length}</div>
+              <div><strong>Objetivos de Estoque:</strong> Calculados por subcategoria</div>
             </div>
+            <div><strong>Ambiente Industrial Nexus</strong></div>
           </div>
         </header>
 
@@ -599,11 +598,14 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
             <tr>
               ${columnOrder.map(colKey => {
                 if (!columns[colKey]) return '';
-                if (colKey === 'itemCode') {
-                  return '<th style="width: 80px; text-align: left;">Código</th><th style="text-align: left;">Descrição</th>';
-                }
                 const meta = COLUMN_METADATA[colKey];
-                return `<th style="text-align: ${meta.align === 'right' ? 'right' : meta.align === 'center' ? 'center' : 'left'};">${meta.label}</th>`;
+                if (colKey === 'itemCode') {
+                  return `
+                    <th style="text-align: left; width: 65px;">Ref</th>
+                    <th style="text-align: left;">Descrição do Insumo</th>
+                  `;
+                }
+                return `<th style="text-align: ${meta.align};">${meta.label}</th>`;
               }).join('')}
             </tr>
           </thead>
@@ -612,40 +614,29 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
           </tbody>
         </table>
 
-        <div style="margin-top: 25px; padding: 10px; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 8px; color: #4b5563; page-break-inside: avoid;">
-          <strong style="color: #111827; display: block; margin-bottom: 4px; font-size: 9px; text-transform: uppercase;">Nota Explicativa (Metodologia de Cálculo):</strong>
-          <ul style="margin: 0; padding-left: 12px; line-height: 1.4;">
-            <li style="margin-bottom: 3px;"><strong>Consumo Mês (Média):</strong> Média mensal com o período configurado por item (Tempo de Cálculo da Média), priorizando saídas reais de estoque ou faturamento.</li>
-            <li style="margin-bottom: 3px;"><strong>Disp. / Obj.:</strong> Dias de cobertura (disparo e meta) por item; exibidos de forma compacta (ex.: 45d).</li>
-            <li style="margin-bottom: 3px;"><strong>Sim. Produção:</strong> Consumo de insumos se produzir produtos em Produzir Urgente / Abrir Ordem (já descontado na Prev. Futura).</li>
-            <li style="margin-bottom: 3px;"><strong>Duração de Estoque:</strong> Calculada como <code style="font-family: monospace;">Estoque Projetado Futuro / Consumo Diário</code>.</li>
-            <li><strong>Recomendado:</strong> Quantidade sugerida para atingir o objetivo de cobertura do item.</li>
-          </ul>
-        </div>
-
         <div class="signatures">
-          <div class="signature-box">
-            <div class="signature-line"></div>
-            <div class="signature-title">Responsável pelo Planejamento (PCP)</div>
+          <div class="sig-box">
+            <div class="sig-line"></div>
+            <div class="sig-label">Solicitante</div>
           </div>
-          <div class="signature-box">
-            <div class="signature-line"></div>
-            <div class="signature-title">Autorização para Realização de Cotação</div>
+          <div class="sig-box">
+            <div class="sig-line"></div>
+            <div class="sig-label">Comprador / Lançamento ERP</div>
           </div>
         </div>
 
-        <footer>
-          <div>NatumHub — Sistema de Gestão Unificado</div>
-          <div>Impressão Personalizada</div>
-        </footer>
+        <div class="footer-note">
+          <div>* Metas e pontos de disparo são calculados conforme a subcategoria/insumo definido no sistema. ${customLoteNumero ? `Rastreado sob ${customLoteNumero}.` : ''}</div>
+          <div>Página 1 de 1</div>
+        </div>
       </body>
       </html>
     `;
-    
+
     doc.open();
     doc.write(printHtml);
     doc.close();
-    
+
     setTimeout(() => {
       iframe.contentWindow?.focus();
       iframe.contentWindow?.print();
@@ -655,78 +646,225 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
     }, 500);
   };
 
+  const handleGenerateBatch = async () => {
+    if (selectedDemands.length === 0) {
+      alert("A lista está vazia ou os itens filtrados não correspondem.");
+      return;
+    }
+    setBatchGenerating(true);
+    try {
+      const authUser = getAuthUser();
+      const items = selectedDemands.map(item => {
+        const currentAvg = manualAvgs[item.itemCode] !== undefined ? manualAvgs[item.itemCode] : item.overallAvg;
+        const daily = currentAvg / 30.0;
+        const itemTargetDays = item.target_days || 90;
+        const itemTriggerDays = item.trigger_days || 30;
+        const calcTargetStock = itemTargetDays * daily;
+        const futureStock = item.futureStockForecast || 0;
+        const autoRec = Math.max(0, Math.round(calcTargetStock - futureStock));
+        const qty = manualQtys[item.itemCode] !== undefined ? manualQtys[item.itemCode] : (item.recommendedQty !== undefined ? Math.round(item.recommendedQty) : autoRec);
+        
+        return {
+          itemCode: item.itemCode,
+          itemDescription: item.description,
+          unit: item.unit || 'UN',
+          quantityRequested: qty,
+          currentStockAtTime: item.currentStock,
+          overallAvgAtTime: currentAvg,
+          simProducaoAtTime: item.simProducao || 0,
+          futureStockAtTime: item.futureStockForecast || 0,
+          targetDaysAtTime: itemTargetDays,
+          triggerDaysAtTime: itemTriggerDays,
+          supplierName: item.lastSupplierInvoice || item.lastSupplierOrder || null,
+          observacao: null,
+        };
+      });
+
+      const res = await api.createPurchaseList({
+        modulo: mode === 'all' ? 'geral' : mode,
+        titulo: batchTitle.trim() || undefined,
+        observacoes: batchNotes.trim() || undefined,
+        createdBy: authUser?.displayName || 'Responsável Compras',
+        items,
+      });
+
+      // Imprime a via oficial com o LOTE
+      handlePrint(res.batch.loteNumero, res.batch.titulo || undefined);
+
+      // Limpa lista de rascunho
+      savePrintList([]);
+      setShowBatchModal(false);
+      setBatchTitle('');
+      setBatchNotes('');
+      setLastGeneratedLote(res.batch.loteNumero);
+
+      window.dispatchEvent(new Event('compras_solicitacoes_updated'));
+      window.dispatchEvent(new Event('storage'));
+    } catch (e: any) {
+      console.error('Erro ao gerar lote de solicitação:', e);
+      alert(e?.message || 'Erro ao gerar lote de solicitação.');
+    } finally {
+      setBatchGenerating(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col gap-4 h-[calc(100vh-12.25rem)]">
+    <div className="flex flex-col gap-4 h-[calc(100vh-12.25rem)] animate-in fade-in duration-200">
       {/* Top Header Card */}
       <div className="bg-white p-4 rounded-xl border border-zinc-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
         <div className="text-left">
           <h3 className="font-extrabold text-zinc-900 text-lg flex items-center gap-2">
-            <FileText className="h-5 w-5 text-zinc-700" />
+            <FileText className="h-5 w-5 text-zinc-800" />
             Lista de Impressão — {mode === 'materia_prima' ? 'Matéria-Prima' : mode === 'embalagens' ? 'Embalagens' : mode === 'coloracao' ? 'Coloração' : mode === 'apoio' ? 'Material de Apoio' : 'Geral'}
           </h3>
           <p className="text-xs text-zinc-500 mt-0.5">
-            Adicione insumos à lista a partir da aba principal ou pesquise abaixo para montar seu rascunho de compras.
+            Gere lotes identificados de compra (ex: LOTE #001) para acompanhamento automático com os pedidos lançados no ERP.
           </p>
         </div>
         <div className="flex items-center gap-2.5">
-          <div className="flex items-center gap-2 border-r border-zinc-200 pr-4 mr-1">
-            <span className="text-xs font-bold text-zinc-650">Cálculo Meta:</span>
-            <input 
-              type="number" 
-              value={targetDays} 
-              onChange={e => setTargetDays(Number(e.target.value))} 
-              className="w-16 text-xs border border-zinc-300 rounded-md px-2 py-1.5 focus:ring-1 focus:ring-zinc-950 focus:outline-none" 
-            />
-            <span className="text-[10px] text-zinc-500">dias</span>
-          </div>
           <button 
             onClick={handleClearList} 
             disabled={printList.length === 0} 
             className="text-xs border border-zinc-200 text-zinc-600 px-3.5 py-2 rounded-lg font-bold hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
-            Limpar Lista
+            Limpar Rascunho
           </button>
           <button 
-            onClick={handleCreateQuotationFromList} 
+            onClick={() => handlePrint()} 
             disabled={selectedDemands.length === 0} 
-            className="text-xs bg-blue-600 text-white px-3.5 py-2 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 cursor-pointer shadow-sm transition-colors"
+            className="text-xs border border-zinc-200 text-zinc-700 px-3.5 py-2 rounded-lg font-bold hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
           >
-            <ShoppingCart className="h-3.5 w-3.5" />
-            Enviar p/ Cotação ({selectedDemands.length})
+            <Printer className="h-4 w-4" />
+            Apenas Imprimir
           </button>
           <button 
-            onClick={handlePrint} 
+            onClick={() => setShowBatchModal(true)} 
             disabled={selectedDemands.length === 0} 
-            className="text-xs bg-zinc-900 text-white px-3.5 py-2 rounded-lg font-bold hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 cursor-pointer shadow-sm transition-colors"
+            className="text-xs bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 cursor-pointer shadow-sm transition-colors"
           >
-            <Printer className="h-3.5 w-3.5" />
-            Imprimir Relatório ({selectedDemands.length})
+            <CheckCircle2 className="h-4 w-4" />
+            Gerar Lote de Solicitação ({selectedDemands.length})
           </button>
         </div>
       </div>
 
+      {lastGeneratedLote && (
+        <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl flex justify-between items-center text-xs text-emerald-900 animate-in fade-in shrink-0">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+            <span>
+              Lote <strong>{lastGeneratedLote}</strong> gerado com sucesso! Acompanhe o lançamento dos pedidos pelo setor na aba <strong>Acompanhamento</strong>.
+            </span>
+          </div>
+          <button onClick={() => setLastGeneratedLote(null)} className="text-emerald-700 hover:text-emerald-900 cursor-pointer">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Modal Gerar Lote */}
+      {showBatchModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 cursor-pointer" onClick={() => !batchGenerating && setShowBatchModal(false)} />
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl p-6 border border-zinc-200 z-10 text-left animate-in zoom-in-95 duration-150">
+            <div className="flex justify-between items-center mb-4 pb-2 border-b border-zinc-100">
+              <div className="flex items-center gap-2">
+                <ClipboardList className="h-5 w-5 text-zinc-900" />
+                <h3 className="font-extrabold text-zinc-900 text-base">Gerar Lote de Solicitação</h3>
+              </div>
+              <button 
+                onClick={() => !batchGenerating && setShowBatchModal(false)} 
+                className="text-zinc-400 hover:text-zinc-600 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-600 mb-4">
+              Esta ação criará um número de lote oficial (ex: LOTE #001) para os <strong>{selectedDemands.length} itens</strong> desta lista, congelando as quantidades e estoques para acompanhamento com o ERP.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block mb-1">
+                  Título / Identificador Opcional
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: Solicitação Semanal, Urgência Fornecedor X..."
+                  value={batchTitle}
+                  onChange={e => setBatchTitle(e.target.value)}
+                  className="w-full border border-zinc-300 rounded-lg px-3 py-1.5 text-xs text-zinc-800 focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block mb-1">
+                  Observações / Justificativas
+                </label>
+                <textarea
+                  placeholder="Observações adicionais para o setor de compras ou diretoria..."
+                  value={batchNotes}
+                  onChange={e => setBatchNotes(e.target.value)}
+                  rows={3}
+                  className="w-full border border-zinc-300 rounded-lg px-3 py-1.5 text-xs text-zinc-800 focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2.5">
+              <button
+                type="button"
+                disabled={batchGenerating}
+                onClick={() => setShowBatchModal(false)}
+                className="px-4 py-2 border border-zinc-200 text-zinc-700 hover:bg-zinc-50 rounded-lg text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={batchGenerating}
+                onClick={handleGenerateBatch}
+                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold shadow-md transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {batchGenerating ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Gerando Lote...
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-3.5 w-3.5" /> Confirmar e Imprimir Lote
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
       {/* Column Customization & Reordering Panel */}
       <div className="bg-white px-4 py-3 rounded-xl border border-zinc-200 shadow-sm flex flex-col gap-3 shrink-0">
-        <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
-          <Settings className="h-4 w-4 text-zinc-400" /> Ordenar & Habilitar Colunas do Relatório:
+        <span className="text-xs font-bold text-zinc-600 uppercase tracking-wider flex items-center gap-1.5 shrink-0">
+          <Settings className="h-4 w-4 text-zinc-400" /> Colunas do Relatório & Ordem de Exibição:
         </span>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           {columnOrder.map((colKey, idx) => {
             const meta = COLUMN_METADATA[colKey];
             return (
-              <div key={colKey} className="bg-zinc-50 px-2.5 py-1.5 border border-zinc-200 rounded flex items-center gap-2 shadow-sm text-xs">
+              <div key={colKey} className="bg-zinc-50 px-2.5 py-1.5 border border-zinc-200 rounded-lg flex items-center gap-2 shadow-2xs text-xs">
                 <input 
                   type="checkbox" 
                   checked={columns[colKey]} 
                   onChange={e => saveColumnConfig({ ...columns, [colKey]: e.target.checked })} 
-                  className="rounded border-zinc-300 text-zinc-950 focus:ring-zinc-950 h-3.5 w-3.5 cursor-pointer"
+                  className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 h-3.5 w-3.5 cursor-pointer"
                 />
-                <span className="font-semibold text-zinc-700">{meta.label}</span>
-                <div className="flex items-center gap-1 border-l border-zinc-200 pl-2 ml-1">
+                <span className="font-semibold text-zinc-800">{meta.label}</span>
+                <div className="flex items-center gap-0.5 border-l border-zinc-200 pl-1.5 ml-0.5">
                   <button
                     onClick={() => handleMoveColumn(idx, 'up')}
                     disabled={idx === 0}
-                    className="p-0.5 hover:bg-zinc-200 rounded disabled:opacity-30 text-[10px]"
+                    className="p-0.5 hover:bg-zinc-200 rounded disabled:opacity-30 text-[10px] cursor-pointer"
                     title="Mover para esquerda"
                   >
                     ◀
@@ -734,7 +872,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
                   <button
                     onClick={() => handleMoveColumn(idx, 'down')}
                     disabled={idx === columnOrder.length - 1}
-                    className="p-0.5 hover:bg-zinc-200 rounded disabled:opacity-30 text-[10px]"
+                    className="p-0.5 hover:bg-zinc-200 rounded disabled:opacity-30 text-[10px] cursor-pointer"
                     title="Mover para direita"
                   >
                     ▶
@@ -748,274 +886,259 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
 
       {/* Main Content Area */}
       <div className="flex-1 flex gap-4 overflow-hidden relative">
-        <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden flex flex-col w-full">
-          {/* Actions & Add bar */}
-          <div className="px-4 py-2 border-b border-zinc-200 bg-zinc-50 flex items-center justify-between shrink-0 gap-4 flex-wrap relative">
-            <div className="flex items-center gap-4 flex-wrap flex-1">
-              <div className="flex items-center gap-2 bg-white border border-zinc-300 rounded-md px-3 py-1.5">
-                <Search className="h-4 w-4 text-zinc-400" />
-                <input 
-                  type="text" 
-                  placeholder="Buscar na lista..." 
-                  value={search} 
-                  onChange={e => setSearch(e.target.value)} 
-                  className="text-xs bg-transparent border-none focus:outline-none w-48" 
+        <div className="flex-1 bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col min-h-0">
+          {/* Action Sub-header */}
+          <div className="px-4 py-2.5 bg-zinc-50 border-b border-zinc-200 flex justify-between items-center gap-4 shrink-0 flex-wrap">
+            <div className="flex items-center gap-3 flex-1 min-w-[240px]">
+              <div className="relative flex-1 max-w-sm">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <input
+                  type="text"
+                  placeholder="Filtrar por código ou descrição..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  className="w-full pl-9 pr-4 py-1.5 bg-white border border-zinc-300 rounded-lg text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none"
                 />
               </div>
-
-              {/* Add item search combobox */}
-              <div className="relative">
-                <button 
-                  onClick={() => setShowAddMenu(!showAddMenu)} 
-                  className="text-xs bg-white border border-zinc-300 text-zinc-700 px-3 py-1.5 rounded-md font-semibold hover:bg-zinc-50 flex items-center gap-1 cursor-pointer transition-colors"
-                >
-                  <Plus className="h-3.5 w-3.5 text-zinc-500" />
-                  Adicionar Insumo...
-                </button>
-                {showAddMenu && (
-                  <div className="absolute left-0 mt-1 w-80 bg-white border border-zinc-200 rounded-lg shadow-xl z-30 p-2 flex flex-col gap-2">
-                    <div className="flex justify-between items-center px-1">
-                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Adicionar Insumo</span>
-                      <button onClick={() => setShowAddMenu(false)} className="text-zinc-400 hover:text-zinc-650 p-0.5 rounded hover:bg-zinc-100 cursor-pointer">
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                    <input 
-                      type="text" 
-                      placeholder="Pesquisar código ou descrição..." 
-                      value={addItemSearch} 
-                      onChange={e => setAddItemSearch(e.target.value)} 
-                      className="text-xs border border-zinc-200 rounded p-1.5 focus:outline-none focus:ring-1 focus:ring-zinc-950 w-full" 
-                      autoFocus
-                    />
-                    <div className="max-h-60 overflow-y-auto border border-zinc-100 rounded divide-y divide-zinc-100 bg-white">
-                      {availableItemsToAdd.map(item => (
-                        <div 
-                          key={item.itemCode} 
-                          onClick={() => handleAddItem(item.itemCode)}
-                          className="p-2 flex flex-col text-left hover:bg-zinc-50 transition-colors cursor-pointer"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-zinc-500 text-[10px] bg-zinc-100 px-1.5 py-0.2 rounded">
-                              {item.itemCode}
-                            </span>
-                            <span className="text-xs font-bold text-zinc-800 truncate" title={item.description}>
-                              {item.description}
-                            </span>
-                          </div>
-                          <span className="text-[9px] text-zinc-400 mt-0.5">Estoque: {item.currentStock} {item.unit} | Recomendado: {item.recommendedQty} {item.unit}</span>
-                        </div>
-                      ))}
-                      {availableItemsToAdd.length === 0 && (
-                        <p className="text-[11px] text-zinc-400 p-3 text-center">Nenhum insumo disponível para adicionar.</p>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <span className="text-xs text-zinc-500 font-semibold">{selectedDemands.length} itens listados</span>
             </div>
-            
-            <div className="text-xs text-zinc-500 font-semibold">
-              {selectedDemands.length} de {printList.length} selecionados
+
+            <div className="relative">
+              <button
+                onClick={() => setShowAddMenu(!showAddMenu)}
+                className="text-xs bg-zinc-900 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-zinc-800 flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5" /> Adicionar Insumo à Lista
+              </button>
+
+              {showAddMenu && (
+                <div className="absolute right-0 mt-2 w-96 bg-white border border-zinc-200 rounded-xl shadow-2xl z-50 p-3 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="flex justify-between items-center mb-2 pb-2 border-b border-zinc-100">
+                    <span className="text-xs font-bold text-zinc-800">Pesquisar Insumo para Adicionar</span>
+                    <button onClick={() => setShowAddMenu(false)} className="text-zinc-400 hover:text-zinc-600 cursor-pointer">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Digite código ou nome do insumo..."
+                    value={addItemSearch}
+                    onChange={e => setAddItemSearch(e.target.value)}
+                    autoFocus
+                    className="w-full px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none mb-2"
+                  />
+                  <div className="max-h-60 overflow-y-auto divide-y divide-zinc-100">
+                    {availableItemsToAdd.length === 0 ? (
+                      <div className="py-6 text-center text-zinc-400 text-xs italic">
+                        {addItemSearch ? 'Nenhum insumo encontrado.' : 'Digite para pesquisar insumos...'}
+                      </div>
+                    ) : (
+                      availableItemsToAdd.map(d => (
+                        <div
+                          key={d.itemCode}
+                          onClick={() => handleAddItem(d.itemCode)}
+                          className="p-2 hover:bg-zinc-50 rounded-lg cursor-pointer flex justify-between items-center transition-colors text-left"
+                        >
+                          <div className="min-w-0 flex-1 pr-2">
+                            <span className="font-mono text-xs font-bold text-zinc-800 block">{d.itemCode}</span>
+                            <span className="text-xs text-zinc-600 truncate block">{d.description}</span>
+                            {d.category_name && (
+                              <span className="text-[10px] text-zinc-400 block font-sans">
+                                Subcategoria: {d.category_name} ({d.target_days || 90}d meta)
+                              </span>
+                            )}
+                          </div>
+                          <button className="text-xs bg-zinc-900 text-white px-2 py-1 rounded font-bold shrink-0">
+                            +
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Table Container */}
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-auto min-h-0">
             {loading ? (
-              <div className="flex items-center justify-center h-full text-zinc-500 flex-col gap-2">
-                <RefreshCw className="h-5 w-5 animate-spin text-zinc-400" />
-                <span className="text-xs">Carregando dados da lista...</span>
-              </div>
+              <div className="flex items-center justify-center h-full text-zinc-400 text-xs">Carregando itens...</div>
             ) : selectedDemands.length === 0 ? (
-              <div className="flex items-center justify-center h-full text-zinc-400 flex-col gap-2.5">
-                <Package className="h-10 w-10 text-zinc-300 animate-pulse" />
-                <p className="text-xs font-semibold text-zinc-500">Nenhum item na sua lista de impressão.</p>
-                <p className="text-[11px] text-zinc-400 max-w-xs leading-normal text-center">
-                  Adicione itens à lista clicando no ícone "+" ao lado de qualquer item nas abas de demanda.
+              <div className="flex flex-col items-center justify-center h-full text-zinc-400 gap-3 py-12">
+                <Package className="h-10 w-10 text-zinc-300" />
+                <p className="text-sm font-semibold">Nenhum insumo na Lista de Impressão</p>
+                <p className="text-xs max-w-sm text-center text-zinc-400">
+                  Adicione insumos a partir da tabela principal do módulo clicando em "Adicionar à Lista" ou use o botão "+ Adicionar Insumo" acima.
                 </p>
               </div>
             ) : (
-              <table className="w-full text-left text-xs whitespace-nowrap">
-                <thead className="bg-zinc-100 sticky top-0 z-10 shadow-sm">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-600 font-bold uppercase text-[10px] tracking-wider sticky top-0 z-10">
                   <tr>
                     {columnOrder.map(colKey => {
                       if (!columns[colKey]) return null;
                       const meta = COLUMN_METADATA[colKey];
                       return (
-                        <th 
-                          key={colKey} 
-                          className={cn(
-                            "px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200",
-                            meta.align === 'right' && "text-right",
-                            meta.align === 'center' && "text-center"
-                          )}
-                        >
+                        <th key={colKey} className={cn("py-2.5 px-3", meta.align === 'right' ? 'text-right' : meta.align === 'center' ? 'text-center' : 'text-left')}>
                           {meta.label}
                         </th>
                       );
                     })}
-                    <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-center w-12">Remover</th>
+                    <th className="py-2.5 px-3 text-center w-12">Remover</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-100">
-                  {selectedDemands.map(demand => (
-                    <tr key={demand.itemCode} className="hover:bg-zinc-50/50 transition-colors">
-                      {columnOrder.map(colKey => {
-                        if (!columns[colKey]) return null;
-                        
-                        if (colKey === 'itemCode') {
-                          return (
-                            <td key={colKey} className="px-4 py-2.5">
-                              <div className="font-mono text-[10px] text-zinc-400">{demand.itemCode}</div>
-                              <div className="font-bold text-zinc-800 truncate max-w-sm" title={demand.description}>
-                                {demand.description}
-                              </div>
-                            </td>
-                          );
-                        }
-                        if (colKey === 'lastSupplierInvoice') {
-                          return (
-                            <td key={colKey} className="px-4 py-2.5 text-left text-xs text-zinc-700 max-w-xs truncate" title={demand.lastSupplierInvoice}>
-                              {demand.lastSupplierInvoice || '-'}
-                            </td>
-                          );
-                        }
-                        if (colKey === 'lastSupplierOrder') {
-                          return (
-                            <td key={colKey} className="px-4 py-2.5 text-left text-xs text-zinc-700 max-w-xs truncate" title={demand.lastSupplierOrder}>
-                              {demand.lastSupplierOrder || '-'}
-                            </td>
-                          );
-                        }
-                        if (colKey === 'currentStock') {
-                          return (
-                            <td key={colKey} className="px-4 py-2.5 text-right font-semibold text-zinc-800">
-                              {demand.currentStock.toLocaleString('pt-BR')} {demand.unit}
-                            </td>
-                          );
-                        }
-                        if (colKey === 'overallAvg') {
-                          const avg = manualAvgs[demand.itemCode] !== undefined ? manualAvgs[demand.itemCode] : demand.overallAvg;
-                          return (
-                            <td key={colKey} className="px-4 py-2.5 text-right">
-                              <div className="flex flex-col items-end gap-1">
+                <tbody className="divide-y divide-zinc-150">
+                  {selectedDemands.map(d => {
+                    const currentAvg = manualAvgs[d.itemCode] !== undefined ? manualAvgs[d.itemCode] : d.overallAvg;
+                    const daily = currentAvg / 30.0;
+                    const itemTargetDays = d.target_days || 90;
+                    const itemTriggerDays = d.trigger_days || 30;
+                    const calcTargetStock = itemTargetDays * daily;
+                    const futureStock = d.futureStockForecast || 0;
+                    const autoRec = Math.max(0, Math.round(calcTargetStock - futureStock));
+                    const qty = manualQtys[d.itemCode] !== undefined ? manualQtys[d.itemCode] : (d.recommendedQty !== undefined ? Math.round(d.recommendedQty) : autoRec);
+                    const postStock = Math.max(0, futureStock + qty);
+                    const postDuration = daily > 0 ? Math.round(postStock / daily) : 9999;
+                    const currentDuration = daily > 0 ? Math.round(futureStock / daily) : 9999;
+
+                    return (
+                      <tr key={d.itemCode} className="hover:bg-zinc-50/70 transition-colors">
+                        {columnOrder.map(colKey => {
+                          if (!columns[colKey]) return null;
+
+                          if (colKey === 'itemCode') {
+                            return (
+                              <td key={colKey} className="py-2.5 px-3">
+                                <div className="font-mono text-xs font-bold text-zinc-900">{d.itemCode}</div>
+                                <div className="text-xs text-zinc-700 font-medium truncate max-w-xs sm:max-w-md" title={d.description}>
+                                  {d.description}
+                                </div>
+                                {d.category_name && (
+                                  <span className="text-[10px] text-zinc-400 font-sans">
+                                    {d.category_name}
+                                  </span>
+                                )}
+                              </td>
+                            );
+                          }
+                          if (colKey === 'lastSupplierInvoice') {
+                            return (
+                              <td key={colKey} className="py-2.5 px-3 text-xs text-zinc-600 max-w-[140px] truncate" title={d.lastSupplierInvoice || ''}>
+                                {d.lastSupplierInvoice || '-'}
+                              </td>
+                            );
+                          }
+                          if (colKey === 'lastSupplierOrder') {
+                            return (
+                              <td key={colKey} className="py-2.5 px-3 text-xs text-zinc-600 max-w-[140px] truncate" title={d.lastSupplierOrder || ''}>
+                                {d.lastSupplierOrder || '-'}
+                              </td>
+                            );
+                          }
+                          if (colKey === 'currentStock') {
+                            return (
+                              <td key={colKey} className="py-2.5 px-3 text-right font-mono font-semibold text-zinc-800">
+                                {d.currentStock.toLocaleString('pt-BR')} <span className="text-[10px] text-zinc-400 font-sans">{d.unit}</span>
+                              </td>
+                            );
+                          }
+                          if (colKey === 'overallAvg') {
+                            return (
+                              <td key={colKey} className="py-2.5 px-3 text-right">
                                 <input
                                   type="number"
-                                  step="any"
-                                  value={avg}
-                                  onChange={(e) => {
-                                    const val = e.target.value === '' ? '' : Number(e.target.value);
-                                    handleUpdateManualAvg(demand.itemCode, val);
-                                  }}
-                                  className="w-24 text-right text-xs border border-zinc-200 focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 rounded px-2 py-1 font-semibold text-zinc-700 bg-white"
+                                  value={manualAvgs[d.itemCode] !== undefined ? manualAvgs[d.itemCode] : Math.round(d.overallAvg)}
+                                  onChange={e => handleUpdateManualAvg(d.itemCode, e.target.value === '' ? '' : Number(e.target.value))}
+                                  className={cn(
+                                    "w-16 text-right text-xs font-mono font-semibold border rounded px-1.5 py-0.5 focus:ring-1 focus:ring-zinc-900 focus:outline-none",
+                                    manualAvgs[d.itemCode] !== undefined ? "border-amber-400 bg-amber-50/50 text-amber-900" : "border-zinc-200 bg-white text-zinc-800"
+                                  )}
+                                  title={manualAvgs[d.itemCode] !== undefined ? "Média editada manualmente para esta lista" : "Média mensal projetada pelo sistema"}
                                 />
-                                <span className="text-[10px] text-zinc-400 font-medium">{demand.unit}/mês</span>
-                              </div>
-                            </td>
-                          );
-                        }
-                        if (colKey === 'simProducao') {
-                          const sim = demand.simProducao ?? 0;
-                          return (
-                            <td
-                              key={colKey}
-                              className="px-4 py-2.5 text-right font-semibold"
-                              title="Consumo se produzir produtos em Produzir Urgente / Abrir Ordem"
-                            >
-                              {sim > 0 ? (
-                                <span className="text-violet-700">
-                                  −{sim.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {demand.unit}
-                                </span>
-                              ) : (
-                                <span className="text-zinc-300">-</span>
-                              )}
-                            </td>
-                          );
-                        }
-                        if (colKey === 'futureStockForecast') {
-                          return (
-                            <td key={colKey} className="px-4 py-2.5 text-right font-semibold text-zinc-750">
-                              {demand.futureStockForecast.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {demand.unit}
-                            </td>
-                          );
-                        }
-                        if (colKey === 'estimatedDurationDays') {
-                          const currentAvg = manualAvgs[demand.itemCode] !== undefined ? manualAvgs[demand.itemCode] : demand.overallAvg;
-                          const daily = currentAvg / 30.0;
-                          const duration = daily > 0 ? Math.round(demand.futureStockForecast / daily) : 9999;
-                          return (
-                            <td key={colKey} className="px-4 py-2.5 text-center">
-                              <span className={cn(
-                                "inline-flex items-center px-2 py-0.2 rounded-full text-[10px] font-bold", 
-                                demand.urgency === 'critical' && "bg-red-50 text-red-700", 
-                                demand.urgency === 'warning' && "bg-amber-50 text-amber-700", 
-                                demand.urgency === 'ok' && "bg-emerald-50 text-emerald-700"
-                              )}>
-                                {duration === 9999 ? '∞' : `${duration} dias`}
-                              </span>
-                            </td>
-                          );
-                        }
-                        if (colKey === 'triggerDays') {
-                          return (
-                            <td key={colKey} className="px-2 py-2.5 text-center text-[11px] font-bold text-zinc-700 tabular-nums">
-                              {demand.triggerDays !== undefined ? `${demand.triggerDays}d` : '-'}
-                            </td>
-                          );
-                        }
-                        if (colKey === 'targetDays') {
-                          return (
-                            <td key={colKey} className="px-2 py-2.5 text-center text-[11px] font-bold text-zinc-700 tabular-nums">
-                              {demand.targetDays !== undefined ? `${demand.targetDays}d` : '-'}
-                            </td>
-                          );
-                        }
-                        if (colKey === 'recommendedQty') {
-                          const qty = manualQtys[demand.itemCode] !== undefined ? manualQtys[demand.itemCode] : Math.max(0, Math.round(demand.recommendedQty));
-                          const currentAvg = manualAvgs[demand.itemCode] !== undefined ? manualAvgs[demand.itemCode] : demand.overallAvg;
-                          const daily = currentAvg / 30.0;
-                          const futureStock = demand.futureStockForecast || 0;
-                          const postStock = Math.max(0, futureStock + qty);
-                          const postDuration = daily > 0 ? Math.round(postStock / daily) : 9999;
-                          
-                          return (
-                            <td key={colKey} className="px-4 py-2.5 text-right">
-                              <div className="flex flex-col items-end gap-1">
-                                <input
-                                  type="number"
-                                  value={qty}
-                                  onChange={(e) => {
-                                    const val = e.target.value === '' ? '' : Number(e.target.value);
-                                    handleUpdateManualQty(demand.itemCode, val);
-                                  }}
-                                  className="w-24 text-right text-xs border border-zinc-200 focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 rounded px-2 py-1 font-bold text-zinc-800 bg-white"
-                                />
-                                <span className="text-[10px] text-zinc-550">{demand.unit}</span>
+                              </td>
+                            );
+                          }
+                          if (colKey === 'simProducao') {
+                            const sim = d.simProducao ?? 0;
+                            return (
+                              <td key={colKey} className="py-2.5 px-3 text-right font-mono text-xs text-zinc-600">
+                                {sim > 0 ? sim.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '-'}
+                              </td>
+                            );
+                          }
+                          if (colKey === 'futureStockForecast') {
+                            return (
+                              <td key={colKey} className="py-2.5 px-3 text-right font-mono font-semibold text-zinc-800">
+                                {d.futureStockForecast.toLocaleString('pt-BR')} <span className="text-[10px] text-zinc-400 font-sans">{d.unit}</span>
+                              </td>
+                            );
+                          }
+                          if (colKey === 'estimatedDurationDays') {
+                            return (
+                              <td key={colKey} className="py-2.5 px-3 text-center">
                                 <span className={cn(
-                                  "text-[9px] font-bold px-1.5 py-0.5 rounded mt-0.5 whitespace-nowrap",
-                                  postDuration < 60 ? "bg-red-50 text-red-700" :
-                                  postDuration < 90 ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"
+                                  "font-mono font-bold text-xs px-2 py-0.5 rounded",
+                                  currentDuration < itemTriggerDays ? "bg-red-50 text-red-700 border border-red-200" : currentDuration < itemTargetDays ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"
                                 )}>
-                                  Pós-compra: {postDuration === 9999 ? '∞' : `${postDuration}d (${Math.round(postDuration / 30)}m)`}
+                                  {currentDuration === 9999 ? '9999+' : `${currentDuration}d`}
                                 </span>
-                              </div>
-                            </td>
-                          );
-                        }
-                        return null;
-                      })}
-                      <td className="px-4 py-2.5 text-center">
-                        <button 
-                          onClick={() => handleRemoveItem(demand.itemCode)}
-                          className="p-1 rounded text-zinc-400 hover:text-red-650 hover:bg-red-50 transition-colors cursor-pointer"
-                          title="Remover da lista"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                              </td>
+                            );
+                          }
+                          if (colKey === 'triggerDays') {
+                            return (
+                              <td key={colKey} className="py-2.5 px-3 text-center font-mono font-semibold text-zinc-600 text-xs">
+                                {itemTriggerDays}d
+                              </td>
+                            );
+                          }
+                          if (colKey === 'targetDays') {
+                            return (
+                              <td key={colKey} className="py-2.5 px-3 text-center font-mono font-bold text-blue-700 bg-blue-50/40 text-xs">
+                                {itemTargetDays}d
+                              </td>
+                            );
+                          }
+                          if (colKey === 'recommendedQty') {
+                            return (
+                              <td key={colKey} className="py-2.5 px-3 text-right bg-zinc-50/60">
+                                <div className="flex items-center justify-end gap-1">
+                                  <input
+                                    type="number"
+                                    value={qty}
+                                    onChange={e => handleUpdateManualQty(d.itemCode, e.target.value === '' ? '' : Number(e.target.value))}
+                                    className={cn(
+                                      "w-20 text-right font-mono font-bold text-xs border rounded px-2 py-1 focus:ring-1 focus:ring-zinc-900 focus:outline-none",
+                                      manualQtys[d.itemCode] !== undefined ? "border-amber-400 bg-amber-50 text-amber-900" : "border-zinc-300 bg-white text-zinc-900"
+                                    )}
+                                    title={manualQtys[d.itemCode] !== undefined ? "Quantidade alterada manualmente" : `Calculada automaticamente para atingir a meta de ${itemTargetDays} dias`}
+                                  />
+                                  <span className="text-[10px] text-zinc-400 font-sans">{d.unit}</span>
+                                </div>
+                                <span className={cn(
+                                  "text-[9px] block text-right mt-0.5 font-mono",
+                                  postDuration < itemTriggerDays ? "text-red-600 font-bold" : postDuration < itemTargetDays ? "text-amber-600 font-bold" : "text-emerald-700 font-medium"
+                                )}>
+                                  Pós: {postDuration === 9999 ? '∞' : `${postDuration}d`}
+                                </span>
+                              </td>
+                            );
+                          }
+                          return null;
+                        })}
+                        <td className="py-2.5 px-3 text-center">
+                          <button
+                            onClick={() => handleRemoveItem(d.itemCode)}
+                            className="text-zinc-400 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors cursor-pointer"
+                            title="Remover insumo da lista"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}

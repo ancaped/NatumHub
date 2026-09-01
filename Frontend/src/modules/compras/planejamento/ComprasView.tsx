@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { DemandTable } from './components/DemandTable';
 import { InsumosDetalhesTab } from './components/InsumosDetalhesTab';
-import { QuotationManager } from './components/QuotationManager';
 import { SupplierManager } from './components/SupplierManager';
 import { ReportDashboard } from './components/ReportDashboard';
 import { SettingsPanel } from './components/SettingsPanel';
 import ItemRegistry from './components/ItemRegistry';
 import { ProdutosCompraTab } from './components/ProdutosCompraTab';
 import { PrintListTab } from './components/PrintListTab';
+import { ListasAcompanhamentoTab } from './components/ListasAcompanhamentoTab';
 import { SolicitationTab } from './components/SolicitationTab';
 import { SimulationTab } from './components/SimulationTab';
-import { Package, ShoppingCart, Users, BarChart3, Settings, Database, Boxes, ArrowLeft, Palette, Tag, Layers, Printer, ClipboardList, EyeOff, Calculator } from 'lucide-react';
+import { Package, Users, BarChart3, Settings, Database, Boxes, ArrowLeft, Palette, Tag, Layers, Printer, ClipboardList, EyeOff, Calculator, ClipboardCheck } from 'lucide-react';
 import { cn } from '../../geral/lib/utils';
 import { api } from '../../geral/lib/api';
 import { Category } from '../../geral/lib/types';
@@ -20,7 +20,7 @@ import { getAuthUser, isSupervisor } from '../../geral/lib/auth';
 
 interface ComprasViewProps {
   onBackToHub: () => void;
-  mode?: 'all' | 'materia_prima' | 'embalagens' | 'coloracao' | 'apoio' | 'quotations';
+  mode?: 'all' | 'materia_prima' | 'embalagens' | 'coloracao' | 'apoio' | 'simulation';
 }
 
 export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewProps) {
@@ -28,49 +28,40 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
   const [categories, setCategories] = useState<Category[]>([]);
   const [pinnedSubs, setPinnedSubs] = useState<string[]>([]);
 
-  const loadPinnedAndCategories = () => {
-    api.getCategories().then(setCategories).catch(console.error);
-    api.getPinnedSubcategories()
-      .then((ids) => {
-        setPinnedSubs(ids);
-        // Migra pins antigos do navegador → servidor (uma vez).
-        const stored = localStorage.getItem('natum_hub_pinned_subcategories');
-        if (ids.length === 0 && stored) {
-          try {
-            const localIds: string[] = JSON.parse(stored);
-            if (localIds.length > 0) {
-              api.savePinnedSubcategories(localIds).then(() => setPinnedSubs(localIds)).catch(console.error);
-            }
-          } catch (e) {
-            console.error(e);
-          }
-        }
-      })
-      .catch(() => {
-        const stored = localStorage.getItem('natum_hub_pinned_subcategories');
-        if (stored) {
-          try {
-            setPinnedSubs(JSON.parse(stored));
-          } catch (e) {
-            console.error(e);
-          }
-        } else {
-          setPinnedSubs([]);
-        }
-      });
+  const loadPinnedAndCategories = async () => {
+    try {
+      const [cats, ids] = await Promise.all([
+        api.getCategories(),
+        api.getPinnedSubcategories().catch(() => [] as string[])
+      ]);
+      setCategories(cats);
+      setPinnedSubs(ids);
+    } catch (e) {
+      console.error('Erro ao carregar categorias/fixados:', e);
+    }
   };
 
   useEffect(() => {
     loadPinnedAndCategories();
-    window.addEventListener('storage', loadPinnedAndCategories);
-    return () => window.removeEventListener('storage', loadPinnedAndCategories);
-  }, []);
+    const handleConfigUpdate = () => loadPinnedAndCategories();
+    window.addEventListener('storage', handleConfigUpdate);
+    window.addEventListener('compras_config_updated', handleConfigUpdate);
+    return () => {
+      window.removeEventListener('storage', handleConfigUpdate);
+      window.removeEventListener('compras_config_updated', handleConfigUpdate);
+    };
+  }, [mode]);
 
   // Dynamically resolve nav items and initial active tab based on mode
   const navItems = React.useMemo(() => {
     const getSubcategoryNavItems = (parentCatId: string | null) => {
       return categories
-        .filter(c => pinnedSubs.includes(c.id) && (parentCatId === null || c.parentId === parentCatId))
+        .filter(c => {
+          if (!pinnedSubs.includes(c.id)) return false;
+          if (parentCatId === null) return c.parentId !== null;
+          if (parentCatId === 'cat_emb') return c.parentId === 'cat_emb' || c.parentId === 'cat_mat';
+          return c.parentId === parentCatId;
+        })
         .map(c => ({
           id: `sub_${c.id}`,
           label: c.name,
@@ -93,6 +84,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
+          { id: 'listas_acompanhamento', label: 'Acompanhamento', icon: ClipboardCheck },
           ...settingsItem,
         ];
         break;
@@ -105,6 +97,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
+          { id: 'listas_acompanhamento', label: 'Acompanhamento', icon: ClipboardCheck },
           ...settingsItem,
         ];
         break;
@@ -117,6 +110,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
+          { id: 'listas_acompanhamento', label: 'Acompanhamento', icon: ClipboardCheck },
           ...settingsItem,
         ];
         break;
@@ -129,15 +123,8 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
+          { id: 'listas_acompanhamento', label: 'Acompanhamento', icon: ClipboardCheck },
           ...settingsItem,
-        ];
-        break;
-      case 'quotations':
-        items = [
-          { id: 'quotations', label: 'Cotações', icon: ShoppingCart },
-          { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
-          { id: 'suppliers', label: 'Fornecedores', icon: Users },
-          { id: 'reports', label: 'Relatórios', icon: BarChart3 },
         ];
         break;
       case 'simulation':
@@ -154,13 +141,13 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           { id: 'embalagens', label: 'Embalagens', icon: Layers },
           { id: 'coloracao', label: 'Coloração', icon: Palette },
           { id: 'apoio', label: 'Material de Apoio', icon: Tag },
-          { id: 'quotations', label: 'Cotações', icon: ShoppingCart },
           ...getSubcategoryNavItems(null),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'registry', label: 'Cadastro', icon: Database },
           { id: 'suppliers', label: 'Fornecedores', icon: Users },
           { id: 'reports', label: 'Relatórios', icon: BarChart3 },
           { id: 'print_list', label: 'Lista', icon: Printer },
+          { id: 'listas_acompanhamento', label: 'Acompanhamento', icon: ClipboardCheck },
           ...settingsItem,
         ];
         break;
@@ -173,7 +160,6 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
     if (mode === 'embalagens') return 'embalagens';
     if (mode === 'coloracao') return 'coloracao';
     if (mode === 'apoio') return 'apoio';
-    if (mode === 'quotations') return 'quotations';
     if (mode === 'simulation') return 'sim_products';
     return 'demands';
   }, [mode]);
@@ -229,6 +215,12 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           </div>
         )}
 
+        {navItems.some(i => i.id === 'listas_acompanhamento') && (
+          <div className={activeTab !== 'listas_acompanhamento' ? 'hidden' : ''}>
+            <ListasAcompanhamentoTab active={activeTab === 'listas_acompanhamento'} mode={mode} />
+          </div>
+        )}
+
         {navItems.some(i => i.id === 'solicitation') && (
           <div className={activeTab !== 'solicitation' ? 'hidden' : ''}>
             <SolicitationTab active={activeTab === 'solicitation'} />
@@ -264,12 +256,6 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         {navItems.some(i => i.id === 'apoio') && (
           <div className={activeTab !== 'apoio' ? 'hidden' : ''}>
             <ProdutosCompraTab active={activeTab === 'apoio'} statusFilter="apoio" title="Material de Apoio" />
-          </div>
-        )}
-
-        {navItems.some(i => i.id === 'quotations') && (
-          <div className={activeTab !== 'quotations' ? 'hidden' : ''}>
-            <QuotationManager active={activeTab === 'quotations'} />
           </div>
         )}
 
@@ -324,7 +310,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
             <div key={`sub_${c.id}`} className={activeTab !== `sub_${c.id}` ? 'hidden' : ''}>
               <DemandTable 
                 active={activeTab === `sub_${c.id}`}
-                mode={c.parentId === 'cat_emb' ? 'embalagens' : c.parentId === 'cat_mp' ? 'materia_prima' : 'all'} 
+                mode={(c.parentId === 'cat_emb' || c.parentId === 'cat_mat') ? 'embalagens' : c.parentId === 'cat_mp' ? 'materia_prima' : 'all'} 
                 initialCategoryFilter={c.id} 
               />
             </div>

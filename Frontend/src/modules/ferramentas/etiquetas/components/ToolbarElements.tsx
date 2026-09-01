@@ -23,6 +23,7 @@ interface ToolbarElementsProps {
   onAddMultipleElements?: (newElements: LabelElement[]) => void;
   onOpenProductSearch: () => void;
   onOpenTemplatesModal: () => void;
+  onOpenSystemVariablesModal?: () => void;
 }
 
 export default function ToolbarElements({
@@ -30,6 +31,7 @@ export default function ToolbarElements({
   onAddMultipleElements,
   onOpenProductSearch,
   onOpenTemplatesModal,
+  onOpenSystemVariablesModal,
 }: ToolbarElementsProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -377,14 +379,25 @@ export default function ToolbarElements({
 
   return (
     <div className="w-64 border-r border-zinc-200 bg-white flex flex-col h-full overflow-y-auto select-none">
-      {/* Search Catalog Button */}
+      {/* Search & System Variables Top Actions */}
       <div className="p-3 border-b border-zinc-100 bg-zinc-50/50 space-y-2">
+        {onOpenSystemVariablesModal && (
+          <button
+            type="button"
+            onClick={onOpenSystemVariablesModal}
+            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition-all cursor-pointer shadow-xs active:scale-98"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            <span>Biblioteca de Dados</span>
+          </button>
+        )}
+
         <button
           type="button"
           onClick={onOpenProductSearch}
-          className="w-full flex items-center justify-center gap-2 bg-blue-50 border border-blue-200 hover:bg-blue-100/80 text-blue-700 font-bold px-3 py-2 rounded-xl text-xs transition-colors cursor-pointer shadow-2xs"
+          className="w-full flex items-center justify-center gap-2 bg-white border border-zinc-200 hover:bg-zinc-100 text-zinc-800 font-bold px-3 py-1.5 rounded-xl text-xs transition-colors cursor-pointer shadow-2xs"
         >
-          <Search className="h-3.5 w-3.5" />
+          <Search className="h-3.5 w-3.5 text-blue-600" />
           <span>Buscar do Catálogo</span>
         </button>
 
@@ -399,6 +412,144 @@ export default function ToolbarElements({
       </div>
 
       <div className="p-3 space-y-4">
+        {/* System Dynamic Data Blocks */}
+        <div>
+          <span className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider block mb-2 px-1 flex items-center gap-1">
+            <Sparkles className="h-3 w-3" /> Dados Dinâmicos do Sistema
+          </span>
+          <div className="space-y-1.5">
+            <button
+              onClick={() => {
+                const addBatch = onAddMultipleElements || ((items: LabelElement[]) => items.forEach(onAddElement));
+                addBatch([
+                  {
+                    id: createId('txt_code'),
+                    type: 'text',
+                    x_mm: 5,
+                    y_mm: 5,
+                    width_mm: 40,
+                    height_mm: 5,
+                    zIndex: 10,
+                    props: { text: 'CÓD: {product_code}', fontSize: 8.5, fontWeight: 'bold', fontFamily: 'JetBrains Mono', textAlign: 'left', color: '#18181b', uppercase: true },
+                  },
+                  {
+                    id: createId('txt_name'),
+                    type: 'text',
+                    x_mm: 5,
+                    y_mm: 11,
+                    width_mm: 90,
+                    height_mm: 8,
+                    zIndex: 10,
+                    props: { text: '{product_name}', fontSize: 11, fontWeight: '800', fontFamily: 'Inter', textAlign: 'left', color: '#18181b', uppercase: true },
+                  },
+                ]);
+              }}
+              className="w-full flex items-center justify-between p-2 rounded-lg border border-indigo-100 bg-indigo-50/40 hover:bg-indigo-100/60 text-xs text-zinc-800 transition-colors cursor-pointer"
+            >
+              <span className="font-semibold text-[11px]">🏷️ Cód + Nome do Produto</span>
+              <span className="text-[9px] bg-indigo-100 text-indigo-800 px-1 py-0.5 rounded font-mono">2 lin.</span>
+            </button>
+
+            <button
+              onClick={() => {
+                const addBatch = onAddMultipleElements || ((items: LabelElement[]) => items.forEach(onAddElement));
+                addBatch([
+                  {
+                    id: createId('txt_lot'),
+                    type: 'text',
+                    x_mm: 5,
+                    y_mm: 20,
+                    width_mm: 40,
+                    height_mm: 4.5,
+                    zIndex: 10,
+                    props: { text: 'LOTE: {lot}', fontSize: 8, fontWeight: 'bold', fontFamily: 'Inter', textAlign: 'left', color: '#18181b', uppercase: true },
+                  },
+                  {
+                    id: createId('txt_fab'),
+                    type: 'text',
+                    x_mm: 5,
+                    y_mm: 25,
+                    width_mm: 40,
+                    height_mm: 4.5,
+                    zIndex: 10,
+                    props: { text: 'FAB: {manufacturing_date}', fontSize: 7.5, fontWeight: 'normal', fontFamily: 'Inter', textAlign: 'left', color: '#18181b', uppercase: true },
+                  },
+                  {
+                    id: createId('txt_val'),
+                    type: 'text',
+                    x_mm: 5,
+                    y_mm: 30,
+                    width_mm: 40,
+                    height_mm: 4.5,
+                    zIndex: 10,
+                    props: { text: 'VAL: {expiry_date}', fontSize: 8, fontWeight: 'bold', fontFamily: 'Inter', textAlign: 'left', color: '#18181b', uppercase: true },
+                  },
+                ]);
+              }}
+              className="w-full flex items-center justify-between p-2 rounded-lg border border-indigo-100 bg-indigo-50/40 hover:bg-indigo-100/60 text-xs text-zinc-800 transition-colors cursor-pointer"
+            >
+              <span className="font-semibold text-[11px]">📅 Lote + Fab + Validade</span>
+              <span className="text-[9px] bg-indigo-100 text-indigo-800 px-1 py-0.5 rounded font-mono">3 lin.</span>
+            </button>
+
+            <button
+              onClick={() => {
+                onAddElement({
+                  id: createId('txt_seq'),
+                  type: 'text',
+                  x_mm: 5,
+                  y_mm: 40,
+                  width_mm: 50,
+                  height_mm: 6,
+                  zIndex: 10,
+                  props: { text: '{box_sequence} ({box_qty})', fontSize: 9, fontWeight: '800', fontFamily: 'Inter', textAlign: 'left', color: '#18181b', uppercase: true },
+                });
+              }}
+              className="w-full flex items-center justify-between p-2 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-xs text-zinc-800 transition-colors cursor-pointer"
+            >
+              <span className="font-semibold text-[11px]">📦 Caixa {`{seq}`} de {`{total}`}</span>
+              <span className="text-[9px] bg-zinc-100 text-zinc-600 px-1 py-0.5 rounded font-mono">1 lin.</span>
+            </button>
+
+            <button
+              onClick={() => {
+                onAddElement({
+                  id: createId('bar_ean'),
+                  type: 'barcode',
+                  x_mm: 10,
+                  y_mm: 20,
+                  width_mm: 50,
+                  height_mm: 15,
+                  zIndex: 10,
+                  props: { value: '{barcode}', format: 'ean13', showText: true, fontSize: 7.5 },
+                });
+              }}
+              className="w-full flex items-center justify-between p-2 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-xs text-zinc-800 transition-colors cursor-pointer"
+            >
+              <span className="font-semibold text-[11px]">||| Código EAN-13 do Item</span>
+              <span className="text-[9px] bg-zinc-100 text-zinc-600 px-1 py-0.5 rounded font-mono">EAN</span>
+            </button>
+
+            <button
+              onClick={() => {
+                onAddElement({
+                  id: createId('bar_dun'),
+                  type: 'barcode',
+                  x_mm: 10,
+                  y_mm: 20,
+                  width_mm: 60,
+                  height_mm: 15,
+                  zIndex: 10,
+                  props: { value: '{box_barcode}', format: 'code128', showText: true, fontSize: 7.5 },
+                });
+              }}
+              className="w-full flex items-center justify-between p-2 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-xs text-zinc-800 transition-colors cursor-pointer"
+            >
+              <span className="font-semibold text-[11px]">||| Código DUN-14 da Caixa</span>
+              <span className="text-[9px] bg-zinc-100 text-zinc-600 px-1 py-0.5 rounded font-mono">DUN</span>
+            </button>
+          </div>
+        </div>
         {/* Auto-Aligned Composite Blocks */}
         <div>
           <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider block mb-2 px-1 flex items-center gap-1">

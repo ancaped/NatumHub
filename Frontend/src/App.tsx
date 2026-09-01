@@ -10,8 +10,8 @@ import MapaArquiteturaView from './modules/geral/mapa/MapaArquiteturaView';
 import AppShell from './modules/geral/components/layout/AppShell';
 
 import ProducaoView from './modules/producao/gerenciamento/ProducaoView';
-import ProducaoBasesView from './modules/producao/bases/ProducaoBasesView';
 import ProducaoLotesView from './modules/producao/lotes/ProducaoLotesView';
+import { ProcView } from './modules/producao/proc/ProcView';
 import MontagemKitsView from './modules/producao/montagem_kits/MontagemKitsView';
 import MicrobiologiaView from './modules/producao/microbiologia/MicrobiologiaView';
 import FiscoQuimicaView from './modules/producao/fisco_quimica/FiscoQuimicaView';
@@ -19,12 +19,12 @@ import ComprasView from './modules/compras/planejamento/ComprasView';
 import ComprasOnlineView from './modules/compras/compras_online/ComprasOnlineView';
 import EstoqueView from './modules/estoque/estoque_geral/EstoqueView';
 import EstoqueOpsView from './modules/estoque/ops/EstoqueOpsView';
-import PrevisaoUsoView from './modules/estoque/previsao_uso/PrevisaoUsoView';
 import OrdensManuaisView from './modules/estoque/ordens_manuais/OrdensManuaisView';
 import PedidosView from './modules/compras/controle_pedidos/PedidosView';
 import NotasFiscaisView from './modules/compras/notas_fiscais/NotasFiscaisView';
 import ComprasAlmoxarifadoView from './modules/compras/almoxarifado/ComprasAlmoxarifadoView';
 import ActiveProductsView from './modules/administrativo/linha_produtos/ActiveProductsView';
+import RelatoriosView from './modules/administrativo/relatorios/RelatoriosView';
 import ProdutosAtivosRelatoriosView from './modules/administrativo/produtos_ativos_relatorios/ProdutosAtivosRelatoriosView';
 import FuncionariosView from './modules/administrativo/funcionarios/FuncionariosView';
 import VendasView from './modules/vendas/vendas_geral/VendasView';
@@ -41,6 +41,8 @@ import AdministrativoView from './modules/administrativo/AdministrativoView';
 import ExpedicaoView from './modules/expedicao/ExpedicaoView';
 import FinanceiroView from './modules/financeiro/FinanceiroView';
 import EtiquetasView from './modules/ferramentas/etiquetas/EtiquetasView';
+import EditorEtiquetasView from './modules/ferramentas/editor/EditorEtiquetasView';
+import ImpressorasView from './modules/ferramentas/impressoras/ImpressorasView';
 import { ErrorBoundary } from './modules/geral/components/ErrorBoundary';
 import { FeedbackWidget } from './modules/geral/components/FeedbackWidget';
 import { syncCurrentPageForView } from './modules/geral/lib/viewLabels';
@@ -66,10 +68,29 @@ import {
   ensureBrowserClientConfig,
 } from './modules/geral/lib/connectionConfig';
 
-type HubView = 'hub' | 'producao_hub' | 'producao' | 'producao_bases' | 'producao_lotes' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'compras_almoxarifado' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'mapa_arquitetura' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_ordens_manuais' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'qualidade_hub' | 'controle_qualidade' | 'qualidade_devolucoes' | 'qualidade_pops' | 'qualidade_treinamentos' | 'qualidade_temperatura' | 'qualidade_limpeza' | 'qualidade_recebimento_mp' | 'qualidade_documentacao' | 'administrativo' | 'admin_linha_produtos' | 'admin_produtos_ativos_relatorios' | 'admin_funcionarios' | 'expedicao_hub' | 'expedicao_ecommerce' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro' | 'ferramentas_hub' | 'ferramentas_etiquetas';
+type HubView = 'hub' | 'producao_hub' | 'producao' | 'producao_bases' | 'producao_lotes' | 'producao_proc' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'compras_almoxarifado' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'mapa_arquitetura' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_ordens_manuais' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'qualidade_hub' | 'controle_qualidade' | 'qualidade_devolucoes' | 'qualidade_pops' | 'qualidade_treinamentos' | 'qualidade_temperatura' | 'qualidade_limpeza' | 'qualidade_recebimento_mp' | 'qualidade_documentacao' | 'administrativo' | 'admin_linha_produtos' | 'admin_produtos_ativos_relatorios' | 'admin_funcionarios' | 'expedicao_hub' | 'expedicao_ecommerce' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro' | 'ferramentas_hub' | 'ferramentas_etiquetas' | 'ferramentas_editor' | 'ferramentas_impressoras';
+
+const getInitialView = (): HubView => {
+  if (typeof window !== 'undefined') {
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const modParam = searchParams.get('module') || searchParams.get('view') || searchParams.get('mod');
+      if (modParam) {
+        return modParam as HubView;
+      }
+      if (window.location.hash) {
+        const hashVal = window.location.hash.replace(/^#\/?/, '');
+        if (hashVal) {
+          return hashVal as HubView;
+        }
+      }
+    } catch (_) {}
+  }
+  return 'hub';
+};
 
 export default function App() {
-  const [view, setView] = useState<HubView>('hub');
+  const [view, setView] = useState<HubView>(getInitialView);
   const [currentUser, setCurrentUser] = useState<any>(() => getAuthUser());
   const [authReady, setAuthReady] = useState(false);
   const [needsSupervisorSetup, setNeedsSupervisorSetup] = useState(false);
@@ -82,12 +103,39 @@ export default function App() {
 
   useEffect(() => {
     syncCurrentPageForView(view);
+    if (typeof window !== 'undefined') {
+      try {
+        const url = new URL(window.location.href);
+        if (view === 'hub') {
+          url.searchParams.delete('module');
+          url.searchParams.delete('view');
+          url.searchParams.delete('mod');
+          window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+        } else {
+          url.searchParams.set('module', view);
+          window.history.replaceState({}, '', url.pathname + '?' + url.searchParams.toString());
+        }
+      } catch (_) {}
+    }
     if (view === 'almoxarifado_hub') {
       apiJson('/almox/dashboard/stats')
         .then(setAlmoxStats)
         .catch((err) => console.error('Erro ao carregar estatísticas do almoxarifado:', err));
     }
   }, [view]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const initial = getInitialView();
+      setView(initial);
+    };
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('hashchange', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('hashchange', handlePopState);
+    };
+  }, []);
   
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -354,18 +402,10 @@ export default function App() {
       );
     }
 
-    if (view === 'producao_bases') {
-      return (
-        <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Gestão de Bases">
-          <ProducaoBasesView onBackToHub={() => setView('producao_hub')} />
-        </ErrorBoundary>
-      );
-    }
-
     if (view === 'producao_lotes') {
       return (
-        <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Lotes de Produção">
-          <ProducaoLotesView onBackToHub={() => setView('producao_hub')} />
+        <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Produção">
+          <ProducaoView onBackToHub={() => setView('producao_hub')} />
         </ErrorBoundary>
       );
     }
@@ -382,6 +422,14 @@ export default function App() {
       return (
         <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Microbiologia">
           <MicrobiologiaView onBackToHub={() => setView('producao_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'producao_proc') {
+      return (
+        <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Processos de Fabricação (PROC)">
+          <ProcView onNavigate={(v) => setView(v as HubView)} />
         </ErrorBoundary>
       );
     }
@@ -426,26 +474,10 @@ export default function App() {
       );
     }
 
-    if (view === 'compras_quotations') {
-      return (
-        <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Cotações">
-          <ComprasView mode="quotations" onBackToHub={() => setView('compras_hub')} />
-        </ErrorBoundary>
-      );
-    }
-
     if (view === 'compras_simulation') {
       return (
         <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Simulação">
           <ComprasView mode="simulation" onBackToHub={() => setView('compras_hub')} />
-        </ErrorBoundary>
-      );
-    }
-
-    if (view === 'compras_online') {
-      return (
-        <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Compras Online">
-          <ComprasOnlineView onBackToHub={() => setView('compras_hub')} />
         </ErrorBoundary>
       );
     }
@@ -462,14 +494,6 @@ export default function App() {
       return (
         <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Notas Fiscais">
           <NotasFiscaisView onBackToHub={() => setView('compras_hub')} />
-        </ErrorBoundary>
-      );
-    }
-
-    if (view === 'compras_almoxarifado') {
-      return (
-        <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo Compras Almoxarifado">
-          <ComprasAlmoxarifadoView onBackToHub={() => setView('compras_hub')} />
         </ErrorBoundary>
       );
     }
@@ -593,26 +617,6 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
                   Acessar Produtos Acabados <ArrowRight className="h-4 w-4" />
-                </div>
-              </button>
-              )}
-
-              {allow('estoque_previsao_uso') && (
-              <button 
-                onClick={() => setView('estoque_previsao_uso')}
-                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
-              >
-                <div className="space-y-4">
-                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                    <TrendingUp className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-zinc-900">Previsão de Uso</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Planejamento de consumo de insumos por média customizada e relatórios.</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                  Acessar Previsão de Uso <ArrowRight className="h-4 w-4" />
                 </div>
               </button>
               )}
@@ -926,14 +930,6 @@ export default function App() {
       );
     }
 
-    if (view === 'estoque_previsao_uso') {
-      return (
-        <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro na Previsão de Uso de Insumos">
-          <PrevisaoUsoView onBackToHub={() => setView('estoque_hub')} />
-        </ErrorBoundary>
-      );
-    }
-
     if (view === 'estoque_ordens_manuais') {
       return (
         <ErrorBoundary onReset={() => setView('estoque_hub')} fallbackTitle="Erro em Ordens Manuais">
@@ -950,10 +946,14 @@ export default function App() {
       );
     }
 
-    if (view === 'admin_produtos_ativos_relatorios') {
+    if (view === 'admin_relatorios' || view === 'admin_produtos_ativos_relatorios' || view === 'saude_estoque') {
       return (
-        <ErrorBoundary onReset={() => setView('administrativo')} fallbackTitle="Erro no Relatório de Produtos Ativos">
-          <ProdutosAtivosRelatoriosView onBackToHub={() => setView('administrativo')} />
+        <ErrorBoundary onReset={() => setView('administrativo')} fallbackTitle="Erro no módulo de Relatórios">
+          <RelatoriosView
+            onBackToHub={() => setView('administrativo')}
+            setView={setView}
+            initialTab={view === 'admin_produtos_ativos_relatorios' ? 'produtos_ativos' : 'saude_estoque'}
+          />
         </ErrorBoundary>
       );
     }
@@ -1209,8 +1209,34 @@ export default function App() {
 
     if (view === 'ferramentas_etiquetas') {
       return (
-        <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo Editor de Etiquetas">
-          <EtiquetasView onBackToHub={() => setView('hub')} />
+        <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo de Etiquetas">
+          <EtiquetasView
+            onBackToHub={() => setView('hub')}
+            onNavigateToEditor={(tpl) => {
+              if (tpl) (window as any).__initial_editor_template__ = tpl;
+              setView('ferramentas_editor');
+            }}
+          />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'ferramentas_editor') {
+      const initTpl = (window as any).__initial_editor_template__;
+      return (
+        <ErrorBoundary onReset={() => setView('ferramentas_etiquetas')} fallbackTitle="Erro no Editor de Etiquetas">
+          <EditorEtiquetasView
+            onBackToHub={() => setView('ferramentas_etiquetas')}
+            initialTemplate={initTpl}
+          />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'ferramentas_impressoras') {
+      return (
+        <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro na Central de Impressoras">
+          <ImpressorasView />
         </ErrorBoundary>
       );
     }
@@ -1328,7 +1354,12 @@ export default function App() {
           renderContent()
         )}
       </div>
-      <FeedbackWidget currentView={view} visible={!!currentUser} />
+      <FeedbackWidget
+        currentView={view}
+        visible={!!currentUser}
+        currentUser={currentUser}
+        setView={setView}
+      />
     </div>
   );
 }

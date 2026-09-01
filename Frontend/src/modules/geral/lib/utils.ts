@@ -5,7 +5,8 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export const APP_NAME = "NATUM · HUB";
+export const APP_NAME = "NEXUS";
+export const APP_VERSION = "0.1b";
 export const COMPANY_INFO = {
   name: "NÁTUM BIO COSMÉTICOS LTDA",
   address: "RUA LUIS BELLETI, 78, SANTA MARIA, CARANGOLA-MG",

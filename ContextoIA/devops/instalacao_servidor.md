@@ -8,11 +8,12 @@ Acesso remoto nesta fase: **somente Tailscale** — ver [tailscale.md](tailscale
 
 | Componente | Papel |
 |------------|--------|
-| `natumhub-server` | Axum `0.0.0.0:3001` (API + `Frontend/dist`) |
+| `natumhub-server-manager` | **Executável com Painel Visual** (Axum `0.0.0.0:3001`, IPs de rede, terminais conectados, logs em tempo real e auto-start no Windows) |
+| `natumhub-server` | Axum `0.0.0.0:3001` (API + `Frontend/dist` sem interface/headless para serviços) |
 | PostgreSQL | Obrigatório (`Saves/postgres.env` ou `NATUMHUB_DATA_DIR`) |
-| App Tauri | **Opcional** — wizard/UI local; não rode junto com o headless (mesma porta) |
+| App Tauri | **Opcional** — wizard/UI local; não rode junto com o servidor (mesma porta) |
 
-Clientes e supervisor: navegador → `http://natumhub.local:3001` ou IP Tailscale.
+Clientes e supervisor: navegador → `http://natumhub.local:3001` ou IP da rede local.
 
 ## Variáveis de ambiente
 
@@ -24,21 +25,28 @@ Clientes e supervisor: navegador → `http://natumhub.local:3001` ou IP Tailscal
 
 Sem `NATUMHUB_DATA_DIR`: no repo usa `<repo>/Saves`; no Windows instalado `%LOCALAPPDATA%\…\Saves`; no Linux `~/.local/share/natumhub/Saves`.
 
-## Windows (hoje)
+## Windows (Painel Visual do Servidor)
 
-No repo: `NatumHub-Server.bat` sobe o headless (fica ligado); `NatumHub-Frontend.bat` abre `http://natumhub.local:3001` no navegador. Não use junto com `NatumHub.bat` (Tauri).
+No repo: `NatumHub-Server.bat` ou o executável `natumhub-server-manager.exe` abre o painel gráfico com controle de status, logs, IPs locais e PCs conectados.
 
 Pré-requisitos: Postgres no ar, schema aplicado, `Frontend` buildado.
 
 ```powershell
 cd C:\api\Frontend
-npm ci
 npm run build
 cd ..\Backend
-cargo build --release --bin natumhub-server --no-default-features
+cargo build --release --bin natumhub-server-manager --no-default-features
 ```
 
-Executável: `C:\natumhub\release\natumhub-server.exe` (ou `target\release` se não usar `Backend/.cargo/config.toml`).
+Executável: `C:\api\natumhub-server-manager.exe` (ou `C:\api\release\natumhub-server-manager.exe`).
+
+Recursos do Painel do Servidor:
+1. **Status em Tempo Real**: Porta 3001, Uptime, Conexão PostgreSQL.
+2. **Links de Conexão**: IP local Wi-Fi/Cabo, `natumhub.local:3001` e Tailscale com botão "Copiar Link".
+3. **PCs Conectados**: Lista em tempo real com nome do computador, IP, operador logado e status online/offline.
+4. **Console de Logs**: Streaming de eventos HTTP, filtros de busca, copiar e limpar.
+5. **Iniciar com o Windows**: Switch para ativar/desativar inicialização automática no boot do Windows.
+6. **Ações**: Abrir no Navegador, Disparar Sync ERP, Abrir pasta Saves.
 
 ```powershell
 # Exemplo com dados do repo

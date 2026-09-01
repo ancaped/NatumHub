@@ -11,6 +11,8 @@ export function getModuleTitle(view: string): string {
       return 'Produção > Gestão de Bases';
     case 'producao_lotes':
       return 'Produção > Lotes de Produção';
+    case 'producao_proc':
+      return 'Produção > Processos (PROC)';
     case 'microbiologia':
       return 'Produção > Microbiologia';
     case 'fisco_quimica':
@@ -72,6 +74,8 @@ export function getModuleTitle(view: string): string {
     case 'admin_linha_produtos':
     case 'estoque_ativos':
       return 'Administrativo > Linha de Produtos';
+    case 'admin_relatorios':
+      return 'Administrativo > Relatórios';
     case 'admin_produtos_ativos_relatorios':
       return 'Administrativo > Relatórios · Produtos Ativos';
     case 'admin_funcionarios':
@@ -114,7 +118,11 @@ export function getModuleTitle(view: string): string {
     case 'ferramentas_hub':
       return 'Ferramentas';
     case 'ferramentas_etiquetas':
+      return 'Ferramentas > Etiquetas';
+    case 'ferramentas_editor':
       return 'Ferramentas > Editor de Etiquetas';
+    case 'ferramentas_impressoras':
+      return 'Ferramentas > Central de Impressoras';
     case 'hub_settings':
       return 'Configurações Gerais';
     case 'hub_supervisor':

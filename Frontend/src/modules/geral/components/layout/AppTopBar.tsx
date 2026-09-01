@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Settings, LogOut, UserCog, ClipboardList, Shield, ArrowLeft, Network, Loader2, RefreshCw } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { cn, APP_VERSION } from '../../lib/utils';
 import { canAccessView } from '../../lib/modules/permissions';
 import { isSupervisor, canSeeFeedbacks } from '../../lib/auth';
 import type { AuthUser } from '../../lib/auth';
 import { apiJson, ApiError } from '../../lib/http';
 import Modal from '../ui/Modal';
 import NotificationsPanel from './NotificationsPanel';
+import NexusLogo from '../NexusLogo';
 import {
   getAccessibleSubmodules,
   getModuleGroupForView,
@@ -374,6 +375,15 @@ export default function AppTopBar({
         ref={barRef}
         className="no-print h-14 w-full bg-white border-b border-zinc-200 px-4 sm:px-6 flex items-center gap-4 shadow-sm shrink-0 z-40 relative select-none overflow-visible"
       >
+        <button
+          type="button"
+          onClick={() => setView('hub')}
+          className="flex items-center hover:opacity-80 transition-opacity focus:outline-none shrink-0 mr-1 cursor-pointer"
+          title="Início"
+        >
+          <NexusLogo variant="badge" size="sm" />
+        </button>
+
         {showModules ? (
           <nav
             className="flex items-center gap-1 flex-1 min-w-0 overflow-visible"
@@ -399,7 +409,7 @@ export default function AppTopBar({
         )}
 
         <div className="flex items-center gap-3 shrink-0">
-          <span className="text-xs text-zinc-400 font-mono hidden sm:inline">v0.0.13</span>
+          <span className="text-xs text-zinc-400 font-mono hidden sm:inline">v{APP_VERSION}</span>
 
           {canQuickSync && (
             <div className="relative">

@@ -358,6 +358,24 @@ async fn save_supplier_handler(State(state): State<Arc<AppState>>, Json(supplier
     }
 }
 
+async fn unify_suppliers_handler(State(state): State<Arc<AppState>>, Json(req): Json<UnifySuppliersRequest>) -> impl IntoResponse {
+    match with_pool(&state, move |pool| async move {
+        unify_suppliers_query(pool, &req.parent_id, &req.child_ids).await
+    }).await {
+        Ok(()) => ok_status().into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn unlink_supplier_handler(State(state): State<Arc<AppState>>, Json(req): Json<UnlinkSupplierRequest>) -> impl IntoResponse {
+    match with_pool(&state, move |pool| async move {
+        unlink_supplier_query(pool, &req.supplier_id).await
+    }).await {
+        Ok(()) => ok_status().into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
 async fn get_supplier_history_handler(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> impl IntoResponse {
     match with_pool(&state, |pool| get_supplier_history_query(pool, &id)).await {
         Ok(v) => ok_json(v).into_response(),
@@ -507,6 +525,92 @@ async fn delete_online_store_handler(State(state): State<Arc<AppState>>, Path(id
     }
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PurchaseListsQuery {
+    modulo: Option<String>,
+    status: Option<String>,
+    search: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdatePurchaseListBody {
+    status: Option<String>,
+    observacoes: Option<String>,
+}
+
+async fn get_purchase_lists_handler(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<PurchaseListsQuery>,
+) -> impl IntoResponse {
+    match with_pool(&state, |pool| {
+        get_purchase_request_batches_query(
+            pool,
+            query.modulo.as_deref(),
+            query.status.as_deref(),
+            query.search.as_deref(),
+        )
+    })
+    .await
+    {
+        Ok(v) => ok_json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn get_purchase_list_detail_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match with_pool(&state, |pool| get_purchase_request_batch_detail_query(pool, &id)).await {
+        Ok(v) => ok_json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn create_purchase_list_handler(
+    State(state): State<Arc<AppState>>,
+    Json(input): Json<CreatePurchaseRequestBatchInput>,
+) -> impl IntoResponse {
+    match with_pool(&state, |pool| create_purchase_request_batch_query(pool, input)).await {
+        Ok(v) => ok_json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn update_purchase_list_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdatePurchaseListBody>,
+) -> impl IntoResponse {
+    match with_pool(&state, |pool| {
+        update_purchase_request_batch_query(pool, &id, body.status.as_deref(), body.observacoes.as_deref())
+    })
+    .await
+    {
+        Ok(()) => ok_status().into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn delete_purchase_list_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match with_pool(&state, |pool| delete_purchase_request_batch_query(pool, &id)).await {
+        Ok(()) => ok_status().into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn get_active_requested_items_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match with_pool(&state, |pool| get_active_requested_items_summary_query(pool)).await {
+        Ok(v) => ok_json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         // Categories
@@ -521,6 +625,10 @@ pub fn router() -> Router<Arc<AppState>> {
         // Demands
         .route("/api/hub/compras/demands", get(get_demands_handler))
         .route("/api/hub/compras/custom-configs", get(get_custom_configs_handler).post(save_custom_config_handler).delete(delete_custom_config_handler))
+        // Purchase Request Lists (Lotes de Listas & Acompanhamento)
+        .route("/api/hub/compras/listas", get(get_purchase_lists_handler).post(create_purchase_list_handler))
+        .route("/api/hub/compras/listas/:id", get(get_purchase_list_detail_handler).patch(update_purchase_list_handler).delete(delete_purchase_list_handler))
+        .route("/api/hub/compras/itens-solicitados", get(get_active_requested_items_handler))
         // Quotations
         .route("/api/hub/compras/quotations", get(get_quotations_handler).post(create_quotation_handler))
         .route("/api/hub/compras/quotations/:id", get(get_quotation_detail_handler).delete(delete_quotation_handler))
@@ -530,6 +638,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/hub/compras/quotations/select-supplier", post(select_supplier_handler))
         // Suppliers
         .route("/api/hub/compras/suppliers", get(get_suppliers_handler).post(save_supplier_handler))
+        .route("/api/hub/compras/suppliers/unify", post(unify_suppliers_handler))
+        .route("/api/hub/compras/suppliers/unlink", post(unlink_supplier_handler))
         .route("/api/hub/compras/suppliers/:id/history", get(get_supplier_history_handler))
         // Reports
         .route("/api/hub/compras/price-evolution", get(get_price_evolution_handler))
