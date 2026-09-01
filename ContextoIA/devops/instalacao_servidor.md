@@ -12,7 +12,7 @@ Acesso remoto nesta fase: **somente Tailscale** — ver [tailscale.md](tailscale
 | PostgreSQL | Obrigatório (`Saves/postgres.env` ou `NATUMHUB_DATA_DIR`) |
 | App Tauri | **Opcional** — wizard/UI local; não rode junto com o headless (mesma porta) |
 
-Clientes e supervisor: navegador → `http://natumhub.local:3001` ou IP Tailscale.
+Clientes e supervisor: navegador → `http://nexus.local:3001` ou IP Tailscale.
 
 ## Variáveis de ambiente
 
@@ -26,7 +26,7 @@ Sem `NATUMHUB_DATA_DIR`: no repo usa `<repo>/Saves`; no Windows instalado `%LOCA
 
 ## Windows (hoje)
 
-No repo: `NatumHub-Server.bat` sobe o headless (fica ligado); `NatumHub-Frontend.bat` abre `http://natumhub.local:3001` no navegador. Não use junto com `NatumHub.bat` (Tauri).
+No repo: `NatumHub-Server.bat` sobe o headless (fica ligado); `NatumHub-Frontend.bat` abre `http://nexus.local:3001` no navegador. Não use junto com `NatumHub.bat` (Tauri).
 
 Pré-requisitos: Postgres no ar, schema aplicado, `Frontend` buildado.
 

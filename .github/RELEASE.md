@@ -2,7 +2,7 @@
 
 Clientes da fábrica **não** usam instalador nem update in-app. Acessam o Hub no navegador:
 
-`http://natumhub.local:3001`
+`http://nexus.local:3001`
 
 Atualização de produção = `git checkout main && git pull` + `npm run build` no Frontend + reinício do app master. Ver [`ContextoIA/devops/`](../ContextoIA/devops/).
 

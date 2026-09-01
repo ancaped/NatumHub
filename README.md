@@ -11,7 +11,7 @@ Tauri 2 + React + Axum + **PostgreSQL**.
 | Máquina | Precisa |
 |---------|---------|
 | **PC Principal** | PostgreSQL + `Saves/postgres.env` + app (API `:3001`) |
-| **Terminais** | Só o app → API do master |
+| **Terminais** | Navegador → `http://nexus.local:3001` (hosts → IP Tailscale do master) |
 | ERP | SQL Server (credenciais no painel; sync só no master) |
 
 **Não** usa SQLite (`data.db`) no dia a dia. Postgres no master **não** é só para o updater — é o banco operacional.

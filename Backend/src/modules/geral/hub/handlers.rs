@@ -7,7 +7,9 @@ use axum::{
 use serde_json::json;
 use std::sync::Arc;
 
-use crate::core::app_config::{load_client_config, save_client_config as persist_client_config, ClientConfig};
+use crate::core::app_config::{
+    load_client_config, save_client_config as persist_client_config, ClientConfig, HUB_HOSTNAME,
+};
 use crate::handlers::AppState;
 
 /// GET /api/health — API local + ping PostgreSQL.
@@ -102,7 +104,7 @@ pub async fn public_config() -> impl IntoResponse {
     (
         StatusCode::OK,
         Json(json!({
-            "hubUrlHint": "http://natumhub.local:3001",
+            "hubUrlHint": format!("http://{HUB_HOSTNAME}:3001"),
             "accessMode": "browser",
         })),
     )

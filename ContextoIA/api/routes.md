@@ -1,6 +1,6 @@
 # API REST Axum — referência compacta
 
-Servidor: **`:3001`** (API + SPA do Hub) · Clientes: `http://natumhub.local:3001` · Auth: `Authorization: Bearer <token>` (exceto rotas públicas abaixo).
+Servidor: **`:3001`** (API + SPA do Hub) · Clientes: `http://nexus.local:3001` · Auth: `Authorization: Bearer <token>` (exceto rotas públicas abaixo).
 
 Implementação: `Backend/src/lib.rs` + `modules/*/router`. Detalhes multi-usuário: [`../arquitetura/multi_usuario.md`](../arquitetura/multi_usuario.md).
 
@@ -25,7 +25,7 @@ Implementação: `Backend/src/lib.rs` + `modules/*/router`. Detalhes multi-usuá
 |--------|------|-------|
 | GET | `/api/hub/status` | Status + db conectado |
 | GET/POST | `/api/hub/client-config` | Config local do dispositivo |
-| GET | `/api/hub/public-config` | Hint de URL (`natumhub.local`) |
+| GET | `/api/hub/public-config` | Hint de URL (`nexus.local`) |
 
 ## Notificações
 

@@ -13,7 +13,7 @@ export const COMPANY_INFO = {
   contact: "(32) 3741-1773",
 };
 
-/** UUID-ish id — funciona em HTTP (natumhub.local) onde crypto.randomUUID pode não existir. */
+/** UUID-ish id — funciona em HTTP (nexus.local) onde crypto.randomUUID pode não existir. */
 export function randomId(): string {
   const c = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
   if (c && typeof c.randomUUID === 'function') {

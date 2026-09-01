@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 pub const CLIENT_CONFIG_PATH: &str = "../Saves/client_config.json";
 pub const LEGACY_SAVES_REL: &str = "../Saves";
+/// Hostname dos clientes (hosts → IP Tailscale do master, ou 127.0.0.1 no próprio notebook).
+pub const HUB_HOSTNAME: &str = "nexus.local";
 
 /// Raiz do repositório (Backend + Frontend), subindo a partir do executável ou do manifest.
 pub fn resolve_repo_root() -> Option<PathBuf> {
