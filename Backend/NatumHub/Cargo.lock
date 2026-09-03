@@ -2078,6 +2078,7 @@ dependencies = [
  "calamine",
  "chrono",
  "csv",
+ "flate2",
  "rusqlite",
  "serde",
  "serde_json",

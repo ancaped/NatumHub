@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../lib/api';
 import { Category, ComprasAppConfig, Item } from '../../types';
 import { Settings, FolderTree, Plus, Trash2, X, Save, Package, Search, CheckSquare, Square, Link, Unlink } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { cn, API_BASE } from '../../lib/utils';
 import obsData from '../../lib/obs_data.json';
 
 export function SettingsPanel({ mode = 'all', active = false }: { mode?: string; active?: boolean }) {
@@ -134,7 +134,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
   const loadItems = async () => {
     try {
       if (mode === 'coloracao' || mode === 'apoio') {
-        const res = await fetch(`http://127.0.0.1:3001/api/products?limit=5000&status=${mode}&show_hidden=true`);
+        const res = await fetch(`${API_BASE}/products?limit=5000&status=${mode}&show_hidden=true`);
         if (res.ok) {
           const data = await res.json();
           const mapped = (data.items || []).map((p: any) => ({

@@ -195,6 +195,18 @@ impl Db {
             );
         ", []);
 
+        let _ = conn.execute("
+            CREATE TABLE IF NOT EXISTS lote_custom_status (
+                lote_number  TEXT PRIMARY KEY,
+                custom_status TEXT NOT NULL,
+                category     TEXT,
+                updated_by   TEXT,
+                updated_at   TEXT,
+                notes        TEXT
+            );
+        ", []);
+        let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_lote_custom_status ON lote_custom_status(custom_status)", []);
+
         // Initialize watch config defaults if not set
         let _ = conn.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES ('watch_pasta', 'c:\\Users\\Edson\\antigravity\\Natum\\PlanilhasBase')",

@@ -30,6 +30,17 @@ export function QuotationDetail({ id, onBack }: QuotationDetailProps) {
     notes: ''
   });
 
+  const groupedItems = useMemo(() => {
+    const groups: Record<string, QuotationItem[]> = {};
+    items.forEach(item => {
+      const demand = demands.find(d => d.itemCode === item.itemCode);
+      const catName = demand?.categoryName || 'Insumos Gerais';
+      if (!groups[catName]) groups[catName] = [];
+      groups[catName].push(item);
+    });
+    return groups;
+  }, [items, demands]);
+
   useEffect(() => {
     loadData();
   }, [id]);
@@ -98,10 +109,10 @@ export function QuotationDetail({ id, onBack }: QuotationDetailProps) {
         quotationItemId: selectedItemId,
         supplierId: priceForm.supplierId,
         unitPrice: parseFloat(priceForm.unitPrice.replace(',', '.')),
-        deliveryDays: priceForm.deliveryDays ? parseInt(priceForm.deliveryDays) : undefined,
-        minQty: priceForm.minQty ? parseFloat(priceForm.minQty.replace(',', '.')) : undefined,
-        paymentTerms: priceForm.paymentTerms || undefined,
-        notes: priceForm.notes || undefined,
+        deliveryDays: priceForm.deliveryDays ? parseInt(priceForm.deliveryDays) : null,
+        minQty: priceForm.minQty ? parseFloat(priceForm.minQty.replace(',', '.')) : null,
+        paymentTerms: priceForm.paymentTerms || null,
+        notes: priceForm.notes || null,
       });
       
       setAddingPrice(false);
@@ -190,17 +201,6 @@ export function QuotationDetail({ id, onBack }: QuotationDetailProps) {
         return null;
     }
   };
-
-  const groupedItems = useMemo(() => {
-    const groups: Record<string, QuotationItem[]> = {};
-    items.forEach(item => {
-      const demand = demands.find(d => d.itemCode === item.itemCode);
-      const catName = demand?.categoryName || 'Insumos Gerais';
-      if (!groups[catName]) groups[catName] = [];
-      groups[catName].push(item);
-    });
-    return groups;
-  }, [items, demands]);
 
   const STAGES = [
     { key: 'draft', label: 'Rascunho' },

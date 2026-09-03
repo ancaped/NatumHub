@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "tauri": "cd ../Backend/NatumHub && npm run tauri",
     "tauri:dev": "cd ../Backend/NatumHub && npm run tauri:dev",
-    "tauri:build": "cd ../Backend/NatumHub && npm run tauri:build"
+    "tauri:build": "cd ../Backend/NatumHub && npm run tauri:build",
+    "tauri:clean": "cd ../Backend/NatumHub && npm run tauri:clean"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",
@@ -25,7 +26,8 @@
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.5.0",
     "vite": "^6.2.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "firebase": "^11.0.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.1",

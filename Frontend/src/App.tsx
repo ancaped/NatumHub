@@ -10,31 +10,37 @@ import PedidosView from './modules/PedidosView';
 import NotasFiscaisView from './modules/NotasFiscaisView';
 import ActiveProductsView from './modules/ActiveProductsView';
 import VendasView from './modules/VendasView';
+import AcompanhamentoProducaoView from './modules/AcompanhamentoProducaoView';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { FeedbackWidget } from './components/shared/FeedbackWidget';
 import { 
   Boxes, ShoppingCart, Activity, FlaskConical, ArrowRight, ArrowLeft,
   Settings, Database, RefreshCw, Upload, Download, Loader2, Check, X, Globe,
-  FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp
+  FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp,
+  Briefcase, Calendar
 } from 'lucide-react';
-import { APP_NAME } from './lib/utils';
+import { APP_NAME, API_BASE } from './lib/utils';
 import { api } from './lib/api';
+import { 
+  initializeFirebase, 
+  isFirebaseInitialized, 
+  loginWithGoogle, 
+  logoutFirebase, 
+  uploadBackupFile 
+} from './lib/firebase';
 
-type HubView = 'hub' | 'producao_hub' | 'producao' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'estoque_hub' | 'estoque_insumos' | 'estoque_produtos' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'vendas' | 'linha_produtos' | 'estoque_ativos';
+type HubView = 'hub' | 'producao_hub' | 'producao' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'estoque_hub' | 'estoque_insumos' | 'estoque_produtos' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'vendas' | 'linha_produtos' | 'estoque_ativos' | 'administrativo_hub' | 'acompanhamento_producao';
 
 export default function App() {
   const [view, setView] = useState<HubView>('hub');
   
-  // Google status states
-  const [googleStatus, setGoogleStatus] = useState({ 
-    configured: false, 
-    authenticated: false, 
-    client_id: '', 
-    last_sync: 'Nunca sincronizado' 
-  });
-  const [clientId, setClientId] = useState('');
-  const [clientSecret, setClientSecret] = useState('');
-  const [syncingGoogle, setSyncingGoogle] = useState(false);
+  // Firebase states
+  const [firebaseConfigStr, setFirebaseConfigStr] = useState('');
+  const [firebaseUser, setFirebaseUser] = useState<any>(null);
+  const [firebaseInitialized, setFirebaseInitialized] = useState(false);
+  const [syncingFirebase, setSyncingFirebase] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [firebaseLastSync, setFirebaseLastSync] = useState('Nunca sincronizado');
   const [savingGoogle, setSavingGoogle] = useState(false);
   const [backingUpManual, setBackingUpManual] = useState(false);
   const [restoringManual, setRestoringManual] = useState(false);
@@ -50,16 +56,42 @@ export default function App() {
   const [savingSql, setSavingSql] = useState(false);
   const [syncingSql, setSyncingSql] = useState(false);
 
-  const fetchGoogleStatus = async () => {
+  // Servidor NatumHub (Tailscale / Rede Remota)
+  const [serverHost, setServerHost] = useState(() => {
+    return localStorage.getItem('natum_api_base') || (typeof window !== 'undefined' && window.location?.hostname !== 'localhost' && window.location?.hostname !== '127.0.0.1' ? `http://${window.location.hostname}:3001/api` : 'http://100.120.161.52:3001/api');
+  });
+
+  const fetchFirebaseConfig = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:3001/api/google/status');
+      const res = await fetch(`${API_BASE}/settings/firebase_config`);
       if (res.ok) {
         const data = await res.json();
-        setGoogleStatus(data);
-        if (data.client_id) setClientId(data.client_id);
+        if (data.value) {
+          setFirebaseConfigStr(data.value);
+          try {
+            const config = JSON.parse(data.value);
+            const { auth } = initializeFirebase(config);
+            setFirebaseInitialized(true);
+            
+            // Listen to auth changes
+            auth.onAuthStateChanged((user: any) => {
+              setFirebaseUser(user);
+            });
+          } catch (err) {
+            console.error("Configuração do Firebase mal formatada:", err);
+          }
+        }
+      }
+      
+      const lastSyncRes = await fetch(`${API_BASE}/settings/firebase_last_sync`);
+      if (lastSyncRes.ok) {
+        const data = await lastSyncRes.json();
+        if (data.value) {
+          setFirebaseLastSync(data.value);
+        }
       }
     } catch (e) {
-      console.error("Error fetching Google status:", e);
+      console.error("Erro ao carregar configurações do Firebase:", e);
     }
   };
 
@@ -68,7 +100,7 @@ export default function App() {
       const keys = ['sql_host', 'sql_port', 'sql_user', 'sql_password', 'sql_database', 'sales_sync_start_date'];
       const vals = await Promise.all(
         keys.map(async (key) => {
-          const res = await fetch(`http://127.0.0.1:3001/api/settings/${key}`);
+          const res = await fetch(`${API_BASE}/settings/${key}`);
           if (res.ok) {
             const data = await res.json();
             return data.value;
@@ -100,7 +132,7 @@ export default function App() {
       ];
       await Promise.all(
         configs.map(async (cfg) => {
-          await fetch(`http://127.0.0.1:3001/api/settings/${cfg.key}`, {
+          await fetch(`${API_BASE}/settings/${cfg.key}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ value: cfg.value }),
@@ -120,7 +152,7 @@ export default function App() {
   const handleSyncSqlDatabase = async () => {
     setSyncingSql(true);
     try {
-      const res = await fetch('http://127.0.0.1:3001/api/import/sync', {
+      const res = await fetch(`${API_BASE}/import/sync`, {
         method: 'POST',
       });
       const data = await res.json();
@@ -139,68 +171,97 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchGoogleStatus();
+    fetchFirebaseConfig();
     fetchSqlConfig();
   }, []);
 
-  const handleSaveGoogleConfig = async () => {
+  const handleSaveFirebaseConfig = async () => {
     setSavingGoogle(true);
     try {
-      const res = await fetch('http://127.0.0.1:3001/api/google/config', {
+      // Validate JSON
+      JSON.parse(firebaseConfigStr);
+      
+      const res = await fetch(`${API_BASE}/settings/firebase_config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+        body: JSON.stringify({ value: firebaseConfigStr }),
       });
-      const data = await res.json();
       if (res.ok) {
-        setMessage({ text: data.message || "Credenciais salvas com sucesso!", type: 'success' });
-        fetchGoogleStatus();
+        setMessage({ text: "Configuração do Firebase salva com sucesso!", type: 'success' });
+        await fetchFirebaseConfig();
       } else {
-        setMessage({ text: data.error || "Erro ao salvar credenciais", type: 'error' });
+        setMessage({ text: "Erro ao salvar configuração no banco de dados.", type: 'error' });
       }
     } catch (e) {
       console.error(e);
-      setMessage({ text: "Falha de conexão com a API", type: 'error' });
+      setMessage({ text: "Configuração inválida. Certifique-se de que é um JSON válido.", type: 'error' });
     } finally {
       setSavingGoogle(false);
       setTimeout(() => setMessage(null), 4000);
     }
   };
 
-  const handleGoogleLogin = async () => {
+  const handleFirebaseLogin = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:3001/api/google/auth-url');
-      const data = await res.json();
-      if (res.ok && data.url) {
-        window.open(data.url, '_blank');
-        setMessage({ text: "Link de login aberto no navegador", type: 'success' });
-      } else {
-        setMessage({ text: data.error || "Configure o Client ID antes de fazer login", type: 'error' });
-      }
-    } catch (e) {
+      const user = await loginWithGoogle();
+      setFirebaseUser(user);
+      setMessage({ text: `Conectado com sucesso como: ${user.email}`, type: 'success' });
+    } catch (e: any) {
       console.error(e);
-      setMessage({ text: "Erro ao requisitar link de autenticação", type: 'error' });
+      setMessage({ text: `Erro no login com Google: ${e.message}`, type: 'error' });
     } finally {
       setTimeout(() => setMessage(null), 4000);
     }
   };
 
-  const handleGoogleSync = async () => {
-    setSyncingGoogle(true);
+  const handleFirebaseLogout = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:3001/api/google/sync', { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        setMessage({ text: data.message || "Backup realizado com sucesso!", type: 'success' });
-        fetchGoogleStatus();
-      } else {
-        setMessage({ text: data.error || "Falha na sincronização. Verifique o login.", type: 'error' });
-      }
-    } catch (e) {
+      await logoutFirebase();
+      setFirebaseUser(null);
+      setMessage({ text: "Desconectado do Google com sucesso.", type: 'success' });
+    } catch (e: any) {
       console.error(e);
-      setMessage({ text: "Erro ao tentar sincronizar com o Google Drive", type: 'error' });
+      setMessage({ text: "Erro ao desconectar.", type: 'error' });
     } finally {
-      setSyncingGoogle(false);
+      setTimeout(() => setMessage(null), 4000);
+    }
+  };
+
+  const handleFirebaseSync = async () => {
+    if (!firebaseUser) {
+      setMessage({ text: "Faça login com o Google primeiro.", type: 'error' });
+      setTimeout(() => setMessage(null), 4000);
+      return;
+    }
+    setSyncingFirebase(true);
+    setUploadProgress(0);
+    try {
+      setMessage({ text: "Comprimindo banco de dados...", type: 'success' });
+      // 1. Get compressed backup from backend Rust
+      const data = await api.getCompressedBackup();
+      
+      setMessage({ text: "Enviando para o Firebase Cloud Storage...", type: 'success' });
+      // 2. Upload to Firebase Storage
+      const fileName = `natum_backup_${new Date().toISOString().split('T')[0]}.db.gz`;
+      await uploadBackupFile(firebaseUser.uid, new Uint8Array(data), fileName, (progress) => {
+        setUploadProgress(progress);
+      });
+      
+      const now = new Date().toLocaleString();
+      // 3. Save last sync timestamp
+      await fetch(`${API_BASE}/settings/firebase_last_sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: now }),
+      });
+      
+      setFirebaseLastSync(now);
+      setMessage({ text: "Backup realizado com sucesso no Firebase!", type: 'success' });
+    } catch (e: any) {
+      console.error(e);
+      setMessage({ text: `Erro na sincronização: ${e.message || e}`, type: 'error' });
+    } finally {
+      setSyncingFirebase(false);
       setTimeout(() => setMessage(null), 4000);
     }
   };
@@ -493,6 +554,68 @@ export default function App() {
       );
     }
 
+    if (view === 'acompanhamento_producao') {
+      return (
+        <ErrorBoundary onReset={() => setView('administrativo_hub')} fallbackTitle="Erro no módulo de Acompanhamento de Produção">
+          <AcompanhamentoProducaoView onBack={() => setView('administrativo_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'administrativo_hub') {
+      return (
+        <div className="min-h-screen bg-zinc-50 font-sans text-zinc-900 flex flex-col justify-between">
+          <header className="bg-white border-b border-zinc-200 px-8 py-4 shrink-0 flex items-center justify-between shadow-sm">
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setView('hub')}
+                className="bg-white border border-zinc-200 hover:bg-zinc-100 p-2 rounded-xl text-zinc-650 hover:text-zinc-900 transition-colors cursor-pointer"
+                title="Voltar ao Início"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+              <div>
+                <h1 className="font-bold text-lg tracking-tight">Módulo Administrativo</h1>
+                <p className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">Acompanhamento e controles operacionais</p>
+              </div>
+            </div>
+          </header>
+
+          <main className="flex-1 flex flex-col items-center justify-center p-6 max-w-6xl w-full mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="text-center space-y-2">
+              <h2 className="text-3xl font-extrabold tracking-tight text-zinc-900">Módulo Administrativo</h2>
+              <p className="text-sm text-zinc-500">Selecione o sub-módulo administrativo desejado.</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-4 w-full max-w-4xl">
+              {/* Acompanhamento de Produção */}
+              <button 
+                onClick={() => setView('acompanhamento_producao')}
+                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <Calendar className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-zinc-900">Acompanhamento de Produção</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Planilha gerencial de lotes com controle de etapas (Pesagem, Produção, Envase, Rotulagem, Finalizada) e calendário mensal integrado.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Acessar Acompanhamento <ArrowRight className="h-4 w-4" />
+                </div>
+              </button>
+            </div>
+          </main>
+
+          <footer className="w-full text-center py-6 text-xs text-zinc-400 border-t border-zinc-200/50 bg-white/50">
+            &copy; {new Date().getFullYear()} Nátum Bio Cosméticos. Todos os direitos reservados.
+          </footer>
+        </div>
+      );
+    }
+
     if (view === 'hub_settings') {
       return (
         <div className="min-h-screen bg-zinc-50 font-sans text-zinc-900 flex flex-col justify-between">
@@ -517,7 +640,7 @@ export default function App() {
           </header>
 
           {/* Main Container */}
-          <main className="flex-1 p-6 max-w-4xl w-full mx-auto space-y-6 flex flex-col justify-center">
+          <main className="flex-1 p-6 max-w-6xl w-full mx-auto space-y-6 flex flex-col justify-center">
             {message && (
               <div className={`p-4 rounded-xl border text-sm font-bold flex items-center justify-between shadow-sm transition-all duration-300 ${
                 message.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'
@@ -532,84 +655,143 @@ export default function App() {
               </div>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-              {/* Card 1: Google Drive Cloud Backup */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-start">
+              {/* Card 0: Servidor NatumHub (Rede / Tailscale) */}
               <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col justify-between min-h-[420px]">
                 <div>
                   <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50 text-left">
                     <h3 className="font-bold text-zinc-800 flex items-center gap-2 text-base">
-                      <RefreshCw className="h-5 w-5 text-zinc-500" />
-                      Backup Google Drive Cloud
+                      <Globe className="h-5 w-5 text-indigo-600" />
+                      Servidor NatumHub
                     </h3>
-                    <p className="text-xs text-zinc-500 font-medium">Configuração unificada de sincronização na nuvem</p>
+                    <p className="text-xs text-zinc-500 font-medium">IP do computador principal na rede Tailscale</p>
                   </div>
                   <div className="p-6 space-y-4 text-left">
                     <div className="space-y-1">
-                      <label className="text-xs font-semibold text-zinc-600 block">OAuth Client ID</label>
+                      <label className="text-xs font-semibold text-zinc-600 block">Endereço da API REST (Axum)</label>
                       <input 
                         type="text" 
-                        className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
-                        placeholder="Insira o Client ID do console GCP"
-                        value={clientId}
-                        onChange={(e) => setClientId(e.target.value)}
+                        className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs font-mono focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
+                        placeholder="Ex: http://100.120.161.52:3001/api"
+                        value={serverHost}
+                        onChange={(e) => setServerHost(e.target.value)}
                       />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-zinc-600 block">OAuth Client Secret</label>
-                      <input 
-                        type="password" 
-                        className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
-                        placeholder="Insira o Client Secret"
-                        value={clientSecret}
-                        onChange={(e) => setClientSecret(e.target.value)}
-                      />
+                      <p className="text-[10px] text-zinc-400 leading-tight mt-1">
+                        No PC secundário, mantenha o IP do Tailscale do PC servidor (<code>100.120.161.52</code>).
+                      </p>
                     </div>
 
                     <button 
-                      onClick={handleSaveGoogleConfig} 
-                      disabled={savingGoogle}
-                      className="text-xs bg-zinc-950 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-zinc-800 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shadow-sm transition-all"
+                      onClick={() => {
+                        localStorage.setItem('natum_api_base', serverHost);
+                        setMessage({ text: "Endereço do servidor salvo! A página será atualizada.", type: 'success' });
+                        setTimeout(() => window.location.reload(), 1200);
+                      }} 
+                      className="text-xs bg-indigo-600 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-indigo-700 flex items-center gap-1.5 cursor-pointer shadow-sm transition-all"
                     >
-                      {savingGoogle ? 'Salvando...' : 'Salvar Credenciais'}
+                      Salvar e Conectar
                     </button>
                   </div>
                 </div>
 
                 <div className="p-6 bg-zinc-50 border-t border-zinc-200">
-                  <div className="flex items-center justify-between text-xs text-zinc-600 mb-4">
+                  <div className="text-[11px] text-zinc-600 space-y-1 text-left">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">IP Servidor Tailscale:</span>
+                      <strong className="font-mono text-zinc-800">100.120.161.52</strong>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">Porta Axum:</span>
+                      <strong className="font-mono text-zinc-800">3001</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 1: Firebase Cloud Backup */}
+              <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col justify-between min-h-[420px]">
+                <div>
+                  <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50 text-left">
+                    <h3 className="font-bold text-zinc-800 flex items-center gap-2 text-base">
+                      <RefreshCw className="h-5 w-5 text-zinc-500" />
+                      Backup Firebase Cloud
+                    </h3>
+                    <p className="text-xs text-zinc-500 font-medium">Configuração de sincronização automática com o Firebase</p>
+                  </div>
+                  <div className="p-6 space-y-4 text-left">
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-zinc-600 block">Firebase Config (JSON)</label>
+                      <textarea 
+                        rows={5}
+                        className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-800" 
+                        placeholder='{ "apiKey": "...", "authDomain": "...", ... }'
+                        value={firebaseConfigStr}
+                        onChange={(e) => setFirebaseConfigStr(e.target.value)}
+                      />
+                    </div>
+
+                    <button 
+                      onClick={handleSaveFirebaseConfig} 
+                      disabled={savingGoogle}
+                      className="text-xs bg-zinc-950 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-zinc-800 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shadow-sm transition-all"
+                    >
+                      {savingGoogle ? 'Salvando...' : 'Salvar Configuração'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-6 bg-zinc-50 border-t border-zinc-200">
+                  <div className="flex items-center justify-between text-xs text-zinc-600 mb-4 text-left">
                     <span>Status de Login:</span>
-                    <strong className={googleStatus.authenticated ? "text-emerald-600 font-bold" : "text-zinc-500 font-bold"}>
-                      {googleStatus.authenticated ? '✓ Autenticado' : '✗ Desconectado'}
+                    <strong className={firebaseUser ? "text-emerald-600 font-bold" : "text-zinc-500 font-bold"}>
+                      {firebaseUser ? `✓ Conectado (${firebaseUser.email?.split('@')[0]})` : '✗ Desconectado'}
                     </strong>
                   </div>
                   
-                  {googleStatus.configured ? (
-                    <div className="flex gap-3">
-                      <button 
-                        onClick={handleGoogleLogin} 
-                        className="flex-1 text-center py-2.5 border border-zinc-300 rounded-xl text-xs font-bold hover:bg-white transition-all cursor-pointer bg-white text-zinc-805 shadow-sm text-zinc-800"
-                      >
-                        Fazer Login Google
-                      </button>
-                      {googleStatus.authenticated && (
-                        <button 
-                          onClick={handleGoogleSync} 
-                          disabled={syncingGoogle} 
-                          className="flex-1 bg-zinc-950 text-white py-2.5 rounded-xl text-xs font-bold hover:bg-zinc-800 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-sm transition-all"
-                        >
-                          <RefreshCw size={12} className={syncingGoogle ? 'animate-spin' : ''} />
-                          {syncingGoogle ? 'Sincronizando...' : 'Fazer Backup Agora'}
-                        </button>
+                  {firebaseInitialized ? (
+                    <div className="flex flex-col gap-3">
+                      <div className="flex gap-3">
+                        {!firebaseUser ? (
+                          <button 
+                            onClick={handleFirebaseLogin} 
+                            className="flex-1 text-center py-2.5 border border-zinc-300 rounded-xl text-xs font-bold hover:bg-white transition-all cursor-pointer bg-white text-zinc-800 shadow-sm"
+                          >
+                            Login Google
+                          </button>
+                        ) : (
+                          <button 
+                            onClick={handleFirebaseLogout} 
+                            className="flex-1 text-center py-2.5 border border-rose-200 rounded-xl text-xs font-bold hover:bg-rose-50 text-rose-600 transition-all cursor-pointer bg-white shadow-sm"
+                          >
+                            Desconectar
+                          </button>
+                        )}
+                        
+                        {firebaseUser && (
+                          <button 
+                            onClick={handleFirebaseSync} 
+                            disabled={syncingFirebase} 
+                            className="flex-1 bg-zinc-950 text-white py-2.5 rounded-xl text-xs font-bold hover:bg-zinc-800 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-sm transition-all"
+                          >
+                            <RefreshCw size={12} className={syncingFirebase ? 'animate-spin' : ''} />
+                            {syncingFirebase ? 'Sincronizando...' : 'Backup Agora'}
+                          </button>
+                        )}
+                      </div>
+                      
+                      {syncingFirebase && (
+                        <div className="w-full bg-zinc-200 rounded-full h-1.5 dark:bg-zinc-700 mt-1">
+                          <div className="bg-zinc-950 h-1.5 rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div>
+                        </div>
                       )}
                     </div>
                   ) : (
-                    <p className="text-[10px] text-zinc-400 italic text-left">Insira e salve as credenciais OAuth para ativar o login.</p>
+                    <p className="text-[10px] text-zinc-400 italic text-left">Insira e salve a configuração JSON do Firebase para ativar o login.</p>
                   )}
                   
-                  {googleStatus.authenticated && (
+                  {firebaseLastSync !== 'Nunca sincronizado' && (
                     <p className="text-[10px] text-zinc-500 mt-3 text-left">
-                      Última sincronização na nuvem: <strong>{googleStatus.last_sync}</strong>
+                      Última sincronização na nuvem: <strong>{firebaseLastSync}</strong>
                     </p>
                   )}
                 </div>
@@ -812,11 +994,11 @@ export default function App() {
                 <p className="text-sm text-zinc-500">Escolha a área do ecossistema Natum que deseja acessar.</p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-4 w-full">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 pt-4 w-full">
                 {/* Card Estoque */}
                 <button 
                   onClick={() => setView('estoque_hub')}
-                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
+                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
                 >
                   <div className="space-y-4">
                     <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
@@ -835,7 +1017,7 @@ export default function App() {
                 {/* Card Produção */}
                 <button 
                   onClick={() => setView('producao_hub')}
-                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
+                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
                 >
                   <div className="space-y-4">
                     <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
@@ -854,7 +1036,7 @@ export default function App() {
                 {/* Card Compras */}
                 <button 
                   onClick={() => setView('compras_hub')}
-                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
+                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
                 >
                   <div className="space-y-4">
                     <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
@@ -873,7 +1055,7 @@ export default function App() {
                 {/* Card Vendas */}
                 <button 
                   onClick={() => setView('vendas')}
-                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
+                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
                 >
                   <div className="space-y-4">
                     <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
@@ -882,6 +1064,25 @@ export default function App() {
                     <div>
                       <h3 className="text-xl font-bold text-zinc-900">Vendas</h3>
                       <p className="text-sm text-zinc-500 mt-1">Estatísticas de vendas, desempenho ano a ano (YoY), histórico por produto e análise de demandas.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                    Entrar no Módulo <ArrowRight className="h-4 w-4" />
+                  </div>
+                </button>
+
+                {/* Card Administrativo */}
+                <button 
+                  onClick={() => setView('administrativo_hub')}
+                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
+                >
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                      <Briefcase className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-zinc-900">Administrativo</h3>
+                      <p className="text-sm text-zinc-500 mt-1">Acompanhamento de produção, status de lotes, calendário industrial e controles gerenciais.</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">

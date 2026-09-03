@@ -5905,3 +5905,269 @@ pub async fn get_next_vira_order_number(
     (StatusCode::OK, Json(serde_json::json!({ "nextOrderNumber": next_order }))).into_response()
 }
 
+// GET /api/administrativo/acompanhamento-producao
+pub async fn get_acompanhamento_producao(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<crate::models::AcompanhamentoQueryParams>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let mut query = "
+        SELECT 
+            m.document_number,
+            m.item_code,
+            COALESCE(p.descricao, ''),
+            m.quantity,
+            m.date,
+            COALESCE(m.details, ''),
+            cs.custom_status,
+            cs.category,
+            cs.updated_by,
+            cs.updated_at,
+            cs.notes
+        FROM stock_movements m
+        LEFT JOIN produtos p ON m.item_code = p.codigo
+        LEFT JOIN lote_custom_status cs ON m.document_number = cs.lote_number
+        WHERE m.item_type = 'produto' AND m.movement_type = 'entrada'
+    ".to_string();
+
+    let mut args: Vec<String> = Vec::new();
+
+    if let Some(ref start_date) = params.start_date {
+        if !start_date.trim().is_empty() {
+            query.push_str(" AND m.date >= ?");
+            args.push(start_date.trim().to_string());
+        }
+    }
+
+    if let Some(ref end_date) = params.end_date {
+        if !end_date.trim().is_empty() {
+            query.push_str(" AND m.date <= ?");
+            args.push(end_date.trim().to_string());
+        }
+    }
+
+    if let Some(ref erp_st) = params.erp_status {
+        if !erp_st.trim().is_empty() && erp_st != "ALL" {
+            query.push_str(" AND m.details LIKE ?");
+            args.push(format!("%Status: {}%", erp_st.trim()));
+        }
+    }
+
+    if let Some(ref custom_st) = params.custom_status {
+        if !custom_st.trim().is_empty() && custom_st != "ALL" {
+            if custom_st == "NONE" || custom_st == "SEM_STATUS" {
+                query.push_str(" AND (cs.custom_status IS NULL OR cs.custom_status = '')");
+            } else {
+                query.push_str(" AND cs.custom_status = ?");
+                args.push(custom_st.trim().to_string());
+            }
+        }
+    }
+
+    if let Some(ref cat) = params.category {
+        if !cat.trim().is_empty() && cat != "ALL" {
+            query.push_str(" AND cs.category = ?");
+            args.push(cat.trim().to_string());
+        }
+    }
+
+    if let Some(ref search) = params.search {
+        if !search.trim().is_empty() {
+            let term = search.trim();
+            query.push_str(" AND (m.document_number LIKE ? OR m.item_code LIKE ? OR p.descricao LIKE ? OR cs.updated_by LIKE ? OR cs.notes LIKE ?)");
+            let like_arg = format!("%{}%", term);
+            for _ in 0..5 {
+                args.push(like_arg.clone());
+            }
+        }
+    }
+
+    query.push_str(" ORDER BY m.date DESC, m.document_number DESC");
+
+    let limit_val = params.limit.unwrap_or(10000);
+    query.push_str(&format!(" LIMIT {}", limit_val));
+
+    let mut stmt = match conn.prepare(&query) {
+        Ok(s) => s,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let params_converted = rusqlite::params_from_iter(args.iter());
+
+    struct RawRow {
+        lote_number: String,
+        item_code: String,
+        description: String,
+        quantity: f64,
+        date: String,
+        details: String,
+        custom_status: Option<String>,
+        category: Option<String>,
+        updated_by: Option<String>,
+        updated_at: Option<String>,
+        notes: Option<String>,
+    }
+
+    let rows_res = stmt.query_map(params_converted, |row| {
+        Ok(RawRow {
+            lote_number: row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+            item_code: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+            description: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+            quantity: row.get::<_, Option<f64>>(3)?.unwrap_or(0.0),
+            date: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+            details: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
+            custom_status: row.get(6)?,
+            category: row.get(7)?,
+            updated_by: row.get(8)?,
+            updated_at: row.get(9)?,
+            notes: row.get(10)?,
+        })
+    });
+
+    let raw_list: Vec<RawRow> = match rows_res {
+        Ok(iter) => iter.flatten().collect(),
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    // Group by lote_number
+    let mut map_indices = std::collections::HashMap::new();
+    let mut grouped_items: Vec<crate::models::AcompanhamentoLoteItem> = Vec::new();
+
+    for r in raw_list {
+        if r.lote_number.is_empty() {
+            continue;
+        }
+
+        let mut erp_status = String::new();
+        for part in r.details.split('|') {
+            let part = part.trim();
+            if part.starts_with("Status:") {
+                erp_status = part.trim_start_matches("Status:").trim().to_string();
+                break;
+            }
+        }
+
+        let erp_status_label = match erp_status.to_uppercase().as_str() {
+            "EA" => "Estoque Atualizado",
+            "PG" => "Em Pesagem",
+            "PP" => "Pré-Produção",
+            "PR" => "Em Produção",
+            "EN" => "Em Envase",
+            "CF" => "Conferido",
+            "CA" => "Cancelado",
+            "FP" => "Finalizado",
+            "" => "Sem Status",
+            other => other,
+        }.to_string();
+
+        if let Some(&idx) = map_indices.get(&r.lote_number) {
+            let item: &mut crate::models::AcompanhamentoLoteItem = &mut grouped_items[idx];
+            if !item.product_code.contains(&r.item_code) && !r.item_code.is_empty() {
+                item.product_code = format!("{} / {}", item.product_code, r.item_code);
+                item.product_description = format!("{} / {}", item.product_description, r.description);
+            }
+            item.quantity += r.quantity;
+        } else {
+            let new_item = crate::models::AcompanhamentoLoteItem {
+                lote_number: r.lote_number.clone(),
+                product_code: r.item_code,
+                product_description: r.description,
+                quantity: r.quantity,
+                date: r.date,
+                erp_status: if erp_status.is_empty() { "-".to_string() } else { erp_status },
+                erp_status_label,
+                custom_status: r.custom_status,
+                category: r.category,
+                updated_by: r.updated_by,
+                updated_at: r.updated_at,
+                notes: r.notes,
+            };
+            map_indices.insert(r.lote_number, grouped_items.len());
+            grouped_items.push(new_item);
+        }
+    }
+
+    (StatusCode::OK, Json(grouped_items)).into_response()
+}
+
+// POST /api/administrativo/lote-status
+pub async fn save_lote_custom_status(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<crate::models::SaveLoteCustomStatusPayload>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let lote_number = payload.lote_number.trim();
+    if lote_number.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Número do lote obrigatório" }))).into_response();
+    }
+
+    let status = payload.custom_status.trim();
+    let category = match payload.category {
+        Some(ref c) if !c.trim().is_empty() => c.trim().to_string(),
+        _ => {
+            // Auto-infer category if not provided
+            match status.to_lowercase().as_str() {
+                "pesagem" | "produção" | "producao" => "Pesagem e Produção".to_string(),
+                "rotulagem" | "envase" | "finalizada" | "finalizado" => "Embalagem".to_string(),
+                _ => "Geral".to_string(),
+            }
+        }
+    };
+
+    let updated_by = payload.updated_by.unwrap_or_else(|| "Administrador".to_string());
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    let res = conn.execute(
+        "INSERT INTO lote_custom_status (lote_number, custom_status, category, updated_by, updated_at, notes)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(lote_number) DO UPDATE SET
+            custom_status = excluded.custom_status,
+            category = excluded.category,
+            updated_by = excluded.updated_by,
+            updated_at = excluded.updated_at,
+            notes = COALESCE(excluded.notes, lote_custom_status.notes)",
+        rusqlite::params![lote_number, status, category, updated_by, now, payload.notes],
+    );
+
+    match res {
+        Ok(_) => (StatusCode::OK, Json(serde_json::json!({
+            "message": "Status atualizado com sucesso",
+            "loteNumber": lote_number,
+            "customStatus": status,
+            "category": category,
+            "updatedBy": updated_by,
+            "updatedAt": now
+        }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+// DELETE /api/administrativo/lote-status/:number
+pub async fn delete_lote_custom_status(
+    State(state): State<Arc<AppState>>,
+    Path(lote_number): Path<String>,
+) -> impl IntoResponse {
+    let conn = match state.db.connect() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    };
+
+    let res = conn.execute(
+        "DELETE FROM lote_custom_status WHERE lote_number = ?1",
+        rusqlite::params![lote_number.trim()],
+    );
+
+    match res {
+        Ok(_) => (StatusCode::OK, Json(serde_json::json!({ "message": "Status removido com sucesso" }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+

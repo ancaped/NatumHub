@@ -2,16 +2,27 @@ use rusqlite::Connection;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conn = Connection::open("../data.db")?;
-    
-    println!("=== FEEDBACKS MATCHING 6e75e45c ===");
-    let mut stmt = conn.prepare("SELECT id, type, page, description FROM feedbacks WHERE id LIKE '%6e75e45c%'")?;
-    let rows = stmt.query_map([], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?))
-    })?;
-    for r in rows {
-        let (id, t, p, d) = r?;
-        println!("  id={}, type={}, page={}, desc={:.30}", id, t, p, d);
+
+    let target_code = "9.15.010";
+
+    println!("=== LATEST STOCK SNAPSHOTS FOR {} ===", target_code);
+    let mut stmt = conn.prepare("
+        SELECT id, import_id, stock_qty, reserved_qty, in_production, in_orders, snapshot_date 
+        FROM stock_snapshots 
+        WHERE item_code = ?1 
+        ORDER BY snapshot_date DESC, id DESC LIMIT 5
+    ")?;
+    let mut rows = stmt.query([target_code])?;
+    while let Some(row) = rows.next()? {
+        let id: String = row.get(0)?;
+        let import_id: String = row.get(1)?;
+        let stock_qty: f64 = row.get(2)?;
+        let reserved_qty: f64 = row.get(3)?;
+        let in_production: f64 = row.get(4)?;
+        let in_orders: f64 = row.get(5)?;
+        let date: Option<String> = row.get(6)?;
+        println!("ID: {}, ImportID: {}, Stock: {}, Reserved: {}, InProd: {}, InOrders: {}, Date: {:?}", id, import_id, stock_qty, reserved_qty, in_production, in_orders, date);
     }
-    
+
     Ok(())
 }

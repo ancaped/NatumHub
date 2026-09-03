@@ -33,3 +33,9 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt"] }
 chrono = "0.4.38"
 tiberius = { version = "0.12", default-features = false, features = ["chrono", "rustls", "tds73"] }
 tokio-util = { version = "0.7", features = ["compat"] }
+flate2 = "1.0"
+
+[profile.dev]
+debug = 1
+split-debuginfo = "unpacked"
+

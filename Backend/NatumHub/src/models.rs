@@ -698,4 +698,42 @@ pub struct UpdateViraOrderRequest {
     pub quantity_assembled: Option<f64>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AcompanhamentoLoteItem {
+    pub lote_number: String,
+    pub product_code: String,
+    pub product_description: String,
+    pub quantity: f64,
+    pub date: String,
+    pub erp_status: String,
+    pub erp_status_label: String,
+    pub custom_status: Option<String>,
+    pub category: Option<String>,
+    pub updated_by: Option<String>,
+    pub updated_at: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveLoteCustomStatusPayload {
+    pub lote_number: String,
+    pub custom_status: String,
+    pub category: Option<String>,
+    pub updated_by: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct AcompanhamentoQueryParams {
+    pub search: Option<String>,
+    pub erp_status: Option<String>,
+    pub custom_status: Option<String>,
+    pub category: Option<String>,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    pub limit: Option<usize>,
+}
+
 

@@ -163,15 +163,19 @@ pub struct QuotationPrice {
     pub is_selected: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct QuotationPriceInput {
     pub quotation_item_id: String,
     pub supplier_id: String,
     pub unit_price: f64,
+    #[serde(default)]
     pub delivery_days: Option<i32>,
+    #[serde(default)]
     pub min_qty: Option<f64>,
+    #[serde(default)]
     pub payment_terms: Option<String>,
+    #[serde(default)]
     pub notes: Option<String>,
 }
 
@@ -761,6 +765,16 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
             components_lotes TEXT,
             quantity_assembled REAL
         );
+
+        CREATE TABLE IF NOT EXISTS lote_custom_status (
+            lote_number  TEXT PRIMARY KEY,
+            custom_status TEXT NOT NULL,
+            category     TEXT,
+            updated_by   TEXT,
+            updated_at   TEXT,
+            notes        TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_lote_custom_status ON lote_custom_status(custom_status);
     ")?;
     // Migration: Remove foreign key from quotation_items to items(code)
     if conn.query_row("SELECT 1 FROM settings WHERE key = 'migration_remove_quotation_items_fk_v1'", [], |_| Ok(())).is_err() {
@@ -1048,6 +1062,27 @@ fn restore_backup(data: Vec<u8>) -> Result<(), String> {
     std::fs::write("../data.db", data).map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[tauri::command]
+fn get_compressed_backup() -> Result<Vec<u8>, String> {
+    use std::io::Write;
+    let raw_data = std::fs::read("../data.db").map_err(|e| e.to_string())?;
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(&raw_data).map_err(|e| e.to_string())?;
+    let compressed_data = encoder.finish().map_err(|e| e.to_string())?;
+    Ok(compressed_data)
+}
+
+#[tauri::command]
+fn restore_compressed_backup(data: Vec<u8>) -> Result<(), String> {
+    use std::io::Read;
+    let mut decoder = flate2::read::GzDecoder::new(&data[..]);
+    let mut decompressed_data = Vec::new();
+    decoder.read_to_end(&mut decompressed_data).map_err(|e| e.to_string())?;
+    std::fs::write("../data.db", decompressed_data).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 
 #[tauri::command]
 fn get_feedbacks(state: State<DbState>) -> Result<Vec<Feedback>, String> {
@@ -2095,28 +2130,40 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
         ingredient_code: String,
         quantity: f64,
         percentage: f64,
+        unit: String,
     }
     let mut formulations_map: std::collections::HashMap<String, Vec<FormEntry>> = std::collections::HashMap::new();
-    let mut formulation_sums: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    let mut formulation_bulk_sums: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    let mut formulation_total_sums: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
 
-    if let Ok(mut stmt) = conn.prepare("SELECT product_code, ingredient_code, quantity, IFNULL(percentage, 0.0) FROM formulations") {
+    if let Ok(mut stmt) = conn.prepare("
+        SELECT f.product_code, f.ingredient_code, f.quantity, IFNULL(f.percentage, 0.0), IFNULL(i.unit, 'UN')
+        FROM formulations f
+        LEFT JOIN items i ON f.ingredient_code = i.code
+    ") {
         if let Ok(rows) = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, f64>(2)?,
                 row.get::<_, f64>(3)?,
+                row.get::<_, String>(4)?,
             ))
         }) {
             for r in rows {
-                if let Ok((prod_code, ing_code, qty, pct)) = r {
+                if let Ok((prod_code, ing_code, qty, pct, unit)) = r {
                     let norm_prod = prod_code.strip_prefix('0').unwrap_or(&prod_code).to_string();
+                    let unit_upper = unit.trim().to_uppercase();
                     formulations_map.entry(norm_prod.clone()).or_default().push(FormEntry {
                         ingredient_code: ing_code,
                         quantity: qty,
                         percentage: pct,
+                        unit: unit_upper.clone(),
                     });
-                    *formulation_sums.entry(norm_prod).or_insert(0.0) += qty;
+                    if unit_upper != "UN" {
+                        *formulation_bulk_sums.entry(norm_prod.clone()).or_insert(0.0) += qty;
+                    }
+                    *formulation_total_sums.entry(norm_prod).or_insert(0.0) += qty;
                 }
             }
         }
@@ -2176,20 +2223,34 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
         }
     }
 
-    let mut dynamic_reserved_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    let mut total_reserved_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    let mut remaining_reserved_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
     for (lote_number, product_code, quantity, d_pesado) in open_lotes {
         let norm_prod = product_code.strip_prefix('0').unwrap_or(&product_code).to_string();
         if let Some(ingredients) = formulations_map.get(&norm_prod) {
-            let sum_qty = formulation_sums.get(&norm_prod).copied().unwrap_or(0.0);
+            let bulk_sum = formulation_bulk_sums.get(&norm_prod).copied().unwrap_or(0.0);
+            let total_sum = formulation_total_sums.get(&norm_prod).copied().unwrap_or(0.0);
             let lote_int = lote_number.parse::<i64>().unwrap_or(-1);
 
             for ing in ingredients {
                 let factor = if ing.percentage > 0.0 {
                     ing.percentage / 100.0
-                } else if sum_qty > 0.0 {
-                    ing.quantity / sum_qty
+                } else if ing.unit == "UN" {
+                    if bulk_sum > 0.0 {
+                        ing.quantity / bulk_sum
+                    } else if total_sum > 0.0 {
+                        ing.quantity / total_sum
+                    } else {
+                        ing.quantity
+                    }
                 } else {
-                    0.0
+                    if bulk_sum > 0.0 {
+                        ing.quantity / bulk_sum
+                    } else if total_sum > 0.0 {
+                        ing.quantity / total_sum
+                    } else {
+                        0.0
+                    }
                 };
                 let fallback_expected = quantity * factor;
 
@@ -2202,14 +2263,18 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
                     }
                 }
 
-                let remaining = if !d_pesado.is_empty() {
-                    0.0
-                } else {
-                    expected
-                };
+                let exited_qty = exits_map.get(&(lote_number.clone(), ing.ingredient_code.clone())).copied().unwrap_or(0.0);
+                let mut remaining = (expected - exited_qty).max(0.0);
 
+                if !d_pesado.is_empty() {
+                    remaining = 0.0;
+                }
+
+                if fallback_expected > 0.0 {
+                    *total_reserved_map.entry(ing.ingredient_code.clone()).or_insert(0.0) += fallback_expected;
+                }
                 if remaining > 0.0 {
-                    *dynamic_reserved_map.entry(ing.ingredient_code.clone()).or_insert(0.0) += remaining;
+                    *remaining_reserved_map.entry(ing.ingredient_code.clone()).or_insert(0.0) += remaining;
                 }
             }
         }
@@ -2378,13 +2443,14 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
         let current_stock: f64 = row.get(5)?;
         let _reserved_qty_imported: f64 = row.get(6)?;
         let in_production: f64 = row.get(7)?;
-        let in_orders: f64 = row.get(8)?;
+        let in_orders: f64 = row.get::<_, f64>(8)?.max(0.0);
         let avg24: f64 = row.get(9)?;
         let avg25: f64 = row.get(10)?;
         let avg26: f64 = row.get(11)?;
         let notes: Option<String> = row.get(12)?;
 
-        let reserved_qty = dynamic_reserved_map.get(&code).copied().unwrap_or(0.0);
+        let total_reserved = total_reserved_map.get(&code).copied().unwrap_or(0.0);
+        let remaining_reserved = remaining_reserved_map.get(&code).copied().unwrap_or(0.0);
 
         use chrono::Datelike;
         let now = chrono::Local::now();
@@ -2439,7 +2505,7 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
         };
         let daily_avg = overall_avg / 30.0;
 
-        let future_stock_forecast = current_stock - reserved_qty + in_orders + in_production;
+        let future_stock_forecast = current_stock - remaining_reserved + in_orders + in_production;
         let max_forecast = if future_stock_forecast > 0.0 { future_stock_forecast } else { 0.0 };
 
         let estimated_duration_days = if daily_avg > 0.0 {
@@ -2470,7 +2536,7 @@ fn get_demands(state: State<DbState>, category_id: Option<String>, target_days: 
             category_id: cat_id,
             category_name: cat_name,
             current_stock,
-            reserved_qty,
+            reserved_qty: total_reserved,
             in_production,
             in_orders,
             avg2024: avg24_corrected,
@@ -3571,6 +3637,9 @@ fn start_axum_server() {
             .route("/api/producao/lotes", get(handlers::get_production_lotes))
             .route("/api/producao/lotes/:number/detalhes", get(handlers::get_lote_detalhes))
             .route("/api/producao/lotes/:number/resolver", post(handlers::save_lote_resolution).delete(handlers::delete_lote_resolution))
+            .route("/api/administrativo/acompanhamento-producao", get(handlers::get_acompanhamento_producao))
+            .route("/api/administrativo/lote-status", post(handlers::save_lote_custom_status))
+            .route("/api/administrativo/lote-status/:number", delete(handlers::delete_lote_custom_status))
             .route("/api/producao/recalcular/preview", get(handlers::preview_recalculation))
             .route("/api/producao/recalcular/ajustar", post(handlers::apply_recalculation_adjustment))
             .route("/api/estoque/item-info/:code", get(handlers::get_item_extra_info))
@@ -3596,7 +3665,7 @@ fn start_axum_server() {
             .layer(cors)
             .with_state(state);
 
-        let addr = "127.0.0.1:3001";
+        let addr = "0.0.0.0:3001";
         if let Ok(listener) = tokio::net::TcpListener::bind(addr).await {
             println!("Axum REST server running on: http://{}", addr);
             let _ = axum::serve(listener, app).await;
@@ -3629,7 +3698,7 @@ pub fn run() {
             // Config & Common
             get_compras_config, save_compras_config,
             get_microbio_config, save_config_microbio,
-            get_backup, restore_backup,
+            get_backup, restore_backup, get_compressed_backup, restore_compressed_backup,
             get_feedbacks, save_feedback, resolve_feedback,
             reset_db,
             get_online_orders, save_online_order, delete_online_order,

@@ -157,12 +157,12 @@ export interface QuotationPrice {
   id: string;
   quotationItemId: string;
   supplierId: string;
-  supplierName?: string;
+  supplierName?: string | null;
   unitPrice: number;
-  deliveryDays: number;
-  minQty: number;
-  paymentTerms: string;
-  notes: string;
+  deliveryDays?: number | null;
+  minQty?: number | null;
+  paymentTerms?: string | null;
+  notes?: string | null;
   isSelected: boolean;
 }
 

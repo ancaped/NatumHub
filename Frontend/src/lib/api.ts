@@ -176,6 +176,12 @@ export const api = {
   restoreBackup(data: number[]): Promise<void> {
     return invoke('restore_backup', { data });
   },
+  getCompressedBackup(): Promise<number[]> {
+    return invoke('get_compressed_backup');
+  },
+  restoreCompressedBackup(data: number[]): Promise<void> {
+    return invoke('restore_compressed_backup', { data });
+  },
 
   // === COMMON: FEEDBACK ===
   getFeedbacks(): Promise<Feedback[]> {

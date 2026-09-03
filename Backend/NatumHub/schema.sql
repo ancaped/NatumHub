@@ -254,3 +254,14 @@ CREATE TABLE IF NOT EXISTS kit_assembly_orders (
     components_lotes TEXT
 );
 
+-- Status Customizado de Lotes (Acompanhamento de Produção)
+CREATE TABLE IF NOT EXISTS lote_custom_status (
+    lote_number  TEXT PRIMARY KEY,
+    custom_status TEXT NOT NULL,
+    category     TEXT,
+    updated_by   TEXT,
+    updated_at   TEXT,
+    notes        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_lote_custom_status ON lote_custom_status(custom_status);
+
