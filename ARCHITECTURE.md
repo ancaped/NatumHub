@@ -1,137 +1,191 @@
-# NatumHub - Guia do Desenvolvedor e Arquitetura
+# NatumHub — Arquitetura e guia do desenvolvedor
 
-Bem-vindo ao **NatumHub**, o painel unificado e integrado para gerenciamento das operações da Nátum Cosméticos. Este documento reúne todas as especificações técnicas, layout de pastas, esquema do banco de dados compartilhado, e boas práticas para guiar futuras implementações de maneira limpa, eficiente e com baixo consumo de tokens.
+Painel unificado (desktop Tauri + React) para operações da Nátum Cosméticos. Versão atual: **`0.0.11-alpha`** (`Frontend/package.json`, `Backend/NatumHub/Cargo.toml`, `Backend/NatumHub/tauri.conf.json`).
+
+Caminhos neste documento são **relativos à raiz do repositório**. Não use caminhos absolutos de máquina (Windows/`antigravity`).
+
+Documentação de segurança (token, bind, CORS, settings mascarados): [`.ai_context/security.md`](.ai_context/security.md).
 
 ---
 
-## 1. Visão Geral do Sistema
+## 1. Visão geral
 
-O NatumHub unifica três aplicativos legados em um único ecossistema integrado:
-1. **Produção**: Controle de estoque, faturamento, histórico de fabricação e alertas de reposição.
-2. **Compras**: Planejamento de demandas por média histórica, cotações com múltiplos fornecedores e controle de Notas Fiscais (NFs).
-3. **Análise Microbiológica**: Controle de qualidade laboratorial, registros de testes microbianos e emissão de laudos de lote.
+O Hub unifica os apps legados (Produção, Compras, Análise Microbiológica, Físico-Química) num único executável e um SQLite compartilhado (`Backend/data.db`).
 
 ```mermaid
 graph TD
-    subgraph Frontend [NatumHub Frontend (React + TS + Vite)]
-        App[App.tsx - Router/Hub]
-        Prod[ProducaoView.jsx - Estoque]
-        Micro[MicrobiologiaView.tsx - Laboratório]
-        Comp[ComprasView.tsx - Compras]
-        FQ[FiscoQuimicaView.tsx - Físico-Química]
-        CO[ComprasOnlineView.tsx - Compras Online]
+    subgraph Frontend [Frontend React + TS + Vite]
+        App[App.tsx - Hub / Router]
+        Estoque[EstoqueView]
+        Prod[ProducaoView]
+        Kits[MontagemKitsView]
+        Vend[VendasView]
+        Ped[PedidosView]
+        NFs[NotasFiscaisView]
+        Acomp[AcompanhamentoProducaoView]
+        Comp[ComprasView]
+        Micro[MicrobiologiaView]
+        FQ[FiscoQuimicaView]
+        CO[ComprasOnlineView]
     end
 
-    subgraph Backend [Tauri Window & Rust Backend]
-        Axum[Axum REST Server (Port 3001)]
-        TauriCmd[Tauri Commands]
-        Watcher[Background File Watcher]
+    subgraph Backend [Backend Tauri Rust]
+        Axum[Axum HTTP :3001]
+        TauriCmd[Tauri invoke]
+        Watcher[File Watcher]
     end
 
-    subgraph Data [Storage Layer]
-        DB[(data.db - SQLite Shared)]
-        FMD[feedback.md - Auto-Synced]
+    subgraph Data [Storage]
+        DB[(Backend/data.db SQLite)]
+        FMD[feedback.md]
     end
 
-    App --> Prod & Micro & Comp & FQ & CO
-    Prod --> Axum
-    Comp & Micro --> TauriCmd
+    App --> Estoque & Prod & Kits & Vend & Ped & NFs & Acomp
+    App --> Comp & Micro & FQ & CO
+    Estoque & Prod & Kits & Vend & Ped & NFs & Acomp --> Axum
+    Comp & Micro & FQ & CO --> TauriCmd
     Watcher --> DB
     TauriCmd & Axum --> DB
-    TauriCmd -->|Auto-writes| FMD
+    TauriCmd -->|auto-write| FMD
 ```
 
-Axum bind padrão: **`0.0.0.0:3001`** (acesso Tailscale). `NATUM_BIND=127.0.0.1` restringe a loopback e torna o Bearer opcional. Token e senha SQL: ver [`.ai_context/security.md`](.ai_context/security.md). **Nunca commitar** `sql_password`, `hub_token`, Firebase ou Google `client_secret`.
+### Módulos do Hub (`Frontend/src/App.tsx`)
+
+| Módulo | View | Canal | Hub pai |
+|--------|------|-------|---------|
+| **Estoque** | `Frontend/src/modules/EstoqueView.tsx` (insumos / produtos / ativos) | HTTP | `estoque_hub` |
+| **Produção** | `Frontend/src/modules/ProducaoView.jsx` | HTTP | `producao_hub` |
+| **Kits** | `Frontend/src/modules/MontagemKitsView.jsx` | HTTP | `producao_hub` |
+| **Microbiologia** | `Frontend/src/modules/MicrobiologiaView.tsx` | Tauri invoke | `producao_hub` |
+| **Físico-Química** | `Frontend/src/modules/FiscoQuimicaView.tsx` | Tauri invoke | `producao_hub` |
+| **Compras** | `Frontend/src/modules/ComprasView.tsx` (MP, embalagens, coloração, apoio, cotações) | Tauri invoke (+ HTTP para detalhes) | `compras_hub` |
+| **Pedidos** | `Frontend/src/modules/PedidosView.tsx` | HTTP | `compras_hub` |
+| **NFs** | `Frontend/src/modules/NotasFiscaisView.tsx` | HTTP | `compras_hub` |
+| **Compras Online** | `Frontend/src/modules/ComprasOnlineView.tsx` | Tauri invoke | `compras_hub` |
+| **Vendas** | `Frontend/src/modules/VendasView.tsx` | HTTP | raiz |
+| **Acompanhamento** | `Frontend/src/modules/AcompanhamentoProducaoView.tsx` | HTTP | `administrativo_hub` |
+| **Linha de produtos** | `Frontend/src/modules/ActiveProductsView.tsx` | HTTP | raiz / estoque |
 
 ---
 
-## 2. Mapa do Projeto (Estrutura de Diretórios)
+## 2. Dois canais: Tauri invoke vs Axum HTTP
 
-Para otimizar o consumo de tokens das IAs de codificação, evite ler todos os arquivos. Consulte apenas os caminhos específicos indicados abaixo:
+O frontend fala com o backend por **dois canais distintos**. Não misture os padrões.
 
-*   **[`c:\Users\Edson\antigravity\Natum\Frontend\`](file:///c:/Users/Edson/antigravity/Natum/Frontend)**: Frontend do aplicativo unificado.
-    *   **[`src/App.tsx`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/App.tsx)**: Entrada do aplicativo, controle de visualização do Hub e Error Boundaries.
-    *   **[`src/types.ts`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/types.ts)**: Definições de tipos e interfaces TypeScript de todos os módulos.
-    *   **[`src/modules/`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/modules)**: Visões principais de cada módulo.
-        *   [`ProducaoView.jsx`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/modules/ProducaoView.jsx): Tela de Estoque legada, com controle de overrides e alertas de produção.
-        *   [`MicrobiologiaView.tsx`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/modules/MicrobiologiaView.tsx): Fluxo do Laboratório e login dos operadores microbiológicos.
-        *   [`ComprasView.tsx`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/modules/ComprasView.tsx): Estrutura de abas do fluxo de Compras.
-        *   [`FiscoQuimicaView.tsx`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/modules/FiscoQuimicaView.tsx): Registro de pH, Viscosidade, Densidade e Calculadora de Correções.
-        *   [`ComprasOnlineView.tsx`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/modules/ComprasOnlineView.tsx): Interface de compras online integrada.
-    *   **[`src/components/`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/components)**: Componentes reutilizáveis (Demandas, Cotações, Cadastro de Itens, Relatórios, etc.).
-    *   **[`src/index.css`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/index.css)**: Estilos globais e tokens de design (Zinc Aesthetic).
-*   **[`c:\Users\Edson\antigravity\Natum\Backend\NatumHub\`](file:///c:/Users/Edson/antigravity/Natum/Backend/NatumHub)**: Backend em Rust e infraestrutura Tauri.
-    *   **[`src/lib.rs`](file:///c:/Users/Edson/antigravity/Natum/Backend/NatumHub/src/lib.rs)**: Manipuladores Tauri, configurações do servidor Axum integrado, rotas e exportação automática de feedbacks para Markdown.
-    *   **[`src/db.rs`](file:///c:/Users/Edson/antigravity/Natum/Backend/NatumHub/src/db.rs)**: Funções de manipulação e migrações automáticas do banco SQLite.
-    *   **[`src/watcher.rs`](file:///c:/Users/Edson/antigravity/Natum/Backend/NatumHub/src/watcher.rs)**: Watcher automático de planilhas Excel (Faturamento/Levantamento) integradas na pasta de trabalho.
-    *   **[`schema.sql`](file:///c:/Users/Edson/antigravity/Natum/Backend/NatumHub/schema.sql)**: Definições de esquema do banco de dados SQLite.
-    *   **[`tauri.conf.json`](file:///c:/Users/Edson/antigravity/Natum/Backend/NatumHub/tauri.conf.json)**: Configuração de build do Tauri Desktop.
+| Canal | Quando usar | Como o frontend chama |
+|-------|-------------|------------------------|
+| **Tauri `invoke`** | Módulos que nasceram nos apps isolados (Compras, Microbiologia, FQ, Compras Online, feedback, backup) | `Frontend/src/lib/api.ts` → `invoke('comando')` registrado em `generate_handler!` (`Backend/NatumHub/src/lib.rs`) |
+| **Axum HTTP** | Estoque, Produção, Kits, Vendas, Pedidos, NFs, Acompanhamento, settings, import/sync, Google | `API_BASE` + `apiFetch` em `Frontend/src/lib/utils.ts` |
 
----
+Mapas canônicos:
 
-## 3. Banco de Dados Compartilhado (`data.db`)
+- Rotas HTTP: [`.ai_context/api_routes.md`](.ai_context/api_routes.md)
+- Comandos Tauri: [`.ai_context/tauri_commands.md`](.ai_context/tauri_commands.md)
 
-Para evitar reiniciar a compilação do Tauri continuamente durante o desenvolvimento, o arquivo **`data.db`** é mantido na pasta **`c:\Users\Edson\antigravity\Natum\Backend\data.db`** (fora do diretório de compilação do Tauri).
+### Views HTTP: `API_BASE` + Bearer via `apiFetch`
 
-### Tabelas Principais e Relações
+As views HTTP **não** hardcodedam `127.0.0.1` como padrão de chamada. Todas usam o `API_BASE` unificado e o Bearer via `apiFetch`:
 
-#### Cadastro e Integração de Estoques
-*   `produtos` (código, descrição, linha_prefix, base, media_levantamento): Cadastro compartilhado de todos os produtos acabados e insumos da produção.
-*   `config_linhas` (linha_prefix, nome_linha, estoque_ideal_mult, abrir_ordem_mult, abrir_prod_mult, fator_seguranca_z, visivel): Multiplicadores de meses de estoque recomendados para calcular alertas (Crítico, Alerta, Saudável).
-*   `estoque_atual` (codigo, estoque, producao, pedidos_aberto, fase): Armazena os números atuais sincronizados pelo importador de planilhas.
-*   `overrides_produtos` (codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual): Permite forçar dados no algoritmo de alertas se necessário.
+```ts
+// Frontend/src/lib/utils.ts
+export const API_BASE = /* VITE_API_URL → localStorage.natum_api_base → hostname:3001/api → 127.0.0.1:3001/api */
+export async function apiFetch(input, init) {
+  return fetch(input, { ...init, headers: hubAuthHeaders(init?.headers) });
+}
+```
 
-#### Fluxo de Compras (Insumos e Pedidos)
-*   `items`: Cadastro detalhado de insumos de compras.
-*   `categories`: Árvore de categorias de produtos e matérias-primas.
-*   `suppliers`: Fornecedores de insumos.
-*   `invoices`: Detalhamento de notas fiscais importadas (usado para calcular médias de consumo histórico por ano).
-*   `quotations` & `quotation_items` & `quotation_prices`: Armazenamento de cotações com múltiplos fornecedores e o resultado final selecionado para pedido.
+Prioridade de `API_BASE`:
 
-#### Fluxo Laboratorial (Microbiologia)
-*   `reports`: Resultados microbiológicos emitidos e assinados para controle de lotes.
+1. `VITE_API_URL`
+2. `localStorage.natum_api_base` (campo Servidor no Hub)
+3. `http://<window.location.hostname>:3001/api` se o host não for loopback
+4. Fallback local `http://127.0.0.1:3001/api`
 
-#### Feedback & Diagnósticos
-*   `feedbacks` (id, type, description, page, logs, screenshot, status, createdAt, resolvedAt): Registro de bugs e melhorias.
+Token: `localStorage.natum_hub_token`, `VITE_HUB_TOKEN`, ou `invoke('get_hub_token')` no desktop do servidor. Detalhes em [`.ai_context/security.md`](.ai_context/security.md).
 
 ---
 
-## 4. Diretrizes de Codificação e Boas Práticas
+## 3. Bind / CORS / Bearer (P0)
 
-Ao implementar novas features ou correções, siga rigorosamente estas diretrizes para manter a estabilidade do app e reduzir bugs na interface:
+Padrão Tailscale: bind **`0.0.0.0:3001`**. Override: `NATUM_BIND` (host ou `host:porta`).
 
-### 1. Prevenção de Telas em Branco (Null Safety)
-Telas em branco ocorrem quase exclusivamente devido a exceções de tipo não capturadas no ciclo de renderização do React ao acessar propriedades nulas oriundas do banco de dados (ex: `null.toLowerCase()`).
-*   **Sempre** trate campos opcionais ou strings do banco de dados com fallbacks antes de aplicar manipulações de string:
-    ```typescript
-    // Incorreto (Pode quebrar se description for nulo)
-    const matches = item.description.toLowerCase().includes(query);
+| Modo | Bind | Auth |
+|------|------|------|
+| A (local) | `NATUM_BIND=127.0.0.1` | Bearer **opcional** |
+| B (padrão / Tailscale) | `0.0.0.0:3001` | Bearer **obrigatório** em `/api/*` |
 
-    // Correto (Null-safe)
-    const matches = (item.description || '').toLowerCase().includes(query);
-    ```
-*   **Utilize Optional Chaining** (`?.`) ao lidar com vetores ou propriedades aninhadas que podem não ser populadas:
-    ```typescript
-    {item.prices?.map(price => ( ... ))}
-    ```
+- CORS é **allowlist** (não `Any`): `http://localhost:5175`, `http://127.0.0.1:5175`, `tauri://localhost`, `https://tauri.localhost`. Extras: `NATUM_CORS_ORIGINS`.
+- Bearer exigido em bind não-loopback para **todas** as rotas `/api/*`.
+- Exceção: `GET /api/google/callback` (redirect OAuth).
+- `NATUM_AUTH=required|optional` força o modo independentemente do bind.
 
-### 2. Tratamento de Erros e Recuperação (Error Boundaries)
-Todas as visualizações de módulo principal no arquivo [`App.tsx`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/App.tsx) estão envolvidas por uma classe [`ErrorBoundary`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/components/ErrorBoundary.tsx).
-*   Se ocorrer uma exceção de renderização em algum componente, o erro será isolado a este módulo. A tela exibirá um diagnóstico detalhado com a pilha de chamadas e um botão para o usuário "Voltar ao Hub", evitando o travamento completo do app.
-
-### 3. Especificidade de Estilo (Tailwind v4 CSS)
-O NatumHub utiliza **Tailwind CSS v4**. Nesta versão, as classes utilitárias são injetadas com a pseudo-classe `:where()`, o que dá especificidade zero a elas.
-*   **Nunca** defina regras de reset globais com o seletor universal `*` (como `* { margin: 0; padding: 0 }`) no seu arquivo CSS principal, pois isso irá anular todas as classes de espaçamento (`space-y-4`, `p-6`, `m-2`) do Tailwind.
-*   Mantenha a estética Zinc (tons suaves de cinza, bordas sutis e botões em preto/zinc-900).
+**Nunca commitar** `sql_password`, `hub_token`, Firebase ou Google `client_secret`. Ver [`.ai_context/security.md`](.ai_context/security.md).
 
 ---
 
-## 5. Ciclo de Feedback e Sincronização Dinâmica
+## 4. Mapa do projeto (raiz do repo)
 
-Para facilitar o diagnóstico imediato de bugs diretamente pelo modelo de IA, o aplicativo conta com o **FeedbackWidget** (ícone de inseto flutuante no canto inferior direito).
+Para reduzir tokens, leia só o caminho do módulo em que está trabalhando.
 
-1.  **Captura automática**: O widget captura a página atual, a descrição do usuário, os logs do console de depuração e, opcionalmente, um print de tela por imagem.
-2.  **Escrita Automática em Markdown**: Sempre que um feedback é criado ou resolvido, o backend em Rust gera e escreve a lista de pendências nos arquivos:
-    *   **[`c:\Users\Edson\antigravity\Natum\feedback.md`](file:///c:/Users/Edson/antigravity/Natum/feedback.md)** (Raiz)
-    *   **[`c:\Users\Edson\antigravity\Natum\Producao\feedback.md`](file:///c:/Users/Edson/antigravity/Natum/Producao/feedback.md)** (Pasta da Tarefa)
-3.  **Acesso Rápido**: Em conversas de manutenção, você pode apenas ler o arquivo `feedback.md` para ver a lista de bugs pendentes, quais páginas falharam e os logs exatos do console capturados no momento do erro.
+* **`Frontend/`** — React + Vite + Tailwind v4
+    * **`Frontend/src/App.tsx`** — Hub, views e `ErrorBoundary` por módulo
+    * **`Frontend/src/types.ts`** — Tipos compartilhados
+    * **`Frontend/src/modules/`** — Views listadas na tabela acima
+    * **`Frontend/src/components/`** — Compras, produção, microbiologia, shared
+    * **`Frontend/src/lib/utils.ts`** — `API_BASE`, `apiFetch`, token
+    * **`Frontend/src/lib/api.ts`** — Wrappers `invoke`
+    * **`Frontend/src/index.css`** — Tokens Zinc (valores reais no arquivo)
+    * **`Frontend/src/components/shared/ErrorBoundary.tsx`** — Isolamento de crash de render
+* **`Backend/NatumHub/`** — Tauri + Axum + SQLite
+    * **`Backend/NatumHub/src/lib.rs`** — `generate_handler!`, Axum router, `initialize_hub_db`
+    * **`Backend/NatumHub/src/db.rs`** — Migrations incrementais + `include_str!("../schema.sql")`
+    * **`Backend/NatumHub/src/auth.rs`** — Bind, CORS, Bearer
+    * **`Backend/NatumHub/src/watcher.rs`** — Watcher de planilhas
+    * **`Backend/NatumHub/schema.sql`** — Schema de produção/estoque/vendas/kits
+    * **`Backend/NatumHub/tauri.conf.json`** — Build desktop
+* **`Backend/data.db`** — SQLite compartilhado (fora do crate, para não forçar rebuild)
+* **`.ai_context/`** — Guias para IAs (rotas, comandos, schema, estilo, GitHub, segurança)
+* **`Docs/`** — Blueprints **históricos** (pré-unificação). Ver banners nos arquivos.
+
+---
+
+## 5. Banco de dados (`Backend/data.db`)
+
+O schema **não** é só `schema.sql`. A inicialização é a soma de três fontes:
+
+1. **`Backend/NatumHub/schema.sql`** — produção, estoque, faturamento, kits, vendas, pedidos de compra, movimentações, formulações (aplicado em `db.rs` via `execute_batch`)
+2. **`initialize_hub_db`** em `Backend/NatumHub/src/lib.rs` — Compras (items, quotations, invoices…), microbiologia (`products`, `reports`), FQ, feedback, online orders/stores, similar items
+3. **Migrations em `Backend/NatumHub/src/db.rs`** — colunas novas (`overrides_produtos`, snapshots de `historico_producao`, `vira_composicao` / `vira_ordens`, `lote_custom_status`, etc.)
+
+Blueprint completo: [`.ai_context/database_blueprint.md`](.ai_context/database_blueprint.md).
+
+---
+
+## 6. ErrorBoundary
+
+Todas as views de módulo em `Frontend/src/App.tsx` estão envolvidas por [`Frontend/src/components/shared/ErrorBoundary.tsx`](Frontend/src/components/shared/ErrorBoundary.tsx).
+
+Se um módulo lança na renderização, o erro fica isolado: diagnóstico + pilha + botão para voltar ao Hub. Não use o caminho antigo `Frontend/src/components/ErrorBoundary.tsx` (não existe).
+
+---
+
+## 7. Diretrizes de código
+
+### Null safety (telas em branco)
+
+Campos SQLite nulos quebram `.toLowerCase()` / `.map()` no React.
+
+```typescript
+const matches = (item.description || '').toLowerCase().includes(query);
+{item.prices?.map(price => ( ... ))}
+```
+
+### Tailwind v4
+
+Classes saem em `:where()` (especificidade zero). **Não** use `* { margin: 0; padding: 0 }` em `Frontend/src/index.css`. Estética Zinc (cinza suave, botões zinc-900). Tokens canônicos estão no CSS; o guia de estilo pode citar HSL ilustrativos que diferem um pouco — confira o arquivo.
+
+---
+
+## 8. Feedback
+
+`Frontend/src/components/shared/FeedbackWidget.tsx` (ícone flutuante). Ao criar/resolver, o Rust atualiza `feedback.md` na raiz. Em manutenção, leia esse arquivo para bugs pendentes, página e logs do console.

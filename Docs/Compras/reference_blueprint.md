@@ -1,3 +1,9 @@
+> [!WARNING]
+> **HISTÓRICO / legado (pré-unificação)**  
+> Blueprint do app isolado `Natum/Compras` (Vite :5174, crate `compras-app`).  
+> O Hub unificado vive em `Frontend/` + `Backend/NatumHub/` (porta Vite 5175, Axum 3001).  
+> Fórmulas de demanda, parser CSV DGI e paleta Zinc **ainda valem** como regra de negócio. Não recrie as pastas `Compras/` ou `Backend/Compras/`.
+
 # Referência Técnica — Blueprint para App Compras
 
 Este documento contém TODOS os arquivos de referência, configs e fórmulas que a IA implementadora precisa replicar.

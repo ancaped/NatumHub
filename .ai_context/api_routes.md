@@ -1,147 +1,153 @@
-# Rotas da API REST do Servidor Axum (Porta 3001)
+# Rotas da API REST Axum (porta 3001)
 
-O backend em Rust do NatumHub inicia um servidor HTTP Axum na porta **`3001`**. Bind padrão: `0.0.0.0:3001` (Tailscale). Override: `NATUM_BIND`.
+Servidor HTTP em `Backend/NatumHub/src/lib.rs` (`start_axum_server`). Mapa extraído do `Router::new()` atual.
 
-**Auth:** em bind não-loopback, todas as rotas `/api/*` exigem `Authorization: Bearer <hub_token>` (`NATUM_HUB_TOKEN` ou arquivo gitignored `.natum_hub_token`). Exceção: `GET /api/google/callback`. Ver [security.md](security.md).
+## Bind / Auth / CORS (P0)
 
----
+O bind **não** é só `127.0.0.1`. Padrão Tailscale: **`0.0.0.0:3001`**. Override: `NATUM_BIND` (host ou `host:porta`).
 
-## 1. Cadastro de Produtos e Kits Comerciais
+| Modo | Bind | Auth |
+|------|------|------|
+| A (local) | `NATUM_BIND=127.0.0.1` | Bearer **opcional** |
+| B (padrão / Tailscale) | `0.0.0.0:3001` | Bearer **obrigatório** em `/api/*` |
 
-### `GET /api/products`
-Retorna a lista completa de produtos cadastrados com seus limiares de estoque e status.
-- **Função Rust**: `handlers::list_products`
+- Token: `Authorization: Bearer <hub_token>` (`NATUM_HUB_TOKEN` ou arquivo gitignored `Backend/.natum_hub_token`).
+- Exceção Bearer: `GET /api/google/callback`.
+- CORS allowlist (não `Any`): `http://localhost:5175`, `http://127.0.0.1:5175`, `tauri://localhost`, `https://tauri.localhost`. Extras: `NATUM_CORS_ORIGINS`.
+- `NATUM_AUTH=required|optional` força o modo de auth.
 
-### `GET /api/kits`
-Retorna a lista de produtos que possuem componentes vinculados (são kits).
-- **Função Rust**: `handlers::list_kits`
+Detalhes e settings mascarados: [security.md](security.md).
 
-### `GET /api/kits/composicao`
-Retorna o mapeamento completo de composição de kits comerciais.
-- **Função Rust**: `handlers::list_kit_composicao`
-
-### `POST /api/kits/composicao`
-Associa manualmente um produto componente a um produto kit.
-- **Função Rust**: `handlers::add_kit_composicao_handler`
-- **Corpo JSON**: `{ "kit_codigo": "X", "componente_codigo": "Y" }`
-
-### `DELETE /api/kits/composicao/:kit/:comp`
-Remove o vínculo de um componente de um kit comercial.
-- **Função Rust**: `handlers::delete_kit_composicao_handler`
-
-### `POST /api/kits/composicao/upload`
-Importa composições de kits em lote via upload de planilha Excel.
-- **Função Rust**: `handlers::upload_kit_composicao` (multipart form)
+O frontend HTTP usa `API_BASE` + `apiFetch` em `Frontend/src/lib/utils.ts` (Bearer automático). Não assuma que as views hardcodedam `127.0.0.1`.
 
 ---
 
-## 2. Configurações por Linha e Limiares
+## 1. Produtos e kits
 
-### `GET /api/configs`
-Lista multiplicadores de estoque mínimo, ideal e fator de segurança Z de cada linha.
-- **Função Rust**: `handlers::get_configs`
+| Método | Rota | Handler |
+|--------|------|---------|
+| GET | `/api/products` | `handlers::list_products` |
+| GET | `/api/kits` | `handlers::list_kits` |
+| GET | `/api/kits/composicao` | `handlers::list_kit_composicao` |
+| POST | `/api/kits/composicao` | `handlers::add_kit_composicao_handler` — `{ kit_codigo, componente_codigo }` |
+| POST | `/api/kits/composicao/upload` | `handlers::upload_kit_composicao` (multipart Excel) |
+| DELETE | `/api/kits/composicao/:kit/:comp` | `handlers::delete_kit_composicao_handler` |
+| GET | `/api/kits/orders` | `handlers::list_kit_orders` |
+| POST | `/api/kits/orders` | `handlers::create_kit_order` |
+| PUT | `/api/kits/orders/:id` | `handlers::update_kit_order` |
+| DELETE | `/api/kits/orders/:id` | `handlers::delete_kit_order` |
+| GET | `/api/kits/next-order-number` | `handlers::get_next_kit_order_number` |
 
-### `PUT /api/configs`
-Insere ou altera as configurações de prazos e visibilidade de uma linha.
-- **Função Rust**: `handlers::update_config`
+## 2. Viras (turnovers)
 
-### `DELETE /api/configs/:prefix`
-Exclui uma configuração de linha personalizada, retornando os itens dela para a linha padrão (`DEFAULT`).
-- **Função Rust**: `handlers::delete_config`
+| Método | Rota | Handler |
+|--------|------|---------|
+| GET | `/api/turnovers/composicao` | `handlers::list_vira_composicao` |
+| POST | `/api/turnovers/composicao` | `handlers::add_vira_composicao` |
+| DELETE | `/api/turnovers/composicao/:de/:para` | `handlers::delete_vira_composicao` |
+| GET | `/api/turnovers/orders` | `handlers::list_vira_orders` |
+| POST | `/api/turnovers/orders` | `handlers::create_vira_order` |
+| PUT | `/api/turnovers/orders/:id` | `handlers::update_vira_order` |
+| DELETE | `/api/turnovers/orders/:id` | `handlers::delete_vira_order` |
+| GET | `/api/turnovers/next-order-number` | `handlers::get_next_vira_order_number` |
 
----
+## 3. Configurações de linha e overrides
 
-## 3. Overrides de Alertas (Ajustes de Estoque)
+| Método | Rota | Handler |
+|--------|------|---------|
+| GET | `/api/configs` | `handlers::get_configs` |
+| PUT | `/api/configs` | `handlers::update_config` |
+| DELETE | `/api/configs/:prefix` | `handlers::delete_config` |
+| GET | `/api/overrides` | `handlers::get_overrides` |
+| POST | `/api/overrides` | `handlers::save_override` |
+| POST | `/api/overrides/bulk` | `handlers::save_override_bulk` |
+| GET | `/api/lancamento/graduation-check` | `handlers::get_graduation_candidates_handler` |
 
-### `POST /api/overrides`
-Salva as configurações manuais de um produto (média de vendas manual, visibilidade, etc.).
-- **Função Rust**: `handlers::save_override`
+## 4. Importação, sync e watcher
 
-### `POST /api/overrides/bulk`
-Salva configurações em lote para múltiplos produtos ao mesmo tempo.
-- **Função Rust**: `handlers::save_override_bulk`
+| Método | Rota | Handler |
+|--------|------|---------|
+| POST | `/api/import/faturamento` | `handlers::import_faturamento` (multipart) |
+| POST | `/api/import/levantamento` | `handlers::import_levantamento` (multipart) |
+| POST | `/api/import/kits` | `handlers::import_kits` (multipart) |
+| POST | `/api/import/sync` | `handlers::trigger_db_sync` |
+| POST | `/api/import/dump` | `handlers::trigger_db_dump` |
+| GET | `/api/import/history` | `handlers::get_import_history` |
+| GET | `/api/import/status` | `handlers::get_import_status` |
+| GET | `/api/import/watch-config` | `handlers::get_watch_config_handler` |
+| POST | `/api/import/watch-config` | `handlers::save_watch_config_handler` |
 
----
+## 5. Settings
 
-## 4. Importação de Planilhas e Sincronização
+| Método | Rota | Handler |
+|--------|------|---------|
+| GET | `/api/settings/:key` | `handlers::get_setting_handler` |
+| POST | `/api/settings/:key` | `handlers::save_setting_handler` |
 
-### `POST /api/import/faturamento`
-Importa arquivo Excel com dados de faturamento mensal.
-- **Função Rust**: `handlers::import_faturamento` (multipart form)
+GET de chaves sensíveis (`sql_password`, `firebase_config`, `google_client_secret`, tokens Google, `hub_token`) devolve `{ value: null, is_set, masked: true }`. Placeholder vazio/`********` no POST não sobrescreve. `hub_token` não é lido nem gravado por esta rota.
 
-### `POST /api/import/levantamento`
-Importa arquivo Excel com dados de posição física do estoque da fábrica.
-- **Função Rust**: `handlers::import_levantamento` (multipart form)
+## 6. Estoque, formulação e detalhes de produto
 
-### `POST /api/import/kits`
-Importa arquivo Excel com relações de kits e componentes.
-- **Função Rust**: `handlers::import_kits` (multipart form)
+| Método | Rota | Handler |
+|--------|------|---------|
+| GET | `/api/estoque/movimentacoes/:code` | `handlers::get_stock_movements` |
+| GET | `/api/estoque/item-info/:code` | `handlers::get_item_extra_info` |
+| GET | `/api/produtos/formulacao/:code` | `handlers::get_product_formulation` |
+| GET | `/api/produtos/semelhantes/:code` | `handlers::get_similar_products` |
+| GET | `/api/produtos/:code/detalhes` | `handlers::get_product_detalhes` |
+| GET | `/api/produtos/:code/pedidos-pendentes` | `handlers::get_product_pending_orders` |
 
-### `GET /api/import/history`
-Retorna a lista das últimas planilhas carregadas com estatísticas.
-- **Função Rust**: `handlers::get_import_history`
+## 7. Produção (lotes, histórico, recálculo)
 
-### `GET /api/import/status`
-Retorna o status atualizado do watcher de arquivos e o tempo decorrido desde o último levantamento/faturamento.
-- **Função Rust**: `handlers::get_import_status`
+| Método | Rota | Handler |
+|--------|------|---------|
+| GET | `/api/producao/lotes` | `handlers::get_production_lotes` |
+| GET | `/api/producao/lotes/:number/detalhes` | `handlers::get_lote_detalhes` |
+| POST | `/api/producao/lotes/:number/resolver` | `handlers::save_lote_resolution` |
+| DELETE | `/api/producao/lotes/:number/resolver` | `handlers::delete_lote_resolution` |
+| GET | `/api/producao/recalcular/preview` | `handlers::preview_recalculation` |
+| POST | `/api/producao/recalcular/ajustar` | `handlers::apply_recalculation_adjustment` |
+| GET | `/api/historico` | `handlers::list_producao` |
+| POST | `/api/historico` | `handlers::add_producao` |
+| DELETE | `/api/historico/:id` | `handlers::delete_producao` |
+| PUT | `/api/historico/:id/lote` | `handlers::update_producao_lote` |
 
----
+## 8. Administrativo / Acompanhamento
 
-## 5. Pasta Monitorada (File Watcher)
+| Método | Rota | Handler |
+|--------|------|---------|
+| GET | `/api/administrativo/acompanhamento-producao` | `handlers::get_acompanhamento_producao` |
+| POST | `/api/administrativo/lote-status` | `handlers::save_lote_custom_status` |
+| DELETE | `/api/administrativo/lote-status/:number` | `handlers::delete_lote_custom_status` |
 
-### `GET /api/import/watch-config`
-Retorna a pasta monitorada ativa (padrão: `Producao/PlanilhasBase/`) e os intervalos de alertas críticos de importação.
-- **Função Rust**: `handlers::get_watch_config_handler`
+## 9. Compras HTTP (insumos, pedidos, NFs, lojas)
 
-### `POST /api/import/watch-config`
-Atualiza as configurações do diretório monitorado.
-- **Função Rust**: `handlers::save_watch_config_handler`
+| Método | Rota | Handler |
+|--------|------|---------|
+| GET | `/api/compras/insumos/:code/detalhes` | `handlers::get_insumo_detalhes` |
+| GET | `/api/compras/pedidos` | `handlers::list_purchase_orders` |
+| GET | `/api/compras/pedidos/:id` | `handlers::get_purchase_order_detail` |
+| GET | `/api/compras/notas` | `handlers::list_invoices` |
+| GET | `/api/compras/notas/:number` | `handlers::get_invoice_detail` |
+| GET | `/api/compras/lojas` | `handlers::list_online_stores` |
+| POST | `/api/compras/lojas` | `handlers::save_online_store_handler` |
+| DELETE | `/api/compras/lojas/:id` | `handlers::delete_online_store_handler` |
 
----
+CRUD principal de cotações/demandas continua em Tauri invoke ([tauri_commands.md](tauri_commands.md)).
 
-## 6. Histórico de Lançamentos de Produção
+## 10. Vendas
 
-### `GET /api/historico`
-Busca todas as ordens de fabricação passadas registradas no sistema.
-- **Função Rust**: `handlers::list_producao`
+| Método | Rota | Handler |
+|--------|------|---------|
+| GET | `/api/vendas/pedidos` | `handlers::list_sales_orders` |
+| GET | `/api/vendas/faltas` | `handlers::list_sales_faltas` |
 
-### `POST /api/historico`
-Registra uma nova fabricação e salva o snapshot estatístico de decisão do item.
-- **Função Rust**: `handlers::add_producao`
+## 11. Google Drive
 
-### `DELETE /api/historico/:id`
-Exclui um registro do histórico de fabricação.
-- **Função Rust**: `handlers::delete_producao`
-
----
-
-## 7. Integração e Backup com Google Drive
-
-### `GET /api/google/status`
-Verifica se existe credencial do Google Drive salva e qual foi o horário da última sincronização do banco `data.db`.
-- **Função Rust**: `google_drive::get_google_status`
-
-### `POST /api/google/config`
-Salva credenciais e tokens do cliente Google Drive.
-- **Função Rust**: `google_drive::save_google_config`
-
-### `GET /api/google/auth-url`
-Retorna o link OAuth2 para login na conta do Google Drive da Nátum.
-- **Função Rust**: `google_drive::google_auth_url`
-
-### `GET /api/google/callback`
-Trata a rota de redirecionamento OAuth2 para receber o token de acesso.
-- **Função Rust**: `google_drive::google_callback`
-
-### `POST /api/google/sync`
-Força a sincronização imediata de upload do banco `data.db` local para o Drive.
-- **Função Rust**: `google_drive::trigger_sync`
-
-`GET /api/google/status` **não** devolve `client_id` (apenas flags `configured` / `client_id_configured` / `authenticated`).
-
----
-
-## 8. Settings (`/api/settings/:key`)
-
-- **GET** `handlers::get_setting_handler` — chaves sensíveis (`sql_password`, `firebase_config`, `google_client_secret`, tokens Google, `hub_token`) retornam `{ value: null, is_set, masked: true }`.
-- **POST** `handlers::save_setting_handler` — escrita; placeholder vazio/`********` não sobrescreve o segredo. `hub_token` não é configurável por esta rota.
+| Método | Rota | Handler |
+|--------|------|---------|
+| GET | `/api/google/status` | `google_drive::get_google_status` — sem `client_id`; flags `configured` / `client_id_configured` / `authenticated` |
+| POST | `/api/google/config` | `google_drive::save_google_config` |
+| GET | `/api/google/auth-url` | `google_drive::google_auth_url` |
+| GET | `/api/google/callback` | `google_drive::google_callback` — **isento de Bearer** |
+| POST | `/api/google/sync` | `google_drive::trigger_sync` |

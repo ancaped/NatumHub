@@ -1,3 +1,9 @@
+> [!WARNING]
+> **HISTÓRICO / legado (pré-unificação)**  
+> Schema e API planejados para o crate isolado de Compras. No Hub, as tabelas nascem em `initialize_hub_db` (`Backend/NatumHub/src/lib.rs`) e o IPC está em `generate_handler!`.  
+> Há diferenças vs o SQL abaixo (ex.: `quotation_items` sem FK para `items`; seeds extras `cat_coloracao` / `cat_apoio`). Consulte `.ai_context/database_blueprint.md` e `.ai_context/tauri_commands.md` antes de alterar o banco.  
+> Tipos, fluxo de status e regras de importação **permanecem** a referência de negócio.
+
 # Schema & Backend — App Compras
 
 ## 1. Schema SQLite Completo

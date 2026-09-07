@@ -1,3 +1,9 @@
+> [!WARNING]
+> **HISTÓRICO / legado (pré-unificação)**  
+> Este plano descreve o app desktop isolado `Natum/Compras` + `Natum/Backend/Compras` **antes** do NatumHub.  
+> Código canônico hoje: `Frontend/` + `Backend/NatumHub/` (v0.0.11-alpha). Rotas, comandos e schema atuais: `ARCHITECTURE.md` e `.ai_context/`.  
+> Regras de negócio, fluxo de aprovação e fórmulas abaixo **continuam úteis**. Pastas, portas e crates isolados estão obsoletos.
+
 # App Natum — Compras: Matéria Prima
 
 Aplicativo desktop para gestão de compras de matérias-primas, substituindo o fluxo atual baseado em Google Sheets + scripts por uma solução local com persistência, histórico e relatórios.

@@ -1,78 +1,73 @@
-# Guia de Estilo, Interface (UI) e Regras de Robustez
+# Guia de estilo, UI e robustez
 
-Este guia estabelece os padrões visuais baseados na estética **HSL Zinc** (design minimalista e premium), bem como as diretrizes de código que impedem crashes de renderização e garantem alta estabilidade no frontend React.
+Padrão visual **Zinc** (minimalista) e regras que evitam tela branca no React. Caminhos relativos à raiz do repo.
 
----
-
-## 1. Sistema de Cores HSL Zinc
-
-O aplicativo utiliza variáveis de cores baseadas em HSL (Hue, Saturation, Lightness). As cores principais definidas no arquivo **[`src/index.css`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/index.css)** são:
-
-*   **Background (Fundo)**: `hsl(240, 5%, 96%)` — Um cinza quase branco sutil.
-*   **Card (Painéis e Cards)**: `hsl(0, 0%, 100%)` — Branco puro para destacar elementos suspensos.
-*   **Border (Bordas)**: `hsl(240, 5.9%, 90%)` — Cinza suave para grades discretas.
-*   **Text Primary (Texto Principal)**: `hsl(240, 10%, 3.9%)` — Quase preto, excelente legibilidade.
-*   **Text Secondary (Texto de Apoio)**: `hsl(240, 3.8%, 46.1%)` — Cinza médio de apoio.
-*   **Primary Active (Ação Destaque)**: `hsl(240, 5.9%, 10%)` — Cinza chumbo/preto para botões.
-
-### Alertas Visuais (Módulo Estoque e Laudos)
-Use sempre variações suaves com bordas e texto de alto contraste:
-*   🔴 **Crítico/Perigo**:
-    *   Fundo: `bg-red-50`
-    *   Borda: `border-red-200`
-    *   Texto: `text-red-600`
-*   🟡 **Atenção/Aviso**:
-    *   Fundo: `bg-amber-50`
-    *   Borda: `border-amber-200`
-    *   Texto: `text-amber-700`
-*   🟢 **Saudável/Sucesso**:
-    *   Fundo: `bg-emerald-50`
-    *   Borda: `border-emerald-200`
-    *   Texto: `text-emerald-600`
+Tokens canônicos: `Frontend/src/index.css` (`:root` HSL). Os valores abaixo são a paleta de *orientação* Zinc; **podem diferir 1–2 pontos de lightness** do CSS real (ex.: fundo no CSS é `hsl(240, 4.9%, 98%)` / zinc-50, não `hsl(240, 5%, 96%)`). Em dúvida, leia `index.css`.
 
 ---
 
-## 2. Padrão CSS e Especificidade (Tailwind CSS v4)
+## 1. Sistema de cores Zinc
 
-No Tailwind v4, as classes são geradas dentro do seletor `:where()`. Isso faz com que as classes utilitárias do Tailwind tenham **especificidade zero**.
-*   **Regra de Ouro**: **NÃO** insira resets de seletores universais (como `* { margin: 0; padding: 0 }`) no arquivo `index.css`. Qualquer regra global escrita após os `@import` do Tailwind anulará os espaçamentos utilitários (ex: `space-y-4` ou `p-6`) aplicados no JSX, quebrando o design.
-*   Se precisar resetar elementos, faça-o de forma explícita nas tags base: `html, body, p, h1 { margin: 0; padding: 0; }`.
+Definido em `Frontend/src/index.css`:
 
----
+| Token | Orientação | No CSS atual (`:root`) |
+|-------|------------|-------------------------|
+| Background | cinza quase branco | `--background-hsl: 240, 4.9%, 98%` (zinc-50) |
+| Card | branco | `--card-hsl: 0, 0%, 100%` |
+| Border | zinc-200 | `--card-border-hsl: 240, 5.9%, 90%` |
+| Texto principal | zinc-900 | `--text-primary-hsl: 240, 5.9%, 9%` |
+| Texto apoio | zinc-500 | `--text-secondary-hsl: 240, 5.2%, 46.1%` |
+| Primary / botão | zinc-900 | `--primary-hsl: 240, 5.9%, 9%` |
 
-## 3. Prevenção de Telas em Branco (Null Safety)
+Fontes: Inter (sans) + JetBrains Mono. Botões: `bg-zinc-900 hover:bg-zinc-800 text-white`. Cards: `bg-white border-zinc-200`. Página: `bg-zinc-50`.
 
-Se o React tentar renderizar ou tratar um campo que seja `null` (comum em bancos SQLite flexíveis), a tela inteira falhará e ficará branca.
-*   **Mecanismo 1: Fallback nas Cadeias de Texto**:
-    Antes de chamar métodos de string (como `.toLowerCase()`, `.split()` ou `.includes()`), assegure-se de injetar uma string vazia como fallback:
-    ```typescript
-    // Incorreto
-    r.productName.toLowerCase();
-    
-    // Correto
-    (r.productName || '').toLowerCase();
-    ```
-*   **Mecanismo 2: Optional Chaining no Mapeamento de Arrays**:
-    Sempre use `?.` ao percorrer listas vindas do backend que possam não estar presentes em um estado inicial:
-    ```typescript
-    {item.prices?.map(price => ( ... ))}
-    ```
-*   **Mecanismo 3: Validação de Datas**:
-    Datas em formato ISO ou strings de coleta vazias geram `Invalid Date` no JavaScript. Trate-as de forma segura:
-    ```typescript
-    const formatDate = (isoString?: string | null) => {
-      if (!isoString) return '-';
-      try {
-        return new Intl.DateTimeFormat('pt-BR').format(new Date(isoString));
-      } catch {
-        return '-';
-      }
-    };
-    ```
+### Alertas (Estoque e laudos)
+
+* Crítico: `bg-red-50` / `border-red-200` / `text-red-600`
+* Atenção: `bg-amber-50` / `border-amber-200` / `text-amber-700`
+* Saudável: `bg-emerald-50` / `border-emerald-200` / `text-emerald-600`
+
+Não invente outra paleta. Sem transparências complexas no FeedbackWidget.
 
 ---
 
-## 4. Tratamento de Exceções de Render (ErrorBoundary)
+## 2. Tailwind CSS v4 (especificidade)
 
-Todos os três módulos principais do hub estão protegidos por um componente **`ErrorBoundary`** em [`src/App.tsx`](file:///c:/Users/Edson/antigravity/Natum/Frontend/src/App.tsx).
-*   Se um erro passar pelas travas de segurança do código, a tela de erro será mostrada localmente. O usuário verá o rastreamento do erro e poderá clicar em "Voltar ao Início" para reiniciar o estado do menu inicial, evitando que o app precise ser fechado à força pelo gerenciador de tarefas do Windows.
+Classes saem em `:where()` → especificidade **zero**.
+
+* **Não** use reset universal `* { margin: 0; padding: 0 }` em `Frontend/src/index.css`. Isso anula `p-6`, `space-y-4`, `m-2`.
+* Reset só em tags base explícitas: `html, body, p, h1 { ... }`.
+
+---
+
+## 3. Null safety (telas em branco)
+
+SQLite devolve `null`. `.toLowerCase()` / `.map()` sem guarda derruba o módulo.
+
+```typescript
+(r.productName || '').toLowerCase();
+{item.prices?.map(price => ( ... ))}
+
+const formatDate = (isoString?: string | null) => {
+  if (!isoString) return '-';
+  try {
+    return new Intl.DateTimeFormat('pt-BR').format(new Date(isoString));
+  } catch {
+    return '-';
+  }
+};
+```
+
+---
+
+## 4. ErrorBoundary
+
+Cada view em `Frontend/src/App.tsx` está em `Frontend/src/components/shared/ErrorBoundary.tsx` (não existe `Frontend/src/components/ErrorBoundary.tsx`).
+
+Crash de render fica no módulo: stack + “Voltar ao Hub”. Não deixe um `null` sem guarda depender só do boundary — ele é a última linha.
+
+---
+
+## 5. FeedbackWidget
+
+`Frontend/src/components/shared/FeedbackWidget.tsx` — botão fixo inferior direito, captura de tela, últimos logs de `Frontend/src/lib/logInterceptor.ts`, `invoke('save_feedback')`.

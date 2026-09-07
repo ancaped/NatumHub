@@ -1,3 +1,9 @@
+> [!WARNING]
+> **HISTÓRICO / legado (pré-unificação)**  
+> Este texto mistura o ecossistema Natum com o app isolado `Natum/AnaliseMicrobiologica` + `Natum/Backend/AnaliseMicrobiologica`.  
+> Hoje o laboratório é o módulo `Frontend/src/modules/MicrobiologiaView.tsx` no NatumHub (Tauri invoke: `get_reports`, `save_product`, etc.).  
+> Padrões Zinc, FeedbackWidget e lições Electron→Tauri **continuam válidos**. Não recrie pastas de app separado; não trate Firebase como descontinuado no Hub (o Hub ainda usa Firebase opcional para backup).
+
 # DOCUMENTAÇÃO TÉCNICA - ECOSSISTEMA NATUM
 
 ## Projetos e Módulos do Ecossistema

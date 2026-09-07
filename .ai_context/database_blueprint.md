@@ -1,245 +1,186 @@
-# Esquema e Arquitetura do Banco de Dados SQLite (`data.db`)
+# Esquema SQLite (`Backend/data.db`)
 
-Este blueprint detalha a estrutura do banco de dados relacional compartilhado, localizado em **`c:\Users\Edson\antigravity\Natum\Backend\data.db`**.
+Arquivo do banco: **`Backend/data.db`** (fora do crate Tauri, para não forçar rebuild). Caminhos relativos à raiz do repo.
+
+O schema efetivo é a **união** de:
+
+1. `Backend/NatumHub/schema.sql` — aplicado em `Backend/NatumHub/src/db.rs` (`include_str!` + `execute_batch`)
+2. `initialize_hub_db` em `Backend/NatumHub/src/lib.rs` — Compras, micro, FQ, feedback, online
+3. Migrations incrementais em `db.rs` e no final de `initialize_hub_db` (`ALTER TABLE`, `vira_*`, wipe de senha vazada, etc.)
+
+Tabelas ERP espelhadas em `legacy_db.rs` (sync SQL Server) alimentam várias destas; mapeamento: `Docs/DATABASE_SCHEMA_MAPPING.md`.
 
 ---
 
-## 1. Tabelas de Controle de Estoque (Módulo Produção)
+## 1. Produção / estoque (`schema.sql`)
 
 ### `config_linhas`
-Configurações de prazos de estoque de segurança por linha de produto (multiplicadores de vendas mensais).
-- `linha_prefix` TEXT PRIMARY KEY (ex: "1", "2", "DEFAULT")
+Multiplicadores de estoque por linha.
+- `linha_prefix` TEXT PK (`1`, `2`, `DEFAULT`, …)
 - `nome_linha` TEXT NOT NULL
-- `estoque_ideal_mult` REAL NOT NULL DEFAULT 3.2 (Estoque ideal em meses de venda)
-- `abrir_ordem_mult` REAL NOT NULL DEFAULT 1.6 (Limiar de faturamento acumulado em meses para abrir ordem)
-- `abrir_prod_mult` REAL NOT NULL DEFAULT 1.2 (Limiar mínimo para começar produção)
-- `fator_seguranca_z` REAL NOT NULL DEFAULT 0.0
-- `visivel` INTEGER NOT NULL DEFAULT 1 (0 = Inativo, 1 = Ativo)
+- `estoque_ideal_mult` REAL DEFAULT 3.2
+- `abrir_ordem_mult` REAL DEFAULT 1.6
+- `abrir_prod_mult` REAL DEFAULT 1.2
+- `fator_seguranca_z` REAL DEFAULT 0.0
+- `visivel` INTEGER DEFAULT 1
 
 ### `produtos`
-Cadastro de produtos acabados.
-- `codigo` TEXT PRIMARY KEY (Código de barras/referência)
+Cadastro de acabados.
+- `codigo` TEXT PK
 - `descricao` TEXT NOT NULL
-- `linha_prefix` TEXT NOT NULL (Chave estrangeira -> `config_linhas`)
+- `linha_prefix` TEXT NOT NULL → `config_linhas`
 - `base` TEXT
-- `media_levantamento` REAL NOT NULL DEFAULT 0.0
+- `media_levantamento` REAL DEFAULT 0.0
 
 ### `estoque_atual`
-Armazena a posição de estoque e produção atualizada pelo watcher de planilhas.
-- `codigo` TEXT PRIMARY KEY (Chave estrangeira -> `produtos`)
-- `estoque` INTEGER NOT NULL DEFAULT 0
-- `producao` INTEGER NOT NULL DEFAULT 0 (Quantidade em fabricação)
-- `pedidos_aberto` INTEGER NOT NULL DEFAULT 0
-- `fase` TEXT
+Posição sincronizada pelo watcher / levantamento.
+- `codigo` TEXT PK → `produtos`
+- `estoque` INTEGER, `producao` INTEGER, `pedidos_aberto` INTEGER, `fase` TEXT
+
+### `historico_faturamento`
+Vendas mensais importadas.
+- PK (`codigo`, `mes` 1–12), `quantidade` INTEGER
 
 ### `overrides_produtos`
-Ajustes manuais que sobrescrevem os cálculos do algoritmo automático de alertas.
-- `codigo` TEXT PRIMARY KEY (Chave estrangeira -> `produtos`)
-- `estoque_ideal_manual` INTEGER (Overrides estoque ideal recomendado)
-- `pedidos_manual` INTEGER
-- `media_manual` REAL
-- `is_lancamento_manual` INTEGER (0 = Não, 1 = Sim)
-- `visivel` INTEGER DEFAULT 1 (0 = Ocultar da tela de estoque, 1 = Mostrar)
-- `observacao` TEXT (Ex: "Apenas sob encomenda")
-- `linha_prefix_manual` TEXT
+Ajustes manuais de alerta. Colunas do SQL + migrations `db.rs`:
+- `codigo` TEXT PK
+- `estoque_ideal_manual`, `pedidos_manual`, `media_manual`
+- `is_lancamento_manual`, `visivel`, `observacao`, `linha_prefix_manual`
+- `status_produto` DEFAULT `'ativo'`
+- `categoria_produto`, `produzir_apenas_kit`
+- `lancamento_meta_meses` DEFAULT 6, `lancamento_data_inicio`
+
+### `kit_composicao`
+- PK (`kit_codigo`, `componente_codigo`) → `produtos`
+- `quantidade` INTEGER DEFAULT 1 (migration)
 
 ### `historico_producao`
-Logs de ordens de fabricação emitidas no sistema.
-- `id` INTEGER PRIMARY KEY AUTOINCREMENT
-- `data_producao` TEXT NOT NULL (Formato: `YYYY-MM-DD`)
-- `codigo` TEXT NOT NULL (Chave estrangeira -> `produtos`)
-- `quantidade` INTEGER NOT NULL
-- `observacoes` TEXT
-- `criado_em` TEXT DEFAULT CURRENT_TIMESTAMP
-- `snap_*` (Campos que salvam a posição do estoque, vendas e status no momento exato em que a ordem foi criada para auditoria de decisões).
+Ordens lançadas + snapshot de decisão (`snap_*`), `consume_base`, `base_code`, `lote_erp`.
 
----
+### `historico_importacoes`
+Planilhas: `tipo` (`levantamento` | `faturamento` | `kits`), arquivo, status.
 
-## 2. Tabelas de Insumos e Fornecedores (Módulo Compras)
+### `formulations`
+Receita do acabado (mesmo insumo em várias fases → PK `id` AUTOINCREMENT).
+- `product_code` → `produtos`, `ingredient_code` → `items`
 
-### `items`
-Cadastro de matérias-primas e embalagens de compras.
-- `code` TEXT PRIMARY KEY (Código de referência do insumo)
-- `description` TEXT NOT NULL
-- `unit` TEXT NOT NULL
-- `category_id` TEXT (Chave estrangeira -> `categories`)
-- `line` TEXT
-- `type_code` TEXT
-- `notes` TEXT
-- `is_ignored` INTEGER NOT NULL DEFAULT 0 (1 = Oculta o item da tela de sugestão de demandas)
+### `stock_movements`
+Entradas/saídas unificadas (`insumo` | `produto` | `material`).
 
-### `categories`
-Categorias hierárquicas de insumos.
-- `id` TEXT PRIMARY KEY
-- `name` TEXT NOT NULL
-- `parent_id` TEXT (Chave estrangeira auto-referencial -> `categories`)
+### `purchase_orders` / `purchase_order_items`
+Pedidos de compra do ERP (`n_registro` PK).
 
-### `suppliers`
-Fornecedores de insumos.
-- `id` TEXT PRIMARY KEY
-- `name` TEXT NOT NULL
-- `contact` TEXT
-- `email` TEXT
-- `notes` TEXT
+### `sales_orders` / `sales_order_items`
+Pedidos de venda sincronizados. PK (`n_pedido`, `d_pedido`). Status: FT, FP, EX, PP, CF, LB, AL, CA.
 
-### `invoices`
-Registros de Notas Fiscais importadas de compras, usadas para calcular consumo real e médias mensais.
-- `id` TEXT PRIMARY KEY
-- `invoice_number` TEXT NOT NULL
-- `item_code` TEXT NOT NULL (Chave estrangeira -> `items`)
-- `description` TEXT
-- `unit` TEXT
-- `quantity` REAL NOT NULL
-- `unit_price` REAL NOT NULL
-- `total_value` REAL NOT NULL
-- `supplier_name` TEXT
-- `supplier_id` TEXT (Chave estrangeira -> `suppliers`)
-- `invoice_date` TEXT
+### `similar_items`
+Pares de insumos semelhantes. PK (`item_code_a`, `item_code_b`) → `items`.
 
-### `quotations`
-Cotações criadas e seu progresso.
-- `id` TEXT PRIMARY KEY
-- `title` TEXT NOT NULL
-- `status` TEXT NOT NULL (Valores: `draft`, `pending_demand_approval`, `quoting`, `quoted`, `pending_final_approval`, `approved`, `ordered`)
-- `target_days` INTEGER NOT NULL DEFAULT 90
-- `notes` TEXT
-- `director_demand_notes` TEXT
-- `director_final_notes` TEXT
-- `created_at` TEXT DEFAULT CURRENT_TIMESTAMP
+### `lote_error_resolutions`
+Resolução manual de divergência de lote.
 
-### `quotation_items`
-Itens vinculados a uma cotação.
-- `id` TEXT PRIMARY KEY
-- `quotation_id` TEXT NOT NULL (Chave estrangeira -> `quotations` ON DELETE CASCADE)
-- `item_code` TEXT NOT NULL (Chave estrangeira -> `items`)
-- `recommended_qty` REAL NOT NULL
-- `approved_qty` REAL
-- `final_qty` REAL
-- `notes` TEXT
+### `kit_assembly_orders`
+Ordens de montagem de kits (`PENDING` / concluída). `quantity_assembled` via migration.
 
-### `quotation_prices`
-Valores cotados por fornecedor para cada item.
-- `id` TEXT PRIMARY KEY
-- `quotation_item_id` TEXT NOT NULL (Chave estrangeira -> `quotation_items` ON DELETE CASCADE)
-- `supplier_id` TEXT NOT NULL (Chave estrangeira -> `suppliers`)
-- `unit_price` REAL NOT NULL
-- `delivery_days` INTEGER
-- `min_qty` REAL
-- `payment_terms` TEXT
-- `notes` TEXT
-- `is_selected` INTEGER DEFAULT 0 (1 = Fornecedor vencedor da cotação)
-
----
-
-## 3. Controle de Qualidade (Módulo Microbiologia)
-
-### `reports`
-Armazena laudos microbiológicos gerados no laboratório.
-- `id` TEXT PRIMARY KEY
-- `reportId` TEXT (Código legível do laudo, ex: "001/26")
-- `reportRawNum` INTEGER (Contador numérico puro para ordenação e auto-incremento)
-- `productCode` TEXT
-- `productName` TEXT
-- `batch` TEXT (Lote fabricado)
-- `collectionDate` TEXT
-- `technician` TEXT (Operador responsável)
-- `createdAt` TEXT DEFAULT CURRENT_TIMESTAMP
-
----
-
-## 4. Auditoria de Feedbacks e Configurações
-
-### `feedbacks`
-Logs e reports flutuantes enviados pelo aplicativo.
-- `id` TEXT PRIMARY KEY
-- `type` TEXT (bug / feedback)
-- `description` TEXT NOT NULL
-- `page` TEXT (Rota onde ocorreu)
-- `logs` TEXT (Dump do console de depuração do frontend)
-- `screenshot` TEXT (Imagem em string base64)
-- `status` TEXT DEFAULT 'pending' (pending / resolved)
-- `createdAt` TEXT DEFAULT CURRENT_TIMESTAMP
-- `resolvedAt` TEXT
+### `lote_custom_status`
+Status operacional do Acompanhamento (`custom_status`, `category`, `notes`).
 
 ### `settings`
-Pares chave-valor de configurações do sistema (incluindo o caminho da pasta monitorada).
-- `key` TEXT PRIMARY KEY
-- `value` TEXT
+Chave/valor (SQL, Firebase, watcher, flags de migration). Segredos: ver [security.md](security.md).
+
+### Só em `db.rs` (não no `schema.sql` inicial)
+
+### `vira_composicao` / `vira_ordens`
+Troca de SKU (de → para) e ordens de vira.
 
 ---
 
-## 5. Físico-Química (Módulo FiscoQuimica)
+## 2. Compras (`initialize_hub_db`)
+
+### `categories`
+Árvore. Seeds: `cat_mp`, `cat_emb`, `cat_mat`, `cat_coloracao`, `cat_apoio`.
+
+### `suppliers`
+Fornecedores (`name` UNIQUE).
+
+### `items`
+Insumos ERP: `code` PK, `description`, `unit`, `category_id`, `line`, `type`, `notes`, `is_ignored`, `manual_category`.
+
+### `stock_imports` / `stock_snapshots`
+Importações CSV e snapshot de estoque por item.
+
+### `consumption`
+Consumo anual (`UNIQUE(item_code, year)`), `monthly_avg`.
+
+### `invoices`
+NFs importadas (média histórica / spending). Sem `UNIQUE(invoice_number, item_code)` no hub atual — dedupe é na importação.
+
+### `nf_import_control`
+Último período importado (`last_period_end`).
+
+### `quotations`
+Status: `draft` → `pending_demand_approval` → `quoting` → `quoted` → `pending_final_approval` → `approved` → `ordered`.
+- `target_days` DEFAULT 90
+- `director_demand_notes`, `director_final_notes`
+- `demand_approved_at`, `final_approved_at`, `ordered_at`
+
+### `quotation_items`
+Itens da cotação. FK só para `quotations` (migration removeu FK para `items`, para coloração/apoio).
+
+### `quotation_prices`
+Preço por fornecedor; `is_selected`, `payment_terms`, `min_qty`.
+
+### `config`
+Config JSON de Compras (dias-alvo, regras de subcategoria). Distinto de `settings`.
+
+---
+
+## 3. Microbiologia (`initialize_hub_db`)
+
+### `products` (lab)
+Cadastro laboratorial — **não** é `produtos` de estoque.
+- `code` PK, `name`, `packaging`, `validity`
+
+### `reports`
+Laudos: `id`, `reportId`, `reportRawNum`, `productCode`, `productName`, `batch`, `collectionDate`, `technician`, `createdAt`.
+
+---
+
+## 4. Físico-química (`initialize_hub_db`)
 
 ### `fisco_quimica_patterns`
-Padrões de especificação (faixas aceitáveis) para cada produto acabado.
-- `product_code` TEXT PRIMARY KEY (Chave estrangeira → `products`)
-- `ph_min` REAL NOT NULL
-- `ph_max` REAL NOT NULL
-- `viscosity_min` REAL NOT NULL
-- `viscosity_max` REAL NOT NULL
-- `density_target` REAL NOT NULL
-- `density_tolerance` REAL DEFAULT 0.02
-- `package_volume` REAL DEFAULT 1000
-- `package_unit` TEXT DEFAULT 'mL'
+Faixas por `product_code`: pH, viscosidade, densidade, volume de embalagem.
 
 ### `fisco_quimica_corrective_agents`
-Cadastro de agentes corretivos de viscosidade.
-- `id` TEXT PRIMARY KEY
-- `name` TEXT NOT NULL
-- `created_at` TEXT DEFAULT CURRENT_TIMESTAMP
+Agentes corretivos de viscosidade.
 
 ### `fisco_quimica_product_agents`
-Vínculo N:N entre produtos e agentes corretivos permitidos.
-- `product_code` TEXT NOT NULL (PK composta com agent_id)
-- `agent_id` TEXT NOT NULL (PK composta com product_code, FK → `fisco_quimica_corrective_agents`)
+N:N produto ↔ agente.
 
 ### `fisco_quimica_analyses`
-Registros de análises físico-químicas realizadas em lotes.
-- `id` TEXT PRIMARY KEY
-- `product_code` TEXT NOT NULL
-- `product_name` TEXT NOT NULL
-- `batch` TEXT NOT NULL (Lote)
-- `analysis_date` TEXT NOT NULL
-- `technician` TEXT NOT NULL
-- `ph_measured` REAL NOT NULL
-- `viscosity_measured` REAL NOT NULL
-- `density_measured` REAL NOT NULL
-- `fraction_weight` REAL NOT NULL
-- `envase_target_weight` REAL NOT NULL
-- `envase_target_unit` TEXT DEFAULT 'g'
-- `has_adjustment` INTEGER DEFAULT 0 (1 = Ajuste de viscosidade aplicado)
-- `corrective_agent_id` TEXT (FK → `fisco_quimica_corrective_agents`)
-- `initial_viscosity` REAL
-- `trial_agent_qty` REAL
-- `trial_viscosity` REAL
-- `agent_qty_per_liter` REAL
-- `batch_size` REAL
-- `total_agent_required` REAL
-- `notes` TEXT
-- `created_at` TEXT DEFAULT CURRENT_TIMESTAMP
+Medições de lote + campos de ajuste (trial, qty/litro, batch_size).
 
 ---
 
-## 6. Compras Online (Módulo ComprasOnline)
+## 5. Feedback e compras online (`initialize_hub_db`)
+
+### `feedbacks`
+- `id`, `type`, `description`, `page`, `logs`, `screenshot`
+- `status` DEFAULT `'open'`
+- `createdAt`, `resolvedAt`
 
 ### `online_orders`
-Pedidos de compras online rastreados.
-- `id` TEXT PRIMARY KEY
-- `description` TEXT NOT NULL
-- `store_name` TEXT
-- `purchase_url` TEXT
-- `purchase_date` TEXT NOT NULL
-- `unit_price` REAL DEFAULT 0
-- `quantity` INTEGER DEFAULT 1
-- `shipping_cost` REAL DEFAULT 0
-- `total_price` REAL DEFAULT 0
-- `tracking_code` TEXT
-- `tracking_url` TEXT
-- `status` TEXT DEFAULT 'preparing' (preparing / shipped / delivered / cancelled)
-- `estimated_delivery` TEXT
-- `notes` TEXT
-- `item_code` TEXT (Código do insumo vinculado, FK → `items`)
-- `payment_method` TEXT
-- `receipt_path` TEXT (Caminho do comprovante)
-- `created_at` TEXT DEFAULT CURRENT_TIMESTAMP
+Pedidos web: loja, URL, preços, tracking, `status` (`preparing` / `shipped` / `delivered` / `cancelled`), `receipt_path`, campos de devolução (`is_return`, `return_deadline`, `return_status`, `return_notes`), `item_code` → `items`.
 
+### `online_stores`
+Lojas (seeds Mercado Livre, Shopee, Amazon).
+
+---
+
+## 6. Onde cada tabela nasce
+
+| Origem | Tabelas |
+|--------|---------|
+| `schema.sql` + `db.rs` | `config_linhas`, `produtos`, `estoque_atual`, `historico_faturamento`, `overrides_produtos`, `kit_composicao`, `historico_producao`, `historico_importacoes`, `formulations`, `stock_movements`, `purchase_orders`, `purchase_order_items`, `sales_orders`, `sales_order_items`, `similar_items`, `lote_error_resolutions`, `kit_assembly_orders`, `lote_custom_status`, `settings` |
+| `db.rs` only | `vira_composicao`, `vira_ordens` |
+| `initialize_hub_db` | `categories`, `suppliers`, `items`, `stock_imports`, `stock_snapshots`, `consumption`, `invoices`, `nf_import_control`, `quotations`, `quotation_items`, `quotation_prices`, `config`, `feedbacks`, `online_orders`, `online_stores`, `products`, `reports`, `fisco_quimica_*` (+ espelho de várias tabelas de produção para DB só-hub) |
