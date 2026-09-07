@@ -25,7 +25,7 @@ pub async fn get_google_status(State(state): State<Arc<AppState>>) -> impl IntoR
         StatusCode::OK,
         Json(json!({
             "configured": client_configured,
-            "client_id": client_id.unwrap_or_default(),
+            "client_id_configured": client_configured,
             "authenticated": is_authenticated,
             "last_sync": state.db.get_setting("google_last_sync").unwrap_or(None).unwrap_or_else(|| "Nunca sincronizado".to_string())
         }))
@@ -40,7 +40,9 @@ pub async fn save_google_config(
     if let Err(e) = state.db.save_setting("google_client_id", &payload.client_id) {
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response();
     }
-    if let Err(e) = state.db.save_setting("google_client_secret", &payload.client_secret) {
+    if payload.client_secret.trim().is_empty() || crate::auth::is_secret_placeholder(&payload.client_secret) {
+        // Keep existing secret; only update client_id.
+    } else if let Err(e) = state.db.save_setting("google_client_secret", &payload.client_secret) {
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response();
     }
     

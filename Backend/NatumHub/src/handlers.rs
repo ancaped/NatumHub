@@ -1633,9 +1633,39 @@ pub async fn get_setting_handler(
     State(state): State<Arc<AppState>>,
     Path(key): Path<String>,
 ) -> impl IntoResponse {
+    if key == "hub_token" {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "hub_token is not readable via HTTP. Use NATUM_HUB_TOKEN, .natum_hub_token, or the Tauri get_hub_token command." })),
+        )
+            .into_response();
+    }
     match state.db.get_setting(&key) {
-        Ok(Some(val)) => (StatusCode::OK, Json(json!({ "key": key, "value": val }))).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({ "error": "Setting not found" }))).into_response(),
+        Ok(Some(val)) if crate::auth::is_sensitive_setting_key(&key) => {
+            let is_set = !val.is_empty();
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "key": key,
+                    "value": null,
+                    "is_set": is_set,
+                    "masked": true
+                })),
+            )
+                .into_response()
+        }
+        Ok(Some(val)) => (StatusCode::OK, Json(json!({ "key": key, "value": val, "is_set": true, "masked": false }))).into_response(),
+        Ok(None) => {
+            if crate::auth::is_sensitive_setting_key(&key) {
+                (
+                    StatusCode::OK,
+                    Json(json!({ "key": key, "value": null, "is_set": false, "masked": true })),
+                )
+                    .into_response()
+            } else {
+                (StatusCode::NOT_FOUND, Json(json!({ "error": "Setting not found" }))).into_response()
+            }
+        }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     }
 }
@@ -1651,6 +1681,16 @@ pub async fn save_setting_handler(
     Path(key): Path<String>,
     Json(body): Json<SaveSettingInput>,
 ) -> impl IntoResponse {
+    if key == "hub_token" {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "hub_token cannot be changed via this endpoint. Set NATUM_HUB_TOKEN or the gitignored token file and restart." })),
+        )
+            .into_response();
+    }
+    if crate::auth::is_sensitive_setting_key(&key) && crate::auth::is_secret_placeholder(&body.value) {
+        return (StatusCode::OK, Json(json!({ "status": "success", "unchanged": true }))).into_response();
+    }
     match state.db.save_setting(&key, &body.value) {
         Ok(_) => (StatusCode::OK, Json(json!({ "status": "success" }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),

@@ -4,10 +4,9 @@ import {
   FileText, Clock, RefreshCw, BarChart3, ChevronRight, X, ShoppingCart, Tag,
   ArrowUpDown, ArrowUp, ArrowDown, Printer, PlusCircle, CheckCircle2, AlertCircle, Package
 } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { cn, API_BASE, apiFetch } from '../../lib/utils';
 import { api } from '../../lib/api';
 
-const API_BASE = 'http://127.0.0.1:3001/api';
 
 interface ProductRow {
   codigo: string;
@@ -191,7 +190,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
   const loadProducts = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/products?limit=5000&status=${statusFilter}`);
+      const res = await apiFetch(`${API_BASE}/products?limit=5000&status=${statusFilter}`);
       if (res.ok) {
         const data = await res.json();
         setProducts(data.items || []);
@@ -207,7 +206,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     setDetailsLoading(true);
     setDetails(null);
     try {
-      const res = await fetch(`${API_BASE}/produtos/${code}/detalhes`);
+      const res = await apiFetch(`${API_BASE}/produtos/${code}/detalhes`);
       if (res.ok) {
         const data = await res.json();
         setDetails(data);
@@ -228,7 +227,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     setPendingOrdersLoading(true);
     setPendingOrders(null);
     try {
-      const res = await fetch(`${API_BASE}/produtos/${code}/pedidos-pendentes`);
+      const res = await apiFetch(`${API_BASE}/produtos/${code}/pedidos-pendentes`);
       if (res.ok) {
         setPendingOrders(await res.json());
       }
@@ -432,7 +431,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
   const handleSaveNotes = async (notesText: string) => {
     if (!selectedProduct) return;
     try {
-      const res = await fetch(`${API_BASE}/overrides`, {
+      const res = await apiFetch(`${API_BASE}/overrides`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -984,7 +983,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                         : `Deseja reativar o produto "${selectedProduct.descricao}"?`
                       )) {
                         try {
-                          const res = await fetch(`${API_BASE}/overrides`, {
+                          const res = await apiFetch(`${API_BASE}/overrides`, {
                             method: 'POST',
                             headers: {
                               'Content-Type': 'application/json'

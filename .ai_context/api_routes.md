@@ -1,6 +1,8 @@
 # Rotas da API REST do Servidor Axum (Porta 3001)
 
-O backend em Rust do NatumHub inicia um servidor HTTP local Axum na porta **`3001`** (`http://127.0.0.1:3001`) em uma thread assíncrona do Tokio. Esta API é utilizada principalmente para gerenciar o módulo de Produção (estoques, kits, faturamentos, levantamento e backups do Google Drive).
+O backend em Rust do NatumHub inicia um servidor HTTP Axum na porta **`3001`**. Bind padrão: `0.0.0.0:3001` (Tailscale). Override: `NATUM_BIND`.
+
+**Auth:** em bind não-loopback, todas as rotas `/api/*` exigem `Authorization: Bearer <hub_token>` (`NATUM_HUB_TOKEN` ou arquivo gitignored `.natum_hub_token`). Exceção: `GET /api/google/callback`. Ver [security.md](security.md).
 
 ---
 
@@ -134,3 +136,12 @@ Trata a rota de redirecionamento OAuth2 para receber o token de acesso.
 ### `POST /api/google/sync`
 Força a sincronização imediata de upload do banco `data.db` local para o Drive.
 - **Função Rust**: `google_drive::trigger_sync`
+
+`GET /api/google/status` **não** devolve `client_id` (apenas flags `configured` / `client_id_configured` / `authenticated`).
+
+---
+
+## 8. Settings (`/api/settings/:key`)
+
+- **GET** `handlers::get_setting_handler` — chaves sensíveis (`sql_password`, `firebase_config`, `google_client_secret`, tokens Google, `hub_token`) retornam `{ value: null, is_set, masked: true }`.
+- **POST** `handlers::save_setting_handler` — escrita; placeholder vazio/`********` não sobrescreve o segredo. `hub_token` não é configurável por esta rota.

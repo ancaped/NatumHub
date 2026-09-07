@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Search, RefreshCw, ChevronDown, ChevronRight, Edit3, HelpCircle, AlertTriangle, CheckCircle2, PlusCircle
 } from 'lucide-react';
+import { API_BASE, apiFetch } from '../../lib/utils';
 
-const API_BASE = 'http://127.0.0.1:3001/api';
 
 export function BasesTab({
   configs,
@@ -30,7 +30,7 @@ export function BasesTab({
   const loadBases = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/products?limit=5000&status=bases`);
+      const res = await apiFetch(`${API_BASE}/products?limit=5000&status=bases`);
       if (res.ok) {
         const data = await res.json();
         setBases(data.items || []);
@@ -61,7 +61,7 @@ export function BasesTab({
       if (!baseDetails[code]) {
         setDetailsLoading(prev => ({ ...prev, [code]: true }));
         try {
-          const res = await fetch(`${API_BASE}/estoque/item-info/${code}`);
+          const res = await apiFetch(`${API_BASE}/estoque/item-info/${code}`);
           if (res.ok) {
             const data = await res.json();
             setBaseDetails(prev => ({ ...prev, [code]: data }));

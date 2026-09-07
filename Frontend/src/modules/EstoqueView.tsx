@@ -6,10 +6,9 @@ import {
   Info, Shield, Package, ShoppingCart, User, HelpCircle, FileSpreadsheet, Lock,
   Truck, Receipt, Clock, X, Link
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, API_BASE, apiFetch } from '../lib/utils';
 import ActiveProductsView from './ActiveProductsView';
 import { StockMovement, FormulationLine, DbDumpResult } from '../types';
-const API_BASE = 'http://127.0.0.1:3001/api';
 
 type EstoqueMode = 'insumos' | 'produtos' | 'ativos';
 
@@ -172,7 +171,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
     try {
       const params = new URLSearchParams();
       if (supplierId) params.set('supplier_id', supplierId);
-      const res = await fetch(`${API_BASE}/compras/notas/${invoiceNumber}?${params.toString()}`);
+      const res = await apiFetch(`${API_BASE}/compras/notas/${invoiceNumber}?${params.toString()}`);
       if (res.ok) {
         setSelectedInvoice(await res.json());
       }
@@ -190,7 +189,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
     try {
       if (activeTab === 'produtos') {
         // Get calculated products with stocks via REST API
-        const res = await fetch(`${API_BASE}/products?limit=5000`);
+        const res = await apiFetch(`${API_BASE}/products?limit=5000`);
         if (res.ok) {
           const data = await res.json();
           setProducts(data.items || []);
@@ -244,21 +243,21 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
 
     try {
       // Fetch movements
-      const movRes = await fetch(`${API_BASE}/estoque/movimentacoes/${code}`);
+      const movRes = await apiFetch(`${API_BASE}/estoque/movimentacoes/${code}`);
       if (movRes.ok) {
         setMovements(await movRes.json());
       }
 
       // Fetch pending sales/purchase orders if product
       if (type === 'produto') {
-        const pedRes = await fetch(`${API_BASE}/produtos/${code}/pedidos-pendentes`);
+        const pedRes = await apiFetch(`${API_BASE}/produtos/${code}/pedidos-pendentes`);
         if (pedRes.ok) {
           setProductPendingOrders(await pedRes.json());
         }
       }
 
       // Fetch extra info (invoices, pending orders, formulation, lotes)
-      const extraRes = await fetch(`${API_BASE}/estoque/item-info/${code}`);
+      const extraRes = await apiFetch(`${API_BASE}/estoque/item-info/${code}`);
       if (extraRes.ok) {
         const extra: ItemExtraInfo = await extraRes.json();
         setExtraInfo(extra);
@@ -269,7 +268,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
 
       // Fallback: If finished product and formulation not from item-info, fetch directly
       if (type === 'produto') {
-        const formRes = await fetch(`${API_BASE}/produtos/formulacao/${code}`);
+        const formRes = await apiFetch(`${API_BASE}/produtos/formulacao/${code}`);
         if (formRes.ok) {
           const formData = await formRes.json();
           if (formData.length > 0) {

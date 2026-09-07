@@ -206,10 +206,20 @@ pub async fn connect_sql_server(sqlite_path: Option<&str>) -> anyhow::Result<Cli
         let host = get_setting_from_db_or_file(conn_ref, "sql_host", "192.168.101.249");
         let port_str = get_setting_from_db_or_file(conn_ref, "sql_port", "1433");
         let user = get_setting_from_db_or_file(conn_ref, "sql_user", "sa");
-        let password = get_setting_from_db_or_file(conn_ref, "sql_password", "byteonDS2015");
+        let password = std::env::var("NATUM_SQL_PASSWORD")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| get_setting_from_db_or_file(conn_ref, "sql_password", ""));
         let database = get_setting_from_db_or_file(conn_ref, "sql_database", "NATUM");
         (host, port_str, user, password, database)
     };
+
+    if password.trim().is_empty() {
+        anyhow::bail!(
+            "Senha do SQL Server não configurada. Defina sql_password nas Configurações do Hub ou a variável NATUM_SQL_PASSWORD. Credenciais nunca devem ser commitadas."
+        );
+    }
     
     let port: u16 = port_str.parse().unwrap_or(1433);
 

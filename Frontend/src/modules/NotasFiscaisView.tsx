@@ -3,9 +3,8 @@ import {
   ArrowLeft, Search, FileText, RefreshCw, Calendar, Package,
   User, FileSpreadsheet, ChevronRight, Hash, Truck, DollarSign, Info, X, Receipt
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, API_BASE, apiFetch } from '../lib/utils';
 
-const API_BASE = 'http://127.0.0.1:3001/api';
 
 interface NotasFiscaisViewProps {
   onBackToHub: () => void;
@@ -57,7 +56,7 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
     try {
       const params = new URLSearchParams();
       if (search.trim()) params.set('search', search.trim());
-      const res = await fetch(`${API_BASE}/compras/notas?${params.toString()}`);
+      const res = await apiFetch(`${API_BASE}/compras/notas?${params.toString()}`);
       if (res.ok) {
         setInvoices(await res.json());
       }
@@ -85,7 +84,7 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
     try {
       const params = new URLSearchParams();
       if (supplierId) params.set('supplier_id', supplierId);
-      const res = await fetch(`${API_BASE}/compras/notas/${invoiceNumber}?${params.toString()}`);
+      const res = await apiFetch(`${API_BASE}/compras/notas/${invoiceNumber}?${params.toString()}`);
       if (res.ok) {
         setSelectedInvoice(await res.json());
       }

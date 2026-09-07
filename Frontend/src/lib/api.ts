@@ -179,6 +179,10 @@ export const api = {
   getCompressedBackup(): Promise<number[]> {
     return invoke('get_compressed_backup');
   },
+
+  getHubToken(): Promise<string> {
+    return invoke('get_hub_token');
+  },
   restoreCompressedBackup(data: number[]): Promise<void> {
     return invoke('restore_compressed_backup', { data });
   },

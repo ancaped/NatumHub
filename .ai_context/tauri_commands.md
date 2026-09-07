@@ -6,6 +6,11 @@ Este documento detalha o mapeamento entre as funções de invoke executadas pelo
 
 ## 1. Compras - Configurações e Common
 
+### `get_hub_token`
+- **JS**: `api.getHubToken()`
+- **Rust**: `fn get_hub_token() -> Result<String, String>`
+- Lê `NATUM_HUB_TOKEN` ou o arquivo gitignored `.natum_hub_token`. Não gera token novo (evita chicken-egg e tokens divergentes no PC cliente).
+
 ### `get_compras_config`
 - **JS**: `api.getComprasConfig()`
 - **Rust**: `fn get_compras_config(state: State<DbState>) -> Result<Option<ComprasAppConfig>, String>`

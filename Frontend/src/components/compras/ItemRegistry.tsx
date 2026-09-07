@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Trash2, Edit2, Plus, Package, EyeOff, Save, X, ArrowUpDown, ArrowUp, ArrowDown, Info, Calendar, Layers, ClipboardList, RefreshCw } from 'lucide-react';
 import { api } from '../../lib/api';
 import { Item, Category } from '../../types';
+import { API_BASE, apiFetch } from '../../lib/utils';
 
-const API_BASE = 'http://127.0.0.1:3001/api';
 
 interface ItemRegistryProps {
   mode?: string;
@@ -33,7 +33,7 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
     setDetailsOpen(true);
     setDetailsItem(null);
     try {
-      const res = await fetch(`${API_BASE}/compras/insumos/${code}/detalhes`);
+      const res = await apiFetch(`${API_BASE}/compras/insumos/${code}/detalhes`);
       if (res.ok) {
         const data = await res.json();
         setDetailsItem(data);
@@ -59,7 +59,7 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
     try {
       let itemsData: Item[];
       if (mode === 'coloracao' || mode === 'apoio') {
-        const res = await fetch(`${API_BASE}/products?limit=5000&status=${mode}&show_hidden=true`);
+        const res = await apiFetch(`${API_BASE}/products?limit=5000&status=${mode}&show_hidden=true`);
         if (res.ok) {
           const data = await res.json();
           itemsData = (data.items || []).map((p: any) => ({
@@ -102,7 +102,7 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
     try {
       if ((editingItem as any).isProduct) {
         const p = editingItem as any;
-        const res = await fetch(`${API_BASE}/overrides`, {
+        const res = await apiFetch(`${API_BASE}/overrides`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'

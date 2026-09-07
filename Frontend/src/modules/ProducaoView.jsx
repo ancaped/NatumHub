@@ -6,8 +6,7 @@ import {
   Scale, Package, FileText, EyeOff, HelpCircle, Info, Search, ClipboardCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-
-const API_BASE = 'http://127.0.0.1:3001/api';
+import { API_BASE, apiFetch } from '../lib/utils';
 
 // Import subcomponents
 import { DashboardTab } from '../components/producao/DashboardTab';
@@ -249,7 +248,7 @@ export default function ProducaoView({ onBackToHub }) {
 
     // 2. Fetch similar products
     setSimilarLoading(true);
-    fetch(`${API_BASE}/produtos/semelhantes/${launchingProduct.codigo}`)
+    apiFetch(`${API_BASE}/produtos/semelhantes/${launchingProduct.codigo}`)
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
@@ -292,7 +291,7 @@ export default function ProducaoView({ onBackToHub }) {
       return;
     }
     // Fetch product formulation lines
-    fetch(`${API_BASE}/produtos/formulacao/${recalcProd}`)
+    apiFetch(`${API_BASE}/produtos/formulacao/${recalcProd}`)
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
@@ -306,7 +305,7 @@ export default function ProducaoView({ onBackToHub }) {
     if (!recalcProd || !recalcIng) return;
     setRecalcLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/producao/recalcular/preview?product_code=${recalcProd}&ingredient_code=${recalcIng}`);
+      const res = await apiFetch(`${API_BASE}/producao/recalcular/preview?product_code=${recalcProd}&ingredient_code=${recalcIng}`);
       if (res.ok) {
         const data = await res.json();
         setRecalcPreview(data);
@@ -323,7 +322,7 @@ export default function ProducaoView({ onBackToHub }) {
   const handleApplyRecalc = async () => {
     if (!recalcPreview) return;
     try {
-      const res = await fetch(`${API_BASE}/producao/recalcular/ajustar`, {
+      const res = await apiFetch(`${API_BASE}/producao/recalcular/ajustar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -393,28 +392,28 @@ export default function ProducaoView({ onBackToHub }) {
   // === FETCH FUNCTIONS ===
   const fetchImportStatus = async () => {
     try {
-      const res = await fetch(`${API_BASE}/import/status`);
+      const res = await apiFetch(`${API_BASE}/import/status`);
       if (res.ok) setImportStatus(await res.json());
     } catch (e) { console.error(e); }
   };
 
   const fetchImportHistory = async () => {
     try {
-      const res = await fetch(`${API_BASE}/import/history`);
+      const res = await apiFetch(`${API_BASE}/import/history`);
       if (res.ok) setImportHistory(await res.json());
     } catch (e) { console.error(e); }
   };
 
   const fetchWatchConfig = async () => {
     try {
-      const res = await fetch(`${API_BASE}/import/watch-config`);
+      const res = await apiFetch(`${API_BASE}/import/watch-config`);
       if (res.ok) setWatchConfig(await res.json());
     } catch (e) { console.error(e); }
   };
 
   const saveWatchConfig = async (cfg) => {
     try {
-      const res = await fetch(`${API_BASE}/import/watch-config`, {
+      const res = await apiFetch(`${API_BASE}/import/watch-config`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(cfg)
       });
@@ -424,7 +423,7 @@ export default function ProducaoView({ onBackToHub }) {
 
   const fetchKitComposicao = async () => {
     try {
-      const res = await fetch(`${API_BASE}/kits/composicao`);
+      const res = await apiFetch(`${API_BASE}/kits/composicao`);
       if (res.ok) setKitComposicao(await res.json());
     } catch (e) { console.error(e); }
   };
@@ -432,7 +431,7 @@ export default function ProducaoView({ onBackToHub }) {
   const handleAddKitComposicao = async () => {
     if (!kitCompNewKit.trim() || !kitCompNewComp.trim()) return;
     try {
-      const res = await fetch(`${API_BASE}/kits/composicao`, {
+      const res = await apiFetch(`${API_BASE}/kits/composicao`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ kit_codigo: kitCompNewKit.trim(), componente_codigo: kitCompNewComp.trim() })
       });
@@ -444,7 +443,7 @@ export default function ProducaoView({ onBackToHub }) {
   const handleDeleteKitComposicao = async (kit, comp) => {
     if (!window.confirm(`Remover componente ${comp} do kit ${kit}?`)) return;
     try {
-      const res = await fetch(`${API_BASE}/kits/composicao/${kit}/${comp}`, { method: 'DELETE' });
+      const res = await apiFetch(`${API_BASE}/kits/composicao/${kit}/${comp}`, { method: 'DELETE' });
       if (res.ok) { showToast('Relação removida!'); fetchKitComposicao(); }
     } catch (e) { showToast('Erro', 'error'); }
   };
@@ -456,7 +455,7 @@ export default function ProducaoView({ onBackToHub }) {
     const formData = new FormData();
     formData.append('file', file);
     try {
-      const res = await fetch(`${API_BASE}/kits/composicao/upload`, { method: 'POST', body: formData });
+      const res = await apiFetch(`${API_BASE}/kits/composicao/upload`, { method: 'POST', body: formData });
       const data = await res.json();
       if (res.ok) { showToast(data.message || 'Kits importados!'); fetchKitComposicao(); fetchKits(); }
       else showToast(data.error || 'Erro ao importar', 'error');
@@ -479,7 +478,7 @@ export default function ProducaoView({ onBackToHub }) {
   // Fetch ignored product statuses for items
   const fetchIgnoredStatuses = async () => {
     try {
-      const res = await fetch(`${API_BASE}/settings/ignored_product_statuses`);
+      const res = await apiFetch(`${API_BASE}/settings/ignored_product_statuses`);
       if (res.ok) {
         const data = await res.json();
         if (data && data.value) {
@@ -497,7 +496,7 @@ export default function ProducaoView({ onBackToHub }) {
 
   const handleSaveIgnoredStatuses = async (newStatuses) => {
     try {
-      const res = await fetch(`${API_BASE}/settings/ignored_product_statuses`, {
+      const res = await apiFetch(`${API_BASE}/settings/ignored_product_statuses`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value: JSON.stringify(newStatuses) })
@@ -517,7 +516,7 @@ export default function ProducaoView({ onBackToHub }) {
   // Fetch configs from API
   const fetchConfigs = async () => {
     try {
-      const res = await fetch(`${API_BASE}/configs`);
+      const res = await apiFetch(`${API_BASE}/configs`);
       if (res.ok) {
         const data = await res.json();
         setConfigs(data);
@@ -544,7 +543,7 @@ export default function ProducaoView({ onBackToHub }) {
         params.append('order', sortDir);
       }
 
-      const res = await fetch(`${API_BASE}/products?${params.toString()}`);
+      const res = await apiFetch(`${API_BASE}/products?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         setProducts(data.items || []);
@@ -579,7 +578,7 @@ export default function ProducaoView({ onBackToHub }) {
         params.append('order', kitSortDir);
       }
 
-      const res = await fetch(`${API_BASE}/kits?${params.toString()}`);
+      const res = await apiFetch(`${API_BASE}/kits?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         setKits(data.items || []);
@@ -613,7 +612,7 @@ export default function ProducaoView({ onBackToHub }) {
         params.append('order', historySortDir);
       }
 
-      const res = await fetch(`${API_BASE}/historico?${params.toString()}`);
+      const res = await apiFetch(`${API_BASE}/historico?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         setHistoryRecords(data || []);
@@ -638,7 +637,7 @@ export default function ProducaoView({ onBackToHub }) {
   const fetchLotes = useCallback(async () => {
     setLotesLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/producao/lotes`);
+      const res = await apiFetch(`${API_BASE}/producao/lotes`);
       if (res.ok) {
         const data = await res.json();
         setLotes(data || []);
@@ -669,7 +668,7 @@ export default function ProducaoView({ onBackToHub }) {
       }
       params.append('limit', '10000');
       
-      const res = await fetch(`${API_BASE}/products?${params.toString()}`);
+      const res = await apiFetch(`${API_BASE}/products?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         setSuspendedProducts(data.items || []);
@@ -686,7 +685,7 @@ export default function ProducaoView({ onBackToHub }) {
   const handleUnsuspendProduct = async (code) => {
     if (!window.confirm(`Deseja realmente reativar o produto ${code} e remover sua suspensão?`)) return;
     try {
-      const res = await fetch(`${API_BASE}/overrides`);
+      const res = await apiFetch(`${API_BASE}/overrides`);
       if (res.ok) {
         const overrides = await res.json();
         const existing = overrides.find(o => o.codigo === code);
@@ -707,7 +706,7 @@ export default function ProducaoView({ onBackToHub }) {
           lancamento_data_inicio: existing ? existing.lancamento_data_inicio : null,
         };
 
-        const saveRes = await fetch(`${API_BASE}/overrides`, {
+        const saveRes = await apiFetch(`${API_BASE}/overrides`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(updated),
@@ -741,7 +740,7 @@ export default function ProducaoView({ onBackToHub }) {
     setSelectedProductDetails(null);
     setDetailsDrawerOpen(true);
     try {
-      const res = await fetch(`${API_BASE}/produtos/${code}/detalhes`);
+      const res = await apiFetch(`${API_BASE}/produtos/${code}/detalhes`);
       if (res.ok) {
         const data = await res.json();
         setSelectedProductDetails(data);
@@ -765,7 +764,7 @@ export default function ProducaoView({ onBackToHub }) {
     setAssociateSwapSimilar(true);
     setMappedSwaps([]);
     try {
-      const res = await fetch(`${API_BASE}/producao/lotes/${loteNumber}/detalhes`);
+      const res = await apiFetch(`${API_BASE}/producao/lotes/${loteNumber}/detalhes`);
       if (res.ok) {
         const data = await res.json();
         setSelectedLoteDetails(data);
@@ -787,7 +786,7 @@ export default function ProducaoView({ onBackToHub }) {
     }
     setResolveLoteLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/producao/lotes/${loteNumber}/resolver`, {
+      const res = await apiFetch(`${API_BASE}/producao/lotes/${loteNumber}/resolver`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -829,7 +828,7 @@ export default function ProducaoView({ onBackToHub }) {
     if (!window.confirm("Deseja reabrir os desvios deste lote e remover a justificativa?")) return;
     setResolveLoteLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/producao/lotes/${loteNumber}/resolver`, {
+      const res = await apiFetch(`${API_BASE}/producao/lotes/${loteNumber}/resolver`, {
         method: 'DELETE',
       });
       if (res.ok) {
@@ -891,7 +890,7 @@ export default function ProducaoView({ onBackToHub }) {
         }
       }
 
-      const res = await fetch(`${API_BASE}/historico`, {
+      const res = await apiFetch(`${API_BASE}/historico`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -920,7 +919,7 @@ export default function ProducaoView({ onBackToHub }) {
         let launchedSimCount = 0;
         for (const simPayload of simLaunches) {
           try {
-            const simRes = await fetch(`${API_BASE}/historico`, {
+            const simRes = await apiFetch(`${API_BASE}/historico`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(simPayload)
@@ -963,7 +962,7 @@ export default function ProducaoView({ onBackToHub }) {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/historico/${id}`, {
+      const res = await apiFetch(`${API_BASE}/historico/${id}`, {
         method: 'DELETE'
       });
       if (res.ok) {
@@ -1018,7 +1017,7 @@ export default function ProducaoView({ onBackToHub }) {
     const targetConfig = updatedConfigs.find(c => c.linha_prefix === prefix);
     if (targetConfig) {
       try {
-        await fetch(`${API_BASE}/configs`, {
+        await apiFetch(`${API_BASE}/configs`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(targetConfig),
@@ -1039,7 +1038,7 @@ export default function ProducaoView({ onBackToHub }) {
     setConfigs(prev => prev.map(c => c.linha_prefix === prefix ? updatedConfig : c));
 
     try {
-      const res = await fetch(`${API_BASE}/configs`, {
+      const res = await apiFetch(`${API_BASE}/configs`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedConfig),
@@ -1069,7 +1068,7 @@ export default function ProducaoView({ onBackToHub }) {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/configs/${prefix}`, {
+      const res = await apiFetch(`${API_BASE}/configs/${prefix}`, {
         method: 'DELETE',
       });
       if (res.ok) {
@@ -1110,7 +1109,7 @@ export default function ProducaoView({ onBackToHub }) {
     };
 
     try {
-      const res = await fetch(`${API_BASE}/configs`, {
+      const res = await apiFetch(`${API_BASE}/configs`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newConfig),
@@ -1140,7 +1139,7 @@ export default function ProducaoView({ onBackToHub }) {
   const handleSyncDatabase = async () => {
     setSyncingDb(true);
     try {
-      const res = await fetch(`${API_BASE}/import/sync`, {
+      const res = await apiFetch(`${API_BASE}/import/sync`, {
         method: 'POST',
       });
       const data = await res.json();
@@ -1179,7 +1178,7 @@ export default function ProducaoView({ onBackToHub }) {
 
     try {
       const endpoint = type === 'faturamento' ? 'faturamento' : type === 'kits' ? 'kits' : 'levantamento';
-      const res = await fetch(`${API_BASE}/import/${endpoint}`, {
+      const res = await apiFetch(`${API_BASE}/import/${endpoint}`, {
         method: 'POST',
         body: formData,
       });
@@ -1247,7 +1246,7 @@ export default function ProducaoView({ onBackToHub }) {
     };
 
     try {
-      const res = await fetch(`${API_BASE}/overrides`, {
+      const res = await apiFetch(`${API_BASE}/overrides`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1268,7 +1267,7 @@ export default function ProducaoView({ onBackToHub }) {
 
   const fetchAllProducts = async () => {
     try {
-      const res = await fetch(`${API_BASE}/products?limit=9999&show_hidden=true`);
+      const res = await apiFetch(`${API_BASE}/products?limit=9999&show_hidden=true`);
       if (res.ok) {
         const data = await res.json();
         setAllProducts(data.items || []);
@@ -1287,7 +1286,7 @@ export default function ProducaoView({ onBackToHub }) {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/overrides/bulk`, {
+      const res = await apiFetch(`${API_BASE}/overrides/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1317,11 +1316,10 @@ export default function ProducaoView({ onBackToHub }) {
 
   const fetchGoogleStatus = async () => {
     try {
-      const res = await fetch(`${API_BASE}/google/status`);
+      const res = await apiFetch(`${API_BASE}/google/status`);
       if (res.ok) {
         const data = await res.json();
         setGoogleStatus(data);
-        if (data.client_id) setClientId(data.client_id);
       }
     } catch (e) {
       console.error("Error fetching Google status:", e);
@@ -1330,7 +1328,7 @@ export default function ProducaoView({ onBackToHub }) {
 
   const handleSaveGoogleConfig = async () => {
     try {
-      const res = await fetch(`${API_BASE}/google/config`, {
+      const res = await apiFetch(`${API_BASE}/google/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
@@ -1350,7 +1348,7 @@ export default function ProducaoView({ onBackToHub }) {
 
   const handleGoogleLogin = async () => {
     try {
-      const res = await fetch(`${API_BASE}/google/auth-url`);
+      const res = await apiFetch(`${API_BASE}/google/auth-url`);
       const data = await res.json();
       if (res.ok && data.url) {
         window.open(data.url, '_blank');
@@ -1367,7 +1365,7 @@ export default function ProducaoView({ onBackToHub }) {
   const handleGoogleSync = async () => {
     setSyncingGoogle(true);
     try {
-      const res = await fetch(`${API_BASE}/google/sync`, { method: 'POST' });
+      const res = await apiFetch(`${API_BASE}/google/sync`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
         showToast(data.message || "Sincronização realizada com sucesso!", "success");

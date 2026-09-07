@@ -3,7 +3,7 @@ import {
   Search, RefreshCw, X, ArrowUpDown, ArrowUp, ArrowDown, HelpCircle, 
   ChevronDown, Eye, Trash2, Package, History, Layers, Check, Edit3 
 } from 'lucide-react';
-import { API_BASE } from '../../lib/utils';
+import { API_BASE, apiFetch } from '../../lib/utils';
 
 export function HistoryTab({
   historyRecords,
@@ -31,7 +31,7 @@ export function HistoryTab({
 
   const handleSaveLoteErp = async (id) => {
     try {
-      const res = await fetch(`${API_BASE}/historico/${id}/lote`, {
+      const res = await apiFetch(`${API_BASE}/historico/${id}/lote`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lote_erp: editVal.trim() === '' ? null : editVal.trim() })

@@ -4,8 +4,8 @@ import {
   CheckCircle2, Printer, X, Eye, CheckCircle, ExternalLink, Calendar, User, FileText, Settings, AlertTriangle,
   UploadCloud
 } from 'lucide-react';
+import { API_BASE, apiFetch } from '../lib/utils';
 
-const API_BASE = 'http://127.0.0.1:3001/api';
 
 export default function MontagemKitsView({ onBackToHub }) {
   const [activeSubTab, setActiveSubTab] = useState('ordens'); // 'ordens', 'componentes' ou 'composicao'
@@ -124,7 +124,7 @@ export default function MontagemKitsView({ onBackToHub }) {
         params.append('order', kitSortDir);
       }
 
-      const res = await fetch(`${API_BASE}/kits?${params.toString()}`);
+      const res = await apiFetch(`${API_BASE}/kits?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         setKits(data.items || []);
@@ -142,7 +142,7 @@ export default function MontagemKitsView({ onBackToHub }) {
   const fetchOrders = useCallback(async () => {
     setLoadingOrders(true);
     try {
-      const res = await fetch(`${API_BASE}/kits/orders`);
+      const res = await apiFetch(`${API_BASE}/kits/orders`);
       if (res.ok) {
         const data = await res.json();
         setOrders(data || []);
@@ -157,7 +157,7 @@ export default function MontagemKitsView({ onBackToHub }) {
   // Fetch all kits for dropdown selection
   const fetchAllKitsDropdown = async () => {
     try {
-      const res = await fetch(`${API_BASE}/kits?limit=1000`);
+      const res = await apiFetch(`${API_BASE}/kits?limit=1000`);
       if (res.ok) {
         const data = await res.json();
         const flatKits = (data.items || []).map(item => ({
@@ -176,7 +176,7 @@ export default function MontagemKitsView({ onBackToHub }) {
   // Fetch next recommended order number
   const fetchNextOrderNumber = async () => {
     try {
-      const res = await fetch(`${API_BASE}/kits/next-order-number`);
+      const res = await apiFetch(`${API_BASE}/kits/next-order-number`);
       if (res.ok) {
         const data = await res.json();
         setNextOrderNumber(data.nextOrderNumber);
@@ -189,7 +189,7 @@ export default function MontagemKitsView({ onBackToHub }) {
 
   const fetchProducts = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/products?limit=5000&show_hidden=true`);
+      const res = await apiFetch(`${API_BASE}/products?limit=5000&show_hidden=true`);
       if (res.ok) {
         const data = await res.json();
         setProducts(data.items || []);
@@ -215,7 +215,7 @@ export default function MontagemKitsView({ onBackToHub }) {
 
   const fetchKitComposicao = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/kits/composicao`);
+      const res = await apiFetch(`${API_BASE}/kits/composicao`);
       if (res.ok) setKitComposicao(await res.json());
     } catch (e) {
       console.error("Error fetching kit composition:", e);
@@ -226,7 +226,7 @@ export default function MontagemKitsView({ onBackToHub }) {
     if (e) e.preventDefault();
     if (!kitCompNewKit.trim() || !kitCompNewComp.trim()) return;
     try {
-      const res = await fetch(`${API_BASE}/kits/composicao`, {
+      const res = await apiFetch(`${API_BASE}/kits/composicao`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -254,7 +254,7 @@ export default function MontagemKitsView({ onBackToHub }) {
   const handleDeleteKitComposicao = async (kit, comp) => {
     if (!window.confirm(`Remover componente ${comp} do kit ${kit}?`)) return;
     try {
-      const res = await fetch(`${API_BASE}/kits/composicao/${kit}/${comp}`, { method: 'DELETE' });
+      const res = await apiFetch(`${API_BASE}/kits/composicao/${kit}/${comp}`, { method: 'DELETE' });
       if (res.ok) {
         await fetchKitComposicao();
         await fetchKits(); // Atualiza os alertas
@@ -274,7 +274,7 @@ export default function MontagemKitsView({ onBackToHub }) {
     const formData = new FormData();
     formData.append('file', file);
     try {
-      const res = await fetch(`${API_BASE}/kits/composicao/upload`, { method: 'POST', body: formData });
+      const res = await apiFetch(`${API_BASE}/kits/composicao/upload`, { method: 'POST', body: formData });
       const data = await res.json();
       if (res.ok) {
         await fetchKitComposicao();
@@ -294,7 +294,7 @@ export default function MontagemKitsView({ onBackToHub }) {
 
   const fetchViraComposicao = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/turnovers/composicao`);
+      const res = await apiFetch(`${API_BASE}/turnovers/composicao`);
       if (res.ok) setViraComposicao(await res.json());
     } catch (e) {
       console.error("Error fetching vira composition:", e);
@@ -304,7 +304,7 @@ export default function MontagemKitsView({ onBackToHub }) {
   const fetchViraOrders = useCallback(async () => {
     setLoadingVira(true);
     try {
-      const res = await fetch(`${API_BASE}/turnovers/orders`);
+      const res = await apiFetch(`${API_BASE}/turnovers/orders`);
       if (res.ok) setViraOrders(await res.json());
     } catch (e) {
       console.error("Error fetching vira orders:", e);
@@ -317,7 +317,7 @@ export default function MontagemKitsView({ onBackToHub }) {
     if (e) e.preventDefault();
     if (!newViraDeCodigo.trim() || !newViraParaCodigo.trim()) return;
     try {
-      const res = await fetch(`${API_BASE}/turnovers/composicao`, {
+      const res = await apiFetch(`${API_BASE}/turnovers/composicao`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -344,7 +344,7 @@ export default function MontagemKitsView({ onBackToHub }) {
   const handleDeleteViraComposicao = async (de, para) => {
     if (!window.confirm(`Remover relação de vira do produto ${de} para ${para}?`)) return;
     try {
-      const res = await fetch(`${API_BASE}/turnovers/composicao/${de}/${para}`, { method: 'DELETE' });
+      const res = await apiFetch(`${API_BASE}/turnovers/composicao/${de}/${para}`, { method: 'DELETE' });
       if (res.ok) {
         await fetchViraComposicao();
       } else {
@@ -358,7 +358,7 @@ export default function MontagemKitsView({ onBackToHub }) {
 
   const fetchNextViraOrderNumber = async () => {
     try {
-      const res = await fetch(`${API_BASE}/turnovers/next-order-number`);
+      const res = await apiFetch(`${API_BASE}/turnovers/next-order-number`);
       if (res.ok) {
         const data = await res.json();
         setNextViraOrderNumber(data.nextOrderNumber);
@@ -382,7 +382,7 @@ export default function MontagemKitsView({ onBackToHub }) {
     if (!selectedViraComp || !newViraOrderNumber.trim()) return;
     setSubmittingNewViraOrder(true);
     try {
-      const res = await fetch(`${API_BASE}/turnovers/orders`, {
+      const res = await apiFetch(`${API_BASE}/turnovers/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -433,7 +433,7 @@ export default function MontagemKitsView({ onBackToHub }) {
         erpLaunched: editViraErpLaunched ? 1 : 0,
         quantityAssembled: parseFloat(editViraQuantityAssembled) || 0
       };
-      const res = await fetch(`${API_BASE}/turnovers/orders/${selectedViraOrder.id}`, {
+      const res = await apiFetch(`${API_BASE}/turnovers/orders/${selectedViraOrder.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -456,7 +456,7 @@ export default function MontagemKitsView({ onBackToHub }) {
   const handleDeleteViraOrder = async (id) => {
     if (!window.confirm("Deseja realmente excluir esta ordem de vira?")) return;
     try {
-      const res = await fetch(`${API_BASE}/turnovers/orders/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`${API_BASE}/turnovers/orders/${id}`, { method: 'DELETE' });
       if (res.ok) {
         await fetchViraOrders();
       } else {
@@ -558,7 +558,7 @@ export default function MontagemKitsView({ onBackToHub }) {
         componentsLotes: JSON.stringify(lotesList)
       };
 
-      const res = await fetch(`${API_BASE}/kits/orders`, {
+      const res = await apiFetch(`${API_BASE}/kits/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -648,7 +648,7 @@ export default function MontagemKitsView({ onBackToHub }) {
         quantityAssembled: parseFloat(editQuantityAssembled) || 0
       };
 
-      const res = await fetch(`${API_BASE}/kits/orders/${selectedOrder.id}`, {
+      const res = await apiFetch(`${API_BASE}/kits/orders/${selectedOrder.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -671,7 +671,7 @@ export default function MontagemKitsView({ onBackToHub }) {
   const handleDeleteOrder = async (id) => {
     if (!window.confirm("Deseja realmente excluir esta ordem de montagem?")) return;
     try {
-      const res = await fetch(`${API_BASE}/kits/orders/${id}`, {
+      const res = await apiFetch(`${API_BASE}/kits/orders/${id}`, {
         method: 'DELETE'
       });
       if (res.ok) {
