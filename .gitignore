@@ -18,6 +18,7 @@ Backend/NatumHub/gen/
 .DS_Store
 Thumbs.db
 desktop.ini
+.tmp.driveupload/
 
 # IDE
 .vscode/
