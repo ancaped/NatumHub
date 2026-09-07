@@ -8,6 +8,7 @@ import {
   ArrowUpRight, ArrowDownRight, Equal
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { showToast, confirmDialog } from '../shared/feedback';
 
 export function OnlineOrdersManager() {
   const [orders, setOrders] = useState<OnlineOrder[]>([]);
@@ -77,7 +78,7 @@ export function OnlineOrdersManager() {
       setOrders(data);
     } catch (e) {
       console.error(e);
-      alert('Erro ao carregar compras online.');
+      showToast('Erro ao carregar compras online.', 'error');
     } finally {
       setLoading(false);
     }
@@ -180,7 +181,7 @@ export function OnlineOrdersManager() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!description.trim()) {
-      alert('Por favor, insira uma descrição.');
+      showToast('Por favor, insira uma descrição.', 'error');
       return;
     }
 
@@ -195,7 +196,7 @@ export function OnlineOrdersManager() {
         currentReceiptPath = await api.uploadOrderReceipt(orderId, receiptFile.name, bytes);
       } catch (err) {
         console.error(err);
-        alert('Erro ao fazer upload do comprovante.');
+        showToast('Erro ao fazer upload do comprovante.', 'error');
         setUploadingReceipt(false);
         return;
       }
@@ -241,18 +242,18 @@ export function OnlineOrdersManager() {
       loadOrders();
     } catch (err) {
       console.error(err);
-      alert('Erro ao salvar compra online.');
+      showToast('Erro ao salvar compra online.', 'error');
     }
   };
 
   const handleDelete = async (id: string, desc: string) => {
-    if (!confirm(`Deseja realmente excluir a compra "${desc}"?`)) return;
+    if (!await confirmDialog(`Deseja realmente excluir a compra "${desc}"?`, { variant: 'danger' })) return;
     try {
       await api.deleteOnlineOrder(id);
       loadOrders();
     } catch (e) {
       console.error(e);
-      alert('Erro ao excluir registro.');
+      showToast('Erro ao excluir registro.', 'error');
     }
   };
 
@@ -261,7 +262,7 @@ export function OnlineOrdersManager() {
       await api.openReceiptFile(path);
     } catch (e) {
       console.error(e);
-      alert('Erro ao abrir comprovante. Verifique se o arquivo ainda existe localmente.');
+      showToast('Erro ao abrir comprovante. Verifique se o arquivo ainda existe localmente.', 'error');
     }
   };
 
@@ -272,7 +273,7 @@ export function OnlineOrdersManager() {
       loadOrders();
     } catch (e) {
       console.error(e);
-      alert('Erro ao atualizar status.');
+      showToast('Erro ao atualizar status.', 'error');
     }
   };
 
@@ -284,7 +285,7 @@ export function OnlineOrdersManager() {
       loadOrders();
     } catch (e) {
       console.error(e);
-      alert('Erro ao atualizar status de devolução.');
+      showToast('Erro ao atualizar status de devolução.', 'error');
     }
   };
 
@@ -308,7 +309,7 @@ export function OnlineOrdersManager() {
   const handleSaveStore = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!storeFormName.trim()) {
-      alert('Por favor, insira o nome da loja.');
+      showToast('Por favor, insira o nome da loja.', 'error');
       return;
     }
 
@@ -325,18 +326,18 @@ export function OnlineOrdersManager() {
       loadStores();
     } catch (err) {
       console.error(err);
-      alert('Erro ao salvar loja.');
+      showToast('Erro ao salvar loja.', 'error');
     }
   };
 
   const handleDeleteStore = async (id: string, name: string) => {
-    if (!confirm(`Deseja realmente excluir a loja "${name}"?`)) return;
+    if (!await confirmDialog(`Deseja realmente excluir a loja "${name}"?`, { variant: 'danger' })) return;
     try {
       await api.deleteOnlineStore(id);
       loadStores();
     } catch (err) {
       console.error(err);
-      alert('Erro ao excluir loja.');
+      showToast('Erro ao excluir loja.', 'error');
     }
   };
 
@@ -503,7 +504,7 @@ export function OnlineOrdersManager() {
         );
       case 'cancelled':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-zinc-100 text-zinc-650 border border-zinc-200">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-zinc-100 text-zinc-600 border border-zinc-200">
             <X className="w-3.5 h-3.5" />
             Cancelado
           </span>
@@ -553,14 +554,14 @@ export function OnlineOrdersManager() {
         );
       case 'resolved':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-zinc-100 text-zinc-650 border border-zinc-200">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-zinc-100 text-zinc-600 border border-zinc-200">
             <CheckCircle className="w-3.5 h-3.5" />
             Resolvida
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-zinc-150 text-zinc-700 border border-zinc-250">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-zinc-100 text-zinc-700 border border-zinc-200">
             Devolução
           </span>
         );
@@ -576,7 +577,7 @@ export function OnlineOrdersManager() {
             <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Compras Ativas</p>
             <h4 className="text-2xl font-black text-zinc-800 mt-1">{stats.activeCount}</h4>
           </div>
-          <div className="p-3 bg-zinc-100 text-zinc-650 rounded-xl">
+          <div className="p-3 bg-zinc-100 text-zinc-600 rounded-xl">
             <Truck className="w-5 h-5" />
           </div>
         </div>
@@ -597,11 +598,11 @@ export function OnlineOrdersManager() {
         )}>
           <div>
             <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Devoluções Ativas</p>
-            <h4 className={cn("text-2xl font-black mt-1", activeReturnsCount > 0 ? "text-orange-650" : "text-zinc-800")}>
+            <h4 className={cn("text-2xl font-black mt-1", activeReturnsCount > 0 ? "text-orange-600" : "text-zinc-800")}>
               {activeReturnsCount}
             </h4>
           </div>
-          <div className={cn("p-3 rounded-xl", activeReturnsCount > 0 ? "bg-orange-50 text-orange-500" : "bg-zinc-100 text-zinc-650")}>
+          <div className={cn("p-3 rounded-xl", activeReturnsCount > 0 ? "bg-orange-50 text-orange-500" : "bg-zinc-100 text-zinc-600")}>
             <ShieldAlert className="w-5 h-5" />
           </div>
         </div>
@@ -627,7 +628,7 @@ export function OnlineOrdersManager() {
             "flex items-center gap-2 px-6 py-3 border-b-2 font-bold text-sm transition-all cursor-pointer",
             activeTab === 'orders'
               ? "border-zinc-950 text-zinc-950"
-              : "border-transparent text-zinc-400 hover:text-zinc-650"
+              : "border-transparent text-zinc-400 hover:text-zinc-600"
           )}
         >
           <ShoppingBag className="w-4 h-4" />
@@ -639,7 +640,7 @@ export function OnlineOrdersManager() {
             "flex items-center gap-2 px-6 py-3 border-b-2 font-bold text-sm transition-all cursor-pointer relative",
             activeTab === 'returns'
               ? "border-zinc-950 text-zinc-950"
-              : "border-transparent text-zinc-400 hover:text-zinc-650"
+              : "border-transparent text-zinc-400 hover:text-zinc-600"
           )}
         >
           <ShieldAlert className="w-4 h-4" />
@@ -656,7 +657,7 @@ export function OnlineOrdersManager() {
             "flex items-center gap-2 px-6 py-3 border-b-2 font-bold text-sm transition-all cursor-pointer",
             activeTab === 'stores'
               ? "border-zinc-950 text-zinc-950"
-              : "border-transparent text-zinc-400 hover:text-zinc-650"
+              : "border-transparent text-zinc-400 hover:text-zinc-600"
           )}
         >
           <Store className="w-4 h-4" />
@@ -687,7 +688,7 @@ export function OnlineOrdersManager() {
                   "px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer",
                   activeFilter === 'all' 
                     ? "bg-zinc-900 border-zinc-900 text-white shadow-sm" 
-                    : "bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-650"
+                    : "bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-600"
                 )}
               >
                 Todos
@@ -698,7 +699,7 @@ export function OnlineOrdersManager() {
                   "px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer",
                   activeFilter === 'preparing' 
                     ? "bg-amber-500 border-amber-500 text-white shadow-sm" 
-                    : "bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-650"
+                    : "bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-600"
                 )}
               >
                 Preparando
@@ -709,7 +710,7 @@ export function OnlineOrdersManager() {
                   "px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer",
                   activeFilter === 'shipped' 
                     ? "bg-blue-600 border-blue-600 text-white shadow-sm" 
-                    : "bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-650"
+                    : "bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-600"
                 )}
               >
                 Em Trânsito
@@ -720,7 +721,7 @@ export function OnlineOrdersManager() {
                   "px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer",
                   activeFilter === 'delivered' 
                     ? "bg-emerald-600 border-emerald-600 text-white shadow-sm" 
-                    : "bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-650"
+                    : "bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-600"
                 )}
               >
                 Entregue
@@ -730,8 +731,8 @@ export function OnlineOrdersManager() {
                 className={cn(
                   "px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer",
                   activeFilter === 'delayed' 
-                    ? "bg-red-650 border-red-650 text-white shadow-sm" 
-                    : "bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-650"
+                    ? "bg-red-600 border-red-600 text-white shadow-sm" 
+                    : "bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-600"
                 )}
               >
                 Atrasadas
@@ -800,7 +801,7 @@ export function OnlineOrdersManager() {
                         </td>
                         <td className="px-6 py-4">
                           <div className="max-w-[240px]">
-                            <div className="font-bold text-zinc-850 truncate" title={order.description}>{order.description}</div>
+                            <div className="font-bold text-zinc-800 truncate" title={order.description}>{order.description}</div>
                             {linkedItem && (
                               <span className="inline-block mt-0.5 px-1.5 py-0.5 bg-zinc-100 rounded text-[9px] font-bold text-zinc-500 font-mono">
                                 Vínculo: {linkedItem.code}
@@ -814,18 +815,18 @@ export function OnlineOrdersManager() {
                               href={order.purchaseUrl} 
                               target="_blank" 
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 font-semibold text-zinc-850 hover:underline hover:text-zinc-950"
+                              className="inline-flex items-center gap-1 font-semibold text-zinc-800 hover:underline hover:text-zinc-950"
                             >
                               {order.storeName || 'Ver Site'}
                               <ExternalLink className="w-3 h-3 text-zinc-400" />
                             </a>
                           ) : (
-                            <span className="font-semibold text-zinc-850">{order.storeName || '-'}</span>
+                            <span className="font-semibold text-zinc-800">{order.storeName || '-'}</span>
                           )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex flex-col">
-                            <span className="font-bold text-zinc-850">
+                            <span className="font-bold text-zinc-800">
                               R$ {(order.totalPrice || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </span>
                             <span className="text-[10px] text-zinc-400 font-medium">
@@ -833,16 +834,16 @@ export function OnlineOrdersManager() {
                             </span>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-zinc-655 font-medium">
+                        <td className="px-6 py-4 whitespace-nowrap text-zinc-600 font-medium">
                           <div className="flex items-center gap-1.5">
-                            <CreditCard className="w-3.5 h-3.5 text-zinc-405" />
+                            <CreditCard className="w-3.5 h-3.5 text-zinc-400" />
                             {order.paymentMethod || 'Pix'}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={cn(
                             "font-mono text-xs font-semibold",
-                            isDelayed ? "text-red-650 font-bold" : "text-zinc-650"
+                            isDelayed ? "text-red-600 font-bold" : "text-zinc-600"
                           )}>
                             {estDate}
                           </span>
@@ -855,13 +856,13 @@ export function OnlineOrdersManager() {
                                   href={order.trackingUrl} 
                                   target="_blank" 
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-650 hover:underline hover:text-blue-800"
+                                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline hover:text-blue-800"
                                 >
                                   <Truck className="w-3.5 h-3.5" />
                                   {order.trackingCode}
                                 </a>
                               ) : (
-                                <span className="inline-flex items-center gap-1 text-xs font-bold text-zinc-650 font-mono">
+                                <span className="inline-flex items-center gap-1 text-xs font-bold text-zinc-600 font-mono">
                                   <Truck className="w-3.5 h-3.5 text-zinc-400" />
                                   {order.trackingCode}
                                 </span>
@@ -872,7 +873,7 @@ export function OnlineOrdersManager() {
                             {order.receiptPath && (
                               <button 
                                 onClick={() => handleOpenReceipt(order.receiptPath!)}
-                                className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-650 hover:underline hover:text-emerald-800 cursor-pointer self-start"
+                                className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 hover:underline hover:text-emerald-800 cursor-pointer self-start"
                               >
                                 <Paperclip className="w-3 h-3" />
                                 Ver Comprovante
@@ -885,7 +886,7 @@ export function OnlineOrdersManager() {
                             {order.status === 'preparing' && (
                               <button 
                                 onClick={() => handleQuickStatusUpdate(order, 'shipped')}
-                                className="px-2 py-1 rounded bg-zinc-100 hover:bg-blue-50 text-zinc-650 hover:text-blue-750 transition-colors font-bold text-[10px] cursor-pointer"
+                                className="px-2 py-1 rounded bg-zinc-100 hover:bg-blue-50 text-zinc-600 hover:text-blue-700 transition-colors font-bold text-[10px] cursor-pointer"
                                 title="Marcar como Enviado"
                               >
                                 Marcar Enviado
@@ -894,7 +895,7 @@ export function OnlineOrdersManager() {
                             {order.status === 'shipped' && (
                               <button 
                                 onClick={() => handleQuickStatusUpdate(order, 'delivered')}
-                                className="px-2 py-1 rounded bg-zinc-100 hover:bg-emerald-50 text-zinc-650 hover:text-emerald-750 transition-colors font-bold text-[10px] cursor-pointer"
+                                className="px-2 py-1 rounded bg-zinc-100 hover:bg-emerald-50 text-zinc-600 hover:text-emerald-700 transition-colors font-bold text-[10px] cursor-pointer"
                                 title="Confirmar Entrega"
                               >
                                 Confirmar Entrega
@@ -910,7 +911,7 @@ export function OnlineOrdersManager() {
                             </button>
                             <button 
                               onClick={() => handleDelete(order.id, order.description)}
-                              className="p-1 text-zinc-400 hover:text-red-650 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
                               title="Excluir"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -1010,7 +1011,7 @@ export function OnlineOrdersManager() {
                             {order.returnDeadline && (
                               <span className={cn(
                                 "text-[10px] font-bold mt-0.5",
-                                isDelayed ? "text-red-650" : isUrgent ? "text-orange-655 animate-pulse" : "text-zinc-400"
+                                isDelayed ? "text-red-600" : isUrgent ? "text-orange-600 animate-pulse" : "text-zinc-400"
                               )}>
                                 {daysLeftText}
                               </span>
@@ -1028,8 +1029,8 @@ export function OnlineOrdersManager() {
                           R$ {(order.totalPrice || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </td>
                         <td className="px-6 py-4">
-                          <p className="text-xs text-zinc-650 line-clamp-2 max-w-[280px]" title={order.returnNotes || ''}>
-                            {order.returnNotes || <span className="text-zinc-350 italic">Nenhuma nota inserida</span>}
+                          <p className="text-xs text-zinc-600 line-clamp-2 max-w-[280px]" title={order.returnNotes || ''}>
+                            {order.returnNotes || <span className="text-zinc-300 italic">Nenhuma nota inserida</span>}
                           </p>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-xs">
@@ -1037,7 +1038,7 @@ export function OnlineOrdersManager() {
                             {order.returnStatus === 'pending' && (
                               <button 
                                 onClick={() => handleQuickReturnStatusUpdate(order, 'sent')}
-                                className="px-2.5 py-1 rounded bg-zinc-100 hover:bg-blue-50 text-zinc-650 hover:text-blue-750 transition-colors font-bold text-[10px] cursor-pointer"
+                                className="px-2.5 py-1 rounded bg-zinc-100 hover:bg-blue-50 text-zinc-600 hover:text-blue-700 transition-colors font-bold text-[10px] cursor-pointer"
                               >
                                 Marcar Enviada
                               </button>
@@ -1045,7 +1046,7 @@ export function OnlineOrdersManager() {
                             {order.returnStatus === 'sent' && (
                               <button 
                                 onClick={() => handleQuickReturnStatusUpdate(order, 'refunded')}
-                                className="px-2.5 py-1 rounded bg-zinc-100 hover:bg-emerald-50 text-zinc-650 hover:text-emerald-750 transition-colors font-bold text-[10px] cursor-pointer"
+                                className="px-2.5 py-1 rounded bg-zinc-100 hover:bg-emerald-50 text-zinc-600 hover:text-emerald-700 transition-colors font-bold text-[10px] cursor-pointer"
                               >
                                 Confirmar Reembolso
                               </button>
@@ -1053,7 +1054,7 @@ export function OnlineOrdersManager() {
                             {order.returnStatus !== 'resolved' && order.returnStatus !== 'pending' && (
                               <button 
                                 onClick={() => handleQuickReturnStatusUpdate(order, 'resolved')}
-                                className="px-2.5 py-1 rounded bg-zinc-150 hover:bg-zinc-200 text-zinc-755 transition-colors font-bold text-[10px] cursor-pointer"
+                                className="px-2.5 py-1 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-700 transition-colors font-bold text-[10px] cursor-pointer"
                               >
                                 Finalizar Devolução
                               </button>
@@ -1111,14 +1112,14 @@ export function OnlineOrdersManager() {
                           href={store.url} 
                           target="_blank" 
                           rel="noopener noreferrer" 
-                          className="text-xs text-blue-650 hover:underline inline-flex items-center gap-0.5"
+                          className="text-xs text-blue-600 hover:underline inline-flex items-center gap-0.5"
                         >
                           {store.url}
                           <ExternalLink className="w-2.5 h-2.5" />
                         </a>
                       )}
                       {store.notes && (
-                        <p className="text-xs text-zinc-450 font-medium italic">{store.notes}</p>
+                        <p className="text-xs text-zinc-400 font-medium italic">{store.notes}</p>
                       )}
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1131,7 +1132,7 @@ export function OnlineOrdersManager() {
                       </button>
                       <button 
                         onClick={() => handleDeleteStore(store.id, store.name)}
-                        className="p-1 text-zinc-400 hover:text-red-650 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                        className="p-1 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
                         title="Excluir Loja"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1164,7 +1165,7 @@ export function OnlineOrdersManager() {
                     <select
                       value={selectedChartItemCode}
                       onChange={e => setSelectedChartItemCode(e.target.value)}
-                      className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-850 bg-white"
+                      className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                     >
                       {uniqueItemsWithPurchases.map(item => (
                         <option key={item.key} value={item.key}>{item.desc}</option>
@@ -1174,22 +1175,22 @@ export function OnlineOrdersManager() {
 
                   {/* Pricing metrics */}
                   {priceHistoryData.length > 0 && (
-                    <div className="grid grid-cols-3 gap-4 bg-zinc-50 p-4 rounded-xl border border-zinc-150">
+                    <div className="grid grid-cols-3 gap-4 bg-zinc-50 p-4 rounded-xl border border-zinc-100">
                       <div>
                         <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block">Último Preço</span>
-                        <strong className="text-lg font-black text-zinc-850">
+                        <strong className="text-lg font-black text-zinc-800">
                           R$ {priceHistoryData[0].order.unitPrice?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </strong>
                       </div>
                       <div>
                         <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block">Menor Preço Pago</span>
-                        <strong className="text-lg font-black text-emerald-650">
+                        <strong className="text-lg font-black text-emerald-600">
                           R$ {Math.min(...priceHistoryData.map(d => d.order.unitPrice || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </strong>
                       </div>
                       <div>
                         <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block">Maior Preço Pago</span>
-                        <strong className="text-lg font-black text-red-650">
+                        <strong className="text-lg font-black text-red-600">
                           R$ {Math.max(...priceHistoryData.map(d => d.order.unitPrice || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </strong>
                       </div>
@@ -1204,14 +1205,14 @@ export function OnlineOrdersManager() {
                         const dateFormatted = new Date(order.purchaseDate + 'T00:00:00').toLocaleDateString('pt-BR');
                         
                         return (
-                          <div key={order.id || idx} className="flex items-center justify-between p-3 rounded-lg border border-zinc-150 hover:bg-zinc-50/40 transition-colors">
+                          <div key={order.id || idx} className="flex items-center justify-between p-3 rounded-lg border border-zinc-100 hover:bg-zinc-50/40 transition-colors">
                             <div className="space-y-0.5">
                               <div className="flex items-center gap-2">
                                 <span className="font-bold text-zinc-800 text-sm">
                                   R$ {order.unitPrice?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                 </span>
                                 {trend === 'up' && (
-                                  <span className="inline-flex items-center text-[10px] font-bold text-red-655 bg-red-50 px-1 py-0.2 rounded">
+                                  <span className="inline-flex items-center text-[10px] font-bold text-red-600 bg-red-50 px-1 py-0.2 rounded">
                                     <ArrowUpRight className="w-3 h-3 mr-0.5" />
                                     +{changePercent.toFixed(1)}%
                                   </span>
@@ -1285,7 +1286,7 @@ export function OnlineOrdersManager() {
                   placeholder="Ex: Caixa de Etiqueta Térmica 40x40"
                   value={description}
                   onChange={e => setDescription(e.target.value)}
-                  className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                  className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                 />
               </div>
 
@@ -1296,7 +1297,7 @@ export function OnlineOrdersManager() {
                   <select 
                     value={itemCode || ''}
                     onChange={e => setItemCode(e.target.value || null)}
-                    className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                    className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                   >
                     <option value="">Nenhum vínculo (Descrição Livre)</option>
                     {items.map(i => (
@@ -1319,7 +1320,7 @@ export function OnlineOrdersManager() {
                         setStoreName('');
                       }
                     }}
-                    className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                    className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                   >
                     {stores.map(s => (
                       <option key={s.id} value={s.id}>{s.name}</option>
@@ -1339,7 +1340,7 @@ export function OnlineOrdersManager() {
                     placeholder="Nome da loja que não está cadastrada"
                     value={storeName}
                     onChange={e => setStoreName(e.target.value)}
-                    className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                    className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                   />
                 </div>
               )}
@@ -1352,7 +1353,7 @@ export function OnlineOrdersManager() {
                   placeholder="https://exemplo.com/produto"
                   value={purchaseUrl}
                   onChange={e => setPurchaseUrl(e.target.value)}
-                  className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                  className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                 />
               </div>
 
@@ -1366,7 +1367,7 @@ export function OnlineOrdersManager() {
                     min="1"
                     value={quantity}
                     onChange={e => setQuantity(Number(e.target.value))}
-                    className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                    className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                   />
                 </div>
 
@@ -1380,7 +1381,7 @@ export function OnlineOrdersManager() {
                     placeholder="0.00"
                     value={unitPrice || ''}
                     onChange={e => setUnitPrice(Number(e.target.value))}
-                    className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                    className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                   />
                 </div>
 
@@ -1394,7 +1395,7 @@ export function OnlineOrdersManager() {
                     placeholder="0.00"
                     value={shippingCost || ''}
                     onChange={e => setShippingCost(Number(e.target.value))}
-                    className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                    className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                   />
                 </div>
               </div>
@@ -1414,7 +1415,7 @@ export function OnlineOrdersManager() {
                   <select 
                     value={paymentMethod}
                     onChange={e => setPaymentMethod(e.target.value)}
-                    className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                    className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                   >
                     <option value="Pix">Pix</option>
                     <option value="Cartão de Crédito">Cartão de Crédito</option>
@@ -1437,7 +1438,7 @@ export function OnlineOrdersManager() {
                       required
                       value={purchaseDate}
                       onChange={e => setPurchaseDate(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                      className="w-full pl-9 pr-4 py-2 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                     />
                   </div>
                 </div>
@@ -1451,7 +1452,7 @@ export function OnlineOrdersManager() {
                       type="date" 
                       value={estimatedDelivery}
                       onChange={e => setEstimatedDelivery(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                      className="w-full pl-9 pr-4 py-2 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                     />
                   </div>
                 </div>
@@ -1467,7 +1468,7 @@ export function OnlineOrdersManager() {
                     placeholder="Ex: QI123456789BR"
                     value={trackingCode}
                     onChange={e => setTrackingCode(e.target.value)}
-                    className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                    className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                   />
                 </div>
 
@@ -1479,7 +1480,7 @@ export function OnlineOrdersManager() {
                     placeholder="https://link-de-rastreio.com"
                     value={trackingUrl}
                     onChange={e => setTrackingUrl(e.target.value)}
-                    className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                    className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                   />
                 </div>
               </div>
@@ -1504,7 +1505,7 @@ export function OnlineOrdersManager() {
                     </button>
                   )}
                 </div>
-                <p className="text-[10px] text-zinc-450 italic mt-1 block">Tamanho recomendado: PDF ou imagem até 5MB.</p>
+                <p className="text-[10px] text-zinc-400 italic mt-1 block">Tamanho recomendado: PDF ou imagem até 5MB.</p>
               </div>
 
               {/* Order Status */}
@@ -1514,7 +1515,7 @@ export function OnlineOrdersManager() {
                   required
                   value={status}
                   onChange={e => setStatus(e.target.value as any)}
-                  className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                  className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                 >
                   <option value="preparing">Em Preparação / Aguardando Envio</option>
                   <option value="shipped">Em Trânsito / Enviado</option>
@@ -1553,7 +1554,7 @@ export function OnlineOrdersManager() {
                           required={isReturn}
                           value={returnDeadline}
                           onChange={e => setReturnDeadline(e.target.value)}
-                          className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                          className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                         />
                       </div>
 
@@ -1564,7 +1565,7 @@ export function OnlineOrdersManager() {
                           required={isReturn}
                           value={returnStatus}
                           onChange={e => setReturnStatus(e.target.value as any)}
-                          className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                          className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                         >
                           <option value="pending">Pendente / Aguardando Envio</option>
                           <option value="sent">Enviada ao Fornecedor</option>
@@ -1582,7 +1583,7 @@ export function OnlineOrdersManager() {
                         value={returnNotes}
                         onChange={e => setReturnNotes(e.target.value)}
                         rows={2}
-                        className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white resize-none"
+                        className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white resize-none"
                       />
                     </div>
                   </div>
@@ -1597,7 +1598,7 @@ export function OnlineOrdersManager() {
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
                   rows={2}
-                  className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white resize-none"
+                  className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white resize-none"
                 />
               </div>
             </div>
@@ -1652,7 +1653,7 @@ export function OnlineOrdersManager() {
                   placeholder="Ex: Mercado Livre, Shopee, Amazon, Kalunga"
                   value={storeFormName}
                   onChange={e => setStoreFormName(e.target.value)}
-                  className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                  className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                 />
               </div>
 
@@ -1663,7 +1664,7 @@ export function OnlineOrdersManager() {
                   placeholder="https://loja.com.br"
                   value={storeFormUrl}
                   onChange={e => setStoreFormUrl(e.target.value)}
-                  className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white"
+                  className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                 />
               </div>
 
@@ -1674,7 +1675,7 @@ export function OnlineOrdersManager() {
                   value={storeFormNotes}
                   onChange={e => setStoreFormNotes(e.target.value)}
                   rows={3}
-                  className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-855 bg-white resize-none"
+                  className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white resize-none"
                 />
               </div>
             </div>

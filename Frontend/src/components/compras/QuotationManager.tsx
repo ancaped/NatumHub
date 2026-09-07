@@ -4,6 +4,7 @@ import { Quotation } from '../../types';
 import { QuotationDetail } from './QuotationDetail';
 import { Search, Plus, Filter, Clock, FileText, CheckCircle2, ShoppingCart, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { showToast, confirmDialog } from '../shared/feedback';
 
 const STATUS_MAP: Record<string, { label: string, color: string }> = {
   draft: { label: 'Rascunho', color: 'bg-zinc-100 text-zinc-800 border-zinc-200' },
@@ -58,13 +59,13 @@ export function QuotationManager({ active = false }: { active?: boolean }) {
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm('Tem certeza que deseja excluir este rascunho de cotação?')) {
+    if (await confirmDialog('Tem certeza que deseja excluir este rascunho de cotação?', { variant: 'danger' })) {
       try {
         await api.deleteQuotation(id);
         loadQuotations();
       } catch (err) {
         console.error(err);
-        alert('Erro ao excluir cotação');
+        showToast('Erro ao excluir cotação', 'error');
       }
     }
   };

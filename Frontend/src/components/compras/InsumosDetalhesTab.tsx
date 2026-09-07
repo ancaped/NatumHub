@@ -219,7 +219,7 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
         selectedItemCode ? "w-1/2" : "w-full"
       )}>
         {/* Filters Header */}
-        <div className="p-4 border-b border-zinc-150 space-y-3 bg-zinc-50/50">
+        <div className="p-4 border-b border-zinc-100 space-y-3 bg-zinc-50/50">
           <div className="flex flex-col md:flex-row gap-3">
             {/* Search Input */}
             <div className="relative flex-1">
@@ -274,7 +274,7 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-xs font-bold text-zinc-500">{item.code}</span>
                     {item.isIgnored && (
-                      <span className="px-1.5 py-0.5 bg-zinc-150 text-zinc-500 rounded text-[9px] font-bold uppercase">
+                      <span className="px-1.5 py-0.5 bg-zinc-100 text-zinc-500 rounded text-[9px] font-bold uppercase">
                         Ignorado
                       </span>
                     )}
@@ -295,7 +295,7 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
       {selectedItemCode && (
         <div className="flex-1 bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col animate-in fade-in slide-in-from-right-4 duration-350">
           {/* Detail Header */}
-          <div className="px-6 py-4 border-b border-zinc-150 flex justify-between items-start bg-zinc-50/50 shrink-0">
+          <div className="px-6 py-4 border-b border-zinc-100 flex justify-between items-start bg-zinc-50/50 shrink-0">
             <div className="min-w-0 flex-1">
               <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">Ficha Técnica & Consumo</span>
               <h3 className="font-extrabold text-zinc-900 text-base mt-0.5 truncate">
@@ -305,7 +305,7 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
             </div>
             <button 
               onClick={() => setSelectedItemCode(null)}
-              className="p-1 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-650 transition-colors"
+              className="p-1 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-600 transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -321,13 +321,13 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {/* Info Stats Cards */}
               <div className="grid grid-cols-3 gap-4">
-                <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
+                <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-xl shadow-sm text-left">
                   <span className="text-[9px] text-zinc-400 font-bold uppercase block">Estoque Atual</span>
                   <p className="text-lg font-extrabold text-zinc-900 mt-1">
                     {details.currentStock.toLocaleString('pt-BR')} <span className="text-xs font-semibold text-zinc-500">{details.unit}</span>
                   </p>
                 </div>
-                <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
+                <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-xl shadow-sm text-left">
                   <span className="text-[9px] text-zinc-400 font-bold uppercase block">Último Recebimento</span>
                   <p className="text-xs font-bold text-zinc-800 mt-2 truncate" title={details.lastReceivedDoc ? `NF #${details.lastReceivedDoc}` : undefined}>
                     {formatDate(details.lastReceivedDate)}
@@ -336,7 +336,7 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
                     {details.lastReceivedDoc ? `NF #${details.lastReceivedDoc}` : '-'}
                   </span>
                 </div>
-                <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
+                <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-xl shadow-sm text-left">
                   <span className="text-[9px] text-zinc-400 font-bold uppercase block">Último Uso Produção</span>
                   <p className="text-xs font-bold text-zinc-800 mt-2 truncate" title={details.lastUsedLote ? `Lote #${details.lastUsedLote}` : undefined}>
                     {formatDate(details.lastUsedDate)}
@@ -361,15 +361,15 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
               {/* Section: Products Used In */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
-                  <Database className="h-4 w-4 text-zinc-650" />
+                  <Database className="h-4 w-4 text-zinc-600" />
                   <h4 className="font-extrabold text-sm text-zinc-900">Produtos que Utilizam este Insumo</h4>
                 </div>
                 {!details.productsUsedIn || details.productsUsedIn.length === 0 ? (
                   <p className="text-xs text-zinc-400 py-2">Este insumo não está cadastrado em nenhuma fórmula de produto ativo.</p>
                 ) : (
-                  <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm max-h-48 overflow-y-auto">
+                  <div className="bg-white border border-zinc-100 rounded-xl overflow-hidden shadow-sm max-h-48 overflow-y-auto">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150 sticky top-0">
+                      <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100 sticky top-0">
                         <tr>
                           <th className="px-4 py-2.5">Código</th>
                           <th className="px-4 py-2.5">Produto</th>
@@ -395,15 +395,15 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
               {/* Section 1: YoY Consumption */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
-                  <TrendingUp className="h-4 w-4 text-zinc-650" />
+                  <TrendingUp className="h-4 w-4 text-zinc-600" />
                   <h4 className="font-extrabold text-sm text-zinc-900">Médias de Consumo Ano a Ano</h4>
                 </div>
                 {details.consumptionYoy.length === 0 ? (
                   <p className="text-xs text-zinc-400 py-3">Sem histórico de consumo registrado.</p>
                 ) : (
-                  <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                  <div className="bg-white border border-zinc-100 rounded-xl overflow-hidden shadow-sm">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                      <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100">
                         <tr>
                           <th className="px-4 py-3">Ano</th>
                           <th className="px-4 py-3 text-right">Consumo Total ({details.unit})</th>
@@ -417,7 +417,7 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
                             <td className="px-4 py-2.5 text-right font-semibold text-zinc-950">
                               {c.totalQty.toLocaleString('pt-BR')}
                             </td>
-                            <td className="px-4 py-2.5 text-right text-zinc-550">
+                            <td className="px-4 py-2.5 text-right text-zinc-500">
                               {c.monthlyAvg.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
                             </td>
                           </tr>
@@ -432,7 +432,7 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
               <div className="space-y-3">
                 <div className="flex justify-between items-center border-b border-zinc-100 pb-2">
                   <div className="flex items-center gap-2">
-                    <BarChart3 className="h-4 w-4 text-zinc-650" />
+                    <BarChart3 className="h-4 w-4 text-zinc-600" />
                     <h4 className="font-extrabold text-sm text-zinc-900">Consumo Mensal Detalhado</h4>
                   </div>
                   {/* Select Year */}
@@ -450,7 +450,7 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
                 {monthlyDataForYear.length === 0 ? (
                   <p className="text-xs text-zinc-400 py-3">Nenhum consumo mensal registrado neste ano.</p>
                 ) : (
-                  <div className="p-4 bg-zinc-50/50 border border-zinc-150 rounded-xl space-y-2">
+                  <div className="p-4 bg-zinc-50/50 border border-zinc-100 rounded-xl space-y-2">
                     {/* Visual Bar representation */}
                     <div className="grid grid-cols-12 gap-1.5 h-28 px-2">
                       {monthlyDataForYear.map((m) => (
@@ -484,15 +484,15 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
               {/* Section 3: Invoices receipts list */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
-                  <FileText className="h-4 w-4 text-zinc-650" />
+                  <FileText className="h-4 w-4 text-zinc-600" />
                   <h4 className="font-extrabold text-sm text-zinc-900">Histórico Recente de Invoices & NF</h4>
                 </div>
                 {details.recentInvoices.length === 0 ? (
                   <p className="text-xs text-zinc-400 py-3">Sem registros de notas fiscais de compra para este insumo.</p>
                 ) : (
-                  <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                  <div className="bg-white border border-zinc-100 rounded-xl overflow-hidden shadow-sm">
                     <table className="w-full text-left text-xs whitespace-nowrap">
-                      <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                      <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100">
                         <tr>
                           <th className="px-4 py-3">NF</th>
                           <th className="px-4 py-3">Data</th>
@@ -513,7 +513,7 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
                             <td className="px-4 py-2.5 text-right text-zinc-800">
                               {inv.quantity.toLocaleString('pt-BR')}
                             </td>
-                            <td className="px-4 py-2.5 text-right text-zinc-550">
+                            <td className="px-4 py-2.5 text-right text-zinc-500">
                               {formatCurrency(inv.unitPrice)}
                             </td>
                             <td className="px-4 py-2.5 text-right font-bold text-zinc-900">

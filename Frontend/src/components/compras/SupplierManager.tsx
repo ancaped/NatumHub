@@ -3,6 +3,7 @@ import { api } from '../../lib/api';
 import { Supplier, Invoice, PricePoint } from '../../types';
 import { Users, Plus, Search, ArrowLeft, Phone, Mail, FileText, TrendingUp, X, ArrowUp, ArrowDown } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { showToast } from '../shared/feedback';
 
 export function SupplierManager({ mode = 'all', active = false }: { mode?: string; active?: boolean }) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -35,7 +36,7 @@ export function SupplierManager({ mode = 'all', active = false }: { mode?: strin
       await api.saveSupplier(editing);
       setEditing(null);
       loadSuppliers();
-    } catch (e) { console.error(e); alert('Erro ao salvar fornecedor'); }
+    } catch (e) { console.error(e); showToast('Erro ao salvar fornecedor', 'error'); }
   };
 
   const openDetail = async (id: string) => {

@@ -4,6 +4,7 @@ import { Quotation, QuotationItem, Supplier, QuotationPrice, DemandResult } from
 import { QuotationReport } from './QuotationReport';
 import { ArrowLeft, Plus, Check, CheckCircle2, AlertCircle, FileText, ShoppingCart, Loader2, Printer } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { showToast } from '../shared/feedback';
 
 interface QuotationDetailProps {
   id: string;
@@ -59,7 +60,7 @@ export function QuotationDetail({ id, onBack }: QuotationDetailProps) {
       setDemands(demandsRes);
     } catch (e) {
       console.error(e);
-      alert('Erro ao carregar detalhes da cotação');
+      showToast('Erro ao carregar detalhes da cotação', 'error');
     } finally {
       setLoading(false);
     }
@@ -81,7 +82,7 @@ export function QuotationDetail({ id, onBack }: QuotationDetailProps) {
       }));
     } catch (e) {
       console.error(e);
-      alert('Erro ao atualizar quantidade do item.');
+      showToast('Erro ao atualizar quantidade do item.', 'error');
     }
   };
 
@@ -96,7 +97,7 @@ export function QuotationDetail({ id, onBack }: QuotationDetailProps) {
       loadData();
     } catch (e) {
       console.error(e);
-      alert('Erro ao atualizar status');
+      showToast('Erro ao atualizar status', 'error');
     }
   };
 
@@ -120,7 +121,7 @@ export function QuotationDetail({ id, onBack }: QuotationDetailProps) {
       loadData();
     } catch (err) {
       console.error(err);
-      alert('Erro ao adicionar preço');
+      showToast('Erro ao adicionar preço', 'error');
     }
   };
 
@@ -130,7 +131,7 @@ export function QuotationDetail({ id, onBack }: QuotationDetailProps) {
       loadData();
     } catch (e) {
       console.error(e);
-      alert('Erro ao selecionar fornecedor');
+      showToast('Erro ao selecionar fornecedor', 'error');
     }
   };
 
@@ -277,7 +278,7 @@ export function QuotationDetail({ id, onBack }: QuotationDetailProps) {
 
             // Recommendation text
             let recommendation = "ℹ️ Padrão: Reposição padrão.";
-            let colorClass = "text-zinc-650 bg-zinc-100 rounded-lg p-2";
+            let colorClass = "text-zinc-600 bg-zinc-100 rounded-lg p-2";
             if (daysDuration > 360) {
               recommendation = `⚠️ Risco Alto: Estoque para ${Math.round(daysDuration/30)} meses. Alto risco de obsolescência ou vencimento.`;
               colorClass = "text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2";
@@ -292,7 +293,7 @@ export function QuotationDetail({ id, onBack }: QuotationDetailProps) {
               colorClass = "text-blue-700 bg-blue-50 border border-blue-100 rounded-lg p-2";
             } else {
               recommendation = `Duração de estoque: ${daysDuration === 9999 ? 'indefinida' : `${daysDuration} dias`}.`;
-              colorClass = "text-zinc-650 bg-zinc-100 rounded-lg p-2";
+              colorClass = "text-zinc-600 bg-zinc-100 rounded-lg p-2";
             }
 
             return (
@@ -426,7 +427,7 @@ export function QuotationDetail({ id, onBack }: QuotationDetailProps) {
                                 const val = e.target.value === '' ? null : Number(e.target.value);
                                 handleUpdateItemQty(item.id, val, 'approved');
                               }}
-                              className="w-24 text-right text-xs border border-zinc-300 focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 rounded px-2 py-1 font-bold text-zinc-850 bg-white"
+                              className="w-24 text-right text-xs border border-zinc-300 focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 rounded px-2 py-1 font-bold text-zinc-800 bg-white"
                             />
                             {(() => {
                               const demand = demands.find(d => d.itemCode === item.itemCode);
@@ -456,7 +457,7 @@ export function QuotationDetail({ id, onBack }: QuotationDetailProps) {
                                 const val = e.target.value === '' ? null : Number(e.target.value);
                                 handleUpdateItemQty(item.id, val, 'final');
                               }}
-                              className="w-24 text-right text-xs border border-zinc-300 focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 rounded px-2 py-1 font-bold text-zinc-850 bg-white"
+                              className="w-24 text-right text-xs border border-zinc-300 focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 rounded px-2 py-1 font-bold text-zinc-800 bg-white"
                             />
                             {(() => {
                               const demand = demands.find(d => d.itemCode === item.itemCode);
@@ -486,12 +487,12 @@ export function QuotationDetail({ id, onBack }: QuotationDetailProps) {
                             <table className="w-full text-left text-sm">
                               <thead className="bg-zinc-50/50">
                                 <tr>
-                                  <th className="px-4 py-2 font-semibold text-zinc-650 text-xs">Fornecedor</th>
-                                  <th className="px-4 py-2 font-semibold text-zinc-650 text-xs text-right">Qtd Ofertada</th>
-                                  <th className="px-4 py-2 font-semibold text-zinc-650 text-xs text-right">Preço Unit.</th>
-                                  <th className="px-4 py-2 font-semibold text-zinc-650 text-xs text-right">Prazo (Dias)</th>
-                                  <th className="px-4 py-2 font-semibold text-zinc-650 text-xs text-right">Condição Pag.</th>
-                                  <th className="px-4 py-2 font-semibold text-zinc-650 text-xs text-center">Ação</th>
+                                  <th className="px-4 py-2 font-semibold text-zinc-600 text-xs">Fornecedor</th>
+                                  <th className="px-4 py-2 font-semibold text-zinc-600 text-xs text-right">Qtd Ofertada</th>
+                                  <th className="px-4 py-2 font-semibold text-zinc-600 text-xs text-right">Preço Unit.</th>
+                                  <th className="px-4 py-2 font-semibold text-zinc-600 text-xs text-right">Prazo (Dias)</th>
+                                  <th className="px-4 py-2 font-semibold text-zinc-600 text-xs text-right">Condição Pag.</th>
+                                  <th className="px-4 py-2 font-semibold text-zinc-600 text-xs text-center">Ação</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-zinc-100">
@@ -537,7 +538,7 @@ export function QuotationDetail({ id, onBack }: QuotationDetailProps) {
                           <div className="mt-4 flex justify-end">
                             <button 
                               onClick={() => { setSelectedItemId(item.id); setAddingPrice(true); }}
-                              className="flex items-center gap-2 text-xs text-zinc-650 hover:text-zinc-950 bg-zinc-100 hover:bg-zinc-200 px-3 py-1.5 rounded font-bold transition-colors cursor-pointer"
+                              className="flex items-center gap-2 text-xs text-zinc-600 hover:text-zinc-950 bg-zinc-100 hover:bg-zinc-200 px-3 py-1.5 rounded font-bold transition-colors cursor-pointer"
                             >
                               <Plus className="h-4 w-4" /> Adicionar Preço
                             </button>

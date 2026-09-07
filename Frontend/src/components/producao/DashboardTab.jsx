@@ -29,10 +29,10 @@ export function DashboardTab({
 
       {/* Summary KPIs */}
       <section className="summary-grid">
-        <div 
-          className="summary-card critico" 
-          onClick={() => { setCurrentView('inventory'); setSelectedStatus('critico'); }} 
-          style={{ cursor: 'pointer' }}
+        <button
+          type="button"
+          className="summary-card critico"
+          onClick={() => { setCurrentView('inventory'); setSelectedStatus('critico'); }}
         >
           <div className="card-header">
             <span className="card-title">Produzir Urgente</span>
@@ -42,12 +42,12 @@ export function DashboardTab({
           </div>
           <div className="card-value">{stats.critico}</div>
           <div className="card-subtitle">Itens com estoque abaixo do crítico</div>
-        </div>
+        </button>
 
-        <div 
-          className="summary-card ordem" 
-          onClick={() => { setCurrentView('inventory'); setSelectedStatus('ordem'); }} 
-          style={{ cursor: 'pointer' }}
+        <button
+          type="button"
+          className="summary-card ordem"
+          onClick={() => { setCurrentView('inventory'); setSelectedStatus('ordem'); }}
         >
           <div className="card-header">
             <span className="card-title">Abrir Ordem</span>
@@ -57,12 +57,12 @@ export function DashboardTab({
           </div>
           <div className="card-value">{stats.ordem}</div>
           <div className="card-subtitle">Produtos no limite de segurança</div>
-        </div>
+        </button>
 
-        <div 
-          className="summary-card saudavel" 
-          onClick={() => { setCurrentView('inventory'); setSelectedStatus('saudavel'); }} 
-          style={{ cursor: 'pointer' }}
+        <button
+          type="button"
+          className="summary-card saudavel"
+          onClick={() => { setCurrentView('inventory'); setSelectedStatus('saudavel'); }}
         >
           <div className="card-header">
             <span className="card-title">Estoque Saudável</span>
@@ -72,12 +72,12 @@ export function DashboardTab({
           </div>
           <div className="card-value">{stats.saudavel}</div>
           <div className="card-subtitle">Produtos com estoque ideal</div>
-        </div>
+        </button>
 
-        <div 
-          className="summary-card lancamento" 
-          onClick={() => { setCurrentView('inventory'); setSelectedStatus('ALL'); setSelectedBase('ALL'); }} 
-          style={{ cursor: 'pointer' }}
+        <button
+          type="button"
+          className="summary-card lancamento"
+          onClick={() => { setCurrentView('inventory'); setSelectedStatus('ALL'); setSelectedBase('ALL'); }}
         >
           <div className="card-header">
             <span className="card-title">Novos Lançamentos</span>
@@ -87,7 +87,7 @@ export function DashboardTab({
           </div>
           <div className="card-value">{stats.lancamentos}</div>
           <div className="card-subtitle">Sem vendas históricas 2025</div>
-        </div>
+        </button>
       </section>
 
       {/* Status Distribution & System Health */}

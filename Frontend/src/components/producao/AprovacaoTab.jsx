@@ -456,7 +456,7 @@ export function AprovacaoTab({
           </button>
 
           <button 
-            className="btn-secondary cursor-pointer flex items-center gap-1.5 text-rose-650 hover:bg-rose-50"
+            className="btn-secondary cursor-pointer flex items-center gap-1.5 text-red-600 hover:bg-red-50"
             onClick={handleClearApprovalQueue}
             disabled={queuedProducts.length === 0}
             title="Limpar todos os itens da fila"
@@ -484,15 +484,15 @@ export function AprovacaoTab({
             <table className="w-full text-left text-xs border-collapse">
               <thead className="bg-zinc-50">
                 <tr className="border-b border-zinc-200">
-                  <th className="px-4 py-3 font-bold text-zinc-650 uppercase tracking-wider text-[10px]" style={{ width: '10%' }}>REF</th>
-                  <th className="px-4 py-3 font-bold text-zinc-650 uppercase tracking-wider text-[10px]" style={{ width: '25%' }}>Descrição / Linha</th>
-                  <th className="px-4 py-3 font-bold text-zinc-650 uppercase tracking-wider text-[10px] text-right" style={{ width: '10%' }}>EFP</th>
-                  <th className="px-4 py-3 font-bold text-zinc-650 uppercase tracking-wider text-[10px] text-right" style={{ width: '9%' }}>Média Venda</th>
-                  <th className="px-4 py-3 font-bold text-zinc-650 uppercase tracking-wider text-[10px] text-center" style={{ width: '10%' }}>Duração</th>
-                  <th className="px-4 py-3 font-bold text-zinc-650 uppercase tracking-wider text-[10px] text-right" style={{ width: '12%' }}>Qtd a Produzir</th>
-                  <th className="px-4 py-3 font-bold text-zinc-650 uppercase tracking-wider text-[10px] text-center" style={{ width: '10%' }}>Duração Pós</th>
-                  <th className="px-4 py-3 font-bold text-zinc-650 uppercase tracking-wider text-[10px]" style={{ width: '14%' }}>Base do Produto</th>
-                  <th className="px-4 py-3 font-bold text-zinc-650 uppercase tracking-wider text-[10px] text-center" style={{ width: '10%' }}>Ações</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px]" style={{ width: '10%' }}>REF</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px]" style={{ width: '25%' }}>Descrição / Linha</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px] text-right" style={{ width: '10%' }}>EFP</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px] text-right" style={{ width: '9%' }}>Média Venda</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px] text-center" style={{ width: '10%' }}>Duração</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px] text-right" style={{ width: '12%' }}>Qtd a Produzir</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px] text-center" style={{ width: '10%' }}>Duração Pós</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px]" style={{ width: '14%' }}>Base do Produto</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px] text-center" style={{ width: '10%' }}>Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
@@ -545,7 +545,7 @@ export function AprovacaoTab({
                       </td>
 
                       {/* Media */}
-                      <td className="px-4 py-3 align-middle text-right font-bold text-zinc-750">
+                      <td className="px-4 py-3 align-middle text-right font-bold text-zinc-700">
                         {mediaStr}
                       </td>
 
@@ -600,7 +600,7 @@ export function AprovacaoTab({
                             {baseProd ? (
                               <div className="text-[10px] text-zinc-400">
                                 {baseProd.descricao.substring(0, 16)}...
-                                <span className={`ml-1 font-bold ${baseProd.estoque > 0 ? 'text-emerald-650' : 'text-rose-650'}`}>
+                                <span className={`ml-1 font-bold ${baseProd.estoque > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                   (Est: {baseProd.estoque})
                                 </span>
                               </div>
@@ -628,7 +628,7 @@ export function AprovacaoTab({
                             <span>Aprovar</span>
                           </button>
                           <button 
-                            className="p-1 rounded border border-zinc-200 text-zinc-400 hover:text-zinc-650 hover:bg-zinc-50 transition-colors cursor-pointer"
+                            className="p-1 rounded border border-zinc-200 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50 transition-colors cursor-pointer"
                             onClick={() => onToggleApprovalList(p.codigo)}
                             title="Remover da Fila"
                           >
@@ -664,13 +664,13 @@ export function AprovacaoTab({
 
             <div className="space-y-4">
               {/* Product Info Summary */}
-              <div className="bg-zinc-50 border border-zinc-150 rounded-lg p-3 flex flex-col gap-1 text-[11px] text-zinc-700">
+              <div className="bg-zinc-50 border border-zinc-100 rounded-lg p-3 flex flex-col gap-1 text-[11px] text-zinc-700">
                 <div>REF: <strong className="text-zinc-900 font-mono">{approvingProduct.codigo}</strong></div>
                 <div>Produto: <strong className="text-zinc-900">{approvingProduct.descricao}</strong></div>
                 <div>Linha: <strong className="text-zinc-900">{approvingProduct.nome_linha}</strong></div>
                 <div>Quantidade: <strong className="text-zinc-900">{approvingProduct.qty.toLocaleString()} un</strong></div>
                 {approvingProduct.consumeBase && approvingProduct.baseProduct && (
-                  <div className="text-emerald-750 font-medium">Consumirá base: {approvingProduct.baseProduct.codigo}</div>
+                  <div className="text-emerald-700 font-medium">Consumirá base: {approvingProduct.baseProduct.codigo}</div>
                 )}
               </div>
 
@@ -683,7 +683,7 @@ export function AprovacaoTab({
                 <input 
                   type="text"
                   placeholder="Ex: 15348"
-                  className="w-full border border-zinc-250 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-zinc-500 font-bold"
+                  className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-zinc-500 font-bold"
                   value={loteErp}
                   onChange={(e) => setLoteErp(e.target.value)}
                   autoFocus
@@ -700,7 +700,7 @@ export function AprovacaoTab({
                 <div className="relative">
                   <input 
                     type="date"
-                    className="w-full border border-zinc-250 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-zinc-500 bg-white"
+                    className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-zinc-500 bg-white"
                     value={approvingProduct.date}
                     onChange={(e) => setApprovingProduct(prev => ({ ...prev, date: e.target.value }))}
                   />
@@ -711,7 +711,7 @@ export function AprovacaoTab({
               <div className="flex flex-col gap-1.5">
                 <label className="font-bold text-zinc-700 text-xs">Observações (Opcional)</label>
                 <textarea 
-                  className="w-full border border-zinc-250 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-zinc-500 min-h-16"
+                  className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-zinc-500 min-h-16"
                   placeholder="Ex: Fabricar base criativa primeiro"
                   value={approvingProduct.obs}
                   onChange={(e) => setApprovingProduct(prev => ({ ...prev, obs: e.target.value }))}

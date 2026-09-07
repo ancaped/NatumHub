@@ -138,7 +138,7 @@ export function InventoryTab({
                   <th 
                     style={{ width: '10%', cursor: 'pointer' }}
                     onClick={() => toggleSort('codigo', sortField, setSortField, sortDir, setSortDir)}
-                    className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px] select-none hover:bg-zinc-100 transition-colors"
+                    className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px] select-none hover:bg-zinc-100 transition-colors"
                   >
                     <div className="flex items-center gap-1">
                       REF
@@ -148,7 +148,7 @@ export function InventoryTab({
                   <th 
                     style={{ width: '35%', cursor: 'pointer' }}
                     onClick={() => toggleSort('descricao', sortField, setSortField, sortDir, setSortDir)}
-                    className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px] select-none hover:bg-zinc-100 transition-colors"
+                    className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px] select-none hover:bg-zinc-100 transition-colors"
                   >
                     <div className="flex items-center gap-1">
                       Descrição / Linha
@@ -158,7 +158,7 @@ export function InventoryTab({
                   <th 
                     style={{ width: '10%', cursor: 'pointer' }}
                     onClick={() => toggleSort('estoque_futuro_com_producao', sortField, setSortField, sortDir, setSortDir)}
-                    className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px] select-none hover:bg-zinc-100 transition-colors text-right"
+                    className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px] select-none hover:bg-zinc-100 transition-colors text-right"
                   >
                     <div className="flex items-center gap-1 justify-end">
                       EFP
@@ -168,7 +168,7 @@ export function InventoryTab({
                   <th 
                     style={{ width: '20%', cursor: 'pointer' }}
                     onClick={() => toggleSort('duracao_meses', sortField, setSortField, sortDir, setSortDir)}
-                    className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px] select-none hover:bg-zinc-100 transition-colors"
+                    className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px] select-none hover:bg-zinc-100 transition-colors"
                   >
                     <div className="flex items-center gap-1">
                       Duração
@@ -178,7 +178,7 @@ export function InventoryTab({
                   <th 
                     style={{ width: '12%', cursor: 'pointer' }}
                     onClick={() => toggleSort('status', sortField, setSortField, sortDir, setSortDir)}
-                    className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px] select-none hover:bg-zinc-100 transition-colors"
+                    className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px] select-none hover:bg-zinc-100 transition-colors"
                   >
                     <div className="flex items-center gap-1">
                       Status
@@ -188,15 +188,15 @@ export function InventoryTab({
                   <th 
                     style={{ width: '8%', cursor: 'pointer' }}
                     onClick={() => toggleSort('producao_recomendada', sortField, setSortField, sortDir, setSortDir)}
-                    className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px] select-none hover:bg-zinc-100 transition-colors text-right"
+                    className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px] select-none hover:bg-zinc-100 transition-colors text-right"
                   >
                     <div className="flex items-center gap-1 justify-end">
                       Sug. Prod.
                       <SortIcon field="producao_recomendada" activeField={sortField} activeDir={sortDir} />
                     </div>
                   </th>
-                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px] text-center" style={{ width: '5%' }}>Fila</th>
-                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px] text-center" style={{ width: '5%' }}>Ações</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px] text-center" style={{ width: '5%' }}>Fila</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px] text-center" style={{ width: '5%' }}>Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
@@ -213,7 +213,7 @@ export function InventoryTab({
 
                   return (
                     <tr key={p.codigo} className="hover:bg-zinc-50/30 transition-colors">
-                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle font-mono font-bold text-zinc-600">
+                      <td className="px-4 py-2.5 border-b border-zinc-100 align-middle font-mono font-bold text-zinc-600">
                         <button 
                           onClick={() => onShowDetails(p.codigo)} 
                           className="hover:underline text-left font-bold text-zinc-800 cursor-pointer bg-transparent border-none p-0"
@@ -222,7 +222,7 @@ export function InventoryTab({
                           {p.codigo}
                         </button>
                       </td>
-                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle">
+                      <td className="px-4 py-2.5 border-b border-zinc-100 align-middle">
                         <div className="font-bold text-zinc-900">
                           <button 
                             onClick={() => onShowDetails(p.codigo)} 
@@ -266,7 +266,7 @@ export function InventoryTab({
                             </span>
                           )}
                           {isOverridden && (
-                            <span className="overrides-indicator text-blue-650" title="Valores sobrescritos manualmente">
+                            <span className="overrides-indicator text-blue-600" title="Valores sobrescritos manualmente">
                               <Edit3 size={10} /> Editado
                             </span>
                           )}
@@ -278,13 +278,13 @@ export function InventoryTab({
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-right font-bold text-zinc-900">
+                      <td className="px-4 py-2.5 border-b border-zinc-100 align-middle text-right font-bold text-zinc-900">
                         {p.estoque_futuro_com_producao}
                         <div className="text-[10px] text-zinc-400 font-semibold mt-0.5">
                           Est: {p.estoque} | Prod: {p.producao} | Ped: {p.pedidos_aberto}
                         </div>
                       </td>
-                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle">
+                      <td className="px-4 py-2.5 border-b border-zinc-100 align-middle">
                         <div className="duration-container flex flex-col gap-1">
                           <div className="duration-info flex justify-between font-semibold text-zinc-700 text-[10px]">
                             <span>{p.duracao_meses.toFixed(1)} meses</span>
@@ -302,12 +302,12 @@ export function InventoryTab({
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle">
+                      <td className="px-4 py-2.5 border-b border-zinc-100 align-middle">
                         <span className={`status-badge ${p.status}`}>
                           {p.status_label}
                         </span>
                       </td>
-                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-right font-bold text-zinc-800" style={{ color: p.producao_recomendada > 0 ? 'hsl(var(--danger-hsl))' : 'inherit' }}>
+                      <td className="px-4 py-2.5 border-b border-zinc-100 align-middle text-right font-bold text-zinc-800" style={{ color: p.producao_recomendada > 0 ? 'hsl(var(--danger-hsl))' : 'inherit' }}>
                         {p.producao_recomendada > 0 ? `${p.producao_recomendada} un` : '-'}
                         {p.producao_recomendada > 0 && (
                           <div className="text-[10px] text-zinc-400 font-semibold mt-0.5">
@@ -315,12 +315,12 @@ export function InventoryTab({
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-center" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-4 py-2.5 border-b border-zinc-100 align-middle text-center" onClick={(e) => e.stopPropagation()}>
                         <button
                           onClick={() => onToggleApprovalList(p.codigo)}
                           className={`p-1 rounded transition-colors cursor-pointer ${
                             productionApprovalList.includes(p.codigo)
-                              ? 'text-emerald-650 hover:bg-emerald-50'
+                              ? 'text-emerald-600 hover:bg-emerald-50'
                               : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600'
                           }`}
                           title={productionApprovalList.includes(p.codigo) ? "Remover da Fila de Aprovação" : "Adicionar à Fila de Aprovação"}
@@ -332,7 +332,7 @@ export function InventoryTab({
                           )}
                         </button>
                       </td>
-                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-center">
+                      <td className="px-4 py-2.5 border-b border-zinc-100 align-middle text-center">
                         <div className="flex gap-1 justify-center">
                           <button 
                             className="p-1 rounded text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 transition-colors cursor-pointer" 

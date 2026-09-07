@@ -3,6 +3,7 @@ import { api } from '../../lib/api';
 import { DemandResult } from '../../types';
 import { Trash2, Printer, Search, Plus, FileText, RefreshCw, X, Package, Edit2, Check, ClipboardList, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { showToast, confirmDialog } from '../shared/feedback';
 
 interface ManualRequest {
   id: string;
@@ -96,7 +97,7 @@ export function SolicitationTab({ active = true }: { active?: boolean }) {
   const handleAddRequest = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formItemCode.trim() || !formDescription.trim() || formQuantity <= 0) {
-      alert("Por favor, preencha código, descrição e quantidade válida.");
+      showToast("Por favor, preencha código, descrição e quantidade válida.", 'error');
       return;
     }
 
@@ -124,8 +125,8 @@ export function SolicitationTab({ active = true }: { active?: boolean }) {
     setShowAddForm(false);
   };
 
-  const handleRemoveRequest = (id: string) => {
-    if (confirm("Deseja realmente remover esta solicitação de compra?")) {
+  const handleRemoveRequest = async (id: string) => {
+    if (await confirmDialog("Deseja realmente remover esta solicitação de compra?", { variant: 'danger' })) {
       const updated = requests.filter(r => r.id !== id);
       saveRequests(updated);
     }
@@ -139,7 +140,7 @@ export function SolicitationTab({ active = true }: { active?: boolean }) {
 
   const handleSaveEdit = (id: string) => {
     if (editingQuantity <= 0) {
-      alert("Por favor, insira uma quantidade maior que zero.");
+      showToast("Por favor, insira uma quantidade maior que zero.", 'error');
       return;
     }
     const updated = requests.map(r => {
@@ -156,8 +157,8 @@ export function SolicitationTab({ active = true }: { active?: boolean }) {
     setEditingId(null);
   };
 
-  const handleClearAll = () => {
-    if (confirm("Tem certeza de que deseja limpar TODAS as solicitações manuais? Esta ação não pode ser desfeita.")) {
+  const handleClearAll = async () => {
+    if (await confirmDialog("Tem certeza de que deseja limpar TODAS as solicitações manuais? Esta ação não pode ser desfeita.", { variant: 'danger' })) {
       saveRequests([]);
     }
   };
@@ -388,7 +389,7 @@ export function SolicitationTab({ active = true }: { active?: boolean }) {
           <button
             onClick={() => handleClearAll()}
             disabled={requests.length === 0}
-            className="text-xs border border-zinc-200 text-zinc-650 px-3.5 py-2 rounded-lg font-bold hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+            className="text-xs border border-zinc-200 text-zinc-600 px-3.5 py-2 rounded-lg font-bold hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
             Limpar Solicitações
           </button>
@@ -450,7 +451,7 @@ export function SolicitationTab({ active = true }: { active?: boolean }) {
                     <th className="px-6 py-4 text-center">Ações</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-150">
+                <tbody className="divide-y divide-zinc-100">
                   {filteredRequests.map(req => {
                     const isEditing = editingId === req.id;
                     return (
@@ -488,7 +489,7 @@ export function SolicitationTab({ active = true }: { active?: boolean }) {
                             />
                           ) : (
                             <span className="text-zinc-600 italic font-medium" title={req.observation}>
-                              {req.observation || <span className="text-zinc-350">—</span>}
+                              {req.observation || <span className="text-zinc-300">—</span>}
                             </span>
                           )}
                         </td>
@@ -559,7 +560,7 @@ export function SolicitationTab({ active = true }: { active?: boolean }) {
               <button
                 type="button"
                 onClick={() => setShowAddForm(false)}
-                className="p-1.5 hover:bg-zinc-150 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer"
+                className="p-1.5 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -567,7 +568,7 @@ export function SolicitationTab({ active = true }: { active?: boolean }) {
 
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               {/* Opção item não cadastrado */}
-              <div className="flex items-center gap-2 bg-zinc-50 border border-zinc-150 p-3.5 rounded-xl">
+              <div className="flex items-center gap-2 bg-zinc-50 border border-zinc-100 p-3.5 rounded-xl">
                 <input
                   type="checkbox"
                   id="chk-new-item"
@@ -616,7 +617,7 @@ export function SolicitationTab({ active = true }: { active?: boolean }) {
                             className="p-2.5 flex flex-col text-left hover:bg-zinc-50 transition-colors cursor-pointer"
                           >
                             <div className="flex items-center gap-2">
-                              <span className="font-mono font-bold text-zinc-650 text-[10px] bg-zinc-100 px-1.5 py-0.2 rounded">
+                              <span className="font-mono font-bold text-zinc-600 text-[10px] bg-zinc-100 px-1.5 py-0.2 rounded">
                                 {item.itemCode}
                               </span>
                               <span className="text-xs font-bold text-zinc-800 truncate">{item.description}</span>
@@ -700,7 +701,7 @@ export function SolicitationTab({ active = true }: { active?: boolean }) {
               <button
                 type="button"
                 onClick={() => setShowAddForm(false)}
-                className="px-4 py-2 border border-zinc-200 text-zinc-650 hover:bg-zinc-50 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                className="px-4 py-2 border border-zinc-200 text-zinc-600 hover:bg-zinc-50 rounded-lg text-xs font-bold transition-all cursor-pointer"
               >
                 Cancelar
               </button>

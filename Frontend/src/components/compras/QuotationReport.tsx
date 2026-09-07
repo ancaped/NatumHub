@@ -137,7 +137,7 @@ export function QuotationReport({ id, onBack }: QuotationReportProps) {
                   className="rounded border-zinc-300 text-zinc-950 focus:ring-zinc-950 cursor-pointer h-3.5 w-3.5"
                 />
                 <span className="font-semibold text-zinc-700">{label}</span>
-                <div className="flex items-center gap-1 border-l border-zinc-150 pl-2 ml-1">
+                <div className="flex items-center gap-1 border-l border-zinc-100 pl-2 ml-1">
                   <button
                     onClick={() => handleMoveColumn(idx, 'up')}
                     disabled={idx === 0}
@@ -259,7 +259,7 @@ export function QuotationReport({ id, onBack }: QuotationReportProps) {
                         {columnOrder.map(colKey => {
                           if (!columns[colKey]) return null;
                           if (colKey === 'ref') {
-                            return <td key="ref" className="px-3 py-2 font-mono text-xs text-zinc-650">{item.itemCode}</td>;
+                            return <td key="ref" className="px-3 py-2 font-mono text-xs text-zinc-600">{item.itemCode}</td>;
                           }
                           if (colKey === 'desc') {
                             return <td key="desc" className="px-3 py-2 text-zinc-900 max-w-48 truncate">{item.description}</td>;

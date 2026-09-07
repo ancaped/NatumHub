@@ -315,7 +315,7 @@ export function ProductManager({ products, onRefresh }: ProductManagerProps) {
                 onChange={(e) => setNewP({ ...newP, isEa: e.target.checked })}
                 className="rounded border-zinc-300 text-zinc-950 focus:ring-zinc-950 w-4 h-4 cursor-pointer"
               />
-              <label htmlFor="new-product-is-ea" className="text-xs font-bold uppercase text-zinc-650 select-none cursor-pointer">
+              <label htmlFor="new-product-is-ea" className="text-xs font-bold uppercase text-zinc-600 select-none cursor-pointer">
                 Classificar como EA (Estética Animal - Requer Teste Microbiológico)
               </label>
             </div>

@@ -213,13 +213,13 @@ export function LotesTab({
             <table className="w-full text-left text-xs whitespace-nowrap border-collapse">
               <thead className="bg-zinc-50 sticky top-0 z-10">
                 <tr className="border-b border-zinc-200">
-                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px]" style={{ width: '10%' }}>Nº Lote</th>
-                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px]" style={{ width: '12%' }}>Data</th>
-                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px]" style={{ width: '10%' }}>REF</th>
-                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px]" style={{ width: '28%' }}>Produto</th>
-                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px] text-right" style={{ width: '10%' }}>Quantidade</th>
-                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px] text-center" style={{ width: '10%' }}>Status</th>
-                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px]" style={{ width: '20%' }}>Operador / Autorização</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px]" style={{ width: '10%' }}>Nº Lote</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px]" style={{ width: '12%' }}>Data</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px]" style={{ width: '10%' }}>REF</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px]" style={{ width: '28%' }}>Produto</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px] text-right" style={{ width: '10%' }}>Quantidade</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px] text-center" style={{ width: '10%' }}>Status</th>
+                  <th className="px-4 py-3 font-bold text-zinc-600 uppercase tracking-wider text-[10px]" style={{ width: '20%' }}>Operador / Autorização</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
@@ -234,26 +234,26 @@ export function LotesTab({
                       style={{ cursor: onOpenDetails ? 'pointer' : 'default' }}
                       className="hover:bg-zinc-50/50 transition-colors"
                     >
-                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle font-mono font-bold text-zinc-600" style={{ fontSize: '0.85rem' }}>
+                      <td className="px-4 py-2.5 border-b border-zinc-100 align-middle font-mono font-bold text-zinc-600" style={{ fontSize: '0.85rem' }}>
                         #{l.loteNumber}
                       </td>
-                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-zinc-700 font-semibold" style={{ fontSize: '0.8rem' }}>
+                      <td className="px-4 py-2.5 border-b border-zinc-100 align-middle text-zinc-700 font-semibold" style={{ fontSize: '0.8rem' }}>
                         {formattedDate}
                       </td>
-                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle font-mono font-bold text-zinc-600">{l.productCode}</td>
-                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle">
+                      <td className="px-4 py-2.5 border-b border-zinc-100 align-middle font-mono font-bold text-zinc-600">{l.productCode}</td>
+                      <td className="px-4 py-2.5 border-b border-zinc-100 align-middle">
                         <div className="font-bold text-zinc-900">{l.productDescription || 'Item Não Sincronizado'}</div>
                       </td>
-                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-right font-bold text-zinc-900" style={{ fontSize: '0.85rem' }}>
+                      <td className="px-4 py-2.5 border-b border-zinc-100 align-middle text-right font-bold text-zinc-900" style={{ fontSize: '0.85rem' }}>
                         {l.quantity.toLocaleString()} kg
                       </td>
-                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-center">
+                      <td className="px-4 py-2.5 border-b border-zinc-100 align-middle text-center">
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
                           <span className={`status-badge ${getStatusBadgeClass(l.status)}`}>
                             {getStatusLabel(l.status)}
                           </span>
                           {l.isResolved === true && (
-                            <span className="bg-emerald-55 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded text-[9px] font-extrabold flex items-center gap-1 shadow-sm">
+                            <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded text-[9px] font-extrabold flex items-center gap-1 shadow-sm">
                               ✔️ Desvios Justificados
                             </span>
                           )}
@@ -331,7 +331,7 @@ export function LotesTab({
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle">
+                      <td className="px-4 py-2.5 border-b border-zinc-100 align-middle">
                         <div className="font-semibold text-zinc-700" style={{ fontSize: '0.75rem' }}>
                           <User size={10} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle', opacity: 0.6 }} />
                           {l.fabricatedBy || 'N/A'}

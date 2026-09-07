@@ -9,6 +9,7 @@ import {
   HelpCircle, Settings, Calculator, Activity, Trash, X, Loader2
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { showToast, confirmDialog } from '../components/shared/feedback';
 
 interface FiscoQuimicaViewProps {
   onBackToHub: () => void;
@@ -97,7 +98,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
       setItems(allItems);
     } catch (e) {
       console.error(e);
-      alert('Erro ao carregar os dados físico-químicos.');
+      showToast('Erro ao carregar os dados físico-químicos.', 'error');
     } finally {
       setLoading(false);
     }
@@ -475,11 +476,11 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
   const handleSaveAnalysis = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formProductCode) {
-      alert('Selecione um produto.');
+      showToast('Selecione um produto.', 'error');
       return;
     }
     if (!formBatch.trim()) {
-      alert('Digite o Lote.');
+      showToast('Digite o Lote.', 'info');
       return;
     }
 
@@ -488,7 +489,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
     const fracClean = formFractionWeight.toString().trim().replace(',', '.');
 
     if (phClean === '' || fracClean === '' || viscClean === '') {
-      alert('Preencha os campos medidos de pH, peso da fração e viscosidade.');
+      showToast('Preencha os campos medidos de pH, peso da fração e viscosidade.', 'error');
       return;
     }
 
@@ -497,7 +498,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
     const fracNum = parseFloat(fracClean);
 
     if (isNaN(phNum) || isNaN(viscNum) || isNaN(fracNum)) {
-      alert('Os valores inseridos nos campos medidos devem ser números válidos.');
+      showToast('Os valores inseridos nos campos medidos devem ser números válidos.', 'info');
       return;
     }
 
@@ -538,7 +539,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
 
     try {
       await api.saveFiscoQuimicaAnalysis(payload);
-      alert('Análise físico-química salva com sucesso!');
+      showToast('Análise físico-química salva com sucesso!', 'success');
       
       // Reset form
       setFormProductCode('');
@@ -559,19 +560,19 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
       setActiveTab('history');
     } catch (err) {
       console.error(err);
-      alert('Erro ao salvar registro de análise.');
+      showToast('Erro ao salvar registro de análise.', 'error');
     }
   };
 
   // Delete Analysis
   const handleDeleteAnalysis = async (id: string, batch: string) => {
-    if (!confirm(`Excluir permanentemente o registro de análise físico-química do lote ${batch}?`)) return;
+    if (!await confirmDialog(`Excluir permanentemente o registro de análise físico-química do lote ${batch}?`, { variant: 'danger' })) return;
     try {
       await api.deleteFiscoQuimicaAnalysis(id);
       loadAllData();
     } catch (e) {
       console.error(e);
-      alert('Erro ao excluir registro.');
+      showToast('Erro ao excluir registro.', 'error');
     }
   };
 
@@ -622,7 +623,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
   const handleSavePattern = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!patCode) {
-      alert('Código de produto não definido.');
+      showToast('Código de produto não definido.', 'error');
       return;
     }
 
@@ -648,7 +649,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
       isNaN(densTargetNum) || isNaN(densTolNum) ||
       isNaN(volNum)
     ) {
-      alert('Preencha todos os campos obrigatórios com valores numéricos válidos.');
+      showToast('Preencha todos os campos obrigatórios com valores numéricos válidos.', 'error');
       return;
     }
 
@@ -669,15 +670,15 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
       await api.saveFiscoQuimicaPattern(payload);
       setShowPatternModal(false);
       loadAllData();
-      alert('Padrão de especificação gravado com sucesso.');
+      showToast('Padrão de especificação gravado com sucesso.', 'success');
     } catch (err) {
       console.error(err);
-      alert('Erro ao salvar padrão de especificação.');
+      showToast('Erro ao salvar padrão de especificação.', 'error');
     }
   };
 
   const handleDeletePattern = async (code: string) => {
-    if (!confirm(`Remover as especificações físico-químicas do produto ${code}?`)) return;
+    if (!await confirmDialog(`Remover as especificações físico-químicas do produto ${code}?`, { variant: 'danger' })) return;
     try {
       await api.deleteFiscoQuimicaPattern(code);
       loadAllData();
@@ -690,12 +691,12 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
   const handleLinkAgent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeItem) {
-      alert('Selecione uma matéria-prima válida.');
+      showToast('Selecione uma matéria-prima válida.', 'error');
       return;
     }
 
     if (agents.some(a => a.id === activeItem.code)) {
-      alert('Esta matéria-prima já está vinculada como agente corretivo.');
+      showToast('Esta matéria-prima já está vinculada como agente corretivo.', 'error');
       return;
     }
 
@@ -706,15 +707,15 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
       });
       setItemCodeInput('');
       loadAllData();
-      alert('Matéria-prima vinculada como agente corretivo com sucesso!');
+      showToast('Matéria-prima vinculada como agente corretivo com sucesso!', 'success');
     } catch (err) {
       console.error(err);
-      alert('Erro ao vincular matéria-prima.');
+      showToast('Erro ao vincular matéria-prima.', 'error');
     }
   };
 
   const handleDeleteAgent = async (id: string, name: string) => {
-    if (!confirm(`Remover agente corretivo "${name}"?`)) return;
+    if (!await confirmDialog(`Remover agente corretivo "${name}"?`, { variant: 'danger' })) return;
     try {
       await api.deleteFiscoQuimicaAgent(id);
       loadAllData();
@@ -746,7 +747,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
       <aside className="w-64 bg-white border-r border-zinc-200 flex flex-col shrink-0">
         <div className="h-14 flex items-center px-4 border-b border-zinc-200 shrink-0">
           <h1 className="font-bold text-base tracking-tight text-zinc-800 uppercase flex items-center gap-2">
-            <FlaskConical className="w-5 h-5 text-zinc-900 animate-pulse" />
+            <FlaskConical className="w-5 h-5 text-zinc-900" />
             Físico-Química
           </h1>
         </div>
@@ -755,7 +756,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
         <div className="p-2 border-b border-zinc-100">
           <button
             onClick={onBackToHub}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
           >
             <ArrowLeft className="h-5 w-5 text-zinc-400" />
             Voltar à Produção
@@ -849,7 +850,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                         </option>
                       ))}
                     </datalist>
-                    <span className="text-[10px] font-medium text-zinc-550 block truncate mt-1">
+                    <span className="text-[10px] font-medium text-zinc-500 block truncate mt-1">
                       {activeProduct ? activeProduct.name : formProductCode ? 'Produto não localizado' : 'Aguardando código...'}
                     </span>
                   </div>
@@ -863,7 +864,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                         placeholder="Ex: L2026-A"
                         value={formBatch}
                         onChange={e => handleBatchChange(e.target.value)}
-                        className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-850 bg-white"
+                        className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                       />
                       {formBatchLoading && (
                         <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -883,7 +884,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                         required
                         value={formDate}
                         onChange={e => setFormDate(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-850 bg-white"
+                        className="w-full pl-9 pr-3 py-2 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                       />
                     </div>
                   </div>
@@ -898,7 +899,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                         placeholder="Nome do analista"
                         value={formTechnician}
                         onChange={e => setFormTechnician(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-850 bg-white"
+                        className="w-full pl-9 pr-3 py-2 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                       />
                     </div>
                   </div>
@@ -906,7 +907,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
 
                 {/* 2. Measured parameters */}
                 <div className="bg-white rounded-2xl p-6 border border-zinc-200 shadow-sm space-y-6">
-                  <h3 className="font-bold text-sm text-zinc-800 border-b border-zinc-150 pb-2">Especificações e Medições</h3>
+                  <h3 className="font-bold text-sm text-zinc-800 border-b border-zinc-100 pb-2">Especificações e Medições</h3>
                   
                   {!activeProduct ? (
                     <div className="p-6 text-center bg-zinc-50 rounded-xl border border-zinc-200 text-zinc-500 text-xs font-semibold flex items-center justify-center gap-2">
@@ -1091,7 +1092,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                               value={adjAgentId}
                               onChange={e => setAdjAgentId(e.target.value)}
                               required={hasAdjustment}
-                              className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none bg-white text-zinc-850"
+                              className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none bg-white text-zinc-800"
                             >
                               <option value="">Selecione...</option>
                               {agents.filter(a => activePattern?.allowedAgents?.includes(a.id)).length === 0 ? (
@@ -1116,7 +1117,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                               placeholder="Ex: 4000"
                               value={adjInitialVisc}
                               onChange={e => setAdjInitialVisc(e.target.value.replace(',', '.'))}
-                              className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none bg-white text-zinc-850"
+                              className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none bg-white text-zinc-800"
                             />
                           </div>
 
@@ -1131,7 +1132,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                               value={adjTrialQty}
                               onChange={e => setAdjTrialQty(e.target.value.replace(',', '.'))}
                               onBlur={handleAdjTrialQtyBlur}
-                              className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none bg-white text-zinc-850"
+                              className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none bg-white text-zinc-800"
                             />
                           </div>
 
@@ -1145,7 +1146,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                               placeholder="Ex: 5000"
                               value={adjTrialVisc}
                               onChange={e => setAdjTrialVisc(e.target.value.replace(',', '.'))}
-                              className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none bg-white text-zinc-850"
+                              className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none bg-white text-zinc-800"
                             />
                           </div>
                         </div>
@@ -1179,7 +1180,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                               value={adjFinalQty}
                               onChange={e => setAdjFinalQty(e.target.value.replace(',', '.'))}
                               onBlur={handleAdjFinalQtyBlur}
-                              className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none bg-white text-zinc-850 font-bold"
+                              className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none bg-white text-zinc-800 font-bold"
                             />
                           </div>
 
@@ -1193,7 +1194,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                               placeholder="Ex: 1000"
                               value={adjBatchSize}
                               onChange={e => setAdjBatchSize(e.target.value.replace(',', '.'))}
-                              className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none bg-white text-zinc-850 font-bold"
+                              className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none bg-white text-zinc-800 font-bold"
                             />
                           </div>
 
@@ -1221,7 +1222,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                       placeholder="Anote detalhes de liberação, alterações ou desvios..."
                       value={formNotes}
                       onChange={e => setFormNotes(e.target.value)}
-                      className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-850 bg-white"
+                      className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-950 focus:border-zinc-950 text-zinc-800 bg-white"
                       rows={3}
                     />
                   </div>
@@ -1323,7 +1324,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                                 </button>
                                 <button 
                                   onClick={() => handleDeleteAnalysis(a.id, a.batch)}
-                                  className="p-1 text-zinc-400 hover:text-red-650 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                                  className="p-1 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
                                   title="Excluir"
                                 >
                                   <Trash2 className="w-4 h-4" />
@@ -1384,32 +1385,32 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                           <tr key={prod.code} className="hover:bg-zinc-50/50 transition-colors">
                             <td className="px-6 py-4">
                               <div>
-                                <span className="font-bold text-zinc-850 block">{prod.name}</span>
+                                <span className="font-bold text-zinc-800 block">{prod.name}</span>
                                 <span className="block text-[10px] font-mono text-zinc-400 font-bold">{prod.code}</span>
                               </div>
                             </td>
-                            <td className="px-6 py-4 font-mono text-zinc-850">
+                            <td className="px-6 py-4 font-mono text-zinc-800">
                               {pat ? (
                                 <span className="font-semibold">{pat.phMin.toFixed(2)} - {pat.phMax.toFixed(2)}</span>
                               ) : (
                                 <span className="text-zinc-400 italic text-xs">-</span>
                               )}
                             </td>
-                            <td className="px-6 py-4 font-mono text-zinc-850">
+                            <td className="px-6 py-4 font-mono text-zinc-800">
                               {pat ? (
                                 <span className="font-semibold">{pat.viscosityMin.toLocaleString()} - {pat.viscosityMax.toLocaleString()} cps</span>
                               ) : (
                                 <span className="text-zinc-400 italic text-xs">-</span>
                               )}
                             </td>
-                            <td className="px-6 py-4 font-mono text-zinc-850">
+                            <td className="px-6 py-4 font-mono text-zinc-800">
                               {pat ? (
                                 <span className="font-semibold">{pat.densityTarget.toFixed(3)} ± {pat.densityTolerance.toFixed(3)} g/mL</span>
                               ) : (
                                 <span className="text-zinc-400 italic text-xs">-</span>
                               )}
                             </td>
-                            <td className="px-6 py-4 text-zinc-850">
+                            <td className="px-6 py-4 text-zinc-800">
                               {pat ? (
                                 <span className="font-bold">{pat.packageVolume} {pat.packageUnit}</span>
                               ) : (
@@ -1433,14 +1434,14 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                                   <>
                                     <button 
                                       onClick={() => handleOpenEditPatternForProduct(prod, pat)}
-                                      className="flex items-center gap-1 px-2.5 py-1 text-zinc-650 hover:text-zinc-900 border border-zinc-200 hover:bg-zinc-50 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+                                      className="flex items-center gap-1 px-2.5 py-1 text-zinc-600 hover:text-zinc-900 border border-zinc-200 hover:bg-zinc-50 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
                                       title="Editar Padrão"
                                     >
                                       <Edit3 className="w-3.5 h-3.5" /> Editar
                                     </button>
                                     <button 
                                       onClick={() => handleDeletePattern(pat.productCode)}
-                                      className="p-1 text-zinc-400 hover:text-red-650 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                                      className="p-1 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
                                       title="Remover Padrão"
                                     >
                                       <Trash2 className="w-4 h-4" />
@@ -1449,7 +1450,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                                 ) : (
                                   <button 
                                     onClick={() => handleOpenAddPatternForProduct(prod)}
-                                    className="flex items-center gap-1 px-2.5 py-1 bg-zinc-950 hover:bg-zinc-850 text-white rounded-lg text-xs font-semibold cursor-pointer transition-colors shadow-sm"
+                                    className="flex items-center gap-1 px-2.5 py-1 bg-zinc-950 hover:bg-zinc-800 text-white rounded-lg text-xs font-semibold cursor-pointer transition-colors shadow-sm"
                                     title="Definir Especificações"
                                   >
                                     <Plus className="w-3.5 h-3.5" /> Definir Padrão
@@ -1498,7 +1499,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                         </option>
                       ))}
                     </datalist>
-                    <span className="text-[10px] font-medium text-zinc-550 block truncate mt-1">
+                    <span className="text-[10px] font-medium text-zinc-500 block truncate mt-1">
                       {activeItem ? (
                         <span className="text-emerald-700 font-bold">
                           ✓ {activeItem.description} ({activeItem.unit})
@@ -1535,7 +1536,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                         </div>
                         <button
                           onClick={() => handleDeleteAgent(a.id, a.name)}
-                          className="p-1 text-zinc-400 hover:text-red-650 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                          className="p-1 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
                           title="Remover Vínculo"
                         >
                           <Trash size={14} />
@@ -1557,14 +1558,14 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh] text-left animate-in fade-in zoom-in-95 duration-200">
             <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50 flex justify-between items-center shrink-0">
               <div>
-                <h3 className="font-black text-zinc-850 text-base">Laudo Físico-Químico: Lote {selectedAnalysis.batch}</h3>
+                <h3 className="font-black text-zinc-800 text-base">Laudo Físico-Químico: Lote {selectedAnalysis.batch}</h3>
                 <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mt-0.5">
                   Medido em {new Date(selectedAnalysis.analysisDate + 'T00:00:00').toLocaleDateString('pt-BR')} por {selectedAnalysis.technician}
                 </p>
               </div>
               <button 
                 onClick={() => setShowDetailModal(false)}
-                className="text-zinc-400 hover:text-zinc-650 cursor-pointer"
+                className="text-zinc-400 hover:text-zinc-600 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1600,7 +1601,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                   <div>Copo Padrão (Volume): <strong>{DENSITY_CUP_VOLUME} mL</strong></div>
                   <div>Peso Medido da Fração: <strong>{selectedAnalysis.fractionWeight.toFixed(3)} g</strong></div>
                   
-                  <div className="col-span-2 mt-1 pt-1.5 border-t border-zinc-200 font-bold text-zinc-850 flex flex-col gap-1.5">
+                  <div className="col-span-2 mt-1 pt-1.5 border-t border-zinc-200 font-bold text-zinc-800 flex flex-col gap-1.5">
                     <div className="flex items-center justify-between">
                       <span>Peso Alvo do Envase:</span>
                       <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded font-mono font-bold">
@@ -1608,7 +1609,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                       </span>
                     </div>
                     {selectedAnalysis.densityMeasured > 0 && (
-                      <div className="flex items-center justify-between text-zinc-550 text-[11px] mt-0.5">
+                      <div className="flex items-center justify-between text-zinc-500 text-[11px] mt-0.5">
                         <span>Volume Equivalente:</span>
                         <span className="font-mono font-bold text-blue-700">
                           {(() => {
@@ -1694,7 +1695,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
               <button 
                 type="button" 
                 onClick={() => setShowPatternModal(false)}
-                className="text-zinc-400 hover:text-zinc-650 cursor-pointer"
+                className="text-zinc-400 hover:text-zinc-600 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1810,7 +1811,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                   <select
                     value={patUnit}
                     onChange={e => setPatUnit(e.target.value as any)}
-                    className="w-full border border-zinc-300 rounded-lg px-3 py-1.5 text-xs focus:outline-none bg-white text-zinc-850"
+                    className="w-full border border-zinc-300 rounded-lg px-3 py-1.5 text-xs focus:outline-none bg-white text-zinc-800"
                   >
                     <option value="mL">mL</option>
                     <option value="L">L</option>
@@ -1857,7 +1858,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
               <button 
                 type="button" 
                 onClick={() => setShowPatternModal(false)}
-                className="bg-white border border-zinc-300 text-zinc-650 text-xs font-bold px-4 py-2 rounded-xl hover:bg-zinc-50 cursor-pointer shadow-sm"
+                className="bg-white border border-zinc-300 text-zinc-600 text-xs font-bold px-4 py-2 rounded-xl hover:bg-zinc-50 cursor-pointer shadow-sm"
               >
                 Cancelar
               </button>

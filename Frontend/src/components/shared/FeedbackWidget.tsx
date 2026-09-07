@@ -5,6 +5,48 @@ import { api } from '../../lib/api';
 import { getLogs } from '../../lib/logInterceptor';
 import { cn } from '../../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { showToast } from './feedback';
+
+export const FEEDBACK_MODULES = [
+  'Geral',
+  'Hub / Configurações',
+  'Produção',
+  'Kits',
+  'Microbiologia',
+  'Físico-Química',
+  'Compras',
+  'Estoque',
+  'Vendas',
+  'Administrativo',
+] as const;
+
+export function resolveFeedbackModule(view?: string): string {
+  const v = view || '';
+  if (v === 'hub' || v === 'hub_settings') return 'Hub / Configurações';
+  if (v.startsWith('compras')) return 'Compras';
+  if (v.startsWith('estoque')) return 'Estoque';
+  if (v === 'fisco_quimica' || v.startsWith('fisco')) return 'Físico-Química';
+  if (v === 'microbiologia') return 'Microbiologia';
+  if (v === 'montagem_kits') return 'Kits';
+  if (v === 'producao' || v === 'producao_hub') return 'Produção';
+  if (v === 'vendas') return 'Vendas';
+  if (v.startsWith('administrativo') || v === 'acompanhamento_producao') return 'Administrativo';
+  return 'Geral';
+}
+
+function resolveFeedbackSubPage(view?: string, pageName?: string): string {
+  if (view === 'hub') return 'Início';
+  if (view === 'hub_settings') return 'Configurações';
+  if (
+    view === 'producao_hub' ||
+    view === 'compras_hub' ||
+    view === 'estoque_hub' ||
+    view === 'administrativo_hub'
+  ) {
+    return 'Hub';
+  }
+  return pageName || '';
+}
 
 interface FeedbackWidgetProps {
   currentView?: string;
@@ -27,26 +69,11 @@ export function FeedbackWidget({ currentView }: FeedbackWidgetProps) {
     }
   }, [isOpen, tab]);
 
-  // Dynamically pre-populate module and subPage based on parent view context
   useEffect(() => {
     if (isOpen) {
       const pageName = (window as any).__current_page__ || '';
-      if (currentView === 'compras') {
-        setModule('Compras');
-        setSubPage(pageName);
-      } else if (currentView === 'microbiologia') {
-        setModule('Microbiologia');
-        setSubPage(pageName);
-      } else if (currentView === 'producao') {
-        setModule('Produção');
-        setSubPage(pageName);
-      } else if (currentView === 'producao_hub') {
-        setModule('Produção');
-        setSubPage('Hub');
-      } else {
-        setModule('Geral');
-        setSubPage(pageName);
-      }
+      setModule(resolveFeedbackModule(currentView));
+      setSubPage(resolveFeedbackSubPage(currentView, pageName));
     }
   }, [isOpen, currentView]);
 
@@ -118,7 +145,7 @@ export function FeedbackWidget({ currentView }: FeedbackWidgetProps) {
       setScreenshot(dataUrl);
     } catch (err: any) {
       console.error('Failed to capture screen:', err);
-      alert('Erro ao capturar a tela: ' + (err.message || String(err)));
+      showToast('Erro ao capturar a tela: ' + (err.message || String(err)), 'error');
     } finally {
       setLoading(false);
     }
@@ -143,10 +170,10 @@ export function FeedbackWidget({ currentView }: FeedbackWidgetProps) {
       setDescription('');
       setScreenshot('');
       setTab('list');
-      alert('Enviado com sucesso!');
+      showToast('Enviado com sucesso!', 'success');
     } catch (e: any) {
       console.error(e);
-      alert('Erro ao enviar feedback: ' + (e.message || String(e)));
+      showToast('Erro ao enviar feedback: ' + (e.message || String(e)), 'error');
     } finally {
       setLoading(false);
     }
@@ -158,7 +185,7 @@ export function FeedbackWidget({ currentView }: FeedbackWidgetProps) {
       loadFeedbacks();
     } catch (e) {
       console.error(e);
-      alert('Erro ao resolver');
+      showToast('Erro ao resolver', 'error');
     }
   };
 
@@ -166,7 +193,7 @@ export function FeedbackWidget({ currentView }: FeedbackWidgetProps) {
     <>
       <button
         onClick={() => setIsOpen(true)}
-        className="feedback-widget-trigger fixed bottom-6 right-6 w-12 h-12 bg-zinc-900 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-zinc-800 transition-colors z-50 group"
+        className="feedback-widget-trigger fixed bottom-6 right-6 w-12 h-12 bg-zinc-900 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-zinc-800 transition-colors z-50 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
         title="Enviar Feedback / Reportar Bug"
       >
         <Bug className="h-5 w-5" />
@@ -244,11 +271,9 @@ export function FeedbackWidget({ currentView }: FeedbackWidgetProps) {
                         onChange={(e) => setModule(e.target.value)}
                         className="w-full px-3 py-2 text-sm bg-white border border-zinc-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-zinc-900 transition-all font-medium text-zinc-800"
                       >
-                        <option value="Geral">Geral / Hub</option>
-                        <option value="Produção">Produção</option>
-                        <option value="Microbiologia">Microbiologia</option>
-                        <option value="Compras">Compras</option>
-                        <option value="Outro">Outro</option>
+                        {FEEDBACK_MODULES.map((mod) => (
+                          <option key={mod} value={mod}>{mod}</option>
+                        ))}
                       </select>
                     </div>
                     <div>

@@ -67,7 +67,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
           <div className="flex items-center gap-3 mt-8">
             <button
               onClick={this.handleReset}
-              className="flex items-center gap-2 bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-700 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all"
+              className="flex items-center gap-2 bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-700 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
             >
               <RotateCcw className="h-4 w-4" /> Tentar Novamente
             </button>
@@ -76,7 +76,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
                 this.setState({ hasError: false, error: null });
                 window.location.reload();
               }}
-              className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white px-5 py-2 rounded-xl text-sm font-semibold shadow-md transition-all"
+              className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white px-5 py-2 rounded-xl text-sm font-semibold shadow-md transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
             >
               <Home className="h-4 w-4" /> Voltar ao Início
             </button>

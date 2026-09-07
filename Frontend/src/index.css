@@ -185,6 +185,16 @@ header {
   overflow: hidden;
   transition: all 0.2s ease;
   box-shadow: var(--shadow-sm);
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.summary-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px hsl(var(--background-hsl)), 0 0 0 4px hsl(240, 5.9%, 9%);
 }
 
 .summary-card::before {

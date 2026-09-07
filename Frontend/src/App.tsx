@@ -8,14 +8,17 @@ import ComprasOnlineView from './modules/ComprasOnlineView';
 import EstoqueView from './modules/EstoqueView';
 import PedidosView from './modules/PedidosView';
 import NotasFiscaisView from './modules/NotasFiscaisView';
-import ActiveProductsView from './modules/ActiveProductsView';
 import VendasView from './modules/VendasView';
 import AcompanhamentoProducaoView from './modules/AcompanhamentoProducaoView';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { FeedbackWidget } from './components/shared/FeedbackWidget';
+import { HubCard } from './components/shared/HubCard';
+import { HubShell } from './components/shared/HubShell';
+import { HUB_FOCUS } from './components/shared/hub';
+import { confirmDialog, showToast } from './components/shared/feedback';
 import { 
-  Boxes, ShoppingCart, Activity, FlaskConical, ArrowRight, ArrowLeft,
-  Settings, Database, RefreshCw, Upload, Download, Loader2, Check, X, Globe,
+  Boxes, ShoppingCart, Activity, FlaskConical,
+  Settings, Database, RefreshCw, Upload, Download, X, Globe,
   FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp,
   Briefcase, Calendar, KeyRound
 } from 'lucide-react';
@@ -29,7 +32,30 @@ import {
   uploadBackupFile 
 } from './lib/firebase';
 
-type HubView = 'hub' | 'producao_hub' | 'producao' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'estoque_hub' | 'estoque_insumos' | 'estoque_produtos' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'vendas' | 'linha_produtos' | 'estoque_ativos' | 'administrativo_hub' | 'acompanhamento_producao';
+type HubView =
+  | 'hub'
+  | 'producao_hub'
+  | 'producao'
+  | 'montagem_kits'
+  | 'microbiologia'
+  | 'fisco_quimica'
+  | 'compras_hub'
+  | 'compras_online'
+  | 'compras_pedidos'
+  | 'compras_notas'
+  | 'hub_settings'
+  | 'estoque_hub'
+  | 'estoque_insumos'
+  | 'estoque_produtos'
+  | 'compras_materia_prima'
+  | 'compras_embalagens'
+  | 'compras_coloracao'
+  | 'compras_apoio'
+  | 'compras_quotations'
+  | 'vendas'
+  | 'estoque_ativos'
+  | 'administrativo_hub'
+  | 'acompanhamento_producao';
 
 export default function App() {
   const [view, setView] = useState<HubView>('hub');
@@ -321,7 +347,11 @@ export default function App() {
   };
 
   const handleManualRestore = async () => {
-    if (!confirm('ATENÇÃO: Restaurar um backup vai SUBSTITUIR todos os dados atuais (Insumos, Lotes, Microbiologia, etc.). Continuar?')) return;
+    const ok = await confirmDialog(
+      'Restaurar um backup vai SUBSTITUIR todos os dados atuais (Insumos, Lotes, Microbiologia, etc.). Continuar?',
+      { title: 'Atenção', variant: 'danger', confirmLabel: 'Restaurar' }
+    );
+    if (!ok) return;
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.db';
@@ -337,7 +367,7 @@ export default function App() {
       try {
         await api.restoreBackup(data);
         setMessage({ text: "Backup restaurado com sucesso!", type: 'success' });
-        alert('Backup restaurado com sucesso! O aplicativo precisa ser reiniciado para carregar os novos dados.');
+        showToast('Backup restaurado com sucesso! O aplicativo precisa ser reiniciado para carregar os novos dados.', 'success');
         window.location.reload();
       } catch (err) {
         console.error(err);
@@ -379,14 +409,6 @@ export default function App() {
       return (
         <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Análise Físico-Química">
           <FiscoQuimicaView onBackToHub={() => setView('producao_hub')} />
-        </ErrorBoundary>
-      );
-    }
-
-    if (view === 'compras') {
-      return (
-        <ErrorBoundary onReset={() => setView('compras_hub')} fallbackTitle="Erro no módulo de Compras">
-          <ComprasView mode="all" onBackToHub={() => setView('compras_hub')} />
         </ErrorBoundary>
       );
     }
@@ -457,93 +479,37 @@ export default function App() {
 
     if (view === 'estoque_hub') {
       return (
-        <div className="min-h-screen bg-zinc-50 font-sans text-zinc-900 flex flex-col justify-between">
-          <header className="bg-white border-b border-zinc-200 px-8 py-4 shrink-0 flex items-center justify-between shadow-sm">
-            <div className="flex items-center gap-3">
-              <button 
-                onClick={() => setView('hub')}
-                className="bg-white border border-zinc-200 hover:bg-zinc-100 p-2 rounded-xl text-zinc-650 hover:text-zinc-900 transition-colors cursor-pointer"
-                title="Voltar ao Início"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </button>
-              <div>
-                <h1 className="font-bold text-lg tracking-tight">Estoque Hub</h1>
-                <p className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">Sub-módulos e inventários de produtos e insumos</p>
-              </div>
-            </div>
-          </header>
-
-          <main className="flex-1 flex flex-col items-center justify-center p-6 max-w-6xl w-full mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
-            <div className="text-center space-y-2">
-              <h2 className="text-3xl font-extrabold tracking-tight text-zinc-900">Módulos de Estoque</h2>
-              <p className="text-sm text-zinc-500">Selecione o inventário específico para consulta e movimentações.</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 w-full max-w-5xl">
-              {/* Insumos */}
-              <button 
-                onClick={() => setView('estoque_insumos')}
-                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
-              >
-                <div className="space-y-4">
-                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                    <Boxes className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-zinc-900">Insumos</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Níveis de estoque de matérias-primas químicas, essências, embalagens e materiais de consumo com histórico de movimentações.</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                  Acessar Insumos <ArrowRight className="h-4 w-4" />
-                </div>
-              </button>
-
-              {/* Produtos */}
-              <button 
-                onClick={() => setView('estoque_produtos')}
-                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
-              >
-                <div className="space-y-4">
-                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                    <Boxes className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-zinc-900">Produtos</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Catálogo de produtos, fórmulas de fabricação, estoque atual, previsões de demanda e histórico de lotes.</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                  Acessar Produtos <ArrowRight className="h-4 w-4" />
-                </div>
-              </button>
-
-              {/* Linha de Produtos */}
-              <button 
-                onClick={() => setView('estoque_ativos')}
-                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full"
-              >
-                <div className="space-y-4">
-                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                    <CheckCircle2 className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-zinc-900">Linha de Produtos</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Defina quais produtos vão ser de quais linhas, quais vão ficar ativos/em lançamento e ajuste overrides de estoque.</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                  Acessar Linhas <ArrowRight className="h-4 w-4" />
-                </div>
-              </button>
-            </div>
-          </main>
-
-          <footer className="w-full text-center py-6 text-xs text-zinc-400 border-t border-zinc-200/50 bg-white/50">
-            &copy; {new Date().getFullYear()} Nátum Bio Cosméticos. Todos os direitos reservados.
-          </footer>
-        </div>
+        <HubShell
+          title="Estoque Hub"
+          subtitle="Sub-módulos e inventários de produtos e insumos"
+          onBack={() => setView('hub')}
+          heading="Módulos de Estoque"
+          headingDescription="Selecione o inventário específico para consulta e movimentações."
+        >
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 w-full max-w-5xl">
+            <HubCard
+              title="Insumos"
+              description="Níveis de estoque de matérias-primas químicas, essências, embalagens e materiais de consumo com histórico de movimentações."
+              cta="Acessar Insumos"
+              icon={<Boxes className="h-6 w-6" />}
+              onClick={() => setView('estoque_insumos')}
+            />
+            <HubCard
+              title="Produtos"
+              description="Catálogo de produtos, fórmulas de fabricação, estoque atual, previsões de demanda e histórico de lotes."
+              cta="Acessar Produtos"
+              icon={<Boxes className="h-6 w-6" />}
+              onClick={() => setView('estoque_produtos')}
+            />
+            <HubCard
+              title="Linha de Produtos"
+              description="Defina quais produtos vão ser de quais linhas, quais vão ficar ativos/em lançamento e ajuste overrides de estoque."
+              cta="Acessar Linhas"
+              icon={<CheckCircle2 className="h-6 w-6" />}
+              onClick={() => setView('estoque_ativos')}
+            />
+          </div>
+        </HubShell>
       );
     }
 
@@ -579,14 +545,6 @@ export default function App() {
       );
     }
 
-    if (view === 'linha_produtos') {
-      return (
-        <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro no módulo de Linha de Produtos">
-          <ActiveProductsView onBackToHub={() => setView('hub')} standalone={true} />
-        </ErrorBoundary>
-      );
-    }
-
     if (view === 'acompanhamento_producao') {
       return (
         <ErrorBoundary onReset={() => setView('administrativo_hub')} fallbackTitle="Erro no módulo de Acompanhamento de Produção">
@@ -597,92 +555,46 @@ export default function App() {
 
     if (view === 'administrativo_hub') {
       return (
-        <div className="min-h-screen bg-zinc-50 font-sans text-zinc-900 flex flex-col justify-between">
-          <header className="bg-white border-b border-zinc-200 px-8 py-4 shrink-0 flex items-center justify-between shadow-sm">
-            <div className="flex items-center gap-3">
-              <button 
-                onClick={() => setView('hub')}
-                className="bg-white border border-zinc-200 hover:bg-zinc-100 p-2 rounded-xl text-zinc-650 hover:text-zinc-900 transition-colors cursor-pointer"
-                title="Voltar ao Início"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </button>
-              <div>
-                <h1 className="font-bold text-lg tracking-tight">Módulo Administrativo</h1>
-                <p className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">Acompanhamento e controles operacionais</p>
-              </div>
-            </div>
-          </header>
-
-          <main className="flex-1 flex flex-col items-center justify-center p-6 max-w-6xl w-full mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
-            <div className="text-center space-y-2">
-              <h2 className="text-3xl font-extrabold tracking-tight text-zinc-900">Módulo Administrativo</h2>
-              <p className="text-sm text-zinc-500">Selecione o sub-módulo administrativo desejado.</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-4 w-full max-w-4xl">
-              {/* Acompanhamento de Produção */}
-              <button 
-                onClick={() => setView('acompanhamento_producao')}
-                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
-              >
-                <div className="space-y-4">
-                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                    <Calendar className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-zinc-900">Acompanhamento de Produção</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Planilha gerencial de lotes com controle de etapas (Pesagem, Produção, Envase, Rotulagem, Finalizada) e calendário mensal integrado.</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                  Acessar Acompanhamento <ArrowRight className="h-4 w-4" />
-                </div>
-              </button>
-            </div>
-          </main>
-
-          <footer className="w-full text-center py-6 text-xs text-zinc-400 border-t border-zinc-200/50 bg-white/50">
-            &copy; {new Date().getFullYear()} Nátum Bio Cosméticos. Todos os direitos reservados.
-          </footer>
-        </div>
+        <HubShell
+          title="Módulo Administrativo"
+          subtitle="Acompanhamento e controles operacionais"
+          onBack={() => setView('hub')}
+          heading="Módulo Administrativo"
+          headingDescription="Selecione o sub-módulo administrativo desejado."
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-4 w-full max-w-4xl">
+            <HubCard
+              title="Acompanhamento de Produção"
+              description="Planilha gerencial de lotes com controle de etapas (Pesagem, Produção, Envase, Rotulagem, Finalizada) e calendário mensal integrado."
+              cta="Acessar Acompanhamento"
+              icon={<Calendar className="h-6 w-6" />}
+              onClick={() => setView('acompanhamento_producao')}
+            />
+          </div>
+        </HubShell>
       );
     }
 
     if (view === 'hub_settings') {
       return (
-        <div className="min-h-screen bg-zinc-50 font-sans text-zinc-900 flex flex-col justify-between">
-          {/* Top Header */}
-          <header className="bg-white border-b border-zinc-200 px-8 py-4 shrink-0 flex items-center justify-between shadow-sm">
-            <div className="flex items-center gap-3 text-left">
-              <button 
-                onClick={() => setView('hub')}
-                className="bg-zinc-100 hover:bg-zinc-200 p-2 rounded-xl text-zinc-650 hover:text-zinc-900 transition-colors border border-zinc-200 cursor-pointer shadow-sm"
-                title="Voltar ao Hub"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </button>
-              <div>
-                <h1 className="font-bold text-lg tracking-tight">Configurações Gerais</h1>
-                <p className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">Configuração central de backups do ecossistema</p>
-              </div>
-            </div>
-            <div className="text-xs text-zinc-500 font-mono">
-              Natum v0.011 alpha
-            </div>
-          </header>
-
-          {/* Main Container */}
-          <main className="flex-1 p-6 max-w-6xl w-full mx-auto space-y-6 flex flex-col justify-center">
+        <HubShell
+          title="Configurações Gerais"
+          subtitle="Configuração central de backups do ecossistema"
+          onBack={() => setView('hub')}
+          backLabel="Voltar ao Hub"
+          centered={false}
+          mainClassName="space-y-6 justify-center"
+          headerRight={<div className="text-xs text-zinc-500 font-mono">Natum v0.011 alpha</div>}
+        >
             {message && (
               <div className={`p-4 rounded-xl border text-sm font-bold flex items-center justify-between shadow-sm transition-all duration-300 ${
-                message.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'
+                message.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-red-50 text-red-800 border-red-200'
               }`}>
                 <div className="flex items-center gap-2">
-                  <div className={`h-2.5 w-2.5 rounded-full ${message.type === 'success' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                  <div className={`h-2.5 w-2.5 rounded-full ${message.type === 'success' ? 'bg-emerald-500' : 'bg-red-500'}`} />
                   {message.text}
                 </div>
-                <button onClick={() => setMessage(null)} className="text-zinc-400 hover:text-zinc-650 transition-colors cursor-pointer">
+                <button type="button" onClick={() => setMessage(null)} className="text-zinc-400 hover:text-zinc-600 transition-colors cursor-pointer">
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -694,7 +606,7 @@ export default function App() {
                 <div>
                   <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50 text-left">
                     <h3 className="font-bold text-zinc-800 flex items-center gap-2 text-base">
-                      <Globe className="h-5 w-5 text-indigo-600" />
+                      <Globe className="h-5 w-5 text-zinc-500" />
                       Servidor NatumHub
                     </h3>
                     <p className="text-xs text-zinc-500 font-medium">IP do computador principal na rede Tailscale</p>
@@ -704,7 +616,7 @@ export default function App() {
                       <label className="text-xs font-semibold text-zinc-600 block">Endereço da API REST (Axum)</label>
                       <input 
                         type="text" 
-                        className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs font-mono focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
+                        className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs font-mono focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-800" 
                         placeholder="Ex: http://100.120.161.52:3001/api"
                         value={serverHost}
                         onChange={(e) => setServerHost(e.target.value)}
@@ -718,7 +630,7 @@ export default function App() {
                       <label className="text-xs font-semibold text-zinc-600 block">Token da API (hub_token)</label>
                       <input 
                         type="password" 
-                        className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs font-mono focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
+                        className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs font-mono focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-800" 
                         placeholder="Bearer token do servidor"
                         value={hubToken}
                         onChange={(e) => setHubTokenInput(e.target.value)}
@@ -737,7 +649,7 @@ export default function App() {
                         setMessage({ text: "Endereço e token salvos! A página será atualizada.", type: 'success' });
                         setTimeout(() => window.location.reload(), 1200);
                       }} 
-                      className="text-xs bg-indigo-600 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-indigo-700 flex items-center gap-1.5 cursor-pointer shadow-sm transition-all"
+                      className="text-xs bg-zinc-950 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-zinc-800 flex items-center gap-1.5 cursor-pointer shadow-sm transition-all"
                     >
                       <KeyRound className="h-3.5 w-3.5" />
                       Salvar e Conectar
@@ -814,7 +726,7 @@ export default function App() {
                         ) : (
                           <button 
                             onClick={handleFirebaseLogout} 
-                            className="flex-1 text-center py-2.5 border border-rose-200 rounded-xl text-xs font-bold hover:bg-rose-50 text-rose-600 transition-all cursor-pointer bg-white shadow-sm"
+                            className="flex-1 text-center py-2.5 border border-red-200 rounded-xl text-xs font-bold hover:bg-red-50 text-red-600 transition-all cursor-pointer bg-white shadow-sm"
                           >
                             Desconectar
                           </button>
@@ -861,7 +773,7 @@ export default function App() {
                     <p className="text-xs text-zinc-500 font-medium">Exportação e importação de arquivo de dados SQLite (.db)</p>
                   </div>
                   <div className="p-6 space-y-4 text-left leading-relaxed">
-                    <p className="text-sm text-zinc-650">
+                    <p className="text-sm text-zinc-600">
                       O banco de dados SQLite (`data.db`) centraliza todas as informações dos módulos do aplicativo:
                     </p>
                     <ul className="text-xs text-zinc-500 list-disc pl-5 space-y-1 font-medium">
@@ -907,10 +819,10 @@ export default function App() {
                   <div className="p-6 space-y-3 text-left">
                     <div className="grid grid-cols-3 gap-2">
                       <div className="col-span-2 space-y-1">
-                        <label className="text-xs font-semibold text-zinc-655 text-zinc-600 block">Host / IP Servidor</label>
+                        <label className="text-xs font-semibold text-zinc-600 text-zinc-600 block">Host / IP Servidor</label>
                         <input 
                           type="text" 
-                          className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
+                          className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-800" 
                           placeholder="Ex: 192.168.101.249"
                           value={sqlHost}
                           onChange={(e) => setSqlHost(e.target.value)}
@@ -920,7 +832,7 @@ export default function App() {
                         <label className="text-xs font-semibold text-zinc-600 block">Porta</label>
                         <input 
                           type="text" 
-                          className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
+                          className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-800" 
                           placeholder="Ex: 1433"
                           value={sqlPort}
                           onChange={(e) => setSqlPort(e.target.value)}
@@ -933,7 +845,7 @@ export default function App() {
                         <label className="text-xs font-semibold text-zinc-600 block">Usuário</label>
                         <input 
                           type="text" 
-                          className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
+                          className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-800" 
                           placeholder="Ex: sa"
                           value={sqlUser}
                           onChange={(e) => setSqlUser(e.target.value)}
@@ -943,7 +855,7 @@ export default function App() {
                         <label className="text-xs font-semibold text-zinc-600 block">Senha</label>
                         <input 
                           type="password" 
-                          className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
+                          className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-800" 
                           placeholder={sqlPasswordConfigured ? 'Configurado. Deixe em branco para manter.' : 'Senha SQL Server'}
                           value={sqlPassword}
                           onChange={(e) => setSqlPassword(e.target.value)}
@@ -955,7 +867,7 @@ export default function App() {
                       <label className="text-xs font-semibold text-zinc-600 block">Nome do Banco (Database)</label>
                       <input 
                         type="text" 
-                        className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
+                        className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-800" 
                         placeholder="Ex: NATUM"
                         value={sqlDatabase}
                         onChange={(e) => setSqlDatabase(e.target.value)}
@@ -966,7 +878,7 @@ export default function App() {
                       <label className="text-xs font-semibold text-zinc-600 block">Início da Importação de Vendas (AAAA-MM-DD)</label>
                       <input 
                         type="text" 
-                        className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
+                        className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-800" 
                         placeholder="Ex: 2020-01-01"
                         value={salesSyncStartDate}
                         onChange={(e) => setSalesSyncStartDate(e.target.value)}
@@ -1000,19 +912,126 @@ export default function App() {
                 </div>
               </div>
             </div>
-          </main>
+        </HubShell>
+      );
+    }
 
-          {/* Footer Info */}
-          <footer className="w-full text-center py-6 text-xs text-zinc-400 border-t border-zinc-200/50 bg-white/50">
-            &copy; {new Date().getFullYear()} Nátum Bio Cosméticos. Todos os direitos reservados.
-          </footer>
-        </div>
+    if (view === 'producao_hub') {
+      return (
+        <HubShell
+          title="Módulo de Produção"
+          subtitle="Selecione a ferramenta de produção desejada"
+          onBack={() => setView('hub')}
+          heading="Módulo de Produção"
+          headingDescription="Ordens de fabricação, laboratórios e montagem de kits."
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-2 w-full">
+            <HubCard
+              title="Gerenciamento de Produção"
+              description="Visualize níveis de produto acabado, defina overrides de segurança e lance ordens de fabricação."
+              cta="Acessar Produção"
+              icon={<Boxes className="h-6 w-6" />}
+              onClick={() => setView('producao')}
+            />
+            <HubCard
+              title="Análise Físico-Química"
+              description="Controle de qualidade físico-químico. Registre análises de pH, viscosidade e densidade, e calcule correções em lote."
+              cta="Acessar Físico-Química"
+              icon={<Activity className="h-6 w-6" />}
+              onClick={() => setView('fisco_quimica')}
+            />
+            <HubCard
+              title="Análise Microbiológica"
+              description="Controle de qualidade laboratorial. Registre análises, emita laudos microbiológicos e gerencie o histórico de lotes."
+              cta="Acessar Microbiologia"
+              icon={<FlaskConical className="h-6 w-6" />}
+              onClick={() => setView('microbiologia')}
+            />
+            <HubCard
+              title="Montagem de Kits"
+              description="Acompanhe falta de componentes, gere ordens de montagem, controle lotes individuais e imprima fichas de produção."
+              cta="Acessar Ordens"
+              icon={<Layers className="h-6 w-6" />}
+              onClick={() => setView('montagem_kits')}
+            />
+          </div>
+        </HubShell>
+      );
+    }
+
+    if (view === 'compras_hub') {
+      return (
+        <HubShell
+          title="Módulo de Compras"
+          subtitle="Selecione a ferramenta de compras desejada"
+          onBack={() => setView('hub')}
+          heading="Módulo de Compras"
+          headingDescription="Demandas, cotações, pedidos online e documentos de compra."
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-2 w-full">
+            <HubCard
+              title="Matéria-Prima"
+              description="Planeje o estoque de matérias-primas químicas, calcule demandas automáticas e gerencie especificações de compras."
+              cta="Acessar Matéria-Prima"
+              icon={<Boxes className="h-6 w-6" />}
+              onClick={() => setView('compras_materia_prima')}
+            />
+            <HubCard
+              title="Embalagens"
+              description="Monitore o estoque e planeje a compra de frascos, potes, tampas, caixas e materiais gráficos."
+              cta="Acessar Embalagens"
+              icon={<Layers className="h-6 w-6" />}
+              onClick={() => setView('compras_embalagens')}
+            />
+            <HubCard
+              title="Coloração"
+              description="Gerencie a aquisição de colorações, tonalizantes e gloss terceirizados por unidade."
+              cta="Acessar Coloração"
+              icon={<Palette className="h-6 w-6" />}
+              onClick={() => setView('compras_coloracao')}
+            />
+            <HubCard
+              title="Material de Apoio"
+              description="Controle e planeje compras de materiais auxiliares de vendas como camisas, aventais e escovas."
+              cta="Acessar Material de Apoio"
+              icon={<Tag className="h-6 w-6" />}
+              onClick={() => setView('compras_apoio')}
+            />
+            <HubCard
+              title="Cotações Gerais"
+              description="Módulo unificado de cotações para integrar demandas de insumos, embalagens e compras online."
+              cta="Acessar Cotações"
+              icon={<ShoppingCart className="h-6 w-6" />}
+              onClick={() => setView('compras_quotations')}
+            />
+            <HubCard
+              title="Compras Online"
+              description="Rastreie e registre pedidos feitos na internet (etiquetas, suprimentos, etc.), controle o status do trânsito e salve comprovantes."
+              cta="Acessar Rastreamento"
+              icon={<Globe className="h-6 w-6" />}
+              onClick={() => setView('compras_online')}
+            />
+            <HubCard
+              title="Controle de Pedidos"
+              description="Acompanhe e controle os pedidos de compras enviados aos fornecedores e as quantidades já recebidas."
+              cta="Acessar Pedidos"
+              icon={<ClipboardList className="h-6 w-6" />}
+              onClick={() => setView('compras_pedidos')}
+            />
+            <HubCard
+              title="Notas Fiscais"
+              description="Consulte o histórico de Notas Fiscais de compra recebidas e detalhe os itens e valores de cada lançamento."
+              cta="Acessar Notas"
+              icon={<FileText className="h-6 w-6" />}
+              onClick={() => setView('compras_notas')}
+            />
+          </div>
+        </HubShell>
       );
     }
 
     return (
       <div className="min-h-screen bg-zinc-50 font-sans text-zinc-900 flex flex-col justify-between">
-        {/* Top Header */}
         <header className="bg-white border-b border-zinc-200 px-8 py-4 shrink-0 flex items-center justify-between shadow-sm">
           <div className="flex items-center gap-3">
             <div className="bg-zinc-900 text-white p-2 rounded-lg shadow-sm">
@@ -1027,9 +1046,10 @@ export default function App() {
             <div className="text-xs text-zinc-500 font-mono">
               Natum v0.011 alpha
             </div>
-            <button 
+            <button
+              type="button"
               onClick={() => { fetchSqlConfig(); setView('hub_settings'); }}
-              className="bg-zinc-100 hover:bg-zinc-200 p-2 rounded-lg text-zinc-650 hover:text-zinc-900 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-bold border border-zinc-200 shadow-sm"
+              className={`bg-zinc-100 hover:bg-zinc-200 p-2 rounded-lg text-zinc-600 hover:text-zinc-900 transition-all cursor-pointer flex items-center gap-1.5 text-xs font-bold border border-zinc-200 shadow-sm ${HUB_FOCUS}`}
               title="Configurações Gerais"
             >
               <Settings className="h-4 w-4 text-zinc-500" />
@@ -1038,380 +1058,53 @@ export default function App() {
           </div>
         </header>
 
-        {/* Main Container */}
         <main className="flex-1 flex flex-col items-center justify-center p-6 max-w-6xl w-full mx-auto">
-          {view === 'hub' ? (
-            <div className="w-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
-              <div className="text-center space-y-2">
-                <h2 className="text-3xl font-extrabold tracking-tight text-zinc-900">Selecione o Módulo</h2>
-                <p className="text-sm text-zinc-500">Escolha a área do ecossistema Natum que deseja acessar.</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 pt-4 w-full">
-                {/* Card Estoque */}
-                <button 
-                  onClick={() => setView('estoque_hub')}
-                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
-                >
-                  <div className="space-y-4">
-                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                      <Boxes className="h-6 w-6" />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-bold text-zinc-900">Estoque</h3>
-                      <p className="text-sm text-zinc-500 mt-1">Níveis de insumos, matérias-primas, produtos acabados, formulações e histórico de movimentações.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Entrar no Módulo <ArrowRight className="h-4 w-4" />
-                  </div>
-                </button>
-
-                {/* Card Produção */}
-                <button 
-                  onClick={() => setView('producao_hub')}
-                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
-                >
-                  <div className="space-y-4">
-                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                      <Activity className="h-6 w-6" />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-bold text-zinc-900">Produção</h3>
-                      <p className="text-sm text-zinc-500 mt-1">Gestão de estoques, alertas de segurança e controle microbiológico de lotes.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Entrar no Módulo <ArrowRight className="h-4 w-4" />
-                  </div>
-                </button>
-
-                {/* Card Compras */}
-                <button 
-                  onClick={() => setView('compras_hub')}
-                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
-                >
-                  <div className="space-y-4">
-                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                      <ShoppingCart className="h-6 w-6" />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-bold text-zinc-900">Compras</h3>
-                      <p className="text-sm text-zinc-500 mt-1">Planejamento de demandas, cotações de fornecedores e controle de notas fiscais.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Entrar no Módulo <ArrowRight className="h-4 w-4" />
-                  </div>
-                </button>
-
-                {/* Card Vendas */}
-                <button 
-                  onClick={() => setView('vendas')}
-                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
-                >
-                  <div className="space-y-4">
-                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                      <TrendingUp className="h-6 w-6" />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-bold text-zinc-900">Vendas</h3>
-                      <p className="text-sm text-zinc-500 mt-1">Estatísticas de vendas, desempenho ano a ano (YoY), histórico por produto e análise de demandas.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Entrar no Módulo <ArrowRight className="h-4 w-4" />
-                  </div>
-                </button>
-
-                {/* Card Administrativo */}
-                <button 
-                  onClick={() => setView('administrativo_hub')}
-                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
-                >
-                  <div className="space-y-4">
-                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                      <Briefcase className="h-6 w-6" />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-bold text-zinc-900">Administrativo</h3>
-                      <p className="text-sm text-zinc-500 mt-1">Acompanhamento de produção, status de lotes, calendário industrial e controles gerenciais.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Entrar no Módulo <ArrowRight className="h-4 w-4" />
-                  </div>
-                </button>
-              </div>
+          <div className="w-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="text-center space-y-2">
+              <h2 className="text-3xl font-extrabold tracking-tight text-zinc-900">Selecione o Módulo</h2>
+              <p className="text-sm text-zinc-500">Escolha a área do ecossistema Natum que deseja acessar.</p>
             </div>
-          ) : view === 'producao_hub' ? (
-            <div className="w-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
-              <div className="flex items-center gap-4 text-left">
-                <button 
-                  onClick={() => setView('hub')}
-                  className="bg-white border border-zinc-200 hover:bg-zinc-100 p-2 rounded-xl text-zinc-650 hover:text-zinc-900 transition-colors cursor-pointer"
-                  title="Voltar ao Início"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </button>
-                <div>
-                  <h2 className="text-2xl font-extrabold tracking-tight text-zinc-900">Módulo de Produção</h2>
-                  <p className="text-xs text-zinc-500">Selecione a ferramenta de produção desejada.</p>
-                </div>
-              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-2">
-                {/* Gerenciamento de Produção */}
-                <button 
-                  onClick={() => setView('producao')}
-                  className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
-                >
-                  <div className="space-y-4">
-                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                      <Boxes className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-zinc-900">Gerenciamento de Produção</h3>
-                      <p className="text-xs text-zinc-500 mt-1">Visualize níveis de produto acabado, defina overrides de segurança e lance ordens de fabricação.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Acessar Produção <ArrowRight className="h-3 w-3" />
-                  </div>
-                </button>
-
-                {/* Análise Físico-Química */}
-                <button 
-                  onClick={() => setView('fisco_quimica')}
-                  className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
-                >
-                  <div className="space-y-4">
-                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                      <Activity className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-zinc-900">Análise Físico-Química</h3>
-                      <p className="text-xs text-zinc-500 mt-1">Controle de qualidade físico-químico. Registre análises de pH, viscosidade e densidade, e calcule correções em lote.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Acessar Laboratório <ArrowRight className="h-3 w-3" />
-                  </div>
-                </button>
-
-                {/* Análise Microbiológica */}
-                <button 
-                  onClick={() => setView('microbiologia')}
-                  className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
-                >
-                  <div className="space-y-4">
-                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                      <FlaskConical className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-zinc-900">Análise Microbiológica</h3>
-                      <p className="text-xs text-zinc-500 mt-1">Controle de qualidade laboratorial. Registre análises, emita laudos microbiológicos e gerencie o histórico de lotes.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Acessar Laboratório <ArrowRight className="h-3 w-3" />
-                  </div>
-                </button>
-
-                {/* Montagem de Kits */}
-                <button 
-                  onClick={() => setView('montagem_kits')}
-                  className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
-                >
-                  <div className="space-y-4">
-                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                      <Layers className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-zinc-900">Montagem de Kits</h3>
-                      <p className="text-xs text-zinc-500 mt-1">Acompanhe falta de componentes, gere ordens de montagem, controle lotes individuais e imprima fichas de produção.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Acessar Ordens <ArrowRight className="h-3 w-3" />
-                  </div>
-                </button>
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 pt-4 w-full">
+              <HubCard
+                title="Estoque"
+                description="Níveis de insumos, matérias-primas, produtos acabados, formulações e histórico de movimentações."
+                cta="Entrar no Módulo"
+                icon={<Boxes className="h-6 w-6" />}
+                onClick={() => setView('estoque_hub')}
+              />
+              <HubCard
+                title="Produção"
+                description="Ordens de fabricação, análises físico-químicas, microbiologia e montagem de kits."
+                cta="Entrar no Módulo"
+                icon={<Activity className="h-6 w-6" />}
+                onClick={() => setView('producao_hub')}
+              />
+              <HubCard
+                title="Compras"
+                description="Planejamento de demandas, cotações de fornecedores e controle de notas fiscais."
+                cta="Entrar no Módulo"
+                icon={<ShoppingCart className="h-6 w-6" />}
+                onClick={() => setView('compras_hub')}
+              />
+              <HubCard
+                title="Vendas"
+                description="Estatísticas de vendas, desempenho ano a ano (YoY), histórico por produto e análise de demandas."
+                cta="Entrar no Módulo"
+                icon={<TrendingUp className="h-6 w-6" />}
+                onClick={() => setView('vendas')}
+              />
+              <HubCard
+                title="Administrativo"
+                description="Acompanhamento de produção, status de lotes, calendário industrial e controles gerenciais."
+                cta="Entrar no Módulo"
+                icon={<Briefcase className="h-6 w-6" />}
+                onClick={() => setView('administrativo_hub')}
+              />
             </div>
-          ) : view === 'compras_hub' ? (
-            <div className="w-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
-              <div className="flex items-center gap-4 text-left">
-                <button 
-                  onClick={() => setView('hub')}
-                  className="bg-white border border-zinc-200 hover:bg-zinc-100 p-2 rounded-xl text-zinc-650 hover:text-zinc-900 transition-colors cursor-pointer"
-                  title="Voltar ao Início"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </button>
-                <div>
-                  <h2 className="text-2xl font-extrabold tracking-tight text-zinc-900">Módulo de Compras</h2>
-                  <p className="text-xs text-zinc-500">Selecione a ferramenta de compras desejada.</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-2">
-                {/* Matéria-Prima */}
-                <button 
-                  onClick={() => setView('compras_materia_prima')}
-                  className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
-                >
-                  <div className="space-y-4">
-                    <div className="bg-zinc-150 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors bg-zinc-100 text-zinc-900">
-                      <Boxes className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-zinc-900">Matéria-Prima</h3>
-                      <p className="text-xs text-zinc-500 mt-1">Planeje o estoque de matérias-primas químicas, calcule demandas automáticas e gerencie especificações de compras.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Acessar Matéria-Prima <ArrowRight className="h-3 w-3" />
-                  </div>
-                </button>
-
-                {/* Embalagens */}
-                <button 
-                  onClick={() => setView('compras_embalagens')}
-                  className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
-                >
-                  <div className="space-y-4">
-                    <div className="bg-zinc-150 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors bg-zinc-100 text-zinc-900">
-                      <Layers className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-zinc-900">Embalagens</h3>
-                      <p className="text-xs text-zinc-500 mt-1">Monitore o estoque e planeje a compra de frascos, potes, tampas, caixas e materiais gráficos.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Acessar Embalagens <ArrowRight className="h-3 w-3" />
-                  </div>
-                </button>
-
-                {/* Coloração */}
-                <button 
-                  onClick={() => setView('compras_coloracao')}
-                  className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
-                >
-                  <div className="space-y-4">
-                    <div className="bg-zinc-150 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors bg-zinc-100 text-zinc-900">
-                      <Palette className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-zinc-900">Coloração</h3>
-                      <p className="text-xs text-zinc-500 mt-1">Gerencie a aquisição de colorações, tonalizantes e gloss terceirizados por unidade.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Acessar Coloração <ArrowRight className="h-3 w-3" />
-                  </div>
-                </button>
-
-                {/* Material de Apoio */}
-                <button 
-                  onClick={() => setView('compras_apoio')}
-                  className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
-                >
-                  <div className="space-y-4">
-                    <div className="bg-zinc-150 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors bg-zinc-100 text-zinc-900">
-                      <Tag className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-zinc-900">Material de Apoio</h3>
-                      <p className="text-xs text-zinc-500 mt-1">Controle e planeje compras de materiais auxiliares de vendas como camisas, aventais e escovas.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Acessar Material de Apoio <ArrowRight className="h-3 w-3" />
-                  </div>
-                </button>
-
-                {/* Cotações */}
-                <button 
-                  onClick={() => setView('compras_quotations')}
-                  className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
-                >
-                  <div className="space-y-4">
-                    <div className="bg-zinc-150 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors bg-zinc-100 text-zinc-900">
-                      <ShoppingCart className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-zinc-900">Cotações Gerais</h3>
-                      <p className="text-xs text-zinc-500 mt-1">Módulo unificado de cotações para integrar demandas de insumos, embalagens e compras online.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Acessar Cotações <ArrowRight className="h-3 w-3" />
-                  </div>
-                </button>
-
-                {/* Compras Online */}
-                <button 
-                  onClick={() => setView('compras_online')}
-                  className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
-                >
-                  <div className="space-y-4">
-                    <div className="bg-zinc-150 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors bg-zinc-100 text-zinc-900">
-                      <Globe className="h-5 w-5 animate-pulse" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-zinc-900">Compras Online</h3>
-                      <p className="text-xs text-zinc-500 mt-1">Rastreie e registre pedidos feitos na internet (etiquetas, suprimentos, etc.), controle o status do trânsito e salve comprovantes.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Acessar Rastreamento <ArrowRight className="h-3 w-3" />
-                  </div>
-                </button>
-
-                {/* Controle de Pedidos */}
-                <button 
-                  onClick={() => setView('compras_pedidos')}
-                  className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
-                >
-                  <div className="space-y-4">
-                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                      <ClipboardList className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-zinc-900">Controle de Pedidos</h3>
-                      <p className="text-xs text-zinc-500 mt-1">Acompanhe e controle os pedidos de compras enviados aos fornecedores e as quantidades já recebidas.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Acessar Pedidos <ArrowRight className="h-3 w-3" />
-                  </div>
-                </button>
-
-                {/* Notas Fiscais */}
-                <button 
-                  onClick={() => setView('compras_notas')}
-                  className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full"
-                >
-                  <div className="space-y-4">
-                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                      <FileText className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-zinc-900">Notas Fiscais</h3>
-                      <p className="text-xs text-zinc-500 mt-1">Consulte o histórico de Notas Fiscais de compra recebidas e detalhe os itens e valores de cada lançamento.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                    Acessar Notas <ArrowRight className="h-3 w-3" />
-                  </div>
-                </button>
-              </div>
-            </div>
-          ) : null}
+          </div>
         </main>
 
-        {/* Footer Info */}
         <footer className="w-full text-center py-6 text-xs text-zinc-400 border-t border-zinc-200/50 bg-white/50">
           &copy; {new Date().getFullYear()} Nátum Bio Cosméticos. Todos os direitos reservados.
         </footer>

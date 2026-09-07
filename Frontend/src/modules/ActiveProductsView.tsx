@@ -7,6 +7,7 @@ import {
 import { cn, API_BASE, apiFetch } from '../lib/utils';
 import { Category, PRODUCT_LINE_STATUSES, GraduationCandidate } from '../types';
 import { api } from '../lib/api';
+import { showToast, confirmDialog } from '../components/shared/feedback';
 
 
 interface ProductOverride {
@@ -233,14 +234,14 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         })
       ]);
       if (responses.every(r => r.ok)) {
-        alert("Configurações globais salvas com sucesso!");
+        showToast("Configurações globais salvas com sucesso!", 'success');
         await loadData();
       } else {
-        alert("Erro ao salvar algumas configurações.");
+        showToast("Erro ao salvar algumas configurações.", 'error');
       }
     } catch (e) {
       console.error(e);
-      alert("Erro de conexão ao salvar.");
+      showToast("Erro de conexão ao salvar.", 'error');
     } finally {
       setGlobalSettingsSaving(false);
     }
@@ -275,26 +276,26 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         await fetchKitComposicao();
       } else {
         const err = await res.json();
-        alert(err.error || 'Erro ao adicionar kit.');
+        showToast(err.error || 'Erro ao adicionar kit.', 'error');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro de conexão.');
+      showToast('Erro de conexão.', 'error');
     }
   };
 
   const handleDeleteKitComposicao = async (kit: string, comp: string) => {
-    if (!window.confirm(`Remover componente ${comp} do kit ${kit}?`)) return;
+    if (!await confirmDialog(`Remover componente ${comp} do kit ${kit}?`, { variant: 'danger' })) return;
     try {
       const res = await apiFetch(`${API_BASE}/kits/composicao/${kit}/${comp}`, { method: 'DELETE' });
       if (res.ok) {
         await fetchKitComposicao();
       } else {
-        alert('Erro ao excluir relação.');
+        showToast('Erro ao excluir relação.', 'error');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro de conexão.');
+      showToast('Erro de conexão.', 'error');
     }
   };
 
@@ -311,11 +312,11 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         await fetchKitComposicao();
         await loadData();
       } else {
-        alert(data.error || 'Erro ao importar.');
+        showToast(data.error || 'Erro ao importar.', 'error');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro de conexão.');
+      showToast('Erro de conexão.', 'error');
     } finally {
       setUploadingKitsConfig(false);
       e.target.value = '';
@@ -324,7 +325,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
   const handleGraduateAll = async () => {
     if (graduationCandidates.length === 0) return;
-    if (!confirm(`Graduar todos os ${graduationCandidates.length} candidatos para o status "Ativa"?`)) return;
+    if (!await confirmDialog(`Graduar todos os ${graduationCandidates.length} candidatos para o status "Ativa"?`, { variant: 'default' })) return;
     setLoading(true);
     try {
       const codes = graduationCandidates.map(c => c.codigo);
@@ -341,11 +342,11 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
       if (res.ok) {
         await loadData();
       } else {
-        alert("Erro ao graduar produtos em lote.");
+        showToast("Erro ao graduar produtos em lote.", 'error');
       }
     } catch (e) {
       console.error(e);
-      alert("Erro ao graduar produtos em lote.");
+      showToast("Erro ao graduar produtos em lote.", 'error');
     } finally {
       setLoading(false);
     }
@@ -518,11 +519,11 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         setSelectedProduct(null);
         await loadData();
       } else {
-        alert("Erro ao salvar configurações do produto.");
+        showToast("Erro ao salvar configurações do produto.", 'error');
       }
     } catch (e) {
       console.error(e);
-      alert("Erro de conexão ao salvar.");
+      showToast("Erro de conexão ao salvar.", 'error');
     } finally {
       setDrawerLoading(false);
     }
@@ -554,11 +555,11 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         setBulkObs('');
         await loadData();
       } else {
-        alert("Erro ao aplicar alteração em lote.");
+        showToast("Erro ao aplicar alteração em lote.", 'error');
       }
     } catch (e) {
       console.error(e);
-      alert("Erro ao processar alteração em lote.");
+      showToast("Erro ao processar alteração em lote.", 'error');
     } finally {
       setLoading(false);
     }
@@ -627,10 +628,10 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
   const handleDeleteLineConfig = async (prefix: string) => {
     if (prefix === 'DEFAULT') {
-      alert("A linha DEFAULT não pode ser excluída.");
+      showToast("A linha DEFAULT não pode ser excluída.", 'error');
       return;
     }
-    if (!confirm(`Tem certeza que deseja excluir as regras para a linha com prefixo "${prefix}"?`)) {
+    if (!await confirmDialog(`Tem certeza que deseja excluir as regras para a linha com prefixo "${prefix}"?`, { variant: 'danger' })) {
       return;
     }
     try {
@@ -641,16 +642,16 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         await loadData();
       } else {
         const errData = await res.json();
-        alert(errData.error || "Erro ao excluir.");
+        showToast(errData.error || "Erro ao excluir.", 'error');
       }
     } catch (err) {
       console.error(err);
-      alert("Falha de conexão ao excluir.");
+      showToast("Falha de conexão ao excluir.", 'error');
     }
   };
 
   const handleClearOverride = async (code: string) => {
-    if (!confirm(`Remover todas as configurações manuais do produto "${code}"?`)) {
+    if (!await confirmDialog(`Remover todas as configurações manuais do produto "${code}"?`, { variant: 'danger' })) {
       return;
     }
     try {
@@ -674,17 +675,17 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
       if (res.ok) {
         await loadData();
       } else {
-        alert("Erro ao remover configurações.");
+        showToast("Erro ao remover configurações.", 'error');
       }
     } catch (e) {
       console.error(e);
-      alert("Erro de conexão.");
+      showToast("Erro de conexão.", 'error');
     }
   };
 
   const handleClearOverridesBulk = async () => {
     if (selectedOverrideCodes.size === 0) return;
-    if (!confirm(`Remover todas as configurações manuais dos ${selectedOverrideCodes.size} produtos selecionados?`)) {
+    if (!await confirmDialog(`Remover todas as configurações manuais dos ${selectedOverrideCodes.size} produtos selecionados?`, { variant: 'danger' })) {
       return;
     }
     setLoading(true);
@@ -702,11 +703,11 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         setSelectedOverrideCodes(new Set());
         await loadData();
       } else {
-        alert("Erro ao remover configurações em lote.");
+        showToast("Erro ao remover configurações em lote.", 'error');
       }
     } catch (e) {
       console.error(e);
-      alert("Erro ao processar remoção em lote.");
+      showToast("Erro ao processar remoção em lote.", 'error');
     } finally {
       setLoading(false);
     }
@@ -729,19 +730,19 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
       setCategories(catsData || []);
     } catch (e) {
       console.error(e);
-      alert("Erro ao salvar categoria");
+      showToast("Erro ao salvar categoria", 'error');
     }
   };
 
   const handleDeleteCategory = async (id: string) => {
-    if (!confirm("Tem certeza que deseja excluir esta categoria?")) return;
+    if (!await confirmDialog("Tem certeza que deseja excluir esta categoria?", { variant: 'danger' })) return;
     try {
       await api.deleteCategory(id);
       const catsData = await api.getCategories();
       setCategories(catsData || []);
     } catch (e) {
       console.error(e);
-      alert("Erro ao excluir categoria");
+      showToast("Erro ao excluir categoria", 'error');
     }
   };
 
@@ -761,7 +762,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
       });
     } catch (e) {
       console.error(e);
-      alert("Erro ao salvar status ignorados");
+      showToast("Erro ao salvar status ignorados", 'error');
     }
   };
 
@@ -858,7 +859,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
             onClick={() => setActiveAtivosTab('status')}
             className={cn(
               "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-              activeAtivosTab === 'status' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+              activeAtivosTab === 'status' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
             )}
           >
             <CheckCircle2 className="h-4 w-4" />
@@ -868,7 +869,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
             onClick={() => setActiveAtivosTab('linhas')}
             className={cn(
               "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-              activeAtivosTab === 'linhas' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+              activeAtivosTab === 'linhas' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
             )}
           >
             <Layers className="h-4 w-4" />
@@ -878,7 +879,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
             onClick={() => setActiveAtivosTab('kits')}
             className={cn(
               "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-              activeAtivosTab === 'kits' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+              activeAtivosTab === 'kits' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
             )}
           >
             <Database className="h-4 w-4" />
@@ -888,7 +889,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
             onClick={() => setActiveAtivosTab('overrides')}
             className={cn(
               "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-              activeAtivosTab === 'overrides' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+              activeAtivosTab === 'overrides' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
             )}
           >
             <ShieldAlert className="h-4 w-4 text-rose-500" />
@@ -898,7 +899,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
             onClick={() => setActiveAtivosTab('configuracoes')}
             className={cn(
               "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-              activeAtivosTab === 'configuracoes' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+              activeAtivosTab === 'configuracoes' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
             )}
           >
             <Settings className="h-4 w-4" />
@@ -953,7 +954,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
           </div>
           <button 
             onClick={loadData}
-            className="p-2 bg-white border border-zinc-200 hover:bg-zinc-50 rounded-xl text-zinc-650 transition-colors flex items-center gap-1.5 text-xs font-semibold shadow-sm cursor-pointer"
+            className="p-2 bg-white border border-zinc-200 hover:bg-zinc-50 rounded-xl text-zinc-600 transition-colors flex items-center gap-1.5 text-xs font-semibold shadow-sm cursor-pointer"
           >
             <RefreshCw className="h-4 w-4" />
             Recarregar
@@ -1064,7 +1065,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
               <div className="flex-1 bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-0">
                 <div className="flex-1 overflow-auto">
                   <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-zinc-50 border-b border-zinc-150 font-bold text-zinc-500 sticky top-0 z-10">
+                    <thead className="bg-zinc-50 border-b border-zinc-100 font-bold text-zinc-500 sticky top-0 z-10">
                       <tr>
                         <th className="px-4 py-3 w-10 text-center">
                           <input 
@@ -1130,11 +1131,11 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                               <td className="px-4 py-2.5">{renderStatusBadge(p.status_produto)}</td>
                               <td className="px-4 py-2.5">
                                 {p.categoria_produto ? (
-                                  <span className="px-2 py-0.5 bg-zinc-100 text-zinc-650 border border-zinc-200 rounded text-[10px] font-bold">
+                                  <span className="px-2 py-0.5 bg-zinc-100 text-zinc-600 border border-zinc-200 rounded text-[10px] font-bold">
                                     {getCategoryName(p.categoria_produto)}
                                   </span>
                                 ) : (
-                                  <span className="text-zinc-350 italic scale-95 font-medium">Nenhuma</span>
+                                  <span className="text-zinc-300 italic scale-95 font-medium">Nenhuma</span>
                                 )}
                               </td>
                               <td className="px-4 py-2.5 max-w-[200px] truncate text-zinc-500 font-medium" title={p.observacao || undefined}>
@@ -1143,7 +1144,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                               <td className="px-4 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
                                 <button
                                   onClick={() => handleOpenEdit(p)}
-                                  className="p-1.5 hover:bg-zinc-150 text-zinc-400 hover:text-zinc-800 rounded-lg transition-colors cursor-pointer"
+                                  className="p-1.5 hover:bg-zinc-100 text-zinc-400 hover:text-zinc-800 rounded-lg transition-colors cursor-pointer"
                                 >
                                   <Edit className="w-4 h-4" />
                                 </button>
@@ -1251,10 +1252,10 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
           {activeAtivosTab === 'linhas' && (
             <div className="flex-1 flex flex-col space-y-4">
               <div className="flex justify-between items-center shrink-0">
-                <span className="text-xs font-bold text-zinc-450">Tabela de parâmetros e dias-estoque calculados por linha</span>
+                <span className="text-xs font-bold text-zinc-400">Tabela de parâmetros e dias-estoque calculados por linha</span>
                 <button
                   onClick={() => handleOpenLineModal(null)}
-                  className="bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                  className="bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
                 >
                   <Plus className="h-4 w-4" />
                   Nova Linha
@@ -1264,7 +1265,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
               {/* Config Table Card */}
               <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
                 <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500">
+                  <thead className="bg-zinc-50 border-b border-zinc-100 font-bold text-zinc-500">
                     <tr>
                       <th className="px-6 py-3.5 w-28">Prefixo</th>
                       <th className="px-6 py-3.5">Nome da Linha</th>
@@ -1293,7 +1294,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                           <td className="px-6 py-3 text-center">
                             <span className={cn(
                               "px-2 py-0.5 rounded-full text-[10px] font-bold border",
-                              cfg.visivel === 0 ? "bg-zinc-105 text-zinc-500 border-zinc-200" : "bg-emerald-50 text-emerald-700 border-emerald-100"
+                              cfg.visivel === 0 ? "bg-zinc-100 text-zinc-500 border-zinc-200" : "bg-emerald-50 text-emerald-700 border-emerald-100"
                             )}>
                               {cfg.visivel === 0 ? "Oculto" : "Ativo"}
                             </span>
@@ -1301,7 +1302,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                           <td className="px-6 py-3 text-right space-x-2">
                             <button
                               onClick={() => handleOpenLineModal(cfg)}
-                              className="px-2.5 py-1 bg-zinc-100 hover:bg-zinc-200 rounded-lg font-bold text-zinc-700 transition-colors cursor-pointer border border-zinc-250/30"
+                              className="px-2.5 py-1 bg-zinc-100 hover:bg-zinc-200 rounded-lg font-bold text-zinc-700 transition-colors cursor-pointer border border-zinc-200/30"
                             >
                               Editar
                             </button>
@@ -1325,7 +1326,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
           {activeAtivosTab === 'kits' && (
             <div className="flex-1 flex flex-col space-y-4 overflow-hidden">
-              <span className="text-xs font-bold text-zinc-455 shrink-0">
+              <span className="text-xs font-bold text-zinc-400 shrink-0">
                 Gerencie a relação de componentes que compõem cada Kit comercial da Natum.
               </span>
 
@@ -1346,7 +1347,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                         required
                       />
                       {getKitNamePreview() && (
-                        <div className="text-[10px] text-zinc-550 font-semibold truncate max-w-xs">{getKitNamePreview()}</div>
+                        <div className="text-[10px] text-zinc-500 font-semibold truncate max-w-xs">{getKitNamePreview()}</div>
                       )}
                     </div>
                     <div className="space-y-1">
@@ -1360,7 +1361,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                         required
                       />
                       {getCompNamePreview() && (
-                        <div className="text-[10px] text-zinc-550 font-semibold truncate max-w-xs">{getCompNamePreview()}</div>
+                        <div className="text-[10px] text-zinc-500 font-semibold truncate max-w-xs">{getCompNamePreview()}</div>
                       )}
                     </div>
                     <div className="space-y-1">
@@ -1377,7 +1378,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     </div>
                     <button
                       type="submit"
-                      className="w-full bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-colors cursor-pointer h-[36px]"
+                      className="w-full bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-colors cursor-pointer h-[36px]"
                     >
                       Vincular Componente
                     </button>
@@ -1419,7 +1420,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                 {/* Scrollable Table Wrapper */}
                 <div className="overflow-y-auto flex-1">
                   <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500 sticky top-0 z-10">
+                    <thead className="bg-zinc-50 border-b border-zinc-100 font-bold text-zinc-500 sticky top-0 z-10">
                       <tr>
                         <th className="px-6 py-3">Código do Kit</th>
                         <th className="px-6 py-3">Descrição do Kit</th>
@@ -1451,13 +1452,13 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                           <tr key={`${row.kit_codigo}-${row.componente_codigo}`} className="hover:bg-zinc-50/50 transition-colors">
                             <td className="px-6 py-3 font-mono font-bold text-zinc-800">{row.kit_codigo}</td>
                             <td className="px-6 py-3 font-bold text-zinc-900">{row.kit_descricao}</td>
-                            <td className="px-6 py-3 font-mono text-zinc-650">{row.componente_codigo}</td>
+                            <td className="px-6 py-3 font-mono text-zinc-600">{row.componente_codigo}</td>
                             <td className="px-6 py-3 text-zinc-700">{row.componente_descricao}</td>
                             <td className="px-6 py-3 text-center font-bold text-zinc-900">{row.quantidade}</td>
                             <td className="px-6 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                               <button
                                 onClick={() => handleDeleteKitComposicao(row.kit_codigo, row.componente_codigo)}
-                                className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-150 transition-colors cursor-pointer inline-flex items-center justify-center"
+                                className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-red-100 transition-colors cursor-pointer inline-flex items-center justify-center"
                                 title="Desvincular componente do kit"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -1475,12 +1476,12 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
           {activeAtivosTab === 'overrides' && (
             <div className="flex-1 flex flex-col space-y-4">
-              <span className="text-xs font-bold text-zinc-450 shrink-0">Lista de desvios manuais inseridos para alterar dias-estoque, médias, carteira de pedidos ou status</span>
+              <span className="text-xs font-bold text-zinc-400 shrink-0">Lista de desvios manuais inseridos para alterar dias-estoque, médias, carteira de pedidos ou status</span>
 
               {/* Overrides Table Card */}
               <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
                 <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500">
+                  <thead className="bg-zinc-50 border-b border-zinc-100 font-bold text-zinc-500">
                     <tr>
                       <th className="px-4 py-3.5 w-12 text-center">
                         <input
@@ -1558,7 +1559,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                             <td className="px-6 py-3">
                               <div className="flex flex-wrap gap-1.5">
                                 {mods.map((m, idx) => (
-                                  <span key={idx} className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-250/50 rounded-full text-[10px] font-bold">
+                                  <span key={idx} className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200/50 rounded-full text-[10px] font-bold">
                                     {m}
                                   </span>
                                 ))}
@@ -1571,7 +1572,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                             <td className="px-6 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                               <button
                                 onClick={() => handleClearOverride(ovr.codigo)}
-                                className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg font-bold border border-rose-150 transition-colors cursor-pointer"
+                                className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg font-bold border border-red-100 transition-colors cursor-pointer"
                                 title="Limpar overrides manuais e restaurar regras padrão da linha"
                               >
                                 Limpar Overrides
@@ -1624,7 +1625,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     "px-6 py-3 text-xs font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer flex items-center gap-2 focus:outline-none",
                     configSubTab === 'parametros'
                       ? "border-zinc-900 text-zinc-900"
-                      : "border-transparent text-zinc-450 hover:text-zinc-700 hover:border-zinc-200"
+                      : "border-transparent text-zinc-400 hover:text-zinc-700 hover:border-zinc-200"
                   )}
                 >
                   <Settings className="w-3.5 h-3.5" />
@@ -1636,7 +1637,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     "px-6 py-3 text-xs font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer flex items-center gap-2 focus:outline-none",
                     configSubTab === 'status'
                       ? "border-zinc-900 text-zinc-900"
-                      : "border-transparent text-zinc-450 hover:text-zinc-700 hover:border-zinc-200"
+                      : "border-transparent text-zinc-400 hover:text-zinc-700 hover:border-zinc-200"
                   )}
                 >
                   <Filter className="w-3.5 h-3.5" />
@@ -1648,7 +1649,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     "px-6 py-3 text-xs font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer flex items-center gap-2 focus:outline-none",
                     configSubTab === 'categorias'
                       ? "border-zinc-900 text-zinc-900"
-                      : "border-transparent text-zinc-450 hover:text-zinc-700 hover:border-zinc-200"
+                      : "border-transparent text-zinc-400 hover:text-zinc-700 hover:border-zinc-200"
                   )}
                 >
                   <Layers className="w-3.5 h-3.5" />
@@ -1674,7 +1675,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                             onChange={(e) => setGlobalDiasComerciais(e.target.value)}
                             required
                           />
-                          <span className="text-[9px] text-zinc-450 block leading-tight">
+                          <span className="text-[9px] text-zinc-400 block leading-tight">
                             Usado para converter os meses ideais e prazos em dias na tabela.
                           </span>
                         </div>
@@ -1688,7 +1689,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                             onChange={(e) => setGlobalLimitPerPage(e.target.value)}
                             required
                           />
-                          <span className="text-[9px] text-zinc-450 block leading-tight">
+                          <span className="text-[9px] text-zinc-400 block leading-tight">
                             Define a paginação padrão das listagens de estoque e produção.
                           </span>
                         </div>
@@ -1702,7 +1703,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                             onChange={(e) => setGlobalLancamentoMeta(e.target.value)}
                             required
                           />
-                          <span className="text-[9px] text-zinc-450 block leading-tight">
+                          <span className="text-[9px] text-zinc-400 block leading-tight">
                             Duração padrão para a formatura do Lançamento para Ativo se não houver ajuste individual.
                           </span>
                         </div>
@@ -1710,7 +1711,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                         <button
                           type="submit"
                           disabled={globalSettingsSaving}
-                          className="w-full bg-zinc-900 hover:bg-zinc-850 disabled:bg-zinc-300 text-white text-xs font-bold py-2 rounded-xl shadow-sm transition-all cursor-pointer flex justify-center items-center"
+                          className="w-full bg-zinc-900 hover:bg-zinc-800 disabled:bg-zinc-300 text-white text-xs font-bold py-2 rounded-xl shadow-sm transition-all cursor-pointer flex justify-center items-center"
                         >
                           {globalSettingsSaving ? 'Salvando...' : 'Salvar Parâmetros Globais'}
                         </button>
@@ -1722,9 +1723,9 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                         Diretrizes de Roteamento e Regras de Negócio
                       </h3>
                       
-                      <div className="space-y-4 text-xs text-zinc-650 leading-relaxed text-left">
+                      <div className="space-y-4 text-xs text-zinc-600 leading-relaxed text-left">
                         <div>
-                          <h4 className="font-extrabold text-zinc-850 flex items-center gap-1.5 mb-1">
+                          <h4 className="font-extrabold text-zinc-800 flex items-center gap-1.5 mb-1">
                             <span className="p-1 bg-zinc-100 rounded text-[9px] font-bold text-zinc-600">FG</span>
                             Comportamento por Status do Produto
                           </h4>
@@ -1736,7 +1737,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                         </div>
 
                         <div>
-                          <h4 className="font-extrabold text-zinc-850 flex items-center gap-1.5 mb-1">
+                          <h4 className="font-extrabold text-zinc-800 flex items-center gap-1.5 mb-1">
                             <span className="p-1 bg-zinc-100 rounded text-[9px] font-bold text-zinc-600">CAT</span>
                             Roteamento de Compras por Categoria
                           </h4>
@@ -1799,7 +1800,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                                 type="checkbox"
                                 checked={isChecked}
                                 onChange={() => handleToggleIgnoredStatus(statusVal)}
-                                className="rounded border-zinc-350 text-zinc-900 focus:ring-zinc-900 h-4 w-4"
+                                className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900 h-4 w-4"
                               />
                               <div>
                                 <div className="text-xs font-bold text-zinc-800">{labelMap[statusVal]}</div>
@@ -1813,7 +1814,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                       </div>
                     </div>
 
-                    <div className="md:col-span-2 bg-zinc-50 border border-zinc-200 rounded-2xl p-6 space-y-4 text-xs text-zinc-650 leading-relaxed text-left">
+                    <div className="md:col-span-2 bg-zinc-50 border border-zinc-200 rounded-2xl p-6 space-y-4 text-xs text-zinc-600 leading-relaxed text-left">
                       <h4 className="font-bold text-zinc-700 uppercase tracking-wider">Como funciona o bloqueio de Status?</h4>
                       <p>
                         Marcar um status como <strong>Ignorado</strong> impede que o motor de planejamento do NatumHub inclua os produtos suspensos nas planilhas de demanda de compras e estimativas de dias de estoque.
@@ -1865,7 +1866,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                         </div>
                         <button
                           type="submit"
-                          className="w-full bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold py-2 rounded-xl shadow-sm transition-all cursor-pointer"
+                          className="w-full bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold py-2 rounded-xl shadow-sm transition-all cursor-pointer"
                         >
                           Adicionar Subcategoria
                         </button>
@@ -1915,13 +1916,13 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
       {isLineModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl border border-zinc-200 shadow-2xl max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-200">
-            <header className="px-6 py-4 border-b border-zinc-150 bg-zinc-50 flex justify-between items-center">
+            <header className="px-6 py-4 border-b border-zinc-100 bg-zinc-50 flex justify-between items-center">
               <h3 className="font-extrabold text-zinc-900 text-base">
                 {editingLineConfig ? 'Editar Configuração de Linha' : 'Nova Configuração de Linha'}
               </h3>
               <button 
                 onClick={() => setIsLineModalOpen(false)}
-                className="p-1 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-650 transition-colors cursor-pointer"
+                className="p-1 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-600 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1959,12 +1960,12 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                 </div>
               </div>
 
-              <div className="border-t border-zinc-150 pt-3 mt-3">
+              <div className="border-t border-zinc-100 pt-3 mt-3">
                 <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-3">Multiplicadores & Segurança</span>
                 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-zinc-650 block" title="Calcula o estoque ideal em meses de venda média">Estoque Ideal (Meses)</label>
+                    <label className="text-[11px] font-bold text-zinc-600 block" title="Calcula o estoque ideal em meses de venda média">Estoque Ideal (Meses)</label>
                     <input
                       type="number"
                       step="any"
@@ -1975,7 +1976,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-zinc-650 block" title="Segurança estatística Z para cálculo de estoque mínimo">Fator de Segurança Z</label>
+                    <label className="text-[11px] font-bold text-zinc-600 block" title="Segurança estatística Z para cálculo de estoque mínimo">Fator de Segurança Z</label>
                     <input
                       type="number"
                       step="any"
@@ -1989,7 +1990,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
                 <div className="grid grid-cols-2 gap-3 mt-3">
                   <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-zinc-650 block" title="Multiplicador do ponto de ressuprimento/abrir ordem">Mult. Abrir Ordem</label>
+                    <label className="text-[11px] font-bold text-zinc-600 block" title="Multiplicador do ponto de ressuprimento/abrir ordem">Mult. Abrir Ordem</label>
                     <input
                       type="number"
                       step="any"
@@ -2000,7 +2001,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-zinc-650 block" title="Multiplicador da quantidade ideal a produzir/lote recomendado">Mult. Lote Produção</label>
+                    <label className="text-[11px] font-bold text-zinc-600 block" title="Multiplicador da quantidade ideal a produzir/lote recomendado">Mult. Lote Produção</label>
                     <input
                       type="number"
                       step="any"
@@ -2013,7 +2014,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                 </div>
 
                 <div className="space-y-1.5 mt-3">
-                  <label className="text-[11px] font-bold text-zinc-650 block">Visibilidade no Painel de Planejamento</label>
+                  <label className="text-[11px] font-bold text-zinc-600 block">Visibilidade no Painel de Planejamento</label>
                   <select
                     value={visibleLineForm}
                     onChange={(e) => setVisibleLineForm(e.target.value)}
@@ -2025,7 +2026,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                 </div>
               </div>
 
-              <div className="pt-4 flex gap-3 border-t border-zinc-150 shrink-0">
+              <div className="pt-4 flex gap-3 border-t border-zinc-100 shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsLineModalOpen(false)}
@@ -2077,7 +2078,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
           </div>
           <button 
             onClick={() => setSelectedProduct(null)}
-            className="p-1 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-650 transition-colors cursor-pointer"
+            className="p-1 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-600 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -2117,11 +2118,11 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
             {/* Launch Parameters (conditional) */}
             {statusForm === 'lancamento' && (
-              <div className="bg-zinc-50 border border-zinc-150 rounded-xl p-3.5 space-y-3 animate-in fade-in duration-200">
+              <div className="bg-zinc-50 border border-zinc-100 rounded-xl p-3.5 space-y-3 animate-in fade-in duration-200">
                 <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">Configurações de Lançamento</span>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-zinc-650 block">Meta de Giro (Meses)</label>
+                    <label className="text-[10px] font-bold text-zinc-600 block">Meta de Giro (Meses)</label>
                     <input
                       type="number"
                       min="1"
@@ -2131,7 +2132,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-zinc-650 block">Data de Início</label>
+                    <label className="text-[10px] font-bold text-zinc-600 block">Data de Início</label>
                     <input
                       type="date"
                       value={lancamentoDataInicioForm}
@@ -2192,13 +2193,13 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
               </select>
             </div>
 
-            <div className="border-t border-zinc-150 my-2 pt-3">
+            <div className="border-t border-zinc-100 my-2 pt-3">
               <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-3">Overrides de Estoque & Metas</span>
               
               {/* Ideal Stock Override Input */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-zinc-650 block">Estoque Ideal Fixo</label>
+                  <label className="text-[11px] font-bold text-zinc-600 block">Estoque Ideal Fixo</label>
                   <input
                     type="number"
                     placeholder="Automático (meses)"
@@ -2209,7 +2210,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-zinc-650 block">Override Média Vendas</label>
+                  <label className="text-[11px] font-bold text-zinc-600 block">Override Média Vendas</label>
                   <input
                     type="number"
                     step="any"
@@ -2223,7 +2224,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
               <div className="grid grid-cols-2 gap-3 mt-3">
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-zinc-650 block">Pedidos em Aberto</label>
+                  <label className="text-[11px] font-bold text-zinc-600 block">Pedidos em Aberto</label>
                   <input
                     type="number"
                     placeholder="Automático (carteira)"
@@ -2234,7 +2235,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-zinc-650 block">Visibilidade</label>
+                  <label className="text-[11px] font-bold text-zinc-600 block">Visibilidade</label>
                   <select
                     value={visibleOverride}
                     onChange={(e) => setVisibleOverride(e.target.value)}

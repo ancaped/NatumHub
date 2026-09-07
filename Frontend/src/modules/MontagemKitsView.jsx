@@ -5,6 +5,7 @@ import {
   UploadCloud
 } from 'lucide-react';
 import { API_BASE, apiFetch } from '../lib/utils';
+import { showToast, confirmDialog } from '../components/shared/feedback';
 
 
 export default function MontagemKitsView({ onBackToHub }) {
@@ -243,27 +244,27 @@ export default function MontagemKitsView({ onBackToHub }) {
         await fetchKits(); // Atualiza os alertas
       } else {
         const err = await res.json();
-        alert(err.error || 'Erro ao adicionar kit.');
+        showToast(err.error || 'Erro ao adicionar kit.', 'error');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro de conexão.');
+      showToast('Erro de conexão.', 'error');
     }
   };
 
   const handleDeleteKitComposicao = async (kit, comp) => {
-    if (!window.confirm(`Remover componente ${comp} do kit ${kit}?`)) return;
+    if (!await confirmDialog(`Remover componente ${comp} do kit ${kit}?`, { variant: 'danger' })) return;
     try {
       const res = await apiFetch(`${API_BASE}/kits/composicao/${kit}/${comp}`, { method: 'DELETE' });
       if (res.ok) {
         await fetchKitComposicao();
         await fetchKits(); // Atualiza os alertas
       } else {
-        alert('Erro ao excluir relação.');
+        showToast('Erro ao excluir relação.', 'error');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro de conexão.');
+      showToast('Erro de conexão.', 'error');
     }
   };
 
@@ -280,11 +281,11 @@ export default function MontagemKitsView({ onBackToHub }) {
         await fetchKitComposicao();
         await fetchKits(); // Atualiza os alertas
       } else {
-        alert(data.error || 'Erro ao importar.');
+        showToast(data.error || 'Erro ao importar.', 'error');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro de conexão.');
+      showToast('Erro de conexão.', 'error');
     } finally {
       setUploadingKitsConfig(false);
     }
@@ -333,26 +334,26 @@ export default function MontagemKitsView({ onBackToHub }) {
         await fetchViraComposicao();
       } else {
         const err = await res.json();
-        alert(err.error || 'Erro ao adicionar vira.');
+        showToast(err.error || 'Erro ao adicionar vira.', 'error');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro de conexão.');
+      showToast('Erro de conexão.', 'error');
     }
   };
 
   const handleDeleteViraComposicao = async (de, para) => {
-    if (!window.confirm(`Remover relação de vira do produto ${de} para ${para}?`)) return;
+    if (!await confirmDialog(`Remover relação de vira do produto ${de} para ${para}?`, { variant: 'danger' })) return;
     try {
       const res = await apiFetch(`${API_BASE}/turnovers/composicao/${de}/${para}`, { method: 'DELETE' });
       if (res.ok) {
         await fetchViraComposicao();
       } else {
-        alert('Erro ao excluir relação.');
+        showToast('Erro ao excluir relação.', 'error');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro de conexão.');
+      showToast('Erro de conexão.', 'error');
     }
   };
 
@@ -399,11 +400,11 @@ export default function MontagemKitsView({ onBackToHub }) {
         await fetchViraOrders();
       } else {
         const err = await res.json();
-        alert(err.error || 'Erro ao criar ordem de vira.');
+        showToast(err.error || 'Erro ao criar ordem de vira.', 'error');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro ao conectar com a API.');
+      showToast('Erro ao conectar com a API.', 'error');
     } finally {
       setSubmittingNewViraOrder(false);
     }
@@ -443,28 +444,28 @@ export default function MontagemKitsView({ onBackToHub }) {
         await fetchViraOrders();
       } else {
         const err = await res.json();
-        alert(err.error || 'Erro ao atualizar ordem de vira.');
+        showToast(err.error || 'Erro ao atualizar ordem de vira.', 'error');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro de conexão.');
+      showToast('Erro de conexão.', 'error');
     } finally {
       setSubmittingEditViraOrder(false);
     }
   };
 
   const handleDeleteViraOrder = async (id) => {
-    if (!window.confirm("Deseja realmente excluir esta ordem de vira?")) return;
+    if (!await confirmDialog("Deseja realmente excluir esta ordem de vira?", { variant: 'danger' })) return;
     try {
       const res = await apiFetch(`${API_BASE}/turnovers/orders/${id}`, { method: 'DELETE' });
       if (res.ok) {
         await fetchViraOrders();
       } else {
-        alert('Erro ao excluir ordem.');
+        showToast('Erro ao excluir ordem.', 'error');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro de conexão.');
+      showToast('Erro de conexão.', 'error');
     }
   };
 
@@ -528,11 +529,11 @@ export default function MontagemKitsView({ onBackToHub }) {
   const handleCreateOrder = async (e) => {
     if (e) e.preventDefault();
     if (!newOrderNumber.trim()) {
-      alert("Por favor, preencha o número do lote/ordem.");
+      showToast("Por favor, preencha o número do lote/ordem.", 'error');
       return;
     }
     if (!selectedKitCode) {
-      alert("Por favor, selecione o kit.");
+      showToast("Por favor, selecione o kit.", 'error');
       return;
     }
 
@@ -569,11 +570,11 @@ export default function MontagemKitsView({ onBackToHub }) {
         fetchOrders();
       } else {
         const err = await res.json();
-        alert(err.error || "Erro ao criar ordem de montagem");
+        showToast(err.error || "Erro ao criar ordem de montagem", 'error');
       }
     } catch (err) {
       console.error(err);
-      alert("Falha de rede ao criar ordem");
+      showToast("Falha de rede ao criar ordem", 'error');
     } finally {
       setSubmittingNewOrder(false);
     }
@@ -658,18 +659,18 @@ export default function MontagemKitsView({ onBackToHub }) {
         setShowEditOrderModal(false);
         fetchOrders();
       } else {
-        alert("Erro ao atualizar ordem de montagem");
+        showToast("Erro ao atualizar ordem de montagem", 'error');
       }
     } catch (err) {
       console.error(err);
-      alert("Falha de rede ao atualizar");
+      showToast("Falha de rede ao atualizar", 'error');
     } finally {
       setSubmittingEditOrder(false);
     }
   };
 
   const handleDeleteOrder = async (id) => {
-    if (!window.confirm("Deseja realmente excluir esta ordem de montagem?")) return;
+    if (!await confirmDialog("Deseja realmente excluir esta ordem de montagem?", { variant: 'danger' })) return;
     try {
       const res = await apiFetch(`${API_BASE}/kits/orders/${id}`, {
         method: 'DELETE'
@@ -677,7 +678,7 @@ export default function MontagemKitsView({ onBackToHub }) {
       if (res.ok) {
         fetchOrders();
       } else {
-        alert("Erro ao excluir ordem de montagem");
+        showToast("Erro ao excluir ordem de montagem", 'error');
       }
     } catch (err) {
       console.error(err);
@@ -713,9 +714,9 @@ export default function MontagemKitsView({ onBackToHub }) {
               <div>
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-black tracking-tighter text-zinc-950">NATUM</span>
-                  <span className="text-[10px] font-semibold tracking-[0.3em] text-zinc-450 uppercase">COSMÉTICOS</span>
+                  <span className="text-[10px] font-semibold tracking-[0.3em] text-zinc-400 uppercase">COSMÉTICOS</span>
                 </div>
-                <p className="text-[9px] font-bold text-zinc-455 uppercase tracking-widest mt-1">
+                <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest mt-1">
                   {printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
                     ? "Ordem de Conversão de Produto" 
                     : "Ordem de Montagem de Kit"}
@@ -752,7 +753,7 @@ export default function MontagemKitsView({ onBackToHub }) {
               </div>
               <div className="p-3 bg-zinc-50/50 space-y-1 col-span-2 text-center flex flex-col justify-center">
                 <span className="text-[7.5px] uppercase font-black text-zinc-400 tracking-wider block">Programada</span>
-                <p className="font-bold text-zinc-650 leading-none mt-1">{printingOrder.quantity} un</p>
+                <p className="font-bold text-zinc-600 leading-none mt-1">{printingOrder.quantity} un</p>
               </div>
               <div className="p-3 space-y-1 col-span-2 text-center flex flex-col justify-center">
                 <span className="text-[7.5px] uppercase font-black text-zinc-400 tracking-wider block">
@@ -778,7 +779,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                     ? "Instruções e Origem da Conversão" 
                     : "Instruções e Componentes do Kit"}
                 </h3>
-                <span className="text-[8px] text-zinc-450 font-bold uppercase">NatumHub — Controle de Fluxo</span>
+                <span className="text-[8px] text-zinc-400 font-bold uppercase">NatumHub — Controle de Fluxo</span>
               </div>
               <table className="w-full text-[9px] border-collapse">
                 <thead>
@@ -829,7 +830,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                                   <div className="border-b border-dashed border-zinc-400 h-4 w-12 mx-auto"></div>
                                 )}
                               </td>
-                              <td className="py-2 pl-4 italic text-zinc-455">
+                              <td className="py-2 pl-4 italic text-zinc-400">
                                 {item.lote ? (
                                   <span className="font-bold text-zinc-900 not-italic bg-zinc-100 px-2 py-0.5 rounded border border-zinc-200">{item.lote}</span>
                                 ) : (
@@ -853,11 +854,11 @@ export default function MontagemKitsView({ onBackToHub }) {
           <div className="space-y-6">
             {/* Observations */}
             <div className="border border-zinc-200 bg-zinc-50/30 p-3.5 rounded-xl space-y-2">
-              <span className="text-[7.5px] uppercase font-black text-zinc-455 tracking-wider block">
+              <span className="text-[7.5px] uppercase font-black text-zinc-400 tracking-wider block">
                 {printingOrder.status === 'COMPLETED' ? 'Observações de Retorno / Ocorrências Registradas' : 'Observações de Retorno / Ocorrências (Preenchimento Manual)'}
               </span>
               {printingOrder.status === 'COMPLETED' ? (
-                <p className="text-[9.5px] italic text-zinc-650 leading-tight">
+                <p className="text-[9.5px] italic text-zinc-600 leading-tight">
                   {printingOrder.observations || (printingOrder.kitProductDescription?.startsWith("CONVERSÃO:") 
                     ? "Nenhuma observação registrada para esta ordem de conversão."
                     : "Nenhuma observação registrada para esta ordem de montagem.")
@@ -866,7 +867,7 @@ export default function MontagemKitsView({ onBackToHub }) {
               ) : (
                 <div className="space-y-2">
                   {printingOrder.observations && (
-                    <p className="text-[9.5px] font-semibold text-zinc-850 mb-1 leading-tight">
+                    <p className="text-[9.5px] font-semibold text-zinc-800 mb-1 leading-tight">
                       {printingOrder.observations}
                     </p>
                   )}
@@ -886,7 +887,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                     ? "1. OPERADOR RESPONSÁVEL" 
                     : "1. MONTADOR RESPONSÁVEL"}
                 </span>
-                <div className="space-y-2.5 text-[9.5px] text-zinc-650">
+                <div className="space-y-2.5 text-[9.5px] text-zinc-600">
                   <div className="flex items-baseline gap-1">
                     <span className="font-bold">Nome:</span>
                     <div className="flex-1 border-b border-zinc-300 h-4"></div>
@@ -905,7 +906,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                     ? "2. CONFERENTE CONTROLE" 
                     : "2. CONFERENTE EXPEDIÇÃO"}
                 </span>
-                <div className="space-y-2.5 text-[9.5px] text-zinc-650">
+                <div className="space-y-2.5 text-[9.5px] text-zinc-600">
                   <div className="flex items-baseline gap-1">
                     <span className="font-bold">Nome:</span>
                     <div className="flex-1 border-b border-zinc-300 h-4"></div>
@@ -920,7 +921,7 @@ export default function MontagemKitsView({ onBackToHub }) {
               {/* Column 3: Supervisor */}
               <div className="border border-zinc-200 bg-zinc-50/20 p-4 rounded-xl space-y-3 h-28 flex flex-col justify-between">
                 <span className="text-[8px] font-black text-zinc-950 uppercase tracking-wider block border-b border-zinc-200 pb-1 text-center">3. RESPONSÁVEL CONTROLE</span>
-                <div className="space-y-2.5 text-[9.5px] text-zinc-650">
+                <div className="space-y-2.5 text-[9.5px] text-zinc-600">
                   <div className="flex items-baseline gap-1">
                     <span className="font-bold">Nome:</span>
                     <div className="flex-1 border-b border-zinc-300 h-4"></div>
@@ -956,10 +957,10 @@ export default function MontagemKitsView({ onBackToHub }) {
           <div className="p-3 border-b border-zinc-100">
             <button
               onClick={onBackToHub}
-              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 transition-all cursor-pointer border border-zinc-200"
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 transition-all cursor-pointer border border-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
-              Voltar ao Estoque Hub
+              Voltar ao Hub de Produção
             </button>
           </div>
 
@@ -971,7 +972,7 @@ export default function MontagemKitsView({ onBackToHub }) {
             <button
               onClick={() => setActiveSubTab('ordens')}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeSubTab === 'ordens' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+                activeSubTab === 'ordens' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
               }`}
             >
               <ClipboardList className="h-4 w-4" />
@@ -983,7 +984,7 @@ export default function MontagemKitsView({ onBackToHub }) {
             <button
               onClick={() => setActiveSubTab('componentes')}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeSubTab === 'componentes' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+                activeSubTab === 'componentes' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
               }`}
             >
               <Layers className="h-4 w-4" />
@@ -992,7 +993,7 @@ export default function MontagemKitsView({ onBackToHub }) {
             <button
               onClick={() => setActiveSubTab('composicao')}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeSubTab === 'composicao' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+                activeSubTab === 'composicao' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
               }`}
             >
               <Settings className="h-4 w-4" />
@@ -1007,7 +1008,7 @@ export default function MontagemKitsView({ onBackToHub }) {
             <button
               onClick={() => setActiveSubTab('vira_ordens')}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeSubTab === 'vira_ordens' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+                activeSubTab === 'vira_ordens' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
               }`}
             >
               <RefreshCw className="h-4 w-4" />
@@ -1019,7 +1020,7 @@ export default function MontagemKitsView({ onBackToHub }) {
             <button
               onClick={() => setActiveSubTab('vira_composicao')}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeSubTab === 'vira_composicao' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+                activeSubTab === 'vira_composicao' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
               }`}
             >
               <Settings className="h-4 w-4" />
@@ -1031,7 +1032,7 @@ export default function MontagemKitsView({ onBackToHub }) {
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             <div className="bg-zinc-50 rounded-xl p-4 space-y-3 border border-zinc-100">
               <h3 className="text-xs font-bold text-zinc-700 uppercase tracking-wider">Módulos NatumHub</h3>
-              <p className="text-xs text-zinc-550 leading-relaxed">
+              <p className="text-xs text-zinc-500 leading-relaxed">
                 Controle o fluxo fabril e logístico. Gerencie montagens de kits comerciais e ordens de conversão de produtos (reetiquetagem e reenvase).
               </p>
             </div>
@@ -1077,8 +1078,14 @@ export default function MontagemKitsView({ onBackToHub }) {
                 </button>
               )}
               <button 
-                onClick={activeSubTab === 'ordens' ? fetchOrders : activeSubTab === 'composicao' ? fetchKitComposicao : fetchKits}
-                className="p-2 bg-white border border-zinc-200 hover:bg-zinc-50 rounded-xl text-zinc-650 transition-colors flex items-center gap-1.5 text-xs font-semibold shadow-sm cursor-pointer"
+                onClick={() => {
+                  if (activeSubTab === 'ordens') fetchOrders();
+                  else if (activeSubTab === 'composicao') fetchKitComposicao();
+                  else if (activeSubTab === 'componentes') fetchKits();
+                  else if (activeSubTab === 'vira_ordens') fetchViraOrders();
+                  else if (activeSubTab === 'vira_composicao') fetchViraComposicao();
+                }}
+                className="p-2 bg-white border border-zinc-200 hover:bg-zinc-50 rounded-xl text-zinc-600 transition-colors flex items-center gap-1.5 text-xs font-semibold shadow-sm cursor-pointer"
               >
                 <RefreshCw className={`h-4 w-4 ${(loading || loadingOrders) ? 'animate-spin' : ''}`} />
                 Recarregar
@@ -1139,7 +1146,7 @@ export default function MontagemKitsView({ onBackToHub }) {
 
                 <button 
                   onClick={fetchOrders}
-                  className="p-2.5 bg-white border border-zinc-300 rounded-xl text-zinc-550 hover:text-zinc-900 cursor-pointer"
+                  className="p-2.5 bg-white border border-zinc-300 rounded-xl text-zinc-500 hover:text-zinc-900 cursor-pointer"
                   title="Atualizar"
                 >
                   {loadingOrders ? <RefreshCw className="animate-spin h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
@@ -1158,13 +1165,13 @@ export default function MontagemKitsView({ onBackToHub }) {
                 <div className="py-16 text-center text-zinc-400 flex flex-col items-center gap-2">
                   <ClipboardList size={40} className="text-zinc-200" />
                   <span className="text-xs font-bold text-zinc-700">Nenhuma ordem de montagem encontrada</span>
-                  <p className="text-[10px] text-zinc-550">Gere uma nova ordem clicando no botão no topo.</p>
+                  <p className="text-[10px] text-zinc-500">Gere uma nova ordem clicando no botão no topo.</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs text-left border-collapse">
                     <thead>
-                      <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-550 font-bold uppercase text-[9px]">
+                      <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-bold uppercase text-[9px]">
                         <th className="p-3">Lote Ordem</th>
                         <th className="p-3">Kit</th>
                         <th className="p-3 text-right">Qtd a Montar</th>
@@ -1177,7 +1184,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                     </thead>
                     <tbody>
                       {filteredOrders.map((o) => (
-                        <tr key={o.id} className="border-b border-zinc-150 hover:bg-zinc-50/50">
+                        <tr key={o.id} className="border-b border-zinc-100 hover:bg-zinc-50/50">
                           <td className="p-3 font-extrabold text-zinc-950">{o.orderNumber}</td>
                           <td className="p-3">
                             <span className="font-bold text-zinc-900 block">{o.kitProductDescription}</span>
@@ -1190,7 +1197,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                             )}
                           </td>
                           <td className="p-3 text-zinc-500 font-medium">{o.createdAt}</td>
-                          <td className="p-3 text-zinc-550 font-medium">
+                          <td className="p-3 text-zinc-500 font-medium">
                             {o.completedAt ? (
                               <div>
                                 <span className="block font-bold text-zinc-700">{o.completedAt}</span>
@@ -1213,7 +1220,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                             <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase ${
                               o.erpLaunched === 1
                                 ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                                : 'bg-zinc-100 text-zinc-450 border border-zinc-200'
+                                : 'bg-zinc-100 text-zinc-400 border border-zinc-200'
                             }`}>
                               {o.erpLaunched === 1 ? 'Sim' : 'Não'}
                             </span>
@@ -1222,14 +1229,14 @@ export default function MontagemKitsView({ onBackToHub }) {
                             <div className="flex gap-2 justify-center items-center">
                               <button 
                                 onClick={() => handlePrintOrder(o)}
-                                className="p-1.5 hover:bg-zinc-100 text-zinc-650 hover:text-zinc-900 rounded-lg cursor-pointer"
+                                className="p-1.5 hover:bg-zinc-100 text-zinc-600 hover:text-zinc-900 rounded-lg cursor-pointer"
                                 title="Imprimir Ordem para preenchimento manual"
                               >
                                 <Printer size={14} />
                               </button>
                               <button 
                                 onClick={() => handleOpenEditModal(o)}
-                                className="p-1.5 hover:bg-zinc-100 text-zinc-650 hover:text-zinc-900 rounded-lg cursor-pointer"
+                                className="p-1.5 hover:bg-zinc-100 text-zinc-600 hover:text-zinc-900 rounded-lg cursor-pointer"
                                 title="Preencher Retorno / Editar"
                               >
                                 <Eye size={14} />
@@ -1284,7 +1291,7 @@ export default function MontagemKitsView({ onBackToHub }) {
 
                 <button 
                   onClick={fetchKits}
-                  className="p-2.5 bg-white border border-zinc-300 rounded-xl text-zinc-550 hover:text-zinc-900 cursor-pointer"
+                  className="p-2.5 bg-white border border-zinc-300 rounded-xl text-zinc-500 hover:text-zinc-900 cursor-pointer"
                   title="Atualizar"
                 >
                   {loading ? <RefreshCw className="animate-spin h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
@@ -1308,7 +1315,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs text-left border-collapse">
                     <thead>
-                      <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-550 font-bold uppercase text-[9px]">
+                      <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-bold uppercase text-[9px]">
                         <th style={{ width: '4%' }}></th>
                         <th style={{ width: '12%' }}>Código</th>
                         <th style={{ width: '30%' }}>Descrição</th>
@@ -1324,23 +1331,23 @@ export default function MontagemKitsView({ onBackToHub }) {
                         const isExpanded = expandedKits.includes(k.codigo);
                         let capacityClass = "bg-emerald-50 text-emerald-700 border-emerald-200";
                         if (k.max_montavel === 0) {
-                          capacityClass = "bg-rose-50 text-rose-700 border-rose-255";
+                          capacityClass = "bg-rose-50 text-rose-700 border-red-200";
                         } else if (k.max_montavel < k.producao_recomendada) {
-                          capacityClass = "bg-amber-50 text-amber-700 border-amber-255";
+                          capacityClass = "bg-amber-50 text-amber-700 border-amber-200";
                         }
 
                         return (
                           <React.Fragment key={k.codigo}>
-                            <tr className={`border-b border-zinc-150 ${isExpanded ? 'bg-zinc-50/20' : ''}`}>
+                            <tr className={`border-b border-zinc-100 ${isExpanded ? 'bg-zinc-50/20' : ''}`}>
                               <td className="p-3 text-center">
                                 <button 
                                   onClick={() => toggleKitExpanded(k.codigo)}
-                                  className="p-1 hover:bg-zinc-100 rounded text-zinc-655 cursor-pointer"
+                                  className="p-1 hover:bg-zinc-100 rounded text-zinc-600 cursor-pointer"
                                 >
                                   {isExpanded ? <X size={12} /> : <Eye size={12} />}
                                 </button>
                               </td>
-                              <td className="p-3 font-extrabold text-zinc-955">{k.codigo}</td>
+                              <td className="p-3 font-extrabold text-zinc-950">{k.codigo}</td>
                               <td className="p-3 font-bold text-zinc-900">{k.descricao}</td>
                               <td className="p-3 text-right font-bold text-zinc-900">
                                 {k.estoque} un
@@ -1359,7 +1366,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                                 {k.producao_recomendada > 0 ? (
                                   <span className="text-rose-600">{k.producao_recomendada} un</span>
                                 ) : (
-                                  <span className="text-zinc-450">-</span>
+                                  <span className="text-zinc-400">-</span>
                                 )}
                               </td>
                               <td className="p-3">
@@ -1409,7 +1416,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                                               <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
                                                 comp.necessita_producao 
                                                   ? 'bg-rose-50 text-rose-700' 
-                                                  : 'bg-zinc-100 text-zinc-450'
+                                                  : 'bg-zinc-100 text-zinc-400'
                                               }`}>
                                                 {comp.necessita_producao ? 'Sim' : 'Não'}
                                               </span>
@@ -1454,7 +1461,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                       required
                     />
                     {getKitNamePreview() && (
-                      <div className="text-[10px] text-zinc-550 font-semibold truncate max-w-xs">{getKitNamePreview()}</div>
+                      <div className="text-[10px] text-zinc-500 font-semibold truncate max-w-xs">{getKitNamePreview()}</div>
                     )}
                   </div>
                   <div className="space-y-1">
@@ -1469,7 +1476,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                       required
                     />
                     {getCompNamePreview() && (
-                      <div className="text-[10px] text-zinc-550 font-semibold truncate max-w-xs">{getCompNamePreview()}</div>
+                      <div className="text-[10px] text-zinc-500 font-semibold truncate max-w-xs">{getCompNamePreview()}</div>
                     )}
                   </div>
                   <div className="space-y-1">
@@ -1486,7 +1493,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                   </div>
                   <button
                     type="submit"
-                    className="w-full bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-colors cursor-pointer h-[36px]"
+                    className="w-full bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-colors cursor-pointer h-[36px]"
                   >
                     Vincular Componente
                   </button>
@@ -1528,7 +1535,7 @@ export default function MontagemKitsView({ onBackToHub }) {
               {/* Scrollable Table Wrapper */}
               <div className="overflow-y-auto flex-1">
                 <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500 sticky top-0 z-10">
+                  <thead className="bg-zinc-50 border-b border-zinc-100 font-bold text-zinc-500 sticky top-0 z-10">
                     <tr>
                       <th className="px-6 py-3">Código do Kit</th>
                       <th className="px-6 py-3">Descrição do Kit</th>
@@ -1546,7 +1553,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                       (row.componente_descricao || '').toLowerCase().includes(kitCompSearch.toLowerCase())
                     ).length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="p-8 text-center text-zinc-455 font-bold">
+                        <td colSpan={6} className="p-8 text-center text-zinc-400 font-bold">
                           Nenhuma relação de composição de kits encontrada.
                         </td>
                       </tr>
@@ -1560,13 +1567,13 @@ export default function MontagemKitsView({ onBackToHub }) {
                         <tr key={`${row.kit_codigo}-${row.componente_codigo}`} className="hover:bg-zinc-50/50 transition-colors">
                           <td className="px-6 py-3 font-mono font-bold text-zinc-800">{row.kit_codigo}</td>
                           <td className="px-6 py-3 font-bold text-zinc-900">{row.kit_descricao}</td>
-                          <td className="px-6 py-3 font-mono text-zinc-650">{row.componente_codigo}</td>
+                          <td className="px-6 py-3 font-mono text-zinc-600">{row.componente_codigo}</td>
                           <td className="px-6 py-3 text-zinc-700">{row.componente_descricao}</td>
                           <td className="px-6 py-3 text-center font-bold text-zinc-900">{row.quantidade}</td>
                           <td className="px-6 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                             <button
                               onClick={() => handleDeleteKitComposicao(row.kit_codigo, row.componente_codigo)}
-                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-150 transition-colors cursor-pointer inline-flex items-center justify-center"
+                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-red-100 transition-colors cursor-pointer inline-flex items-center justify-center"
                               title="Desvincular componente do kit"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -1595,7 +1602,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                     placeholder="Buscar por lote, produto de origem ou destino..."
                     value={viraSearch}
                     onChange={(e) => setViraSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-955 text-xs font-semibold text-zinc-900"
+                    className="w-full pl-10 pr-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold text-zinc-900"
                   />
                 </div>
                 <select
@@ -1619,7 +1626,7 @@ export default function MontagemKitsView({ onBackToHub }) {
               ) : (
                 <div className="overflow-y-auto flex-1">
                   <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500 sticky top-0 z-10">
+                    <thead className="bg-zinc-50 border-b border-zinc-100 font-bold text-zinc-500 sticky top-0 z-10">
                       <tr>
                         <th className="p-4">Nº Ordem / Lote</th>
                         <th className="p-4">Transformação (De ➔ Para)</th>
@@ -1652,7 +1659,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                         if (filtered.length === 0) {
                           return (
                             <tr>
-                              <td colSpan={9} className="p-8 text-center text-zinc-450 font-bold">
+                              <td colSpan={9} className="p-8 text-center text-zinc-400 font-bold">
                                 Nenhuma ordem de vira de produto encontrada.
                               </td>
                             </tr>
@@ -1660,8 +1667,8 @@ export default function MontagemKitsView({ onBackToHub }) {
                         }
 
                         return filtered.map(o => (
-                          <tr key={o.id} className="border-b border-zinc-150 hover:bg-zinc-50/50">
-                            <td className="p-4 font-extrabold text-zinc-955">{o.orderNumber}</td>
+                          <tr key={o.id} className="border-b border-zinc-100 hover:bg-zinc-50/50">
+                            <td className="p-4 font-extrabold text-zinc-950">{o.orderNumber}</td>
                             <td className="p-4 space-y-1">
                               <div className="flex items-center gap-1.5 text-zinc-800 font-bold">
                                 <span className="text-[10px] text-zinc-400 font-mono">DE:</span>
@@ -1674,12 +1681,12 @@ export default function MontagemKitsView({ onBackToHub }) {
                                 <span className="text-[9px] text-zinc-500">({o.paraProdutoCodigo})</span>
                               </div>
                             </td>
-                            <td className="p-4 text-right font-extrabold text-zinc-650">{o.quantity} un</td>
+                            <td className="p-4 text-right font-extrabold text-zinc-600">{o.quantity} un</td>
                             <td className="p-4 text-right font-black text-zinc-950">
                               {o.status === 'COMPLETED' ? `${o.quantityAssembled !== null && o.quantityAssembled !== undefined ? o.quantityAssembled : o.quantity} un` : '—'}
                             </td>
                             <td className="p-4 text-zinc-500 font-medium">{o.createdAt}</td>
-                            <td className="p-4 text-zinc-550 font-medium">
+                            <td className="p-4 text-zinc-500 font-medium">
                               {o.completedAt ? (
                                 <div>
                                   <span className="block font-bold text-zinc-700">{o.completedAt}</span>
@@ -1702,7 +1709,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                               <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase ${
                                 o.erpLaunched === 1
                                   ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                                  : 'bg-zinc-100 text-zinc-450 border border-zinc-200'
+                                  : 'bg-zinc-100 text-zinc-400 border border-zinc-200'
                               }`}>
                                 {o.erpLaunched === 1 ? 'Sim' : 'Não'}
                               </span>
@@ -1733,14 +1740,14 @@ export default function MontagemKitsView({ onBackToHub }) {
                                     setPrintingOrder(customPrint);
                                     setTimeout(() => window.print(), 100);
                                   }}
-                                  className="p-1.5 hover:bg-zinc-100 text-zinc-650 hover:text-zinc-900 rounded-lg cursor-pointer"
+                                  className="p-1.5 hover:bg-zinc-100 text-zinc-600 hover:text-zinc-900 rounded-lg cursor-pointer"
                                   title="Imprimir Folha de Vira"
                                 >
                                   <Printer size={14} />
                                 </button>
                                 <button 
                                   onClick={() => handleOpenEditViraOrderModal(o)}
-                                  className="p-1.5 hover:bg-zinc-100 text-zinc-650 hover:text-zinc-900 rounded-lg cursor-pointer"
+                                  className="p-1.5 hover:bg-zinc-100 text-zinc-600 hover:text-zinc-900 rounded-lg cursor-pointer"
                                   title="Registrar Retorno / Observar"
                                 >
                                   <Eye size={14} />
@@ -1782,7 +1789,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                     required
                   />
                   {getViraDeNamePreview() && (
-                    <div className="text-[10px] text-zinc-550 font-bold truncate max-w-xs">{getViraDeNamePreview()}</div>
+                    <div className="text-[10px] text-zinc-500 font-bold truncate max-w-xs">{getViraDeNamePreview()}</div>
                   )}
                 </div>
                 <div className="space-y-1">
@@ -1797,7 +1804,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                     required
                   />
                   {getViraParaNamePreview() && (
-                    <div className="text-[10px] text-zinc-550 font-bold truncate max-w-xs">{getViraParaNamePreview()}</div>
+                    <div className="text-[10px] text-zinc-500 font-bold truncate max-w-xs">{getViraParaNamePreview()}</div>
                   )}
                 </div>
                 <div className="space-y-1">
@@ -1807,13 +1814,13 @@ export default function MontagemKitsView({ onBackToHub }) {
                     step="any"
                     value={newViraQuantidade}
                     onChange={(e) => setNewViraQuantidade(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-955 text-xs font-semibold text-zinc-900"
+                    className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-semibold text-zinc-900"
                     required
                   />
                 </div>
                 <button
                   type="submit"
-                  className="w-full bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-colors cursor-pointer h-[36px]"
+                  className="w-full bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-colors cursor-pointer h-[36px]"
                 >
                   Vincular Conversão de Produto
                 </button>
@@ -1829,14 +1836,14 @@ export default function MontagemKitsView({ onBackToHub }) {
                     placeholder="Buscar por código ou descrição..."
                     value={viraCompSearch}
                     onChange={(e) => setViraCompSearch(e.target.value)}
-                    className="w-full pl-9 pr-4 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-955 text-xs font-medium"
+                    className="w-full pl-9 pr-4 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-950 text-xs font-medium"
                   />
                 </div>
               </div>
 
               <div className="overflow-y-auto flex-1">
                 <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-zinc-50 border-b border-zinc-155 font-bold text-zinc-500 sticky top-0 z-10">
+                  <thead className="bg-zinc-50 border-b border-zinc-100 font-bold text-zinc-500 sticky top-0 z-10">
                     <tr>
                       <th className="px-6 py-3">Cód. Origem</th>
                       <th className="px-6 py-3">Produto de Origem (DE)</th>
@@ -1858,7 +1865,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                       if (filtered.length === 0) {
                         return (
                           <tr>
-                            <td colSpan={6} className="p-8 text-center text-zinc-450 font-bold">
+                            <td colSpan={6} className="p-8 text-center text-zinc-400 font-bold">
                               Nenhuma relação de vira cadastrada.
                             </td>
                           </tr>
@@ -1869,13 +1876,13 @@ export default function MontagemKitsView({ onBackToHub }) {
                         <tr key={`${row.deProdutoCodigo}-${row.paraProdutoCodigo}`} className="hover:bg-zinc-50/50 transition-colors">
                           <td className="px-6 py-3 font-mono font-bold text-zinc-800">{row.deProdutoCodigo}</td>
                           <td className="px-6 py-3 font-bold text-zinc-900">{row.deProdutoDescricao}</td>
-                          <td className="px-6 py-3 font-mono text-zinc-650">{row.paraProdutoCodigo}</td>
+                          <td className="px-6 py-3 font-mono text-zinc-600">{row.paraProdutoCodigo}</td>
                           <td className="px-6 py-3 text-zinc-700">{row.paraProdutoDescricao}</td>
                           <td className="px-6 py-3 text-center font-bold text-zinc-900">{row.quantidade}</td>
                           <td className="px-6 py-3 text-center">
                             <button
                               onClick={() => handleDeleteViraComposicao(row.deProdutoCodigo, row.paraProdutoCodigo)}
-                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-150 transition-colors cursor-pointer inline-flex items-center justify-center"
+                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-red-100 transition-colors cursor-pointer inline-flex items-center justify-center"
                               title="Remover vínculo de vira"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -1905,7 +1912,7 @@ export default function MontagemKitsView({ onBackToHub }) {
               </h3>
               <button 
                 onClick={() => setShowNewOrderModal(false)}
-                className="p-1 hover:bg-zinc-100 rounded-full text-zinc-450 hover:text-zinc-900 cursor-pointer"
+                className="p-1 hover:bg-zinc-100 rounded-full text-zinc-400 hover:text-zinc-900 cursor-pointer"
               >
                 <X size={16} />
               </button>
@@ -1923,7 +1930,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                     className="w-full border border-zinc-300 rounded-xl p-2.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none"
                     required
                   />
-                  <p className="text-[9px] text-zinc-455 italic mt-0.5">Editável. As próximas ordens seguirão a ordem sequencial.</p>
+                  <p className="text-[9px] text-zinc-400 italic mt-0.5">Editável. As próximas ordens seguirão a ordem sequencial.</p>
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Quantidade a Montar</label>
@@ -1968,7 +1975,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                   
                   <div className="space-y-2.5 max-h-48 overflow-y-auto pr-1">
                     {selectedKitObj.componentes.map(comp => (
-                      <div key={comp.codigo} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-150 pb-2 last:border-none">
+                      <div key={comp.codigo} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-100 pb-2 last:border-none">
                         <div className="flex-1 truncate">
                           <span className="font-bold text-zinc-900 text-[11px] block truncate">{comp.descricao}</span>
                           <span className="text-[9px] text-zinc-500">REF: {comp.codigo} | Qtd/Kit: {comp.quantidade || 1} un | Nec: {(comp.quantidade || 1) * newKitQty} un</span>
@@ -1978,7 +1985,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                           placeholder="Lote do produto..."
                           value={newComponentLotes[comp.codigo] || ''}
                           onChange={(e) => setNewComponentLotes({ ...newComponentLotes, [comp.codigo]: e.target.value })}
-                          className="border border-zinc-350 bg-white rounded-lg px-2.5 py-1.5 text-xs w-full sm:w-44 focus:outline-none"
+                          className="border border-zinc-300 bg-white rounded-lg px-2.5 py-1.5 text-xs w-full sm:w-44 focus:outline-none"
                         />
                       </div>
                     ))}
@@ -2029,7 +2036,7 @@ export default function MontagemKitsView({ onBackToHub }) {
               </h3>
               <button 
                 onClick={() => setShowEditOrderModal(false)}
-                className="p-1 hover:bg-zinc-100 rounded-full text-zinc-455 hover:text-zinc-900 cursor-pointer"
+                className="p-1 hover:bg-zinc-100 rounded-full text-zinc-400 hover:text-zinc-900 cursor-pointer"
               >
                 <X size={16} />
               </button>
@@ -2144,10 +2151,10 @@ export default function MontagemKitsView({ onBackToHub }) {
                         
                         <div className="space-y-2.5 max-h-48 overflow-y-auto pr-1">
                           {list.map(item => (
-                            <div key={item.code} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-150 pb-2 last:border-none">
+                            <div key={item.code} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-100 pb-2 last:border-none">
                               <div className="flex-1 truncate">
                                 <span className="font-bold text-zinc-900 text-[11px] block truncate">{item.description}</span>
-                                <span className="text-[9px] text-zinc-555">
+                                <span className="text-[9px] text-zinc-500">
                                   REF: {item.code} | Qtd p/ Kit: {item.expected_qty.toFixed(0)} un | Nec Programada: {(item.expected_qty * selectedOrder.quantity).toFixed(0)} un
                                 </span>
                               </div>
@@ -2230,7 +2237,7 @@ export default function MontagemKitsView({ onBackToHub }) {
               </h3>
               <button 
                 onClick={() => setShowNewViraOrderModal(false)}
-                className="p-1 hover:bg-zinc-100 rounded-full text-zinc-450 hover:text-zinc-900 cursor-pointer"
+                className="p-1 hover:bg-zinc-100 rounded-full text-zinc-400 hover:text-zinc-900 cursor-pointer"
               >
                 <X size={16} />
               </button>
@@ -2277,12 +2284,12 @@ export default function MontagemKitsView({ onBackToHub }) {
                     <div className="space-y-0.5">
                       <span className="text-[9px] text-zinc-400 font-bold block">PRODUTO ORIGEM (DE):</span>
                       <span className="font-bold text-zinc-900 block">{selectedViraComp.deProdutoDescricao}</span>
-                      <span className="text-[10px] font-mono text-zinc-550 block">{selectedViraComp.deProdutoCodigo}</span>
+                      <span className="text-[10px] font-mono text-zinc-500 block">{selectedViraComp.deProdutoCodigo}</span>
                     </div>
                     <div className="space-y-0.5">
                       <span className="text-[9px] text-zinc-400 font-bold block">PRODUTO DESTINO (PARA):</span>
                       <span className="font-bold text-zinc-900 block">{selectedViraComp.paraProdutoDescricao}</span>
-                      <span className="text-[10px] font-mono text-zinc-550 block">{selectedViraComp.paraProdutoCodigo}</span>
+                      <span className="text-[10px] font-mono text-zinc-500 block">{selectedViraComp.paraProdutoCodigo}</span>
                     </div>
                   </div>
                 </div>
@@ -2348,7 +2355,7 @@ export default function MontagemKitsView({ onBackToHub }) {
               </div>
               <button 
                 onClick={() => setShowEditViraOrderModal(false)}
-                className="p-1 hover:bg-zinc-100 rounded-full text-zinc-450 hover:text-zinc-900 cursor-pointer"
+                className="p-1 hover:bg-zinc-100 rounded-full text-zinc-400 hover:text-zinc-900 cursor-pointer"
               >
                 <X size={16} />
               </button>
@@ -2412,7 +2419,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                 <div className="grid grid-cols-2 gap-4 items-end">
                   <div className="space-y-0.5">
                     <span className="text-[9px] text-zinc-400 font-bold block">QTD. PROGRAMADA:</span>
-                    <span className="font-bold text-zinc-650 block">{selectedViraOrder.quantity} un</span>
+                    <span className="font-bold text-zinc-600 block">{selectedViraOrder.quantity} un</span>
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] text-zinc-400 font-extrabold uppercase block">Qtd. Real Virada</label>
