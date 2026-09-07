@@ -2,9 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../../lib/api';
 import { PricePoint, SupplierSpend, CategorySpend, Item, Category } from '../../types';
 import { TrendingUp, DollarSign, Package, Search, Calendar } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { cn, API_BASE, apiFetch } from '../../lib/utils';
 
-const API_BASE = 'http://127.0.0.1:3001/api';
 
 type ReportView = 'spending_supplier' | 'spending_category' | 'price_evolution';
 
@@ -27,7 +26,7 @@ export function ReportDashboard({ mode = 'all', active = false }: { mode?: strin
   useEffect(() => {
     if (!active) return;
     if (mode === 'coloracao' || mode === 'apoio') {
-      fetch(`${API_BASE}/products?limit=5000&status=${mode}`)
+      apiFetch(`${API_BASE}/products?limit=5000&status=${mode}`)
         .then(res => res.json())
         .then(data => {
           const itemsData = (data.items || []).map((p: any) => ({

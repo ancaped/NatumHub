@@ -5,9 +5,8 @@ import {
   AlertTriangle, Clock, Calendar, ChevronDown, ChevronUp,
   Truck, Info, AlertCircle, CheckCircle2, XCircle
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, API_BASE, apiFetch } from '../lib/utils';
 
-const API_BASE = 'http://127.0.0.1:3001/api';
 
 interface VendasViewProps {
   onBackToHub: () => void;
@@ -166,7 +165,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
   const handleDaysLimitChange = async (val: number) => {
     setFaltasDaysLimit(val);
     try {
-      await fetch(`${API_BASE}/settings/sales_faltas_days_limit`, {
+      await apiFetch(`${API_BASE}/settings/sales_faltas_days_limit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value: String(val) }),
@@ -180,7 +179,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
   const loadProducts = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/products?limit=5000`);
+      const res = await apiFetch(`${API_BASE}/products?limit=5000`);
       if (res.ok) {
         const data = await res.json();
         const items = (data.items || []).map((item: any) => ({
@@ -207,7 +206,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
   const loadSalesOrders = async () => {
     setOrdersLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/vendas/pedidos?search=${encodeURIComponent(ordersSearch)}&status=${ordersStatusFilter}&days=${faltasDaysLimit}`);
+      const res = await apiFetch(`${API_BASE}/vendas/pedidos?search=${encodeURIComponent(ordersSearch)}&status=${ordersStatusFilter}&days=${faltasDaysLimit}`);
       if (res.ok) {
         const data = await res.json();
         setSalesOrders(data || []);
@@ -223,7 +222,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
   const loadFaltas = async (days: number = 180) => {
     setFaltasLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/vendas/faltas?days=${days}`);
+      const res = await apiFetch(`${API_BASE}/vendas/faltas?days=${days}`);
       if (res.ok) {
         const data = await res.json();
         setFaltasData(data || { ativas: [], historicas: [] });
@@ -240,7 +239,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
     // Load persisted days limit setting
     const loadSettings = async () => {
       try {
-        const res = await fetch(`${API_BASE}/settings/sales_faltas_days_limit`);
+        const res = await apiFetch(`${API_BASE}/settings/sales_faltas_days_limit`);
         if (res.ok) {
           const data = await res.json();
           if (data && data.value) {
@@ -273,7 +272,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
 
     // 1. Fetch sales info
     try {
-      const res = await fetch(`${API_BASE}/produtos/${code}/detalhes`);
+      const res = await apiFetch(`${API_BASE}/produtos/${code}/detalhes`);
       if (res.ok) {
         const data = await res.json();
         setSelectedProductDetails({
@@ -287,7 +286,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
 
         // 2. Fetch pending orders & purchase transit
         setDrawerPendingLoading(true);
-        const resPending = await fetch(`${API_BASE}/produtos/${code}/pedidos-pendentes`);
+        const resPending = await apiFetch(`${API_BASE}/produtos/${code}/pedidos-pendentes`);
         if (resPending.ok) {
           const pendingData = await resPending.json();
           setDrawerPendingData(pendingData);

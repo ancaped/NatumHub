@@ -4,11 +4,10 @@ import {
   Edit, Info, Check, Filter, Layers, ListFilter, AlertTriangle, HelpCircle,
   Database, Trash2, Plus, Loader2, Settings, Rocket, GraduationCap, UploadCloud
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, API_BASE, apiFetch } from '../lib/utils';
 import { Category, PRODUCT_LINE_STATUSES, GraduationCandidate } from '../types';
 import { api } from '../lib/api';
 
-const API_BASE = 'http://127.0.0.1:3001/api';
 
 interface ProductOverride {
   codigo: string;
@@ -148,16 +147,16 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     setLoading(true);
     try {
       const [prodsRes, confRes, ovrRes, catsData, ignoredRes, gradRes, kitsRes, diasRes, limitRes, metaGlobalRes] = await Promise.all([
-        fetch(`${API_BASE}/products?limit=5000&show_hidden=true`),
-        fetch(`${API_BASE}/configs`),
-        fetch(`${API_BASE}/overrides`),
+        apiFetch(`${API_BASE}/products?limit=5000&show_hidden=true`),
+        apiFetch(`${API_BASE}/configs`),
+        apiFetch(`${API_BASE}/overrides`),
         api.getCategories(),
-        fetch(`${API_BASE}/settings/ignored_product_statuses`),
-        fetch(`${API_BASE}/lancamento/graduation-check`),
-        fetch(`${API_BASE}/kits/composicao`),
-        fetch(`${API_BASE}/settings/dias_comerciais`),
-        fetch(`${API_BASE}/settings/limit_per_page`),
-        fetch(`${API_BASE}/settings/lancamento_meta_meses_global`)
+        apiFetch(`${API_BASE}/settings/ignored_product_statuses`),
+        apiFetch(`${API_BASE}/lancamento/graduation-check`),
+        apiFetch(`${API_BASE}/kits/composicao`),
+        apiFetch(`${API_BASE}/settings/dias_comerciais`),
+        apiFetch(`${API_BASE}/settings/limit_per_page`),
+        apiFetch(`${API_BASE}/settings/lancamento_meta_meses_global`)
       ]);
       
       if (prodsRes.ok && confRes.ok && ovrRes.ok) {
@@ -217,17 +216,17 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     setGlobalSettingsSaving(true);
     try {
       const responses = await Promise.all([
-        fetch(`${API_BASE}/settings/dias_comerciais`, {
+        apiFetch(`${API_BASE}/settings/dias_comerciais`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ value: globalDiasComerciais })
         }),
-        fetch(`${API_BASE}/settings/limit_per_page`, {
+        apiFetch(`${API_BASE}/settings/limit_per_page`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ value: globalLimitPerPage })
         }),
-        fetch(`${API_BASE}/settings/lancamento_meta_meses_global`, {
+        apiFetch(`${API_BASE}/settings/lancamento_meta_meses_global`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ value: globalLancamentoMeta })
@@ -249,7 +248,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
   const fetchKitComposicao = async () => {
     try {
-      const res = await fetch(`${API_BASE}/kits/composicao`);
+      const res = await apiFetch(`${API_BASE}/kits/composicao`);
       if (res.ok) setKitComposicao(await res.json());
     } catch (e) {
       console.error(e);
@@ -260,7 +259,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     e.preventDefault();
     if (!kitCompNewKit.trim() || !kitCompNewComp.trim()) return;
     try {
-      const res = await fetch(`${API_BASE}/kits/composicao`, {
+      const res = await apiFetch(`${API_BASE}/kits/composicao`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -287,7 +286,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const handleDeleteKitComposicao = async (kit: string, comp: string) => {
     if (!window.confirm(`Remover componente ${comp} do kit ${kit}?`)) return;
     try {
-      const res = await fetch(`${API_BASE}/kits/composicao/${kit}/${comp}`, { method: 'DELETE' });
+      const res = await apiFetch(`${API_BASE}/kits/composicao/${kit}/${comp}`, { method: 'DELETE' });
       if (res.ok) {
         await fetchKitComposicao();
       } else {
@@ -306,7 +305,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     const formData = new FormData();
     formData.append('file', file);
     try {
-      const res = await fetch(`${API_BASE}/kits/composicao/upload`, { method: 'POST', body: formData });
+      const res = await apiFetch(`${API_BASE}/kits/composicao/upload`, { method: 'POST', body: formData });
       const data = await res.json();
       if (res.ok) {
         await fetchKitComposicao();
@@ -329,7 +328,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     setLoading(true);
     try {
       const codes = graduationCandidates.map(c => c.codigo);
-      const res = await fetch(`${API_BASE}/overrides/bulk`, {
+      const res = await apiFetch(`${API_BASE}/overrides/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -449,7 +448,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const fetchProductOverride = async (code: string) => {
     setDrawerLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/overrides`);
+      const res = await apiFetch(`${API_BASE}/overrides`);
       if (res.ok) {
         const overridesList: ProductOverride[] = await res.json();
         const override = overridesList.find(o => o.codigo === code);
@@ -509,7 +508,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         lancamento_data_inicio: statusForm === 'lancamento' ? (lancamentoDataInicioForm.trim() || new Date().toISOString().split('T')[0]) : null,
       };
 
-      const res = await fetch(`${API_BASE}/overrides`, {
+      const res = await apiFetch(`${API_BASE}/overrides`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(ovr),
@@ -541,7 +540,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         value_str: value || null,
       };
 
-      const res = await fetch(`${API_BASE}/overrides/bulk`, {
+      const res = await apiFetch(`${API_BASE}/overrides/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req),
@@ -606,7 +605,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         fator_seguranca_z: parseFloat(fatorZForm) || 1.65,
         visivel: visibleLineForm === '0' ? 0 : 1
       };
-      const res = await fetch(`${API_BASE}/configs`, {
+      const res = await apiFetch(`${API_BASE}/configs`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(cfg)
@@ -635,7 +634,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
       return;
     }
     try {
-      const res = await fetch(`${API_BASE}/configs/${prefix}`, {
+      const res = await apiFetch(`${API_BASE}/configs/${prefix}`, {
         method: 'DELETE'
       });
       if (res.ok) {
@@ -667,7 +666,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         status_produto: null,
         categoria_produto: null
       };
-      const res = await fetch(`${API_BASE}/overrides`, {
+      const res = await apiFetch(`${API_BASE}/overrides`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(ovr)
@@ -690,7 +689,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     }
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/overrides/bulk`, {
+      const res = await apiFetch(`${API_BASE}/overrides/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -755,7 +754,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     setConfigIgnoredStatuses(updated);
     
     try {
-      await fetch(`${API_BASE}/settings/ignored_product_statuses`, {
+      await apiFetch(`${API_BASE}/settings/ignored_product_statuses`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value: JSON.stringify(updated) })

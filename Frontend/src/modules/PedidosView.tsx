@@ -4,9 +4,8 @@ import {
   User, FileText, ChevronRight, CheckCircle2, Clock, AlertTriangle,
   ArrowUpRight, ArrowDownRight, Truck, DollarSign, Hash, Mail, Info, X
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, API_BASE, apiFetch } from '../lib/utils';
 
-const API_BASE = 'http://127.0.0.1:3001/api';
 
 interface PedidosViewProps {
   onBackToHub: () => void;
@@ -65,7 +64,7 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
       const params = new URLSearchParams();
       if (statusFilter !== 'ALL') params.set('status', statusFilter);
       if (search.trim()) params.set('search', search.trim());
-      const res = await fetch(`${API_BASE}/compras/pedidos?${params.toString()}`);
+      const res = await apiFetch(`${API_BASE}/compras/pedidos?${params.toString()}`);
       if (res.ok) {
         setOrders(await res.json());
       }
@@ -91,7 +90,7 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
     setDrawerLoading(true);
     setSelectedOrder(null);
     try {
-      const res = await fetch(`${API_BASE}/compras/pedidos/${nRegistro}`);
+      const res = await apiFetch(`${API_BASE}/compras/pedidos/${nRegistro}`);
       if (res.ok) {
         const data = await res.json();
         setSelectedOrder(data);

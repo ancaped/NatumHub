@@ -7,7 +7,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = Config::new();
     config.host("192.168.101.249");
     config.port(1433);
-    config.authentication(tiberius::AuthMethod::sql_server("sa", "byteonDS2015"));
+    let password = std::env::var("NATUM_SQL_PASSWORD").unwrap_or_default();
+    if password.is_empty() {
+        eprintln!("NATUM_SQL_PASSWORD is not set. Configure it locally; do not hardcode SQL credentials.");
+        std::process::exit(1);
+    }
+    config.authentication(tiberius::AuthMethod::sql_server("sa", &password));
     config.database("NATUM");
     config.trust_cert();
 

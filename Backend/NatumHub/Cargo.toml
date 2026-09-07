@@ -27,6 +27,7 @@ axum = { version = "0.7.5", features = ["multipart"] }
 tokio = { version = "1.38", features = ["full"] }
 calamine = "0.24.0"
 tower-http = { version = "0.5.2", features = ["cors", "trace", "fs"] }
+tower = { version = "0.5", features = ["util"] }
 anyhow = "1.0"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt"] }

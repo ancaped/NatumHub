@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../lib/api';
 import { DemandResult, Category, Item } from '../../types';
 import { AlertCircle, ArrowDownToLine, Package, Filter, CheckCircle2, ShoppingCart, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, TrendingUp, BarChart3, FileText, ChevronRight, X, Info, RefreshCw, Database, Factory, Printer, PlusCircle } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { cn, API_BASE, apiFetch } from '../../lib/utils';
 
 interface InsumoDetalhes {
   code: string;
@@ -192,13 +192,12 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     }
   };
 
-  const API_BASE = 'http://127.0.0.1:3001/api';
 
   const loadDetails = async (code: string) => {
     setDetailsLoading(true);
     setDetails(null);
     try {
-      const res = await fetch(`${API_BASE}/compras/insumos/${code}/detalhes`);
+      const res = await apiFetch(`${API_BASE}/compras/insumos/${code}/detalhes`);
       if (res.ok) {
         const data = await res.json();
         setDetails(data);

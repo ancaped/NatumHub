@@ -5,9 +5,8 @@ import {
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { Item, Category } from '../../types';
-import { cn } from '../../lib/utils';
+import { cn, API_BASE, apiFetch } from '../../lib/utils';
 
-const API_BASE = 'http://127.0.0.1:3001/api';
 
 interface InsumoDetalhes {
   code: string;
@@ -94,7 +93,7 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
     setDetailsLoading(true);
     setDetails(null);
     try {
-      const res = await fetch(`${API_BASE}/compras/insumos/${code}/detalhes`);
+      const res = await apiFetch(`${API_BASE}/compras/insumos/${code}/detalhes`);
       if (res.ok) {
         const data = await res.json();
         setDetails(data);

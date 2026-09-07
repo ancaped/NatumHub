@@ -34,6 +34,9 @@ Backend/NatumHub/icons/
 .env
 .env.local
 .github_token
+.natum_hub_token
+**/.natum_hub_token
+Backend/.natum_hub_token
 
 # Scratch scripts (dev only)
 **/scratch/

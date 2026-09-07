@@ -3,8 +3,8 @@ import {
   Search, RefreshCw, Printer, Trash2, CheckCircle2, X, AlertTriangle, 
   HelpCircle, Calendar, Edit3, Database, Play, Check, ArrowRight
 } from 'lucide-react';
+import { API_BASE, apiFetch } from '../../lib/utils';
 
-const API_BASE = 'http://127.0.0.1:3001/api';
 
 export function AprovacaoTab({
   active = true,
@@ -37,7 +37,7 @@ export function AprovacaoTab({
   const fetchAllProducts = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/products?limit=9999&show_hidden=true`);
+      const res = await apiFetch(`${API_BASE}/products?limit=9999&show_hidden=true`);
       if (res.ok) {
         const data = await res.json();
         setProducts(data.items || []);
@@ -152,7 +152,7 @@ export function AprovacaoTab({
 
     setIsSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE}/historico`, {
+      const res = await apiFetch(`${API_BASE}/historico`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

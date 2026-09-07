@@ -17,9 +17,9 @@ import {
   Boxes, ShoppingCart, Activity, FlaskConical, ArrowRight, ArrowLeft,
   Settings, Database, RefreshCw, Upload, Download, Loader2, Check, X, Globe,
   FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp,
-  Briefcase, Calendar
+  Briefcase, Calendar, KeyRound
 } from 'lucide-react';
-import { APP_NAME, API_BASE } from './lib/utils';
+import { APP_NAME, API_BASE, apiFetch, bootstrapHubToken, getHubToken, setHubToken, FIREBASE_CONFIG_STORAGE_KEY } from './lib/utils';
 import { api } from './lib/api';
 import { 
   initializeFirebase, 
@@ -50,40 +50,59 @@ export default function App() {
   const [sqlHost, setSqlHost] = useState('192.168.101.249');
   const [sqlPort, setSqlPort] = useState('1433');
   const [sqlUser, setSqlUser] = useState('sa');
-  const [sqlPassword, setSqlPassword] = useState('byteonDS2015');
+  const [sqlPassword, setSqlPassword] = useState('');
+  const [sqlPasswordConfigured, setSqlPasswordConfigured] = useState(false);
   const [sqlDatabase, setSqlDatabase] = useState('NATUM');
   const [salesSyncStartDate, setSalesSyncStartDate] = useState('2020-01-01');
   const [savingSql, setSavingSql] = useState(false);
   const [syncingSql, setSyncingSql] = useState(false);
+  const [hubToken, setHubTokenInput] = useState(() => getHubToken());
+  const [firebaseConfigured, setFirebaseConfigured] = useState(false);
 
   // Servidor NatumHub (Tailscale / Rede Remota)
   const [serverHost, setServerHost] = useState(() => {
     return localStorage.getItem('natum_api_base') || (typeof window !== 'undefined' && window.location?.hostname !== 'localhost' && window.location?.hostname !== '127.0.0.1' ? `http://${window.location.hostname}:3001/api` : 'http://100.120.161.52:3001/api');
   });
 
+  const applyFirebaseJson = (raw: string) => {
+    if (!raw) return;
+    try {
+      const config = JSON.parse(raw);
+      const { auth } = initializeFirebase(config);
+      setFirebaseInitialized(true);
+      auth.onAuthStateChanged((user: any) => {
+        setFirebaseUser(user);
+      });
+    } catch (err) {
+      console.error("Configuração do Firebase mal formatada:", err);
+    }
+  };
+
   const fetchFirebaseConfig = async () => {
     try {
-      const res = await fetch(`${API_BASE}/settings/firebase_config`);
+      const localCfg = localStorage.getItem(FIREBASE_CONFIG_STORAGE_KEY) || '';
+      if (localCfg) {
+        setFirebaseConfigStr(localCfg);
+        applyFirebaseJson(localCfg);
+      }
+
+      const res = await apiFetch(`${API_BASE}/settings/firebase_config`);
       if (res.ok) {
         const data = await res.json();
-        if (data.value) {
-          setFirebaseConfigStr(data.value);
-          try {
-            const config = JSON.parse(data.value);
-            const { auth } = initializeFirebase(config);
-            setFirebaseInitialized(true);
-            
-            // Listen to auth changes
-            auth.onAuthStateChanged((user: any) => {
-              setFirebaseUser(user);
-            });
-          } catch (err) {
-            console.error("Configuração do Firebase mal formatada:", err);
+        if (data.masked || data.is_set) {
+          setFirebaseConfigured(!!data.is_set);
+          if (!localCfg && data.value) {
+            setFirebaseConfigStr(data.value);
+            applyFirebaseJson(data.value);
           }
+        } else if (data.value) {
+          setFirebaseConfigStr(data.value);
+          setFirebaseConfigured(true);
+          applyFirebaseJson(data.value);
         }
       }
       
-      const lastSyncRes = await fetch(`${API_BASE}/settings/firebase_last_sync`);
+      const lastSyncRes = await apiFetch(`${API_BASE}/settings/firebase_last_sync`);
       if (lastSyncRes.ok) {
         const data = await lastSyncRes.json();
         if (data.value) {
@@ -100,20 +119,23 @@ export default function App() {
       const keys = ['sql_host', 'sql_port', 'sql_user', 'sql_password', 'sql_database', 'sales_sync_start_date'];
       const vals = await Promise.all(
         keys.map(async (key) => {
-          const res = await fetch(`${API_BASE}/settings/${key}`);
+          const res = await apiFetch(`${API_BASE}/settings/${key}`);
           if (res.ok) {
-            const data = await res.json();
-            return data.value;
+            return await res.json();
           }
           return null;
         })
       );
-      if (vals[0]) setSqlHost(vals[0]);
-      if (vals[1]) setSqlPort(vals[1]);
-      if (vals[2]) setSqlUser(vals[2]);
-      if (vals[3]) setSqlPassword(vals[3]);
-      if (vals[4]) setSqlDatabase(vals[4]);
-      if (vals[5]) setSalesSyncStartDate(vals[5]);
+      if (vals[0]?.value) setSqlHost(vals[0].value);
+      if (vals[1]?.value) setSqlPort(vals[1].value);
+      if (vals[2]?.value) setSqlUser(vals[2].value);
+      if (vals[3]) {
+        setSqlPasswordConfigured(!!vals[3].is_set);
+        if (vals[3].value && !vals[3].masked) setSqlPassword(vals[3].value);
+        else setSqlPassword('');
+      }
+      if (vals[4]?.value) setSqlDatabase(vals[4].value);
+      if (vals[5]?.value) setSalesSyncStartDate(vals[5].value);
     } catch (e) {
       console.error("Error fetching SQL config:", e);
     }
@@ -126,19 +148,25 @@ export default function App() {
         { key: 'sql_host', value: sqlHost },
         { key: 'sql_port', value: sqlPort },
         { key: 'sql_user', value: sqlUser },
-        { key: 'sql_password', value: sqlPassword },
         { key: 'sql_database', value: sqlDatabase },
         { key: 'sales_sync_start_date', value: salesSyncStartDate },
       ];
+      if (sqlPassword.trim()) {
+        configs.push({ key: 'sql_password', value: sqlPassword });
+      }
       await Promise.all(
         configs.map(async (cfg) => {
-          await fetch(`${API_BASE}/settings/${cfg.key}`, {
+          await apiFetch(`${API_BASE}/settings/${cfg.key}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ value: cfg.value }),
           });
         })
       );
+      if (sqlPassword.trim()) {
+        setSqlPasswordConfigured(true);
+        setSqlPassword('');
+      }
       setMessage({ text: "Configurações de conexão salvas!", type: 'success' });
     } catch (e) {
       console.error(e);
@@ -152,7 +180,7 @@ export default function App() {
   const handleSyncSqlDatabase = async () => {
     setSyncingSql(true);
     try {
-      const res = await fetch(`${API_BASE}/import/sync`, {
+      const res = await apiFetch(`${API_BASE}/import/sync`, {
         method: 'POST',
       });
       const data = await res.json();
@@ -171,6 +199,9 @@ export default function App() {
   };
 
   useEffect(() => {
+    void bootstrapHubToken().then((token) => {
+      if (token) setHubTokenInput(token);
+    });
     fetchFirebaseConfig();
     fetchSqlConfig();
   }, []);
@@ -180,13 +211,15 @@ export default function App() {
     try {
       // Validate JSON
       JSON.parse(firebaseConfigStr);
+      localStorage.setItem(FIREBASE_CONFIG_STORAGE_KEY, firebaseConfigStr);
       
-      const res = await fetch(`${API_BASE}/settings/firebase_config`, {
+      const res = await apiFetch(`${API_BASE}/settings/firebase_config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value: firebaseConfigStr }),
       });
       if (res.ok) {
+        setFirebaseConfigured(true);
         setMessage({ text: "Configuração do Firebase salva com sucesso!", type: 'success' });
         await fetchFirebaseConfig();
       } else {
@@ -249,7 +282,7 @@ export default function App() {
       
       const now = new Date().toLocaleString();
       // 3. Save last sync timestamp
-      await fetch(`${API_BASE}/settings/firebase_last_sync`, {
+      await apiFetch(`${API_BASE}/settings/firebase_last_sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value: now }),
@@ -681,14 +714,32 @@ export default function App() {
                       </p>
                     </div>
 
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-zinc-600 block">Token da API (hub_token)</label>
+                      <input 
+                        type="password" 
+                        className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs font-mono focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
+                        placeholder="Bearer token do servidor"
+                        value={hubToken}
+                        onChange={(e) => setHubTokenInput(e.target.value)}
+                        autoComplete="off"
+                      />
+                      <p className="text-[10px] text-zinc-400 leading-tight mt-1">
+                        No PC servidor o token é gerado em <code>.natum_hub_token</code> / <code>NATUM_HUB_TOKEN</code>.
+                        No cliente Tailscale, cole o mesmo token aqui.
+                      </p>
+                    </div>
+
                     <button 
                       onClick={() => {
                         localStorage.setItem('natum_api_base', serverHost);
-                        setMessage({ text: "Endereço do servidor salvo! A página será atualizada.", type: 'success' });
+                        setHubToken(hubToken);
+                        setMessage({ text: "Endereço e token salvos! A página será atualizada.", type: 'success' });
                         setTimeout(() => window.location.reload(), 1200);
                       }} 
                       className="text-xs bg-indigo-600 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-indigo-700 flex items-center gap-1.5 cursor-pointer shadow-sm transition-all"
                     >
+                      <KeyRound className="h-3.5 w-3.5" />
                       Salvar e Conectar
                     </button>
                   </div>
@@ -724,7 +775,9 @@ export default function App() {
                       <textarea 
                         rows={5}
                         className="w-full border border-zinc-300 rounded-lg px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-800" 
-                        placeholder='{ "apiKey": "...", "authDomain": "...", ... }'
+                        placeholder={firebaseConfigured && !firebaseConfigStr
+                          ? 'Configurado no servidor. Cole um JSON novo para alterar.'
+                          : '{ "apiKey": "...", "authDomain": "...", ... }'}
                         value={firebaseConfigStr}
                         onChange={(e) => setFirebaseConfigStr(e.target.value)}
                       />
@@ -891,7 +944,7 @@ export default function App() {
                         <input 
                           type="password" 
                           className="w-full border border-zinc-300 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white text-zinc-850" 
-                          placeholder="Senha SQL Server"
+                          placeholder={sqlPasswordConfigured ? 'Configurado. Deixe em branco para manter.' : 'Senha SQL Server'}
                           value={sqlPassword}
                           onChange={(e) => setSqlPassword(e.target.value)}
                         />
@@ -941,7 +994,7 @@ export default function App() {
                       {syncingSql ? 'Sincronizando...' : 'Sincronizar SQL Server Agora'}
                     </button>
                     <p className="text-[9px] text-zinc-400 text-center mt-1">
-                      Esta ação baixa produtos, insumos, movimentações e receitas diretamente do ERP local para o buffer SQLite do aplicativo.
+                      Requer senha SQL configurada neste Hub. Credenciais não são pré-preenchidas e não devem ser commitadas.
                     </p>
                   </div>
                 </div>

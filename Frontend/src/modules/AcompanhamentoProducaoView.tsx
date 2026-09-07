@@ -4,7 +4,7 @@ import {
   Lock, CheckCircle2, AlertTriangle, Download, ChevronLeft, ChevronRight, X,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { cn, API_BASE } from '../lib/utils';
+import { cn, API_BASE, apiFetch } from '../lib/utils';
 
 // Interface do lote vindo do backend
 export interface AcompanhamentoLote {
@@ -198,7 +198,7 @@ export default function AcompanhamentoProducaoView({ onBack }: AcompanhamentoPro
     else setLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE}/administrativo/acompanhamento-producao`);
+      const res = await apiFetch(`${API_BASE}/administrativo/acompanhamento-producao`);
       if (res.ok) {
         const data: AcompanhamentoLote[] = await res.json();
         setLotes(data || []);
@@ -265,7 +265,7 @@ export default function AcompanhamentoProducaoView({ onBack }: AcompanhamentoPro
         notes,
       };
 
-      const res = await fetch(`${API_BASE}/administrativo/lote-status`, {
+      const res = await apiFetch(`${API_BASE}/administrativo/lote-status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -332,7 +332,7 @@ export default function AcompanhamentoProducaoView({ onBack }: AcompanhamentoPro
 
     setSavingStatus(loteNumber);
     try {
-      const res = await fetch(`${API_BASE}/administrativo/lote-status/${loteNumber}`, {
+      const res = await apiFetch(`${API_BASE}/administrativo/lote-status/${loteNumber}`, {
         method: 'DELETE',
       });
       if (res.ok) {

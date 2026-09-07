@@ -7,7 +7,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let host = "192.168.101.249";
     let port = 1433;
     let user = "sa";
-    let password = "byteonDS2015";
+    let password = std::env::var("NATUM_SQL_PASSWORD").unwrap_or_default();
+    if password.is_empty() {
+        eprintln!("NATUM_SQL_PASSWORD is not set. Configure it locally; do not hardcode SQL credentials.");
+        std::process::exit(1);
+    }
     let database = "NATUM";
     
     let mut config = Config::new();

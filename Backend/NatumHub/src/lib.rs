@@ -5,6 +5,7 @@ use tauri::State;
 use uuid::Uuid;
 
 // Exposed modules from Producao backend
+pub mod auth;
 pub mod calculations;
 pub mod db;
 pub mod google_drive;
@@ -517,7 +518,7 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         INSERT OR IGNORE INTO settings (key, value) VALUES ('sql_host', '192.168.101.249');
         INSERT OR IGNORE INTO settings (key, value) VALUES ('sql_port', '1433');
         INSERT OR IGNORE INTO settings (key, value) VALUES ('sql_user', 'sa');
-        INSERT OR IGNORE INTO settings (key, value) VALUES ('sql_password', 'byteonDS2015');
+        INSERT OR IGNORE INTO settings (key, value) VALUES ('sql_password', '');
         INSERT OR IGNORE INTO settings (key, value) VALUES ('sql_database', 'NATUM');
 
         CREATE TABLE IF NOT EXISTS feedbacks (
@@ -806,6 +807,20 @@ fn initialize_hub_db(conn: &Connection) -> Result<(), rusqlite::Error> {
         let _ = conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('migration_remove_quotation_items_fk_v1', 'done')", []);
     }
 
+    // One-shot: wipe the historical SQL password seed that was committed in-repo.
+    // INSERT OR IGNORE does not update existing data.db rows.
+    if conn.query_row("SELECT 1 FROM settings WHERE key = 'migration_clear_leaked_sql_password_v1'", [], |_| Ok(())).is_err() {
+        let _ = conn.execute(
+            "UPDATE settings SET value = '' WHERE key = 'sql_password' AND value = 'byteonDS2015'",
+            [],
+        );
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES ('migration_clear_leaked_sql_password_v1', 'done')",
+            [],
+        );
+        eprintln!("NatumHub: cleared known leaked sql_password seed if present. Reconfigure SQL Server credentials in Hub Settings.");
+    }
+
     Ok(())
 }
 
@@ -906,6 +921,11 @@ fn run_migration_if_needed() {
 // === TAURI COMMAND HANDLERS ===
 
 // --- COMMON & FEEDBACK & CONFIG ---
+
+#[tauri::command]
+fn get_hub_token() -> Result<String, String> {
+    Ok(crate::auth::read_hub_token().unwrap_or_default())
+}
 
 #[tauri::command]
 fn get_compras_config(state: State<DbState>, key: Option<String>) -> Result<Option<serde_json::Value>, String> {
@@ -3580,25 +3600,19 @@ fn delete_fisco_quimica_analysis(state: State<DbState>, id: String) -> Result<()
 }
 
 // === AXUM SERVER RUNNER (PRODUCAO BACKEND) ===
-fn start_axum_server() {
-    tauri::async_runtime::spawn(async {
+fn start_axum_server(auth_cfg: crate::auth::AuthConfig, bind_addr: String) {
+    tauri::async_runtime::spawn(async move {
         let db_path = "../data.db";
         let db = db::Db::new(db_path);
         
         let state = std::sync::Arc::new(handlers::AppState { db });
 
-        // Spreadsheet folder watcher disabled as spreadsheet imports are removed
-        // let watcher_state = state.clone();
-        // tauri::async_runtime::spawn(async move {
-        //     watcher::start_folder_watcher(watcher_state).await;
-        // });
-
-        // CORS Setup
-        use tower_http::cors::{Any, CorsLayer};
+        use axum::http::{header, Method};
+        use tower_http::cors::{AllowOrigin, CorsLayer};
         let cors = CorsLayer::new()
-            .allow_origin(Any)
-            .allow_methods(Any)
-            .allow_headers(Any);
+            .allow_origin(AllowOrigin::predicate(crate::auth::cors_allow_origin_predicate))
+            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
+            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT]);
 
         use axum::{routing::{get, post, delete, put}, Router};
         
@@ -3661,16 +3675,19 @@ fn start_axum_server() {
             .route("/api/google/auth-url", get(google_drive::google_auth_url))
             .route("/api/google/callback", get(google_drive::google_callback))
             .route("/api/google/sync", post(google_drive::trigger_sync))
+            .layer(axum::middleware::from_fn_with_state(auth_cfg.clone(), crate::auth::require_hub_token))
             .layer(tower_http::trace::TraceLayer::new_for_http())
             .layer(cors)
             .with_state(state);
 
-        let addr = "0.0.0.0:3001";
-        if let Ok(listener) = tokio::net::TcpListener::bind(addr).await {
-            println!("Axum REST server running on: http://{}", addr);
+        if let Ok(listener) = tokio::net::TcpListener::bind(&bind_addr).await {
+            println!(
+                "Axum REST server running on http://{} (auth_required={})",
+                bind_addr, auth_cfg.auth_required
+            );
             let _ = axum::serve(listener, app).await;
         } else {
-            eprintln!("Failed to bind Axum REST server to port 3001 (already in use?)");
+            eprintln!("Failed to bind Axum REST server to {} (already in use?)", bind_addr);
         }
     });
 }
@@ -3690,12 +3707,22 @@ pub fn run() {
     tauri::Builder::default()
         .manage(DbState(Mutex::new(conn)))
         .setup(|_app| {
-            // Start background Axum REST server (runs in Tauri's Tokio context)
-            start_axum_server();
+            // Bootstrap hub token from env/file (or generate) BEFORE Axum requires Bearer.
+            let bind_addr = crate::auth::resolve_bind_addr();
+            let auth_required = crate::auth::auth_required_for_bind(&bind_addr);
+            let token = crate::auth::ensure_hub_token();
+            start_axum_server(
+                crate::auth::AuthConfig {
+                    token,
+                    auth_required,
+                },
+                bind_addr,
+            );
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             // Config & Common
+            get_hub_token,
             get_compras_config, save_compras_config,
             get_microbio_config, save_config_microbio,
             get_backup, restore_backup, get_compressed_backup, restore_compressed_backup,
@@ -3739,6 +3766,26 @@ pub fn run() {
 mod tests {
     use super::*;
     use rusqlite::Connection;
+
+    #[test]
+    fn clears_leaked_sql_password_seed() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
+             INSERT INTO settings (key, value) VALUES ('sql_password', 'byteonDS2015');",
+        )
+        .unwrap();
+        super::initialize_hub_db(&conn).unwrap();
+        let val: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'sql_password'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(val.is_empty(), "leaked sql_password seed must be cleared, got {val:?}");
+        assert_ne!(val, "byteonDS2015");
+    }
 
     #[tokio::test]
     async fn test_sync_execution() {

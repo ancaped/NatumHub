@@ -41,6 +41,8 @@ graph TD
     TauriCmd -->|Auto-writes| FMD
 ```
 
+Axum bind padrão: **`0.0.0.0:3001`** (acesso Tailscale). `NATUM_BIND=127.0.0.1` restringe a loopback e torna o Bearer opcional. Token e senha SQL: ver [`.ai_context/security.md`](.ai_context/security.md). **Nunca commitar** `sql_password`, `hub_token`, Firebase ou Google `client_secret`.
+
 ---
 
 ## 2. Mapa do Projeto (Estrutura de Diretórios)
