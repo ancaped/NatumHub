@@ -1047,7 +1047,7 @@ export default function AcompanhamentoProducaoView({ onBack }: AcompanhamentoPro
                       {/* Coluna 6: Status Nosso */}
                       <th
                         onClick={() => toggleSort('customStatus')}
-                        className="p-3 cursor-pointer hover:bg-zinc-200/60 transition-colors select-none w-52 bg-zinc-150/70"
+                        className="p-3 cursor-pointer hover:bg-zinc-200/60 transition-colors select-none w-52 bg-zinc-100/70"
                       >
                         <div className="flex items-center justify-between gap-1">
                           <span className="text-zinc-900 font-extrabold">Status Nosso (Interno)</span>

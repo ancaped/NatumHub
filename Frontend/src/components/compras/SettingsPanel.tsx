@@ -4,6 +4,7 @@ import { Category, ComprasAppConfig, Item } from '../../types';
 import { Settings, FolderTree, Plus, Trash2, X, Save, Package, Search, CheckSquare, Square, Link, Unlink } from 'lucide-react';
 import { cn, API_BASE, apiFetch } from '../../lib/utils';
 import obsData from '../../lib/obs_data.json';
+import { showToast, confirmDialog } from '../shared/feedback';
 
 export function SettingsPanel({ mode = 'all', active = false }: { mode?: string; active?: boolean }) {
   const [config, setConfig] = useState<ComprasAppConfig>({ targetDays: 90, itemOverrides: {} });
@@ -36,7 +37,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
     const rules = config.autoSubcategories || [];
     const prefixClean = newRulePrefix.trim();
     if (rules.some(r => r.prefix.toLowerCase() === prefixClean.toLowerCase())) {
-      alert('Já existe uma regra para este prefixo!');
+      showToast('Já existe uma regra para este prefixo!', 'error');
       return;
     }
     const updatedRules = [...rules, { subcategoryId: newRuleSubcategoryId, prefix: prefixClean }];
@@ -58,10 +59,10 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       await loadItems();
-      alert('Regras de subcategorias automáticas salvas e aplicadas com sucesso!');
+      showToast('Regras de subcategorias automáticas salvas e aplicadas com sucesso!', 'success');
     } catch (e) {
       console.error(e);
-      alert('Erro ao aplicar regras');
+      showToast('Erro ao aplicar regras', 'error');
     } finally {
       setSaving(false);
     }
@@ -159,7 +160,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
       await api.saveComprasConfig(config, configKey);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch (e) { console.error(e); alert('Erro ao salvar configurações'); }
+    } catch (e) { console.error(e); showToast('Erro ao salvar configurações', 'error'); }
     finally { setSaving(false); }
   };
 
@@ -182,11 +183,11 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
         null;
       setNewCatParent(nextParent);
       loadCategories();
-    } catch (e) { console.error(e); alert('Erro ao criar categoria'); }
+    } catch (e) { console.error(e); showToast('Erro ao criar categoria', 'error'); }
   };
 
   const handleDeleteCategory = async (id: string) => {
-    if (!confirm('Excluir esta categoria? Os itens serão movidos para "Sem Categoria".')) return;
+    if (!await confirmDialog('Excluir esta categoria? Os itens serão movidos para "Sem Categoria".', { variant: 'danger' })) return;
     try {
       await api.deleteCategory(id);
       if (selectedSubcategory?.id === id) {
@@ -194,7 +195,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
       }
       loadCategories();
       loadItems();
-    } catch (e) { console.error(e); alert('Erro ao excluir categoria'); }
+    } catch (e) { console.error(e); showToast('Erro ao excluir categoria', 'error'); }
   };
 
   const getSubcategoryItemsCount = (subId: string) => {
@@ -203,7 +204,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
 
   const handleBatchRemoveFromCategory = async () => {
     if (subSelectedItems.size === 0 || !selectedSubcategory) return;
-    if (!confirm(`Desassociar os ${subSelectedItems.size} insumos selecionados de "${selectedSubcategory.name}"?`)) return;
+    if (!await confirmDialog(`Desassociar os ${subSelectedItems.size} insumos selecionados de "${selectedSubcategory.name}"?`, { variant: 'default' })) return;
     
     try {
       await api.updateItemsCategory(Array.from(subSelectedItems), null);
@@ -211,7 +212,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
       await loadItems();
     } catch (e) {
       console.error(e);
-      alert('Erro ao desassociar insumos');
+      showToast('Erro ao desassociar insumos', 'error');
     }
   };
 
@@ -225,7 +226,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
       await loadItems();
     } catch (e) {
       console.error(e);
-      alert('Erro ao associar insumos');
+      showToast('Erro ao associar insumos', 'error');
     }
   };
 
@@ -418,7 +419,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
             </p>
 
             {/* Form to add a rule */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end bg-zinc-50/50 p-4 rounded-xl border border-zinc-150">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end bg-zinc-50/50 p-4 rounded-xl border border-zinc-100">
               <div className="flex flex-col gap-1.5 text-left">
                 <label className="text-xs font-bold text-zinc-700">Subcategoria Destino</label>
                 <select
@@ -460,7 +461,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
               {!config.autoSubcategories || config.autoSubcategories.length === 0 ? (
                 <p className="text-xs text-zinc-400 italic py-2 text-left">Nenhuma regra de categorização automática criada. Crie e depois clique em "Salvar e Aplicar".</p>
               ) : (
-                <div className="border border-zinc-150 rounded-xl overflow-hidden divide-y divide-zinc-150">
+                <div className="border border-zinc-100 rounded-xl overflow-hidden divide-y divide-zinc-100">
                   {config.autoSubcategories.map((rule, idx) => {
                     const sub = categories.find(c => c.id === rule.subcategoryId);
                     return (
@@ -550,7 +551,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
                 </div>
                 {mode === 'all' && (
                   <div>
-                    <label className="text-xs font-medium text-zinc-650 mb-1 block">Pai (opcional)</label>
+                    <label className="text-xs font-medium text-zinc-600 mb-1 block">Pai (opcional)</label>
                     <select value={newCatParent || ''} onChange={e => setNewCatParent(e.target.value || null)}
                       className="border border-zinc-300 rounded-md px-2 py-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white min-w-[120px]">
                       <option value="">Raiz</option>
@@ -611,7 +612,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
                       )}
                     </div>
 
-                    <div className="border border-zinc-150 rounded-lg max-h-[250px] overflow-y-auto divide-y divide-zinc-100 bg-zinc-50/20 pr-1">
+                    <div className="border border-zinc-100 rounded-lg max-h-[250px] overflow-y-auto divide-y divide-zinc-100 bg-zinc-50/20 pr-1">
                       {items.filter(i => i.categoryId === selectedSubcategory.id).length === 0 ? (
                         <div className="text-center py-12 text-zinc-400 flex flex-col items-center justify-center gap-1.5">
                           <Package size={28} className="opacity-30" />
@@ -641,7 +642,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
                             />
                             <div className="flex-1 min-w-0">
                               <div className="font-mono text-xs text-zinc-400 font-bold">{item.code}</div>
-                              <div className="text-sm font-semibold text-zinc-850 truncate" title={item.description}>{item.description}</div>
+                              <div className="text-sm font-semibold text-zinc-800 truncate" title={item.description}>{item.description}</div>
                             </div>
                           </div>
                         ))
@@ -657,7 +658,7 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
                 <button 
                   onClick={handleBatchRemoveFromCategory}
                   disabled={subSelectedItems.size === 0}
-                  className="text-sm text-red-650 hover:text-red-800 disabled:opacity-40 disabled:cursor-not-allowed font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                  className="text-sm text-red-600 hover:text-red-800 disabled:opacity-40 disabled:cursor-not-allowed font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
                 >
                   <Unlink className="w-4 h-4" /> Desassociar ({subSelectedItems.size})
                 </button>
@@ -701,11 +702,11 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
                     })).filter((r: any) => r.code);
                     
                     await api.importItemObservations(formatted);
-                    alert('Lista negra sincronizada com sucesso!');
+                    showToast('Lista negra sincronizada com sucesso!', 'success');
                     loadItems();
                   } catch (e) {
                     console.error(e);
-                    alert('Erro ao sincronizar lista negra. Verifique o console.');
+                    showToast('Erro ao sincronizar lista negra. Verifique o console.', 'error');
                   }
                 }}
                 className="flex items-center gap-2 px-6 py-2.5 bg-zinc-900 text-white rounded-xl font-bold hover:bg-zinc-800 transition-all shadow-sm cursor-pointer text-sm"
@@ -823,12 +824,12 @@ export function SettingsPanel({ mode = 'all', active = false }: { mode?: string;
                           <span className="font-mono text-xs text-zinc-400 font-bold">{item.code}</span>
                           <span className={cn(
                             "px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider",
-                            item.categoryId ? "bg-zinc-100 text-zinc-650" : "bg-emerald-50 text-emerald-600"
+                            item.categoryId ? "bg-zinc-100 text-zinc-600" : "bg-emerald-50 text-emerald-600"
                           )}>
                             {catLabel}
                           </span>
                         </div>
-                        <div className="text-sm font-semibold text-zinc-850 truncate" title={item.description}>
+                        <div className="text-sm font-semibold text-zinc-800 truncate" title={item.description}>
                           {item.description}
                         </div>
                       </div>

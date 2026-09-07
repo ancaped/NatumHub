@@ -24,16 +24,16 @@ export default function ComprasOnlineView({ onBackToHub }: ComprasOnlineViewProp
         <div className="p-2 border-b border-zinc-100">
           <button
             onClick={onBackToHub}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
           >
             <ArrowLeft className="h-5 w-5 text-zinc-400" />
-            Voltar ao Menu
+            Voltar ao Hub de Compras
           </button>
         </div>
 
         <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
           <button
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-bold bg-zinc-150 text-zinc-900 bg-zinc-100"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-bold bg-zinc-100 text-zinc-900 bg-zinc-100"
           >
             <Globe className="h-5 w-5 shrink-0 text-zinc-900" />
             Compras Online

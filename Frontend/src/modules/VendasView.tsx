@@ -114,9 +114,9 @@ const statusLabels: Record<string, string> = {
 };
 
 const statusColors: Record<string, string> = {
-  FT: 'bg-emerald-50 text-emerald-700 border-emerald-250',
+  FT: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   CA: 'bg-rose-50 text-rose-700 border-rose-200',
-  FP: 'bg-amber-50 text-amber-700 border-amber-250',
+  FP: 'bg-amber-50 text-amber-700 border-amber-200',
   EX: 'bg-sky-50 text-sky-700 border-sky-200',
   PP: 'bg-purple-50 text-purple-700 border-purple-100',
   CF: 'bg-zinc-100 text-zinc-700 border-zinc-200',
@@ -408,7 +408,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
       {/* Sidebar */}
       <div className="w-64 bg-white border-r border-zinc-200 flex flex-col shrink-0">
         <div className="h-14 flex items-center px-4 border-b border-zinc-200 shrink-0">
-          <h1 className="font-bold text-base tracking-tight text-zinc-850 uppercase flex items-center gap-2">
+          <h1 className="font-bold text-base tracking-tight text-zinc-800 uppercase flex items-center gap-2">
             <TrendingUp className="h-5 w-5 text-zinc-900" />
             Módulo de Vendas
           </h1>
@@ -418,7 +418,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
         <div className="p-2 border-b border-zinc-100">
           <button
             onClick={onBackToHub}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer"
           >
             <ArrowLeft className="h-5 w-5 text-zinc-400" />
             Voltar ao Hub
@@ -432,7 +432,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
               "w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer",
               activeTab === 'dashboard'
                 ? "bg-zinc-100 text-zinc-900 font-bold"
-                : "text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900"
+                : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
             )}
           >
             <BarChart3 className={cn("h-5 w-5 shrink-0", activeTab === 'dashboard' ? "text-zinc-900" : "text-zinc-400")} />
@@ -445,7 +445,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
               "w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer",
               activeTab === 'pedidos'
                 ? "bg-zinc-100 text-zinc-900 font-bold"
-                : "text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900"
+                : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
             )}
           >
             <Layers className={cn("h-5 w-5 shrink-0", activeTab === 'pedidos' ? "text-zinc-900" : "text-zinc-400")} />
@@ -458,7 +458,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
               "w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer",
               activeTab === 'faltas'
                 ? "bg-zinc-100 text-zinc-900 font-bold"
-                : "text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900"
+                : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
             )}
           >
             <AlertTriangle className={cn("h-5 w-5 shrink-0", activeTab === 'faltas' ? "text-zinc-900" : "text-zinc-400")} />
@@ -471,7 +471,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
               "w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer",
               activeTab === 'produtos'
                 ? "bg-zinc-100 text-zinc-900 font-bold"
-                : "text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900"
+                : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
             )}
           >
             <ShoppingBag className={cn("h-5 w-5 shrink-0", activeTab === 'produtos' ? "text-zinc-900" : "text-zinc-400")} />
@@ -557,7 +557,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                     </h3>
                     <span className="text-xs text-zinc-400">Ordenado pela média de vendas mensal</span>
                   </div>
-                  <div className="divide-y divide-zinc-150">
+                  <div className="divide-y divide-zinc-100">
                     {dashboardStats.topSellers.map((p, idx) => (
                       <div 
                         key={p.codigo} 
@@ -597,7 +597,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
             ) : (
               <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
                 {/* Filters header */}
-                <div className="p-4 border-b border-zinc-150 bg-zinc-50/50 flex flex-col md:flex-row gap-4 items-center justify-between">
+                <div className="p-4 border-b border-zinc-100 bg-zinc-50/50 flex flex-col md:flex-row gap-4 items-center justify-between">
                   <div className="relative w-full md:max-w-md">
                     <Search className="absolute left-3 top-2.5 h-4.5 w-4.5 text-zinc-400" />
                     <input
@@ -610,7 +610,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                   </div>
 
                   <div className="flex items-center gap-3 w-full md:w-auto">
-                    <label className="text-xs font-bold text-zinc-550 shrink-0">Filtrar Linha:</label>
+                    <label className="text-xs font-bold text-zinc-500 shrink-0">Filtrar Linha:</label>
                     <select
                       value={linhaFilter}
                       onChange={(e) => setLinhaFilter(e.target.value)}
@@ -627,7 +627,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                 {/* Table */}
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150 uppercase tracking-wider text-[10px]">
+                    <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100 uppercase tracking-wider text-[10px]">
                       <tr>
                         <th className="px-6 py-4">Código</th>
                         <th className="px-6 py-4">Descrição</th>
@@ -638,7 +638,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                         <th className="px-6 py-4 text-center">Ações</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-zinc-150">
+                    <tbody className="divide-y divide-zinc-100">
                       {filteredProducts.length === 0 ? (
                         <tr>
                           <td colSpan={7} className="px-6 py-8 text-center text-zinc-400 font-medium">
@@ -703,7 +703,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
             // SALES ORDERS TAB
             <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
               {/* Filters header */}
-              <div className="p-4 border-b border-zinc-150 bg-zinc-50/50 flex flex-col md:flex-row gap-4 items-center justify-between">
+              <div className="p-4 border-b border-zinc-100 bg-zinc-50/50 flex flex-col md:flex-row gap-4 items-center justify-between">
                 <div className="relative w-full md:max-w-md">
                   <Search className="absolute left-3 top-2.5 h-4.5 w-4.5 text-zinc-400" />
                   <input
@@ -734,7 +734,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <label className="text-xs font-bold text-zinc-550 shrink-0">Filtrar Status:</label>
+                    <label className="text-xs font-bold text-zinc-500 shrink-0">Filtrar Status:</label>
                     <select
                       value={ordersStatusFilter}
                       onChange={(e) => setOrdersStatusFilter(e.target.value)}
@@ -767,7 +767,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                   <div className="p-12 text-center text-zinc-400">Nenhum pedido de venda localizado com estes filtros.</div>
                 ) : (
                   <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150 uppercase tracking-wider text-[10px]">
+                    <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100 uppercase tracking-wider text-[10px]">
                       <tr>
                         <th className="px-6 py-4 w-10"></th>
                         <th className="px-6 py-4">Pedido</th>
@@ -779,7 +779,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                         <th className="px-6 py-4">Previsão</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-zinc-150">
+                    <tbody className="divide-y divide-zinc-100">
                       {salesOrders.map((order) => {
                         const isExpanded = !!expandedOrders[order.n_pedido];
                         const itemsCount = order.items.length;
@@ -820,7 +820,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                                   {statusLabels[order.c_status || ''] || order.c_status || '-'}
                                 </span>
                               </td>
-                              <td className="px-6 py-4 text-center font-mono font-semibold text-zinc-650">
+                              <td className="px-6 py-4 text-center font-mono font-semibold text-zinc-600">
                                 {order.n_nota_fiscal > 0 ? order.n_nota_fiscal : '-'}
                               </td>
                               <td className="px-6 py-4 text-zinc-600 font-semibold">
@@ -830,8 +830,8 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                             {isExpanded && (
                               <tr className="bg-zinc-50/20">
                                 <td colSpan={8} className="px-12 py-4 text-left">
-                                  <div className="border border-zinc-150 rounded-xl overflow-hidden bg-white shadow-xs max-w-5xl">
-                                    <div className="p-3 bg-zinc-50 border-b border-zinc-150 flex justify-between items-center text-xs font-bold text-zinc-600">
+                                  <div className="border border-zinc-100 rounded-xl overflow-hidden bg-white shadow-xs max-w-5xl">
+                                    <div className="p-3 bg-zinc-50 border-b border-zinc-100 flex justify-between items-center text-xs font-bold text-zinc-600">
                                       <span>Itens Solicitados ({itemsCount} itens)</span>
                                       {pendingCount > 0 && (
                                         <span className="px-2 py-0.5 bg-rose-50 text-rose-700 rounded-full font-bold text-[10px] border border-rose-200">
@@ -858,7 +858,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                                           return (
                                             <tr key={item.id} className="hover:bg-zinc-50/30 transition-colors">
                                               <td className="px-4 py-2 font-mono font-bold text-zinc-700">{item.c_cod_prod}</td>
-                                              <td className="px-4 py-2 font-semibold text-zinc-850">
+                                              <td className="px-4 py-2 font-semibold text-zinc-800">
                                                 <button
                                                   onClick={(e) => {
                                                     e.stopPropagation();
@@ -869,8 +869,8 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                                                   {products.find(p => p.codigo === item.c_cod_prod)?.descricao || 'Produto Legado'}
                                                 </button>
                                               </td>
-                                              <td className="px-4 py-2 text-right font-medium text-zinc-650">{item.n_qtde}</td>
-                                              <td className="px-4 py-2 text-right font-medium text-zinc-650">{item.n_qtde_fat}</td>
+                                              <td className="px-4 py-2 text-right font-medium text-zinc-600">{item.n_qtde}</td>
+                                              <td className="px-4 py-2 text-right font-medium text-zinc-600">{item.n_qtde_fat}</td>
                                               <td className={cn(
                                                 "px-4 py-2 text-right font-extrabold",
                                                 faltaQty > 0 ? "text-rose-600" : "text-zinc-400"
@@ -903,7 +903,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
             // FALTAS TAB
             <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
               {/* Tab Selector & Search */}
-              <div className="p-4 border-b border-zinc-150 bg-zinc-50/50 flex flex-col md:flex-row gap-4 items-center justify-between">
+              <div className="p-4 border-b border-zinc-100 bg-zinc-50/50 flex flex-col md:flex-row gap-4 items-center justify-between">
                 <div className="flex border border-zinc-200 rounded-xl bg-white p-1 shadow-xs shrink-0 self-start md:self-auto">
                   <button
                     onClick={() => { setFaltasSubTab('ativas'); setExpandedFaltas({}); }}
@@ -911,7 +911,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                       "px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all",
                       faltasSubTab === 'ativas'
                         ? "bg-zinc-900 text-white shadow-sm"
-                        : "text-zinc-650 hover:bg-zinc-50"
+                        : "text-zinc-600 hover:bg-zinc-50"
                     )}
                   >
                     Faltas Ativas (Demandas)
@@ -922,7 +922,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                       "px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all",
                       faltasSubTab === 'historicas'
                         ? "bg-zinc-900 text-white shadow-sm"
-                        : "text-zinc-650 hover:bg-zinc-50"
+                        : "text-zinc-600 hover:bg-zinc-50"
                     )}
                   >
                     Faltas Históricas (Cortes)
@@ -971,7 +971,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                   <div className="p-12 text-center text-zinc-400">Nenhum registro de falta localizado com estes filtros.</div>
                 ) : (
                   <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150 uppercase tracking-wider text-[10px]">
+                    <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100 uppercase tracking-wider text-[10px]">
                       {faltasSubTab === 'ativas' ? (
                         <tr>
                           <th className="px-4 py-4 w-10"></th>
@@ -994,7 +994,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                         </tr>
                       )}
                     </thead>
-                    <tbody className="divide-y divide-zinc-150">
+                    <tbody className="divide-y divide-zinc-100">
                       {filteredFaltas.map((group) => {
                         const isExpanded = !!expandedFaltas[group.c_cod_prod];
                         const isCovered = (group.falta_net ?? 0) === 0;
@@ -1037,7 +1037,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                                       (Prod: {group.producao} | Comp: {group.transit_purchase})
                                     </div>
                                   </td>
-                                  <td className="px-4 py-4 text-right font-bold text-zinc-650">
+                                  <td className="px-4 py-4 text-right font-bold text-zinc-600">
                                     {group.total_falta.toLocaleString('pt-BR')} un
                                   </td>
                                   <td className={cn(
@@ -1052,7 +1052,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                                         COBERTO
                                       </span>
                                     ) : (
-                                      <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200 animate-pulse">
+                                      <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-red-100 text-red-800 border border-red-200">
                                         FALTA REAL
                                       </span>
                                     )}
@@ -1076,7 +1076,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                                       {group.c_nome_prod}
                                     </div>
                                   </td>
-                                  <td className="px-6 py-4 font-semibold text-zinc-650">{group.c_nome_linha}</td>
+                                  <td className="px-6 py-4 font-semibold text-zinc-600">{group.c_nome_linha}</td>
                                   <td className="px-6 py-4 text-right font-extrabold text-rose-700">
                                     {group.total_falta.toLocaleString('pt-BR')} un
                                   </td>
@@ -1089,8 +1089,8 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                             {isExpanded && (
                               <tr className="bg-zinc-50/20">
                                 <td colSpan={faltasSubTab === 'ativas' ? 8 : 6} className="px-12 py-4 text-left">
-                                  <div className="border border-zinc-150 rounded-xl overflow-hidden bg-white shadow-xs max-w-4xl">
-                                    <div className="p-3 bg-zinc-50 border-b border-zinc-150 text-xs font-bold text-zinc-600">
+                                  <div className="border border-zinc-100 rounded-xl overflow-hidden bg-white shadow-xs max-w-4xl">
+                                    <div className="p-3 bg-zinc-50 border-b border-zinc-100 text-xs font-bold text-zinc-600">
                                       Pedidos individuais gerando esta falta
                                     </div>
                                     <table className="w-full text-left text-xs">
@@ -1112,7 +1112,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                                             <td className="px-4 py-2 font-bold text-zinc-700 text-left">#{item.n_pedido}</td>
                                             <td className="px-4 py-2 text-zinc-500">{formatDate(item.d_pedido)}</td>
                                             <td className="px-4 py-2 font-semibold text-zinc-800 text-left">{item.c_nome || 'Consumidor Final'}</td>
-                                            <td className="px-4 py-2 text-right font-medium text-zinc-650">{item.n_qtde}</td>
+                                            <td className="px-4 py-2 text-right font-medium text-zinc-600">{item.n_qtde}</td>
                                             <td className="px-4 py-2 text-right font-medium text-zinc-500">{item.n_qtde_fat}</td>
                                             <td className="px-4 py-2 text-right font-extrabold text-rose-600">{item.falta}</td>
                                             <td className="px-4 py-2 text-center">
@@ -1167,14 +1167,14 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
             </div>
 
             {/* Tab Bar inside Drawer */}
-            <div className="border-b border-zinc-150 px-6 flex bg-zinc-50/50 shrink-0">
+            <div className="border-b border-zinc-100 px-6 flex bg-zinc-50/50 shrink-0">
               <button
                 onClick={() => setDrawerTab('geral')}
                 className={cn(
                   "px-4 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer",
                   drawerTab === 'geral'
                     ? "border-zinc-900 text-zinc-900"
-                    : "border-transparent text-zinc-450 hover:text-zinc-700"
+                    : "border-transparent text-zinc-400 hover:text-zinc-700"
                 )}
               >
                 Geral (Vendas)
@@ -1185,7 +1185,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                   "px-4 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center gap-1.5",
                   drawerTab === 'pedidos'
                     ? "border-zinc-900 text-zinc-900"
-                    : "border-transparent text-zinc-450 hover:text-zinc-700"
+                    : "border-transparent text-zinc-400 hover:text-zinc-700"
                 )}
               >
                 Pedidos Pendentes (Clientes)
@@ -1201,7 +1201,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                   "px-4 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center gap-1.5",
                   drawerTab === 'compras'
                     ? "border-zinc-900 text-zinc-900"
-                    : "border-transparent text-zinc-450 hover:text-zinc-700"
+                    : "border-transparent text-zinc-400 hover:text-zinc-700"
                 )}
               >
                 Compras em Trânsito
@@ -1246,8 +1246,8 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
 
                     {/* YoY Sales Table */}
                     <div className="space-y-3">
-                      <div className="flex items-center gap-2 border-b border-zinc-150 pb-2">
-                        <TrendingUp className="h-4.5 w-4.5 text-zinc-650" />
+                      <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
+                        <TrendingUp className="h-4.5 w-4.5 text-zinc-600" />
                         <h4 className="font-extrabold text-sm text-zinc-900">Histórico Anual de Vendas (YoY)</h4>
                       </div>
                       {selectedProductDetails.salesYoy.length === 0 ? (
@@ -1282,8 +1282,8 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
 
                     {/* Monthly sales chart */}
                     <div className="space-y-3">
-                      <div className="flex items-center gap-2 border-b border-zinc-150 pb-2">
-                        <BarChart3 className="h-4.5 w-4.5 text-zinc-650" />
+                      <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
+                        <BarChart3 className="h-4.5 w-4.5 text-zinc-600" />
                         <h4 className="font-extrabold text-sm text-zinc-900">Vendas Mensais Detalhadas</h4>
                       </div>
                       {selectedProductDetails.monthlySales.length === 0 ? (
@@ -1328,8 +1328,8 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                 ) : drawerTab === 'pedidos' ? (
                   // PEDIDOS PENDENTES TAB
                   <div className="space-y-4">
-                    <div className="flex items-center gap-2 border-b border-zinc-150 pb-2">
-                      <Layers className="h-4.5 w-4.5 text-zinc-650" />
+                    <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
+                      <Layers className="h-4.5 w-4.5 text-zinc-600" />
                       <h4 className="font-extrabold text-sm text-zinc-900">Pedidos de Venda Ativos em Falta</h4>
                     </div>
 
@@ -1345,7 +1345,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                     ) : (
                       <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-xs">
                         <table className="w-full text-left text-xs">
-                          <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150 uppercase tracking-wider text-[9px]">
+                          <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100 uppercase tracking-wider text-[9px]">
                             <tr>
                               <th className="px-4 py-3">Pedido</th>
                               <th className="px-4 py-3">Data</th>
@@ -1376,7 +1376,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                                     {statusLabels[item.c_status || ''] || item.c_status || '-'}
                                   </span>
                                 </td>
-                                <td className="px-4 py-2.5 font-medium text-zinc-650">
+                                <td className="px-4 py-2.5 font-medium text-zinc-600">
                                   {item.d_previsao ? formatDate(item.d_previsao) : '-'}
                                 </td>
                               </tr>
@@ -1389,8 +1389,8 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                 ) : (
                   // COMPRAS EM TRANSITO TAB
                   <div className="space-y-4">
-                    <div className="flex items-center gap-2 border-b border-zinc-150 pb-2">
-                      <Truck className="h-4.5 w-4.5 text-zinc-650" />
+                    <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
+                      <Truck className="h-4.5 w-4.5 text-zinc-600" />
                       <h4 className="font-extrabold text-sm text-zinc-900">Pedidos de Compra (Em Trânsito)</h4>
                     </div>
 
@@ -1406,7 +1406,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                     ) : (
                       <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-xs">
                         <table className="w-full text-left text-xs">
-                          <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150 uppercase tracking-wider text-[9px]">
+                          <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100 uppercase tracking-wider text-[9px]">
                             <tr>
                               <th className="px-4 py-3">Ordem Compra</th>
                               <th className="px-4 py-3">Fornecedor</th>
@@ -1426,7 +1426,7 @@ export default function VendasView({ onBackToHub }: VendasViewProps) {
                                 <td className="px-4 py-2.5 text-right text-zinc-700 font-medium">{item.n_qtde.toLocaleString('pt-BR')}</td>
                                 <td className="px-4 py-2.5 text-right text-zinc-500">{item.n_chegou.toLocaleString('pt-BR')}</td>
                                 <td className="px-4 py-2.5 text-right text-sky-600 font-bold">{item.n_pendente.toLocaleString('pt-BR')}</td>
-                                <td className="px-4 py-2.5 font-medium text-zinc-650">
+                                <td className="px-4 py-2.5 font-medium text-zinc-600">
                                   {item.d_previsao ? formatDate(item.d_previsao) : '-'}
                                 </td>
                               </tr>

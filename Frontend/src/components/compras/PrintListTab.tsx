@@ -3,6 +3,7 @@ import { api } from '../../lib/api';
 import { DemandResult } from '../../types';
 import { Trash2, Printer, Search, Plus, FileText, RefreshCw, X, Package, Settings, ShoppingCart } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { showToast, confirmDialog } from '../shared/feedback';
 
 const COLUMN_METADATA: Record<string, { label: string; align: 'left' | 'center' | 'right' }> = {
   itemCode: { label: 'Ref / Item', align: 'left' },
@@ -250,15 +251,15 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
     savePrintList(newList);
   };
 
-  const handleClearList = () => {
-    if (confirm("Tem certeza que deseja limpar toda a lista de impressão?")) {
+  const handleClearList = async () => {
+    if (await confirmDialog("Tem certeza que deseja limpar toda a lista de impressão?", { variant: 'danger' })) {
       savePrintList([]);
     }
   };
 
   const handleCreateQuotationFromList = async () => {
     if (selectedDemands.length === 0) {
-      alert("A lista está vazia.");
+      showToast("A lista está vazia.", 'info');
       return;
     }
     const title = prompt('Título para a nova cotação:');
@@ -271,19 +272,19 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
         return isNaN(val) ? 0 : val;
       });
       await api.createQuotation(title, itemCodes, recommendedQtys);
-      alert('Cotação criada a partir da lista com sucesso!');
-      if (confirm('Deseja limpar os itens adicionados da lista?')) {
+      showToast('Cotação criada a partir da lista com sucesso!', 'success');
+      if (await confirmDialog('Deseja limpar os itens adicionados da lista?', { variant: 'danger' })) {
         savePrintList(printList.filter(code => !itemCodes.includes(code)));
       }
     } catch (e) {
       console.error(e);
-      alert('Erro ao criar cotação a partir da lista: ' + (e instanceof Error ? e.message : String(e)));
+      showToast('Erro ao criar cotação a partir da lista: ' + (e instanceof Error ? e.message : String(e)), 'error');
     }
   };
 
   const handlePrint = () => {
     if (selectedDemands.length === 0) {
-      alert("A lista está vazia ou os itens filtrados não correspondem.");
+      showToast("A lista está vazia ou os itens filtrados não correspondem.", 'error');
       return;
     }
 
@@ -312,7 +313,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
     
     const doc = iframe.contentWindow?.document;
     if (!doc) {
-      alert("Não foi possível iniciar a impressão.");
+      showToast("Não foi possível iniciar a impressão.", 'error');
       document.body.removeChild(iframe);
       return;
     }
@@ -577,7 +578,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
         </div>
         <div className="flex items-center gap-2.5">
           <div className="flex items-center gap-2 border-r border-zinc-200 pr-4 mr-1">
-            <span className="text-xs font-bold text-zinc-650">Cálculo Meta:</span>
+            <span className="text-xs font-bold text-zinc-600">Cálculo Meta:</span>
             <input 
               type="number" 
               value={targetDays} 
@@ -683,7 +684,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
                   <div className="absolute left-0 mt-1 w-80 bg-white border border-zinc-200 rounded-lg shadow-xl z-30 p-2 flex flex-col gap-2">
                     <div className="flex justify-between items-center px-1">
                       <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Adicionar Insumo</span>
-                      <button onClick={() => setShowAddMenu(false)} className="text-zinc-400 hover:text-zinc-650 p-0.5 rounded hover:bg-zinc-100 cursor-pointer">
+                      <button onClick={() => setShowAddMenu(false)} className="text-zinc-400 hover:text-zinc-600 p-0.5 rounded hover:bg-zinc-100 cursor-pointer">
                         <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
@@ -811,7 +812,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
                         }
                         if (colKey === 'futureStockForecast') {
                           return (
-                            <td key={colKey} className="px-4 py-2.5 text-right font-semibold text-zinc-750">
+                            <td key={colKey} className="px-4 py-2.5 text-right font-semibold text-zinc-700">
                               {demand.futureStockForecast.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {demand.unit}
                             </td>
                           );
@@ -849,7 +850,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
                                   }}
                                   className="w-24 text-right text-xs border border-zinc-200 focus:border-zinc-950 focus:ring-1 focus:ring-zinc-950 rounded px-2 py-1 font-bold text-zinc-800 bg-white"
                                 />
-                                <span className="text-[10px] text-zinc-550">{demand.unit}</span>
+                                <span className="text-[10px] text-zinc-500">{demand.unit}</span>
                                 <span className={cn(
                                   "text-[9px] font-bold px-1.5 py-0.5 rounded mt-0.5 whitespace-nowrap",
                                   postDuration < 60 ? "bg-red-50 text-red-700" :
@@ -866,7 +867,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
                       <td className="px-4 py-2.5 text-center">
                         <button 
                           onClick={() => handleRemoveItem(demand.itemCode)}
-                          className="p-1 rounded text-zinc-400 hover:text-red-650 hover:bg-red-50 transition-colors cursor-pointer"
+                          className="p-1 rounded text-zinc-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
                           title="Remover da lista"
                         >
                           <Trash2 className="h-4 w-4" />

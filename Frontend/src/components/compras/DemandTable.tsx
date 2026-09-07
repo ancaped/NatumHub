@@ -3,6 +3,7 @@ import { api } from '../../lib/api';
 import { DemandResult, Category, Item } from '../../types';
 import { AlertCircle, ArrowDownToLine, Package, Filter, CheckCircle2, ShoppingCart, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, TrendingUp, BarChart3, FileText, ChevronRight, X, Info, RefreshCw, Database, Factory, Printer, PlusCircle } from 'lucide-react';
 import { cn, API_BASE, apiFetch } from '../../lib/utils';
+import { showToast, confirmDialog } from '../shared/feedback';
 
 interface InsumoDetalhes {
   code: string;
@@ -186,7 +187,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
       setDemands(results);
     } catch (e) {
       console.error(e);
-      alert('Erro ao carregar demandas');
+      showToast('Erro ao carregar demandas', 'error');
     } finally {
       setLoading(false);
     }
@@ -375,11 +376,11 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     try {
       const selectedDemands = demands.filter(d => selectedItems.has(d.itemCode));
       await api.createQuotation(title, selectedDemands.map(d => d.itemCode), selectedDemands.map(d => d.recommendedQty));
-      alert('Cotação criada com sucesso!');
+      showToast('Cotação criada com sucesso!', 'success');
       setSelectedItems(new Set());
     } catch (e) { 
       console.error(e); 
-      alert('Erro ao criar cotação: ' + (e instanceof Error ? e.message : String(e))); 
+      showToast('Erro ao criar cotação: ' + (e instanceof Error ? e.message : String(e)), 'error'); 
     }
   };
 
@@ -392,7 +393,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
       : filteredDemands;
       
     if (itemsToPrint.length === 0) {
-      alert("Não há itens para imprimir com o filtro selecionado.");
+      showToast("Não há itens para imprimir com o filtro selecionado.", 'error');
       return;
     }
     
@@ -410,7 +411,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     
     const doc = iframe.contentWindow?.document;
     if (!doc) {
-      alert("Não foi possível iniciar a impressão.");
+      showToast("Não foi possível iniciar a impressão.", 'error');
       document.body.removeChild(iframe);
       return;
     }
@@ -644,28 +645,28 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
               <span className="text-[10px] text-zinc-400 font-bold uppercase block tracking-wider">Itens com Demanda</span>
               <p className="text-2xl font-extrabold text-zinc-900 mt-1">{mainFilteredDemands.filter(d => d.recommendedQty > 0).length} <span className="text-xs font-semibold text-zinc-500">de {mainFilteredDemands.length}</span></p>
             </div>
-            <div className="p-2.5 bg-zinc-50 border border-zinc-100 rounded-lg text-zinc-650"><Package size={20} /></div>
+            <div className="p-2.5 bg-zinc-50 border border-zinc-100 rounded-lg text-zinc-600"><Package size={20} /></div>
           </div>
           <div className="bg-red-50/40 border border-red-100 p-4 rounded-xl shadow-sm text-left flex items-center justify-between">
             <div>
               <span className="text-[10px] text-red-500 font-bold uppercase block tracking-wider">Demanda Crítica</span>
               <p className="text-2xl font-extrabold text-red-700 mt-1">{mainFilteredDemands.filter(d => d.urgency === 'critical').length} <span className="text-xs font-semibold text-zinc-500">itens</span></p>
             </div>
-            <div className="p-2.5 bg-red-100/50 border border-red-200/50 rounded-lg text-red-650"><AlertCircle size={20} /></div>
+            <div className="p-2.5 bg-red-100/50 border border-red-200/50 rounded-lg text-red-600"><AlertCircle size={20} /></div>
           </div>
           <div className="bg-amber-50/40 border border-amber-100 p-4 rounded-xl shadow-sm text-left flex items-center justify-between">
             <div>
               <span className="text-[10px] text-amber-600 font-bold uppercase block tracking-wider">Demanda em Atenção</span>
               <p className="text-2xl font-extrabold text-amber-700 mt-1">{mainFilteredDemands.filter(d => d.urgency === 'warning').length} <span className="text-xs font-semibold text-zinc-500">itens</span></p>
             </div>
-            <div className="p-2.5 bg-amber-100/50 border border-amber-200/50 rounded-lg text-zinc-650"><AlertCircle size={20} /></div>
+            <div className="p-2.5 bg-amber-100/50 border border-amber-200/50 rounded-lg text-zinc-600"><AlertCircle size={20} /></div>
           </div>
           <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-xl shadow-sm text-left flex items-center justify-between">
             <div>
               <span className="text-[10px] text-zinc-400 font-bold uppercase block tracking-wider">Cobertura Alvo</span>
               <p className="text-2xl font-extrabold text-zinc-900 mt-1">{targetDays} <span className="text-xs font-semibold text-zinc-500">dias</span></p>
             </div>
-            <div className="p-2.5 bg-white border border-zinc-200 rounded-lg text-zinc-650"><ArrowDownToLine size={20} /></div>
+            <div className="p-2.5 bg-white border border-zinc-200 rounded-lg text-zinc-600"><ArrowDownToLine size={20} /></div>
           </div>
         </div>
       )}
@@ -681,7 +682,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
               ] as const).map(tab => (
                 <button key={tab.id} onClick={() => { setActiveMainTab(tab.id); setSelectedCategory(null); }} className={cn("px-4 py-2 text-xs font-bold border-b-2 -mb-px transition-colors cursor-pointer flex items-center gap-2", activeMainTab === tab.id ? "border-zinc-900 text-zinc-900 font-extrabold" : "border-transparent text-zinc-500 hover:text-zinc-800")}>
                   {tab.name}
-                  <span className={cn("px-1.5 py-0.5 rounded-full text-[9px] font-bold font-mono", activeMainTab === tab.id ? "bg-zinc-900 text-white" : "bg-zinc-200 text-zinc-650")}>{tab.count}</span>
+                  <span className={cn("px-1.5 py-0.5 rounded-full text-[9px] font-bold font-mono", activeMainTab === tab.id ? "bg-zinc-900 text-white" : "bg-zinc-200 text-zinc-600")}>{tab.count}</span>
                 </button>
               ))}
             </div>
@@ -801,7 +802,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                             "p-1.5 rounded-lg transition-colors cursor-pointer",
                             isInPrintList(demand.itemCode) 
                               ? "text-emerald-600 hover:bg-emerald-50" 
-                              : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-650"
+                              : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
                           )}
                           title={isInPrintList(demand.itemCode) ? "Remover da Lista de Impressão" : "Adicionar à Lista de Impressão"}
                         >
@@ -848,7 +849,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 </div>
                 <button 
                   onClick={() => setSelectedItemCode(null)} 
-                  className="p-1.5 hover:bg-zinc-150 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer"
+                  className="p-1.5 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -892,24 +893,24 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                   <>
                     {/* Info Stats Cards */}
                     <div className="grid grid-cols-3 gap-4">
-                      <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
+                      <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-xl shadow-sm text-left">
                         <span className="text-[9px] text-zinc-400 font-bold uppercase block tracking-wider">Estoque Atual</span>
                         <p className="text-lg font-extrabold text-zinc-900 mt-1">
                           {details.currentStock.toLocaleString('pt-BR')} <span className="text-xs font-semibold text-zinc-500">{details.unit}</span>
                         </p>
                       </div>
-                      <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
+                      <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-xl shadow-sm text-left">
                         <span className="text-[9px] text-zinc-400 font-bold uppercase block tracking-wider">Último Recebimento</span>
-                        <p className="text-xs font-bold text-zinc-805 mt-2 truncate" title={details.lastReceivedDoc ? `NF #${details.lastReceivedDoc}` : undefined}>
+                        <p className="text-xs font-bold text-zinc-800 mt-2 truncate" title={details.lastReceivedDoc ? `NF #${details.lastReceivedDoc}` : undefined}>
                           {formatDate(details.lastReceivedDate)}
                         </p>
                         <span className="text-[9px] text-zinc-400 block mt-0.5">
                           {details.lastReceivedDoc ? `NF #${details.lastReceivedDoc}` : '-'}
                         </span>
                       </div>
-                      <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
+                      <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-xl shadow-sm text-left">
                         <span className="text-[9px] text-zinc-400 font-bold uppercase block tracking-wider">Último Uso Produção</span>
-                        <p className="text-xs font-bold text-zinc-805 mt-2 truncate" title={details.lastUsedLote ? `Lote #${details.lastUsedLote}` : undefined}>
+                        <p className="text-xs font-bold text-zinc-800 mt-2 truncate" title={details.lastUsedLote ? `Lote #${details.lastUsedLote}` : undefined}>
                           {formatDate(details.lastUsedDate)}
                         </p>
                         <span className="text-[9px] text-zinc-400 block mt-0.5">
@@ -934,7 +935,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                   loadDetails(details.code);
                                 } catch (e) {
                                   console.error(e);
-                                  alert("Erro ao salvar observações");
+                                  showToast("Erro ao salvar observações", 'error');
                                 }
                               }}
                               className="text-[10px] font-bold text-emerald-600 hover:text-emerald-800 transition-colors cursor-pointer"
@@ -946,7 +947,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                 setTempNotes(details.notes || '');
                                 setIsEditingNotes(false);
                               }}
-                              className="text-[10px] font-bold text-zinc-400 hover:text-zinc-650 transition-colors cursor-pointer"
+                              className="text-[10px] font-bold text-zinc-400 hover:text-zinc-600 transition-colors cursor-pointer"
                             >
                               Cancelar
                             </button>
@@ -972,7 +973,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                           placeholder="Digite observações sobre este insumo..."
                         />
                       ) : (
-                        <p className={cn("text-xs mt-0.5 whitespace-pre-wrap", details.notes ? "text-zinc-750" : "text-zinc-400 italic")}>
+                        <p className={cn("text-xs mt-0.5 whitespace-pre-wrap", details.notes ? "text-zinc-700" : "text-zinc-400 italic")}>
                           {details.notes || "Nenhuma observação registrada."}
                         </p>
                       )}
@@ -980,16 +981,16 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
 
                     {/* Products Used In */}
                     <div className="space-y-3">
-                      <div className="flex items-center gap-2 border-b border-zinc-105 pb-2">
-                        <Database className="h-4 w-4 text-zinc-650" />
+                      <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
+                        <Database className="h-4 w-4 text-zinc-600" />
                         <h4 className="font-extrabold text-sm text-zinc-900">Produtos que Utilizam este Insumo</h4>
                       </div>
                       {!details.productsUsedIn || details.productsUsedIn.length === 0 ? (
                         <p className="text-xs text-zinc-400 py-2">Este insumo não está cadastrado em nenhuma fórmula de produto ativo.</p>
                       ) : (
-                        <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm max-h-48 overflow-y-auto">
+                        <div className="bg-white border border-zinc-100 rounded-xl overflow-hidden shadow-sm max-h-48 overflow-y-auto">
                           <table className="w-full text-left text-xs">
-                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150 sticky top-0">
+                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100 sticky top-0">
                               <tr>
                                 <th className="px-4 py-2.5">Código</th>
                                 <th className="px-4 py-2.5">Produto</th>
@@ -1014,16 +1015,16 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
 
                     {/* Recent Invoices / NF */}
                     <div className="space-y-3">
-                      <div className="flex items-center gap-2 border-b border-zinc-105 pb-2">
-                        <FileText className="h-4 w-4 text-zinc-650" />
+                      <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
+                        <FileText className="h-4 w-4 text-zinc-600" />
                         <h4 className="font-extrabold text-sm text-zinc-900">Histórico Recente de NF</h4>
                       </div>
                       {details.recentInvoices.length === 0 ? (
                         <p className="text-xs text-zinc-400 py-3">Sem registros de notas fiscais de compra para este insumo.</p>
                       ) : (
-                        <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                        <div className="bg-white border border-zinc-100 rounded-xl overflow-hidden shadow-sm">
                           <table className="w-full text-left text-xs whitespace-nowrap">
-                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100">
                               <tr>
                                 <th className="px-4 py-3">NF</th>
                                 <th className="px-4 py-3">Data</th>
@@ -1037,14 +1038,14 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                               {details.recentInvoices.map((inv, idx) => (
                                 <tr key={`${inv.invoiceNumber}-${idx}`} className="hover:bg-zinc-50/50 transition-colors">
                                   <td className="px-4 py-2.5 font-bold text-zinc-700">#{inv.invoiceNumber}</td>
-                                  <td className="px-4 py-2.5 text-zinc-550">{formatDate(inv.invoiceDate)}</td>
-                                  <td className="px-4 py-2.5 font-semibold text-zinc-850 max-w-[150px] truncate" title={inv.supplierName}>
+                                  <td className="px-4 py-2.5 text-zinc-500">{formatDate(inv.invoiceDate)}</td>
+                                  <td className="px-4 py-2.5 font-semibold text-zinc-800 max-w-[150px] truncate" title={inv.supplierName}>
                                     {inv.supplierName}
                                   </td>
                                   <td className="px-4 py-2.5 text-right text-zinc-800">
                                     {inv.quantity.toLocaleString('pt-BR')}
                                   </td>
-                                  <td className="px-4 py-2.5 text-right text-zinc-550">
+                                  <td className="px-4 py-2.5 text-right text-zinc-500">
                                     {formatCurrency(inv.unitPrice)}
                                   </td>
                                   <td className="px-4 py-2.5 text-right font-bold text-zinc-900">
@@ -1065,16 +1066,16 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                   <>
                     {/* YoY Consumption */}
                     <div className="space-y-3">
-                      <div className="flex items-center gap-2 border-b border-zinc-105 pb-2">
-                        <TrendingUp className="h-4 w-4 text-zinc-650" />
+                      <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
+                        <TrendingUp className="h-4 w-4 text-zinc-600" />
                         <h4 className="font-extrabold text-sm text-zinc-900">Médias de Consumo Ano a Ano</h4>
                       </div>
                       {details.consumptionYoy.length === 0 ? (
                         <p className="text-xs text-zinc-400 py-3">Sem histórico de consumo registrado.</p>
                       ) : (
-                        <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                        <div className="bg-white border border-zinc-100 rounded-xl overflow-hidden shadow-sm">
                           <table className="w-full text-left text-xs">
-                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100">
                               <tr>
                                 <th className="px-4 py-3">Ano</th>
                                 <th className="px-4 py-3 text-right">Consumo Total ({details.unit})</th>
@@ -1084,11 +1085,11 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                             <tbody className="divide-y divide-zinc-100">
                               {details.consumptionYoy.map((c) => (
                                 <tr key={c.year} className="hover:bg-zinc-50/50 transition-colors">
-                                  <td className="px-4 py-2.5 font-bold text-zinc-805">{c.year}</td>
+                                  <td className="px-4 py-2.5 font-bold text-zinc-800">{c.year}</td>
                                   <td className="px-4 py-2.5 text-right font-semibold text-zinc-950">
                                     {c.totalQty.toLocaleString('pt-BR')}
                                   </td>
-                                  <td className="px-4 py-2.5 text-right text-zinc-550">
+                                  <td className="px-4 py-2.5 text-right text-zinc-500">
                                     {c.monthlyAvg.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
                                   </td>
                                 </tr>
@@ -1101,9 +1102,9 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
 
                     {/* Monthly Consumption Detailed (Bar chart) */}
                     <div className="space-y-3">
-                      <div className="flex justify-between items-center border-b border-zinc-105 pb-2">
+                      <div className="flex justify-between items-center border-b border-zinc-100 pb-2">
                         <div className="flex items-center gap-2">
-                          <BarChart3 className="h-4 w-4 text-zinc-650" />
+                          <BarChart3 className="h-4 w-4 text-zinc-600" />
                           <h4 className="font-extrabold text-sm text-zinc-900">Consumo Mensal Detalhado</h4>
                         </div>
                         <select
@@ -1120,7 +1121,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       {monthlyDataForYear.length === 0 ? (
                         <p className="text-xs text-zinc-400 py-3">Nenhum consumo mensal registrado neste ano.</p>
                       ) : (
-                        <div className="p-4 bg-zinc-50/50 border border-zinc-150 rounded-xl space-y-2">
+                        <div className="p-4 bg-zinc-50/50 border border-zinc-100 rounded-xl space-y-2">
                           <div className="grid grid-cols-12 gap-1.5 h-28 px-2">
                             {monthlyDataForYear.map((m) => (
                               <div key={m.monthKey} className="group relative flex flex-col justify-end h-full">
@@ -1129,7 +1130,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                 </div>
                                 <div 
                                   style={{ height: `${m.percent}%` }}
-                                  className="w-full bg-zinc-850 rounded-t-sm group-hover:bg-zinc-900 transition-colors cursor-pointer"
+                                  className="w-full bg-zinc-800 rounded-t-sm group-hover:bg-zinc-900 transition-colors cursor-pointer"
                                 />
                               </div>
                             ))}
@@ -1153,8 +1154,8 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 {drawerTab === 'pedidos' && (
                   <>
                     <div className="space-y-3">
-                      <div className="flex items-center gap-2 border-b border-zinc-105 pb-2">
-                        <Clock className="h-4 w-4 text-zinc-650" />
+                      <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
+                        <Clock className="h-4 w-4 text-zinc-600" />
                         <h4 className="font-extrabold text-sm text-zinc-900">Pedidos de Compra em Aberto</h4>
                       </div>
                       {!details.pendingOrders || details.pendingOrders.length === 0 ? (
@@ -1178,9 +1179,9 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                               </p>
                             </div>
                           </div>
-                          <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                          <div className="bg-white border border-zinc-100 rounded-xl overflow-hidden shadow-sm">
                             <table className="w-full text-left text-xs whitespace-nowrap">
-                              <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                              <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100">
                                 <tr>
                                   <th className="px-4 py-3">Pedido</th>
                                   <th className="px-4 py-3">Data</th>
@@ -1222,8 +1223,8 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 {drawerTab === 'cotacoes' && (
                   <>
                     <div className="space-y-3">
-                      <div className="flex items-center gap-2 border-b border-zinc-105 pb-2">
-                        <ShoppingCart className="h-4 w-4 text-zinc-650" />
+                      <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
+                        <ShoppingCart className="h-4 w-4 text-zinc-600" />
                         <h4 className="font-extrabold text-sm text-zinc-900">Histórico de Cotações</h4>
                       </div>
                       {!details.quotations || details.quotations.length === 0 ? (
@@ -1233,9 +1234,9 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                           <p className="text-xs mt-0.5">Este insumo não possui cotações no histórico.</p>
                         </div>
                       ) : (
-                        <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                        <div className="bg-white border border-zinc-100 rounded-xl overflow-hidden shadow-sm">
                           <table className="w-full text-left text-xs whitespace-nowrap">
-                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100">
                               <tr>
                                 <th className="px-4 py-3">Cotação</th>
                                 <th className="px-4 py-3">Status</th>
@@ -1253,7 +1254,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                   <td className="px-4 py-2.5">
                                     <span className={cn(
                                       "px-2 py-0.5 rounded-full text-[9px] font-bold uppercase",
-                                      q.status === 'draft' && "bg-zinc-100 text-zinc-650",
+                                      q.status === 'draft' && "bg-zinc-100 text-zinc-600",
                                       q.status === 'pending_demand_approval' && "bg-amber-100 text-amber-800",
                                       q.status === 'quoting' && "bg-blue-100 text-blue-800",
                                       q.status === 'quoted' && "bg-purple-100 text-purple-800",
@@ -1264,7 +1265,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                     </span>
                                   </td>
                                   <td className="px-4 py-2.5 text-zinc-500">{formatDate(q.createdAt)}</td>
-                                  <td className="px-4 py-2.5 text-right font-medium text-zinc-805">
+                                  <td className="px-4 py-2.5 text-right font-medium text-zinc-800">
                                     {q.recommendedQty.toLocaleString('pt-BR')}
                                   </td>
                                   <td className="px-4 py-2.5 text-right font-bold text-zinc-950">
@@ -1284,8 +1285,8 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 {drawerTab === 'producao' && (
                   <>
                     <div className="space-y-3">
-                      <div className="flex items-center gap-2 border-b border-zinc-105 pb-2">
-                        <Factory className="h-4 w-4 text-zinc-650" />
+                      <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
+                        <Factory className="h-4 w-4 text-zinc-600" />
                         <h4 className="font-extrabold text-sm text-zinc-900">Ordens de Produção em Aberto / Pendentes</h4>
                       </div>
                       {!details.openProductionOrders || details.openProductionOrders.length === 0 ? (
@@ -1309,9 +1310,9 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                               </p>
                             </div>
                           </div>
-                          <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                          <div className="bg-white border border-zinc-100 rounded-xl overflow-hidden shadow-sm">
                             <table className="w-full text-left text-xs whitespace-nowrap">
-                              <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                              <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100">
                                 <tr>
                                   <th className="px-3 py-2.5">Lote</th>
                                   <th className="px-3 py-2.5">Produto</th>
@@ -1325,7 +1326,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                 {details.openProductionOrders.map((op, idx) => {
                                   const getStatusBadge = (status, label) => {
                                     const s = (status || '').toUpperCase();
-                                    if (s === 'EA') return <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-zinc-100 text-zinc-650 uppercase">EA</span>;
+                                    if (s === 'EA') return <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-zinc-100 text-zinc-600 uppercase">EA</span>;
                                     if (s === 'CF') return <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-emerald-100 text-emerald-800 uppercase">CF</span>;
                                     if (s === 'PG') return <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-amber-100 text-amber-800 uppercase">PG</span>;
                                     if (s === 'PP') return <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-blue-100 text-blue-800 uppercase">PP</span>;
@@ -1343,7 +1344,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                       </td>
                                       <td className="px-3 py-2">
                                         <div className="font-mono text-[9px] text-zinc-400">{op.productCode}</div>
-                                        <div className="font-semibold text-zinc-850 truncate max-w-[150px]" title={op.productDescription}>
+                                        <div className="font-semibold text-zinc-800 truncate max-w-[150px]" title={op.productDescription}>
                                           {op.productDescription}
                                         </div>
                                       </td>
@@ -1373,7 +1374,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 {drawerTab === 'semelhantes' && (
                   <div className="space-y-4 text-left">
                     <div className="flex items-center gap-2 border-b border-zinc-200 pb-2">
-                      <Database className="h-4 w-4 text-zinc-650" />
+                      <Database className="h-4 w-4 text-zinc-600" />
                       <h4 className="font-extrabold text-sm text-zinc-900">Insumos Semelhantes / Contratipos</h4>
                     </div>
 
@@ -1417,7 +1418,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                       loadSimilarItems();
                                     } catch (e) {
                                       console.error(e);
-                                      alert("Erro ao associar insumo");
+                                      showToast("Erro ao associar insumo", 'error');
                                     }
                                   }}
                                   className="text-[10px] font-bold bg-zinc-900 text-white px-2 py-1 rounded hover:bg-zinc-800 transition-colors cursor-pointer"
@@ -1450,7 +1451,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       </div>
                     ) : (
                       <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
-                        <div className="divide-y divide-zinc-150">
+                        <div className="divide-y divide-zinc-100">
                           {similarItems.map(item => (
                             <div key={item.code} className="p-3 flex items-center justify-between hover:bg-zinc-50/50 transition-colors">
                               <div className="flex-1 min-w-0 pr-4">
@@ -1465,17 +1466,17 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                               </div>
                               <button
                                 onClick={async () => {
-                                  if (confirm(`Remover a associação de semelhança com "${item.description}"?`)) {
+                                  if (await confirmDialog(`Remover a associação de semelhança com "${item.description}"?`, { variant: 'danger' })) {
                                     try {
                                       await api.removeSimilarItem(details.code, item.code);
                                       loadSimilarItems();
                                     } catch (e) {
                                       console.error(e);
-                                      alert("Erro ao remover associação");
+                                      showToast("Erro ao remover associação", 'error');
                                     }
                                   }
                                 }}
-                                className="text-zinc-400 hover:text-red-650 p-1 rounded hover:bg-red-50 transition-colors cursor-pointer"
+                                className="text-zinc-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors cursor-pointer"
                                 title="Remover associação"
                               >
                                 <X className="h-4 w-4" />
@@ -1501,7 +1502,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 <FileText className="h-4 w-4 text-zinc-700" />
                 Imprimir Relatório de Necessidade de Compras
               </h3>
-              <button onClick={() => setShowPrintModal(false)} className="text-zinc-400 hover:text-zinc-650 rounded-lg p-1 hover:bg-zinc-100 transition-colors cursor-pointer">
+              <button onClick={() => setShowPrintModal(false)} className="text-zinc-400 hover:text-zinc-600 rounded-lg p-1 hover:bg-zinc-100 transition-colors cursor-pointer">
                 <X className="h-4.5 w-4.5" />
               </button>
             </div>
@@ -1539,21 +1540,21 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 </label>
               </div>
 
-              <div className="bg-zinc-50 border border-zinc-150 rounded-lg p-3 flex flex-col gap-1 text-[11px] text-zinc-600">
+              <div className="bg-zinc-50 border border-zinc-100 rounded-lg p-3 flex flex-col gap-1 text-[11px] text-zinc-600">
                 <div className="flex justify-between">
                   <span>Meta de Estoque:</span>
-                  <span className="font-bold text-zinc-850">{targetDays} dias</span>
+                  <span className="font-bold text-zinc-800">{targetDays} dias</span>
                 </div>
                 {activeMainTab !== 'ALL' && (
                   <div className="flex justify-between">
                     <span>Módulo/Tipo:</span>
-                    <span className="font-bold text-zinc-850">{activeMainTab === 'cat_mp' ? 'Matéria-prima' : 'Embalagens'}</span>
+                    <span className="font-bold text-zinc-800">{activeMainTab === 'cat_mp' ? 'Matéria-prima' : 'Embalagens'}</span>
                   </div>
                 )}
                 {selectedCategory && (
                   <div className="flex justify-between">
                     <span>Subcategoria:</span>
-                    <span className="font-bold text-zinc-850">
+                    <span className="font-bold text-zinc-800">
                       {categories.find(c => c.id === selectedCategory)?.name || 'Selecionada'}
                     </span>
                   </div>
@@ -1564,7 +1565,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
             <div className="px-6 py-3.5 border-t border-zinc-100 bg-zinc-50 flex justify-end gap-2 shrink-0">
               <button 
                 onClick={() => setShowPrintModal(false)}
-                className="px-3.5 py-1.5 border border-zinc-200 bg-white rounded-lg text-xs text-zinc-650 hover:bg-zinc-100 font-bold transition-colors cursor-pointer"
+                className="px-3.5 py-1.5 border border-zinc-200 bg-white rounded-lg text-xs text-zinc-600 hover:bg-zinc-100 font-bold transition-colors cursor-pointer"
               >
                 Cancelar
               </button>

@@ -9,6 +9,7 @@ import {
 import { cn, API_BASE, apiFetch } from '../lib/utils';
 import ActiveProductsView from './ActiveProductsView';
 import { StockMovement, FormulationLine, DbDumpResult } from '../types';
+import { showToast, confirmDialog } from '../components/shared/feedback';
 
 type EstoqueMode = 'insumos' | 'produtos' | 'ativos';
 
@@ -401,7 +402,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
               onClick={() => setInsumosSubTab('todas')}
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                insumosSubTab === 'todas' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+                insumosSubTab === 'todas' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
               )}
             >
               <Layers className="h-4 w-4" />
@@ -411,7 +412,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
               onClick={() => setInsumosSubTab('mp')}
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                insumosSubTab === 'mp' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+                insumosSubTab === 'mp' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
               )}
             >
               <Database className="h-4 w-4" />
@@ -421,7 +422,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
               onClick={() => setInsumosSubTab('emb')}
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                insumosSubTab === 'emb' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+                insumosSubTab === 'emb' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
               )}
             >
               <Boxes className="h-4 w-4" />
@@ -431,10 +432,10 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
               onClick={() => setInsumosSubTab('mat')}
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                insumosSubTab === 'mat' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+                insumosSubTab === 'mat' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
               )}
             >
-              <Boxes className="h-4 w-4 text-purple-450" />
+              <Boxes className="h-4 w-4 text-purple-400" />
               Materiais & Consumo
             </button>
 
@@ -445,20 +446,20 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
               onClick={() => setInsumosSubTab('relatorios')}
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                insumosSubTab === 'relatorios' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+                insumosSubTab === 'relatorios' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
               )}
             >
-              <FileText className="h-4 w-4 text-zinc-450" />
+              <FileText className="h-4 w-4 text-zinc-400" />
               Relatórios de Estoque
             </button>
             <button
               onClick={() => setInsumosSubTab('contagens')}
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                insumosSubTab === 'contagens' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+                insumosSubTab === 'contagens' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
               )}
             >
-              <Calendar className="h-4 w-4 text-zinc-450" />
+              <Calendar className="h-4 w-4 text-zinc-400" />
               Contagens Programadas
             </button>
           </div>
@@ -471,7 +472,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
               onClick={() => setProdutosSubTab('todos')}
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                produtosSubTab === 'todos' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+                produtosSubTab === 'todos' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
               )}
             >
               <Package className="h-4 w-4" />
@@ -485,20 +486,20 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
               onClick={() => setProdutosSubTab('relatorios')}
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                produtosSubTab === 'relatorios' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+                produtosSubTab === 'relatorios' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
               )}
             >
-              <FileText className="h-4 w-4 text-zinc-450" />
+              <FileText className="h-4 w-4 text-zinc-400" />
               Relatórios de Estoque
             </button>
             <button
               onClick={() => setProdutosSubTab('contagens')}
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                produtosSubTab === 'contagens' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
+                produtosSubTab === 'contagens' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-600 hover:bg-zinc-50"
               )}
             >
-              <Calendar className="h-4 w-4 text-zinc-450" />
+              <Calendar className="h-4 w-4 text-zinc-400" />
               Contagens Programadas
             </button>
           </div>
@@ -571,7 +572,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
             <main className="flex-1 overflow-y-auto p-6 flex flex-col">
               {activeTab === 'insumos' && insumosSubTab === 'relatorios' ? (
                 <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-zinc-200 rounded-2xl shadow-sm space-y-4 max-w-2xl mx-auto mt-12 animate-in fade-in duration-300">
-                  <div className="bg-zinc-50 p-4 rounded-full text-zinc-650 border border-zinc-150">
+                  <div className="bg-zinc-50 p-4 rounded-full text-zinc-600 border border-zinc-100">
                     <FileText className="h-10 w-10 text-zinc-500" />
                   </div>
                   <h3 className="text-xl font-bold text-zinc-900">Relatórios de Estoque (Insumos)</h3>
@@ -581,7 +582,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                 </div>
               ) : activeTab === 'insumos' && insumosSubTab === 'contagens' ? (
                 <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-zinc-200 rounded-2xl shadow-sm space-y-4 max-w-2xl mx-auto mt-12 animate-in fade-in duration-300">
-                  <div className="bg-zinc-50 p-4 rounded-full text-zinc-650 border border-zinc-150">
+                  <div className="bg-zinc-50 p-4 rounded-full text-zinc-600 border border-zinc-100">
                     <Calendar className="h-10 w-10 text-zinc-500" />
                   </div>
                   <h3 className="text-xl font-bold text-zinc-900">Contagens Programadas (Insumos)</h3>
@@ -591,7 +592,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                 </div>
               ) : activeTab === 'produtos' && produtosSubTab === 'relatorios' ? (
                 <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-zinc-200 rounded-2xl shadow-sm space-y-4 max-w-2xl mx-auto mt-12 animate-in fade-in duration-300">
-                  <div className="bg-zinc-50 p-4 rounded-full text-zinc-650 border border-zinc-150">
+                  <div className="bg-zinc-50 p-4 rounded-full text-zinc-600 border border-zinc-100">
                     <FileText className="h-10 w-10 text-zinc-500" />
                   </div>
                   <h3 className="text-xl font-bold text-zinc-900">Relatórios de Estoque (Produtos)</h3>
@@ -601,7 +602,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                 </div>
               ) : activeTab === 'produtos' && produtosSubTab === 'contagens' ? (
                 <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-zinc-200 rounded-2xl shadow-sm space-y-4 max-w-2xl mx-auto mt-12 animate-in fade-in duration-300">
-                  <div className="bg-zinc-50 p-4 rounded-full text-zinc-650 border border-zinc-150">
+                  <div className="bg-zinc-50 p-4 rounded-full text-zinc-600 border border-zinc-100">
                     <Calendar className="h-10 w-10 text-zinc-500" />
                   </div>
                   <h3 className="text-xl font-bold text-zinc-900">Contagens Programadas (Produtos)</h3>
@@ -670,7 +671,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                                   p.status === 'ordem' && "bg-amber-50 text-amber-700 border border-amber-200",
                                   p.status === 'saudavel' && "bg-emerald-50 text-emerald-700 border border-emerald-200",
                                   p.status === 'abundante' && "bg-blue-50 text-blue-700 border border-blue-200",
-                                  p.status === 'descontinuado' && "bg-zinc-100 text-zinc-750 border border-zinc-200",
+                                  p.status === 'descontinuado' && "bg-zinc-100 text-zinc-700 border border-zinc-200",
                                   p.status === 'bases' && "bg-indigo-50 text-indigo-700 border border-indigo-200"
                                 )}>
                                   {p.status_label}
@@ -715,7 +716,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                               <td className="px-6 py-4 text-right font-semibold text-zinc-900">{d.currentStock.toLocaleString('pt-BR')} {d.unit}</td>
                               <td className="px-6 py-4 text-right text-zinc-500">{d.reservedQty > 0 ? `-${d.reservedQty.toLocaleString('pt-BR')}` : '-'}</td>
                               <td className="px-6 py-4 text-right text-zinc-500">{d.inOrders > 0 ? `+${d.inOrders.toLocaleString('pt-BR')}` : '-'}</td>
-                              <td className="px-6 py-4 text-right font-medium text-zinc-650">
+                              <td className="px-6 py-4 text-right font-medium text-zinc-600">
                                 {d.overallAvg > 0 ? `${d.overallAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}/mês` : '-'}
                               </td>
                               <td className="px-6 py-4 text-center">
@@ -765,7 +766,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
               </div>
               <button 
                 onClick={() => setSelectedItem(null)} 
-                className="p-1.5 hover:bg-zinc-150 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer"
+                className="p-1.5 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer"
               >
                 <ArrowLeft className="w-5 h-5 rotate-180" />
               </button>
@@ -843,7 +844,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                                         <td className="px-4 py-3 font-mono text-[10px] text-zinc-500">{line.ingredientCode}</td>
                                         <td className="px-4 py-3 font-bold text-zinc-800">{line.description || 'Não especificado'}</td>
                                         <td className="px-4 py-3 text-right font-semibold">{line.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}</td>
-                                        <td className="px-4 py-3 text-right font-medium text-zinc-650">
+                                        <td className="px-4 py-3 text-right font-medium text-zinc-600">
                                           {line.percentage ? `${line.percentage.toFixed(2)}%` : '-'}
                                         </td>
                                       </tr>
@@ -875,7 +876,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                                         <td className="px-4 py-3 font-mono text-[10px] text-zinc-500">{line.ingredientCode}</td>
                                         <td className="px-4 py-3 font-bold text-zinc-800">{line.description || 'Não especificado'}</td>
                                         <td className="px-4 py-3 text-right font-semibold">{line.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}</td>
-                                        <td className="px-4 py-3 text-right font-medium text-zinc-650">
+                                        <td className="px-4 py-3 text-right font-medium text-zinc-600">
                                           {line.percentage ? `${line.percentage.toFixed(2)}%` : '-'}
                                         </td>
                                       </tr>
@@ -905,7 +906,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                               <td className="px-4 py-3 font-mono text-[10px] text-zinc-500">{line.productCode}</td>
                               <td className="px-4 py-3 font-bold text-zinc-800">{line.description || 'Não especificado'}</td>
                               <td className="px-4 py-3 text-right font-semibold">{line.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}</td>
-                              <td className="px-4 py-3 text-right font-medium text-zinc-650">
+                              <td className="px-4 py-3 text-right font-medium text-zinc-600">
                                 {line.percentage ? `${line.percentage.toFixed(2)}%` : '-'}
                               </td>
                             </tr>
@@ -927,7 +928,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                   ) : (
                     <div className="space-y-3">
                       {extraInfo.lotes.map((lote) => (
-                        <div key={lote.id} className="bg-white border border-zinc-150 p-4 rounded-xl shadow-sm space-y-2 hover:border-zinc-300 transition-colors">
+                        <div key={lote.id} className="bg-white border border-zinc-100 p-4 rounded-xl shadow-sm space-y-2 hover:border-zinc-300 transition-colors">
                           <div className="flex items-center justify-between">
                             <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-200 text-[9px] font-bold uppercase rounded">
                               Lote Produzido
@@ -972,7 +973,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                         <button
                           key={inv.id}
                           onClick={() => handleOpenInvoiceDetail(inv.invoiceNumber, inv.supplierId)}
-                          className="w-full text-left bg-white border border-zinc-150 p-4 rounded-xl shadow-sm space-y-2 hover:border-zinc-300 hover:shadow-md transition-all cursor-pointer block focus:outline-none"
+                          className="w-full text-left bg-white border border-zinc-100 p-4 rounded-xl shadow-sm space-y-2 hover:border-zinc-300 hover:shadow-md transition-all cursor-pointer block focus:outline-none"
                           title="Clique para ver detalhes desta nota fiscal"
                         >
                           <div className="flex items-center justify-between">
@@ -1016,7 +1017,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                         {productPendingOrders.pending_sales_orders.map((so: any, index: number) => {
                           const percent = so.n_qtde > 0 ? (so.n_qtde_fat / so.n_qtde) * 100 : 0;
                           return (
-                            <div key={`${so.n_pedido}-${index}`} className="bg-white border border-zinc-150 p-4 rounded-xl shadow-sm space-y-3 hover:border-zinc-300 transition-colors">
+                            <div key={`${so.n_pedido}-${index}`} className="bg-white border border-zinc-100 p-4 rounded-xl shadow-sm space-y-3 hover:border-zinc-300 transition-colors">
                               <div className="flex items-center justify-between">
                                 <span className="px-2 py-0.5 bg-blue-50 text-blue-600 border border-blue-200 text-[9px] font-bold uppercase rounded">
                                   Pedido #{so.n_pedido}
@@ -1049,7 +1050,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                                   />
                                 </div>
                               </div>
-                              <div className="flex justify-between text-xs text-zinc-550 pt-2 border-t border-zinc-100 items-center">
+                              <div className="flex justify-between text-xs text-zinc-500 pt-2 border-t border-zinc-100 items-center">
                                 <span className="font-bold text-zinc-700 truncate max-w-[170px]" title={so.c_nome}>{so.c_nome || 'Cliente não informado'}</span>
                                 <span className="font-semibold text-zinc-400">Previsão: {so.d_previsao ? formatDate(so.d_previsao) : 'Não informado'}</span>
                               </div>
@@ -1074,7 +1075,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                           const remaining = po.nQtde - po.nChegou;
                           const percent = po.nQtde > 0 ? (po.nChegou / po.nQtde) * 100 : 0;
                           return (
-                            <div key={`${po.nPedido}-${index}`} className="bg-white border border-zinc-150 p-4 rounded-xl shadow-sm space-y-3 hover:border-zinc-300 transition-colors">
+                            <div key={`${po.nPedido}-${index}`} className="bg-white border border-zinc-100 p-4 rounded-xl shadow-sm space-y-3 hover:border-zinc-300 transition-colors">
                               <div className="flex items-center justify-between">
                                 <span className="px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-200 text-[9px] font-bold uppercase rounded">
                                   Pedido #{po.nPedido}
@@ -1165,7 +1166,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                                     reloadSimilarItems(selectedItem.code);
                                   } catch (e) {
                                     console.error(e);
-                                    alert("Erro ao associar insumo");
+                                    showToast("Erro ao associar insumo", 'error');
                                   }
                                 }}
                                 className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 text-white rounded text-[10px] font-bold cursor-pointer transition-colors"
@@ -1186,26 +1187,26 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                         Nenhum insumo semelhante associado a este item.
                       </div>
                     ) : (
-                      <div className="divide-y divide-zinc-100 border border-zinc-150 rounded-xl bg-white overflow-hidden font-medium">
+                      <div className="divide-y divide-zinc-100 border border-zinc-100 rounded-xl bg-white overflow-hidden font-medium">
                         {similarItems.map(item => (
                           <div key={item.code} className="p-3 flex items-center justify-between text-xs hover:bg-zinc-50/30 transition-colors">
                             <div>
                               <div className="font-semibold text-zinc-900">{item.description}</div>
-                              <div className="text-[10px] text-zinc-450 font-mono mt-0.5 font-bold">REF: {item.code}</div>
+                              <div className="text-[10px] text-zinc-400 font-mono mt-0.5 font-bold">REF: {item.code}</div>
                             </div>
                             <button
                               onClick={async () => {
-                                if (window.confirm(`Remover similaridade com o insumo "${item.description}"?`)) {
+                                if (await confirmDialog(`Remover similaridade com o insumo "${item.description}"?`, { variant: 'danger' })) {
                                   try {
                                     await api.removeSimilarItem(selectedItem.code, item.code);
                                     reloadSimilarItems(selectedItem.code);
                                   } catch (e) {
                                     console.error(e);
-                                    alert("Erro ao remover associação");
+                                    showToast("Erro ao remover associação", 'error');
                                   }
                                 }
                               }}
-                              className="text-xs text-rose-650 hover:text-rose-700 font-bold hover:underline cursor-pointer"
+                              className="text-xs text-red-600 hover:text-red-700 font-bold hover:underline cursor-pointer"
                             >
                               Remover
                             </button>
@@ -1235,7 +1236,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                             </div>
 
                             {/* Details card */}
-                            <div className="bg-white border border-zinc-150 p-4 rounded-xl shadow-sm space-y-2">
+                            <div className="bg-white border border-zinc-100 p-4 rounded-xl shadow-sm space-y-2">
                               <div className="flex items-center justify-between">
                                 <span className={cn(
                                   "px-2 py-0.5 text-[9px] font-bold uppercase rounded",
@@ -1313,7 +1314,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                   </div>
                   <button
                     onClick={() => setSelectedInvoice(null)}
-                    className="p-1.5 hover:bg-zinc-150 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer"
+                    className="p-1.5 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer"
                   >
                     <X className="w-5 h-5" />
                   </button>
@@ -1334,7 +1335,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                   <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Itens Faturados nesta Nota</h4>
                   <div className="space-y-2">
                     {selectedInvoice.items.map((item: any, idx: number) => (
-                      <div key={item.id || idx} className="bg-zinc-50 border border-zinc-150 rounded-xl p-3 shadow-sm space-y-1 hover:border-zinc-350 transition-colors">
+                      <div key={item.id || idx} className="bg-zinc-50 border border-zinc-100 rounded-xl p-3 shadow-sm space-y-1 hover:border-zinc-300 transition-colors">
                         <div className="flex justify-between items-start">
                           <div className="min-w-0 flex-1">
                             <p className="font-bold text-zinc-800 text-xs truncate">{item.description || item.itemCode}</p>
@@ -1342,7 +1343,7 @@ export default function EstoqueView({ mode = 'insumos', onBackToHub }: EstoqueVi
                           </div>
                         </div>
                         <div className="flex justify-between items-baseline text-xs pt-1">
-                          <span className="font-semibold text-zinc-750">{item.quantity.toLocaleString('pt-BR')} {item.unit || 'UN'}</span>
+                          <span className="font-semibold text-zinc-700">{item.quantity.toLocaleString('pt-BR')} {item.unit || 'UN'}</span>
                           <span className="text-zinc-500 text-[10px]">P.U. {formatCurrency(item.unitPrice)}</span>
                           <span className="font-extrabold text-zinc-900">{formatCurrency(item.totalValue)}</span>
                         </div>

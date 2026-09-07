@@ -11,7 +11,6 @@ import { API_BASE, apiFetch } from '../lib/utils';
 // Import subcomponents
 import { DashboardTab } from '../components/producao/DashboardTab';
 import { InventoryTab } from '../components/producao/InventoryTab';
-import { KitsTab } from '../components/producao/KitsTab';
 import { BasesTab } from '../components/producao/BasesTab';
 import ItemRegistry from '../components/compras/ItemRegistry';
 import { HistoryTab } from '../components/producao/HistoryTab';
@@ -1758,7 +1757,7 @@ export default function ProducaoView({ onBackToHub }) {
                           >
                             <td 
                               onClick={() => fetchProductDetails(p.codigo)} 
-                              className="font-mono text-zinc-650 font-bold hover:underline"
+                              className="font-mono text-zinc-600 font-bold hover:underline"
                             >
                               {p.codigo}
                             </td>
@@ -1770,7 +1769,7 @@ export default function ProducaoView({ onBackToHub }) {
                             </td>
                             <td 
                               onClick={() => fetchProductDetails(p.codigo)} 
-                              className="text-zinc-550 font-medium"
+                              className="text-zinc-500 font-medium"
                             >
                               {p.nome_linha}
                             </td>
@@ -2140,7 +2139,7 @@ export default function ProducaoView({ onBackToHub }) {
               style={{ zIndex: 200 }}
             >
               {/* Header */}
-              <div className="p-6 border-b border-zinc-150 flex items-center justify-between bg-zinc-50 shrink-0">
+              <div className="p-6 border-b border-zinc-100 flex items-center justify-between bg-zinc-50 shrink-0">
                 <div className="min-w-0 flex-1">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Detalhes do Produto</span>
                   <h3 className="font-extrabold text-zinc-900 text-lg mt-0.5 truncate">
@@ -2152,7 +2151,7 @@ export default function ProducaoView({ onBackToHub }) {
                 </div>
                 <button
                   onClick={() => setDetailsDrawerOpen(false)}
-                  className="p-1 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-650 transition-colors cursor-pointer"
+                  className="p-1 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-600 transition-colors cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -2160,13 +2159,13 @@ export default function ProducaoView({ onBackToHub }) {
 
               {/* Tab Navigation */}
               {!detailsDrawerLoading && selectedProductDetails && (
-                <div className="flex border-b border-zinc-150 bg-zinc-50 px-6 shrink-0">
+                <div className="flex border-b border-zinc-100 bg-zinc-50 px-6 shrink-0">
                   <button
                     onClick={() => setDetailsDrawerActiveTab('geral')}
                     className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer focus:outline-none ${
                       detailsDrawerActiveTab === 'geral' 
                         ? 'border-zinc-900 text-zinc-900 font-extrabold' 
-                        : 'border-transparent text-zinc-450 hover:text-zinc-650'
+                        : 'border-transparent text-zinc-400 hover:text-zinc-600'
                     }`}
                   >
                     Geral
@@ -2176,7 +2175,7 @@ export default function ProducaoView({ onBackToHub }) {
                     className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer focus:outline-none ${
                       detailsDrawerActiveTab === 'formula' 
                         ? 'border-zinc-900 text-zinc-900 font-extrabold' 
-                        : 'border-transparent text-zinc-450 hover:text-zinc-650'
+                        : 'border-transparent text-zinc-400 hover:text-zinc-600'
                     }`}
                   >
                     Fórmula & Ingredientes
@@ -2186,7 +2185,7 @@ export default function ProducaoView({ onBackToHub }) {
                     className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer focus:outline-none ${
                   detailsDrawerActiveTab === 'lotes' 
                         ? 'border-zinc-900 text-zinc-900 font-extrabold' 
-                        : 'border-transparent text-zinc-450 hover:text-zinc-650'
+                        : 'border-transparent text-zinc-400 hover:text-zinc-600'
                     }`}
                   >
                     Lotes de Produção
@@ -2208,14 +2207,14 @@ export default function ProducaoView({ onBackToHub }) {
                       <div className="space-y-6 animate-in fade-in duration-150 text-left">
                         {/* Top Stats Cards */}
                         <div className="grid grid-cols-3 gap-4">
-                          <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
+                          <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-xl shadow-sm text-left">
                             <span className="text-[10px] text-zinc-400 font-bold uppercase block">Estoque Atual</span>
                             <p className="text-lg font-extrabold text-zinc-900 mt-1.5">
                               {selectedProductDetails.currentStock.toLocaleString('pt-BR')}{' '}
-                              <span className="text-xs font-semibold text-zinc-550">{selectedProductDetails.unit}</span>
+                              <span className="text-xs font-semibold text-zinc-500">{selectedProductDetails.unit}</span>
                             </p>
                           </div>
-                          <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left flex flex-col justify-between">
+                          <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-xl shadow-sm text-left flex flex-col justify-between">
                             <div>
                               <span className="text-[10px] text-zinc-400 font-bold uppercase block">Última Produção</span>
                               <p className="text-xs font-extrabold text-zinc-900 mt-1">
@@ -2230,7 +2229,7 @@ export default function ProducaoView({ onBackToHub }) {
                               </div>
                             )}
                           </div>
-                          <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
+                          <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-xl shadow-sm text-left">
                             <span className="text-[10px] text-zinc-400 font-bold uppercase block">Código ERP</span>
                             <p className="text-lg font-extrabold text-zinc-900 mt-1.5 font-mono">
                               {selectedProductDetails.code}
@@ -2241,15 +2240,15 @@ export default function ProducaoView({ onBackToHub }) {
                         {/* Section: YoY Sales */}
                         <div className="space-y-3">
                           <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
-                            <TrendingUp className="h-4 w-4 text-zinc-650" />
+                            <TrendingUp className="h-4 w-4 text-zinc-600" />
                             <h4 className="font-extrabold text-sm text-zinc-900">Histórico de Vendas Ano a Ano</h4>
                           </div>
                           {selectedProductDetails.salesYoy.length === 0 ? (
                             <p className="text-xs text-zinc-400 py-3">Sem histórico de vendas registrado.</p>
                           ) : (
-                            <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                            <div className="bg-white border border-zinc-100 rounded-xl overflow-hidden shadow-sm">
                               <table className="w-full text-left text-xs">
-                                <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                                <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100">
                                   <tr>
                                     <th className="px-4 py-3">Ano</th>
                                     <th className="px-4 py-3 text-right">Total Vendido ({selectedProductDetails.unit})</th>
@@ -2263,7 +2262,7 @@ export default function ProducaoView({ onBackToHub }) {
                                       <td className="px-4 py-2.5 text-right font-semibold text-zinc-950">
                                         {s.totalQty.toLocaleString('pt-BR')}
                                       </td>
-                                      <td className="px-4 py-2.5 text-right text-zinc-550">
+                                      <td className="px-4 py-2.5 text-right text-zinc-500">
                                         {s.monthlyAvg.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
                                       </td>
                                     </tr>
@@ -2278,7 +2277,7 @@ export default function ProducaoView({ onBackToHub }) {
                         <div className="space-y-3">
                           <div className="flex justify-between items-center border-b border-zinc-100 pb-2">
                             <div className="flex items-center gap-2">
-                              <BarChart3 className="h-4 w-4 text-zinc-650" />
+                              <BarChart3 className="h-4 w-4 text-zinc-600" />
                               <h4 className="font-extrabold text-sm text-zinc-900">Vendas Mensais Detalhadas</h4>
                             </div>
                           </div>
@@ -2286,7 +2285,7 @@ export default function ProducaoView({ onBackToHub }) {
                           {selectedProductDetails.monthlySales.length === 0 ? (
                             <p className="text-xs text-zinc-400 py-3">Nenhum registro de venda mensal.</p>
                           ) : (
-                            <div className="p-4 bg-zinc-50/50 border border-zinc-150 rounded-xl space-y-3">
+                            <div className="p-4 bg-zinc-50/50 border border-zinc-100 rounded-xl space-y-3">
                               {/* Visual Bar chart representation of monthly sales */}
                               <div className="grid grid-cols-12 gap-1.5 h-36 items-end pt-4 px-2">
                                 {(() => {
@@ -2329,7 +2328,7 @@ export default function ProducaoView({ onBackToHub }) {
                     {detailsDrawerActiveTab === 'formula' && (
                       <div className="space-y-3 animate-in fade-in duration-150 text-left">
                         <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
-                          <Layers className="h-4 w-4 text-zinc-650" />
+                          <Layers className="h-4 w-4 text-zinc-600" />
                           <h4 className="font-extrabold text-sm text-zinc-900">Fórmula & Ingredientes</h4>
                         </div>
                         {selectedProductDetails.formulation.length === 0 ? (
@@ -2342,10 +2341,10 @@ export default function ProducaoView({ onBackToHub }) {
                             if (list.length === 0) return null;
                             return (
                               <div className="space-y-2">
-                                <h5 className="font-extrabold text-[10px] text-zinc-450 uppercase tracking-wider">{title}</h5>
-                                <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                                <h5 className="font-extrabold text-[10px] text-zinc-400 uppercase tracking-wider">{title}</h5>
+                                <div className="bg-white border border-zinc-100 rounded-xl overflow-hidden shadow-sm">
                                   <table className="w-full text-left text-xs">
-                                    <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                                    <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100">
                                       <tr>
                                         <th className="px-4 py-3">Ingrediente</th>
                                         <th className="px-4 py-3 text-right">Qtd</th>
@@ -2368,7 +2367,7 @@ export default function ProducaoView({ onBackToHub }) {
                                             <td className="px-4 py-2.5 text-right font-medium text-zinc-700">
                                               {(line.quantity ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
                                             </td>
-                                            <td className="px-4 py-2.5 text-right text-zinc-550">
+                                            <td className="px-4 py-2.5 text-right text-zinc-500">
                                               {needsPercentage ? `${pctVal.toFixed(3)}%` : '-'}
                                             </td>
                                             <td className="px-4 py-2.5 text-right">
@@ -2406,15 +2405,15 @@ export default function ProducaoView({ onBackToHub }) {
                     {detailsDrawerActiveTab === 'lotes' && (
                       <div className="space-y-3 animate-in fade-in duration-150 text-left">
                         <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
-                          <ClipboardList className="h-4 w-4 text-zinc-650" />
+                          <ClipboardList className="h-4 w-4 text-zinc-600" />
                           <h4 className="font-extrabold text-sm text-zinc-900">Lotes de Produção Recentes</h4>
                         </div>
                         {!selectedProductDetails.lastLots || selectedProductDetails.lastLots.length === 0 ? (
                           <p className="text-xs text-zinc-400 py-3">Nenhum lote de produção registrado para este produto.</p>
                         ) : (
-                          <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                          <div className="bg-white border border-zinc-100 rounded-xl overflow-hidden shadow-sm">
                             <table className="w-full text-left text-xs">
-                              <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                              <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100">
                                 <tr>
                                   <th className="px-4 py-3">Lote</th>
                                   <th className="px-4 py-3">Data</th>
@@ -2452,10 +2451,10 @@ export default function ProducaoView({ onBackToHub }) {
                                       <td className="px-4 py-2.5 text-right">
                                         {hasErrors ? (
                                           <div className="flex justify-end gap-1 flex-wrap">
-                                            {lote.pesagemError && <span className="px-1.5 py-0.5 bg-red-50 text-red-650 border border-red-100 rounded text-[9px] font-bold">Pesagem</span>}
-                                            {lote.envaseError && <span className="px-1.5 py-0.5 bg-red-50 text-red-650 border border-red-100 rounded text-[9px] font-bold">Envase</span>}
+                                            {lote.pesagemError && <span className="px-1.5 py-0.5 bg-red-50 text-red-600 border border-red-100 rounded text-[9px] font-bold">Pesagem</span>}
+                                            {lote.envaseError && <span className="px-1.5 py-0.5 bg-red-50 text-red-600 border border-red-100 rounded text-[9px] font-bold">Envase</span>}
                                             {lote.yieldError && <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[9px] font-bold">Rendimento</span>}
-                                            {lote.conferenciaError && <span className="px-1.5 py-0.5 bg-red-50 text-red-650 border border-red-100 rounded text-[9px] font-bold">Conf.</span>}
+                                            {lote.conferenciaError && <span className="px-1.5 py-0.5 bg-red-50 text-red-600 border border-red-100 rounded text-[9px] font-bold">Conf.</span>}
                                           </div>
                                         ) : (
                                           <span className="text-zinc-400 text-[10px] font-semibold">Nenhuma</span>
@@ -2504,7 +2503,7 @@ export default function ProducaoView({ onBackToHub }) {
               style={{ zIndex: 200 }}
             >
               {/* Header */}
-              <div className="p-6 border-b border-zinc-150 flex items-center justify-between bg-zinc-50 shrink-0">
+              <div className="p-6 border-b border-zinc-100 flex items-center justify-between bg-zinc-50 shrink-0">
                 <div className="min-w-0 flex-1">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
                     Análise Detalhada de Lote
@@ -2522,14 +2521,14 @@ export default function ProducaoView({ onBackToHub }) {
                 </div>
                 <button
                   onClick={() => setLoteDetailsDrawerOpen(false)}
-                  className="p-1 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-650 transition-colors cursor-pointer border border-zinc-200 bg-white shadow-sm"
+                  className="p-1 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-600 transition-colors cursor-pointer border border-zinc-200 bg-white shadow-sm"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               {/* Sub-tab Navigation */}
-              <div className="px-6 py-3 bg-zinc-50 border-b border-zinc-150 flex gap-2 shrink-0">
+              <div className="px-6 py-3 bg-zinc-50 border-b border-zinc-100 flex gap-2 shrink-0">
                 {[
                   { id: 'inicio', label: 'Início', icon: LayoutDashboard },
                   { id: 'pesagem', label: 'Pesagem', icon: Scale },
@@ -2569,7 +2568,7 @@ export default function ProducaoView({ onBackToHub }) {
                       <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-200">
                         {/* Meta Cards Grid */}
                         <div className="grid grid-cols-2 gap-4">
-                          <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
+                          <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-xl shadow-sm text-left">
                             <span className="text-[10px] text-zinc-400 font-bold uppercase block">Status do Lote</span>
                             <div className="mt-1.5">
                               <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider border ${
@@ -2584,21 +2583,21 @@ export default function ProducaoView({ onBackToHub }) {
                             </div>
                           </div>
                           
-                          <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
+                          <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-xl shadow-sm text-left">
                             <span className="text-[10px] text-zinc-400 font-bold uppercase block">Data de Abertura</span>
                             <p className="text-sm font-bold text-zinc-800 mt-1">
                               {new Date(selectedLoteDetails.date.replace(' ', 'T')).toLocaleDateString('pt-BR')}
                             </p>
                           </div>
                           
-                          <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
+                          <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-xl shadow-sm text-left">
                             <span className="text-[10px] text-zinc-400 font-bold uppercase block">Operador (Pesagem/Prod)</span>
                             <p className="text-sm font-bold text-zinc-800 mt-1">
                               {selectedLoteDetails.fabricated_by || 'Não registrado'}
                             </p>
                           </div>
 
-                          <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
+                          <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-xl shadow-sm text-left">
                             <span className="text-[10px] text-zinc-400 font-bold uppercase block">Autorização (Liberação)</span>
                             <p className="text-sm font-bold text-zinc-800 mt-1">
                               {selectedLoteDetails.authorized_by || 'Não registrado'}
@@ -2607,7 +2606,7 @@ export default function ProducaoView({ onBackToHub }) {
                         </div>
 
                         {/* Batch yields */}
-                        <div className="bg-zinc-50 border border-zinc-150 p-5 rounded-xl space-y-4 shadow-sm">
+                        <div className="bg-zinc-50 border border-zinc-100 p-5 rounded-xl space-y-4 shadow-sm">
                           <h4 className="font-extrabold text-sm text-zinc-900 border-b border-zinc-200 pb-2">Rendimento Geral do Lote</h4>
                           <div className="grid grid-cols-3 gap-4">
                             <div className="text-left">
@@ -2692,7 +2691,7 @@ export default function ProducaoView({ onBackToHub }) {
 
                           return (
                             <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-5 space-y-4 text-left shadow-sm">
-                              <div className="flex items-center gap-2 text-rose-800 font-extrabold text-sm border-b border-zinc-250 pb-2">
+                              <div className="flex items-center gap-2 text-rose-800 font-extrabold text-sm border-b border-zinc-200 pb-2">
                                 <AlertTriangle className="h-4 w-4 text-rose-600" />
                                 <span>Justificar Desvios do Lote</span>
                               </div>
@@ -2741,7 +2740,7 @@ export default function ProducaoView({ onBackToHub }) {
                                         
                                         <div className="grid grid-cols-2 gap-2 text-xs">
                                           <div className="space-y-1">
-                                            <label className="text-[10px] text-zinc-550 font-bold block">Insumo Planejado (Ausente)</label>
+                                            <label className="text-[10px] text-zinc-500 font-bold block">Insumo Planejado (Ausente)</label>
                                             <select
                                               value={selectedExpectedCode}
                                               onChange={(e) => setSelectedExpectedCode(e.target.value)}
@@ -2757,7 +2756,7 @@ export default function ProducaoView({ onBackToHub }) {
                                           </div>
                                           
                                           <div className="space-y-1">
-                                            <label className="text-[10px] text-zinc-550 font-bold block">Insumo Utilizado (Substituto)</label>
+                                            <label className="text-[10px] text-zinc-500 font-bold block">Insumo Utilizado (Substituto)</label>
                                             <select
                                               value={selectedActualCode}
                                               onChange={(e) => setSelectedActualCode(e.target.value)}
@@ -2777,7 +2776,7 @@ export default function ProducaoView({ onBackToHub }) {
                                           type="button"
                                           disabled={!selectedExpectedCode || !selectedActualCode}
                                           onClick={handleAddSwap}
-                                          className="w-full py-1.5 bg-blue-600 hover:bg-blue-750 text-white rounded-lg text-[10px] font-bold shadow-sm disabled:opacity-50 cursor-pointer transition-all"
+                                          className="w-full py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold shadow-sm disabled:opacity-50 cursor-pointer transition-all"
                                         >
                                           + Vincular Substituição
                                         </button>
@@ -2798,7 +2797,7 @@ export default function ProducaoView({ onBackToHub }) {
                                                     onClick={() => {
                                                       setMappedSwaps(mappedSwaps.filter((_, i) => i !== idx));
                                                     }}
-                                                    className="text-rose-550 hover:text-rose-700 font-bold ml-2 cursor-pointer"
+                                                    className="text-red-500 hover:text-red-700 font-bold ml-2 cursor-pointer"
                                                   >
                                                     Remover
                                                   </button>
@@ -2868,9 +2867,9 @@ export default function ProducaoView({ onBackToHub }) {
                           </div>
                         </div>
 
-                        <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                        <div className="bg-white border border-zinc-100 rounded-xl overflow-hidden shadow-sm">
                           <table className="w-full text-left text-xs">
-                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100">
                               <tr>
                                 <th className="px-4 py-3">Insumo</th>
                                 <th className="px-4 py-3 text-right">Previsto</th>
@@ -2927,10 +2926,10 @@ export default function ProducaoView({ onBackToHub }) {
                     {loteActiveSubTab === 'envase' && (
                       <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-200">
                         {selectedLoteDetails.envase_products.map((prod) => (
-                          <div key={prod.product_code} className="space-y-3 bg-zinc-50/50 border border-zinc-150 p-4 rounded-xl shadow-sm">
-                            <div className="flex justify-between items-center border-b border-zinc-150 pb-2">
+                          <div key={prod.product_code} className="space-y-3 bg-zinc-50/50 border border-zinc-100 p-4 rounded-xl shadow-sm">
+                            <div className="flex justify-between items-center border-b border-zinc-100 pb-2">
                               <div>
-                                <h4 className="font-extrabold text-sm text-zinc-850">{prod.description}</h4>
+                                <h4 className="font-extrabold text-sm text-zinc-800">{prod.description}</h4>
                                 <p className="text-[10px] text-zinc-500 font-mono mt-0.5">Código: {prod.product_code} | Embalagem Unitária: {prod.unit_weight_kg * 1000}g</p>
                               </div>
                               <div className="text-right">
@@ -2960,9 +2959,9 @@ export default function ProducaoView({ onBackToHub }) {
                                 </div>
                               </div>
                             ) : (
-                            <div className="overflow-hidden rounded-lg border border-zinc-150 bg-white shadow-sm">
+                            <div className="overflow-hidden rounded-lg border border-zinc-100 bg-white shadow-sm">
                               <table className="w-full text-left text-xs">
-                                <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                                <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100">
                                   <tr>
                                     <th className="px-4 py-2.5">Insumo Embalagem</th>
                                     <th className="px-4 py-2.5 text-right">Previsto</th>
@@ -3032,7 +3031,7 @@ export default function ProducaoView({ onBackToHub }) {
 
                         <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
                           <table className="w-full text-left text-xs">
-                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100">
                               <tr>
                                 <th className="px-4 py-3">Produto</th>
                                 <th className="px-4 py-3 text-right">Envasados (Frascos)</th>
@@ -3053,7 +3052,7 @@ export default function ProducaoView({ onBackToHub }) {
                                     <div className="font-bold text-zinc-800">{item.description}</div>
                                     <div className="text-[9px] text-zinc-400 font-mono mt-0.5">{item.product_code}</div>
                                   </td>
-                                  <td className="px-4 py-3 text-right font-semibold text-zinc-550 font-mono">
+                                  <td className="px-4 py-3 text-right font-semibold text-zinc-500 font-mono">
                                     {(item.actual_units_envasadas ?? 0).toLocaleString('pt-BR')} un
                                   </td>
                                   <td className="px-4 py-3 text-right font-bold text-zinc-900 font-mono">
@@ -3071,8 +3070,8 @@ export default function ProducaoView({ onBackToHub }) {
                                       </td>
                                       <td className="px-4 py-3 text-center">
                                         <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border ${
-                                          item.status === 'OK' ? 'bg-emerald-50 text-emerald-700 border-emerald-250/50' :
-                                          'bg-rose-50 text-rose-700 border-rose-250/50'
+                                          item.status === 'OK' ? 'bg-emerald-50 text-emerald-700 border-emerald-200/50' :
+                                          'bg-rose-50 text-rose-700 border-red-200/50'
                                         }`}>
                                           {item.status === 'OK' ? 'Aprovado' : 'Discrepante'}
                                         </span>
@@ -3087,10 +3086,10 @@ export default function ProducaoView({ onBackToHub }) {
 
                         <div className="p-4 bg-amber-50/20 border border-amber-100 rounded-xl space-y-2 text-xs">
                           <h5 className="font-bold text-amber-800">Regra de Fechamento de Lote (Antigo ERP):</h5>
-                          <ul className="list-disc pl-4 space-y-1 text-zinc-650">
+                          <ul className="list-disc pl-4 space-y-1 text-zinc-600">
                             <li>O operador registra o envase total (quantidade de frascos consumidos).</li>
                             <li><strong>Retém Amostra</strong>: 1 unidade do lote deve ficar retida em laboratório (retém).</li>
-                            <li>O estoque lançado no sistema (EA) deve ser exatamente igual a <strong className="text-zinc-850 font-bold">Quantidade Envasada - 1</strong>.</li>
+                            <li>O estoque lançado no sistema (EA) deve ser exatamente igual a <strong className="text-zinc-800 font-bold">Quantidade Envasada - 1</strong>.</li>
                             <li>Qualquer desvio nesta contagem indica que o operador errou na digitação final ou que amostras de retém não foram contabilizadas corretamente.</li>
                           </ul>
                         </div>

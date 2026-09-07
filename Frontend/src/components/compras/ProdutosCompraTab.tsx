@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { cn, API_BASE, apiFetch } from '../../lib/utils';
 import { api } from '../../lib/api';
+import { showToast, confirmDialog } from '../shared/feedback';
 
 
 interface ProductRow {
@@ -454,11 +455,11 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
         await loadProducts();
         await loadDetails(selectedProduct.codigo);
       } else {
-        alert("Erro ao salvar observações");
+        showToast("Erro ao salvar observações", 'error');
       }
     } catch (e) {
       console.error("Erro ao salvar observações:", e);
-      alert("Erro ao conectar com o servidor");
+      showToast("Erro ao conectar com o servidor", 'error');
     }
   };
 
@@ -487,7 +488,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
     }
 
     if (itemsToPrint.length === 0) {
-      alert("Não há itens para imprimir com o filtro selecionado.");
+      showToast("Não há itens para imprimir com o filtro selecionado.", 'error');
       return;
     }
 
@@ -504,7 +505,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
 
     const doc = iframe.contentWindow?.document;
     if (!doc) {
-      alert("Não foi possível iniciar a impressão.");
+      showToast("Não foi possível iniciar a impressão.", 'error');
       document.body.removeChild(iframe);
       return;
     }
@@ -728,7 +729,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
         <div className="px-4 py-3 border-b border-zinc-200 bg-zinc-50 flex items-center justify-between shrink-0 gap-4 flex-wrap">
           <div className="flex items-center gap-4 flex-wrap">
             {/* Search Input */}
-            <div className="flex items-center gap-2 bg-white border border-zinc-350 rounded-md px-3 py-1.5 shadow-sm">
+            <div className="flex items-center gap-2 bg-white border border-zinc-300 rounded-md px-3 py-1.5 shadow-sm">
               <Search className="h-4 w-4 text-zinc-400" />
               <input 
                 type="text" 
@@ -768,7 +769,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
 
             {/* Meta Days Input */}
             <div className="flex items-center gap-2 border-l border-zinc-300 pl-4">
-              <span className="text-xs text-zinc-650 font-semibold">Meta de Cobertura:</span>
+              <span className="text-xs text-zinc-600 font-semibold">Meta de Cobertura:</span>
               <input 
                 type="number" 
                 value={targetDays} 
@@ -806,7 +807,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
         <div className="flex-1 overflow-auto">
           {loading ? (
             <div className="flex flex-col items-center justify-center h-full text-zinc-400 gap-2">
-              <RefreshCw className="h-6 w-6 animate-spin text-zinc-550" />
+              <RefreshCw className="h-6 w-6 animate-spin text-zinc-500" />
               <span className="font-semibold text-xs">Carregando lista de produtos...</span>
             </div>
           ) : filteredProducts.length === 0 ? (
@@ -816,7 +817,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
             </div>
           ) : (
             <table className="w-full text-left text-xs whitespace-nowrap table-fixed">
-              <thead className="bg-zinc-100 sticky top-0 z-10 shadow-sm border-b border-zinc-250">
+              <thead className="bg-zinc-100 sticky top-0 z-10 shadow-sm border-b border-zinc-200">
                 <tr>
                   <th className="px-4 py-3 font-semibold text-zinc-700 cursor-pointer hover:text-zinc-900 w-2/5" onClick={() => toggleSort('descricao')}>
                     <span className="flex items-center gap-1">Ref / Item <SortIcon col="descricao" /></span>
@@ -867,11 +868,11 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="font-semibold text-zinc-800">{p.estoque.toLocaleString('pt-BR')} un</div>
-                        <div className="text-[10px] text-zinc-450 font-bold">
+                        <div className="text-[10px] text-zinc-400 font-bold">
                           -{p.faltas_ativas || 0} F / +{p.pedidos_compra_aberto || 0} T
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-right text-zinc-650">
+                      <td className="px-4 py-3 text-right text-zinc-600">
                         {p.media_vendas ? Math.round(p.media_vendas).toLocaleString('pt-BR') : '0'} un
                       </td>
                       <td className="px-4 py-3 text-right text-zinc-800 font-semibold">
@@ -882,14 +883,14 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                           "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-extrabold",
                           p.urgency_computed === 'critical' && "bg-red-100 text-red-800 border border-red-200",
                           p.urgency_computed === 'warning' && "bg-amber-100 text-amber-800 border border-amber-200",
-                          p.urgency_computed === 'ok' && "bg-emerald-100 text-emerald-800 border border-emerald-250"
+                          p.urgency_computed === 'ok' && "bg-emerald-100 text-emerald-800 border border-emerald-200"
                         )}>
                           {p.cobertura_dias_computed === 9999 ? '∞' : `${p.cobertura_dias_computed} dias`}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right font-extrabold">
                         {hasSugestao ? (
-                          <span className="text-amber-800 bg-amber-100 border border-amber-250/50 px-2 py-1 rounded-lg text-sm shadow-sm animate-pulse">
+                          <span className="text-amber-800 bg-amber-100 border border-amber-200/50 px-2 py-1 rounded-lg text-sm shadow-sm animate-pulse">
                             {p.sugestao_compra_computed.toLocaleString('pt-BR')} un
                           </span>
                         ) : (
@@ -903,7 +904,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                             "p-1.5 rounded-lg transition-colors cursor-pointer",
                             isInPrintList(p.codigo) 
                               ? "text-emerald-600 hover:bg-emerald-50" 
-                              : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-650"
+                              : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
                           )}
                           title={isInPrintList(p.codigo) ? "Remover da Lista de Impressão" : "Adicionar à Lista de Impressão"}
                         >
@@ -932,15 +933,15 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
               <button 
                 disabled={currentPage === 1} 
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
-                className="px-3 py-1.5 rounded-lg border border-zinc-255 text-xs font-bold bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                className="px-3 py-1.5 rounded-lg border border-zinc-200 text-xs font-bold bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
               >
                 Anterior
               </button>
-              <span className="text-xs text-zinc-550 font-bold">Pág {currentPage} de {totalPages}</span>
+              <span className="text-xs text-zinc-500 font-bold">Pág {currentPage} de {totalPages}</span>
               <button 
                 disabled={currentPage === totalPages} 
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
-                className="px-3 py-1.5 rounded-lg border border-zinc-255 text-xs font-bold bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                className="px-3 py-1.5 rounded-lg border border-zinc-200 text-xs font-bold bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
               >
                 Próximo
               </button>
@@ -978,10 +979,9 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                   <button
                     onClick={async () => {
                       const newVisivel = selectedProduct.visivel === 0 ? 1 : 0;
-                      if (confirm(newVisivel === 0 
+                      if (await confirmDialog(newVisivel === 0 
                         ? `Tem certeza que deseja suspender o produto "${selectedProduct.descricao}"? Ele será ocultado das demandas e sugestões de compra.`
-                        : `Deseja reativar o produto "${selectedProduct.descricao}"?`
-                      )) {
+                        : `Deseja reativar o produto "${selectedProduct.descricao}"?`, { variant: 'default' })) {
                         try {
                           const res = await apiFetch(`${API_BASE}/overrides`, {
                             method: 'POST',
@@ -1010,19 +1010,19 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                               await loadDetails(selectedProduct.codigo);
                             }
                           } else {
-                            alert("Erro ao salvar alteração");
+                            showToast("Erro ao salvar alteração", 'error');
                           }
                         } catch (e) {
                           console.error(e);
-                          alert("Erro de conexão com o servidor");
+                          showToast("Erro de conexão com o servidor", 'error');
                         }
                       }
                     }}
                     className={cn(
                       "text-xs px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 cursor-pointer border",
                       selectedProduct.visivel === 0
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-250/30 hover:bg-emerald-100/70"
-                        : "bg-rose-50 text-rose-700 border-rose-250/30 hover:bg-rose-100/70"
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-200/30 hover:bg-emerald-100/70"
+                        : "bg-rose-50 text-rose-700 border-red-200/30 hover:bg-rose-100/70"
                     )}
                     title={selectedProduct.visivel === 0 ? "Reativar Produto" : "Suspender Produto das Demandas"}
                   >
@@ -1035,7 +1035,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                 )}
                 <button 
                   onClick={setSelectedItemCodeNull} 
-                  className="p-1.5 hover:bg-zinc-150 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer border border-zinc-250/20"
+                  className="p-1.5 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer border border-zinc-200/20"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -1069,7 +1069,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
             {/* Detail Body */}
             {detailsLoading ? (
               <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 font-semibold gap-2">
-                <RefreshCw className="h-6 w-6 animate-spin text-zinc-550" />
+                <RefreshCw className="h-6 w-6 animate-spin text-zinc-500" />
                 Carregando dados detalhados...
               </div>
             ) : details ? (
@@ -1087,25 +1087,25 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                         </div>
                         
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-left">
-                          <div className="bg-white border border-zinc-150 p-3 rounded-lg shadow-sm">
+                          <div className="bg-white border border-zinc-100 p-3 rounded-lg shadow-sm">
                             <span className="text-[9px] text-zinc-400 font-extrabold uppercase block tracking-wider">Estoque Ideal</span>
-                            <p className="text-sm font-extrabold text-zinc-850 mt-1">
+                            <p className="text-sm font-extrabold text-zinc-800 mt-1">
                               {Math.round(selectedProduct.estoque_ideal_qtd_computed).toLocaleString('pt-BR')} un
                             </p>
                           </div>
-                          <div className="bg-white border border-zinc-150 p-3 rounded-lg shadow-sm">
+                          <div className="bg-white border border-zinc-100 p-3 rounded-lg shadow-sm">
                             <span className="text-[9px] text-zinc-400 font-extrabold uppercase block tracking-wider">Faltas Ativas</span>
                             <p className="text-sm font-extrabold text-rose-700 mt-1">
                               +{(selectedProduct.faltas_ativas || 0).toLocaleString('pt-BR')} un
                             </p>
                           </div>
-                          <div className="bg-white border border-zinc-155 p-3 rounded-lg shadow-sm">
+                          <div className="bg-white border border-zinc-100 p-3 rounded-lg shadow-sm">
                             <span className="text-[9px] text-zinc-400 font-extrabold uppercase block tracking-wider">Estoque Físico</span>
-                            <p className="text-sm font-extrabold text-zinc-850 mt-1">
+                            <p className="text-sm font-extrabold text-zinc-800 mt-1">
                               -{(selectedProduct.estoque || 0).toLocaleString('pt-BR')} un
                             </p>
                           </div>
-                          <div className="bg-white border border-zinc-155 p-3 rounded-lg shadow-sm">
+                          <div className="bg-white border border-zinc-100 p-3 rounded-lg shadow-sm">
                             <span className="text-[9px] text-zinc-400 font-extrabold uppercase block tracking-wider">Em Trânsito</span>
                             <p className="text-sm font-extrabold text-blue-700 mt-1">
                               -{(selectedProduct.pedidos_compra_aberto || 0).toLocaleString('pt-BR')} un
@@ -1115,7 +1115,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
 
                         {/* Math Formula breakdown */}
                         <div className="bg-zinc-100/70 p-3 rounded-lg border border-zinc-200/50 space-y-2">
-                          <span className="text-[9px] text-zinc-550 font-extrabold uppercase block">Fórmula de Sugestão</span>
+                          <span className="text-[9px] text-zinc-500 font-extrabold uppercase block">Fórmula de Sugestão</span>
                           <div className="text-xs font-mono text-zinc-700 bg-white p-2.5 rounded border border-zinc-200 overflow-x-auto shadow-inner">
                             Sugestão = Estoque Ideal ({Math.round(selectedProduct.estoque_ideal_qtd_computed)}) 
                             + Faltas ({(selectedProduct.faltas_ativas || 0)}) 
@@ -1123,11 +1123,11 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                             - Trânsito ({(selectedProduct.pedidos_compra_aberto || 0)})
                           </div>
                           <div className="flex items-center justify-between pt-1">
-                            <span className="text-xs text-zinc-650 font-bold">Resultado da Sugestão:</span>
+                            <span className="text-xs text-zinc-600 font-bold">Resultado da Sugestão:</span>
                             <span className={cn(
                               "text-xs font-extrabold px-3 py-1 rounded-full shadow-sm border",
                               selectedProduct.sugestao_compra_computed > 0 
-                                ? "bg-amber-100 text-amber-850 border-amber-200" 
+                                ? "bg-amber-100 text-amber-800 border-amber-200" 
                                 : "bg-zinc-200 text-zinc-600 border-zinc-300"
                             )}>
                               {selectedProduct.sugestao_compra_computed > 0 
@@ -1176,7 +1176,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                                 setTempNotes(selectedProduct?.observacao || '');
                                 setIsEditingNotes(false);
                               }}
-                              className="text-[10px] font-extrabold text-zinc-400 hover:text-zinc-650 transition-colors cursor-pointer"
+                              className="text-[10px] font-extrabold text-zinc-400 hover:text-zinc-600 transition-colors cursor-pointer"
                             >
                               Cancelar
                             </button>
@@ -1202,7 +1202,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                           placeholder="Digite observações de compra, lote mínimo, prazo de fornecedor..."
                         />
                       ) : (
-                        <p className={cn("text-xs mt-0.5 whitespace-pre-wrap font-medium", selectedProduct?.observacao ? "text-zinc-750" : "text-zinc-400 italic")}>
+                        <p className={cn("text-xs mt-0.5 whitespace-pre-wrap font-medium", selectedProduct?.observacao ? "text-zinc-700" : "text-zinc-400 italic")}>
                           {selectedProduct?.observacao || "Nenhuma observação registrada. Clique em Editar para adicionar notas integradas com o módulo de cadastro."}
                         </p>
                       )}
@@ -1210,16 +1210,16 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
 
                     {/* Recent Invoices List */}
                     <div className="space-y-3">
-                      <div className="flex items-center gap-2 border-b border-zinc-150 pb-2">
+                      <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
                         <FileText className="h-4.5 w-4.5 text-zinc-600" />
                         <h4 className="font-extrabold text-xs text-zinc-800 uppercase tracking-wider">Histórico de Recebimento de Notas</h4>
                       </div>
                       {!details.recentInvoices || details.recentInvoices.length === 0 ? (
-                        <p className="text-xs text-zinc-450 italic py-2">Sem faturas de recebimento recentes no sistema.</p>
+                        <p className="text-xs text-zinc-400 italic py-2">Sem faturas de recebimento recentes no sistema.</p>
                       ) : (
                         <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-sm max-h-48 overflow-y-auto">
                           <table className="w-full text-left text-xs whitespace-nowrap">
-                            <thead className="bg-zinc-50 font-bold text-zinc-550 border-b border-zinc-200 sticky top-0">
+                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-200 sticky top-0">
                               <tr>
                                 <th className="px-4 py-2.5">Nota Fiscal</th>
                                 <th className="px-4 py-2.5">Data</th>
@@ -1229,7 +1229,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                                 <th className="px-4 py-2.5 text-right">Total</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-zinc-100 text-[11px] font-medium text-zinc-650">
+                            <tbody className="divide-y divide-zinc-100 text-[11px] font-medium text-zinc-600">
                               {details.recentInvoices.map((inv, idx) => (
                                 <tr key={`${inv.invoiceNumber}-${idx}`} className="hover:bg-zinc-50/50 transition-colors">
                                   <td className="px-4 py-2.5 font-bold text-zinc-700">#{inv.invoiceNumber}</td>
@@ -1253,16 +1253,16 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                   <div className="space-y-6">
                     {/* YoY sales */}
                     <div className="space-y-3">
-                      <div className="flex items-center gap-2 border-b border-zinc-150 pb-2">
+                      <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
                         <TrendingUp className="h-4.5 w-4.5 text-zinc-600" />
                         <h4 className="font-extrabold text-xs text-zinc-800 uppercase tracking-wider">Histórico de Saídas e Vendas (Ano a Ano)</h4>
                       </div>
                       {!details.salesYoy || details.salesYoy.length === 0 ? (
-                        <p className="text-xs text-zinc-450 italic py-2">Sem histórico de faturamento registrado.</p>
+                        <p className="text-xs text-zinc-400 italic py-2">Sem histórico de faturamento registrado.</p>
                       ) : (
                         <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
                           <table className="w-full text-left text-xs">
-                            <thead className="bg-zinc-50 font-bold text-zinc-550 border-b border-zinc-200">
+                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-200">
                               <tr>
                                 <th className="px-4 py-3">Ano</th>
                                 <th className="px-4 py-3 text-right">Volume Total (un)</th>
@@ -1274,7 +1274,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                                 <tr key={s.year} className="hover:bg-zinc-50/50 transition-colors">
                                   <td className="px-4 py-2.5 font-bold">{s.year}</td>
                                   <td className="px-4 py-2.5 text-right font-semibold text-zinc-900">{s.totalQty.toLocaleString('pt-BR')} un</td>
-                                  <td className="px-4 py-2.5 text-right text-zinc-550">{s.monthlyAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} un/mês</td>
+                                  <td className="px-4 py-2.5 text-right text-zinc-500">{s.monthlyAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} un/mês</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -1285,7 +1285,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
 
                     {/* Monthly chart */}
                     <div className="space-y-3">
-                      <div className="flex justify-between items-center border-b border-zinc-150 pb-2">
+                      <div className="flex justify-between items-center border-b border-zinc-100 pb-2">
                         <div className="flex items-center gap-2">
                           <BarChart3 className="h-4.5 w-4.5 text-zinc-600" />
                           <h4 className="font-extrabold text-xs text-zinc-800 uppercase tracking-wider">Faturamento de Vendas Mensais</h4>
@@ -1293,7 +1293,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                         <select
                           value={selectedYear}
                           onChange={(e) => setSelectedYear(Number(e.target.value))}
-                          className="px-2.5 py-1 bg-white border border-zinc-355 rounded-lg text-xs font-bold shadow-sm"
+                          className="px-2.5 py-1 bg-white border border-zinc-300 rounded-lg text-xs font-bold shadow-sm"
                         >
                           {availableYears.map(year => (
                             <option key={year} value={year}>{year}</option>
@@ -1302,7 +1302,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                       </div>
 
                       {!details.monthlySales || details.monthlySales.length === 0 ? (
-                        <p className="text-xs text-zinc-450 italic py-2">Nenhum faturamento mensal registrado para {selectedYear}.</p>
+                        <p className="text-xs text-zinc-400 italic py-2">Nenhum faturamento mensal registrado para {selectedYear}.</p>
                       ) : (
                         <div className="p-4 bg-zinc-50/50 border border-zinc-200 rounded-xl space-y-2">
                           <div className="grid grid-cols-12 gap-1.5 h-28 px-2">
@@ -1336,24 +1336,24 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                 {/* ===== TAB: Pedidos de Venda Pendentes (Faltas) ===== */}
                 {drawerTab === 'pedidos_venda' && (
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between border-b border-zinc-150 pb-2">
-                      <h4 className="font-extrabold text-xs text-zinc-850 uppercase tracking-wider">Pedidos de Venda Pendentes (Faltas Ativas)</h4>
+                    <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
+                      <h4 className="font-extrabold text-xs text-zinc-800 uppercase tracking-wider">Pedidos de Venda Pendentes (Faltas Ativas)</h4>
                       <span className="text-xs font-bold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded">
                         {pendingOrders?.pending_sales_orders.length || 0} pedidos
                       </span>
                     </div>
 
                     {pendingOrdersLoading ? (
-                      <div className="flex items-center justify-center py-12 text-zinc-450 gap-2 text-xs">
+                      <div className="flex items-center justify-center py-12 text-zinc-400 gap-2 text-xs">
                         <RefreshCw className="h-4 w-4 animate-spin text-zinc-500" />
                         Carregando pedidos pendentes...
                       </div>
                     ) : !pendingOrders || pendingOrders.pending_sales_orders.length === 0 ? (
-                      <p className="text-xs text-zinc-450 italic py-6 text-center">Este produto não possui pedidos de venda pendentes/em falta.</p>
+                      <p className="text-xs text-zinc-400 italic py-6 text-center">Este produto não possui pedidos de venda pendentes/em falta.</p>
                     ) : (
                       <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
                         <table className="w-full text-left text-xs whitespace-nowrap">
-                          <thead className="bg-zinc-50 font-bold text-zinc-550 border-b border-zinc-200">
+                          <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-200">
                             <tr>
                               <th className="px-4 py-2.5">Pedido</th>
                               <th className="px-4 py-2.5">Data</th>
@@ -1364,7 +1364,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                               <th className="px-4 py-2.5 text-right text-rose-700 bg-rose-50/50">Falta Real</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-zinc-100 font-medium text-zinc-650">
+                          <tbody className="divide-y divide-zinc-100 font-medium text-zinc-600">
                             {pendingOrders.pending_sales_orders.map((so, idx) => (
                               <tr key={`${so.n_pedido}-${idx}`} className="hover:bg-zinc-50/50 transition-colors">
                                 <td className="px-4 py-2.5 font-bold text-zinc-700">#{so.n_pedido}</td>
@@ -1392,24 +1392,24 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                 {/* ===== TAB: Compras em Trânsito ===== */}
                 {drawerTab === 'pedidos_compra' && (
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between border-b border-zinc-150 pb-2">
-                      <h4 className="font-extrabold text-xs text-zinc-850 uppercase tracking-wider">Ordens de Compra em Aberto (Em Trânsito)</h4>
+                    <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
+                      <h4 className="font-extrabold text-xs text-zinc-800 uppercase tracking-wider">Ordens de Compra em Aberto (Em Trânsito)</h4>
                       <span className="text-xs font-bold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded">
                         {pendingOrders?.in_transit_purchase_orders.length || 0} ordens
                       </span>
                     </div>
 
                     {pendingOrdersLoading ? (
-                      <div className="flex items-center justify-center py-12 text-zinc-450 gap-2 text-xs">
+                      <div className="flex items-center justify-center py-12 text-zinc-400 gap-2 text-xs">
                         <RefreshCw className="h-4 w-4 animate-spin text-zinc-500" />
                         Carregando ordens de compra em trânsito...
                       </div>
                     ) : !pendingOrders || pendingOrders.in_transit_purchase_orders.length === 0 ? (
-                      <p className="text-xs text-zinc-450 italic py-6 text-center">Nenhuma compra em trânsito/pendente registrada para este produto.</p>
+                      <p className="text-xs text-zinc-400 italic py-6 text-center">Nenhuma compra em trânsito/pendente registrada para este produto.</p>
                     ) : (
                       <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
                         <table className="w-full text-left text-xs whitespace-nowrap">
-                          <thead className="bg-zinc-50 font-bold text-zinc-550 border-b border-zinc-200">
+                          <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-200">
                             <tr>
                               <th className="px-4 py-2.5">Pedido Compra</th>
                               <th className="px-4 py-2.5">Fornecedor</th>
@@ -1419,7 +1419,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                               <th className="px-4 py-2.5">Previsão Entrega</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-zinc-100 font-medium text-zinc-650">
+                          <tbody className="divide-y divide-zinc-100 font-medium text-zinc-600">
                             {pendingOrders.in_transit_purchase_orders.map((po, idx) => (
                               <tr key={`${po.n_pedido}-${idx}`} className="hover:bg-zinc-50/50 transition-colors">
                                 <td className="px-4 py-2.5 font-bold text-zinc-700">#{po.n_pedido}</td>
@@ -1467,12 +1467,12 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
       {showPrintModal && (
         <div className="fixed inset-0 bg-black/45 backdrop-blur-sm z-50 flex items-center justify-center">
           <div className="absolute inset-0 cursor-pointer" onClick={() => setShowPrintModal(false)} />
-          <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-xl border border-zinc-150 p-6 z-10 text-left animate-in zoom-in-95 duration-200">
+          <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-xl border border-zinc-100 p-6 z-10 text-left animate-in zoom-in-95 duration-200">
             <h3 className="font-extrabold text-zinc-900 text-sm flex items-center gap-1.5 border-b border-zinc-100 pb-2.5 uppercase tracking-wide">
               <Printer className="h-4 w-4 text-zinc-500" /> Opções de Relatório de Compra
             </h3>
             <div className="py-4 space-y-3">
-              <label className="flex items-center gap-3 p-3 bg-zinc-50 border border-zinc-200 hover:border-zinc-350 rounded-xl cursor-pointer transition-colors">
+              <label className="flex items-center gap-3 p-3 bg-zinc-50 border border-zinc-200 hover:border-zinc-300 rounded-xl cursor-pointer transition-colors">
                 <input 
                   type="radio" 
                   name="print_filter" 
@@ -1486,7 +1486,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                 </div>
               </label>
 
-              <label className="flex items-center gap-3 p-3 bg-zinc-50 border border-zinc-200 hover:border-zinc-355 rounded-xl cursor-pointer transition-colors">
+              <label className="flex items-center gap-3 p-3 bg-zinc-50 border border-zinc-200 hover:border-zinc-300 rounded-xl cursor-pointer transition-colors">
                 <input 
                   type="radio" 
                   name="print_filter" 
@@ -1500,7 +1500,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                 </div>
               </label>
 
-              <label className="flex items-center gap-3 p-3 bg-zinc-50 border border-zinc-200 hover:border-zinc-355 rounded-xl cursor-pointer transition-colors">
+              <label className="flex items-center gap-3 p-3 bg-zinc-50 border border-zinc-200 hover:border-zinc-300 rounded-xl cursor-pointer transition-colors">
                 <input 
                   type="radio" 
                   name="print_filter" 
@@ -1517,13 +1517,13 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
             <div className="flex gap-3 justify-end pt-2">
               <button 
                 onClick={() => setShowPrintModal(false)}
-                className="px-4 py-2 border border-zinc-250 hover:bg-zinc-50 text-zinc-700 text-xs font-bold rounded-lg cursor-pointer"
+                className="px-4 py-2 border border-zinc-200 hover:bg-zinc-50 text-zinc-700 text-xs font-bold rounded-lg cursor-pointer"
               >
                 Cancelar
               </button>
               <button 
                 onClick={handlePrint}
-                className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-lg shadow-md cursor-pointer border border-zinc-955"
+                className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-lg shadow-md cursor-pointer border border-zinc-950"
               >
                 Confirmar e Imprimir
               </button>

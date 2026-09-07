@@ -3,6 +3,7 @@ import { Search, Trash2, Edit2, Plus, Package, EyeOff, Save, X, ArrowUpDown, Arr
 import { api } from '../../lib/api';
 import { Item, Category } from '../../types';
 import { API_BASE, apiFetch } from '../../lib/utils';
+import { showToast } from '../shared/feedback';
 
 
 interface ItemRegistryProps {
@@ -38,11 +39,11 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
         const data = await res.json();
         setDetailsItem(data);
       } else {
-        alert("Erro ao buscar detalhes do insumo");
+        showToast("Erro ao buscar detalhes do insumo", 'error');
       }
     } catch (e) {
       console.error(e);
-      alert("Falha de conexão com o servidor local");
+      showToast("Falha de conexão com o servidor local", 'error');
     } finally {
       setDetailsLoading(false);
     }
@@ -131,7 +132,7 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
       setEditingItem(null);
     } catch (e) {
       console.error(e);
-      alert('Erro ao salvar item');
+      showToast('Erro ao salvar item', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -243,7 +244,7 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
                 >
                   <td 
                     onClick={() => handleShowDetails(item.code)} 
-                    className="px-6 py-4 font-mono text-zinc-650 font-bold hover:underline"
+                    className="px-6 py-4 font-mono text-zinc-600 font-bold hover:underline"
                   >
                     {item.code}
                   </td>
@@ -290,7 +291,7 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
                   <td className="px-6 py-4 text-right flex justify-end">
                     <button 
                       onClick={(e) => { e.stopPropagation(); setEditingItem(item); }}
-                      className="p-2 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-650 transition-colors cursor-pointer" 
+                      className="p-2 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-600 transition-colors cursor-pointer" 
                       title="Editar"
                     >
                       <Edit2 className="w-4 h-4" />
@@ -382,17 +383,17 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
                 </h3>
                 <p className="text-xs text-zinc-500 font-mono mt-0.5">REF: {detailsLoading ? '...' : detailsItem?.code}</p>
               </div>
-              <button onClick={() => setDetailsOpen(false)} className="text-zinc-400 hover:text-zinc-650 cursor-pointer"><X className="w-5 h-5" /></button>
+              <button onClick={() => setDetailsOpen(false)} className="text-zinc-400 hover:text-zinc-600 cursor-pointer"><X className="w-5 h-5" /></button>
             </div>
 
             {/* Tab Navigation */}
-            <div className="flex border-b border-zinc-150 bg-zinc-50/50 px-6 shrink-0">
+            <div className="flex border-b border-zinc-100 bg-zinc-50/50 px-6 shrink-0">
               <button
                 onClick={() => setDetailsActiveTab('geral')}
                 className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer focus:outline-none ${
                   detailsActiveTab === 'geral' 
                     ? 'border-zinc-900 text-zinc-900 font-extrabold' 
-                    : 'border-transparent text-zinc-450 hover:text-zinc-650'
+                    : 'border-transparent text-zinc-400 hover:text-zinc-600'
                 }`}
               >
                 Geral
@@ -402,7 +403,7 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
                 className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer focus:outline-none ${
                   detailsActiveTab === 'produtos' 
                     ? 'border-zinc-900 text-zinc-900 font-extrabold' 
-                    : 'border-transparent text-zinc-450 hover:text-zinc-650'
+                    : 'border-transparent text-zinc-400 hover:text-zinc-600'
                 }`}
               >
                 Produtos Vinculados
@@ -412,7 +413,7 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
                 className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer focus:outline-none ${
                   detailsActiveTab === 'compras' 
                     ? 'border-zinc-900 text-zinc-900 font-extrabold' 
-                    : 'border-transparent text-zinc-450 hover:text-zinc-650'
+                    : 'border-transparent text-zinc-400 hover:text-zinc-600'
                 }`}
               >
                 Histórico de Compras
@@ -421,8 +422,8 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
             
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
               {detailsLoading ? (
-                <div className="flex flex-col items-center justify-center py-12 gap-3 text-zinc-450">
-                  <RefreshCw className="h-8 w-8 animate-spin text-zinc-550" />
+                <div className="flex flex-col items-center justify-center py-12 gap-3 text-zinc-400">
+                  <RefreshCw className="h-8 w-8 animate-spin text-zinc-500" />
                   <span className="font-semibold text-sm">Carregando dados e histórico...</span>
                 </div>
               ) : detailsItem ? (
@@ -436,7 +437,7 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
                           <span className="text-[10px] text-zinc-400 font-bold uppercase block">Estoque Atual</span>
                           <p className="text-lg font-extrabold text-zinc-900 mt-1">
                             {(detailsItem.currentStock ?? 0).toLocaleString('pt-BR')}{' '}
-                            <span className="text-xs font-semibold text-zinc-550">{detailsItem.unit}</span>
+                            <span className="text-xs font-semibold text-zinc-500">{detailsItem.unit}</span>
                           </p>
                         </div>
                         <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-xl shadow-sm text-left">
@@ -457,7 +458,7 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
 
                       {/* Usage and Last Used Dates */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="border border-zinc-150 rounded-xl p-4 space-y-2 text-left bg-zinc-50/20">
+                        <div className="border border-zinc-100 rounded-xl p-4 space-y-2 text-left bg-zinc-50/20">
                           <div className="flex items-center gap-1.5 text-zinc-700 font-bold text-xs">
                             <Calendar className="w-4 h-4 text-zinc-500" />
                             <span>Último Uso na Produção</span>
@@ -467,14 +468,14 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
                               Data: {detailsItem.lastUsedDate ? new Date(detailsItem.lastUsedDate).toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'Nunca utilizado na produção'}
                             </p>
                             {detailsItem.lastUsedLote && (
-                              <p className="text-xs text-zinc-550 font-mono">
+                              <p className="text-xs text-zinc-500 font-mono">
                                 Lote de Produção: {detailsItem.lastUsedLote}
                               </p>
                             )}
                           </div>
                         </div>
 
-                        <div className="border border-zinc-150 rounded-xl p-4 space-y-2 text-left bg-zinc-50/20">
+                        <div className="border border-zinc-100 rounded-xl p-4 space-y-2 text-left bg-zinc-50/20">
                           <div className="flex items-center gap-1.5 text-zinc-700 font-bold text-xs">
                             <ClipboardList className="w-4 h-4 text-zinc-500" />
                             <span>Último Recebimento (NF)</span>
@@ -484,7 +485,7 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
                               Data: {detailsItem.lastReceivedDate ? new Date(detailsItem.lastReceivedDate).toLocaleDateString('pt-BR') : 'Nenhuma nota registrada'}
                             </p>
                             {detailsItem.lastReceivedDoc && (
-                              <p className="text-xs text-zinc-550">
+                              <p className="text-xs text-zinc-500">
                                 Documento/NF: {detailsItem.lastReceivedDoc}
                               </p>
                             )}
@@ -494,7 +495,7 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
 
                       {/* Manual Observations */}
                       {detailsItem.notes && (
-                        <div className="p-4 bg-zinc-50/55 border border-zinc-150 rounded-xl text-xs space-y-1.5 text-left">
+                        <div className="p-4 bg-zinc-50/55 border border-zinc-100 rounded-xl text-xs space-y-1.5 text-left">
                           <div className="font-bold text-zinc-700">Observações de Suspensão:</div>
                           <p className="text-zinc-600 whitespace-pre-wrap">{detailsItem.notes}</p>
                         </div>
@@ -506,15 +507,15 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
                   {detailsActiveTab === 'produtos' && (
                     <div className="space-y-3">
                       <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
-                        <Layers className="h-4 w-4 text-zinc-650" />
+                        <Layers className="h-4 w-4 text-zinc-600" />
                         <h4 className="font-extrabold text-sm text-zinc-900">Produtos Vinculados</h4>
                       </div>
                       {(!detailsItem.productsUsedIn || detailsItem.productsUsedIn.length === 0) ? (
-                        <p className="text-xs text-zinc-450 bg-zinc-50 p-4 rounded-xl text-center border border-zinc-100">Este insumo não está vinculado a nenhuma fórmula de produto.</p>
+                        <p className="text-xs text-zinc-400 bg-zinc-50 p-4 rounded-xl text-center border border-zinc-100">Este insumo não está vinculado a nenhuma fórmula de produto.</p>
                       ) : (
-                        <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                        <div className="bg-white border border-zinc-100 rounded-xl overflow-hidden shadow-sm">
                           <table className="w-full text-left text-xs">
-                            <thead className="bg-zinc-50 font-bold text-zinc-555 border-b border-zinc-150">
+                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100">
                               <tr>
                                 <th className="px-4 py-3">Código</th>
                                 <th className="px-4 py-3">Produto Descrição</th>
@@ -524,9 +525,9 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
                             <tbody className="divide-y divide-zinc-100 font-medium">
                               {detailsItem.productsUsedIn.map((p: any) => (
                                 <tr key={p.productCode} className="hover:bg-zinc-50/50 transition-colors">
-                                  <td className="px-4 py-2.5 font-mono text-zinc-650">{p.productCode}</td>
+                                  <td className="px-4 py-2.5 font-mono text-zinc-600">{p.productCode}</td>
                                   <td className="px-4 py-2.5 font-semibold text-zinc-800">{p.description}</td>
-                                  <td className="px-4 py-2.5 text-right font-mono text-zinc-650">
+                                  <td className="px-4 py-2.5 text-right font-mono text-zinc-600">
                                     {p.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 5 })}
                                   </td>
                                 </tr>
@@ -542,15 +543,15 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
                   {detailsActiveTab === 'compras' && (
                     <div className="space-y-3">
                       <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
-                        <ClipboardList className="h-4 w-4 text-zinc-650" />
+                        <ClipboardList className="h-4 w-4 text-zinc-600" />
                         <h4 className="font-extrabold text-sm text-zinc-900">Histórico de Compras (Notas Fiscais)</h4>
                       </div>
                       {(!detailsItem.recentInvoices || detailsItem.recentInvoices.length === 0) ? (
-                        <p className="text-xs text-zinc-450 bg-zinc-50 p-4 rounded-xl text-center border border-zinc-100">Nenhuma nota fiscal de compra recente registrada para este insumo.</p>
+                        <p className="text-xs text-zinc-400 bg-zinc-50 p-4 rounded-xl text-center border border-zinc-100">Nenhuma nota fiscal de compra recente registrada para este insumo.</p>
                       ) : (
-                        <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                        <div className="bg-white border border-zinc-100 rounded-xl overflow-hidden shadow-sm">
                           <table className="w-full text-left text-xs">
-                            <thead className="bg-zinc-50 font-bold text-zinc-555 border-b border-zinc-150">
+                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-100">
                               <tr>
                                 <th className="px-4 py-3">Número NF</th>
                                 <th className="px-4 py-3">Fornecedor</th>
@@ -563,15 +564,15 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
                             <tbody className="divide-y divide-zinc-100 font-medium">
                               {detailsItem.recentInvoices.map((inv: any, idx: number) => (
                                 <tr key={idx} className="hover:bg-zinc-50/50 transition-colors">
-                                  <td className="px-4 py-2.5 font-mono text-zinc-650">{inv.invoiceNumber}</td>
+                                  <td className="px-4 py-2.5 font-mono text-zinc-600">{inv.invoiceNumber}</td>
                                   <td className="px-4 py-2.5 font-semibold text-zinc-800 max-w-[150px] truncate" title={inv.supplierName}>{inv.supplierName}</td>
                                   <td className="px-4 py-2.5 text-zinc-600">
                                     {new Date(inv.invoiceDate).toLocaleDateString('pt-BR')}
                                   </td>
-                                  <td className="px-4 py-2.5 text-right font-mono text-zinc-650">
+                                  <td className="px-4 py-2.5 text-right font-mono text-zinc-600">
                                     {inv.quantity.toLocaleString('pt-BR')}
                                   </td>
-                                  <td className="px-4 py-2.5 text-right font-mono text-zinc-650">
+                                  <td className="px-4 py-2.5 text-right font-mono text-zinc-600">
                                     {inv.unitPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                   </td>
                                   <td className="px-4 py-2.5 text-right font-mono font-bold text-zinc-900">
@@ -587,7 +588,7 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
                   )}
                 </>
               ) : (
-                <div className="text-center text-zinc-450 py-12">Não foi possível carregar os detalhes.</div>
+                <div className="text-center text-zinc-400 py-12">Não foi possível carregar os detalhes.</div>
               )}
             </div>
 

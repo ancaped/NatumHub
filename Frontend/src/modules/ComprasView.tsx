@@ -172,10 +172,10 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         <div className="p-2 border-b border-zinc-100">
           <button
             onClick={onBackToHub}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
           >
             <ArrowLeft className="h-5 w-5 text-zinc-400" />
-            Voltar ao Hub
+            Voltar ao Hub de Compras
           </button>
         </div>
 
@@ -188,7 +188,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
                 "w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer",
                 activeTab === item.id 
                   ? "bg-zinc-100 text-zinc-900" 
-                  : "text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
               )}
             >
               <item.icon className={cn("h-5 w-5 shrink-0", activeTab === item.id ? "text-zinc-900" : "text-zinc-400")} />

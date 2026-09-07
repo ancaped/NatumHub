@@ -167,10 +167,10 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
         <div className="p-3 border-b border-zinc-100">
           <button
             onClick={onBackToHub}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-all cursor-pointer border border-zinc-250/50"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 transition-all cursor-pointer border border-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
           >
             <ArrowLeft className="h-4 w-4 text-zinc-400" />
-            Voltar ao Hub
+            Voltar ao Hub de Compras
           </button>
         </div>
 
@@ -192,7 +192,7 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
                 "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all text-left cursor-pointer",
                 statusFilter === tab.id
                   ? "bg-zinc-900 text-white shadow-md"
-                  : "text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900"
+                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
               )}
             >
               <tab.icon className={cn("h-4 w-4 shrink-0", statusFilter === tab.id ? "text-white" : "text-zinc-400")} />
@@ -353,7 +353,7 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
                   </div>
                   <button
                     onClick={() => setSelectedOrder(null)}
-                    className="p-1.5 hover:bg-zinc-150 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer"
+                    className="p-1.5 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer"
                   >
                     <X className="w-5 h-5" />
                   </button>
@@ -424,7 +424,7 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
                         const percent = item.nQtde > 0 ? (item.nChegou / item.nQtde) * 100 : 0;
                         const isComplete = item.nChegou >= item.nQtde;
                         return (
-                          <div key={`${item.id}-${idx}`} className="bg-white border border-zinc-150 rounded-xl p-4 shadow-sm space-y-3 hover:border-zinc-300 transition-colors">
+                          <div key={`${item.id}-${idx}`} className="bg-white border border-zinc-100 rounded-xl p-4 shadow-sm space-y-3 hover:border-zinc-300 transition-colors">
                             {/* Item header row */}
                             <div className="flex items-start justify-between">
                               <div className="flex-1 min-w-0">
