@@ -93,6 +93,7 @@ interface PlanejamentoSemanalTabProps {
   diasComerciais?: number;
   configs?: any[];
   onLaunchSuccess?: () => void;
+  onScheduleChanged?: () => void;
   currentDate?: Date;
   onCurrentDateChange?: (d: Date) => void;
   hideHeaderNav?: boolean;
@@ -408,6 +409,7 @@ export function PlanejamentoSemanalTab({
   diasComerciais = 30,
   configs = [],
   onLaunchSuccess,
+  onScheduleChanged,
   currentDate: propCurrentDate,
   onCurrentDateChange,
   hideHeaderNav = false,
@@ -844,6 +846,8 @@ export function PlanejamentoSemanalTab({
     }
     setPlannedItems([]);
     localStorage.removeItem(`plan_semanal_${currentWeekKey}`);
+    window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
+    onScheduleChanged?.();
   };
 
   // Toggle Aprovação da Produção (substitui o antigo MER com botão único de ícone)
@@ -874,6 +878,8 @@ export function PlanejamentoSemanalTab({
       });
 
       await handleSaveItem(updated);
+      window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
+      onScheduleChanged?.();
     } catch (e) {
       console.error('Erro ao alternar aprovação de produção:', e);
       setPlannedItems(prev => prev.map(p => p.id === item.id ? item : p));
@@ -933,6 +939,7 @@ export function PlanejamentoSemanalTab({
     setLinkLoteModalItem(null);
     await handleSaveItem(updated);
     window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
+    onScheduleChanged?.();
   };
 
   // Editar Quantidade a ser Produzida (Massa em kg)
@@ -952,6 +959,8 @@ export function PlanejamentoSemanalTab({
     setPlannedItems(prev => prev.map(p => p.id === item.id ? updated : p));
     setEditQtyModalItem(null);
     await handleSaveItem(updated);
+    window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
+    onScheduleChanged?.();
   };
 
   // Abrir Modal de Agendamento com Dimensionamento e Processo Quente/Frio
@@ -1080,6 +1089,8 @@ export function PlanejamentoSemanalTab({
 
     await handleSaveItem(newItem);
     setScheduleModalItem(null);
+    window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
+    onScheduleChanged?.();
   };
 
   // Disparar Ordem e Gerar Lote ERP oficial
@@ -1114,6 +1125,8 @@ export function PlanejamentoSemanalTab({
         setDispatchModalItem(null);
         setLoteErpInput('');
         if (onLaunchSuccess) onLaunchSuccess();
+        window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
+        onScheduleChanged?.();
         alert(`Ordem liberada com sucesso! Lote ERP: ${loteErpInput}`);
       } else {
         const err = await res.json();

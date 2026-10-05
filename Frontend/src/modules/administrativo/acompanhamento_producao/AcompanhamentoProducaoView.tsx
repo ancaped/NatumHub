@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredVa
 import {
   Table,
   Calendar as CalendarIcon,
+  CalendarClock,
   Search,
   RefreshCw,
   Download,
@@ -61,6 +62,7 @@ import { getAuthUser } from '../../geral/lib/auth';
 import { getHoliday, isWeekend, HolidayInfo } from '../../geral/lib/brazilHolidays';
 import { api } from '../../geral/lib/api';
 import { FiscoQuimicaAnalysis } from '../../geral/lib/types';
+import { PlanejamentoSemanalTab } from '../../producao/gerenciamento/components/PlanejamentoSemanalTab';
 
 export interface StatusHistoryEntry {
   id: number;
@@ -1532,16 +1534,22 @@ export function ColumnFilterHeader({
   );
 }
 
-interface Props {
-  onBack: () => void;
+export type TabType = 'planejamento_semanal' | 'lotes' | 'quadro_pesagem' | 'quadro_producao' | 'quadro_rotulagem' | 'quadro_envase' | 'quadro_ordens' | 'terceirizados' | 'kits' | 'calendar' | 'configuracoes';
+
+export interface AcompanhamentoProducaoProps {
+  onBack?: () => void;
+  mode?: 'planejamento' | 'administrativo';
+  initialTab?: TabType;
 }
 
-export default function AcompanhamentoProducaoView({ onBack }: Props) {
+export default function AcompanhamentoProducaoView({ onBack, mode = 'administrativo', initialTab }: AcompanhamentoProducaoProps) {
   const currentUser = getAuthUser();
 
-  // Navegação por Sidebar: 'lotes' | 'quadro_pesagem' | 'quadro_producao' | 'quadro_rotulagem' | 'quadro_envase' | 'quadro_ordens' | 'terceirizados' | 'kits' | 'calendar' | 'configuracoes'
-  type TabType = 'lotes' | 'quadro_pesagem' | 'quadro_producao' | 'quadro_rotulagem' | 'quadro_envase' | 'quadro_ordens' | 'terceirizados' | 'kits' | 'calendar' | 'configuracoes';
-  const [currentTab, setCurrentTab] = useState<TabType>('lotes');
+  const [currentTab, setCurrentTab] = useState<TabType>(() => {
+    if (initialTab) return initialTab;
+    if (mode === 'planejamento') return 'planejamento_semanal';
+    return 'lotes';
+  });
 
   // Dados de Lotes (Internos e Terceirizados)
   const [lotes, setLotes] = useState<AcompanhamentoLote[]>([]);
@@ -5317,66 +5325,120 @@ export default function AcompanhamentoProducaoView({ onBack }: Props) {
   }, [lotes, isLoteTerceirizado]);
 
   // Sidebar Items
-  const sidebarItems: SidebarItem[] = useMemo(() => [
-    {
-      id: 'lotes',
-      label: 'Status de Lotes',
-      icon: Table,
-      badge: filterCounts.aberto > 0 ? filterCounts.aberto : undefined,
-    },
-    {
-      id: 'terceirizados',
-      label: 'Terceirizados',
-      icon: Building2,
-      badge: totalTerceirizadosAberto > 0 ? totalTerceirizadosAberto : undefined,
-    },
-    {
-      id: 'kits',
-      label: 'Ordens de Kits',
-      icon: Boxes,
-      badge: totalKitsAberto > 0 ? totalKitsAberto : undefined,
-    },
-    {
-      id: 'quadro_pesagem',
-      label: 'Quadro de Pesagem',
-      icon: Scale,
-      badge: totalPesagemAberto > 0 ? totalPesagemAberto : undefined,
-    },
-    {
-      id: 'quadro_producao',
-      label: 'Quadro de Produção',
-      icon: FlaskConical,
-      badge: totalProducaoAberto > 0 ? totalProducaoAberto : undefined,
-    },
-    {
-      id: 'quadro_rotulagem',
-      label: 'Quadro de Rotulagem',
-      icon: Tag,
-      badge: totalRotulagemDisponivel > 0 ? totalRotulagemDisponivel : undefined,
-    },
-    {
-      id: 'quadro_envase',
-      label: 'Quadro de Envase',
-      icon: Layers,
-      badge: totalEnvaseDisponivel > 0 ? totalEnvaseDisponivel : undefined,
-    },
-    {
-      id: 'quadro_ordens',
-      label: 'Quadro de Ordens',
-      icon: CheckSquare,
-      badge: totalOrdensFinalizadasNaoLancadas > 0 ? totalOrdensFinalizadasNaoLancadas : undefined,
-    },
-    {
-      id: 'calendar',
-      label: 'Calendário',
-      icon: CalendarIcon,
-    },
-    {
-      id: 'configuracoes',
-      label: 'Configurações',
-      icon: Settings,
-    },
-  ], [filterCounts.aberto, totalPesagemAberto, totalProducaoAberto, totalRotulagemDisponivel, totalEnvaseDisponivel, totalOrdensFinalizadasNaoLancadas, totalTerceirizadosAberto, totalKitsAberto]);
+  const sidebarItems: SidebarItem[] = useMemo(() => {
+    if (mode === 'planejamento') {
+      return [
+        {
+          id: 'planejamento_semanal',
+          label: 'Planejamento Semanal',
+          icon: CalendarClock,
+        },
+        {
+          id: 'quadro_pesagem',
+          label: 'Fila de Pesagem',
+          icon: Scale,
+          badge: totalPesagemAberto > 0 ? totalPesagemAberto : undefined,
+        },
+        {
+          id: 'quadro_producao',
+          label: 'Quadro de Produção',
+          icon: FlaskConical,
+          badge: totalProducaoAberto > 0 ? totalProducaoAberto : undefined,
+        },
+        {
+          id: 'quadro_envase',
+          label: 'Linhas de Envase',
+          icon: Layers,
+          badge: totalEnvaseDisponivel > 0 ? totalEnvaseDisponivel : undefined,
+        },
+        {
+          id: 'quadro_rotulagem',
+          label: 'Quadro de Rotulagem',
+          icon: Tag,
+          badge: totalRotulagemDisponivel > 0 ? totalRotulagemDisponivel : undefined,
+        },
+        {
+          id: 'kits',
+          label: 'Ordens de Kits',
+          icon: Boxes,
+          badge: totalKitsAberto > 0 ? totalKitsAberto : undefined,
+        },
+        {
+          id: 'terceirizados',
+          label: 'Terceirizados',
+          icon: Building2,
+          badge: totalTerceirizadosAberto > 0 ? totalTerceirizadosAberto : undefined,
+        },
+        {
+          id: 'quadro_ordens',
+          label: 'Quadro de Ordens',
+          icon: CheckSquare,
+          badge: totalOrdensFinalizadasNaoLancadas > 0 ? totalOrdensFinalizadasNaoLancadas : undefined,
+        },
+      ];
+    }
+
+    return [
+      {
+        id: 'lotes',
+        label: 'Status de Lotes',
+        icon: Table,
+        badge: filterCounts.aberto > 0 ? filterCounts.aberto : undefined,
+      },
+      {
+        id: 'terceirizados',
+        label: 'Terceirizados',
+        icon: Building2,
+        badge: totalTerceirizadosAberto > 0 ? totalTerceirizadosAberto : undefined,
+      },
+      {
+        id: 'kits',
+        label: 'Ordens de Kits',
+        icon: Boxes,
+        badge: totalKitsAberto > 0 ? totalKitsAberto : undefined,
+      },
+      {
+        id: 'quadro_pesagem',
+        label: 'Quadro de Pesagem',
+        icon: Scale,
+        badge: totalPesagemAberto > 0 ? totalPesagemAberto : undefined,
+      },
+      {
+        id: 'quadro_producao',
+        label: 'Quadro de Produção',
+        icon: FlaskConical,
+        badge: totalProducaoAberto > 0 ? totalProducaoAberto : undefined,
+      },
+      {
+        id: 'quadro_rotulagem',
+        label: 'Quadro de Rotulagem',
+        icon: Tag,
+        badge: totalRotulagemDisponivel > 0 ? totalRotulagemDisponivel : undefined,
+      },
+      {
+        id: 'quadro_envase',
+        label: 'Quadro de Envase',
+        icon: Layers,
+        badge: totalEnvaseDisponivel > 0 ? totalEnvaseDisponivel : undefined,
+      },
+      {
+        id: 'quadro_ordens',
+        label: 'Quadro de Ordens',
+        icon: CheckSquare,
+        badge: totalOrdensFinalizadasNaoLancadas > 0 ? totalOrdensFinalizadasNaoLancadas : undefined,
+      },
+      {
+        id: 'calendar',
+        label: 'Calendário',
+        icon: CalendarIcon,
+      },
+      {
+        id: 'configuracoes',
+        label: 'Configurações',
+        icon: Settings,
+      },
+    ];
+  }, [mode, filterCounts.aberto, totalPesagemAberto, totalProducaoAberto, totalRotulagemDisponivel, totalEnvaseDisponivel, totalOrdensFinalizadasNaoLancadas, totalTerceirizadosAberto, totalKitsAberto]);
 
   // Lista base de lotes para a aba ativa (Internos vs Terceirizados estritos)
   const baseTabLotes = useMemo(() => {
@@ -7549,8 +7611,8 @@ export default function AcompanhamentoProducaoView({ onBack }: Props) {
 
   return (
     <AppLayout
-      moduleTitle="Acompanhamento de Produção"
-      onBackToHub={onBack}
+      moduleTitle={mode === 'planejamento' ? "Planejamento de Produção" : "Acompanhamento de Produção"}
+      onBackToHub={onBack || (() => {})}
       sidebarItems={sidebarItems}
       activeTab={currentTab}
       onTabChange={(id) => setCurrentTab(id as TabType)}
@@ -7574,6 +7636,18 @@ export default function AcompanhamentoProducaoView({ onBack }: Props) {
             )}
             {toastMessage.text}
           </div>
+        </div>
+      )}
+
+      {/* VIEW: PLANEJAMENTO SEMANAL (PCP) */}
+      {currentTab === 'planejamento_semanal' && (
+        <div className="space-y-4">
+          <PlanejamentoSemanalTab
+            active={true}
+            onScheduleChanged={() => {
+              fetchLotes();
+            }}
+          />
         </div>
       )}
 
