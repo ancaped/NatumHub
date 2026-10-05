@@ -11,7 +11,6 @@ import {
   Copy,
   Sparkles,
   Loader2,
-  ExternalLink,
   Factory,
   ChevronRight,
   RefreshCw,
@@ -19,13 +18,10 @@ import {
   Sliders,
   CheckCircle2,
 } from 'lucide-react';
-import type { LabelTemplate, LabelElement, PrintConfig } from '../lib/types';
+import type { LabelTemplate, LabelElement } from '../lib/types';
 import { labelsApi, type CatalogProduct, type ProductionLot } from '../lib/labelsApi';
-import { printersApi } from '../../impressoras/lib/printersApi';
-import type { HubPrinter } from '../../impressoras/lib/types';
-import PrinterSelector from './PrinterSelector';
-import { printLabelBatch, openPrintWindow } from '../lib/printService';
 import { DEFAULT_LABEL_TEMPLATES } from '../lib/defaultTemplates';
+import PrintModal from './PrintModal';
 
 interface GerarEtiquetasFlowProps {
   templates: LabelTemplate[];
@@ -74,8 +70,7 @@ export function GerarEtiquetasFlow({ templates, onPrintSuccess }: GerarEtiquetas
   const [sequenceStart, setSequenceStart] = useState(1);
   const [sequenceTotal, setSequenceTotal] = useState(10);
   const [copies, setCopies] = useState(1);
-  const [selectedPrinter, setSelectedPrinter] = useState<HubPrinter | null>(null);
-  const [printing, setPrinting] = useState(false);
+  const [previewTemplate, setPreviewTemplate] = useState<LabelTemplate | null>(null);
 
   // Load production lots and products on mount
   useEffect(() => {
@@ -242,60 +237,8 @@ export function GerarEtiquetasFlow({ templates, onPrintSuccess }: GerarEtiquetas
     };
   };
 
-  // Execute print
-  const handleExecutePrint = async (asWindow = false) => {
-    const hydrated = buildHydratedTemplate();
-    const totalCopies = enableSequence ? Math.max(1, sequenceTotal - sequenceStart + 1) : copies;
-
-    const config: PrintConfig = {
-      copies: totalCopies,
-      enableSequence,
-      sequenceStart,
-      sequenceTotal: enableSequence ? sequenceTotal : copies,
-      sequencePadding: 2,
-    };
-
-    setPrinting(true);
-    try {
-      if (asWindow) {
-        openPrintWindow(hydrated, config);
-      } else {
-        printLabelBatch(hydrated, config);
-      }
-
-      // Record in PostgreSQL Label History
-      await labelsApi.recordPrint({
-        template_id: activeTemplate.id.startsWith('template_') ? undefined : activeTemplate.id,
-        template_name: activeTemplate.name,
-        product_code: productCode,
-        product_name: productName,
-        lot_number: lotNumber,
-        copies: totalCopies,
-        printer_name: selectedPrinter?.name || 'Térmica 100x50mm',
-      });
-
-      // Also create job in Printer Central if a printer is registered
-      if (selectedPrinter) {
-        try {
-          await printersApi.createPrintJob({
-            printer_id: selectedPrinter.id,
-            title: `Etiquetas ${productCode} - Lote ${lotNumber}`,
-            template_id: activeTemplate.id.startsWith('template_') ? undefined : activeTemplate.id,
-            payload_type: 'label_canvas_json',
-            payload_data: JSON.stringify(hydrated),
-            copies: totalCopies,
-          });
-        } catch (jobErr) {
-          console.warn('Não foi possível registrar print job na central:', jobErr);
-        }
-      }
-
-      if (onPrintSuccess) onPrintSuccess();
-    } catch (err) {
-      console.warn('Erro ao processar impressão:', err);
-    } finally {
-      setPrinting(false);
-    }
+  const openPreview = () => {
+    setPreviewTemplate(buildHydratedTemplate());
   };
 
   return (
@@ -700,40 +643,35 @@ export function GerarEtiquetasFlow({ templates, onPrintSuccess }: GerarEtiquetas
               </div>
             )}
 
-            {/* Integrated Printer Selector */}
-            <PrinterSelector
-              selectedPrinter={selectedPrinter}
-              onSelectPrinter={setSelectedPrinter}
-              className="pt-1"
-            />
-
-            {/* Print Buttons */}
-            <div className="pt-2 flex items-center justify-between gap-3">
-              <button
-                type="button"
-                onClick={() => handleExecutePrint(true)}
-                className="flex items-center gap-1.5 px-4 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-              >
-                <ExternalLink className="h-4 w-4" />
-                <span>Abrir em Janela</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleExecutePrint(false)}
-                disabled={printing}
-                className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl text-sm transition-colors cursor-pointer shadow-md active:scale-98 disabled:opacity-50"
-              >
-                {printing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Printer className="h-5 w-5" />}
-                <span>
-                  Imprimir {enableSequence ? sequenceTotal - sequenceStart + 1 : copies}{' '}
-                  {copies === 1 && !enableSequence ? 'Etiqueta' : 'Etiquetas Térmicas'}
-                </span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={openPreview}
+              className="w-full flex items-center justify-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white font-bold py-3 px-6 rounded-xl text-sm cursor-pointer"
+            >
+              <Printer className="h-5 w-5" />
+              <span>Visualizar e imprimir</span>
+            </button>
           </div>
         </div>
       </div>
+
+      {previewTemplate && (
+        <PrintModal
+          template={previewTemplate}
+          isOpen
+          onClose={() => setPreviewTemplate(null)}
+          onPrintSuccess={onPrintSuccess}
+          initialCopies={copies}
+          initialEnableSequence={enableSequence}
+          initialSequenceStart={sequenceStart}
+          initialSequenceTotal={sequenceTotal}
+          history={{
+            product_code: productCode,
+            product_name: productName,
+            lot_number: lotNumber,
+          }}
+        />
+      )}
     </div>
   );
 }

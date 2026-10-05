@@ -12,15 +12,11 @@ import {
   Copy,
   Sparkles,
   Loader2,
-  ExternalLink,
   ChevronRight,
 } from 'lucide-react';
-import type { LabelTemplate, LabelElement, PrintConfig } from '../lib/types';
+import type { LabelTemplate, LabelElement } from '../lib/types';
 import { labelsApi, type CatalogProduct } from '../lib/labelsApi';
-import { printersApi } from '../../impressoras/lib/printersApi';
-import type { HubPrinter } from '../../impressoras/lib/types';
-import PrinterSelector from './PrinterSelector';
-import { printLabelBatch, openPrintWindow } from '../lib/printService';
+import PrintModal from './PrintModal';
 
 interface PrintWithSystemDataModalProps {
   template: LabelTemplate;
@@ -66,7 +62,7 @@ export default function PrintWithSystemDataModal({
   const [enableBoxSequence, setEnableBoxSequence] = useState<boolean>(true);
   const [sequenceStart, setSequenceStart] = useState<number>(1);
   const [sequenceTotal, setSequenceTotal] = useState<number>(10);
-  const [selectedPrinter, setSelectedPrinter] = useState<HubPrinter | null>(null);
+  const [previewTemplate, setPreviewTemplate] = useState<LabelTemplate | null>(null);
 
   // Fetch products
   useEffect(() => {
@@ -186,59 +182,8 @@ export default function PrintWithSystemDataModal({
     };
   };
 
-  // Execute Print
-  const handlePrint = async (asWindow = false) => {
-    const hydrated = buildHydratedTemplate();
-    const totalCopies = enableBoxSequence ? Math.max(1, sequenceTotal - sequenceStart + 1) : copies;
-
-    const config: PrintConfig = {
-      copies: totalCopies,
-      enableSequence: enableBoxSequence,
-      sequenceStart,
-      sequenceTotal: enableBoxSequence ? sequenceTotal : copies,
-      sequencePadding: 2,
-    };
-
-    if (asWindow) {
-      openPrintWindow(hydrated, config);
-    } else {
-      printLabelBatch(hydrated, config);
-    }
-
-    // Record print in PostgreSQL history
-    try {
-      await labelsApi.recordPrint({
-        template_id: template.id.startsWith('template_') ? undefined : template.id,
-        template_name: template.name,
-        product_code: selectedProduct?.codigo,
-        product_name: selectedProduct?.descricao,
-        lot_number: lotNumber,
-        copies: totalCopies,
-        printer_name: selectedPrinter?.name || 'Térmica 100x50mm',
-      });
-
-      // Also create job in Printer Central if a printer is chosen
-      if (selectedPrinter) {
-        try {
-          await printersApi.createPrintJob({
-            printer_id: selectedPrinter.id,
-            title: `Etiquetas ${selectedProduct?.codigo || 'Manual'} - Lote ${lotNumber}`,
-            template_id: template.id.startsWith('template_') ? undefined : template.id,
-            payload_type: 'label_canvas_json',
-            payload_data: JSON.stringify(hydrated),
-            copies: totalCopies,
-          });
-        } catch (jobErr) {
-          console.warn('Não foi possível registrar print job na central:', jobErr);
-        }
-      }
-
-      if (onPrintSuccess) onPrintSuccess();
-    } catch (e) {
-      console.warn('Não foi possível salvar registro de histórico:', e);
-    }
-
-    onClose();
+  const openPreview = () => {
+    setPreviewTemplate(buildHydratedTemplate());
   };
 
   return (
@@ -505,51 +450,49 @@ export default function PrintWithSystemDataModal({
               )}
             </div>
 
-            {/* Printer Selector */}
-            <div className="bg-zinc-50 p-4 rounded-2xl border border-zinc-200">
-              <PrinterSelector
-                selectedPrinter={selectedPrinter}
-                onSelectPrinter={setSelectedPrinter}
-              />
-            </div>
           </div>
         </div>
 
-        {/* Footer Actions */}
-        <div className="p-4 border-t border-zinc-100 bg-zinc-50 flex items-center justify-between shrink-0">
+        <div className="p-4 border-t border-zinc-100 bg-zinc-50 flex items-center justify-end gap-2 shrink-0">
           <button
             type="button"
-            onClick={() => handlePrint(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-200 rounded-xl transition-colors cursor-pointer"
-            title="Abre a impressão em popup separado"
+            onClick={onClose}
+            className="px-4 py-2 text-xs font-semibold text-zinc-600 hover:text-zinc-900 rounded-xl cursor-pointer"
           >
-            <ExternalLink className="h-3.5 w-3.5" />
-            <span>Visualizar em Janela</span>
+            Cancelar
           </button>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-zinc-600 hover:text-zinc-900 rounded-xl cursor-pointer"
-            >
-              Cancelar
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handlePrint(false)}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition-colors cursor-pointer shadow-sm active:scale-98"
-            >
-              <Printer className="h-4 w-4" />
-              <span>
-                Imprimir {enableBoxSequence ? sequenceTotal - sequenceStart + 1 : copies}{' '}
-                {copies === 1 && !enableBoxSequence ? 'Etiqueta' : 'Etiquetas'}
-              </span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={openPreview}
+            className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white font-bold px-5 py-2.5 rounded-xl text-xs cursor-pointer"
+          >
+            <Printer className="h-4 w-4" />
+            <span>Visualizar e imprimir</span>
+          </button>
         </div>
       </div>
+
+      {previewTemplate && (
+        <PrintModal
+          template={previewTemplate}
+          isOpen
+          onClose={() => setPreviewTemplate(null)}
+          onPrintSuccess={() => {
+            setPreviewTemplate(null);
+            if (onPrintSuccess) onPrintSuccess();
+            onClose();
+          }}
+          initialCopies={copies}
+          initialEnableSequence={enableBoxSequence}
+          initialSequenceStart={sequenceStart}
+          initialSequenceTotal={sequenceTotal}
+          history={{
+            product_code: selectedProduct?.codigo,
+            product_name: selectedProduct?.descricao,
+            lot_number: lotNumber,
+          }}
+        />
+      )}
     </div>
   );
 }

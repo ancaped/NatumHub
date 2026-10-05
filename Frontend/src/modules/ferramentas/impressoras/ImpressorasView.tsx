@@ -37,7 +37,7 @@ import type {
   ConnectionType,
   RawProtocol,
 } from './lib/types';
-import { printLabelBatch } from '../etiquetas/lib/printService';
+import { printLabelDirect } from '../etiquetas/lib/directPrint';
 import type { LabelTemplate } from '../etiquetas/lib/types';
 
 interface ImpressorasViewProps {
@@ -248,12 +248,18 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
       elements_json: [
         {
           id: 'test_box',
-          type: 'shape',
-          x_mm: 1,
-          y_mm: 1,
-          width_mm: (printer.default_width_mm || 100) - 2,
-          height_mm: (printer.default_height_mm || 50) - 2,
-          props: { shapeType: 'rectangle', borderWidth: 1, borderColor: '#000000' },
+          type: 'box',
+          x_mm: 0,
+          y_mm: 0,
+          width_mm: printer.default_width_mm || 100,
+          height_mm: printer.default_height_mm || 50,
+          zIndex: 1,
+          props: {
+            borderWidth: 0.4,
+            borderColor: '#000000',
+            backgroundColor: 'transparent',
+            borderRadius: 0,
+          },
         },
         {
           id: 'test_title',
@@ -308,7 +314,11 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
       is_default: false,
     };
 
-    printLabelBatch(testTemplate, { copies: 1, enableSequence: false });
+    void printLabelDirect(
+      testTemplate,
+      { copies: 1, enableSequence: false, sequenceStart: 1, sequenceTotal: 1, sequencePadding: 2 },
+      printer
+    ).catch((err: any) => alert(err?.message || 'Não foi possível imprimir o teste.'));
   };
 
   return (

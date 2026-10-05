@@ -3,9 +3,7 @@ import { generateBarcodeBars } from './barcodeGenerator';
 import { generateQrMatrix } from './qrCodeGenerator';
 import { replaceDynamicTokens } from './printService';
 
-// 300 DPI = ~11.811 pixels per mm (standard thermal print head resolution)
 const DPI = 300;
-const MM_TO_PX = DPI / 25.4; // 11.811023622
 
 /**
  * Preload all images in the template
@@ -104,20 +102,21 @@ export async function renderLabelToCanvas(
   const isRotated = printMode === 'landscape_on_50x100_roll';
   const widthMm = template.width_mm || 100;
   const heightMm = template.height_mm || 50;
+  const mmToPx = DPI / 25.4;
 
   const canvas = document.createElement('canvas');
 
   if (isRotated) {
     // 50mm width x 100mm height canvas for rotated roll feed
-    canvas.width = Math.round(heightMm * MM_TO_PX);
-    canvas.height = Math.round(widthMm * MM_TO_PX);
+    canvas.width = Math.round(heightMm * mmToPx);
+    canvas.height = Math.round(widthMm * mmToPx);
   } else if (printMode === 'portrait_50x100') {
-    canvas.width = Math.round(heightMm * MM_TO_PX);
-    canvas.height = Math.round(widthMm * MM_TO_PX);
+    canvas.width = Math.round(heightMm * mmToPx);
+    canvas.height = Math.round(widthMm * mmToPx);
   } else {
     // 100mm width x 50mm height
-    canvas.width = Math.round(widthMm * MM_TO_PX);
-    canvas.height = Math.round(heightMm * MM_TO_PX);
+    canvas.width = Math.round(widthMm * mmToPx);
+    canvas.height = Math.round(heightMm * mmToPx);
   }
 
   const ctx = canvas.getContext('2d', { alpha: false });
@@ -139,12 +138,46 @@ export async function renderLabelToCanvas(
 
   // Draw all elements
   for (const el of template.elements_json) {
-    drawElement(ctx, el, seqIndex, totalCount, startSeq, padding, imagesMap);
+    drawElement(ctx, el, seqIndex, totalCount, startSeq, padding, imagesMap, DPI);
   }
 
   ctx.restore();
 
   return canvas;
+}
+
+/** PNG da etiqueta no tamanho do modelo, sem girar. Usado na impressão direta. */
+export async function renderLabelPngDataUrl(
+  template: LabelTemplate,
+  seqIndex: number,
+  totalCount: number,
+  startSeq: number,
+  padding: number,
+  dpi = 203
+): Promise<string> {
+  const widthMm = template.width_mm || 100;
+  const heightMm = template.height_mm || 50;
+  const mmToPx = dpi / 25.4;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(widthMm * mmToPx));
+  canvas.height = Math.max(1, Math.round(heightMm * mmToPx));
+
+  const ctx = canvas.getContext('2d', { alpha: false });
+  if (!ctx) throw new Error('Não foi possível preparar a etiqueta.');
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (typeof document !== 'undefined' && document.fonts?.ready) {
+    await document.fonts.ready;
+  }
+
+  const imagesMap = await preloadImages(template.elements_json);
+  for (const el of template.elements_json) {
+    drawElement(ctx, el, seqIndex, totalCount, startSeq, padding, imagesMap, dpi);
+  }
+
+  return canvas.toDataURL('image/png');
 }
 
 function drawElement(
@@ -154,20 +187,22 @@ function drawElement(
   totalCount: number,
   startSeq: number,
   padding: number,
-  imagesMap: Map<string, HTMLImageElement>
+  imagesMap: Map<string, HTMLImageElement>,
+  dpi: number
 ) {
-  const x = el.x_mm * MM_TO_PX;
-  const y = el.y_mm * MM_TO_PX;
-  const w = el.width_mm * MM_TO_PX;
-  const h = el.height_mm * MM_TO_PX;
+  const mmToPx = dpi / 25.4;
+  const x = el.x_mm * mmToPx;
+  const y = el.y_mm * mmToPx;
+  const w = el.width_mm * mmToPx;
+  const h = el.height_mm * mmToPx;
   const p = el.props || {};
 
   ctx.save();
 
   switch (el.type) {
     case 'box': {
-      const bw = Math.max(1, (p.borderWidth || 0.6) * MM_TO_PX);
-      const br = (p.borderRadius || 0) * MM_TO_PX;
+      const bw = Math.max(1, (p.borderWidth || 0.6) * mmToPx);
+      const br = (p.borderRadius || 0) * mmToPx;
       const bc = p.borderColor || '#000000';
       const bg = p.backgroundColor && p.backgroundColor !== 'transparent' ? p.backgroundColor : null;
 
@@ -196,7 +231,7 @@ function drawElement(
     }
 
     case 'line': {
-      const sw = Math.max(1, (p.strokeWidth || 0.5) * MM_TO_PX);
+      const sw = Math.max(1, (p.strokeWidth || 0.5) * mmToPx);
       const sc = p.strokeColor || '#000000';
 
       ctx.lineWidth = sw;
@@ -227,7 +262,7 @@ function drawElement(
       const isGray = p.variant === 'gray';
       const bg = isBlack ? '#000000' : isGray ? '#e4e4e7' : null;
       const textColor = isBlack ? '#ffffff' : '#000000';
-      const br = (p.borderRadius || 1.5) * MM_TO_PX;
+      const br = (p.borderRadius || 1.5) * mmToPx;
 
       ctx.beginPath();
       if (br > 0 && typeof ctx.roundRect === 'function') {
@@ -240,13 +275,13 @@ function drawElement(
         ctx.fillStyle = bg;
         ctx.fill();
       } else {
-        ctx.lineWidth = 1.5 * (MM_TO_PX / 3.7795);
+        ctx.lineWidth = 1.5 * (mmToPx / 3.7795);
         ctx.strokeStyle = '#000000';
         ctx.stroke();
       }
 
       const fontPt = p.fontSize || 9;
-      const fontPx = fontPt * (DPI / 72);
+      const fontPx = fontPt * (dpi / 72);
       ctx.font = `bold ${Math.round(fontPx)}px Inter, sans-serif`;
       ctx.fillStyle = textColor;
       ctx.textAlign = 'center';
@@ -259,7 +294,7 @@ function drawElement(
       const rawText = replaceDynamicTokens(p.text || '', seqIndex, totalCount, startSeq, padding);
       const text = p.uppercase ? rawText.toUpperCase() : rawText;
       const fontPt = p.fontSize || 10;
-      const fontPx = fontPt * (DPI / 72);
+      const fontPx = fontPt * (dpi / 72);
       const fontWeight = p.fontWeight || 'normal';
       const fontFamily = p.fontFamily === 'JetBrains Mono' ? 'JetBrains Mono, monospace' : 'Inter, sans-serif';
       const lineHeight = fontPx * 1.25;
@@ -301,7 +336,7 @@ function drawElement(
 
       if (showText) {
         const fontPt = p.fontSize || 7.5;
-        const fontPx = fontPt * (DPI / 72);
+        const fontPx = fontPt * (dpi / 72);
         ctx.font = `bold ${Math.round(fontPx)}px JetBrains Mono, monospace`;
         ctx.fillStyle = '#000000';
         ctx.textAlign = 'center';

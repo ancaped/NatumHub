@@ -38,6 +38,7 @@ Genérico            → ContextoIA/inicio/gemini.md
 | Mapa de Arquitetura | `ContextoIA/arquitetura/mapa-app.html` |
 | Rotas da API | `ContextoIA/api/routes.md` |
 | Esquema do Banco | `ContextoIA/banco-dados/database_blueprint.md` + `Backend/supabase/` |
+| Impressão de etiquetas | `ContextoIA/modulos/etiquetas.md` — `PrintModal` é a tela padrão |
 | Sync ERP | `erp-import/` |
 
 ## Stack Atual

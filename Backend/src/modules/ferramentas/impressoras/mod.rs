@@ -1,9 +1,11 @@
+pub mod direct_print;
 pub mod handlers;
 pub mod models;
 pub mod store;
 
 use std::sync::Arc;
 use axum::{
+    extract::DefaultBodyLimit,
     routing::{get, post},
     Router,
 };
@@ -28,9 +30,14 @@ pub fn router() -> Router<Arc<AppState>> {
             post(handlers::cancel_print_job_handler),
         )
         .route(
+            "/api/ferramentas/impressoras/direct",
+            post(handlers::direct_print_handler),
+        )
+        .route(
             "/api/ferramentas/impressoras/:id",
             get(handlers::get_printer_handler)
                 .put(handlers::update_printer_handler)
                 .delete(handlers::delete_printer_handler),
         )
+        .layer(DefaultBodyLimit::max(8 * 1024 * 1024))
 }

@@ -63,7 +63,11 @@ notifications::notify(state, "module_key", "success", "Título", "Mensagem").awa
 
 `module_key` deve existir no registry para filtragem correta.
 
-## 6. Validar
+## 6. Etiqueta térmica
+
+Se o módulo imprimir etiqueta, usar a tela padrão. Não criar diálogo nem `window.print` próprio. Ver [`etiquetas.md`](etiquetas.md).
+
+## 7. Validar
 
 ```bash
 cd Backend && cargo check

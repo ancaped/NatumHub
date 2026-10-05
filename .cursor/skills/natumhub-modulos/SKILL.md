@@ -21,6 +21,7 @@ Novo submódulo, nova view no hub, rotas REST de domínio, chave em permissões,
 1. [`ContextoIA/arquitetura/mapa-app.json`](../../ContextoIA/arquitetura/mapa-app.json) — inventário vivo (módulos, rotas, edges)
 2. [`ContextoIA/arquitetura/mapa-app.html`](../../ContextoIA/arquitetura/mapa-app.html) — explorer visual
 3. [`ContextoIA/modulos/criacao.md`](../../ContextoIA/modulos/criacao.md) — checklist
+4. Etiqueta térmica no módulo: [`ContextoIA/modulos/etiquetas.md`](../../ContextoIA/modulos/etiquetas.md) — abrir `PrintModal`, sem diálogo novo
 
 Regenerar mapa após mudanças estruturais: `npm run map:arch`.
 

@@ -184,6 +184,8 @@ export interface PrintConfig {
   sequenceTotal: number;
   sequencePadding: number;
   printLayoutMode?: PrintLayoutMode;
+  /** 100 = arte no tamanho do modelo. Acima disso amplia até a borda do adesivo. */
+  fillScale?: number;
 }
 
 export interface CatalogSearchItem {

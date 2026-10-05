@@ -24,6 +24,7 @@
 | Schema DB | [banco-dados/database_blueprint.md](banco-dados/database_blueprint.md) + `Backend/supabase/` |
 | Bugs / Feedbacks | [`../Feedbacks/feedback.md`](../Feedbacks/feedback.md) + skill `natumhub-resolve-bugs` |
 | UI & UX | [ui/style_and_ux_guide.md](ui/style_and_ux_guide.md) |
+| Impressão de etiquetas | [modulos/etiquetas.md](modulos/etiquetas.md) — tela padrão `PrintModal` para qualquer módulo |
 
 ## Código-chave
 

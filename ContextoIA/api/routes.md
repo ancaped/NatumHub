@@ -102,6 +102,24 @@ Hub `almoxarifado_hub`. Doc: [`../modulos/almoxarifado.md`](../modulos/almoxarif
 | GET/POST | `/api/almox/maintenances` | OS; `parts[]` (trocada ou não) + `scheduledAt` |
 | PUT | `/api/almox/maintenances/:id` | status / conclusão |
 | GET/POST | `/api/almox/demands` | compras |
+| PUT | `/api/almox/demands/:id` | edita item, quantidade, quem pediu, cotação e valor |
+| GET | `/api/almox/counts/latest` | última contagem e a próxima, sete dias depois |
+| POST | `/api/almox/counts` | contagem semanal; grava saída ou entrada da diferença |
+
+## Estoque — listas de contagem
+
+Consulta (matéria-prima, embalagens, coloração, apoio, produtos). Não grava saldo.
+
+| Método | Rota | Notas |
+|--------|------|-------|
+| GET | `/api/estoque/contagens?escopo=` | listas do módulo, com itens |
+| POST | `/api/estoque/contagens` | nova lista aberta |
+| POST | `/api/estoque/contagens/:id/itens` | congela o saldo lido agora no ERP (`nQtdeEstoque`) |
+| POST | `/api/estoque/contagens/:id/atualizar-saldos` | relê o saldo do ERP dos itens da lista aberta |
+| PUT/DELETE | `/api/estoque/contagens/:id/itens/:itemId` | corrige reserva, pedido e contagens 1–3 |
+| POST | `/api/estoque/contagens/:id/encerrar` | marca lançada, sem movimento |
+| POST | `/api/estoque/contagens/:id/reabrir` | volta a editar |
+| GET | `/api/estoque/compras-pendentes` | pedido de compra em aberto (`n_qtde - n_chegou`), por código |
 
 ## Estoque — Ordens Manuais
 
@@ -166,6 +184,12 @@ Hub `almoxarifado_hub`. Doc: [`../modulos/almoxarifado.md`](../modulos/almoxarif
 Tabelas: `018_mapa_hub.sql`. UI Hub: view `mapa_arquitetura`. Browser: **`http://127.0.0.1:3001/mapa`** (login igual ao Hub).
 
 Regra canônica: [`../../erp-import/ESTOQUE.md`](../../erp-import/ESTOQUE.md).
+
+## Impressoras
+
+| POST | `/api/ferramentas/impressoras/direct` | envia etiqueta PNG ao spooler do Windows, sem diálogo do navegador |
+
+A tela de todo módulo é o `PrintModal`. Contrato: [`../modulos/etiquetas.md`](../modulos/etiquetas.md).
 
 ## Backup
 

@@ -3,6 +3,40 @@ import { generateBarcodeBars } from './barcodeGenerator';
 import { generateQrMatrix } from './qrCodeGenerator';
 import { cleanupPrintIframes } from '../../../geral/lib/printCleanup';
 
+const FILL_SCALE_KEY = 'nexus.labelFillScale';
+
+/** Percentual persistido (90–115). 100 imprime o modelo no tamanho exato da página. */
+export function readLabelFillScale(): number {
+  try {
+    const raw = localStorage.getItem(FILL_SCALE_KEY);
+    const n = raw == null ? 100 : Number(raw);
+    if (!Number.isFinite(n)) return 100;
+    return Math.min(115, Math.max(90, Math.round(n)));
+  } catch {
+    return 100;
+  }
+}
+
+export function writeLabelFillScale(percent: number) {
+  const next = Math.min(115, Math.max(90, Math.round(percent)));
+  try {
+    localStorage.setItem(FILL_SCALE_KEY, String(next));
+  } catch {
+    /* ignore */
+  }
+}
+
+function resolveFillScale(config: PrintConfig): number {
+  const raw = config.fillScale ?? readLabelFillScale();
+  const percent = Number.isFinite(raw) ? raw : 100;
+  return Math.min(115, Math.max(90, percent)) / 100;
+}
+
+function pctOf(mm: number, totalMm: number): string {
+  const total = totalMm > 0 ? totalMm : 1;
+  return `${(mm / total) * 100}%`;
+}
+
 /**
  * Replace dynamic tokens in element texts / barcodes / QRs during batch generation
  */
@@ -40,12 +74,14 @@ function renderElementHtml(
   seqIndex: number,
   totalCount: number,
   startSeq: number,
-  padding: number
+  padding: number,
+  pageWidthMm: number,
+  pageHeightMm: number
 ): string {
-  const left = `${el.x_mm}mm`;
-  const top = `${el.y_mm}mm`;
-  const width = `${el.width_mm}mm`;
-  const height = `${el.height_mm}mm`;
+  const left = pctOf(el.x_mm, pageWidthMm);
+  const top = pctOf(el.y_mm, pageHeightMm);
+  const width = pctOf(el.width_mm, pageWidthMm);
+  const height = pctOf(el.height_mm, pageHeightMm);
   const zIndex = el.zIndex || 1;
 
   switch (el.type) {
@@ -176,12 +212,19 @@ function renderElementHtml(
 }
 
 /**
- * Generate print document HTML allowing the browser's native orientation and margins
+ * Página com o tamanho físico da etiqueta. Elementos em % da área para
+ * acompanhar o papel; fillScale amplia a arte a partir do centro quando o
+ * driver deixa borda branca.
  */
 function buildPrintHtml(template: LabelTemplate, config: PrintConfig): string {
   const copies = Math.max(1, config.copies || 1);
   const widthMm = template.width_mm || 100;
   const heightMm = template.height_mm || 50;
+  const fillScale = resolveFillScale(config);
+  const fitTransform =
+    Math.abs(fillScale - 1) < 0.001
+      ? ''
+      : `transform:scale(${fillScale});transform-origin:center center;`;
 
   let pagesHtml = '';
 
@@ -193,14 +236,18 @@ function buildPrintHtml(template: LabelTemplate, config: PrintConfig): string {
           i,
           config.sequenceTotal || copies,
           config.sequenceStart || 1,
-          config.sequencePadding || 2
+          config.sequencePadding || 2,
+          widthMm,
+          heightMm
         )
       )
       .join('');
 
     pagesHtml += `
       <div class="label-page">
-        ${elementsHtml}
+        <div class="label-fit" style="${fitTransform}">
+          ${elementsHtml}
+        </div>
       </div>
     `;
   }
@@ -213,7 +260,8 @@ function buildPrintHtml(template: LabelTemplate, config: PrintConfig): string {
         <title>Imprimir Etiquetas - Nexus</title>
         <style>
           @page {
-            margin: 0mm !important;
+            size: ${widthMm}mm ${heightMm}mm;
+            margin: 0;
           }
           *, *:before, *:after {
             box-sizing: border-box !important;
@@ -221,27 +269,32 @@ function buildPrintHtml(template: LabelTemplate, config: PrintConfig): string {
             print-color-adjust: exact !important;
           }
           html, body {
-            margin: 0mm !important;
-            padding: 0mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
             background: #ffffff !important;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
           }
           .label-page {
-            width: ${widthMm}mm !important;
-            height: ${heightMm}mm !important;
-            min-width: ${widthMm}mm !important;
-            min-height: ${heightMm}mm !important;
-            max-width: ${widthMm}mm !important;
-            max-height: ${heightMm}mm !important;
-            position: relative !important;
-            page-break-after: always !important;
-            break-after: page !important;
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-            overflow: hidden !important;
-            background: #ffffff !important;
-            margin: 0mm !important;
-            padding: 0mm !important;
+            width: ${widthMm}mm;
+            height: ${heightMm}mm;
+            position: relative;
+            overflow: hidden;
+            page-break-inside: avoid;
+            break-inside: avoid;
+            background: #ffffff;
+            margin: 0;
+            padding: 0;
+          }
+          .label-page + .label-page {
+            page-break-before: always;
+            break-before: page;
+          }
+          .label-fit {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
           }
         </style>
       </head>
@@ -265,8 +318,10 @@ export function printLabelBatch(template: LabelTemplate, config: PrintConfig) {
   iframe.style.position = 'fixed';
   iframe.style.top = '-9999px';
   iframe.style.left = '-9999px';
-  iframe.style.width = '100mm';
-  iframe.style.height = '50mm';
+  const widthMm = template.width_mm || 100;
+  const heightMm = template.height_mm || 50;
+  iframe.style.width = `${widthMm}mm`;
+  iframe.style.height = `${heightMm}mm`;
   iframe.style.border = '0';
   iframe.style.opacity = '0';
   iframe.style.pointerEvents = 'none';

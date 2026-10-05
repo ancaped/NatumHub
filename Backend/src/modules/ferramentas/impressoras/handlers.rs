@@ -188,6 +188,27 @@ pub async fn create_print_job_handler(
     }
 }
 
+pub async fn direct_print_handler(
+    Extension(_ctx): Extension<AuthContext>,
+    Json(req): Json<super::direct_print::DirectPrintRequest>,
+) -> impl IntoResponse {
+    let joined = tokio::task::spawn_blocking(move || super::direct_print::print_labels(req)).await;
+    match joined {
+        Ok(Ok(())) => (
+            StatusCode::OK,
+            Json(ApiResponse::ok(serde_json::json!({ "printed": true }))),
+        ),
+        Ok(Err(message)) => (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::err(message)),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::err(format!("Falha ao imprimir: {e}"))),
+        ),
+    }
+}
+
 pub async fn cancel_print_job_handler(
     State(state): State<Arc<AppState>>,
     Extension(_ctx): Extension<AuthContext>,

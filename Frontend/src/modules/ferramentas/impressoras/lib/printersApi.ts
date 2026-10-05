@@ -80,6 +80,23 @@ export const printersApi = {
     return res.data;
   },
 
+  async printDirect(payload: {
+    printer_name: string;
+    width_mm: number;
+    height_mm: number;
+    copies: number;
+    landscape: boolean;
+    fill_scale: number;
+    pages_png_base64: string[];
+  }): Promise<void> {
+    const res = await apiJson<ApiResponse<{ printed: boolean }>>('/api/ferramentas/impressoras/direct', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.success && res.error) throw new Error(res.error);
+  },
+
   async cancelPrintJob(id: string): Promise<void> {
     const res = await apiJson<ApiResponse<{ cancelled: boolean }>>(`/api/ferramentas/impressoras/jobs/${id}/cancel`, {
       method: 'POST',
