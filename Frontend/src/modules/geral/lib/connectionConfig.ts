@@ -180,12 +180,10 @@ export function isDevRuntime(): boolean {
   return import.meta.env.DEV;
 }
 
-/** UI servida pelo Axum (navegador na LAN) — não Vite e não WebView Tauri. */
+/** UI servida pelo Axum (navegador na LAN / Tailscale) — não Vite dev server. */
 export function isAxumServedUi(): boolean {
   if (typeof window === 'undefined') return false;
   if (window.location.port === '5175') return false;
-  const w = window as Window & { __TAURI_INTERNALS__?: unknown; __TAURI__?: unknown };
-  if (w.__TAURI_INTERNALS__ || w.__TAURI__) return false;
   return /^https?:$/.test(window.location.protocol);
 }
 
@@ -199,44 +197,27 @@ export interface BuildInfo {
 }
 
 export async function getBuildInfo(): Promise<BuildInfo | null> {
-  if (isAxumServedUi()) return null;
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    const info = await invoke<BuildInfo & Record<string, unknown>>('get_build_info');
-    return {
-      channel: String(info.channel ?? ''),
-      identifier: String(info.identifier ?? ''),
-      productName: String(info.productName ?? info.product_name ?? 'Nexus'),
-      version: String(info.version ?? ''),
-      canBePrincipalServer: Boolean(
-        info.canBePrincipalServer ?? info.can_be_principal_server
-      ),
-      isDeveloperInstall: Boolean(
-        info.isDeveloperInstall ?? info.is_developer_install
-      ),
-    };
-  } catch {
-    return null;
-  }
+  return {
+    channel: 'stable',
+    identifier: 'com.nexus.hub',
+    productName: 'Nexus',
+    version: '1.0.0',
+    canBePrincipalServer: true,
+    isDeveloperInstall: false,
+  };
 }
 
-/** Pode ser PC Principal: build Estável/Dev instalado e fora do `tauri dev`/browser. */
+/** Pode ser PC Principal / Servidor. */
 export async function canBePrincipalServer(): Promise<boolean> {
-  if (isDevRuntime() || isAxumServedUi()) return false;
-  const build = await getBuildInfo();
-  return build?.canBePrincipalServer ?? false;
+  return true;
 }
 
 export async function isDeveloperInstall(): Promise<boolean> {
-  if (isAxumServedUi()) return false;
-  if (isDevRuntime()) return true;
-  const build = await getBuildInfo();
-  return build?.isDeveloperInstall ?? false;
+  return false;
 }
 
 /**
  * No navegador (SPA no Axum), força cliente same-origin e marca setup concluído.
- * Em Vite/Tauri, não altera.
  */
 export function ensureBrowserClientConfig(): ClientConfig {
   let cfg = loadConnectionConfig();
@@ -263,26 +244,12 @@ export async function repairDevConnectionIfNeeded(): Promise<boolean> {
 }
 
 export async function syncConfigFromTauri(): Promise<ClientConfig> {
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    const cfg = await invoke<ClientConfig>('hub_get_client_config');
-    const normalized = normalizeClientConfig(cfg);
-    saveConnectionConfig(normalized);
-    return normalized;
-  } catch {
-    return loadConnectionConfig();
-  }
+  return loadConnectionConfig();
 }
 
 export async function saveConfigToTauri(config: ClientConfig): Promise<void> {
   const normalized = normalizeClientConfig(config);
   saveConnectionConfig(normalized);
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('hub_save_client_config', { config: normalized });
-  } catch {
-    // Cliente remoto sem escrita no arquivo do master — localStorage basta neste PC
-  }
 }
 
 export interface HealthCheckResult {
@@ -300,32 +267,27 @@ export async function checkServerHealth(apiOrigin?: string): Promise<HealthCheck
   const start = performance.now();
 
   try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    const res = await invoke<HealthCheckResult>('hub_check_server_health', { apiOrigin: origin });
-    return { ...res, latencyMs: Math.round(performance.now() - start) };
-  } catch {
-    try {
-      const res = await fetch(`${origin}/api/health`);
-      const latencyMs = Math.round(performance.now() - start);
-      if (!res.ok) {
-        return { ok: false, apiOrigin: origin, error: `HTTP ${res.status}`, latencyMs };
-      }
-      const body = await res.json();
-      return {
-        ok: true,
-        apiOrigin: origin,
-        status: body.status,
-        latencyMs,
-        dbProvider: typeof body.dbProvider === 'string' ? body.dbProvider : undefined,
-        dbHostMasked: typeof body.dbHostMasked === 'string' ? body.dbHostMasked : undefined,
-      };
-    } catch (e: any) {
-      return {
-        ok: false,
-        apiOrigin: origin,
-        error: e?.message || String(e),
-        latencyMs: Math.round(performance.now() - start),
-      };
+    const res = await fetch(`${origin}/api/health`);
+    const latencyMs = Math.round(performance.now() - start);
+    if (!res.ok) {
+      return { ok: false, apiOrigin: origin, error: `HTTP ${res.status}`, latencyMs };
     }
+    const body = await res.json();
+    return {
+      ok: true,
+      apiOrigin: origin,
+      status: body.status,
+      latencyMs,
+      dbProvider: typeof body.dbProvider === 'string' ? body.dbProvider : undefined,
+      dbHostMasked: typeof body.dbHostMasked === 'string' ? body.dbHostMasked : undefined,
+    };
+  } catch (e: any) {
+    return {
+      ok: false,
+      apiOrigin: origin,
+      error: e?.message || String(e),
+      latencyMs: Math.round(performance.now() - start),
+    };
   }
 }
+

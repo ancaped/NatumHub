@@ -590,6 +590,9 @@ pub async fn get_product_detalhes(
                 snap_estoque_ideal_qtd: None,
                 snap_demanda_ajustada: None,
                 observacoes: None,
+                custom_status: None,
+                is_terceirizado: None,
+                data_previsao: None,
             };
 
             if status == "EA" || status == "FP" || status == "CF" {

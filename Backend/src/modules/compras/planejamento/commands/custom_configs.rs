@@ -77,29 +77,3 @@ pub async fn delete_custom_purchase_config_query(
     Ok(())
 }
 
-#[cfg(feature = "desktop")]
-#[allow(dead_code)]
-mod _tauri_stubs {
-    use super::*;
-    use tauri::State;
-    use crate::DbState;
-
-    #[tauri::command]
-    pub fn get_custom_purchase_configs(_state: State<DbState>) -> Result<Vec<CustomPurchaseConfigRow>, String> {
-        Err("Use a API REST (/api/hub/compras/custom-configs)".into())
-    }
-
-    #[tauri::command]
-    pub fn save_custom_purchase_config(_state: State<DbState>, _row: CustomPurchaseConfigRow) -> Result<(), String> {
-        Err("Use a API REST (/api/hub/compras/custom-configs)".into())
-    }
-
-    #[tauri::command]
-    pub fn delete_custom_purchase_config(
-        _state: State<DbState>,
-        _level: String,
-        _target_id: String,
-    ) -> Result<(), String> {
-        Err("Use a API REST (/api/hub/compras/custom-configs)".into())
-    }
-}

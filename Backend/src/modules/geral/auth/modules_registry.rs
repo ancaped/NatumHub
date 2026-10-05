@@ -21,6 +21,7 @@ pub const MODULE_ESTOQUE_ATIVOS: &str = "estoque_ativos";
 pub const MODULE_ADMIN_LINHA_PRODUTOS: &str = "admin_linha_produtos";
 pub const MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS: &str = "admin_produtos_ativos_relatorios";
 pub const MODULE_ADMIN_FUNCIONARIOS: &str = "admin_funcionarios";
+pub const MODULE_ADMIN_ACOMPANHAMENTO_PRODUCAO: &str = "admin_acompanhamento_producao";
 
 pub const MODULE_PRODUCAO: &str = "producao";
 pub const MODULE_PRODUCAO_BASES: &str = "producao_bases";
@@ -84,6 +85,7 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_ADMIN_LINHA_PRODUTOS,
     MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS,
     MODULE_ADMIN_FUNCIONARIOS,
+    MODULE_ADMIN_ACOMPANHAMENTO_PRODUCAO,
     MODULE_PRODUCAO,
     MODULE_PRODUCAO_BASES,
     MODULE_PRODUCAO_LOTES,
@@ -231,6 +233,10 @@ pub fn module_registry() -> Vec<ModuleGroup> {
                     "Relatórios · Produtos Ativos",
                 ),
                 leaf(MODULE_ADMIN_FUNCIONARIOS, "Funcionários"),
+                leaf(
+                    MODULE_ADMIN_ACOMPANHAMENTO_PRODUCAO,
+                    "Acompanhamento de Produção",
+                ),
             ],
         },
         ModuleGroup {

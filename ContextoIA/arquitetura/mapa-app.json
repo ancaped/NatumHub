@@ -1,7 +1,7 @@
 {
   "meta": {
-    "name": "NatumHub",
-    "generatedAt": "2026-08-19T13:40:39.576Z",
+    "name": "Nexus",
+    "generatedAt": "2026-09-22T12:55:42.416Z",
     "version": "0.1.0",
     "generator": "scripts/generate-architecture-map.mjs",
     "schemaVersion": 2,
@@ -10,9 +10,7 @@
         "value": "0.1.0",
         "targets": [
           "Frontend/package.json",
-          "Backend/package.json",
-          "Backend/Cargo.toml",
-          "Backend/tauri.conf.json"
+          "Backend/Cargo.toml"
         ]
       },
       "taskFile": "task.md"
@@ -20,10 +18,9 @@
   },
   "runtime": {
     "stack": [
-      "Tauri 2",
+      "nexus-server (Axum)",
       "React",
       "Vite",
-      "Axum",
       "PostgreSQL",
       "SQL Server (ERP sync)"
     ],
@@ -33,19 +30,19 @@
       "auth": "Bearer + X-Natum-Device-Id"
     },
     "masterClient": {
-      "master": "Sobe Axum :3001, Postgres local (Saves/postgres.env), sync ERP, backups, updater",
-      "client": "Só UI; apiOrigin → PC Principal; sem Postgres local"
+      "master": "nexus-server :3001, Postgres (Saves/postgres.env), sync ERP, backups, serve a SPA",
+      "client": "Navegador em http://nexus.local:3001; sem Postgres local"
     },
     "data": {
       "hub": "PostgreSQL (obrigatório no master)",
       "erp": "SQL Server → sync incremental/full via legacy_db / erp-import",
       "files": "Saves/ (documentacao, receipts, pg-backups)",
-      "notUsed": "SQLite / data.db"
+      "databaseName": "natumhub"
     }
   },
   "repos": {
-    "Frontend": "UI React + Vite (dist → Tauri)",
-    "Backend": "Tauri + Axum + módulos de domínio",
+    "Frontend": "UI React + Vite (dist servido por nexus-server)",
+    "Backend": "nexus-server Axum + módulos de domínio",
     "erp-import": "Queries SQL Server + PASSOS de sync",
     "Saves": "postgres.env, client_config.json (não versionar secrets)",
     "ContextoIA": "Docs para agentes + mapa-app",
@@ -548,7 +545,7 @@
         },
         {
           "methods": [
-            "PUT"
+            "GET"
           ],
           "path": "/api/almox/equipments/:id",
           "summary": "Almoxarifado ops (itens, movimentos, equipamentos)",
@@ -605,6 +602,15 @@
             "GET"
           ],
           "path": "/api/almox/items/search",
+          "summary": "Almoxarifado ops (itens, movimentos, equipamentos)",
+          "auth": "module",
+          "source": "Backend/src/modules/estoque/almoxarifado/mod.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/almox/maintenances",
           "summary": "Almoxarifado ops (itens, movimentos, equipamentos)",
           "auth": "module",
           "source": "Backend/src/modules/estoque/almoxarifado/mod.rs"
@@ -1447,6 +1453,33 @@
         },
         {
           "methods": [
+            "GET"
+          ],
+          "path": "/api/hub/compras/itens-solicitados",
+          "summary": "Hub compras: cotações, itens, demandas, imports",
+          "auth": "module",
+          "source": "Backend/src/modules/hub_api/compras.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/hub/compras/listas",
+          "summary": "Hub compras: cotações, itens, demandas, imports",
+          "auth": "module",
+          "source": "Backend/src/modules/hub_api/compras.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/hub/compras/listas/:id",
+          "summary": "Hub compras: cotações, itens, demandas, imports",
+          "auth": "module",
+          "source": "Backend/src/modules/hub_api/compras.rs"
+        },
+        {
+          "methods": [
             "DELETE"
           ],
           "path": "/api/hub/compras/online-orders/:id",
@@ -1459,15 +1492,6 @@
             "GET"
           ],
           "path": "/api/hub/compras/pinned-subcategories",
-          "summary": "Hub compras: cotações, itens, demandas, imports",
-          "auth": "module",
-          "source": "Backend/src/modules/hub_api/compras.rs"
-        },
-        {
-          "methods": [
-            "GET"
-          ],
-          "path": "/api/hub/compras/quotations",
           "summary": "Hub compras: cotações, itens, demandas, imports",
           "auth": "module",
           "source": "Backend/src/modules/hub_api/compras.rs"
@@ -1522,6 +1546,15 @@
             "GET"
           ],
           "path": "/api/hub/compras/suppliers/:id/history",
+          "summary": "Hub compras: cotações, itens, demandas, imports",
+          "auth": "module",
+          "source": "Backend/src/modules/hub_api/compras.rs"
+        },
+        {
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/hub/compras/suppliers/unify",
           "summary": "Hub compras: cotações, itens, demandas, imports",
           "auth": "module",
           "source": "Backend/src/modules/hub_api/compras.rs"
@@ -2519,6 +2552,33 @@
           "methods": [
             "GET"
           ],
+          "path": "/api/administrativo/acompanhamento-producao",
+          "summary": "Admin: backup, DB, audit estoque",
+          "auth": "supervisor",
+          "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"
+        },
+        {
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/administrativo/acompanhamento-producao/sheets/sync",
+          "summary": "Admin: backup, DB, audit estoque",
+          "auth": "supervisor",
+          "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"
+        },
+        {
+          "methods": [
+            "DELETE"
+          ],
+          "path": "/api/administrativo/envase/programacao/:id",
+          "summary": "Admin: backup, DB, audit estoque",
+          "auth": "supervisor",
+          "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
           "path": "/api/administrativo/funcionarios",
           "summary": "Admin: backup, DB, audit estoque",
           "auth": "supervisor",
@@ -2532,6 +2592,78 @@
           "summary": "Admin: backup, DB, audit estoque",
           "auth": "supervisor",
           "source": "Backend/src/modules/administrativo/funcionarios/mod.rs"
+        },
+        {
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/administrativo/lote-ficha",
+          "summary": "Admin: backup, DB, audit estoque",
+          "auth": "supervisor",
+          "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"
+        },
+        {
+          "methods": [
+            "DELETE"
+          ],
+          "path": "/api/administrativo/lote-status/:number",
+          "summary": "Admin: backup, DB, audit estoque",
+          "auth": "supervisor",
+          "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"
+        },
+        {
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/administrativo/lote-status/:number/terceirizado",
+          "summary": "Admin: backup, DB, audit estoque",
+          "auth": "supervisor",
+          "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/administrativo/terceirizados/produto/:code",
+          "summary": "Admin: backup, DB, audit estoque",
+          "auth": "supervisor",
+          "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"
+        },
+        {
+          "methods": [
+            "GET"
+          ],
+          "path": "/api/administrativo/terceirizados/solicitacoes",
+          "summary": "Admin: backup, DB, audit estoque",
+          "auth": "supervisor",
+          "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"
+        },
+        {
+          "methods": [
+            "DELETE"
+          ],
+          "path": "/api/administrativo/terceirizados/solicitacoes/:id",
+          "summary": "Admin: backup, DB, audit estoque",
+          "auth": "supervisor",
+          "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"
+        },
+        {
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/administrativo/terceirizados/solicitacoes/:id/previsao",
+          "summary": "Admin: backup, DB, audit estoque",
+          "auth": "supervisor",
+          "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"
+        },
+        {
+          "methods": [
+            "POST"
+          ],
+          "path": "/api/administrativo/terceirizados/solicitacoes/:id/vincular",
+          "summary": "Admin: backup, DB, audit estoque",
+          "auth": "supervisor",
+          "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"
         },
         {
           "methods": [
@@ -3414,6 +3546,36 @@
       "auth": "supervisor"
     },
     {
+      "path": "/api/administrativo/acompanhamento-producao",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/acompanhamento-producao/sheets/sync",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/envase/programacao/:id",
+      "methods": [
+        "DELETE"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
       "path": "/api/administrativo/funcionarios",
       "methods": [
         "GET"
@@ -3429,6 +3591,86 @@
         "GET"
       ],
       "source": "Backend/src/modules/administrativo/funcionarios/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/lote-ficha",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/lote-status/:number",
+      "methods": [
+        "DELETE"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/lote-status/:number/terceirizado",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/terceirizados/produto/:code",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/terceirizados/solicitacoes",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/terceirizados/solicitacoes/:id",
+      "methods": [
+        "DELETE"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/terceirizados/solicitacoes/:id/previsao",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/terceirizados/solicitacoes/:id/vincular",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
       "moduleKey": "hub_settings",
       "summary": "Admin: backup, DB, audit estoque",
       "auth": "supervisor"
@@ -3466,7 +3708,7 @@
     {
       "path": "/api/almox/equipments/:id",
       "methods": [
-        "PUT"
+        "GET"
       ],
       "source": "Backend/src/modules/estoque/almoxarifado/mod.rs",
       "moduleKey": "estoque_almoxarifado",
@@ -3525,6 +3767,16 @@
     },
     {
       "path": "/api/almox/items/search",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/estoque/almoxarifado/mod.rs",
+      "moduleKey": "estoque_almoxarifado",
+      "summary": "Almoxarifado ops (itens, movimentos, equipamentos)",
+      "auth": "module"
+    },
+    {
+      "path": "/api/almox/maintenances",
       "methods": [
         "GET"
       ],
@@ -4046,6 +4298,36 @@
       "auth": "module"
     },
     {
+      "path": "/api/hub/compras/itens-solicitados",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/hub_api/compras.rs",
+      "moduleKey": "compras_quotations",
+      "summary": "Hub compras: cotações, itens, demandas, imports",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/compras/listas",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/hub_api/compras.rs",
+      "moduleKey": "compras_quotations",
+      "summary": "Hub compras: cotações, itens, demandas, imports",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/compras/listas/:id",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/hub_api/compras.rs",
+      "moduleKey": "compras_quotations",
+      "summary": "Hub compras: cotações, itens, demandas, imports",
+      "auth": "module"
+    },
+    {
       "path": "/api/hub/compras/online-orders/:id",
       "methods": [
         "DELETE"
@@ -4057,16 +4339,6 @@
     },
     {
       "path": "/api/hub/compras/pinned-subcategories",
-      "methods": [
-        "GET"
-      ],
-      "source": "Backend/src/modules/hub_api/compras.rs",
-      "moduleKey": "compras_quotations",
-      "summary": "Hub compras: cotações, itens, demandas, imports",
-      "auth": "module"
-    },
-    {
-      "path": "/api/hub/compras/quotations",
       "methods": [
         "GET"
       ],
@@ -4129,6 +4401,16 @@
       "path": "/api/hub/compras/suppliers/:id/history",
       "methods": [
         "GET"
+      ],
+      "source": "Backend/src/modules/hub_api/compras.rs",
+      "moduleKey": "compras_quotations",
+      "summary": "Hub compras: cotações, itens, demandas, imports",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/compras/suppliers/unify",
+      "methods": [
+        "POST"
       ],
       "source": "Backend/src/modules/hub_api/compras.rs",
       "moduleKey": "compras_quotations",
@@ -4988,6 +5270,36 @@
       "auth": "supervisor"
     },
     {
+      "path": "/api/administrativo/acompanhamento-producao",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/acompanhamento-producao/sheets/sync",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/envase/programacao/:id",
+      "methods": [
+        "DELETE"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
       "path": "/api/administrativo/funcionarios",
       "methods": [
         "GET"
@@ -5003,6 +5315,86 @@
         "GET"
       ],
       "source": "Backend/src/modules/administrativo/funcionarios/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/lote-ficha",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/lote-status/:number",
+      "methods": [
+        "DELETE"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/lote-status/:number/terceirizado",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/terceirizados/produto/:code",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/terceirizados/solicitacoes",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/terceirizados/solicitacoes/:id",
+      "methods": [
+        "DELETE"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/terceirizados/solicitacoes/:id/previsao",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
+      "moduleKey": "hub_settings",
+      "summary": "Admin: backup, DB, audit estoque",
+      "auth": "supervisor"
+    },
+    {
+      "path": "/api/administrativo/terceirizados/solicitacoes/:id/vincular",
+      "methods": [
+        "POST"
+      ],
+      "source": "Backend/src/modules/administrativo/acompanhamento_producao/mod.rs",
       "moduleKey": "hub_settings",
       "summary": "Admin: backup, DB, audit estoque",
       "auth": "supervisor"
@@ -5040,7 +5432,7 @@
     {
       "path": "/api/almox/equipments/:id",
       "methods": [
-        "PUT"
+        "GET"
       ],
       "source": "Backend/src/modules/estoque/almoxarifado/mod.rs",
       "moduleKey": "estoque_almoxarifado",
@@ -5099,6 +5491,16 @@
     },
     {
       "path": "/api/almox/items/search",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/estoque/almoxarifado/mod.rs",
+      "moduleKey": "estoque_almoxarifado",
+      "summary": "Almoxarifado ops (itens, movimentos, equipamentos)",
+      "auth": "module"
+    },
+    {
+      "path": "/api/almox/maintenances",
       "methods": [
         "GET"
       ],
@@ -5620,6 +6022,36 @@
       "auth": "module"
     },
     {
+      "path": "/api/hub/compras/itens-solicitados",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/hub_api/compras.rs",
+      "moduleKey": "compras_quotations",
+      "summary": "Hub compras: cotações, itens, demandas, imports",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/compras/listas",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/hub_api/compras.rs",
+      "moduleKey": "compras_quotations",
+      "summary": "Hub compras: cotações, itens, demandas, imports",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/compras/listas/:id",
+      "methods": [
+        "GET"
+      ],
+      "source": "Backend/src/modules/hub_api/compras.rs",
+      "moduleKey": "compras_quotations",
+      "summary": "Hub compras: cotações, itens, demandas, imports",
+      "auth": "module"
+    },
+    {
       "path": "/api/hub/compras/online-orders/:id",
       "methods": [
         "DELETE"
@@ -5631,16 +6063,6 @@
     },
     {
       "path": "/api/hub/compras/pinned-subcategories",
-      "methods": [
-        "GET"
-      ],
-      "source": "Backend/src/modules/hub_api/compras.rs",
-      "moduleKey": "compras_quotations",
-      "summary": "Hub compras: cotações, itens, demandas, imports",
-      "auth": "module"
-    },
-    {
-      "path": "/api/hub/compras/quotations",
       "methods": [
         "GET"
       ],
@@ -5703,6 +6125,16 @@
       "path": "/api/hub/compras/suppliers/:id/history",
       "methods": [
         "GET"
+      ],
+      "source": "Backend/src/modules/hub_api/compras.rs",
+      "moduleKey": "compras_quotations",
+      "summary": "Hub compras: cotações, itens, demandas, imports",
+      "auth": "module"
+    },
+    {
+      "path": "/api/hub/compras/suppliers/unify",
+      "methods": [
+        "POST"
       ],
       "source": "Backend/src/modules/hub_api/compras.rs",
       "moduleKey": "compras_quotations",
@@ -6546,6 +6978,10 @@
       "path": "Frontend/src/modules/administrativo/AdministrativoView.tsx"
     },
     {
+      "view": "AcompanhamentoProducaoView.tsx",
+      "path": "Frontend/src/modules/administrativo/acompanhamento_producao/AcompanhamentoProducaoView.tsx"
+    },
+    {
       "view": "FuncionariosView.tsx",
       "path": "Frontend/src/modules/administrativo/funcionarios/FuncionariosView.tsx"
     },
@@ -6584,6 +7020,10 @@
     {
       "view": "AlmoxarifadoView.tsx",
       "path": "Frontend/src/modules/estoque/almoxarifado/AlmoxarifadoView.tsx"
+    },
+    {
+      "view": "EquipamentosView.tsx",
+      "path": "Frontend/src/modules/estoque/equipamentos/EquipamentosView.tsx"
     },
     {
       "view": "EstoqueView.tsx",
@@ -6900,6 +7340,22 @@
       "id": "034_hub_chat_groups_passwords"
     },
     {
+      "file": "Backend/supabase/035_suppliers_unification.sql",
+      "id": "035_suppliers_unification"
+    },
+    {
+      "file": "Backend/supabase/036_compras_listas_solicitacao.sql",
+      "id": "036_compras_listas_solicitacao"
+    },
+    {
+      "file": "Backend/supabase/037_lote_custom_status.sql",
+      "id": "037_lote_custom_status"
+    },
+    {
+      "file": "Backend/supabase/038_equipamentos_parque.sql",
+      "id": "038_equipamentos_parque"
+    },
+    {
       "file": "Backend/supabase/20260819_create_procs_produtos.sql",
       "id": "20260819_create_procs_produtos"
     }
@@ -6950,9 +7406,9 @@
     "AGENTS.md"
   ],
   "stats": {
-    "httpRouteEntries": 157,
-    "migrations": 36,
-    "frontendViews": 46,
+    "httpRouteEntries": 172,
+    "migrations": 40,
+    "frontendViews": 48,
     "modules": 45,
     "edges": 71
   }

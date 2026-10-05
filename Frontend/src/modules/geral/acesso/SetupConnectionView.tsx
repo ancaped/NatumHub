@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import {
   Monitor, Loader2, ArrowRight, AlertTriangle, CheckCircle2, Server, Laptop, Database,
 } from 'lucide-react';

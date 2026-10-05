@@ -1,13 +1,13 @@
 ---
 name: natumhub-erp-sql
 description: >-
-  Integração ERP NatumHub: sync SQL Server → PostgreSQL, legacy_db, queries em
+  Integração ERP Nexus: sync SQL Server → PostgreSQL, legacy_db, queries em
   erp-import/sql, PASSOS, DESTINO-POSTGRES, scheduler e settings sql_*.
   Use quando o usuário pedir sync ERP, importação SQL, legacy_db, query ERP,
   passo A-P, tabelas destino Postgres, agenda de sync ou conexão SQL Server.
 ---
 
-# NatumHub — Skill: Integração ERP / SQL
+# Nexus — Skill: Integração ERP / SQL
 
 ## Quando usar
 

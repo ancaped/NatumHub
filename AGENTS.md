@@ -1,8 +1,10 @@
-# NatumHub — instruções para agentes de IA
+# Nexus — Instruções para Agentes de IA
+
+O produto se chama **Nexus**. Skills internas ainda usam o prefixo `natumhub-*` (id da pasta). O database PostgreSQL continua `natumhub`. O repositório GitHub continua `ancaped/NatumHub`.
 
 Leia **`ContextoIA/INDEX.md`** antes de explorar o código.
 
-Idioma: **pt-BR**. Escopo mínimo; `cargo check --lib` + `npm run build`. Melhor parte = nenhuma parte.
+Idioma: **pt-BR**. Escopo mínimo; `cargo check --bin nexus-server --no-default-features` + `npm run build`. Melhor parte = nenhuma parte.
 
 ## Skills (`.cursor/skills/`)
 
@@ -25,20 +27,22 @@ Rota HTTP           → natumhub-api
 Genérico            → ContextoIA/inicio/gemini.md
 ```
 
-## Docs
+## Documentação Principal
 
 | Tema | Onde |
 |------|------|
-| Índice | `ContextoIA/INDEX.md` |
-| Fila de mudanças (mapa) | `/api/mapa/tasks` · export `task.md` |
-| Mapa arquitetura | `ContextoIA/arquitetura/mapa-app.html` |
-| Auth / rede | `ContextoIA/arquitetura/multi_usuario.md` |
-| API | `ContextoIA/api/routes.md` |
-| ERP | `erp-import/` |
-| Schema | `ContextoIA/banco-dados/database_blueprint.md` + `Backend/supabase/` |
-| Bugs | `Feedbacks/feedback.md` |
-| Instalação | `ContextoIA/devops/` · `.github/RELEASE.md` |
+| Índice Geral | `ContextoIA/INDEX.md` |
+| Migração CasaOS / Linux | `ContextoIA/devops/migracao_casaos_linux.md` |
+| Servidor Headless Axum | `ContextoIA/devops/instalacao_servidor.md` |
+| Conectividade Tailscale | `ContextoIA/devops/tailscale.md` |
+| Mapa de Arquitetura | `ContextoIA/arquitetura/mapa-app.html` |
+| Rotas da API | `ContextoIA/api/routes.md` |
+| Esquema do Banco | `ContextoIA/banco-dados/database_blueprint.md` + `Backend/supabase/` |
+| Sync ERP | `erp-import/` |
 
-## Stack
+## Stack Atual
 
-Tauri 2 (PC Principal) + React + Axum `:3001` (API + SPA) + **PostgreSQL** (`Saves/postgres.env`). Clientes: navegador em `http://natumhub.local:3001`. Produção = branch `main`. **Não** SQLite/`data.db`.
+- **Servidor:** Rust Axum `:3001` (API REST + Servidor de arquivos SPA `Frontend/dist`).
+- **Frontend:** React + TypeScript + Vite + Tailwind CSS.
+- **Acesso:** 100% Web no Navegador via `http://nexus.local:3001` ou IP Tailscale.
+- **Banco de Dados:** **PostgreSQL 17** (`Saves/postgres.env`). O database se chama `natumhub`.

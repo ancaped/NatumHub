@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight, CheckCircle2, FileSpreadsheet, Layers, Users } from 'lucide-react';
+import { ArrowRight, CheckCircle2, FileSpreadsheet, Layers, Users, Calendar } from 'lucide-react';
 import { canAccessView } from '../geral/lib/modules/permissions';
 import { getAuthUser } from '../geral/lib/auth';
 import { MODULE_KEYS } from '../geral/lib/modules/registry';
@@ -88,6 +88,29 @@ export default function AdministrativoView({ setView }: Props) {
                   <h3 className="text-xl font-bold text-zinc-900">Funcionários</h3>
                   <p className="text-sm text-zinc-500 mt-1">
                     Cadastro RH (CPF, endereço, datas), sessão ativa e atividade recente no sistema.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                Acessar <ArrowRight className="h-4 w-4" />
+              </div>
+            </button>
+          )}
+
+          {allow(MODULE_KEYS.ADMIN_ACOMPANHAMENTO_PRODUCAO) && (
+            <button
+              type="button"
+              onClick={() => setView('admin_acompanhamento_producao')}
+              className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between min-h-[220px] w-full cursor-pointer"
+            >
+              <div className="space-y-4">
+                <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                  <Calendar className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-zinc-900">Acompanhamento de Produção</h3>
+                  <p className="text-sm text-zinc-500 mt-1">
+                    Planilha de lotes e calendário industrial de etapas operacionais (Pesagem, Produção, Envase, Rotulagem e Finalizada).
                   </p>
                 </div>
               </div>

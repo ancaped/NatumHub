@@ -245,9 +245,8 @@ pub fn calculate_products(
             let disparo_val = disparo.unwrap_or(0);
             let objetivo_val = objetivo.unwrap_or(0);
             if estoque_futuro_com_producao <= disparo_val {
-                let diferenca = (disparo_val - estoque_futuro_com_producao).max(0);
                 let rec = if objetivo_val > 0 {
-                    objetivo_val + diferenca
+                    objetivo_val
                 } else {
                     (estoque_ideal_qtd - estoque_futuro_com_producao as f64).max(0.0).round() as i64
                 };
@@ -266,8 +265,12 @@ pub fn calculate_products(
                 ("abundante", "Abundante (Saindo de Linha)")
             };
             let rec = if st == "critico" || st == "ordem" {
-                let needed = (estoque_ideal_qtd - estoque_futuro_com_producao as f64).round() as i64;
-                if needed > 0 { needed } else { 0 }
+                if let Some(manual_val) = ovr.and_then(|o| o.estoque_ideal_manual) {
+                    manual_val as i64
+                } else {
+                    let needed = (estoque_ideal_qtd - estoque_futuro_com_producao as f64).round() as i64;
+                    if needed > 0 { needed } else { 0 }
+                }
             } else {
                 0
             };
@@ -301,8 +304,12 @@ pub fn calculate_products(
                 ("abundante", "Abundante")
             };
             let rec = if st == "critico" || st == "ordem" {
-                let needed = (estoque_ideal_qtd - estoque_futuro_com_producao as f64).round() as i64;
-                if needed > 0 { needed } else { 0 }
+                if let Some(manual_val) = ovr.and_then(|o| o.estoque_ideal_manual) {
+                    manual_val as i64
+                } else {
+                    let needed = (estoque_ideal_qtd - estoque_futuro_com_producao as f64).round() as i64;
+                    if needed > 0 { needed } else { 0 }
+                }
             } else {
                 0
             };

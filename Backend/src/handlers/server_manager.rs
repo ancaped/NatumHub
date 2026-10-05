@@ -68,12 +68,70 @@ pub async fn get_server_status(State(state): State<Arc<AppState>>) -> impl IntoR
 }
 
 // POST /api/server-manager/restart
-pub async fn restart_server_handler() -> impl IntoResponse {
-    let mgr = global_server_manager();
+pub async fn restart_server_handler(
+    headers: axum::http::HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    let token = crate::modules::geral::auth::handlers::extract_bearer(&headers);
+    let is_sup = if let Some(t) = token {
+        match crate::modules::geral::auth::store::resolve_session(pool, &t).await {
+            Ok(Some(ctx)) => ctx.role.is_supervisor(),
+            _ => false,
+        }
+    } else {
+        false
+    };
+
+    if !is_sup {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "ok": false, "error": "Apenas o supervisor tem permissão para reiniciar o servidor." })),
+        ).into_response();
+    }
+
+    crate::server_manager::log_server("WARN", "Reinicialização do servidor solicitada pelo supervisor via aplicativo.").await;
+
     tokio::spawn(async move {
-        let _ = mgr.restart_server().await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
+
+        #[cfg(target_os = "windows")]
+        {
+            if std::env::var("NEXUS_RESTART_LOOP").is_ok() {
+                std::process::exit(42);
+            } else {
+                let pid = std::process::id();
+                let ps_cmd = format!(
+                    "Start-Sleep -Milliseconds 600; \
+                     Stop-Process -Id {} -Force -ErrorAction SilentlyContinue; \
+                     Get-NetTCPConnection -LocalPort 3001 -State Listen -ErrorAction SilentlyContinue | ForEach-Object {{ Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }}; \
+                     Start-Process -FilePath 'cmd.exe' -ArgumentList '/c server.bat' -WorkingDirectory 'C:\\api'",
+                    pid
+                );
+
+                use std::os::windows::process::CommandExt;
+                let mut cmd = std::process::Command::new("powershell");
+                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                cmd.args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps_cmd]);
+                let _ = cmd.spawn();
+
+                std::process::exit(0);
+            }
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            std::process::exit(42);
+        }
     });
-    Json(json!({ "ok": true, "message": "Reinicialização do servidor iniciada." }))
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "ok": true,
+            "message": "Servidor reiniciando. Aguarde alguns segundos enquanto a conexão é restabelecida."
+        })),
+    ).into_response()
 }
 
 // POST /api/server-manager/stop

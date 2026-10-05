@@ -8,8 +8,6 @@ pub mod chat;
 pub mod mapa;
 pub mod notifications;
 pub mod postgres_bootstrap;
-#[cfg(feature = "desktop")]
-pub mod build_info;
 
 pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
     axum::Router::new()

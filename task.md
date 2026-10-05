@@ -1,4 +1,4 @@
-# NatumHub — Task queue
+# Nexus — Task queue
 
 > **Agente:** preferir `GET /api/mapa/tasks?status=open` (Postgres). Fallback: itens em **Open** abaixo.
 > Ao concluir: `PATCH /api/mapa/tasks/:id` `{ "status":"done" }` **ou** marcar md (`Status: done`, mover para **Done`).

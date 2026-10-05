@@ -19,6 +19,7 @@ import ComprasView from './modules/compras/planejamento/ComprasView';
 import ComprasOnlineView from './modules/compras/compras_online/ComprasOnlineView';
 import EstoqueView from './modules/estoque/estoque_geral/EstoqueView';
 import EstoqueOpsView from './modules/estoque/ops/EstoqueOpsView';
+import EquipamentosView from './modules/estoque/equipamentos/EquipamentosView';
 import OrdensManuaisView from './modules/estoque/ordens_manuais/OrdensManuaisView';
 import PedidosView from './modules/compras/controle_pedidos/PedidosView';
 import NotasFiscaisView from './modules/compras/notas_fiscais/NotasFiscaisView';
@@ -27,6 +28,7 @@ import ActiveProductsView from './modules/administrativo/linha_produtos/ActivePr
 import RelatoriosView from './modules/administrativo/relatorios/RelatoriosView';
 import ProdutosAtivosRelatoriosView from './modules/administrativo/produtos_ativos_relatorios/ProdutosAtivosRelatoriosView';
 import FuncionariosView from './modules/administrativo/funcionarios/FuncionariosView';
+import AcompanhamentoProducaoView from './modules/administrativo/acompanhamento_producao/AcompanhamentoProducaoView';
 import VendasView from './modules/vendas/vendas_geral/VendasView';
 import VendasOnlineView from './modules/vendas/vendas_online/VendasOnlineView';
 import ControleQualidadeView from './modules/qualidade/controle/ControleQualidadeView';
@@ -68,7 +70,7 @@ import {
   ensureBrowserClientConfig,
 } from './modules/geral/lib/connectionConfig';
 
-type HubView = 'hub' | 'producao_hub' | 'producao' | 'producao_bases' | 'producao_lotes' | 'producao_proc' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'compras_almoxarifado' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'mapa_arquitetura' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_ordens_manuais' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'qualidade_hub' | 'controle_qualidade' | 'qualidade_devolucoes' | 'qualidade_pops' | 'qualidade_treinamentos' | 'qualidade_temperatura' | 'qualidade_limpeza' | 'qualidade_recebimento_mp' | 'qualidade_documentacao' | 'administrativo' | 'admin_linha_produtos' | 'admin_produtos_ativos_relatorios' | 'admin_funcionarios' | 'expedicao_hub' | 'expedicao_ecommerce' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro' | 'ferramentas_hub' | 'ferramentas_etiquetas' | 'ferramentas_editor' | 'ferramentas_impressoras';
+type HubView = 'hub' | 'producao_hub' | 'producao' | 'producao_bases' | 'producao_lotes' | 'producao_proc' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'compras_almoxarifado' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'mapa_arquitetura' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_ordens_manuais' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'qualidade_hub' | 'controle_qualidade' | 'qualidade_devolucoes' | 'qualidade_pops' | 'qualidade_treinamentos' | 'qualidade_temperatura' | 'qualidade_limpeza' | 'qualidade_recebimento_mp' | 'qualidade_documentacao' | 'administrativo' | 'admin_linha_produtos' | 'admin_produtos_ativos_relatorios' | 'admin_funcionarios' | 'admin_acompanhamento_producao' | 'expedicao_hub' | 'expedicao_ecommerce' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro' | 'ferramentas_hub' | 'ferramentas_etiquetas' | 'ferramentas_editor' | 'ferramentas_impressoras';
 
 const getInitialView = (): HubView => {
   if (typeof window !== 'undefined') {
@@ -679,7 +681,7 @@ export default function App() {
               <div>
                 <h1 className="font-bold text-lg tracking-tight">Almoxarifado</h1>
                 <p className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">
-                  Consumíveis, supermercado, peças e manutenções
+                  Consumíveis, supermercado e parque de máquinas
                 </p>
               </div>
             </div>
@@ -759,11 +761,11 @@ export default function App() {
                   <div className="space-y-4">
                     <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Settings className="h-6 w-6" /></div>
                     <div>
-                      <h3 className="text-xl font-bold text-zinc-900">Peças</h3>
+                      <h3 className="text-xl font-bold text-zinc-900">Peças de reposição</h3>
                       <p className="text-sm text-zinc-500 mt-1">
-                        {almoxStats 
-                          ? `${almoxStats.totalPecasItems} peças de reposição cadastradas.` 
-                          : 'Reposição com vida útil e próxima troca.'
+                        {almoxStats
+                          ? `${almoxStats.totalPecasItems} itens no catálogo, com estoque e vida útil.`
+                          : 'Catálogo com vínculo ERP, saldo e vida útil.'
                         }
                       </p>
                     </div>
@@ -771,11 +773,18 @@ export default function App() {
                   <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
                 </button>
               )}
-              {allow('estoque_equipamentos') && (
-                <button onClick={() => setView('estoque_equipamentos')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
-                  {almoxStats && (almoxStats.equipmentsInMaintenance > 0 || almoxStats.equipmentsStopped > 0) && (
+              {(allow('estoque_equipamentos') || allow('estoque_manutencoes')) && (
+                <button
+                  onClick={() => setView(allow('estoque_equipamentos') ? 'estoque_equipamentos' : 'estoque_manutencoes')}
+                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer"
+                >
+                  {almoxStats && (almoxStats.openMaintenances > 0 || almoxStats.equipmentsStopped > 0 || almoxStats.equipmentsInMaintenance > 0) && (
                     <span className="absolute top-4 right-4 bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold px-2.5 py-1 rounded-full">
-                      {almoxStats.equipmentsStopped > 0 ? `${almoxStats.equipmentsStopped} parado(s)` : `${almoxStats.equipmentsInMaintenance} em manut.`}
+                      {almoxStats.openMaintenances > 0
+                        ? `${almoxStats.openMaintenances} OS em aberto`
+                        : almoxStats.equipmentsStopped > 0
+                          ? `${almoxStats.equipmentsStopped} parado(s)`
+                          : `${almoxStats.equipmentsInMaintenance} em manut.`}
                     </span>
                   )}
                   <div className="space-y-4">
@@ -783,31 +792,9 @@ export default function App() {
                     <div>
                       <h3 className="text-xl font-bold text-zinc-900">Equipamentos</h3>
                       <p className="text-sm text-zinc-500 mt-1">
-                        {almoxStats 
-                          ? `${almoxStats.totalEquipments} máquinas no parque.` 
-                          : 'Parque de máquinas e vínculos com peças.'
-                        }
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
-                </button>
-              )}
-              {allow('estoque_manutencoes') && (
-                <button onClick={() => setView('estoque_manutencoes')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
-                  {almoxStats && almoxStats.openMaintenances > 0 && (
-                    <span className="absolute top-4 right-4 bg-zinc-100 text-zinc-700 border border-zinc-200 text-[10px] font-bold px-2.5 py-1 rounded-full">
-                      {almoxStats.openMaintenances} em aberto
-                    </span>
-                  )}
-                  <div className="space-y-4">
-                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><ClipboardList className="h-6 w-6" /></div>
-                    <div>
-                      <h3 className="text-xl font-bold text-zinc-900">Manutenções</h3>
-                      <p className="text-sm text-zinc-500 mt-1">
-                        {almoxStats && almoxStats.openMaintenances > 0 
-                          ? `${almoxStats.openMaintenances} ordens de manutenção ativas.` 
-                          : 'Ordens preventivas, corretivas e preditivas.'
+                        {almoxStats
+                          ? `${almoxStats.totalEquipments} máquinas — ficha, manutenções e peças associadas.`
+                          : 'Parque, histórico de OS, agenda e peças de cada máquina.'
                         }
                       </p>
                     </div>
@@ -880,13 +867,22 @@ export default function App() {
       );
     }
 
+    if (view === 'estoque_equipamentos' || view === 'estoque_manutencoes') {
+      return (
+        <ErrorBoundary onReset={() => setView('almoxarifado_hub')} fallbackTitle="Erro no parque de equipamentos">
+          <EquipamentosView
+            onBackToHub={() => setView('almoxarifado_hub')}
+            initialTab={view === 'estoque_manutencoes' ? 'agenda' : 'parque'}
+          />
+        </ErrorBoundary>
+      );
+    }
+
     if (
       view === 'estoque_itens' ||
       view === 'estoque_almoxarifado' ||
       view === 'estoque_supermercado' ||
       view === 'estoque_pecas' ||
-      view === 'estoque_equipamentos' ||
-      view === 'estoque_manutencoes' ||
       view === 'estoque_movimentacoes'
     ) {
       const opsMode =
@@ -898,11 +894,7 @@ export default function App() {
               ? 'supermercado'
               : view === 'estoque_pecas'
                 ? 'pecas'
-                : view === 'estoque_equipamentos'
-                  ? 'equipamentos'
-                  : view === 'estoque_manutencoes'
-                    ? 'manutencoes'
-                    : 'movimentacoes';
+                : 'movimentacoes';
       return (
         <ErrorBoundary onReset={() => setView('almoxarifado_hub')} fallbackTitle="Erro no Almoxarifado">
           <EstoqueOpsView
@@ -962,6 +954,14 @@ export default function App() {
       return (
         <ErrorBoundary onReset={() => setView('administrativo')} fallbackTitle="Erro no módulo de Funcionários">
           <FuncionariosView onBackToHub={() => setView('administrativo')} />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'admin_acompanhamento_producao') {
+      return (
+        <ErrorBoundary onReset={() => setView('administrativo')} fallbackTitle="Erro no módulo de Acompanhamento de Produção">
+          <AcompanhamentoProducaoView onBack={() => setView('administrativo')} />
         </ErrorBoundary>
       );
     }

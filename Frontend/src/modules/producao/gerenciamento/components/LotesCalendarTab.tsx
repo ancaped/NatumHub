@@ -83,21 +83,37 @@ function parseLoteDateToIso(dateStr: string): string | null {
   return null;
 }
 
-const getStatusBadgeClass = (status: string) => {
-  switch ((status || '').toUpperCase()) {
+export function getLoteStage(l: { status?: string; customStatus?: string | null }): string {
+  if (l.customStatus) {
+    const cs = l.customStatus.toLowerCase();
+    if (cs.includes('pesagem')) return 'PG';
+    if (cs.includes('produç') || cs.includes('produc')) return 'PR';
+    if (cs.includes('envase')) return 'EN';
+    if (cs.includes('rotulagem') || cs.includes('confer')) return 'CF';
+    if (cs.includes('finaliz')) return 'EA';
+    if (cs.includes('espera')) return 'ES';
+  }
+  return (l.status || '').toUpperCase();
+}
+
+const getStatusBadgeClass = (status: string, customStatus?: string | null) => {
+  const st = getLoteStage({ status, customStatus });
+  switch (st) {
     case 'EA': return 'saudavel';
     case 'CF': return 'abundante';
     case 'PG':
     case 'PP':
     case 'PR':
     case 'EN': return 'ordem';
+    case 'ES':
     case 'CA': return 'critico';
     case 'FP': return 'saudavel';
     default: return 'abundante';
   }
 };
 
-const getStatusLabel = (status: string) => {
+const getStatusLabel = (status: string, customStatus?: string | null) => {
+  if (customStatus) return customStatus;
   switch ((status || '').toUpperCase()) {
     case 'EA': return 'Estoque Atualizado';
     case 'PG': return 'Em Pesagem';
@@ -107,6 +123,7 @@ const getStatusLabel = (status: string) => {
     case 'CF': return 'Conferido';
     case 'CA': return 'Cancelado';
     case 'FP': return 'Finalizado';
+    case 'ES': return 'Em Espera';
     default: return status || 'N/A';
   }
 };
@@ -136,7 +153,7 @@ export function LotesCalendarTab({
     let erros = 0;
 
     for (const l of lotes) {
-      const st = (l.status || '').toUpperCase();
+      const st = getLoteStage(l);
       if (st === 'PG') pesagem++;
       else if (st === 'PP') preProducao++;
       else if (st === 'PR') producao++;
@@ -423,7 +440,7 @@ export function LotesCalendarTab({
     if (!selectedDayInfo) return [];
     if (statusFilter === 'ALL') return selectedDayInfo.lotes;
     return selectedDayInfo.lotes.filter((l) => {
-      const st = (l.status || '').toUpperCase();
+      const st = getLoteStage(l);
       if (statusFilter === 'PG') return st === 'PG';
       if (statusFilter === 'PP_PR') return st === 'PP' || st === 'PR';
       if (statusFilter === 'EN') return st === 'EN';
@@ -512,8 +529,8 @@ export function LotesCalendarTab({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <span className="font-mono font-bold text-zinc-900">#{l.loteNumber}</span>
-                      <span className={`status-badge ${getStatusBadgeClass(l.status)}`} style={{ fontSize: '9px', padding: '1px 5px' }}>
-                        {getStatusLabel(l.status)}
+                      <span className={`status-badge ${getStatusBadgeClass(l.status, l.customStatus)}`} style={{ fontSize: '9px', padding: '1px 5px' }}>
+                        {getStatusLabel(l.status, l.customStatus)}
                       </span>
                     </div>
                     <span className="text-[10px] text-zinc-500 truncate block">
@@ -829,8 +846,8 @@ export function LotesCalendarTab({
                           #{l.loteNumber}
                         </span>
                         <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                          <span className={`status-badge ${getStatusBadgeClass(l.status)}`} style={{ fontSize: '9px', padding: '2px 6px' }}>
-                            {getStatusLabel(l.status)}
+                          <span className={`status-badge ${getStatusBadgeClass(l.status, l.customStatus)}`} style={{ fontSize: '9px', padding: '2px 6px' }}>
+                            {getStatusLabel(l.status, l.customStatus)}
                           </span>
                           {l.isResolved && (
                             <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded text-[8px] font-extrabold">

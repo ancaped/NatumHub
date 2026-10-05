@@ -42,6 +42,10 @@ export function canAccessView(user: AuthUser | null, view: string): boolean {
     );
   }
 
+  if (view === 'estoque_equipamentos' || view === 'estoque_manutencoes') {
+    return modules.includes('estoque_equipamentos') || modules.includes('estoque_manutencoes');
+  }
+
   const key = viewToModuleKey(view);
   if (key) {
     if (key === 'expedicao_ecommerce') {

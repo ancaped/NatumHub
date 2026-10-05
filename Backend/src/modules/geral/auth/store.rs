@@ -14,7 +14,12 @@ const SESSION_DAYS: i64 = 30;
 const MIN_SUPERVISOR_PASSWORD_LEN: usize = 8;
 const MIN_OPERATOR_PASSWORD_LEN: usize = 4;
 
+static AUTH_INIT_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub async fn init_auth_tables(pool: &PgPool) -> Result<(), String> {
+    if AUTH_INIT_DONE.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(());
+    }
     seed_default_operators(pool).await?;
     migrate_operator_modules(pool).await?;
     migrate_operator_modules_access_level(pool).await?;
@@ -25,6 +30,7 @@ pub async fn init_auth_tables(pool: &PgPool) -> Result<(), String> {
     migrate_kit_composicao_schema(pool).await?;
     migrate_overrides_programadas_schema(pool).await?;
     let _ = ensure_supervisor_password_ready(pool).await;
+    AUTH_INIT_DONE.store(true, std::sync::atomic::Ordering::Relaxed);
     Ok(())
 }
 
@@ -1263,11 +1269,15 @@ pub fn is_public_path(path: &str) -> bool {
         || path == "/api/hub/public-config"
         || path.starts_with("/api/hub/feedbacks")
         || path.starts_with("/api/chat")
-        || path.starts_with("/api/server-manager")
+        || path == "/api/server-manager/status"
+        || path == "/api/server-manager/links"
         || path.starts_with("/api/google/callback")
 }
 
 pub fn requires_supervisor(path: &str, method: &str) -> bool {
+    if path.starts_with("/api/server-manager") {
+        return matches!(method, "POST" | "PUT" | "DELETE");
+    }
     if path.starts_with("/api/mapa") {
         return matches!(method, "GET" | "POST" | "PUT" | "PATCH" | "DELETE");
     }

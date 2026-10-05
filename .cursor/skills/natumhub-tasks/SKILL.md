@@ -1,19 +1,19 @@
 ---
 name: natumhub-tasks
 description: >-
-  Executa a fila canônica do NatumHub: preferir GET /api/mapa/tasks?status=open
+  Executa a fila canônica do Nexus: preferir GET /api/mapa/tasks?status=open
   (Postgres); senão task.md. Aplica mudanças nos targets (version_bump,
   module_curated, module_spec, generic), marca done via PATCH + activity e
   exporta task.md se pedido. Use quando o usuário mencionar task.md, @task.md,
   "executa as tasks", "fila do mapa" ou colar conteúdo da task queue.
 ---
 
-# NatumHub — Skill: Task queue (API + `task.md`)
+# Nexus — Skill: Task queue (API + `task.md`)
 
 ## Quando usar
 
 - Usuário menciona `task.md`, `@task.md`, “faz a fila”, “executa Open”
-- Conteúdo colado com heading `# NatumHub — Task queue`
+- Conteúdo colado com heading `# Nexus — Task queue`
 - Tasks criadas no Hub **Mapa operacional** / `POST /api/mapa/modules`
 
 ## Fonte da verdade

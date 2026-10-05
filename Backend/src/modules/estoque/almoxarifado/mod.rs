@@ -68,7 +68,7 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route(
             "/api/almox/equipments/:id",
-            put(handlers::update_equipment),
+            get(handlers::get_equipment).put(handlers::update_equipment),
         )
         .route(
             "/api/almox/maintenances",

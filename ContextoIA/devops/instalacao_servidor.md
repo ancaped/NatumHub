@@ -1,133 +1,82 @@
-# NatumHub — servidor headless (Windows agora, Linux depois)
+# Nexus — Servidor Headless (Windows & Linux)
 
-API Axum + SPA no navegador **sem janela Tauri**. Mesmo binário `natumhub-server` nos dois SOs.
+O servidor do Nexus é headless: uma API Axum em Rust na porta `3001` serve a API e a SPA no navegador.
 
-Acesso remoto nesta fase: **somente Tailscale** — ver [tailscale.md](tailscale.md). Não exponha `:3001` na internet pública.
+---
 
-## O que sobe
+## 1. Arquitetura do Servidor
 
-| Componente | Papel |
+| Componente | Função |
 |------------|--------|
-| `natumhub-server-manager` | **Executável com Painel Visual** (Axum `0.0.0.0:3001`, IPs de rede, terminais conectados, logs em tempo real e auto-start no Windows) |
-| `natumhub-server` | Axum `0.0.0.0:3001` (API + `Frontend/dist` sem interface/headless para serviços) |
-| PostgreSQL | Obrigatório (`Saves/postgres.env` ou `NATUMHUB_DATA_DIR`) |
-| App Tauri | **Opcional** — wizard/UI local; não rode junto com o servidor (mesma porta) |
+| `nexus-server` | Binário Rust com Axum `0.0.0.0:3001` (atende rotas `/api/...` e entrega os arquivos estáticos de `Frontend/dist`). |
+| PostgreSQL | Banco de dados relacional (`Saves/postgres.env`). Pode ser local ou remoto (CasaOS / Linux). |
+| Navegador Web | Clientes acessam via `http://nexus.local:3001` ou `<IP_DO_SERVIDOR>:3001`. |
 
-Clientes e supervisor: navegador → `http://natumhub.local:3001` ou IP da rede local.
+---
 
-## Variáveis de ambiente
+## 2. Variáveis de Ambiente
 
-| Variável | Uso |
-|----------|-----|
-| `NATUMHUB_DATA_DIR` | Raiz de dados (cria/usa `Saves/` com `postgres.env`, backups, docs) |
-| `NATUMHUB_FRONTEND_DIST` | Pasta do SPA (`index.html`) se não estiver no repo |
-| `RUST_LOG` | Ex.: `info` (padrão no binário) |
+| Variável | Padrão | Descrição |
+|----------|--------|-----------|
+| `NEXUS_DATA_DIR` | `<repo>/Saves` ou `~/.local/share/nexus/Saves` | Diretório contendo `postgres.env` e `client_config.json`. |
+| `NEXUS_FRONTEND_DIST` | `Frontend/dist` | Pasta dos arquivos buildados do React SPA (`index.html`). |
+| `DATABASE_URL` | Lida de `Saves/postgres.env` | String de conexão com o PostgreSQL. |
+| `RUST_LOG` | `info` | Nível de logs do Tracing. |
 
-Sem `NATUMHUB_DATA_DIR`: no repo usa `<repo>/Saves`; no Windows instalado `%LOCALAPPDATA%\…\Saves`; no Linux `~/.local/share/natumhub/Saves`.
+*(Nota: Variáveis legadas `NATUMHUB_DATA_DIR` e `NATUMHUB_FRONTEND_DIST` continuam funcionando como fallback).*
 
-## Windows (Painel Visual do Servidor)
+---
 
-No repo: `NatumHub-Server.bat` ou o executável `natumhub-server-manager.exe` abre o painel gráfico com controle de status, logs, IPs locais e PCs conectados.
+## 3. Execução no Windows
 
-Pré-requisitos: Postgres no ar, schema aplicado, `Frontend` buildado.
+Para desenvolvimento ou servidor local no Windows:
+- **Via Script:** Execute `Nexus-Server.bat` na raiz do projeto.
+- **Compilação Manual:**
+  ```powershell
+  cd C:\api\Backend
+  cargo run --release --bin nexus-server --no-default-features
+  ```
 
-```powershell
-cd C:\api\Frontend
-npm run build
-cd ..\Backend
-cargo build --release --bin natumhub-server-manager --no-default-features
-```
+---
 
-Executável: `C:\api\natumhub-server-manager.exe` (ou `C:\api\release\natumhub-server-manager.exe`).
+## 4. Execução no Linux / Servidor Dedicado
 
-Recursos do Painel do Servidor:
-1. **Status em Tempo Real**: Porta 3001, Uptime, Conexão PostgreSQL.
-2. **Links de Conexão**: IP local Wi-Fi/Cabo, `natumhub.local:3001` e Tailscale com botão "Copiar Link".
-3. **PCs Conectados**: Lista em tempo real com nome do computador, IP, operador logado e status online/offline.
-4. **Console de Logs**: Streaming de eventos HTTP, filtros de busca, copiar e limpar.
-5. **Iniciar com o Windows**: Switch para ativar/desativar inicialização automática no boot do Windows.
-6. **Ações**: Abrir no Navegador, Disparar Sync ERP, Abrir pasta Saves.
-
-```powershell
-# Exemplo com dados do repo
-$env:NATUMHUB_DATA_DIR = "C:\api"
-# ou aponte Saves diretamente via pasta pai; o binário resolve Saves/
-.\natumhub-server.exe
-```
-
-Teste: `http://127.0.0.1:3001/api/health` e login supervisor no browser.
-
-### Rodar sem console (Task Scheduler)
-
-1. Agendador de Tarefas → Criar tarefa → **Executar estando o usuário conectado ou não** (ou no logon).
-2. Ação: iniciar `natumhub-server.exe`.
-3. Iniciar em: pasta do exe (ou defina `NATUMHUB_DATA_DIR` / `NATUMHUB_FRONTEND_DIST` nas variáveis da tarefa).
-4. Firewall: inbound TCP **3001**.
-
-Alternativa: [NSSM](https://nssm.cc/) como serviço Windows apontando para o mesmo exe.
-
-**Não** use o app Tauri master ao mesmo tempo.
-
-## Linux (quando migrar)
-
-No servidor:
-
+### Build do binário no Linux:
 ```bash
-# build (sem WebView/Tauri)
-cd Frontend && npm ci && npm run build && cd ..
 cd Backend
-cargo build --release --bin natumhub-server --no-default-features
-sudo install -m 755 target/release/natumhub-server /usr/local/bin/natumhub-server
-sudo mkdir -p /var/lib/natumhub/Saves /var/lib/natumhub/frontend-dist
-sudo cp -r ../Frontend/dist/* /var/lib/natumhub/frontend-dist/
-# copie postgres.env para /var/lib/natumhub/Saves/
+cargo build --release --bin nexus-server --no-default-features
 ```
 
-Unit systemd (`/etc/systemd/system/natumhub.service`):
-
+### Serviço Systemd (`/etc/systemd/system/nexus.service`):
 ```ini
 [Unit]
-Description=NatumHub API + SPA
-After=network.target postgresql.service
-Wants=postgresql.service
+Description=Nexus Industrial Hub - Servidor Headless
+After=network.target docker.service
 
 [Service]
 Type=simple
-User=natumhub
-Group=natumhub
-Environment=NATUMHUB_DATA_DIR=/var/lib/natumhub
-Environment=NATUMHUB_FRONTEND_DIST=/var/lib/natumhub/frontend-dist
-Environment=RUST_LOG=info
-ExecStart=/usr/local/bin/natumhub-server
-Restart=on-failure
+User=nexus
+WorkingDirectory=/opt/nexus
+ExecStart=/opt/nexus/nexus-server
+Restart=always
 RestartSec=5
+Environment=NEXUS_DATA_DIR=/opt/nexus/Saves
+Environment=NEXUS_FRONTEND_DIST=/opt/nexus/Frontend/dist
+Environment=RUST_LOG=info
 
 [Install]
 WantedBy=multi-user.target
 ```
 
+Ativação do serviço:
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now natumhub
-curl -s http://127.0.0.1:3001/api/health
+sudo systemctl enable --now nexus
 ```
 
-Instale Tailscale no servidor; nos clientes use `http://<ip-ou-hostname-tailscale>:3001`.
+---
 
-## Atualizar
+## 5. Verificação de Saúde
 
-1. `git pull` (branch `main` em produção).
-2. `npm run build` em `Frontend/`.
-3. Rebuild do binário headless.
-4. Reinicie o processo/serviço (Task Scheduler / NSSM / systemd).
-5. Copie `Frontend/dist` se usar `NATUMHUB_FRONTEND_DIST` fora do repo.
-
-## Relação com o app desktop
-
-| Cenário | O que usar |
-|---------|------------|
-| Dev / wizard Postgres embutido | App Tauri (`desktop`, default) |
-| PC Principal 24/7 ou VPS | `natumhub-server` |
-| Terminais | Só navegador |
-
-Docs: [instalacao_via_repositorio.md](instalacao_via_repositorio.md) · [multi_usuario.md](../arquitetura/multi_usuario.md) · [tailscale.md](tailscale.md).
+- **Healthcheck:** `GET http://<IP>:3001/api/health` deve retornar `{"status":"ok"}`.
+- **Status detalhado:** `GET http://<IP>:3001/api/server-manager/status` exibe uptime, conexões e IPs disponíveis.

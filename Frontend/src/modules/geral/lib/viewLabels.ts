@@ -66,9 +66,8 @@ export function getModuleTitle(view: string): string {
     case 'estoque_pecas':
       return 'Almoxarifado > Peças de Reposição';
     case 'estoque_equipamentos':
-      return 'Almoxarifado > Equipamentos';
     case 'estoque_manutencoes':
-      return 'Almoxarifado > Manutenções';
+      return 'Almoxarifado > Equipamentos';
     case 'compras_almoxarifado':
       return 'Compras > Almoxarifado';
     case 'admin_linha_produtos':

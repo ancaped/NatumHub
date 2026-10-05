@@ -1015,7 +1015,7 @@ pub async fn export_task_md(pool: &PgPool) -> Result<String, String> {
     let open = list_tasks(pool, Some("open"), 200).await?;
     let done = list_tasks(pool, Some("done"), 100).await?;
     let mut out = String::from(
-        "# NatumHub — Task queue\n\n> Exportado de Postgres (`mapa_tasks`). Skill: `natumhub-tasks`.\n\n## Open\n\n",
+        "# Nexus — Task queue\n\n> Exportado de Postgres (`mapa_tasks`). Skill: `natumhub-tasks`.\n\n## Open\n\n",
     );
     if open.is_empty() {
         out.push_str("_(nenhuma task aberta)_\n\n");

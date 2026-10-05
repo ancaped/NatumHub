@@ -182,16 +182,19 @@ pub struct LoteDetalhes {
 }
 
 struct RawLote {
-            id: String,
-            lote_number: String,
-            product_code: String,
-            product_description: String,
-            quantity: f64,
-            date: String,
-            details: String,
-            is_resolved: Option<bool>,
-            resolution_obs: Option<String>,
-        }
+    id: String,
+    lote_number: String,
+    product_code: String,
+    product_description: String,
+    quantity: f64,
+    date: String,
+    details: String,
+    is_resolved: Option<bool>,
+    resolution_obs: Option<String>,
+    custom_status: Option<String>,
+    is_terceirizado: Option<bool>,
+    data_previsao: Option<String>,
+}
 
 #[derive(Debug, serde::Deserialize)]
 pub struct UpdateLotePayload {
@@ -666,7 +669,12 @@ pub async fn list_products(
         };
         let is_coloracao = root_cat == "cat_coloracao";
         let is_apoio = root_cat == "cat_apoio";
-        let is_base = root_cat == "cat_base" || p.status_produto.as_deref() == Some("bases") || p.status == "bases";
+        let is_base = root_cat == "cat_base" 
+            || p.status_produto.as_deref() == Some("bases") 
+            || p.status == "bases"
+            || p.codigo.contains(".36.")
+            || p.descricao.to_uppercase().starts_with("BASE ")
+            || p.descricao.to_uppercase().starts_with("PRE BASE ");
 
         if params.programadas_only == Some(true) || params.status.as_deref() == Some("programadas") {
             return p.is_producao_programada == Some(1);
@@ -701,6 +709,10 @@ pub async fn list_products(
             }
         }
 
+        if params.include_bases == Some(true) && is_base {
+            return true;
+        }
+
         if params.include_kits == Some(true) {
             if params.include_programadas != Some(true) && params.show_hidden != Some(true) && p.is_producao_programada == Some(1) {
                 return false;
@@ -723,6 +735,23 @@ pub async fn list_products(
     let visible_products: Vec<&crate::models::ProductCalculationResult> = computed
         .iter()
         .filter(|p| {
+            let cat_p = p.categoria_produto.as_deref().unwrap_or("");
+            let root_cat = if !cat_p.is_empty() {
+                resolve_root_category(cat_p, &category_parent_map)
+            } else {
+                "".to_string()
+            };
+            let is_base = root_cat == "cat_base"
+                || p.status_produto.as_deref() == Some("bases")
+                || p.status == "bases"
+                || p.codigo.contains(".36.")
+                || p.descricao.to_uppercase().starts_with("BASE ")
+                || p.descricao.to_uppercase().starts_with("PRE BASE ");
+
+            if is_base && (params.include_bases == Some(true) || params.categoria.as_deref() == Some("cat_base") || params.status.as_deref() == Some("bases") || params.status.as_deref() == Some("base")) {
+                return p.visivel.unwrap_or(1) != 0;
+            }
+
             let status = p.status_produto.as_deref().unwrap_or("ativo");
             !ignored_statuses.contains(&status.to_string()) && p.visivel.unwrap_or(1) != 0
         })
@@ -739,6 +768,23 @@ pub async fn list_products(
     let show_hidden = params.show_hidden.unwrap_or(false);
     if !show_hidden && !params.suspended_only.unwrap_or(false) && !is_programadas_view {
         computed.retain(|p| {
+            let cat_p = p.categoria_produto.as_deref().unwrap_or("");
+            let root_cat = if !cat_p.is_empty() {
+                resolve_root_category(cat_p, &category_parent_map)
+            } else {
+                "".to_string()
+            };
+            let is_base = root_cat == "cat_base"
+                || p.status_produto.as_deref() == Some("bases")
+                || p.status == "bases"
+                || p.codigo.contains(".36.")
+                || p.descricao.to_uppercase().starts_with("BASE ")
+                || p.descricao.to_uppercase().starts_with("PRE BASE ");
+
+            if is_base && (params.include_bases == Some(true) || params.categoria.as_deref() == Some("cat_base") || params.status.as_deref() == Some("bases") || params.status.as_deref() == Some("base")) {
+                return p.visivel.unwrap_or(1) != 0;
+            }
+
             let status = p.status_produto.as_deref().unwrap_or("ativo");
             !ignored_statuses.contains(&status.to_string()) && p.visivel.unwrap_or(1) != 0
         });
@@ -813,6 +859,9 @@ pub async fn list_products(
                         root_cat == "cat_base"
                             || p.status_produto.as_deref() == Some("bases")
                             || p.status == "bases"
+                            || p.codigo.contains(".36.")
+                            || p.descricao.to_uppercase().starts_with("BASE ")
+                            || p.descricao.to_uppercase().starts_with("PRE BASE ")
                     });
                 }
                 _ => {
@@ -833,7 +882,11 @@ pub async fn list_products(
                 };
                 root_cat == *cat
                     || (cat == "cat_base"
-                        && (p.status_produto.as_deref() == Some("bases") || p.status == "bases"))
+                        && (p.status_produto.as_deref() == Some("bases") 
+                            || p.status == "bases"
+                            || p.codigo.contains(".36.")
+                            || p.descricao.to_uppercase().starts_with("BASE ")
+                            || p.descricao.to_uppercase().starts_with("PRE BASE ")))
             });
         }
     }
@@ -1628,17 +1681,22 @@ pub async fn get_production_lotes(
     let pool = state.db.pool();
 
     let mut qb = sqlx::QueryBuilder::new(
-        "SELECT m.id, m.document_number, m.item_code, p.descricao, m.quantity, m.date, m.details, r.is_resolved, r.observations
+        "SELECT m.id, m.document_number, m.item_code, p.descricao, m.quantity, m.date, m.details, r.is_resolved, r.observations,
+                c.custom_status, c.is_terceirizado, to_char(c.data_previsao, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS data_previsao
          FROM stock_movements m
          LEFT JOIN produtos p ON m.item_code = p.codigo
          LEFT JOIN lote_error_resolutions r ON m.document_number = r.lote_number
+         LEFT JOIN lote_custom_status c ON m.document_number = c.lote_number
          WHERE m.item_type = 'produto' AND m.movement_type = 'entrada' AND m.date::timestamp <= NOW()",
     );
 
     if let Some(ref status) = params.status {
         if !status.is_empty() && status != "ALL" {
-            qb.push(" AND m.details LIKE ");
+            qb.push(" AND (m.details LIKE ");
             qb.push_bind(format!("%Status: {}%", status));
+            qb.push(" OR c.custom_status ILIKE ");
+            qb.push_bind(format!("%{}%", status));
+            qb.push(")");
         }
     }
 
@@ -1652,6 +1710,8 @@ pub async fn get_production_lotes(
             qb.push(" OR p.descricao LIKE ");
             qb.push_bind(like_arg.clone());
             qb.push(" OR m.details LIKE ");
+            qb.push_bind(like_arg.clone());
+            qb.push(" OR c.custom_status LIKE ");
             qb.push_bind(like_arg);
             qb.push(")");
         }
@@ -1685,6 +1745,9 @@ pub async fn get_production_lotes(
             details: row.get::<Option<String>, _>(6).unwrap_or_default(),
             is_resolved: is_resolved_int.map(|v| v == 1),
             resolution_obs: row.get(8),
+            custom_status: row.get(9),
+            is_terceirizado: row.get(10),
+            data_previsao: row.get(11),
         });
     }
 
@@ -1706,13 +1769,46 @@ pub async fn get_production_lotes(
             }
         }
 
+        // Se houver custom_status salvo no Acompanhamento de Produção, sincroniza com Gerenciamento de Produção!
+        if let Some(ref cs) = rl.custom_status {
+            match cs.as_str() {
+                "Pesagem" => status = "PG".to_string(),
+                "Produção" => status = "PR".to_string(),
+                "Envase" => status = "EN".to_string(),
+                "Rotulagem" => status = "CF".to_string(),
+                "Finalizada" => status = "EA".to_string(),
+                "Em Espera" => status = "ES".to_string(),
+                _ => {}
+            }
+        }
+
         if let Some(&idx) = lote_indices.get(&rl.lote_number) {
             let lote: &mut crate::models::ProductionLote = &mut grouped_lotes[idx];
             if !lote.product_code.contains(&rl.product_code) {
                 lote.product_code = format!("{} / {}", lote.product_code, rl.product_code);
                 lote.product_description = format!("{} / {}", lote.product_description, rl.product_description);
+                lote.quantity += rl.quantity;
             }
-            lote.quantity += rl.quantity;
+            if lote.custom_status.is_none() && rl.custom_status.is_some() {
+                lote.custom_status = rl.custom_status.clone();
+                if let Some(ref cs) = rl.custom_status {
+                    match cs.as_str() {
+                        "Pesagem" => lote.status = "PG".to_string(),
+                        "Produção" => lote.status = "PR".to_string(),
+                        "Envase" => lote.status = "EN".to_string(),
+                        "Rotulagem" => lote.status = "CF".to_string(),
+                        "Finalizada" => lote.status = "EA".to_string(),
+                        "Em Espera" => lote.status = "ES".to_string(),
+                        _ => {}
+                    }
+                }
+            }
+            if lote.data_previsao.is_none() && rl.data_previsao.is_some() {
+                lote.data_previsao = rl.data_previsao;
+            }
+            if lote.is_terceirizado.is_none() && rl.is_terceirizado.is_some() {
+                lote.is_terceirizado = rl.is_terceirizado;
+            }
         } else {
             let new_lote = crate::models::ProductionLote {
                 id: rl.id,
@@ -1742,6 +1838,9 @@ pub async fn get_production_lotes(
                 snap_estoque_ideal_qtd: None,
                 snap_demanda_ajustada: None,
                 observacoes: None,
+                custom_status: rl.custom_status,
+                is_terceirizado: rl.is_terceirizado,
+                data_previsao: rl.data_previsao,
             };
             lote_indices.insert(rl.lote_number, grouped_lotes.len());
             grouped_lotes.push(new_lote);
@@ -3605,6 +3704,7 @@ pub async fn delete_lote_resolution(
 #[derive(Debug, serde::Deserialize)]
 pub struct InsumosStatusParams {
     pub qty: Option<f64>,
+    pub bulk_kg: Option<f64>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -3642,14 +3742,14 @@ pub struct ProductInsumosStatusResponse {
     pub ingredients: Vec<InsumoStatusDetail>,
 }
 
-// GET /api/producao/insumos-status/:code?qty=...
+// GET /api/producao/insumos-status/:code?qty=...&bulk_kg=...
 pub async fn get_insumos_status(
     State(state): State<Arc<AppState>>,
     Path(code): Path<String>,
     Query(params): Query<InsumosStatusParams>,
 ) -> impl IntoResponse {
     let pool = state.db.pool();
-    let batch_qty = params.qty.unwrap_or(100.0).max(1.0);
+    let raw_batch_qty = params.qty.unwrap_or(100.0).max(1.0);
 
     let clean_code = code.trim().replace('"', "");
     let query_form = r#"
@@ -3691,7 +3791,7 @@ pub async fn get_insumos_status(
             StatusCode::OK,
             Json(ProductInsumosStatusResponse {
                 product_code: clean_code,
-                batch_qty,
+                batch_qty: raw_batch_qty,
                 has_formulation: false,
                 all_in_stock: false,
                 missing_count: 0,
@@ -3702,6 +3802,37 @@ pub async fn get_insumos_status(
         )
             .into_response();
     }
+
+    // Calcula a massa total de matéria-prima química na formulação (excluindo embalagens)
+    let formula_chemical_mass: f64 = rows.iter().filter_map(|r| {
+        let ing: String = r.get(0);
+        let desc: String = r.get(1);
+        let qty: f64 = r.get(2);
+        let desc_up = desc.to_uppercase();
+        let is_emb = ing.starts_with("9.02.") || ing.starts_with("9.04.") || ing.starts_with("9.06.") 
+            || ing.starts_with("9.09.") || ing.starts_with("9.11.") || ing.starts_with("9.29.") 
+            || ing.starts_with("9.32.") || ing.starts_with("9.30.") || ing.starts_with("9.31.")
+            || desc_up.contains("FRASCO") || desc_up.contains("POTE") || desc_up.contains("TAMPA") 
+            || desc_up.contains("BISNAGA") || desc_up.contains("VALVULA") || desc_up.contains("CAIXA")
+            || desc_up.contains("ROTULO") || desc_up.contains("RÓTULO");
+        if !is_emb {
+            Some(qty)
+        } else {
+            None
+        }
+    }).sum();
+
+    // Se o usuário passou bulk_kg (a massa planejada para o tanque):
+    // o fator multiplicador é exatamente bulk_kg / massa_quimica_da_formula
+    let multiplier = if let Some(bulk_kg) = params.bulk_kg {
+        if formula_chemical_mass > 0.0001 {
+            bulk_kg / formula_chemical_mass
+        } else {
+            raw_batch_qty
+        }
+    } else {
+        raw_batch_qty
+    };
 
     let mut ingredients = Vec::new();
     let mut missing_count = 0;
@@ -3714,7 +3845,7 @@ pub async fn get_insumos_status(
         let qty_per_unit: f64 = row.get(2);
         let current_stock: f64 = row.get(3);
 
-        let total_required = qty_per_unit * batch_qty;
+        let total_required = qty_per_unit * multiplier;
         let is_missing = current_stock < total_required;
         let missing_qty = if is_missing {
             total_required - current_stock
@@ -3801,7 +3932,7 @@ pub async fn get_insumos_status(
         StatusCode::OK,
         Json(ProductInsumosStatusResponse {
             product_code: clean_code,
-            batch_qty,
+            batch_qty: multiplier,
             has_formulation: true,
             all_in_stock,
             missing_count,
@@ -3812,3 +3943,450 @@ pub async fn get_insumos_status(
     )
         .into_response()
 }
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct ReatorConfigDto {
+    pub id: String,
+    pub nome: String,
+    pub capacidade_kg: f64,
+    pub tipo: String,
+    pub ordem: i32,
+    pub ativo: bool,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct PlanejamentoItemDto {
+    pub id: String,
+    pub week_key: String,
+    pub data_planejada: String,
+    pub reator_id: String,
+    pub codigo_produto: String,
+    pub descricao: Option<String>,
+    pub quantidade_planejada: f64,
+    pub unidade: Option<String>,
+    pub base_codigo: Option<String>,
+    pub base_nome: Option<String>,
+    pub linha_envase: Option<String>,
+    pub observacoes: Option<String>,
+    pub ordem_status: Option<String>,
+    pub lote_erp: Option<String>,
+    pub fisico_confirmado_massa: Option<bool>,
+    pub fisico_confirmado_embalagem: Option<bool>,
+    pub fisico_confirmado_rotulo: Option<bool>,
+    pub recipiente_detalhe: Option<String>,
+    pub cor_tag: Option<String>,
+    pub ordem_sequencia: Option<i32>,
+    pub processo_termico: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct PlanejamentoQueryParams {
+    pub week: Option<String>,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ConfirmFisicoPayload {
+    pub massa: Option<bool>,
+    pub embalagem: Option<bool>,
+    pub rotulo: Option<bool>,
+    pub ordem_status: Option<String>,
+}
+
+pub async fn list_reatores(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    let query = "SELECT id, nome, capacidade_kg::float8, tipo, ordem, ativo FROM producao_reatores_config ORDER BY ordem ASC, capacidade_kg ASC";
+    match sqlx::query(query).fetch_all(pool).await {
+        Ok(rows) => {
+            let reatores: Vec<ReatorConfigDto> = rows.into_iter().map(|r| {
+                ReatorConfigDto {
+                    id: r.get(0),
+                    nome: r.get(1),
+                    capacidade_kg: r.get(2),
+                    tipo: r.get(3),
+                    ordem: r.get(4),
+                    ativo: r.get(5),
+                }
+            }).collect();
+            (StatusCode::OK, Json(json!(reatores))).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response()
+    }
+}
+
+pub async fn save_reatores(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<Vec<ReatorConfigDto>>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    for reator in payload {
+        let q = r#"
+            INSERT INTO producao_reatores_config (id, nome, capacidade_kg, tipo, ordem, ativo)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (id) DO UPDATE SET
+                nome = EXCLUDED.nome,
+                capacidade_kg = EXCLUDED.capacidade_kg,
+                tipo = EXCLUDED.tipo,
+                ordem = EXCLUDED.ordem,
+                ativo = EXCLUDED.ativo
+        "#;
+        if let Err(e) = sqlx::query(q)
+            .bind(&reator.id)
+            .bind(&reator.nome)
+            .bind(reator.capacidade_kg)
+            .bind(&reator.tipo)
+            .bind(reator.ordem)
+            .bind(reator.ativo)
+            .execute(pool)
+            .await
+        {
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response();
+        }
+    }
+    (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
+}
+
+pub async fn list_planejamento_semanal(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<PlanejamentoQueryParams>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    let q = if let Some(ref w) = params.week {
+        let sql = r#"
+            SELECT id, week_key, data_planejada::text, reator_id, codigo_produto, descricao,
+                   quantidade_planejada::float8, unidade, base_codigo, base_nome, linha_envase,
+                   observacoes, ordem_status, lote_erp, fisico_confirmado_massa,
+                   fisico_confirmado_embalagem, fisico_confirmado_rotulo,
+                   recipiente_detalhe, cor_tag, COALESCE(ordem_sequencia, 1), processo_termico,
+                   created_at::text, updated_at::text
+            FROM producao_planejamento_semanal
+            WHERE week_key = $1
+            ORDER BY data_planejada ASC, COALESCE(ordem_sequencia, 1) ASC, reator_id ASC
+        "#;
+        sqlx::query(sql).bind(w).fetch_all(pool).await
+    } else if let (Some(ref s), Some(ref e)) = (params.start_date, params.end_date) {
+        let sql = r#"
+            SELECT id, week_key, data_planejada::text, reator_id, codigo_produto, descricao,
+                   quantidade_planejada::float8, unidade, base_codigo, base_nome, linha_envase,
+                   observacoes, ordem_status, lote_erp, fisico_confirmado_massa,
+                   fisico_confirmado_embalagem, fisico_confirmado_rotulo,
+                   recipiente_detalhe, cor_tag, COALESCE(ordem_sequencia, 1), processo_termico,
+                   created_at::text, updated_at::text
+            FROM producao_planejamento_semanal
+            WHERE data_planejada >= $1::date AND data_planejada <= $2::date
+            ORDER BY data_planejada ASC, COALESCE(ordem_sequencia, 1) ASC, reator_id ASC
+        "#;
+        sqlx::query(sql).bind(s).bind(e).fetch_all(pool).await
+    } else {
+        let sql = r#"
+            SELECT id, week_key, data_planejada::text, reator_id, codigo_produto, descricao,
+                   quantidade_planejada::float8, unidade, base_codigo, base_nome, linha_envase,
+                   observacoes, ordem_status, lote_erp, fisico_confirmado_massa,
+                   fisico_confirmado_embalagem, fisico_confirmado_rotulo,
+                   recipiente_detalhe, cor_tag, COALESCE(ordem_sequencia, 1), processo_termico,
+                   created_at::text, updated_at::text
+            FROM producao_planejamento_semanal
+            ORDER BY data_planejada DESC LIMIT 200
+        "#;
+        sqlx::query(sql).fetch_all(pool).await
+    };
+
+    match q {
+        Ok(rows) => {
+            let items: Vec<PlanejamentoItemDto> = rows.into_iter().map(|r| {
+                PlanejamentoItemDto {
+                    id: r.get(0),
+                    week_key: r.get(1),
+                    data_planejada: r.get(2),
+                    reator_id: r.get(3),
+                    codigo_produto: r.get(4),
+                    descricao: r.get(5),
+                    quantidade_planejada: r.get(6),
+                    unidade: r.get(7),
+                    base_codigo: r.get(8),
+                    base_nome: r.get(9),
+                    linha_envase: r.get(10),
+                    observacoes: r.get(11),
+                    ordem_status: r.get(12),
+                    lote_erp: r.get(13),
+                    fisico_confirmado_massa: r.get(14),
+                    fisico_confirmado_embalagem: r.get(15),
+                    fisico_confirmado_rotulo: r.get(16),
+                    recipiente_detalhe: r.get(17),
+                    cor_tag: r.get(18),
+                    ordem_sequencia: r.get(19),
+                    processo_termico: r.get(20),
+                    created_at: r.get(21),
+                    updated_at: r.get(22),
+                }
+            }).collect();
+            (StatusCode::OK, Json(json!(items))).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response()
+    }
+}
+
+pub async fn save_planejamento_item(
+    State(state): State<Arc<AppState>>,
+    Json(item): Json<PlanejamentoItemDto>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    let q = r#"
+        INSERT INTO producao_planejamento_semanal (
+            id, week_key, data_planejada, reator_id, codigo_produto, descricao,
+            quantidade_planejada, unidade, base_codigo, base_nome, linha_envase,
+            observacoes, ordem_status, lote_erp, fisico_confirmado_massa,
+            fisico_confirmado_embalagem, fisico_confirmado_rotulo,
+            recipiente_detalhe, cor_tag, ordem_sequencia, processo_termico, updated_at
+        ) VALUES (
+            $1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+            $18, $19, $20, $21, CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (id) DO UPDATE SET
+            week_key = EXCLUDED.week_key,
+            data_planejada = EXCLUDED.data_planejada,
+            reator_id = EXCLUDED.reator_id,
+            codigo_produto = EXCLUDED.codigo_produto,
+            descricao = EXCLUDED.descricao,
+            quantidade_planejada = EXCLUDED.quantidade_planejada,
+            unidade = EXCLUDED.unidade,
+            base_codigo = EXCLUDED.base_codigo,
+            base_nome = EXCLUDED.base_nome,
+            linha_envase = EXCLUDED.linha_envase,
+            observacoes = EXCLUDED.observacoes,
+            ordem_status = EXCLUDED.ordem_status,
+            lote_erp = EXCLUDED.lote_erp,
+            fisico_confirmado_massa = COALESCE(EXCLUDED.fisico_confirmado_massa, producao_planejamento_semanal.fisico_confirmado_massa),
+            fisico_confirmado_embalagem = COALESCE(EXCLUDED.fisico_confirmado_embalagem, producao_planejamento_semanal.fisico_confirmado_embalagem),
+            fisico_confirmado_rotulo = COALESCE(EXCLUDED.fisico_confirmado_rotulo, producao_planejamento_semanal.fisico_confirmado_rotulo),
+            recipiente_detalhe = EXCLUDED.recipiente_detalhe,
+            cor_tag = EXCLUDED.cor_tag,
+            ordem_sequencia = EXCLUDED.ordem_sequencia,
+            processo_termico = EXCLUDED.processo_termico,
+            updated_at = CURRENT_TIMESTAMP
+    "#;
+
+    match sqlx::query(q)
+        .bind(&item.id)
+        .bind(&item.week_key)
+        .bind(&item.data_planejada)
+        .bind(&item.reator_id)
+        .bind(&item.codigo_produto)
+        .bind(&item.descricao)
+        .bind(item.quantidade_planejada)
+        .bind(&item.unidade)
+        .bind(&item.base_codigo)
+        .bind(&item.base_nome)
+        .bind(&item.linha_envase)
+        .bind(&item.observacoes)
+        .bind(item.ordem_status.as_deref().unwrap_or("planejado"))
+        .bind(&item.lote_erp)
+        .bind(item.fisico_confirmado_massa.unwrap_or(false))
+        .bind(item.fisico_confirmado_embalagem.unwrap_or(false))
+        .bind(item.fisico_confirmado_rotulo.unwrap_or(false))
+        .bind(item.recipiente_detalhe.as_deref().unwrap_or("Reator"))
+        .bind(&item.cor_tag)
+        .bind(item.ordem_sequencia.unwrap_or(1))
+        .bind(&item.processo_termico)
+        .execute(pool)
+        .await
+    {
+        Ok(_) => {
+            if let Some(ref lote) = item.lote_erp {
+                let clean = lote.trim();
+                if !clean.is_empty() {
+                    let _ = sqlx::query(r#"
+                        INSERT INTO lote_custom_status (
+                            lote_number, custom_status, data_pesagem, data_producao, data_previsao, updated_at
+                        ) VALUES (
+                            $1, 'Pesagem', $2::date, $2::date, $2::date, CURRENT_TIMESTAMP
+                        )
+                        ON CONFLICT (lote_number) DO UPDATE SET
+                            data_pesagem = COALESCE(lote_custom_status.data_pesagem, EXCLUDED.data_pesagem),
+                            data_producao = COALESCE(lote_custom_status.data_producao, EXCLUDED.data_producao),
+                            data_previsao = COALESCE(lote_custom_status.data_previsao, EXCLUDED.data_previsao),
+                            updated_at = CURRENT_TIMESTAMP
+                    "#)
+                    .bind(clean)
+                    .bind(&item.data_planejada)
+                    .execute(pool)
+                    .await;
+                }
+            }
+            (StatusCode::OK, Json(json!({ "ok": true, "id": item.id }))).into_response()
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response()
+    }
+}
+
+pub async fn bulk_save_planejamento(
+    State(state): State<Arc<AppState>>,
+    Json(items): Json<Vec<PlanejamentoItemDto>>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    for item in items {
+        let q = r#"
+            INSERT INTO producao_planejamento_semanal (
+                id, week_key, data_planejada, reator_id, codigo_produto, descricao,
+                quantidade_planejada, unidade, base_codigo, base_nome, linha_envase,
+                observacoes, ordem_status, lote_erp, fisico_confirmado_massa,
+                fisico_confirmado_embalagem, fisico_confirmado_rotulo,
+                recipiente_detalhe, cor_tag, ordem_sequencia, processo_termico, updated_at
+            ) VALUES (
+                $1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                $18, $19, $20, $21, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT (id) DO UPDATE SET
+                week_key = EXCLUDED.week_key,
+                data_planejada = EXCLUDED.data_planejada,
+                reator_id = EXCLUDED.reator_id,
+                codigo_produto = EXCLUDED.codigo_produto,
+                descricao = EXCLUDED.descricao,
+                quantidade_planejada = EXCLUDED.quantidade_planejada,
+                unidade = EXCLUDED.unidade,
+                base_codigo = EXCLUDED.base_codigo,
+                base_nome = EXCLUDED.base_nome,
+                linha_envase = EXCLUDED.linha_envase,
+                observacoes = EXCLUDED.observacoes,
+                ordem_status = EXCLUDED.ordem_status,
+                lote_erp = EXCLUDED.lote_erp,
+                fisico_confirmado_massa = COALESCE(EXCLUDED.fisico_confirmado_massa, producao_planejamento_semanal.fisico_confirmado_massa),
+                fisico_confirmado_embalagem = COALESCE(EXCLUDED.fisico_confirmado_embalagem, producao_planejamento_semanal.fisico_confirmado_embalagem),
+                fisico_confirmado_rotulo = COALESCE(EXCLUDED.fisico_confirmado_rotulo, producao_planejamento_semanal.fisico_confirmado_rotulo),
+                recipiente_detalhe = EXCLUDED.recipiente_detalhe,
+                cor_tag = EXCLUDED.cor_tag,
+                ordem_sequencia = EXCLUDED.ordem_sequencia,
+                processo_termico = EXCLUDED.processo_termico,
+                updated_at = CURRENT_TIMESTAMP
+        "#;
+        if let Err(e) = sqlx::query(q)
+            .bind(&item.id)
+            .bind(&item.week_key)
+            .bind(&item.data_planejada)
+            .bind(&item.reator_id)
+            .bind(&item.codigo_produto)
+            .bind(&item.descricao)
+            .bind(item.quantidade_planejada)
+            .bind(&item.unidade)
+            .bind(&item.base_codigo)
+            .bind(&item.base_nome)
+            .bind(&item.linha_envase)
+            .bind(&item.observacoes)
+            .bind(item.ordem_status.as_deref().unwrap_or("planejado"))
+            .bind(&item.lote_erp)
+            .bind(item.fisico_confirmado_massa.unwrap_or(false))
+            .bind(item.fisico_confirmado_embalagem.unwrap_or(false))
+            .bind(item.fisico_confirmado_rotulo.unwrap_or(false))
+            .bind(item.recipiente_detalhe.as_deref().unwrap_or("Reator"))
+            .bind(&item.cor_tag)
+            .bind(item.ordem_sequencia.unwrap_or(1))
+            .bind(&item.processo_termico)
+            .execute(pool)
+            .await
+        {
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response();
+        }
+    }
+    (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
+}
+
+pub async fn delete_planejamento_item(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    match sqlx::query("DELETE FROM producao_planejamento_semanal WHERE id = $1")
+        .bind(&id)
+        .execute(pool)
+        .await
+    {
+        Ok(_) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response()
+    }
+}
+
+pub async fn confirm_fisico_planejamento(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<ConfirmFisicoPayload>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    let q = r#"
+        UPDATE producao_planejamento_semanal
+        SET fisico_confirmado_massa = COALESCE($2, fisico_confirmado_massa),
+            fisico_confirmado_embalagem = COALESCE($3, fisico_confirmado_embalagem),
+            fisico_confirmado_rotulo = COALESCE($4, fisico_confirmado_rotulo),
+            ordem_status = COALESCE($5, ordem_status),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+        RETURNING data_planejada::text, lote_erp, ordem_status
+    "#;
+    match sqlx::query(q)
+        .bind(&id)
+        .bind(payload.massa)
+        .bind(payload.embalagem)
+        .bind(payload.rotulo)
+        .bind(payload.ordem_status)
+        .fetch_optional(pool)
+        .await
+    {
+        Ok(Some(row)) => {
+            let data_planejada: String = row.try_get(0).unwrap_or_default();
+            let lote_erp: Option<String> = row.try_get(1).ok();
+            let ordem_status: String = row.try_get(2).unwrap_or_default();
+            if ordem_status == "aprovado" {
+                if let Some(lote) = lote_erp {
+                    let clean = lote.trim();
+                    if !clean.is_empty() {
+                        let _ = sqlx::query(r#"
+                            INSERT INTO lote_custom_status (
+                                lote_number, custom_status, data_pesagem, data_producao, data_previsao, updated_at
+                            ) VALUES (
+                                $1, 'Pesagem', $2::date, $2::date, $2::date, CURRENT_TIMESTAMP
+                            )
+                            ON CONFLICT (lote_number) DO UPDATE SET
+                                data_pesagem = COALESCE(lote_custom_status.data_pesagem, EXCLUDED.data_pesagem),
+                                data_producao = COALESCE(lote_custom_status.data_producao, EXCLUDED.data_producao),
+                                data_previsao = COALESCE(lote_custom_status.data_previsao, EXCLUDED.data_previsao),
+                                updated_at = CURRENT_TIMESTAMP
+                        "#)
+                        .bind(clean)
+                        .bind(&data_planejada)
+                        .execute(pool)
+                        .await;
+                    }
+                }
+            }
+            (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
+        }
+        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({ "error": "Item não encontrado" }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response()
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ClearWeekParams {
+    pub week: String,
+}
+
+pub async fn clear_planejamento_semana(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ClearWeekParams>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    match sqlx::query("DELETE FROM producao_planejamento_semanal WHERE week_key = $1")
+        .bind(&params.week)
+        .execute(pool)
+        .await
+    {
+        Ok(res) => (StatusCode::OK, Json(json!({ "ok": true, "rows_deleted": res.rows_affected() }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response()
+    }
+}
+
+

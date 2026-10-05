@@ -4,13 +4,19 @@
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 
-/// Status de lote ainda em produção (não encerrado/cancelado).
+/// Status de lote ainda em produção ativa (PG, PP, PR, EN), não encerrado/cancelado e recente (<= 60 dias).
 const OPEN_LOTE_STATUS_SQL: &str = r#"
-    details NOT LIKE '%Status: EA%'
+    (details LIKE '%Status: PG%' OR details LIKE '%Status: PP%' OR details LIKE '%Status: PR%' OR details LIKE '%Status: EN%')
+    AND details NOT LIKE '%Status: EA%'
     AND details NOT LIKE '%Status: CF%'
     AND details NOT LIKE '%Status: FP%'
     AND details NOT LIKE '%Status: CA%'
     AND details NOT LIKE '%Status: FI%'
+    AND (date IS NULL OR date = '' OR date >= TO_CHAR(CURRENT_DATE - INTERVAL '60 days', 'YYYY-MM-DD'))
+    AND document_number NOT IN (
+        SELECT lote_number FROM lote_custom_status 
+        WHERE custom_status IN ('Finalizada', 'Ordem Finalizada', 'Cancelada', 'Concluído')
+    )
 "#;
 
 fn parse_unidades_from_details(details: &str) -> f64 {
@@ -32,12 +38,13 @@ fn parse_unidades_from_details(details: &str) -> f64 {
 pub async fn fetch_open_production_units_map(pool: &PgPool) -> HashMap<String, f64> {
     let mut out: HashMap<String, f64> = HashMap::new();
     let sql = format!(
-        "SELECT item_code, quantity, details
+        "SELECT DISTINCT ON (document_number, item_code) item_code, quantity, details
          FROM stock_movements
          WHERE item_type = 'produto' AND movement_type = 'entrada'
            AND COALESCE(document_number, '') <> ''
            AND details IS NOT NULL
-           AND {OPEN_LOTE_STATUS_SQL}"
+           AND {OPEN_LOTE_STATUS_SQL}
+         ORDER BY document_number, item_code, ctid DESC"
     );
     let Ok(rows) = sqlx::query(&sql).fetch_all(pool).await else {
         return out;

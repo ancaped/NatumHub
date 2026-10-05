@@ -321,7 +321,7 @@ function buildMap(httpRoutes) {
 
   return {
     meta: {
-      name: 'NatumHub',
+      name: 'Nexus',
       generatedAt: new Date().toISOString(),
       version: packageVersion(),
       generator: 'scripts/generate-architecture-map.mjs',
@@ -331,31 +331,29 @@ function buildMap(httpRoutes) {
           value: packageVersion(),
           targets: [
             'Frontend/package.json',
-            'Backend/package.json',
             'Backend/Cargo.toml',
-            'Backend/tauri.conf.json',
           ],
         },
         taskFile: 'task.md',
       },
     },
     runtime: {
-      stack: ['Tauri 2', 'React', 'Vite', 'Axum', 'PostgreSQL', 'SQL Server (ERP sync)'],
+      stack: ['nexus-server (Axum)', 'React', 'Vite', 'PostgreSQL', 'SQL Server (ERP sync)'],
       api: { port: 3001, bindDefault: '0.0.0.0', auth: 'Bearer + X-Natum-Device-Id' },
       masterClient: {
-        master: 'Sobe Axum :3001, Postgres local (Saves/postgres.env), sync ERP, backups, updater',
-        client: 'Só UI; apiOrigin → PC Principal; sem Postgres local',
+        master: 'nexus-server :3001, Postgres (Saves/postgres.env), sync ERP, backups, serve a SPA',
+        client: 'Navegador em http://nexus.local:3001; sem Postgres local',
       },
       data: {
         hub: 'PostgreSQL (obrigatório no master)',
         erp: 'SQL Server → sync incremental/full via legacy_db / erp-import',
         files: 'Saves/ (documentacao, receipts, pg-backups)',
-        notUsed: 'SQLite / data.db',
+        databaseName: 'natumhub',
       },
     },
     repos: {
-      Frontend: 'UI React + Vite (dist → Tauri)',
-      Backend: 'Tauri + Axum + módulos de domínio',
+      Frontend: 'UI React + Vite (dist servido por nexus-server)',
+      Backend: 'nexus-server Axum + módulos de domínio',
       'erp-import': 'Queries SQL Server + PASSOS de sync',
       Saves: 'postgres.env, client_config.json (não versionar secrets)',
       ContextoIA: 'Docs para agentes + mapa-app',

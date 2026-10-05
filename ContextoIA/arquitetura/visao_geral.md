@@ -1,25 +1,26 @@
-# Visão geral — NatumHub
+# Visão geral — Nexus
 
-ERP desktop Nátum Cosméticos: **Tauri 2 + React + Axum + PostgreSQL**.
+Sistema web da Nátum Cosméticos: **Rust Axum (headless) + React + PostgreSQL**.
 
 ## Módulos
 
 | Área | Função |
 |------|--------|
-| Produção | Estoque, ordens, kits, microbiologia, físico-química |
+| Produção | Estoque de produção, ordens, kits, microbiologia, físico-química |
 | Compras | Demandas, cotações, NFs, compras online |
 | Estoque / Vendas / Financeiro | Cache ERP + dashboards |
-| Geral | Auth, config, notificações, feedbacks |
+| Qualidade | POPs, documentação, recebimento, devoluções |
+| Geral | Auth, config, notificações, feedbacks, mapa |
 
 ## Diagrama
 
 ```
-React (FE) ──Bearer──► Axum :3001 (PC Principal) ──► PostgreSQL (local ou remoto)
-                              ▲
-SQL Server ERP ──sync─────────┘
-Terminais (client) ──HTTP──► PC Principal
+React (navegador) ──Bearer──► nexus-server :3001 ──► PostgreSQL
+                                    ▲
+SQL Server ERP ──sync───────────────┘
+Terminais ──HTTP──► http://nexus.local:3001
 ```
 
-- Dados do Hub: **PostgreSQL** (`Saves/postgres.env`) — **não** SQLite.
+- Dados do Nexus: **PostgreSQL** (`Saves/postgres.env`). O database se chama `natumhub`.
 - Sync ERP só no master.
-- Detalhes rede: [multi_usuario.md](multi_usuario.md) · instalação: [../devops/instalacao_via_repositorio.md](../devops/instalacao_via_repositorio.md).
+- Detalhes de rede: [multi_usuario.md](multi_usuario.md) · instalação: [../devops/instalacao_via_repositorio.md](../devops/instalacao_via_repositorio.md).

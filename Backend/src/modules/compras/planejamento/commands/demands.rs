@@ -493,13 +493,32 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
                     }
                 } else {
                     // Item direto na composição (caixa / embalagem sem fórmula).
+                    // Se o item já faz parte da fórmula de algum componente deste kit (ex: fração da caixa
+                    // já alocada no frasco/shampoo/condicionador), não adicionar pelo kit para não duplicar/triplicar.
+                    let is_in_comp_form = comps.iter().any(|(c, _, _, _)| {
+                        let k = c.trim();
+                        let kn = k.replace('.', "");
+                        let check_form = |list: &Vec<(String, f64)>| {
+                            list.iter().any(|(ing, _)| {
+                                let ing_trim = ing.trim();
+                                ing_trim == comp_key || ing_trim.replace('.', "") == comp_norm
+                            })
+                        };
+                        formulations.get(k).map_or(false, check_form)
+                            || formulations.get(&kn).map_or(false, check_form)
+                    });
+
+                    if is_in_comp_form {
+                        continue;
+                    }
+
                     out.push(SimProducaoContribution {
                         ingredient_code: comp_key.clone(),
-                        product_code: comp_key.clone(),
-                        product_desc: format!("{comp_desc} (item do kit {p_code})"),
+                        product_code: p_code.clone(),
+                        product_desc: format!("{p_desc} (kit)"),
                         status: status.clone(),
                         status_label: via_label.clone(),
-                        production_qty: comp_prod_qty,
+                        production_qty: prod_qty,
                         qty_per_unit: qty_comp,
                         insumo_qty: comp_prod_qty,
                     });
@@ -551,8 +570,13 @@ pub async fn get_insumo_simulation_breakdown(
         by_product
             .entry(c.product_code.clone())
             .and_modify(|existing| {
-                existing.qty_per_unit += c.qty_per_unit;
                 existing.insumo_qty += c.insumo_qty;
+                existing.production_qty = existing.production_qty.max(c.production_qty);
+                if existing.production_qty > 0.0 {
+                    existing.qty_per_unit = existing.insumo_qty / existing.production_qty;
+                } else {
+                    existing.qty_per_unit += c.qty_per_unit;
+                }
             })
             .or_insert(crate::models::InsumoSimulationProduct {
                 product_code: c.product_code,
@@ -1141,21 +1165,4 @@ pub async fn get_demands_query(
         }
     }
     Ok(results)
-}
-
-#[cfg(feature = "desktop")]
-#[allow(dead_code)]
-mod _tauri_stubs {
-    use super::*;
-    use tauri::State;
-    use crate::DbState;
-
-    #[tauri::command]
-    pub fn get_demands(
-        _state: State<DbState>,
-        _category_id: Option<String>,
-        _target_days: i32,
-    ) -> Result<Vec<DemandResult>, String> {
-        Err("Use a API REST (/api/hub/compras/demands)".into())
-    }
 }

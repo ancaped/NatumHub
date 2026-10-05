@@ -207,7 +207,7 @@ pub async fn upload_kit_composicao(
     }
 }
 
-async fn fetch_kit_orders(pool: &PgPool) -> Result<Vec<crate::models::KitAssemblyOrder>, String> {
+pub async fn fetch_kit_orders(pool: &PgPool) -> Result<Vec<crate::models::KitAssemblyOrder>, String> {
     let rows = sqlx::query(
         "SELECT id, order_number, kit_product_code, kit_product_description, quantity,
                 status, created_at, completed_at, assembled_by, checked_by, observations,

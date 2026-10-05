@@ -23,6 +23,7 @@ import { SettingsTab } from './components/SettingsTab';
 import { LotesTab } from './components/LotesTab';
 import { LotesCalendarTab } from './components/LotesCalendarTab';
 import { AprovacaoTab } from './components/AprovacaoTab';
+import { PlanejamentoSemanalTab } from './components/PlanejamentoSemanalTab';
 import { LoteDetailsDrawer } from './components/LoteDetailsDrawer';
 import KitCompositionDrawer from '../components/KitCompositionDrawer';
 
@@ -43,7 +44,7 @@ export default function ProducaoView({
       inventory: 'Gerenciamento de Produção',
       kits: 'Gerenciamento de Kits',
       programadas: 'Produções Programadas',
-      aprovacao: 'Fila de Produção',
+      aprovacao: 'Planejamento Semanal de Ordens',
       calendar: 'Calendário',
       lotes: 'Lotes de Produção',
       erros: 'Erros de Estoque',
@@ -1396,7 +1397,7 @@ export default function ProducaoView({
     { id: 'inventory', label: 'Gerenciamento de Produção', icon: Table },
     { id: 'kits', label: 'Gerenciamento de Kits', icon: Layers },
     { id: 'programadas', label: 'Produções Programadas', icon: CalendarClock },
-    { id: 'aprovacao', label: 'Fila de Produção', icon: ClipboardCheck, badge: productionApprovalList.length },
+    { id: 'aprovacao', label: 'Planejamento Semanal', icon: CalendarClock, badge: productionApprovalList.length },
     { id: 'calendar', label: 'Calendário', icon: Calendar },
     { id: 'history', label: 'Histórico', icon: History },
     { id: 'ignored_items', label: 'Produtos Suspensos', icon: EyeOff },
@@ -1556,9 +1557,9 @@ export default function ProducaoView({
             />
           )}
 
-          {/* VIEW: APPROVAL QUEUE */}
+          {/* VIEW: PLANEJAMENTO SEMANAL DE ORDENS (REATORES & HEURÍSTICA) */}
           {currentView === 'aprovacao' && (
-            <AprovacaoTab
+            <PlanejamentoSemanalTab
               active={currentView === 'aprovacao'}
               productionApprovalList={productionApprovalList}
               onToggleApprovalList={handleToggleApprovalList}

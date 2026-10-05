@@ -38,13 +38,14 @@ import { CorrectiveBatchesTab } from './components/CorrectiveBatchesTab';
 import { PatternsTab } from './components/PatternsTab';
 import { AgentsTab } from './components/AgentsTab';
 import { SettingsTab } from './components/SettingsTab';
+import { ErpLotesTab } from './components/ErpLotesTab';
 
 interface FiscoQuimicaViewProps {
   onBackToHub: () => void;
 }
 
 export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps) {
-  const [activeTab, setActiveTab] = useState<'new' | 'calendar' | 'history' | 'correctives' | 'patterns' | 'agents' | 'settings'>('new');
+  const [activeTab, setActiveTab] = useState<'new' | 'calendar' | 'history' | 'erp_lotes' | 'correctives' | 'patterns' | 'agents' | 'settings'>('new');
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [selectedLoteForNew, setSelectedLoteForNew] = useState<{ productCode?: string; batch?: string } | null>(null);
@@ -92,6 +93,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
       new: 'Registrar Físico-Química',
       calendar: 'Calendário de Produção',
       history: 'Histórico de Laudos',
+      erp_lotes: 'Lotes e Laudos ERP',
       correctives: 'Baixas de Corretivos',
       patterns: 'Padrões por Produto',
       agents: 'Agentes Corretivos',
@@ -310,6 +312,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
     { id: 'new', label: 'Registrar Análise', icon: FlaskConical },
     { id: 'calendar', label: 'Calendário', icon: CalendarIcon },
     { id: 'history', label: 'Histórico de Laudos', icon: Activity },
+    { id: 'erp_lotes', label: 'Lotes e Laudos ERP', icon: Database },
     { id: 'correctives', label: 'Baixas de Corretivos', icon: SlidersHorizontal },
     { id: 'patterns', label: 'Padrões por Produto', icon: Layers },
     { id: 'agents', label: 'Agentes Corretivos', icon: SlidersHorizontal },
@@ -389,6 +392,19 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                 setEditingAnalysis(a);
                 setActiveTab('new');
               }}
+            />
+          </motion.div>
+        )}
+
+        {activeTab === 'erp_lotes' && (
+          <motion.div key="erp_lotes" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            <ErpLotesTab
+              onStartAnalysisWithLote={(code, batch) => {
+                setSelectedLoteForNew({ productCode: code, batch });
+                setActiveTab('new');
+              }}
+              patterns={patterns}
+              products={products}
             />
           </motion.div>
         )}

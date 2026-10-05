@@ -70,17 +70,48 @@ export interface CatalogHit {
   alreadyLinked: boolean;
 }
 
+export interface EquipmentPecaStat {
+  itemCode: string;
+  description?: string | null;
+  qtyOnHand: number;
+  lifespanDays?: number | null;
+  expectedLifespanDays?: number | null;
+  installedAt?: string | null;
+  lastReplacedAt?: string | null;
+  timesReplaced: number;
+  avgUsageDays?: number | null;
+  nextExchangeAt?: string | null;
+  exchangeStatus?: string | null;
+}
+
 export interface Equipment {
   id: string;
   code: string;
   name: string;
   sector?: string | null;
   status: string;
+  brand?: string | null;
+  model?: string | null;
+  manufactureYear?: number | null;
+  serialNumber?: string | null;
   maintenanceIntervalDays?: number | null;
   lastMaintenanceAt?: string | null;
   nextMaintenanceAt?: string | null;
   notes?: string | null;
   pecaCodes: string[];
+  coverPhoto?: string | null;
+  totalSpent?: number;
+  openMaintenances?: number;
+  pecas?: EquipmentPecaStat[];
+}
+
+export interface MaintenancePart {
+  itemCode: string;
+  description?: string | null;
+  quantity: number;
+  replaced: boolean;
+  unitCost?: number | null;
+  notes?: string | null;
 }
 
 export interface Maintenance {
@@ -98,7 +129,9 @@ export interface Maintenance {
   cost?: number | null;
   notes?: string | null;
   occurredAt: string;
+  scheduledAt?: string | null;
   completedAt?: string | null;
+  parts?: MaintenancePart[];
 }
 
 export const MODE_TO_VIEW: Record<EstoqueOpsMode, string> = {

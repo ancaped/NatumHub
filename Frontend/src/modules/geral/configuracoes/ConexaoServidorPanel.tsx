@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Wifi, Loader2, Database, Globe, Copy, Check, Download,
-  ExternalLink, Laptop, ShieldCheck, Sparkles
+  ExternalLink, Laptop, ShieldCheck, Sparkles, RotateCcw, Server, AlertTriangle
 } from 'lucide-react';
 import {
   loadConnectionConfig,
@@ -106,6 +106,56 @@ export default function ConexaoServidorPanel({ setMessage }: ConexaoServidorPane
   const [links, setLinks] = useState<NetworkLink[]>([]);
   const [loadingLinks, setLoadingLinks] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+
+  // Reinício do Servidor
+  const [restarting, setRestarting] = useState(false);
+  const [restartCountdown, setRestartCountdown] = useState<number | null>(null);
+  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
+  const [restartSuccess, setRestartSuccess] = useState(false);
+
+  const handleRestart = async () => {
+    setRestarting(true);
+    setRestartSuccess(false);
+    setRestartCountdown(12);
+    try {
+      await apiJson('/server-manager/restart', { method: 'POST' });
+    } catch {
+      // Ignora erro de socket fechado
+    }
+  };
+
+  useEffect(() => {
+    if (restartCountdown === null) return;
+    let timer: number;
+    let pollInterval: number;
+
+    if (restartCountdown > 0) {
+      timer = window.setTimeout(() => {
+        setRestartCountdown((prev) => (prev !== null && prev > 0 ? prev - 1 : 0));
+      }, 1000);
+    }
+
+    if (restartCountdown <= 10) {
+      pollInterval = window.setInterval(async () => {
+        try {
+          const res = await fetch('/api/server-manager/status');
+          if (res.ok) {
+            setRestartSuccess(true);
+            setRestartCountdown(null);
+            clearInterval(pollInterval);
+            window.setTimeout(() => window.location.reload(), 1000);
+          }
+        } catch {
+          // Continua aguardando
+        }
+      }, 1200);
+    }
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(pollInterval);
+    };
+  }, [restartCountdown]);
 
   const loadLinks = useCallback(async () => {
     setLoadingLinks(true);
@@ -376,6 +426,85 @@ export default function ConexaoServidorPanel({ setMessage }: ConexaoServidorPane
           Testar agora
         </button>
       </div>
+
+      {/* Card 3: Controle do Servidor Local (Exclusivo Supervisor) */}
+      {isAdmin && (
+        <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-5">
+          <div className="flex items-center justify-between border-b border-zinc-100 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-rose-50 text-rose-600 rounded-xl">
+                <Server className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="font-black text-sm tracking-tight">Servidor HTTP Axum</h3>
+                <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
+                  Controle do processo backend local (Porta {DEFAULT_API_PORT})
+                </p>
+              </div>
+            </div>
+            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+              Online
+            </span>
+          </div>
+
+          <p className="text-xs text-zinc-600 leading-relaxed">
+            Reinicie o backend do servidor sem precisar fechar o terminal do <code className="font-mono bg-zinc-100 px-1 py-0.5 rounded text-zinc-800 font-bold">server.bat</code> e clicar nele novamente. O aplicativo orquestra a reinicialização e restabelece a conexão automaticamente em instantes.
+          </p>
+
+          {restartSuccess ? (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-bold text-emerald-800 flex items-center gap-2">
+              <Check className="h-4 w-4 text-emerald-600" />
+              <span>Servidor reiniciado com sucesso! Atualizando aplicação...</span>
+            </div>
+          ) : restarting ? (
+            <div className="p-4 bg-zinc-50 border border-zinc-200 rounded-xl space-y-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-zinc-700">
+                <Loader2 className="h-4 w-4 animate-spin text-rose-600" />
+                <span>Reiniciando servidor Nexus...</span>
+                <span className="font-mono text-rose-600 ml-auto">
+                  {restartCountdown !== null && restartCountdown > 0 ? `${restartCountdown}s` : 'Verificando porta...'}
+                </span>
+              </div>
+            </div>
+          ) : showRestartConfirm ? (
+            <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl space-y-3">
+              <div className="flex items-center gap-2 text-xs font-bold text-rose-900">
+                <AlertTriangle className="h-4 w-4 text-rose-600" />
+                <span>Confirmar reinício do servidor?</span>
+              </div>
+              <p className="text-xs text-rose-800">
+                Todas as conexões ativas serão momentaneamente desconectadas durante o reinício (2 a 5 segundos).
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRestartConfirm(false)}
+                  className="px-3 py-1.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-600 hover:bg-zinc-50 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRestart}
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Sim, Reiniciar Servidor
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowRestartConfirm(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold border border-rose-200 bg-white text-rose-700 hover:bg-rose-50 cursor-pointer transition-colors shadow-xs"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Reiniciar Servidor Nexus
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

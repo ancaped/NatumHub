@@ -209,17 +209,51 @@ pub struct CatalogSearchHit {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct EquipmentPecaStat {
+    pub item_code: String,
+    pub description: Option<String>,
+    pub qty_on_hand: f64,
+    pub lifespan_days: Option<i32>,
+    pub expected_lifespan_days: Option<i32>,
+    pub installed_at: Option<String>,
+    pub last_replaced_at: Option<String>,
+    pub times_replaced: i64,
+    pub avg_usage_days: Option<f64>,
+    pub next_exchange_at: Option<String>,
+    pub exchange_status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EquipmentRow {
     pub id: String,
     pub code: String,
     pub name: String,
     pub sector: Option<String>,
     pub status: String,
+    pub brand: Option<String>,
+    pub model: Option<String>,
+    pub manufacture_year: Option<i32>,
+    pub serial_number: Option<String>,
     pub maintenance_interval_days: Option<i32>,
     pub last_maintenance_at: Option<String>,
     pub next_maintenance_at: Option<String>,
     pub notes: Option<String>,
     pub peca_codes: Vec<String>,
+    pub cover_photo: Option<String>,
+    pub total_spent: f64,
+    pub open_maintenances: i64,
+    #[serde(default)]
+    pub pecas: Vec<EquipmentPecaStat>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EquipmentPecaInput {
+    pub item_code: String,
+    pub installed_at: Option<String>,
+    pub expected_lifespan_days: Option<i32>,
+    pub notes: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -229,10 +263,36 @@ pub struct UpsertEquipmentRequest {
     pub name: String,
     pub sector: Option<String>,
     pub status: Option<String>,
+    pub brand: Option<String>,
+    pub model: Option<String>,
+    pub manufacture_year: Option<i32>,
+    pub serial_number: Option<String>,
     pub maintenance_interval_days: Option<i32>,
     pub next_maintenance_at: Option<String>,
     pub notes: Option<String>,
     pub peca_codes: Option<Vec<String>>,
+    pub pecas: Option<Vec<EquipmentPecaInput>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaintenancePartRow {
+    pub item_code: String,
+    pub description: Option<String>,
+    pub quantity: f64,
+    pub replaced: bool,
+    pub unit_cost: Option<f64>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaintenancePartInput {
+    pub item_code: String,
+    pub quantity: Option<f64>,
+    pub replaced: Option<bool>,
+    pub unit_cost: Option<f64>,
+    pub notes: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -252,9 +312,12 @@ pub struct MaintenanceRow {
     pub cost: Option<f64>,
     pub notes: Option<String>,
     pub occurred_at: String,
+    pub scheduled_at: Option<String>,
     pub completed_at: Option<String>,
     pub created_by: Option<String>,
     pub created_at: String,
+    #[serde(default)]
+    pub parts: Vec<MaintenancePartRow>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -270,7 +333,9 @@ pub struct CreateMaintenanceRequest {
     pub cost: Option<f64>,
     pub notes: Option<String>,
     pub occurred_at: Option<String>,
+    pub scheduled_at: Option<String>,
     pub consume_stock: Option<bool>,
+    pub parts: Option<Vec<MaintenancePartInput>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -282,6 +347,7 @@ pub struct UpdateMaintenanceRequest {
     pub cost: Option<f64>,
     pub notes: Option<String>,
     pub completed_at: Option<String>,
+    pub scheduled_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

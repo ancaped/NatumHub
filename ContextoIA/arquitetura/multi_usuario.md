@@ -3,18 +3,18 @@
 ## Modelo de produção
 
 ```
-Navegadores (clientes) ──HTTP──► PC Principal / servidor Axum :3001 ──► PostgreSQL local
-   http://natumhub.local:3001         └── SPA (Frontend/dist) + sync ERP / backups
+Navegadores (clientes) ──HTTP──► PC Principal / nexus-server :3001 ──► PostgreSQL
+   http://nexus.local:3001            └── SPA (Frontend/dist) + sync ERP / backups
 ```
 
 | Papel | Comportamento |
 |-------|----------------|
-| **PC Principal** (`appMode: master`) | Axum `:3001`, Postgres (`Saves/postgres.env`), sync ERP, backups, **serve o Hub SPA**. Pode ser o app Tauri **ou** o binário headless `natumhub-server` (recomendado 24/7 / Linux) |
-| **Terminal / cliente** | **Só navegador** — sem instalador. Abre `http://natumhub.local:3001` (hosts/DNS → IP do master) |
-| Banco | PostgreSQL **obrigatório** no master — não SQLite |
+| **PC Principal** (`appMode: master`) | `nexus-server` em `:3001`, Postgres (`Saves/postgres.env`), sync ERP, backups, serve a SPA |
+| **Terminal / cliente** | **Só navegador**. Abre `http://nexus.local:3001` (hosts/DNS → IP do master) |
+| Banco | PostgreSQL no master. O database se chama `natumhub` |
 | Cadastro de usuários | **Somente supervisor** |
 | Login | Nome digitado + senha (sem listar operadores) |
-| Atualização | No master: `git pull` em `main` + `npm run build` (Frontend) + reiniciar app **ou** `natumhub-server`. Clientes pegam a UI nova no próximo reload |
+| Atualização | No master: `git pull` em `main` + `npm run build` (Frontend) + reiniciar `nexus-server`. Clientes pegam a UI nova no próximo reload |
 
 Instalação: [`../devops/instalacao_via_repositorio.md`](../devops/instalacao_via_repositorio.md) · headless: [`../devops/instalacao_servidor.md`](../devops/instalacao_servidor.md). Tailscale: [`../devops/tailscale.md`](../devops/tailscale.md).
 
@@ -36,7 +36,7 @@ Supervisor-only: `GET/POST/PUT/DELETE /api/auth/operators/manage`, devices, sync
 ## Fluxo 1ª execução
 
 1. **Master:** wizard PC Principal + Postgres + supervisor.
-2. **Clientes:** no PC de cada terminal, hosts com `natumhub.local` → IP do master; abrir o navegador na URL acima e fazer login.
+2. **Clientes:** no PC de cada terminal, hosts com `nexus.local` → IP do master; abrir o navegador na URL acima e fazer login.
 3. Login com nome + senha; supervisor gerencia operadores.
 
 ## Notificações

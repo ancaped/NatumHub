@@ -1,4 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
 import { hubJson, ApiError, apiJson } from './http';
 import type {
   Category, Supplier, Item, Invoice,

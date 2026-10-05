@@ -38,7 +38,7 @@ API: preferir `?categoria=cat_coloracao` em vez de `?status=coloracao|apoio|base
 
 1. Produz **base** (lote próprio) no ERP.
 2. Produz **acabado** pesando só fragrância — ERP acusa erro de pesagem.
-3. No NatumHub: resolver lote → escolher base + quantidade (sugestão: `produtos.base_codigo`).
+3. No Nexus: resolver lote → escolher base + quantidade (sugestão: `produtos.base_codigo`).
 4. Hub gera **baixa local** (`stock_movements` + `estoque_atual`).
 5. Operador repassa baixa ao ERP manualmente (fila futura `pending_erp_baixas`).
 

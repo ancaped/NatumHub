@@ -14,9 +14,16 @@
 }
 
 @media print {
-  @page { margin: 5mm; size: A4 portrait; }
-  body { background: white !important; }
-  .no-print { display: none !important; }
+  @page { margin: 8mm; size: A4 landscape; }
+  body { 
+    background: white !important; 
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact !important; 
+    print-color-adjust: exact !important; 
+  }
+  .no-print, nav, aside, header, .drawer, button:not(.allow-print) { 
+    display: none !important; 
+  }
   .print-only { display: block !important; }
 }
 

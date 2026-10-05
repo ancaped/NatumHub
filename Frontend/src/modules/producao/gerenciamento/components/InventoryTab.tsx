@@ -163,13 +163,13 @@ export function InventoryTab({
             ))}
           </select>
 
-          <label className="toolbar-checkbox-wrapper select-none cursor-pointer flex items-center gap-1.5 text-[11px] font-semibold text-zinc-650" title="Ocultar produtos que já foram colocados na Fila de Produção">
+          <label className="toolbar-checkbox-wrapper select-none cursor-pointer flex items-center gap-1.5 text-[11px] font-semibold text-zinc-650" title="Ocultar produtos que já foram colocados no Planejamento Semanal">
             <input 
               type="checkbox" 
               checked={hideQueued} 
               onChange={(e) => setHideQueued(e.target.checked)} 
             />
-            <span>Ocultar na Fila {productionApprovalList.length > 0 && `(${productionApprovalList.length})`}</span>
+            <span>Ocultar no Planejamento {productionApprovalList.length > 0 && `(${productionApprovalList.length})`}</span>
           </label>
 
           <label className="toolbar-checkbox-wrapper">
@@ -416,7 +416,7 @@ export function InventoryTab({
                               ? 'text-emerald-650 hover:bg-emerald-50'
                               : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600'
                           }`}
-                          title={productionApprovalList.includes(p.codigo) ? "Remover da Fila de Produção" : "Adicionar à Fila de Produção"}
+                          title={productionApprovalList.includes(p.codigo) ? "Remover do Planejamento Semanal" : "Adicionar ao Planejamento Semanal"}
                         >
                           {productionApprovalList.includes(p.codigo) ? (
                             <CheckCircle2 size={14} />

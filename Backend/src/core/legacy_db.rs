@@ -477,6 +477,39 @@ async fn load_hub_open_sales_order_keys(pool: &PgPool) -> Vec<(i32, String)> {
         .collect()
 }
 
+/// Lotes que o Hub ainda trata como abertos em stock_movements — reconsultar no ERP mesmo fora da janela incremental.
+async fn load_hub_open_lote_numbers(pool: &PgPool) -> Vec<i32> {
+    let rows = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT DISTINCT document_number
+        FROM stock_movements
+        WHERE item_type = 'produto' AND movement_type = 'entrada'
+          AND COALESCE(document_number, '') ~ '^[0-9]+$'
+          AND details IS NOT NULL
+          AND (details LIKE '%Status: PG%' OR details LIKE '%Status: PP%' OR details LIKE '%Status: PR%' OR details LIKE '%Status: EN%')
+          AND details NOT LIKE '%Status: EA%'
+          AND details NOT LIKE '%Status: CF%'
+          AND details NOT LIKE '%Status: FP%'
+          AND details NOT LIKE '%Status: CA%'
+          AND details NOT LIKE '%Status: FI%'
+        "#,
+    )
+    .fetch_all(pool)
+    .await;
+
+    let Ok(rows) = rows else {
+        return Vec::new();
+    };
+
+    let mut out: Vec<i32> = rows
+        .into_iter()
+        .filter_map(|s| s.parse::<i32>().ok())
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
 fn build_pedido_pairs_sql_filter(pairs: &[(i32, String)], p1_alias: bool) -> String {
     if pairs.is_empty() {
         return "1 = 0".to_string();
@@ -676,6 +709,11 @@ async fn flush_stock_movements(
         SELECT * FROM UNNEST(
             $1::text[], $2::text[], $3::text[], $4::text[], $5::float8[], $6::text[], $7::text[], $8::text[]
         )
+        ON CONFLICT (document_number, item_code) WHERE item_type = 'produto' AND movement_type = 'entrada' AND COALESCE(document_number, '') <> ''
+        DO UPDATE SET
+            quantity = EXCLUDED.quantity,
+            date = EXCLUDED.date,
+            details = EXCLUDED.details
         "#,
     )
     .bind(&ids)
@@ -765,6 +803,14 @@ pub async fn sync_from_sql_server(pool: &PgPool, requested: SyncMode) -> anyhow:
         eprintln!(
             "[ERP Sync] Hub tem {} pedido(s) de venda ainda abertos — reconciliação M/N ativa.",
             hub_open_keys.len()
+        );
+    }
+
+    let hub_open_lotes = load_hub_open_lote_numbers(pool).await;
+    if !hub_open_lotes.is_empty() {
+        eprintln!(
+            "[ERP Sync] Hub tem {} lote(s) de produção ainda abertos — reconciliação ativa.",
+            hub_open_lotes.len()
         );
     }
 
@@ -1331,6 +1377,17 @@ GROUP BY LTRIM(RTRIM(k.cKit)), LTRIM(RTRIM(k.cCodProd));
     let kit_composicao_list: Vec<KitComposicaoErpRow> = kit_composicao_map.into_values().collect();
 
     // H. Query Lotes (Production logs for Finished Goods)
+    let open_lotes_condition = if hub_open_lotes.is_empty() {
+        String::new()
+    } else {
+        let in_list = hub_open_lotes
+            .iter()
+            .map(|n| n.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("OR l.nLote IN ({in_list})")
+    };
+
     let query_lotes = format!(
         "
 SELECT 
@@ -1373,7 +1430,14 @@ SELECT
     CONVERT(varchar, l.dinspecao1, 120) COLLATE Latin1_General_CI_AS as dinspecao1,
     CAST(l.mObservac AS VARCHAR(1000)) COLLATE Latin1_General_CI_AS as mObservac
 FROM Lotes l WITH (NOLOCK)
-WHERE l.dLote >= '{since_dt}'
+WHERE (
+    l.dLote >= '{since_dt}' 
+    OR l.cStatus IN ('PG', 'PP', 'PR', 'EN', 'CF')
+    OR l.dEnvasado >= '{since_dt}'
+    OR l.dPesado >= '{since_dt}'
+    OR l.dConf1 >= '{since_dt}'
+    {open_lotes_condition}
+)
   AND (
     (l.cCodProd IS NOT NULL AND l.cCodProd <> '') OR
     (l.cCodProd2 IS NOT NULL AND l.cCodProd2 <> '') OR
@@ -2903,7 +2967,49 @@ WHERE {so2_date_filter};
         .await?;
     }
 
+    // Garante que lotes em stock_movements sejam limpos antes da reinserção/atualização
+    let lote_numbers: Vec<String> = lotes_list.iter().map(|l| l.lote.to_string()).collect();
+    for chunk in lote_numbers.chunks(2000) {
+        sqlx::query(
+            "DELETE FROM stock_movements
+             WHERE item_type = 'produto' AND movement_type = 'entrada'
+               AND document_number = ANY($1)"
+        )
+        .bind(chunk)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // Se havia lotes que o Hub considerava abertos mas que não vieram do ERP (foram cancelados/deletados), limpa-os
+    let returned_lote_set: std::collections::HashSet<i32> = lotes_list.iter().map(|l| l.lote).collect();
+    let orphan_lotes: Vec<String> = hub_open_lotes
+        .iter()
+        .filter(|id| !returned_lote_set.contains(id))
+        .map(|id| id.to_string())
+        .collect();
+    if !orphan_lotes.is_empty() {
+        eprintln!(
+            "[ERP Sync] Removendo {} lote(s) órfão(s) que não existem mais no ERP: {:?}",
+            orphan_lotes.len(),
+            orphan_lotes
+        );
+        for chunk in orphan_lotes.chunks(500) {
+            sqlx::query(
+                "DELETE FROM stock_movements
+                 WHERE item_type = 'produto' AND movement_type = 'entrada'
+                   AND document_number = ANY($1)"
+            )
+            .bind(chunk)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    let mut seen_lote_prods = std::collections::HashSet::new();
     for l in &lotes_list {
+        if !seen_lote_prods.insert((l.lote, l.product_code.clone())) {
+            continue;
+        }
         let details = format!(
             "Status: {} | Fab: {} | Aut: {} | Unidades: {} | dPesado: {} | dEnvase: {}",
             l.status.as_deref().unwrap_or(""),
@@ -2914,7 +3020,7 @@ WHERE {so2_date_filter};
             l.d_envase.as_deref().unwrap_or("")
         );
         mov_batch.push(MovInsert {
-            id: Uuid::new_v4().to_string(),
+            id: format!("lote_{}_{}", l.lote, l.product_code.trim()),
             item_code: l.product_code.clone(),
             item_type: "produto".to_string(),
             movement_type: "entrada".to_string(),

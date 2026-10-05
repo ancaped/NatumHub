@@ -1,41 +1,67 @@
-# NatumHub
+# Nexus Industrial Hub
 
-Tauri 2 + React + Axum + **PostgreSQL**.
+Sistema de Gestão e Operação Industrial — Arquitetura **Rust Axum (Headless Server :3001) + React SPA (Vite) + PostgreSQL + Tailscale**.
 
-## Agentes
+---
 
-[AGENTS.md](AGENTS.md) → [ContextoIA/INDEX.md](ContextoIA/INDEX.md)
+## 1. Visão Geral da Arquitetura
 
-## Runtime (não confundir)
+O **Nexus** opera como uma aplicação web industrial moderna:
+- **Backend Headless (`nexus-server`):** Desenvolvido em Rust com Axum e Tokio. Atende rotas REST (`/api/...`) e serve diretamente os arquivos estáticos do frontend (`Frontend/dist`).
+- **Frontend SPA:** Desenvolvido em React + TypeScript + Vite + Tailwind CSS.
+- **Acesso Operacional:** Totalmente via navegador web (`http://nexus.local:3001` ou IP do servidor / Tailscale). Não requer WebView ou executáveis nas pontas clientes.
+- **Banco de Dados:** PostgreSQL 17 (local em desenvolvimento ou hospedado em servidor Linux / CasaOS via Docker).
 
-| Máquina | Precisa |
-|---------|---------|
-| **PC Principal** | PostgreSQL + `Saves/postgres.env` + app (API `:3001`) |
-| **Terminais** | Só o app → API do master |
-| ERP | SQL Server (credenciais no painel; sync só no master) |
+---
 
-**Não** usa SQLite (`data.db`) no dia a dia. Postgres no master **não** é só para o updater — é o banco operacional.
+## 2. Execução do Servidor no Windows
 
-Instalação: [ContextoIA/devops/](ContextoIA/devops/instalacao_via_repositorio.md) · Postgres master: [instalacao_postgres_master.md](ContextoIA/devops/instalacao_postgres_master.md).
+| Arquivo | Função |
+|---|---|
+| **[`Nexus-Server.bat`](Nexus-Server.bat)** | **Executa o Servidor Headless Axum:** Escuta requisições na porta `3001` e serve a API e o SPA para a rede. Não abre navegadores e não cria janelas locais. |
 
-## Estrutura
+*(Para configurar computadores clientes ou terminais na rede, utilize o assistente em [`scripts/cliente/Nexus-Setup-Cliente.bat`](scripts/cliente/Nexus-Setup-Cliente.bat)).*
 
-| Pasta | Função |
-|-------|--------|
-| `Frontend/` | UI |
-| `Backend/` | Desktop Tauri + API Axum |
-| `Backend/supabase/` | Schema SQL |
-| `erp-import/` | Sync SQL Server → Postgres |
-| `ContextoIA/` | Docs IA |
-| `Feedbacks/` | Playbook `feedback.md` (dados no Postgres) |
-| `Saves/` | `postgres.env`, `client_config.json` (secrets fora do git) |
-| `scripts/` | Release / updater |
+---
 
-## Dev
+## 3. Infraestrutura & Servidor Linux / CasaOS
+
+Para rodar o banco de dados e/ou o servidor Nexus 24/7 em uma máquina Linux dedicada:
+- **Docker Compose:** [`docker/docker-compose.yml`](docker/docker-compose.yml) (PostgreSQL 17 + pgAdmin 4).
+- **Backup do Banco:** [`scripts/backup_postgres.bat`](scripts/backup_postgres.bat) (exporta dump comprimido com data/hora).
+- **Restauração do Banco:** [`scripts/restore_postgres.bat`](scripts/restore_postgres.bat) e [`scripts/restore_postgres.sh`](scripts/restore_postgres.sh).
+- **Guia de Migração Detalhado:** Consulte [`ContextoIA/devops/migracao_casaos_linux.md`](ContextoIA/devops/migracao_casaos_linux.md).
+
+---
+
+## 4. Estrutura de Pastas
+
+| Pasta | Descrição |
+|---|---|
+| `Backend/` | Código Rust do servidor HTTP Axum, módulos de negócio e rotas REST. |
+| `Frontend/` | Código React + Vite + Tailwind da interface do usuário. |
+| `docker/` | Arquivos de orquestração de containers (CasaOS / Linux). |
+| `scripts/` | Utilitários de backup, restore, sync ERP e diagnóstico de rede. |
+| `ContextoIA/` | Documentação técnica arquitetural, diagramas e guias para agentes de IA. |
+| `Saves/` | Configurações locais sensíveis (`postgres.env`, `client_config.json`, backups). |
+| `erp-import/` | Rotinas de sincronização SQL Server ERP → PostgreSQL. |
+
+---
+
+## 5. Desenvolvimento Diário
 
 ```powershell
-cd Backend; cargo check --lib
-cd Frontend; npm run build
+# Verificar compilação do Backend (0 warnings, 0 errors):
+cd Backend
+cargo check --bin nexus-server --no-default-features
+
+# Build de produção do Frontend:
+cd ..\Frontend
+npm run build
 ```
 
-Popular dados: sync ERP (`cargo run --bin run_sync`) + supervisor no setup do app.
+---
+
+## 6. Documentação para Agentes de IA
+
+Consulte [`AGENTS.md`](AGENTS.md) e o índice geral em [`ContextoIA/INDEX.md`](ContextoIA/INDEX.md).

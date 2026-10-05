@@ -1,6 +1,6 @@
 # Movimentos de estoque de insumos (ERP → Hub)
 
-Documenta o que o NatumHub **já importa**, o que ainda falta, e como descobrir no SQL Server os tipos extras (acertos, inventário, etc.).
+Documenta o que o Nexus **já importa**, o que ainda falta, e como descobrir no SQL Server os tipos extras (acertos, inventário, etc.).
 
 ## Já sincronizado hoje
 

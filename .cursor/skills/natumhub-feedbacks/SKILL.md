@@ -1,13 +1,13 @@
 ---
 name: natumhub-feedbacks
 description: >-
-  Gerencia o sistema de feedbacks do NatumHub: triagem admin, prioridades,
+  Gerencia o sistema de feedbacks do Nexus: triagem admin, prioridades,
   status, widget de envio, API /api/hub/feedbacks e tabelas PostgreSQL
   feedbacks/feedback_notes. Use quando o usuário pedir feedback, triagem,
   gestão de reports, prioridade ou alterações no FeedbackWidget/FeedbacksAdminView.
 ---
 
-# NatumHub — Skill: Feedbacks
+# Nexus — Skill: Feedbacks
 
 ## Quando usar
 

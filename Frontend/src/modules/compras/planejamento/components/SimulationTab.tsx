@@ -710,12 +710,28 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
               });
             });
           } else {
+            // Se o item (ex: caixa coletiva fracionada) já faz parte da fórmula de algum componente deste kit,
+            // não adicionar pelo kit para não duplicar/triplicar.
+            const isInComponentFormulation = comps.some((other) => {
+              const otherCode = trimCode(other.codigo);
+              const otherNorm = otherCode.replace(/\./g, '');
+              const otherLines = formulations[otherCode] || formulations[otherNorm] || [];
+              return otherLines.some((l) => {
+                const lCode = trimCode(l.ingredientCode);
+                return lCode === compCode || lCode.replace(/\./g, '') === normComp;
+              });
+            });
+
+            if (isInComponentFormulation) {
+              return;
+            }
+
             // Item direto do kit (ex: caixa do kit, sleeve, berço sem fórmula)
             addRequirement(compCode, comp.descricao, compProdQty, {
-              productCode: compCode,
-              productDesc: comp.descricao || compCode,
+              productCode: simProd.codigo,
+              productDesc: `${simProd.descricao} (kit)`,
               productLine: simProd.nome_linha,
-              qtyProduct: compProdQty,
+              qtyProduct: simProd.quantity,
               unitMultiplier: comp.quantidade,
               totalInsumo: compProdQty,
               viaKit: `${simProd.codigo} (${simProd.descricao})`,
@@ -1638,7 +1654,21 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
                                           <td className="py-1.5 px-3 text-zinc-500">{c.productLine}</td>
                                           <td className="py-1.5 px-3 text-right font-mono font-medium">{c.qtyProduct.toLocaleString('pt-BR')} un</td>
                                           <td className="py-1.5 px-3 text-right font-mono text-zinc-500">
-                                            {c.unitMultiplier.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
+                                            <span className="block">
+                                              {c.unitMultiplier.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
+                                            </span>
+                                            {c.unitMultiplier > 0 && c.unitMultiplier < 0.999 && (() => {
+                                              const inv = 1 / c.unitMultiplier;
+                                              const r = Math.round(inv);
+                                              if (Math.abs(r - inv) < 0.05 && r >= 2) {
+                                                return (
+                                                  <span className="text-[9px] text-zinc-400 font-sans block leading-none mt-0.5" title={`1 ${req.unit || 'un'} a cada ${r} unidades`}>
+                                                    1 {req.unit || 'cx'} / {r} un
+                                                  </span>
+                                                );
+                                              }
+                                              return null;
+                                            })()}
                                           </td>
                                           <td className="py-1.5 px-3 text-right font-mono font-bold text-zinc-900">
                                             {c.totalInsumo.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} {req.unit}

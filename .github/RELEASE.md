@@ -1,40 +1,22 @@
-# Build do PC Principal (opcional)
+# Publicar o Nexus
 
-Clientes da fábrica **não** usam instalador nem update in-app. Acessam o Hub no navegador:
+Clientes da fábrica acessam o navegador:
 
-`http://natumhub.local:3001`
+`http://nexus.local:3001`
 
-Atualização de produção = `git checkout main && git pull` + `npm run build` no Frontend + reinício do app master. Ver [`ContextoIA/devops/`](../ContextoIA/devops/).
-
-## Quando gerar o `.exe` do master
-
-Só se quiser instalar o NatumHub como app Tauri no PC Principal (API + sync ERP + serve o SPA).
+Atualização de produção no PC principal:
 
 ```bash
-cd Backend
-npm ci
-cd ../Frontend && npm ci && npm run build && cd ../Backend
-
-# Identificador Principal
-npm run build:stable
-
-# Identificador Dev (máquina de desenvolvimento)
-npm run build:dev
+git checkout main && git pull
+cd Frontend && npm run build
 ```
 
-Saída típica: `…/bundle/nsis/*-setup.exe`.
+Depois reinicie `nexus-server` (`Nexus-Server.bat` ou o binário em `Backend/target/release/nexus-server.exe`).
 
-## CI (opcional)
+## Repositório
 
-```bash
-git tag v0.0.12 && git push origin v0.0.12
-```
+O remote ainda é `https://github.com/ancaped/NatumHub.git`. O nome do produto é Nexus; o nome do repositório GitHub não mudou.
 
-Ou **Actions → Release NatumHub**. O workflow gera instaladores do master; **não** há manifests de updater nem sync GitHub→app.
+## Workflow antigo
 
-## Modelo de branches
-
-| Branch | Uso |
-|--------|-----|
-| `main` | Produção no PC Principal |
-| Outras | Desenvolvimento local; não servir aos clientes da fábrica |
+[`.github/workflows/release.yml`](workflows/release.yml) ainda tenta gerar um instalador desktop (Tauri). Esse caminho não é o deploy atual. Não use essa Action como publicação do servidor.

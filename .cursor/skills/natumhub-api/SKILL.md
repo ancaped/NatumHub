@@ -1,13 +1,13 @@
 ---
 name: natumhub-api
 description: >-
-  Adiciona ou altera rotas REST Axum e cliente HTTP do NatumHub: lib.rs,
+  Adiciona ou altera rotas REST Axum e cliente HTTP do Nexus: lib.rs,
   handlers, hub_api, apiFetch/apiJson/hubJson e auth middleware.
   Use quando o usuário pedir nova rota API, endpoint REST, hubJson, middleware
   auth, CORS ou erro 401/403 em chamadas HTTP.
 ---
 
-# NatumHub — Skill: API REST
+# Nexus — Skill: API REST
 
 ## Quando usar
 
@@ -59,6 +59,6 @@ Demais exigem `Authorization: Bearer <token>`.
 
 ## Regras
 
-- Preferir REST sobre invoke Tauri
+- Cliente HTTP só via `apiJson` / `hubJson`
 - Clientes finos dependem 100% da API — sem banco local
 - Respostas em **pt-BR**

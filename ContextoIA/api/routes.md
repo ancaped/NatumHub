@@ -1,8 +1,8 @@
 # API REST Axum — referência compacta
 
-Servidor: **`:3001`** (API + SPA do Hub) · Clientes: `http://natumhub.local:3001` · Auth: `Authorization: Bearer <token>` (exceto rotas públicas abaixo).
+Servidor: **`nexus-server` `:3001`** (API + SPA) · Clientes: `http://nexus.local:3001` · Auth: `Authorization: Bearer <token>` (exceto rotas públicas abaixo). O header de dispositivo continua `X-Natum-Device-Id`.
 
-Implementação: `Backend/src/lib.rs` + `modules/*/router`. Detalhes multi-usuário: [`../arquitetura/multi_usuario.md`](../arquitetura/multi_usuario.md).
+Implementação: `Backend/src/server.rs` + `modules/*/router`. Detalhes multi-usuário: [`../arquitetura/multi_usuario.md`](../arquitetura/multi_usuario.md).
 
 ## Rotas públicas
 
@@ -25,7 +25,7 @@ Implementação: `Backend/src/lib.rs` + `modules/*/router`. Detalhes multi-usuá
 |--------|------|-------|
 | GET | `/api/hub/status` | Status + db conectado |
 | GET/POST | `/api/hub/client-config` | Config local do dispositivo |
-| GET | `/api/hub/public-config` | Hint de URL (`natumhub.local`) |
+| GET | `/api/hub/public-config` | Hint de URL (`nexus.local`) |
 
 ## Notificações
 
@@ -97,8 +97,10 @@ Hub `almoxarifado_hub`. Doc: [`../modulos/almoxarifado.md`](../modulos/almoxarif
 | POST | `/api/almox/items/local` | só supermercado (`APP_*`) |
 | GET/PUT | `/api/almox/items/:code` / `…/config` | |
 | GET/POST | `/api/almox/movements` | pack/totalPaid no Super |
-| GET/POST/PUT | `/api/almox/equipments` | |
-| GET/POST/PUT | `/api/almox/maintenances` | |
+| GET/POST | `/api/almox/equipments` | parque (ficha + foto capa + gastos) |
+| GET/PUT | `/api/almox/equipments/:id` | detalhe com peças associadas e tempo médio |
+| GET/POST | `/api/almox/maintenances` | OS; `parts[]` (trocada ou não) + `scheduledAt` |
+| PUT | `/api/almox/maintenances/:id` | status / conclusão |
 | GET/POST | `/api/almox/demands` | compras |
 
 ## Estoque — Ordens Manuais

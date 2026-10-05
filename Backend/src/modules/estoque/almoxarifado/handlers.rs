@@ -436,19 +436,49 @@ pub async fn receive_demand(
 
 // Equipamentos / Manutenções
 
+fn can_park(ctx: &AuthContext) -> bool {
+    is_supervisor(ctx)
+        || ctx.has_module(MODULE_ESTOQUE_EQUIPAMENTOS)
+        || ctx.has_module(MODULE_ESTOQUE_MANUTENCOES)
+        || ctx.has_module(MODULE_ESTOQUE_PECAS)
+}
+
+fn can_write_park(ctx: &AuthContext) -> bool {
+    is_supervisor(ctx)
+        || ctx.has_module(MODULE_ESTOQUE_EQUIPAMENTOS)
+        || ctx.has_module(MODULE_ESTOQUE_MANUTENCOES)
+}
+
 pub async fn list_equipments(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
 ) -> impl IntoResponse {
-    if !is_supervisor(&ctx)
-        && !ctx.has_module(MODULE_ESTOQUE_EQUIPAMENTOS)
-        && !ctx.has_module(MODULE_ESTOQUE_MANUTENCOES)
-        && !ctx.has_module(MODULE_ESTOQUE_ITENS)
-    {
+    if !can_park(&ctx) && !ctx.has_module(MODULE_ESTOQUE_ITENS) {
         return deny_module();
     }
     match store::list_equipments(state.db.pool()).await {
         Ok(items) => (StatusCode::OK, Json(json!({ "equipments": items }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn get_equipment(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if !can_park(&ctx) {
+        return deny_module();
+    }
+    match store::get_equipment(state.db.pool(), &id).await {
+        Ok(item) => (StatusCode::OK, Json(json!({ "equipment": item }))).into_response(),
+        Err(e) if e.contains("não encontrado") => {
+            (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": e })),
@@ -462,7 +492,7 @@ pub async fn create_equipment(
     Extension(ctx): Extension<AuthContext>,
     Json(body): Json<UpsertEquipmentRequest>,
 ) -> impl IntoResponse {
-    if !is_supervisor(&ctx) && !ctx.has_module(MODULE_ESTOQUE_EQUIPAMENTOS) {
+    if !can_write_park(&ctx) {
         return deny_module();
     }
     match store::upsert_equipment(state.db.pool(), None, &body).await {
@@ -477,7 +507,7 @@ pub async fn update_equipment(
     Path(id): Path<String>,
     Json(body): Json<UpsertEquipmentRequest>,
 ) -> impl IntoResponse {
-    if !is_supervisor(&ctx) && !ctx.has_module(MODULE_ESTOQUE_EQUIPAMENTOS) {
+    if !can_write_park(&ctx) {
         return deny_module();
     }
     match store::upsert_equipment(state.db.pool(), Some(&id), &body).await {
@@ -497,10 +527,7 @@ pub async fn list_maintenances(
     Extension(ctx): Extension<AuthContext>,
     Query(q): Query<MaintQuery>,
 ) -> impl IntoResponse {
-    if !is_supervisor(&ctx)
-        && !ctx.has_module(MODULE_ESTOQUE_MANUTENCOES)
-        && !ctx.has_module(MODULE_ESTOQUE_EQUIPAMENTOS)
-    {
+    if !can_park(&ctx) {
         return deny_module();
     }
     match store::list_maintenances(state.db.pool(), q.equipment_id.as_deref()).await {
@@ -518,7 +545,7 @@ pub async fn create_maintenance(
     Extension(ctx): Extension<AuthContext>,
     Json(body): Json<CreateMaintenanceRequest>,
 ) -> impl IntoResponse {
-    if !is_supervisor(&ctx) && !ctx.has_module(MODULE_ESTOQUE_MANUTENCOES) {
+    if !can_write_park(&ctx) {
         return deny_module();
     }
     match store::create_maintenance(state.db.pool(), Some(&ctx.operator_id), &body).await {
@@ -533,7 +560,7 @@ pub async fn update_maintenance(
     Path(id): Path<String>,
     Json(body): Json<UpdateMaintenanceRequest>,
 ) -> impl IntoResponse {
-    if !is_supervisor(&ctx) && !ctx.has_module(MODULE_ESTOQUE_MANUTENCOES) {
+    if !can_write_park(&ctx) {
         return deny_module();
     }
     match store::update_maintenance(state.db.pool(), &id, &body).await {

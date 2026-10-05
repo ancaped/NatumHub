@@ -229,6 +229,30 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
             "/api/producao/insumos-status/:code",
             get(handlers::get_insumos_status),
         )
+        .route(
+            "/api/producao/reatores",
+            get(handlers::list_reatores).put(handlers::save_reatores),
+        )
+        .route(
+            "/api/producao/planejamento-semanal",
+            get(handlers::list_planejamento_semanal).post(handlers::save_planejamento_item),
+        )
+        .route(
+            "/api/producao/planejamento-semanal/bulk",
+            put(handlers::bulk_save_planejamento),
+        )
+        .route(
+            "/api/producao/planejamento-semanal/:id",
+            delete(handlers::delete_planejamento_item),
+        )
+        .route(
+            "/api/producao/planejamento-semanal/:id/confirmar-fisico",
+            post(handlers::confirm_fisico_planejamento),
+        )
+        .route(
+            "/api/producao/planejamento-semanal/clear",
+            delete(handlers::clear_planejamento_semana),
+        )
         .merge(modules::producao::proc::router())
         .merge(modules::compras::router())
         .merge(modules::estoque::router())
@@ -362,6 +386,7 @@ where
     let _ = modules::geral::audit::store::ensure_tables(&pool).await;
     let _ = modules::geral::mapa::store::ensure_schema(&pool).await;
     let _ = modules::administrativo::funcionarios::store::ensure_schema(&pool).await;
+    let _ = modules::administrativo::acompanhamento_producao::store::ensure_schema(&pool).await;
 
     let state = Arc::new(handlers::AppState { db });
 

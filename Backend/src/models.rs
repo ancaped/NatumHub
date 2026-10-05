@@ -148,6 +148,7 @@ pub struct QueryParams {
     pub programadas_only: Option<bool>,
     pub include_programadas: Option<bool>,
     pub include_kits: Option<bool>,
+    pub include_bases: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -670,6 +671,9 @@ pub struct ProductionLote {
     pub snap_estoque_ideal_qtd: Option<f64>,
     pub snap_demanda_ajustada: Option<f64>,
     pub observacoes: Option<String>,
+    pub custom_status: Option<String>,
+    pub is_terceirizado: Option<bool>,
+    pub data_previsao: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

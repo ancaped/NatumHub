@@ -1,6 +1,6 @@
 # Módulos — criação e extensão
 
-Checklist para adicionar um **submódulo** ao NatumHub (espelhamento FE + BE).
+Checklist para adicionar um **submódulo** ao Nexus (espelhamento FE + BE).
 
 **Atalho IA:** em [`../arquitetura/mapa-app.html`](../arquitetura/mapa-app.html) use **Propor módulo** → baixe/copie o SPEC (`kind: natumhub-module-spec`) e peça ao agente com a skill `natumhub-modulos`. Consulte o inventário em [`mapa-app.json`](../arquitetura/mapa-app.json).
 

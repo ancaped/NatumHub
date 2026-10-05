@@ -1,4 +1,4 @@
-# Importação ERP NATUM → NatumHub
+# Importação ERP NATUM → Nexus
 
 Sync **SQL Server (ERP)** → **PostgreSQL** (no PC Principal). Forma canônica de popular dados operacionais.
 

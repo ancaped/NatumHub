@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::handlers::AppState;
 use crate::{Product, Report};
-use crate::tauri_commands::*;
+use crate::lab_queries::*;
 use crate::modules::hub_api::util::{ok_json, ok_status, with_pool};
 
 #[derive(serde::Deserialize)]

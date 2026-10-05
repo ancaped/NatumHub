@@ -1,15 +1,15 @@
 ---
 name: natumhub-modulos
 description: >-
-  Cria ou estende módulos do NatumHub com espelhamento Frontend/Backend:
+  Cria ou estende módulos do Nexus com espelhamento Frontend/Backend:
   registry, permissões, App.tsx, rotas Axum e notificações.
   Use quando o usuário pedir novo módulo, submódulo, tela no hub, module_key,
-  permissão de operador, registrar view, adicionar área ao NatumHub,
+  permissão de operador, registrar view, adicionar área ao Nexus,
   colar um SPEC JSON do mapa (kind: natumhub-module-spec),
   ou uma task module_spec em task.md.
 ---
 
-# NatumHub — Skill: Criação de Módulos
+# Nexus — Skill: Criação de Módulos
 
 ## Quando usar
 

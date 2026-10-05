@@ -584,12 +584,16 @@ impl Db {
 
         if let Some(ref linha) = params.linha {
             if !linha.trim().is_empty() && linha != "ALL" {
-                query.push_str(&format!(
-                    " AND COALESCE(o.linha_prefix_manual, p.linha_prefix) = ${}",
-                    idx
-                ));
-                binds.push(linha.trim().to_string());
-                idx += 1;
+                if linha.trim().eq_ignore_ascii_case("KITS") {
+                    query.push_str(" AND (p.descricao ILIKE '%kit%' OR h.codigo IN (SELECT DISTINCT kit_codigo FROM kit_composicao))");
+                } else {
+                    query.push_str(&format!(
+                        " AND COALESCE(o.linha_prefix_manual, p.linha_prefix) = ${}",
+                        idx
+                    ));
+                    binds.push(linha.trim().to_string());
+                    idx += 1;
+                }
             }
         }
 

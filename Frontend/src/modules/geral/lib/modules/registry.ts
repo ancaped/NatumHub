@@ -35,6 +35,7 @@ export const MODULE_KEYS = {
   ADMIN_RELATORIOS: 'admin_relatorios',
   ADMIN_PRODUTOS_ATIVOS_RELATORIOS: 'admin_produtos_ativos_relatorios',
   ADMIN_FUNCIONARIOS: 'admin_funcionarios',
+  ADMIN_ACOMPANHAMENTO_PRODUCAO: 'admin_acompanhamento_producao',
   PRODUCAO: 'producao',
   PRODUCAO_BASES: 'producao_bases',
   PRODUCAO_LOTES: 'producao_lotes',
@@ -179,6 +180,7 @@ export function moduleRegistry(): ModuleGroup[] {
         { key: MODULE_KEYS.ADMIN_LINHA_PRODUTOS, label: 'Linha de Produtos' },
         { key: MODULE_KEYS.ADMIN_RELATORIOS, label: 'Relatórios' },
         { key: MODULE_KEYS.ADMIN_FUNCIONARIOS, label: 'Funcionários' },
+        { key: MODULE_KEYS.ADMIN_ACOMPANHAMENTO_PRODUCAO, label: 'Acompanhamento de Produção' },
       ],
     },
     {
@@ -229,6 +231,7 @@ export function defaultModulesForRole(role: string): string[] {
         MODULE_KEYS.ESTOQUE_ALMOX,
         MODULE_KEYS.ESTOQUE_SUPERMERCADO,
         MODULE_KEYS.ESTOQUE_PECAS,
+        MODULE_KEYS.ESTOQUE_EQUIPAMENTOS,
         MODULE_KEYS.ESTOQUE_MANUTENCOES,
         MODULE_KEYS.ESTOQUE_MOVIMENTACOES,
         MODULE_KEYS.ESTOQUE_PRODUTOS,
@@ -279,6 +282,7 @@ export function defaultModulesForRole(role: string): string[] {
         MODULE_KEYS.ADMIN_LINHA_PRODUTOS,
         MODULE_KEYS.ADMIN_PRODUTOS_ATIVOS_RELATORIOS,
         MODULE_KEYS.ADMIN_FUNCIONARIOS,
+        MODULE_KEYS.ADMIN_ACOMPANHAMENTO_PRODUCAO,
       ];
     case 'expedicao':
       return [MODULE_KEYS.EXPEDICAO_ECOMMERCE];

@@ -1909,7 +1909,19 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                       {p.productionQty.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
                                     </td>
                                     <td className="px-3 py-2.5 text-right text-zinc-600">
-                                      {p.qtyPerUnit.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
+                                      <span className="font-mono">{p.qtyPerUnit.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}</span>
+                                      {p.qtyPerUnit > 0 && p.qtyPerUnit < 0.999 && (() => {
+                                        const inv = 1 / p.qtyPerUnit;
+                                        const r = Math.round(inv);
+                                        if (Math.abs(r - inv) < 0.05 && r >= 2) {
+                                          return (
+                                            <span className="text-[9px] text-zinc-400 block leading-none mt-0.5" title={`1 ${details.unit || 'un'} a cada ${r} unidades do produto`}>
+                                              1 {details.unit || 'cx'} / {r} un
+                                            </span>
+                                          );
+                                        }
+                                        return null;
+                                      })()}
                                     </td>
                                     <td className="px-3 py-2.5 text-right font-bold text-zinc-900">
                                       {p.insumoQty.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}

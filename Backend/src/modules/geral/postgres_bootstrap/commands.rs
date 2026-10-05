@@ -149,6 +149,14 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
         "036_compras_listas_solicitacao.sql",
         include_str!("../../../../supabase/036_compras_listas_solicitacao.sql"),
     ),
+    (
+        "038_equipamentos_parque.sql",
+        include_str!("../../../../supabase/038_equipamentos_parque.sql"),
+    ),
+    (
+        "039_producao_planejamento_semanal.sql",
+        include_str!("../../../../supabase/039_producao_planejamento_semanal.sql"),
+    ),
 ];
 
 #[derive(Debug, Serialize)]
@@ -607,17 +615,6 @@ pub fn bootstrap_local_postgres() -> Result<BootstrapPostgresResult, String> {
         port: EMBEDDED_PG_PORT,
         steps,
     })
-}
-
-#[cfg(feature = "desktop")]
-#[tauri::command]
-pub fn hub_bootstrap_local_postgres() -> Result<BootstrapPostgresResult, String> {
-    std::thread::Builder::new()
-        .name("pg-bootstrap".into())
-        .spawn(bootstrap_local_postgres)
-        .map_err(|e| e.to_string())?
-        .join()
-        .map_err(|_| "Thread de bootstrap panicou.".to_string())?
 }
 
 /// Executa os arquivos SQL de migração definidos em SCHEMA_FILES no banco de dados ativo.

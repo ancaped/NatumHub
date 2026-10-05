@@ -1,4 +1,4 @@
-# Estoque ERP → NatumHub (regra canônica)
+# Estoque ERP → Nexus (regra canônica)
 
 Erros de quantidade em Compras (Matéria-Prima, Embalagens, Coloração, Material de Apoio) **não podem** inventar fórmulas alternativas. Use sempre estes campos.
 
