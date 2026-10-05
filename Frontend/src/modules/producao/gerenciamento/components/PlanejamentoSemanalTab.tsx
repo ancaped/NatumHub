@@ -894,7 +894,7 @@ export function PlanejamentoSemanalTab({
     });
 
     try {
-      const res = await apiFetch(`/producao/ultimo-lote/${encodeURIComponent(item.codigo_produto)}`);
+      const res = await apiFetch(`/producao/ultimo-lote?code=${encodeURIComponent(item.codigo_produto)}`);
       if (res.ok) {
         const data = await res.json();
         setLinkLoteModalItem(prev => {
