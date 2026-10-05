@@ -241,16 +241,53 @@ pub async fn execute_erp_sync(
 
     match sync_result {
         Ok(res) => {
+            // Verificação já roda dentro de sync_from_sql_server (também no run_sync CLI).
+            let verify_note = format!(
+                " | estoque verify: checked={} repaired={}",
+                res.stock_verified, res.stock_repaired
+            );
+            if res.stock_repaired > 0 {
+                let body = format!(
+                    "{} item(ns) corrigidos para bater com a tela do ERP (nQtdeEstoque).",
+                    res.stock_repaired
+                );
+                crate::modules::geral::notifications::notify_config(
+                    &state,
+                    "warning",
+                    "Estoque corrigido após sync",
+                    &body,
+                    None,
+                );
+                crate::modules::geral::notifications::notify(
+                    &state,
+                    crate::modules::geral::auth::modules_registry::MODULE_COMPRAS_MP,
+                    "warning",
+                    "Estoque corrigido após sync",
+                    &body,
+                    None,
+                );
+            }
+            if res.stock_verified == 0 && res.snapshots > 0 {
+                crate::modules::geral::notifications::notify_config(
+                    &state,
+                    "error",
+                    "Falha na verificação de estoque",
+                    "Sync gravou snapshots mas a conferência com nQtdeEstoque não rodou. Use o botão Verificar estoque em Configurações.",
+                    None,
+                );
+            }
+
             let total_records = (res.products
                 + res.items
                 + res.suppliers
                 + res.invoices
                 + res.formulations
+                + res.kit_composicao
                 + res.movements
                 + res.purchase_orders
                 + res.sales_orders) as i64;
             let detail_msg = format!(
-                "[{}] since={} — {} produtos, {} insumos/materiais, {} fornecedores, {} compras, {} consumos, {} receitas, {} movimentações, {} pedidos de compra, {} pedidos de venda",
+                "[{}] since={} — {} produtos, {} insumos/materiais, {} fornecedores, {} compras, {} consumos, {} receitas, {} kits, {} movimentações, {} pedidos de compra, {} pedidos de venda{}",
                 res.mode,
                 res.since,
                 res.products,
@@ -259,9 +296,11 @@ pub async fn execute_erp_sync(
                 res.invoices,
                 res.consumption,
                 res.formulations,
+                res.kit_composicao,
                 res.movements,
                 res.purchase_orders,
-                res.sales_orders
+                res.sales_orders,
+                verify_note
             );
             let _ = state.db.record_import(
                 "sync",
@@ -271,8 +310,8 @@ pub async fn execute_erp_sync(
                 Some(&detail_msg),
             ).await;
             let msg = format!(
-                "Sync {} (desde {}): {} produtos, {} insumos, {} movimentações.",
-                res.mode, res.since, res.products, res.items, res.movements
+                "Sync {} (desde {}): {} produtos, {} insumos, {} movimentações.{}",
+                res.mode, res.since, res.products, res.items, res.movements, verify_note
             );
             crate::modules::geral::notifications::notify_config(
                 &state,
@@ -334,6 +373,7 @@ pub async fn trigger_db_sync(
                     "invoices": res.invoices,
                     "consumption": res.consumption,
                     "formulations": res.formulations,
+                    "kit_composicao": res.kit_composicao,
                     "movements": res.movements,
                     "purchase_orders": res.purchase_orders,
                     "sales_orders": res.sales_orders

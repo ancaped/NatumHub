@@ -1,6 +1,4 @@
-# Importação ERP NATUM → NatumHub
-
-Guia IA: [`ContextoIA/erp-import/README.md`](../ContextoIA/erp-import/README.md)
+# Importação ERP NATUM → Nexus
 
 Sync **SQL Server (ERP)** → **PostgreSQL** (no PC Principal). Forma canônica de popular dados operacionais.
 

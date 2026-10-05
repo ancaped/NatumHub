@@ -13,6 +13,8 @@ export interface KitComposicaoRow {
   quantidade: number;
   fator_proporcao_qtd?: number | null;
   fator_proporcao_kits?: number | null;
+  /** `erp` (sync Passo P) ou `manual` (CRUD/Excel) */
+  origem?: string;
 }
 
 export interface ProductOption {
@@ -37,6 +39,8 @@ export default function KitCompositionDrawer({
   onCompositionUpdated
 }: KitCompositionDrawerProps) {
   const [items, setItems] = useState<KitComposicaoRow[]>([]);
+  const [overridesMap, setOverridesMap] = useState<Record<string, any>>({});
+  const [togglingComp, setTogglingComp] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -62,9 +66,12 @@ export default function KitCompositionDrawer({
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await apiFetch(`/kits/composicao`);
-      if (res.ok) {
-        const data: KitComposicaoRow[] = await res.json();
+      const [resKits, resOvr] = await Promise.all([
+        apiFetch(`/kits/composicao`),
+        apiFetch(`/overrides`)
+      ]);
+      if (resKits.ok) {
+        const data: KitComposicaoRow[] = await resKits.json();
         const filtered = (Array.isArray(data) ? data : []).filter(
           row => (row.kit_codigo || '').replace(/['"]/g, '').trim().toLowerCase() === 
                  kitCodigo.replace(/['"]/g, '').trim().toLowerCase()
@@ -73,6 +80,14 @@ export default function KitCompositionDrawer({
       } else {
         setErrorMsg('Falha ao carregar itens da composição.');
       }
+      if (resOvr.ok) {
+        const ovrList = await resOvr.json();
+        const map: Record<string, any> = {};
+        (Array.isArray(ovrList) ? ovrList : []).forEach((o: any) => {
+          if (o.codigo) map[o.codigo] = o;
+        });
+        setOverridesMap(map);
+      }
     } catch (e) {
       console.error('Erro ao buscar composição no Drawer:', e);
       setErrorMsg('Erro de conexão ao carregar itens.');
@@ -80,6 +95,34 @@ export default function KitCompositionDrawer({
       setLoading(false);
     }
   }, [kitCodigo]);
+
+  const handleToggleApenasKit = async (compCode: string, newValue: number) => {
+    setTogglingComp(compCode);
+    try {
+      const existing = overridesMap[compCode] || {};
+      const payload = {
+        ...existing,
+        codigo: compCode,
+        produzir_apenas_kit: newValue
+      };
+      const res = await apiFetch(`/overrides`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        setOverridesMap(prev => ({
+          ...prev,
+          [compCode]: { ...(prev[compCode] || {}), produzir_apenas_kit: newValue }
+        }));
+        onCompositionUpdated?.();
+      }
+    } catch (e) {
+      console.error('Erro ao alternar modo do componente:', e);
+    } finally {
+      setTogglingComp(null);
+    }
+  };
 
   useEffect(() => {
     if (isOpen && kitCodigo) {
@@ -212,7 +255,11 @@ export default function KitCompositionDrawer({
     }
   };
 
-  const handleDeleteItem = async (compCode: string) => {
+  const handleDeleteItem = async (compCode: string, origem?: string) => {
+    if ((origem || 'manual') === 'erp') {
+      alert('Componente sincronizado do ERP não pode ser removido aqui. Altere no ERP e rode o sync.');
+      return;
+    }
     if (!window.confirm(`Deseja realmente desvincular o componente ${compCode} deste kit?`)) return;
     try {
       const res = await apiFetch(`/kits/composicao/${encodeURIComponent(kitCodigo.trim())}/${encodeURIComponent(compCode.trim())}`, {
@@ -222,7 +269,8 @@ export default function KitCompositionDrawer({
         setItems(prev => prev.filter(item => item.componente_codigo !== compCode));
         onCompositionUpdated?.();
       } else {
-        alert('Erro ao desvincular componente.');
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Erro ao desvincular componente.');
       }
     } catch (e) {
       console.error(e);
@@ -272,8 +320,8 @@ export default function KitCompositionDrawer({
         </div>
 
         {/* Stats Strip */}
-        <div className="px-6 py-3 bg-zinc-50/50 border-b border-zinc-150 flex items-center justify-between text-xs text-zinc-500">
-          <div className="flex items-center gap-2 font-semibold">
+        <div className="px-6 py-3 bg-zinc-50/50 border-b border-zinc-150 flex items-center justify-between text-xs text-zinc-500 gap-3">
+          <div className="flex items-center gap-2 font-semibold min-w-0">
             <span>Componentes Ativos:</span>
             <span className={`px-2.5 py-0.5 rounded-full font-bold text-[11px] border ${
               items.length > 0 
@@ -283,11 +331,9 @@ export default function KitCompositionDrawer({
               {items.length} {items.length === 1 ? 'item' : 'itens'}
             </span>
           </div>
-          {items.length === 0 && !loading && (
-            <span className="text-amber-600 font-bold flex items-center gap-1 text-[11px]">
-              <AlertCircle className="w-3.5 h-3.5" /> Kit sem insumos vinculados
-            </span>
-          )}
+          <span className="text-[10px] text-zinc-400 font-medium text-right shrink-0 max-w-[55%] leading-snug">
+            Composição do ERP via sync; extras manuais são preservados.
+          </span>
         </div>
 
         {/* Body content (Scrollable list of current components) */}
@@ -316,22 +362,33 @@ export default function KitCompositionDrawer({
             <div className="space-y-3">
               {items.map((item) => {
                 const hasProportion = item.fator_proporcao_kits != null && item.fator_proporcao_kits > 1;
+                const isErp = (item.origem || 'manual') === 'erp';
                 return (
                   <div 
                     key={`${item.kit_codigo}-${item.componente_codigo}`}
                     className="p-4 bg-zinc-50 border border-zinc-200 hover:border-zinc-350 hover:bg-zinc-50/50 rounded-2xl transition-all duration-200 shadow-xs flex items-center justify-between gap-4 group"
                   >
                     <div className="min-w-0 flex-1 space-y-1.5">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-xs font-bold text-zinc-700 bg-white border border-zinc-250 px-2 py-0.5 rounded-lg shrink-0">
                           {item.componente_codigo}
                         </span>
                         <span className="text-xs font-bold text-zinc-900 truncate group-hover:text-zinc-950 transition-colors">
                           {item.componente_descricao || 'Sem descrição'}
                         </span>
+                        <span
+                          className={`text-[10px] font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded border shrink-0 ${
+                            isErp
+                              ? 'bg-sky-50 text-sky-800 border-sky-200'
+                              : 'bg-zinc-100 text-zinc-600 border-zinc-200'
+                          }`}
+                          title={isErp ? 'Sincronizado do ERP (Passo P)' : 'Cadastro manual ou Excel'}
+                        >
+                          {isErp ? 'ERP' : 'Manual'}
+                        </span>
                       </div>
 
-                      <div className="flex items-center gap-2 text-[11px]">
+                      <div className="flex items-center gap-2 flex-wrap text-[11px] pt-0.5">
                         {hasProportion ? (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-indigo-50 text-indigo-700 font-bold rounded-md border border-indigo-150">
                             <Calculator className="w-3.5 h-3.5 text-indigo-500" />
@@ -342,16 +399,54 @@ export default function KitCompositionDrawer({
                             Qtd por Kit: <strong className="text-emerald-800 font-extrabold">{Number(item.quantidade)}</strong> {Number(item.quantidade) === 1 ? 'unidade' : 'unidades'}
                           </span>
                         )}
+
+                        <button
+                          type="button"
+                          disabled={togglingComp === item.componente_codigo}
+                          onClick={() => {
+                            const compOvr = overridesMap[item.componente_codigo];
+                            const isOnlyKit = compOvr?.produzir_apenas_kit === 1;
+                            handleToggleApenasKit(item.componente_codigo, isOnlyKit ? 0 : 1);
+                          }}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all flex items-center gap-1 cursor-pointer ${
+                            overridesMap[item.componente_codigo]?.produzir_apenas_kit === 1
+                              ? 'bg-purple-50 text-purple-700 border-purple-250 hover:bg-purple-100'
+                              : 'bg-zinc-100 text-zinc-600 border-zinc-200 hover:bg-zinc-200'
+                          }`}
+                          title={
+                            overridesMap[item.componente_codigo]?.produzir_apenas_kit === 1
+                              ? 'Produzido apenas para kits (demanda vem dos kits). Clique para mudar para Vendido Individual.'
+                              : 'Vendido individualmente também. Clique para mudar para Produzir Apenas para Kit.'
+                          }
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            overridesMap[item.componente_codigo]?.produzir_apenas_kit === 1 ? 'bg-purple-600' : 'bg-zinc-400'
+                          }`} />
+                          {togglingComp === item.componente_codigo
+                            ? 'Salvando...'
+                            : overridesMap[item.componente_codigo]?.produzir_apenas_kit === 1
+                            ? 'Apenas Kit'
+                            : 'Vendido Avulso'}
+                        </button>
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => handleDeleteItem(item.componente_codigo)}
-                      className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg border border-rose-150 transition-colors opacity-70 group-hover:opacity-100 cursor-pointer shrink-0"
-                      title="Desvincular componente"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {isErp ? (
+                      <span
+                        className="p-2 text-zinc-300 rounded-lg border border-transparent shrink-0"
+                        title="Linha do ERP — remova no ERP e sincronize"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleDeleteItem(item.componente_codigo, item.origem)}
+                        className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg border border-rose-150 transition-colors opacity-70 group-hover:opacity-100 cursor-pointer shrink-0"
+                        title="Desvincular componente"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 );
               })}

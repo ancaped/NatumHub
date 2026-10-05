@@ -1,6 +1,19 @@
 use std::collections::HashMap;
 use crate::models::{LineConfig, Product, ProductCalculationResult, ProductOverride, Stock};
 
+fn normalize_code(code: &str) -> String {
+    let mut s = code.trim().to_string();
+    if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
+        s.remove(0);
+        s.pop();
+    }
+    if s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2 {
+        s.remove(0);
+        s.pop();
+    }
+    s.replace('.', "").trim().to_lowercase()
+}
+
 pub fn calculate_products(
     products: &[Product],
     stocks: &[Stock],
@@ -25,21 +38,34 @@ pub fn calculate_products(
         visivel: Some(1),
     };
 
-    // Index overrides by product code
-    let overrides_map: HashMap<String, &ProductOverride> = overrides
-        .iter()
-        .map(|o| (o.codigo.clone(), o))
-        .collect();
+    // Index overrides by product code (raw, trimmed, and normalized)
+    let mut overrides_map: HashMap<String, &ProductOverride> = HashMap::new();
+    for o in overrides {
+        overrides_map.insert(o.codigo.clone(), o);
+        overrides_map.insert(o.codigo.trim().to_string(), o);
+        overrides_map.insert(normalize_code(&o.codigo), o);
+    }
 
-    // Index stock by product code
-    let stock_map: HashMap<String, &Stock> = stocks
-        .iter()
-        .map(|s| (s.codigo.clone(), s))
-        .collect();
+    // Index stock by product code (raw, trimmed, and normalized)
+    let mut stock_map: HashMap<String, &Stock> = HashMap::new();
+    for s in stocks {
+        stock_map.insert(s.codigo.clone(), s);
+        stock_map.insert(s.codigo.trim().to_string(), s);
+        stock_map.insert(normalize_code(&s.codigo), s);
+    }
+
+    // Index faturamento by normalized code as well
+    let mut fat_lookup: HashMap<String, &Vec<i64>> = HashMap::new();
+    for (code, vals) in faturamento_map {
+        fat_lookup.insert(code.clone(), vals);
+        fat_lookup.insert(code.trim().to_string(), vals);
+        fat_lookup.insert(normalize_code(code), vals);
+    }
 
     let mut results = Vec::new();
 
     for prod in products {
+        let norm_prod_code = normalize_code(&prod.codigo);
         // Get stock
         let default_stock = Stock {
             codigo: prod.codigo.clone(),
@@ -48,10 +74,17 @@ pub fn calculate_products(
             pedidos_aberto: 0,
             fase: None,
         };
-        let stock = stock_map.get(&prod.codigo).copied().unwrap_or(&default_stock);
+        let stock = stock_map.get(&prod.codigo)
+            .or_else(|| stock_map.get(prod.codigo.trim()))
+            .or_else(|| stock_map.get(&norm_prod_code))
+            .copied()
+            .unwrap_or(&default_stock);
 
         // Get overrides
-        let ovr = overrides_map.get(&prod.codigo).copied();
+        let ovr = overrides_map.get(&prod.codigo)
+            .or_else(|| overrides_map.get(prod.codigo.trim()))
+            .or_else(|| overrides_map.get(&norm_prod_code))
+            .copied();
 
         // Determine Line Prefix (with manual override)
         let resolved_linha_prefix = if let Some(o) = ovr {
@@ -105,9 +138,11 @@ pub fn calculate_products(
         } else {
             prod.media_levantamento
         };
-
-        // 2. Calculate Standard Deviation and Launch status (incorporating manual overrides)
-        let monthly_sales = faturamento_map.get(&prod.codigo);
+        // 2. Calculate Standard Deviation and Launch status (incorporating manual overrides)
+        let monthly_sales = fat_lookup.get(&prod.codigo)
+            .or_else(|| fat_lookup.get(prod.codigo.trim()))
+            .or_else(|| fat_lookup.get(&norm_prod_code))
+            .copied();
         let (desvio_padrao, is_lancamento) = {
             let manual_launch = ovr.and_then(|o| o.is_lancamento_manual);
             if let Some(l_manual) = manual_launch {
@@ -197,11 +232,28 @@ pub fn calculate_products(
         let abrir_ordem_qtd = config_ordem * da_for_division;
         let abrir_prod_qtd = config_prod * da_for_division;
 
+        let is_programada = ovr.and_then(|o| o.is_producao_programada).unwrap_or(0) == 1;
+        let disparo = ovr.and_then(|o| o.producao_programada_disparo);
+        let objetivo = ovr.and_then(|o| o.producao_programada_objetivo);
+
         // 8. Status decision & Recommended Production Quantity
         let (status, status_label, producao_recomendada) = if resolved_status_produto == "descontinuado" || config.visivel == Some(0) {
             ("descontinuado".to_string(), if config.visivel == Some(0) { "Linha Inativa".to_string() } else { "Saiu de Linha".to_string() }, 0)
         } else if resolved_status_produto == "terceirizado" {
             ("terceirizado".to_string(), "Terceirizado".to_string(), 0)
+        } else if is_programada {
+            let disparo_val = disparo.unwrap_or(0);
+            let objetivo_val = objetivo.unwrap_or(0);
+            if estoque_futuro_com_producao <= disparo_val {
+                let rec = if objetivo_val > 0 {
+                    objetivo_val
+                } else {
+                    (estoque_ideal_qtd - estoque_futuro_com_producao as f64).max(0.0).round() as i64
+                };
+                ("critico".to_string(), "Disparar Produção".to_string(), rec)
+            } else {
+                ("saudavel".to_string(), "Estoque OK (Programado)".to_string(), 0)
+            }
         } else if resolved_status_produto == "saindo_de_linha" {
             let (st, _lbl) = if duracao_meses <= config_prod {
                 ("critico", "Produzir Urgente (Saindo de Linha)")
@@ -213,8 +265,12 @@ pub fn calculate_products(
                 ("abundante", "Abundante (Saindo de Linha)")
             };
             let rec = if st == "critico" || st == "ordem" {
-                let needed = (estoque_ideal_qtd - estoque_futuro_com_producao as f64).round() as i64;
-                if needed > 0 { needed } else { 0 }
+                if let Some(manual_val) = ovr.and_then(|o| o.estoque_ideal_manual) {
+                    manual_val as i64
+                } else {
+                    let needed = (estoque_ideal_qtd - estoque_futuro_com_producao as f64).round() as i64;
+                    if needed > 0 { needed } else { 0 }
+                }
             } else {
                 0
             };
@@ -224,7 +280,21 @@ pub fn calculate_products(
         {
             ("bases".to_string(), "Base de produção".to_string(), 0)
         } else {
-            let (st, lbl) = if duracao_meses <= config_prod {
+            let has_manual_ideal = ovr.and_then(|o| o.estoque_ideal_manual).is_some()
+                || (base_media <= 0.001 && estoque_ideal_qtd > 0.0);
+
+            let (st, lbl) = if has_manual_ideal {
+                if (estoque_futuro_com_producao as f64) < estoque_ideal_qtd {
+                    let threshold_critico = estoque_ideal_qtd * (config_prod / config_ideal).min(0.75);
+                    if (estoque_futuro_com_producao as f64) <= threshold_critico {
+                        ("critico", "Produzir Urgente")
+                    } else {
+                        ("ordem", "Abrir Ordem")
+                    }
+                } else {
+                    ("saudavel", "Estoque OK")
+                }
+            } else if duracao_meses <= config_prod {
                 ("critico", "Produzir Urgente")
             } else if duracao_meses <= config_ordem {
                 ("ordem", "Abrir Ordem")
@@ -234,8 +304,12 @@ pub fn calculate_products(
                 ("abundante", "Abundante")
             };
             let rec = if st == "critico" || st == "ordem" {
-                let needed = (estoque_ideal_qtd - estoque_futuro_com_producao as f64).round() as i64;
-                if needed > 0 { needed } else { 0 }
+                if let Some(manual_val) = ovr.and_then(|o| o.estoque_ideal_manual) {
+                    manual_val as i64
+                } else {
+                    let needed = (estoque_ideal_qtd - estoque_futuro_com_producao as f64).round() as i64;
+                    if needed > 0 { needed } else { 0 }
+                }
             } else {
                 0
             };
@@ -269,6 +343,9 @@ pub fn calculate_products(
             lancamento_data_inicio: ovr.and_then(|o| o.lancamento_data_inicio.clone()),
             terceirizado_modo: ovr.and_then(|o| o.terceirizado_modo.clone()),
             is_kit_component: None,
+            is_producao_programada: ovr.and_then(|o| o.is_producao_programada),
+            producao_programada_disparo: disparo,
+            producao_programada_objetivo: objetivo,
             media_vendas: base_media,
             desvio_padrao,
             demanda_ajustada,
@@ -289,6 +366,8 @@ pub fn calculate_products(
             faltas_ativas: None,
             pedidos_compra_aberto: None,
             sugestao_compra: None,
+            is_kit: None,
+            parent_kits: None,
         });
     }
 

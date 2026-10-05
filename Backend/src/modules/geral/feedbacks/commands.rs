@@ -1,7 +1,5 @@
 use sqlx::{PgPool, Row};
-use tauri::State;
 
-use crate::DbState;
 use super::models::{
     Feedback, FeedbackAdminUpdate, FeedbackDetail, FeedbackNote,
     FeedbackReorderItem, FeedbackSubmitInput,
@@ -74,11 +72,6 @@ pub async fn get_feedbacks_admin_query(pool: PgPool) -> Result<Vec<Feedback>, St
         .await
         .map_err(|e| e.to_string())?;
     Ok(rows.iter().map(map_feedback_list_row).collect())
-}
-
-#[tauri::command]
-pub fn get_feedbacks(_state: State<DbState>) -> Result<Vec<Feedback>, String> {
-    Err("Use a API REST (/api/hub/feedbacks/manage)".into())
 }
 
 pub fn get_root_feedbacks_dir() -> std::path::PathBuf {
@@ -190,7 +183,7 @@ pub async fn sync_feedback_md(pool: PgPool) -> Result<(), String> {
     resolved.sort_by_key(|(p, _)| *p);
 
     let mut md = String::new();
-    md.push_str("# Feedback e Relatórios — NatumHub\n\n");
+    md.push_str("# Feedback e Relatórios — Nexus\n\n");
     md.push_str(
         "> Espelho opcional do PostgreSQL. **Playbook da IA:** `Feedbacks/feedback.md`. Fonte de verdade = banco.\n\n",
     );
@@ -343,11 +336,6 @@ pub async fn save_feedback_query(pool: PgPool, feedback: &Feedback) -> Result<()
     .map_err(|e| e.to_string())?;
     let _ = sync_feedback_md(pool.clone()).await;
     Ok(())
-}
-
-#[tauri::command]
-pub fn save_feedback(_state: State<DbState>, _feedback: Feedback) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/feedbacks)".into())
 }
 
 pub async fn update_feedback_admin_query(
@@ -541,11 +529,6 @@ pub async fn resolve_feedback_query(pool: PgPool, id: &str) -> Result<(), String
         },
     )
     .await
-}
-
-#[tauri::command]
-pub fn resolve_feedback(_state: State<DbState>, _id: String) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/feedbacks/:id)".into())
 }
 
 // Legacy alias for old get_feedbacks_conn callers

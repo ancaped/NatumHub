@@ -5,6 +5,7 @@ mod imports;
 mod quotations;
 mod suppliers;
 mod custom_configs;
+mod purchase_lists;
 
 pub use categories::*;
 pub use items::*;
@@ -13,4 +14,6 @@ pub use imports::*;
 pub use quotations::*;
 pub use suppliers::*;
 pub use custom_configs::*;
+pub use purchase_lists::*;
+
 

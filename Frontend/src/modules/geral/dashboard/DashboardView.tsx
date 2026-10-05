@@ -3,7 +3,7 @@ import {
   Boxes, ShoppingCart, Activity, FlaskConical, ArrowRight, ArrowLeft,
   Settings, Database, RefreshCw, Upload, Download, Loader2, Check, X, Globe,
   FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp, DollarSign,
-  ClipboardCheck, Briefcase, Truck, Warehouse, Calculator
+  ClipboardCheck, Briefcase, Truck, Warehouse, Calculator, Wrench, Printer
 } from 'lucide-react';
 import { canAccessView } from '../lib/modules/permissions';
 import type { AuthUser } from '../lib/auth';
@@ -247,9 +247,9 @@ export default function DashboardView({
               </button>
               )}
 
-              {allow('controle_qualidade') && (
+              {allow('qualidade_hub') && (
               <button 
-                onClick={() => setView('controle_qualidade')}
+                onClick={() => setView('qualidade_hub')}
                 className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
               >
                 <div className="space-y-4">
@@ -257,8 +257,8 @@ export default function DashboardView({
                     <ClipboardCheck className="h-6 w-6" />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-zinc-900">Controle de Qualidade</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Laudos, especificações e rastreabilidade de lotes (em desenvolvimento).</p>
+                    <h3 className="text-xl font-bold text-zinc-900">Qualidade</h3>
+                    <p className="text-sm text-zinc-500 mt-1">BPF, POPs, treinamentos e rastreabilidade auditável.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
@@ -267,9 +267,9 @@ export default function DashboardView({
               </button>
               )}
 
-              {allow('expedicao') && (
+              {allow('expedicao_hub') && (
               <button 
-                onClick={() => setView('expedicao')}
+                onClick={() => setView('expedicao_hub')}
                 className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
               >
                 <div className="space-y-4">
@@ -278,7 +278,7 @@ export default function DashboardView({
                   </div>
                   <div>
                     <h3 className="text-xl font-bold text-zinc-900">Expedição</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Separação, conferência e despacho de pedidos (em desenvolvimento).</p>
+                    <p className="text-sm text-zinc-500 mt-1">E-commerce, separação, conferência e despacho de pedidos.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
@@ -326,6 +326,26 @@ export default function DashboardView({
                 </div>
               </button>
               )}
+
+              {allow('ferramentas_hub') && (
+              <button 
+                onClick={() => setView('ferramentas_etiquetas')}
+                className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-64 focus:outline-none w-full cursor-pointer"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <Wrench className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-zinc-900">Ferramentas</h3>
+                    <p className="text-sm text-zinc-500 mt-1">Editor de etiquetas adesivas (100x50mm), impressão térmica, códigos de barra e utilitários.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Entrar no Módulo <ArrowRight className="h-4 w-4" />
+                </div>
+              </button>
+              )}
             </div>
           </div>
         ) : view === 'producao_hub' ? (
@@ -361,46 +381,6 @@ export default function DashboardView({
                 </div>
                 <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
                   Acessar Produção <ArrowRight className="h-3 w-3" />
-                </div>
-              </button>
-              )}
-
-              {allow('producao_bases') && (
-              <button 
-                onClick={() => setView('producao_bases')}
-                className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer"
-              >
-                <div className="space-y-4">
-                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                    <Database className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-zinc-900">Gestão de Bases</h3>
-                    <p className="text-xs text-zinc-500 mt-1">Composições de bases, produtos vinculados e estoque de intermediários.</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                  Acessar Bases <ArrowRight className="h-3 w-3" />
-                </div>
-              </button>
-              )}
-
-              {allow('producao_lotes') && (
-              <button 
-                onClick={() => setView('producao_lotes')}
-                className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer"
-              >
-                <div className="space-y-4">
-                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
-                    <ClipboardList className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-zinc-900">Lotes de Produção</h3>
-                    <p className="text-xs text-zinc-500 mt-1">Lotes ERP, conferência de pesagem/envase e resolução de erros.</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
-                  Acessar Lotes <ArrowRight className="h-3 w-3" />
                 </div>
               </button>
               )}
@@ -445,6 +425,26 @@ export default function DashboardView({
               </button>
               )}
 
+              {allow('producao_proc') && (
+              <button 
+                onClick={() => setView('producao_proc')}
+                className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <FileText className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-zinc-900">Processos de Fabricação (PROC)</h3>
+                    <p className="text-xs text-zinc-500 mt-1">Gestão de PROCs ANVISA, consulta de processos em branco e gerador inteligente de processos de fabricação.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Acessar Processos <ArrowRight className="h-3 w-3" />
+                </div>
+              </button>
+              )}
+
               {allow('montagem_kits') && (
               <button 
                 onClick={() => setView('montagem_kits')}
@@ -455,7 +455,7 @@ export default function DashboardView({
                     <Layers className="h-5 w-5" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-zinc-900">Montagem de Kits</h3>
+                    <h3 className="text-lg font-bold text-zinc-900">Kits</h3>
                     <p className="text-xs text-zinc-500 mt-1">Acompanhe falta de componentes, gere ordens de montagem, controle lotes individuais e imprima fichas de produção.</p>
                   </div>
                 </div>
@@ -519,15 +519,6 @@ export default function DashboardView({
                 <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar Material de Apoio <ArrowRight className="h-3 w-3" /></div>
               </button>
               )}
-              {allow('compras_quotations') && (
-              <button onClick={() => setView('compras_quotations')} className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
-                <div className="space-y-4">
-                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><ShoppingCart className="h-5 w-5" /></div>
-                  <div><h3 className="text-lg font-bold text-zinc-900">Cotações Gerais</h3><p className="text-xs text-zinc-500 mt-1">Módulo unificado de cotações para integrar demandas de insumos, embalagens e compras online.</p></div>
-                </div>
-                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar Cotações <ArrowRight className="h-3 w-3" /></div>
-              </button>
-              )}
               {allow('compras_materia_prima') && (
               <button onClick={() => setView('compras_simulation')} className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
                 <div className="space-y-4">
@@ -535,15 +526,6 @@ export default function DashboardView({
                   <div><h3 className="text-lg font-bold text-zinc-900">Simulador</h3><p className="text-xs text-zinc-500 mt-1">Simule a produção de lotes de produtos acabados e preveja a demanda consolidada de insumos e embalagens.</p></div>
                 </div>
                 <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar Simulador <ArrowRight className="h-3 w-3" /></div>
-              </button>
-              )}
-              {allow('compras_online') && (
-              <button onClick={() => setView('compras_online')} className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
-                <div className="space-y-4">
-                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Globe className="h-5 w-5" /></div>
-                  <div><h3 className="text-lg font-bold text-zinc-900">Compras Online</h3><p className="text-xs text-zinc-500 mt-1">Rastreie e registre pedidos feitos na internet (etiquetas, suprimentos, etc.), controle o status do trânsito e salve comprovantes.</p></div>
-                </div>
-                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar Rastreamento <ArrowRight className="h-3 w-3" /></div>
               </button>
               )}
               {allow('compras_pedidos') && (
@@ -564,13 +546,82 @@ export default function DashboardView({
                 <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar Notas <ArrowRight className="h-3 w-3" /></div>
               </button>
               )}
-              {allow('compras_almoxarifado') && (
-              <button onClick={() => setView('compras_almoxarifado')} className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
+            </div>
+          </div>
+        ) : view === 'ferramentas_hub' ? (
+          <div className="w-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="flex items-center gap-4 text-left">
+              <button 
+                onClick={() => setView('hub')}
+                className="bg-white border border-zinc-200 hover:bg-zinc-100 p-2 rounded-xl text-zinc-650 hover:text-zinc-900 transition-colors cursor-pointer"
+                title="Voltar ao Início"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+              <div>
+                <h2 className="text-2xl font-extrabold tracking-tight text-zinc-900">Módulo de Ferramentas</h2>
+                <p className="text-xs text-zinc-500">Selecione o utilitário desejado.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-2">
+              {allow('ferramentas_etiquetas') && (
+              <button 
+                onClick={() => setView('ferramentas_etiquetas')}
+                className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer"
+              >
                 <div className="space-y-4">
-                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Warehouse className="h-5 w-5" /></div>
-                  <div><h3 className="text-lg font-bold text-zinc-900">Almoxarifado</h3><p className="text-xs text-zinc-500 mt-1">Demandas locais de materiais do almox (abaixo do mínimo), marcar pedido e receber gerando entrada.</p></div>
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <Tag className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-zinc-900">Etiquetas</h3>
+                    <p className="text-xs text-zinc-500 mt-1">Impressão com auto-preenchimento de lotes e produtos, calendário de produção, modelos prontos e histórico.</p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar Almoxarifado <ArrowRight className="h-3 w-3" /></div>
+                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Acessar Etiquetas <ArrowRight className="h-3 w-3" />
+                </div>
+              </button>
+              )}
+
+              {allow('ferramentas_editor') && (
+              <button 
+                onClick={() => setView('ferramentas_editor')}
+                className="group bg-white border border-zinc-200 hover:border-purple-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer"
+              >
+                <div className="space-y-4">
+                  <div className="bg-purple-50 text-purple-700 p-3 rounded-xl w-fit group-hover:bg-purple-600 group-hover:text-white transition-colors">
+                    <Palette className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-zinc-900">Editor de Etiquetas</h3>
+                    <p className="text-xs text-zinc-500 mt-1">Estúdio visual drag-and-drop para criar, desenhar e customizar layouts térmicos (100x50mm).</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-semibold text-purple-700 mt-4 group-hover:translate-x-1 transition-transform">
+                  Acessar Estúdio <ArrowRight className="h-3 w-3" />
+                </div>
+              </button>
+              )}
+
+              {allow('ferramentas_impressoras') && (
+              <button 
+                onClick={() => setView('ferramentas_impressoras')}
+                className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <Printer className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-zinc-900">Central de Impressoras</h3>
+                    <p className="text-xs text-zinc-500 mt-1">Gerencie impressoras térmicas, conecte dispositivos do Windows, monitore status online e gerencie a fila remota.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Acessar Impressoras <ArrowRight className="h-3 w-3" />
+                </div>
               </button>
               )}
             </div>

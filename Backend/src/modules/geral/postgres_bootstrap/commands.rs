@@ -49,6 +49,114 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
         "008_add_freight_details.sql",
         include_str!("../../../../supabase/008_add_freight_details.sql"),
     ),
+    (
+        "009_insumo_stock_divergencias.sql",
+        include_str!("../../../../supabase/009_insumo_stock_divergencias.sql"),
+    ),
+    (
+        "010_produto_stock_contagens.sql",
+        include_str!("../../../../supabase/010_produto_stock_contagens.sql"),
+    ),
+    (
+        "011_ecommerce_orders.sql",
+        include_str!("../../../../supabase/011_ecommerce_orders.sql"),
+    ),
+    (
+        "012_extend_fte_details.sql",
+        include_str!("../../../../supabase/012_extend_fte_details.sql"),
+    ),
+    (
+        "013_almox_movement_sector.sql",
+        include_str!("../../../../supabase/013_almox_movement_sector.sql"),
+    ),
+    (
+        "014_ecommerce_lookups.sql",
+        include_str!("../../../../supabase/014_ecommerce_lookups.sql"),
+    ),
+    (
+        "015_reembalagem_packaging.sql",
+        include_str!("../../../../supabase/015_reembalagem_packaging.sql"),
+    ),
+    (
+        "016_qualidade_documentacao.sql",
+        include_str!("../../../../supabase/016_qualidade_documentacao.sql"),
+    ),
+    (
+        "017_hub_audit_events.sql",
+        include_str!("../../../../supabase/017_hub_audit_events.sql"),
+    ),
+    (
+        "018_mapa_hub.sql",
+        include_str!("../../../../supabase/018_mapa_hub.sql"),
+    ),
+    (
+        "019_hub_operator_profiles.sql",
+        include_str!("../../../../supabase/019_hub_operator_profiles.sql"),
+    ),
+    (
+        "020_produtos_codigo_barras.sql",
+        include_str!("../../../../supabase/020_produtos_codigo_barras.sql"),
+    ),
+    (
+        "021_manual_stock_orders.sql",
+        include_str!("../../../../supabase/021_manual_stock_orders.sql"),
+    ),
+    (
+        "022_manual_stock_record_types.sql",
+        include_str!("../../../../supabase/022_manual_stock_record_types.sql"),
+    ),
+    (
+        "023_qualidade_pops.sql",
+        include_str!("../../../../supabase/023_qualidade_pops.sql"),
+    ),
+    (
+        "024_manual_stock_print_batches.sql",
+        include_str!("../../../../supabase/024_manual_stock_print_batches.sql"),
+    ),
+    (
+        "025_manual_stock_sheet_registers.sql",
+        include_str!("../../../../supabase/025_manual_stock_sheet_registers.sql"),
+    ),
+    (
+        "026_qualidade_devolucoes.sql",
+        include_str!("../../../../supabase/026_qualidade_devolucoes.sql"),
+    ),
+    (
+        "027_kit_composicao_origem.sql",
+        include_str!("../../../../supabase/027_kit_composicao_origem.sql"),
+    ),
+    (
+        "028_reports_manufacturing_date.sql",
+        include_str!("../../../../supabase/028_reports_manufacturing_date.sql"),
+    ),
+    (
+        "029_ferramentas_label_templates.sql",
+        include_str!("../../../../supabase/029_ferramentas_label_templates.sql"),
+    ),
+    (
+        "030_reports_printed.sql",
+        include_str!("../../../../supabase/030_reports_printed.sql"),
+    ),
+    (
+        "031_procs_produtos.sql",
+        include_str!("../../../../supabase/031_procs_produtos.sql"),
+    ),
+    (
+        "035_suppliers_unification.sql",
+        include_str!("../../../../supabase/035_suppliers_unification.sql"),
+    ),
+    (
+        "036_compras_listas_solicitacao.sql",
+        include_str!("../../../../supabase/036_compras_listas_solicitacao.sql"),
+    ),
+    (
+        "038_equipamentos_parque.sql",
+        include_str!("../../../../supabase/038_equipamentos_parque.sql"),
+    ),
+    (
+        "039_producao_planejamento_semanal.sql",
+        include_str!("../../../../supabase/039_producao_planejamento_semanal.sql"),
+    ),
 ];
 
 #[derive(Debug, Serialize)]
@@ -509,12 +617,54 @@ pub fn bootstrap_local_postgres() -> Result<BootstrapPostgresResult, String> {
     })
 }
 
-#[tauri::command]
-pub fn hub_bootstrap_local_postgres() -> Result<BootstrapPostgresResult, String> {
-    std::thread::Builder::new()
-        .name("pg-bootstrap".into())
-        .spawn(bootstrap_local_postgres)
-        .map_err(|e| e.to_string())?
-        .join()
-        .map_err(|_| "Thread de bootstrap panicou.".to_string())?
+/// Executa os arquivos SQL de migração definidos em SCHEMA_FILES no banco de dados ativo.
+/// Lock de sessão para serializar migrações (startup Axum + sync ERP em paralelo).
+const SCHEMA_MIGRATION_LOCK_KEY: i64 = 0x4E41_7475_6D48; // "NAtumH"
+
+fn is_benign_migration_error(err_msg: &str) -> bool {
+    let m = err_msg.to_lowercase();
+    m.contains("already exists")
+        || m.contains("duplicate column")
+        || m.contains("already member of")
+        // Corrida CREATE TABLE IF NOT EXISTS: colisão no tipo composto da tabela
+        || m.contains("pg_type_typname_nsp_index")
+        || m.contains("pg_class_relname_nsp_index")
+}
+
+pub async fn run_schema_migrations(pool: &sqlx::PgPool) -> Result<(), String> {
+    use sqlx::Executor;
+
+    sqlx::query("SELECT pg_advisory_lock($1)")
+        .bind(SCHEMA_MIGRATION_LOCK_KEY)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Erro ao obter lock de migração: {e}"))?;
+
+    let result = async {
+        for (name, body) in SCHEMA_FILES {
+            match pool.execute(*body).await {
+                Ok(_) => {
+                    println!("[Database Migration] Aplicado {} com sucesso.", name);
+                }
+                Err(e) => {
+                    let err_msg = e.to_string();
+                    if is_benign_migration_error(&err_msg) {
+                        // Objeto já existe / corrida inócua entre processos
+                    } else {
+                        eprintln!("[Database Migration] Erro ao aplicar {}: {}", name, e);
+                        return Err(format!("Erro ao aplicar migração {}: {}", name, e));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    .await;
+
+    let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(SCHEMA_MIGRATION_LOCK_KEY)
+        .execute(pool)
+        .await;
+
+    result
 }

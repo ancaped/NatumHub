@@ -39,13 +39,276 @@ pub async fn get_compras_config_query(
     }
 }
 
+const COMPRAS_CONFIG_KEYS: &[&str] = &["compras_main", "compras_coloracao", "compras_apoio"];
+
+/// Volta insumos sem `manual_category` para a raiz (MP/Emb/Mat).
+async fn reset_non_manual_item_categories(pool: &PgPool) {
+    let _ = sqlx::query(
+        "UPDATE items
+         SET category_id = CASE
+             WHEN code LIKE '9.15.%' THEN 'cat_mp'
+             WHEN code LIKE '08.%' THEN 'cat_mat'
+             ELSE 'cat_emb'
+         END
+         WHERE (manual_category IS NULL OR manual_category = 0)",
+    )
+    .execute(pool)
+    .await;
+}
+
+/// Aplica `autoSubcategories` de um JSON de config (itens e/ou overrides de produto).
+pub async fn apply_auto_subcategory_rules(pool: &PgPool, config: &serde_json::Value) {
+    let Some(rules) = config.get("autoSubcategories").and_then(|r| r.as_array()) else {
+        return;
+    };
+    for rule in rules {
+        let Some(sub_id) = rule.get("subcategoryId").and_then(|s| s.as_str()) else {
+            continue;
+        };
+        let Some(prefix) = rule.get("prefix").and_then(|p| p.as_str()) else {
+            continue;
+        };
+        let rule_type = rule
+            .get("type")
+            .and_then(|t| t.as_str())
+            .unwrap_or("description");
+
+        let parent_id: Option<String> = sqlx::query_scalar(
+            "SELECT parent_id FROM categories WHERE id = $1",
+        )
+        .bind(sub_id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+
+        let Some(parent) = parent_id else {
+            eprintln!(
+                "[compras] regra autoSubcategories ignora subcategoria inexistente id={sub_id}"
+            );
+            continue;
+        };
+
+        if parent == "cat_coloracao" || parent == "cat_apoio" {
+            let like_pattern = if rule_type == "supplier" {
+                format!("%{}%", prefix)
+            } else {
+                format!("{}%", prefix)
+            };
+
+            if parent == "cat_coloracao" {
+                if rule_type == "supplier" {
+                    let _ = sqlx::query(
+                        "INSERT INTO overrides_produtos (codigo, categoria_produto)
+                         SELECT p.codigo, $1 FROM produtos p
+                         LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
+                         WHERE (
+                             p.codigo IN (
+                                 SELECT DISTINCT inv.item_code FROM invoices inv
+                                 WHERE inv.supplier_name ILIKE $2
+                                    OR inv.supplier_id = $3
+                                    OR inv.supplier_id IN (
+                                        SELECT s.id FROM suppliers s
+                                        WHERE s.name ILIKE $2
+                                           OR s.id = $3
+                                           OR s.parent_id IN (SELECT id FROM suppliers WHERE name ILIKE $2 OR id = $3)
+                                           OR s.id IN (SELECT parent_id FROM suppliers WHERE (name ILIKE $2 OR id = $3) AND parent_id IS NOT NULL)
+                                    )
+                                    OR (
+                                        inv.supplier_cnpj IS NOT NULL AND inv.supplier_cnpj <> '' AND inv.supplier_cnpj IN (
+                                            SELECT s.cnpj FROM suppliers s
+                                            WHERE (s.name ILIKE $2 
+                                               OR s.id = $3 
+                                               OR s.parent_id IN (SELECT id FROM suppliers WHERE name ILIKE $2 OR id = $3)
+                                               OR s.id IN (SELECT parent_id FROM suppliers WHERE (name ILIKE $2 OR id = $3) AND parent_id IS NOT NULL))
+                                              AND s.cnpj IS NOT NULL AND s.cnpj <> ''
+                                        )
+                                    )
+                                    OR inv.supplier_name IN (
+                                        SELECT s.name FROM suppliers s
+                                        WHERE s.parent_id IN (SELECT id FROM suppliers WHERE name ILIKE $2 OR id = $3)
+                                           OR s.id IN (SELECT parent_id FROM suppliers WHERE (name ILIKE $2 OR id = $3) AND parent_id IS NOT NULL)
+                                    )
+                             )
+                         )
+                           AND (op.categoria_produto IS NULL OR op.categoria_produto = 'cat_coloracao' OR op.categoria_produto = 'cat_apoio')
+                           AND p.codigo LIKE '1.34.%'
+                         ON CONFLICT(codigo) DO UPDATE SET categoria_produto = EXCLUDED.categoria_produto",
+                    )
+                    .bind(sub_id)
+                    .bind(&like_pattern)
+                    .bind(prefix)
+                    .execute(pool)
+                    .await;
+                } else {
+                    let _ = sqlx::query(
+                        "INSERT INTO overrides_produtos (codigo, categoria_produto)
+                         SELECT p.codigo, $1 FROM produtos p
+                         LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
+                         WHERE (p.descricao LIKE $2 OR p.codigo LIKE $2)
+                           AND (op.categoria_produto IS NULL OR op.categoria_produto = 'cat_coloracao' OR op.categoria_produto = 'cat_apoio')
+                           AND p.codigo LIKE '1.34.%'
+                         ON CONFLICT(codigo) DO UPDATE SET categoria_produto = EXCLUDED.categoria_produto",
+                    )
+                    .bind(sub_id)
+                    .bind(&like_pattern)
+                    .execute(pool)
+                    .await;
+                }
+            } else if rule_type == "supplier" {
+                let _ = sqlx::query(
+                    "INSERT INTO overrides_produtos (codigo, categoria_produto)
+                     SELECT p.codigo, $1 FROM produtos p
+                     LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
+                     WHERE (
+                         p.codigo IN (
+                             SELECT DISTINCT inv.item_code FROM invoices inv
+                             WHERE inv.supplier_name ILIKE $2
+                                OR inv.supplier_id = $3
+                                OR inv.supplier_id IN (
+                                    SELECT s.id FROM suppliers s
+                                    WHERE s.name ILIKE $2
+                                       OR s.id = $3
+                                       OR s.parent_id IN (SELECT id FROM suppliers WHERE name ILIKE $2 OR id = $3)
+                                       OR s.id IN (SELECT parent_id FROM suppliers WHERE (name ILIKE $2 OR id = $3) AND parent_id IS NOT NULL)
+                                )
+                                OR (
+                                    inv.supplier_cnpj IS NOT NULL AND inv.supplier_cnpj <> '' AND inv.supplier_cnpj IN (
+                                        SELECT s.cnpj FROM suppliers s
+                                        WHERE (s.name ILIKE $2 
+                                           OR s.id = $3 
+                                           OR s.parent_id IN (SELECT id FROM suppliers WHERE name ILIKE $2 OR id = $3)
+                                           OR s.id IN (SELECT parent_id FROM suppliers WHERE (name ILIKE $2 OR id = $3) AND parent_id IS NOT NULL))
+                                          AND s.cnpj IS NOT NULL AND s.cnpj <> ''
+                                    )
+                                )
+                                OR inv.supplier_name IN (
+                                    SELECT s.name FROM suppliers s
+                                    WHERE s.parent_id IN (SELECT id FROM suppliers WHERE name ILIKE $2 OR id = $3)
+                                       OR s.id IN (SELECT parent_id FROM suppliers WHERE (name ILIKE $2 OR id = $3) AND parent_id IS NOT NULL)
+                                )
+                         )
+                     )
+                       AND (op.categoria_produto IS NULL OR op.categoria_produto = 'cat_coloracao' OR op.categoria_produto = 'cat_apoio')
+                       AND p.codigo LIKE '1.30.%'
+                     ON CONFLICT(codigo) DO UPDATE SET categoria_produto = EXCLUDED.categoria_produto",
+                )
+                .bind(sub_id)
+                .bind(&like_pattern)
+                .bind(prefix)
+                .execute(pool)
+                .await;
+            } else {
+                let _ = sqlx::query(
+                    "INSERT INTO overrides_produtos (codigo, categoria_produto)
+                     SELECT p.codigo, $1 FROM produtos p
+                     LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
+                     WHERE (p.descricao LIKE $2 OR p.codigo LIKE $2)
+                       AND (op.categoria_produto IS NULL OR op.categoria_produto = 'cat_coloracao' OR op.categoria_produto = 'cat_apoio')
+                       AND p.codigo LIKE '1.30.%'
+                     ON CONFLICT(codigo) DO UPDATE SET categoria_produto = EXCLUDED.categoria_produto",
+                )
+                .bind(sub_id)
+                .bind(&like_pattern)
+                .execute(pool)
+                .await;
+            }
+        } else if rule_type == "supplier" {
+            let like_pattern = format!("%{}%", prefix);
+            let _ = sqlx::query(
+                "UPDATE items SET category_id = $1
+                 WHERE code IN (
+                     SELECT DISTINCT inv.item_code FROM invoices inv
+                     WHERE inv.supplier_name ILIKE $2
+                        OR inv.supplier_id = $3
+                        OR inv.supplier_id IN (
+                            SELECT s.id FROM suppliers s
+                            WHERE s.name ILIKE $2
+                               OR s.id = $3
+                               OR s.parent_id IN (SELECT id FROM suppliers WHERE name ILIKE $2 OR id = $3)
+                               OR s.id IN (SELECT parent_id FROM suppliers WHERE (name ILIKE $2 OR id = $3) AND parent_id IS NOT NULL)
+                        )
+                        OR (
+                            inv.supplier_cnpj IS NOT NULL AND inv.supplier_cnpj <> '' AND inv.supplier_cnpj IN (
+                                SELECT s.cnpj FROM suppliers s
+                                WHERE (s.name ILIKE $2 
+                                   OR s.id = $3 
+                                   OR s.parent_id IN (SELECT id FROM suppliers WHERE name ILIKE $2 OR id = $3)
+                                   OR s.id IN (SELECT parent_id FROM suppliers WHERE (name ILIKE $2 OR id = $3) AND parent_id IS NOT NULL))
+                                  AND s.cnpj IS NOT NULL AND s.cnpj <> ''
+                            )
+                        )
+                        OR inv.supplier_name IN (
+                            SELECT s.name FROM suppliers s
+                            WHERE s.parent_id IN (SELECT id FROM suppliers WHERE name ILIKE $2 OR id = $3)
+                               OR s.id IN (SELECT parent_id FROM suppliers WHERE (name ILIKE $2 OR id = $3) AND parent_id IS NOT NULL)
+                        )
+                 )
+                 AND category_id = $4
+                 AND (manual_category IS NULL OR manual_category = 0)",
+            )
+            .bind(sub_id)
+            .bind(&like_pattern)
+            .bind(prefix)
+            .bind(&parent)
+            .execute(pool)
+            .await;
+        } else {
+            let like_pattern = format!("{}%", prefix);
+            let _ = sqlx::query(
+                "UPDATE items SET category_id = $1
+                 WHERE description LIKE $2
+                   AND category_id = $3
+                   AND (manual_category IS NULL OR manual_category = 0)",
+            )
+            .bind(sub_id)
+            .bind(&like_pattern)
+            .bind(&parent)
+            .execute(pool)
+            .await;
+        }
+    }
+}
+
+/// Após Sync ERP (ou save de config): reset de itens não-manuais + regras de todos os módulos.
+pub async fn reapply_all_compras_auto_subcategories(pool: &PgPool) {
+    reset_non_manual_item_categories(pool).await;
+    for key in COMPRAS_CONFIG_KEYS {
+        if let Ok(Some(row)) = sqlx::query("SELECT value FROM config WHERE key = $1")
+            .bind(*key)
+            .fetch_optional(pool)
+            .await
+        {
+            let val: String = row.get(0);
+            if let Ok(config) = serde_json::from_str::<serde_json::Value>(&val) {
+                apply_auto_subcategory_rules(pool, &config).await;
+            }
+        }
+    }
+}
+
 pub async fn save_compras_config_query(
     pool: PgPool,
     config: &serde_json::Value,
     key: Option<String>,
 ) -> Result<(), String> {
     let config_key = key.unwrap_or_else(|| "compras_main".to_string());
-    let val = serde_json::to_string(config).map_err(|e| e.to_string())?;
+
+    // Não apagar autoSubcategories se o cliente mandou config sem o campo (ex.: aba Geral).
+    let mut merged = config.clone();
+    if merged.get("autoSubcategories").is_none() {
+        if let Ok(Some(existing)) =
+            get_compras_config_query(pool.clone(), Some(config_key.clone())).await
+        {
+            if let Some(rules) = existing.get("autoSubcategories").cloned() {
+                if let Some(obj) = merged.as_object_mut() {
+                    obj.insert("autoSubcategories".to_string(), rules);
+                }
+            }
+        }
+    }
+
+    let val = serde_json::to_string(&merged).map_err(|e| e.to_string())?;
     sqlx::query(
         "INSERT INTO config (key, value) VALUES ($1, $2)
          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
@@ -56,144 +319,59 @@ pub async fn save_compras_config_query(
     .await
     .map_err(|e| e.to_string())?;
 
+    // Coloração/Apoio não podem resetar itens de MP/Emb — isso apagava associações ao salvar outro módulo.
     if config_key == "compras_main" {
-        let _ = sqlx::query(
-            "UPDATE items
-             SET category_id = CASE
-                 WHEN code LIKE '9.15.%' THEN 'cat_mp'
-                 WHEN code LIKE '08.%' THEN 'cat_mat'
-                 ELSE 'cat_emb'
-             END
-             WHERE (manual_category IS NULL OR manual_category = 0)",
-        )
-        .execute(&pool)
-        .await;
-    } else if config_key == "compras_coloracao" {
-        let _ = sqlx::query(
-            "UPDATE items
-             SET category_id = 'cat_mp'
-             WHERE code LIKE '9.15.%' AND (manual_category IS NULL OR manual_category = 0)",
-        )
-        .execute(&pool)
-        .await;
-    } else if config_key == "compras_apoio" {
-        let _ = sqlx::query(
-            "UPDATE items
-             SET category_id = 'cat_mat'
-             WHERE code LIKE '08.%' AND (manual_category IS NULL OR manual_category = 0)",
-        )
-        .execute(&pool)
-        .await;
+        reapply_all_compras_auto_subcategories(&pool).await;
+    } else if config_key == "compras_coloracao" || config_key == "compras_apoio" {
+        apply_auto_subcategory_rules(&pool, &merged).await;
     }
 
-    if config_key == "compras_main" || config_key == "compras_coloracao" || config_key == "compras_apoio" {
-        if let Some(rules) = config.get("autoSubcategories").and_then(|r| r.as_array()) {
-            for rule in rules {
-                if let (Some(sub_id), Some(prefix)) = (
-                    rule.get("subcategoryId").and_then(|s| s.as_str()),
-                    rule.get("prefix").and_then(|p| p.as_str()),
-                ) {
-                    let rule_type = rule.get("type").and_then(|t| t.as_str()).unwrap_or("description");
-                    let parent_id: Option<String> = sqlx::query_scalar(
-                        "SELECT parent_id FROM categories WHERE id = $1",
-                    )
-                    .bind(sub_id)
-                    .fetch_optional(&pool)
-                    .await
-                    .ok()
-                    .flatten();
+    Ok(())
+}
 
-                    if let Some(parent) = parent_id {
-                        if parent == "cat_coloracao" || parent == "cat_apoio" {
-                            let query = if parent == "cat_coloracao" {
-                                if rule_type == "supplier" {
-                                    "
-                                    INSERT INTO overrides_produtos (codigo, categoria_produto)
-                                    SELECT p.codigo, $1 FROM produtos p
-                                    LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
-                                    WHERE p.codigo IN (SELECT DISTINCT item_code FROM invoices WHERE supplier_name ILIKE $2)
-                                      AND (op.categoria_produto IS NULL OR op.categoria_produto = 'cat_coloracao' OR op.categoria_produto = 'cat_apoio')
-                                      AND p.codigo LIKE '1.34.%'
-                                    ON CONFLICT(codigo) DO UPDATE SET categoria_produto = EXCLUDED.categoria_produto"
-                                } else {
-                                    "
-                                    INSERT INTO overrides_produtos (codigo, categoria_produto)
-                                    SELECT p.codigo, $1 FROM produtos p
-                                    LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
-                                    WHERE (p.descricao LIKE $2 OR p.codigo LIKE $2)
-                                      AND (op.categoria_produto IS NULL OR op.categoria_produto = 'cat_coloracao' OR op.categoria_produto = 'cat_apoio')
-                                      AND p.codigo LIKE '1.34.%'
-                                    ON CONFLICT(codigo) DO UPDATE SET categoria_produto = EXCLUDED.categoria_produto"
-                                }
-                            } else {
-                                if rule_type == "supplier" {
-                                    "
-                                    INSERT INTO overrides_produtos (codigo, categoria_produto)
-                                    SELECT p.codigo, $1 FROM produtos p
-                                    LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
-                                    WHERE p.codigo IN (SELECT DISTINCT item_code FROM invoices WHERE supplier_name ILIKE $2)
-                                      AND (op.categoria_produto IS NULL OR op.categoria_produto = 'cat_coloracao' OR op.categoria_produto = 'cat_apoio')
-                                      AND p.codigo LIKE '1.30.%'
-                                    ON CONFLICT(codigo) DO UPDATE SET categoria_produto = EXCLUDED.categoria_produto"
-                                } else {
-                                    "
-                                    INSERT INTO overrides_produtos (codigo, categoria_produto)
-                                    SELECT p.codigo, $1 FROM produtos p
-                                    LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
-                                    WHERE (p.descricao LIKE $2 OR p.codigo LIKE $2)
-                                      AND (op.categoria_produto IS NULL OR op.categoria_produto = 'cat_coloracao' OR op.categoria_produto = 'cat_apoio')
-                                      AND p.codigo LIKE '1.30.%'
-                                    ON CONFLICT(codigo) DO UPDATE SET categoria_produto = EXCLUDED.categoria_produto"
-                                }
-                            };
-                            let like_pattern = if rule_type == "supplier" {
-                                format!("%{}%", prefix)
-                            } else {
-                                format!("{}%", prefix)
-                            };
-                            let _ = sqlx::query(query)
-                                .bind(sub_id)
-                                .bind(&like_pattern)
-                                .execute(&pool)
-                                .await;
-                        } else {
-                            if rule_type == "supplier" {
-                                let like_pattern = format!("%{}%", prefix);
-                                let _ = sqlx::query(
-                                    "UPDATE items SET category_id = $1
-                                     WHERE code IN (
-                                         SELECT DISTINCT item_code FROM invoices 
-                                         WHERE supplier_name ILIKE $2
-                                     )
-                                     AND category_id = $3
-                                     AND (manual_category IS NULL OR manual_category = 0)",
-                                )
-                                .bind(sub_id)
-                                .bind(&like_pattern)
-                                .bind(&parent)
-                                .execute(&pool)
-                                .await;
-                            } else {
-                                let like_pattern = format!("{}%", prefix);
-                                let _ = sqlx::query(
-                                    "UPDATE items SET category_id = $1
-                                     WHERE description LIKE $2
-                                       AND category_id = $3
-                                       AND (manual_category IS NULL OR manual_category = 0)",
-                                )
-                                .bind(sub_id)
-                                .bind(&like_pattern)
-                                .bind(&parent)
-                                .execute(&pool)
-                                .await;
-                            }
-                        }
-                    }
-                }
-            }
+const PINNED_SUBS_KEY: &str = "compras_pinned_subcategories";
+
+pub async fn get_pinned_subcategories_query(pool: PgPool) -> Result<Vec<String>, String> {
+    let row = sqlx::query("SELECT value FROM config WHERE key = $1")
+        .bind(PINNED_SUBS_KEY)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    match row {
+        Some(row) => {
+            let val: String = row.get(0);
+            serde_json::from_str(&val).map_err(|e| e.to_string())
+        }
+        None => Ok(Vec::new()),
+    }
+}
+
+pub async fn save_pinned_subcategories_query(
+    pool: PgPool,
+    ids: &[String],
+) -> Result<(), String> {
+    // Mantém só ids que ainda existem (evita pin fantasma).
+    let mut clean = Vec::new();
+    for id in ids {
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM categories WHERE id = $1)")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or(false);
+        if exists {
+            clean.push(id.clone());
         }
     }
-
+    let val = serde_json::to_string(&clean).map_err(|e| e.to_string())?;
+    sqlx::query(
+        "INSERT INTO config (key, value) VALUES ($1, $2)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+    )
+    .bind(PINNED_SUBS_KEY)
+    .bind(&val)
+    .execute(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -665,59 +843,4 @@ pub async fn get_auto_ignored_ingredients_query(
     }
 
     Ok(auto_ignored_map)
-}
-
-// Tauri stubs — use REST hub API
-use tauri::State;
-use crate::DbState;
-
-#[tauri::command]
-pub fn get_compras_config(_state: State<DbState>, _key: Option<String>) -> Result<Option<serde_json::Value>, String> {
-    Err("Use a API REST (/api/hub/compras/config)".into())
-}
-
-#[tauri::command]
-pub fn save_compras_config(
-    _state: State<DbState>,
-    _config: serde_json::Value,
-    _key: Option<String>,
-) -> Result<(), String> {
-    Err("Use a API REST (/api/hub/compras/config)".into())
-}
-
-#[tauri::command]
-pub fn import_stock(
-    _state: State<DbState>,
-    _rows: Vec<serde_json::Value>,
-    _filename: String,
-) -> Result<ImportResult, String> {
-    Err("Use a API REST (/api/hub/compras/imports/stock)".into())
-}
-
-#[tauri::command]
-pub fn import_consumption(
-    _state: State<DbState>,
-    _rows: Vec<serde_json::Value>,
-    _filename: String,
-) -> Result<ImportResult, String> {
-    Err("Use a API REST (/api/hub/compras/imports/consumption)".into())
-}
-
-#[tauri::command]
-pub fn import_invoices(
-    _state: State<DbState>,
-    _rows: Vec<serde_json::Value>,
-    _filename: String,
-) -> Result<ImportResult, String> {
-    Err("Use a API REST (/api/hub/compras/imports/invoices)".into())
-}
-
-#[tauri::command]
-pub fn get_import_history(_state: State<DbState>) -> Result<Vec<StockImport>, String> {
-    Err("Use a API REST (/api/hub/compras/imports/history)".into())
-}
-
-#[tauri::command]
-pub fn get_nf_import_control(_state: State<DbState>) -> Result<Option<serde_json::Value>, String> {
-    Err("Use a API REST (/api/hub/compras/imports/nf-control)".into())
 }

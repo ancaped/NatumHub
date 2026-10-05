@@ -9,19 +9,19 @@ import { getAuthUser } from '../../geral/lib/auth';
 import { format } from 'date-fns';
 import {
   FilePlus,
+  Calendar as CalendarIcon,
   History,
-  Printer,
   Loader2,
-  ListChecks,
   Settings,
-  X,
-} from 'lucide-react';import { Report, MicrobioAppConfig as AppConfig } from '../../geral/lib/types';
+} from 'lucide-react';
+import { Report, Product, MicrobioAppConfig as AppConfig } from '../../geral/lib/types';
 import { LAB_NAME, DEPT_NAME, COMPANY_INFO, DEFAULT_TESTS } from '../../geral/lib/microbioUtils';
 import { motion, AnimatePresence } from 'motion/react';
-import { ReportTemplate } from './components/ReportTemplate';
+import { printMicrobioReports } from './components/ReportTemplate';
 
 // Import modular sub-components
 import { ReportCreationFlow } from './components/ReportCreationFlow';
+import { CalendarTab } from './components/CalendarTab';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import { ReportHistory } from './components/ReportHistory';
 import { SettingsTab } from './components/SettingsTab';
@@ -38,13 +38,13 @@ interface MicrobiologiaViewProps {
 export default function MicrobiologiaView({ onBackToHub }: MicrobiologiaViewProps) {
   const [user, setUser] = useState<LocalUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'new' | 'history' | 'settings'>('new');
-  const [printingReports, setPrintingReports] = useState<Report[] | null>(null);
+  const [activeTab, setActiveTab] = useState<'new' | 'calendar' | 'history' | 'settings'>('new');
   const [selectedReportIds, setSelectedReportIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const tabLabels: Record<string, string> = {
       new: 'Gerar Lote',
+      calendar: 'Calendário de Produção',
       history: 'Histórico de Laudos',
       settings: 'Configurações'
     };
@@ -53,16 +53,37 @@ export default function MicrobiologiaView({ onBackToHub }: MicrobiologiaViewProp
 
   // Data State
   const [reports, setReports] = useState<Report[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [config, setConfig] = useState<AppConfig | null>(null);
 
-  const [dailyDate, setDailyDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [technicianName, setTechnicianName] = useState('');
+  const [technicianName, setTechnicianName] = useState(() => {
+    return localStorage.getItem('natum_hub_microbio_technician') || '';
+  });
+
+  const handleTechnicianChange = (name: string) => {
+    setTechnicianName(name);
+    try {
+      localStorage.setItem('natum_hub_microbio_technician', name);
+    } catch (_) {}
+  };
+
+  const [dailyDate, setDailyDate] = useState(() => {
+    return localStorage.getItem('natum_hub_microbio_daily_date') || format(new Date(), 'yyyy-MM-dd');
+  });
+
+  const handleDailyDateChange = (d: string) => {
+    setDailyDate(d);
+    try {
+      localStorage.setItem('natum_hub_microbio_daily_date', d);
+    } catch (_) {}
+  };
 
   useEffect(() => {
     const u = getAuthUser();
     setUser(u);
-    if (u) {
-      setTechnicianName(u.displayName || '');
+    const saved = localStorage.getItem('natum_hub_microbio_technician');
+    if (!saved && u?.displayName) {
+      handleTechnicianChange(u.displayName);
     }
     setLoading(false);
   }, []);
@@ -70,14 +91,20 @@ export default function MicrobiologiaView({ onBackToHub }: MicrobiologiaViewProp
   const fetchData = async () => {
     if (!user) return;
     try {
-      const [reps, conf] = await Promise.all([
+      const [reps, conf, prods] = await Promise.all([
         api.getReports(),
-        api.getMicrobioConfig()
+        api.getMicrobioConfig(),
+        api.getProducts().catch(() => []),
       ]);
       setReports(reps);
+      if (prods) setProducts(prods);
 
       if (conf) {
         setConfig(conf);
+        const saved = localStorage.getItem('natum_hub_microbio_technician');
+        if (!saved && conf.template?.defaultTechnician) {
+          handleTechnicianChange(conf.template.defaultTechnician);
+        }
       } else {
         const initialConfig: AppConfig = {
           nextReportNumber: 6833,
@@ -92,6 +119,7 @@ export default function MicrobiologiaView({ onBackToHub }: MicrobiologiaViewProp
             sampleType: COMPANY_INFO.sampleType,
             technicianSignName: 'Rafael Marinho de Melo',
             technicianSignTitle: 'Responsável Técnico',
+            defaultTechnician: 'EDSON FERRARI',
             defaultTests: DEFAULT_TESTS
           }
         };
@@ -107,25 +135,17 @@ export default function MicrobiologiaView({ onBackToHub }: MicrobiologiaViewProp
     if (user) fetchData();
   }, [user]);
 
-  useEffect(() => {
-    if (printingReports && printingReports.length > 0) {
-      const timer = setTimeout(() => {
-        try {
-          window.focus();
-          window.print();
-        } catch (e) {
-          console.error('Print failed:', e);
-        }
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [printingReports]);
-
-  const handlePrint = (reportOrReports: Report | Report[]) => {
-    if (Array.isArray(reportOrReports)) {
-      setPrintingReports(reportOrReports);
-    } else {
-      setPrintingReports([reportOrReports]);
+  const handlePrint = async (reportOrReports: Report | Report[]) => {
+    printMicrobioReports(reportOrReports, products, config?.template);
+    const list = Array.isArray(reportOrReports) ? reportOrReports : [reportOrReports];
+    const ids = list.map((r) => r.id).filter(Boolean) as string[];
+    if (ids.length > 0) {
+      try {
+        await api.markReportsPrinted(ids, true);
+        fetchData();
+      } catch (e) {
+        console.error('Error marking reports as printed:', e);
+      }
     }
   };
 
@@ -175,96 +195,9 @@ export default function MicrobiologiaView({ onBackToHub }: MicrobiologiaViewProp
     );
   }
 
-  if (printingReports && printingReports.length > 0) {
-    return (
-      <div className="relative bg-white min-h-screen">
-        <div className="no-print fixed top-4 right-4 flex flex-col gap-2 z-50">
-          <div className="bg-zinc-900/90 text-white p-4 rounded-2xl shadow-2xl border border-zinc-700 backdrop-blur-sm animate-in fade-in slide-in-from-top-4 duration-300">
-            <h3 className="text-sm font-bold mb-1 flex items-center gap-2">
-              <Printer className="h-4 w-4 text-zinc-500" /> Pré-visualização de Impressão
-            </h3>
-            <p className="text-[10px] text-zinc-300 mb-4 font-medium uppercase tracking-wider">
-              Laudos carregados: {printingReports.length}
-            </p>
-
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={() => {
-                  window.focus();
-                  window.print();
-                }}
-                className="w-full bg-zinc-800 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-zinc-900 flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer"
-              >
-                <Printer className="h-4 w-4" /> IMPRIMIR AGORA
-              </button>
-
-              <button
-                onClick={() => {
-                  const printWindow = window.open('', '_blank');
-                  if (printWindow) {
-                    printWindow.document.write(`
-                      <html>
-                        <head>
-                          <title>Impressão de Laudos</title>
-                          <script src="https://cdn.tailwindcss.com"></script>
-                          <style>
-                            @media print { .no-print { display: none !important; } .page-break { break-after: page; page-break-after: always; } }
-                            body { background: white; margin: 0; padding: 0; }
-                          </style>
-                        </head>
-                        <body>
-                          ${document.querySelector('.print-container')?.innerHTML || 'Erro ao carregar conteúdo'}
-                          <script>
-                            setTimeout(() => { window.print(); window.close(); }, 500);
-                          </script>
-                        </body>
-                      </html>
-                    `);
-                    printWindow.document.close();
-                  } else {
-                    alert('Pop-up bloqueado! Por favor, autorize pop-ups para este site.');
-                  }
-                }}
-                className="w-full bg-zinc-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-zinc-600 flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                <ListChecks className="h-4 w-4" /> ABRIR EM NOVA ABA
-              </button>
-
-              <button
-                onClick={() => setPrintingReports(null)}
-                className="w-full bg-zinc-200 text-zinc-700 px-6 py-3 rounded-xl font-bold hover:bg-zinc-300 flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                <X className="h-4 w-4" /> CANCELAR / VOLTAR
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl text-[10px] text-amber-800 font-medium max-w-[200px]">
-            DICA: Se a janela de impressão não abriu automaticamente, use o botão "IMPRIMIR AGORA".
-          </div>
-        </div>
-
-        <div className="print:block print-container">
-          {printingReports.map((report, idx) => {
-            const product = {
-              code: report.productCode,
-              name: report.productName,
-              packaging: 'Pote',
-              validity: '3 anos'
-            };
-            return (
-              <div key={report.id || idx} className={`${idx < printingReports.length - 1 ? 'page-break' : ''}`}>
-                <ReportTemplate report={report} product={product} config={config?.template} />
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-
   const sidebarItems = [
     { id: 'new', label: 'Gerar Lote', icon: FilePlus },
+    { id: 'calendar', label: 'Calendário', icon: CalendarIcon },
     { id: 'history', label: 'Histórico', icon: History },
     { id: 'settings', label: 'Configurações', icon: Settings },
   ];
@@ -291,12 +224,23 @@ export default function MicrobiologiaView({ onBackToHub }: MicrobiologiaViewProp
         {activeTab === 'new' && (
           <motion.div key="new" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
             <ReportCreationFlow
+              existingReports={reports}
               config={config}
               technicianName={technicianName}
-              setTechnicianName={setTechnicianName}
+              setTechnicianName={handleTechnicianChange}
               dailyDate={dailyDate}
-              setDailyDate={setDailyDate}
+              setDailyDate={handleDailyDateChange}
               onReportGenerated={handlePrint}
+              onSaved={fetchData}
+            />
+          </motion.div>
+        )}
+        {activeTab === 'calendar' && (
+          <motion.div key="calendar" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+            <CalendarTab
+              reports={reports}
+              products={products}
+              templateConfig={config?.template}
             />
           </motion.div>
         )}
@@ -313,7 +257,7 @@ export default function MicrobiologiaView({ onBackToHub }: MicrobiologiaViewProp
         )}
         {activeTab === 'settings' && (
           <motion.div key="settings" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
-            <SettingsTab config={config} onRefresh={fetchData} />
+            <SettingsTab config={config} reports={reports} onRefresh={fetchData} />
           </motion.div>
         )}
       </AnimatePresence>

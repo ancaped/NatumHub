@@ -23,6 +23,12 @@ pub async fn auth_middleware(
     let method = req.method().as_str().to_string();
 
     if store::is_public_path(&path) {
+        if let Some(token) = extract_bearer(req.headers()) {
+            let pool = state.db.pool();
+            if let Ok(Some(ctx)) = store::resolve_session(pool, &token).await {
+                req.extensions_mut().insert(ctx);
+            }
+        }
         return next.run(req).await;
     }
 
@@ -58,6 +64,19 @@ pub async fn auth_middleware(
 
             if matches!(method.as_str(), "POST" | "PUT" | "DELETE" | "PATCH") {
                 let _ = store::log_audit(pool, &ctx, &method, &path).await;
+                let device_id = req
+                    .headers()
+                    .get("X-Natum-Device-Id")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.to_string());
+                let _ = crate::modules::geral::audit::record_http_write(
+                    pool,
+                    &ctx,
+                    &method,
+                    &path,
+                    device_id.as_deref(),
+                )
+                .await;
             }
 
             req.extensions_mut().insert(ctx);

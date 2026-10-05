@@ -1,9 +1,11 @@
 import { apiFetch } from '../../../geral/lib/http';
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../geral/lib/api';
-import { DemandResult, Category, Item } from '../../../geral/lib/types';
-import { AlertCircle, ArrowDownToLine, Package, Filter, CheckCircle2, ShoppingCart, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, TrendingUp, BarChart3, FileText, ChevronRight, X, Info, RefreshCw, Database, Factory, Printer, PlusCircle, Settings, Layers } from 'lucide-react';
+import { DemandResult, Category, Item, ActiveRequestedItemSummary } from '../../../geral/lib/types';
+import { AlertCircle, ArrowDownToLine, Package, Filter, CheckCircle2, ShoppingCart, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, TrendingUp, BarChart3, FileText, ChevronRight, X, Info, RefreshCw, Database, Factory, Printer, PlusCircle, Settings, Layers, Calculator } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
+import { getAuthUser, isSupervisor } from '../../../geral/lib/auth';
+import { LoteDetailsDrawer } from '../../../producao/gerenciamento/components/LoteDetailsDrawer';
 
 interface InsumoDetalhes {
   code: string;
@@ -90,6 +92,19 @@ interface InsumoDetalhes {
   consumedSinceLastReceived: number | null;
   daysSinceLastReceived: number | null;
   avgMonthlySinceLastReceived: number | null;
+  simulation?: {
+    totalInsumoQty: number;
+    productCount: number;
+    products: {
+      productCode: string;
+      description: string;
+      status: string;
+      statusLabel: string;
+      productionQty: number;
+      qtyPerUnit: number;
+      insumoQty: number;
+    }[];
+  };
 }
 
 type SortKey = 'itemCode' | 'description' | 'currentStock' | 'overallAvg' | 'futureStockForecast' | 'estimatedDurationDays' | 'recommendedQty';
@@ -102,6 +117,7 @@ interface DemandTableProps {
 }
 
 export function DemandTable({ mode = 'all', initialCategoryFilter = null, active = true }: DemandTableProps) {
+  const canConfig = isSupervisor(getAuthUser());
   const defaultTab = mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : 'ALL';
   const [demands, setDemands] = useState<DemandResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -122,8 +138,9 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   const [selectedItemCode, setSelectedItemCode] = useState<string | null>(null);
   const [details, setDetails] = useState<InsumoDetalhes | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [syncingDrawerStock, setSyncingDrawerStock] = useState(false);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
-  const [drawerTab, setDrawerTab] = useState<'visao_geral' | 'consumo' | 'pedidos' | 'historico_pedidos' | 'producao' | 'configuracoes' | 'semelhantes'>('visao_geral');
+  const [drawerTab, setDrawerTab] = useState<'visao_geral' | 'consumo' | 'pedidos' | 'historico_pedidos' | 'producao' | 'simulacao' | 'configuracoes' | 'semelhantes'>('visao_geral');
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [tempNotes, setTempNotes] = useState('');
   
@@ -142,7 +159,9 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   const [printFilterType, setPrintFilterType] = useState<'needed' | 'all'>('needed');
 
   const [printList, setPrintList] = useState<string[]>([]);
+  const [activeRequests, setActiveRequests] = useState<Record<string, ActiveRequestedItemSummary>>({});
   const [lastErpStockSync, setLastErpStockSync] = useState<{ at: string; count: number } | null>(null);
+  const [loteDetailsNumber, setLoteDetailsNumber] = useState<string | null>(null);
 
   const activeCategoryId = selectedCategory || 
     (activeMainTab !== 'ALL' ? activeMainTab : (mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : 'cat_mp'));
@@ -157,6 +176,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   };
 
   const handleSaveTriggerDays = async (val: number) => {
+    if (!canConfig) return;
     setTriggerDaysInput(val);
     try {
       const existing = customConfigs.find(c => c.level === 'subcategoria' && c.targetId === activeCategoryId);
@@ -172,12 +192,14 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
         periodoMedia: existing?.periodoMedia ?? null
       });
       await loadCustomConfigs();
+      window.dispatchEvent(new CustomEvent('compras_config_updated'));
     } catch (e) {
       console.error(e);
     }
   };
 
   const handleSaveTargetDays = async (val: number) => {
+    if (!canConfig) return;
     setTargetDaysInput(val);
     try {
       const existing = customConfigs.find(c => c.level === 'subcategoria' && c.targetId === activeCategoryId);
@@ -193,6 +215,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
         periodoMedia: existing?.periodoMedia ?? null
       });
       await loadCustomConfigs();
+      window.dispatchEvent(new CustomEvent('compras_config_updated'));
     } catch (e) {
       console.error(e);
     }
@@ -223,16 +246,42 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   };
 
   const handleSaveItemConfig = async (updated: any) => {
+    if (!canConfig) return;
     setItemConfig(updated);
     try {
       await api.saveCustomPurchaseConfig(updated);
       await loadCustomConfigs();
-      loadDemands();
+      window.dispatchEvent(new CustomEvent('compras_config_updated'));
     } catch (e) {
       console.error(e);
     }
   };
 
+  const loadCategories = async () => {
+    try {
+      const cats = await api.getCategories();
+      setCategories(cats);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const loadActiveRequests = async () => {
+    try {
+      const list = await api.getActiveRequestedItems();
+      const map: Record<string, ActiveRequestedItemSummary> = {};
+      for (const item of list) {
+        const clean = (item.itemCode || '').replace(/\./g, '');
+        map[clean] = item;
+        map[item.itemCode] = item;
+      }
+      setActiveRequests(map);
+    } catch (e) {
+      console.error('Erro ao carregar solicitações ativas:', e);
+    }
+  };
+
+  // Sync printList with localStorage on mount & changes
   useEffect(() => {
     const loadPrintList = () => {
       const stored = localStorage.getItem('natum_hub_print_list');
@@ -247,18 +296,49 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     return () => window.removeEventListener('storage', loadPrintList);
   }, []);
 
-  const isInPrintList = (code: string) => printList.includes(code);
+  useEffect(() => {
+    loadActiveRequests();
+    const handleUpdate = () => loadActiveRequests();
+    window.addEventListener('compras_solicitacoes_updated', handleUpdate);
+    return () => window.removeEventListener('compras_solicitacoes_updated', handleUpdate);
+  }, []);
+
+  const isInPrintList = (code: string) => {
+    const clean = (code || '').replace(/\./g, '');
+    return printList.some(c => (c || '').replace(/\./g, '') === clean);
+  };
 
   const handleTogglePrintList = (code: string) => {
+    const clean = (code || '').replace(/\./g, '');
     let newList: string[];
-    if (printList.includes(code)) {
-      newList = printList.filter(c => c !== code);
+    if (printList.some(c => (c || '').replace(/\./g, '') === clean)) {
+      newList = printList.filter(c => (c || '').replace(/\./g, '') !== clean);
     } else {
+      const activeReq = activeRequests[clean] || activeRequests[code];
+      if (activeReq && activeReq.status !== 'entregue') {
+        const dateStr = activeReq.createdAt ? new Date(activeReq.createdAt).toLocaleDateString('pt-BR') : '';
+        const msg = `⚠️ Atenção: O item "${code}" já foi solicitado no ${activeReq.loteNumero} em ${dateStr} (Qtd: ${activeReq.quantityRequested}).\n\nDeseja adicionar à nova lista mesmo assim?`;
+        if (!window.confirm(msg)) {
+          return;
+        }
+      }
       newList = [...printList, code];
     }
     setPrintList(newList);
     localStorage.setItem('natum_hub_print_list', JSON.stringify(newList));
     window.dispatchEvent(new Event('storage'));
+  };
+
+  const handleAddSelectedToPrintList = () => {
+    if (selectedItems.size === 0) return;
+    const toAdd = Array.from(selectedItems);
+    const existing = new Set(printList.map(c => (c || '').replace(/\./g, '')));
+    const newItems = toAdd.filter(code => !existing.has((code || '').replace(/\./g, '')));
+    const newList = [...printList, ...newItems];
+    setPrintList(newList);
+    localStorage.setItem('natum_hub_print_list', JSON.stringify(newList));
+    window.dispatchEvent(new Event('storage'));
+    setSelectedItems(new Set());
   };
 
   useEffect(() => {
@@ -269,6 +349,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   useEffect(() => {
     if (!active) return;
     loadCustomConfigs();
+    loadCategories();
     
     const loadGlobalConfig = async () => {
       try {
@@ -282,6 +363,13 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
       }
     };
     loadGlobalConfig();
+
+    const handleConfigUpdate = () => {
+      loadCustomConfigs();
+      loadCategories();
+    };
+    window.addEventListener('compras_config_updated', handleConfigUpdate);
+    return () => window.removeEventListener('compras_config_updated', handleConfigUpdate);
   }, [active, mode]);
 
   useEffect(() => {
@@ -314,18 +402,14 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     if (!active) return;
     loadCategories();
     loadDemands();
-  }, [triggerDaysInput, targetDaysInput, active]);
-
-  const loadCategories = async () => {
-    try { setCategories(await api.getCategories()); }
-    catch (e) { console.error(e); }
-  };
+  }, [triggerDaysInput, targetDaysInput, active, selectedCategory, mode]);
 
   const loadDemands = async () => {
     setLoading(true);
     try {
-      const categoryId =
-        mode === 'materia_prima' ? 'cat_mp' : mode === 'embalagens' ? 'cat_emb' : undefined;
+      const categoryId = (selectedCategory && selectedCategory !== 'unassigned')
+        ? selectedCategory
+        : (mode === 'all' && activeMainTab !== 'ALL' ? activeMainTab : undefined);
       const [results, history] = await Promise.all([
         api.getDemands(categoryId, targetDaysInput),
         api.getImportHistory().catch(() => [] as Awaited<ReturnType<typeof api.getImportHistory>>),
@@ -369,7 +453,22 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     }
   };
 
+  const handleSyncDrawerStockLive = async (code: string) => {
+    if (syncingDrawerStock) return;
+    setSyncingDrawerStock(true);
+    try {
+      await api.refreshItemStockLive(code);
+      await loadDetails(code);
+      loadDemands();
+    } catch (e) {
+      console.error("Erro ao sincronizar estoque do ERP:", e);
+    } finally {
+      setSyncingDrawerStock(false);
+    }
+  };
+
   const loadSimilarItems = async () => {
+
     if (!selectedItemCode) return;
     setSimilarLoading(true);
     try {
@@ -389,77 +488,104 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
   useEffect(() => {
     if (selectedItemCode) {
       loadDetails(selectedItemCode);
-      loadItemConfig(selectedItemCode);
-      setDrawerTab('visao_geral');
       setIsEditingNotes(false);
-      setTempNotes('');
-      setSimilarSearch('');
-      api.getSimilarItems(selectedItemCode)
-        .then(data => setSimilarItems(data))
-        .catch(err => console.error("Erro ao carregar semelhantes:", err));
     } else {
       setDetails(null);
-      setItemConfig(null);
-      setSimilarItems([]);
     }
   }, [selectedItemCode]);
-
-  useEffect(() => {
-    if (selectedItemCode && drawerTab === 'configuracoes') {
-      loadSimilarItems();
-    }
-  }, [selectedItemCode, drawerTab]);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [search, selectedCategory, urgencyFilter, activeMainTab]);
 
   const filteredSubcategories = useMemo(() => {
+    if (mode === 'embalagens') {
+      return categories.filter(c => c.parentId === 'cat_emb' || c.parentId === 'cat_mat');
+    }
+    if (mode === 'materia_prima') {
+      return categories.filter(c => c.parentId === 'cat_mp');
+    }
     if (activeMainTab === 'ALL') {
       return categories.filter(c => c.parentId !== null);
     }
     return categories.filter(c => c.parentId === activeMainTab);
-  }, [categories, activeMainTab]);
+  }, [categories, activeMainTab, mode]);
+
+  const resolveRootCategory = (catId: string | null) => {
+    if (!catId) return null;
+    let current = catId;
+    let visited = new Set<string>();
+    while (current && !visited.has(current)) {
+      visited.add(current);
+      const cat = categories.find(c => c.id === current);
+      if (!cat || !cat.parentId) break;
+      current = cat.parentId;
+    }
+    return current;
+  };
+
+  const isPackagingItem = (d: DemandResult) => {
+    const root = resolveRootCategory(d.categoryId);
+    if (root === 'cat_emb' || root === 'cat_mat') return true;
+    const code = d.itemCode || '';
+    if (code.startsWith('08.')) return true;
+    if (code.startsWith('9.') && !code.startsWith('9.15.')) return true;
+    return false;
+  };
+
+  const isMateriaPrimaItem = (d: DemandResult) => {
+    const root = resolveRootCategory(d.categoryId);
+    if (root === 'cat_mp') return true;
+    const code = d.itemCode || '';
+    if (code.startsWith('9.15.')) return true;
+    return false;
+  };
 
   const counts = useMemo(() => {
     let mp = 0;
     let emb = 0;
     demands.forEach(d => {
-      if (d.categoryId === 'cat_mp') mp++;
-      if (d.categoryId === 'cat_emb') emb++;
+      if (isMateriaPrimaItem(d)) mp++;
+      if (isPackagingItem(d)) emb++;
     });
     return { all: demands.length, mp, emb };
-  }, [demands]);
+  }, [demands, categories]);
 
   const mainFilteredDemands = useMemo(() => {
-    if (activeMainTab === 'ALL') return demands;
-    const allowedCategoryIds = new Set<string>();
-    if (selectedCategory) {
-      allowedCategoryIds.add(selectedCategory);
-    } else {
-      allowedCategoryIds.add(activeMainTab);
-      categories
-        .filter(c => c.parentId === activeMainTab)
-        .forEach(c => allowedCategoryIds.add(c.id));
+    if (mode === 'materia_prima') {
+      return demands.filter(isMateriaPrimaItem);
     }
-    return demands.filter(d => d.categoryId && allowedCategoryIds.has(d.categoryId));
-  }, [demands, activeMainTab, selectedCategory, categories]);
+    if (mode === 'embalagens') {
+      return demands.filter(isPackagingItem);
+    }
+    if (activeMainTab === 'ALL') return demands;
+    const allowedId = selectedCategory || activeMainTab;
+    return demands.filter(d => d.categoryId === allowedId || resolveRootCategory(d.categoryId) === allowedId);
+  }, [demands, activeMainTab, selectedCategory, mode, categories]);
 
   const filteredDemands = useMemo(() => {
     let result = demands;
-    if (activeMainTab !== 'ALL') {
-      const allowedCategoryIds = new Set<string>();
-      if (selectedCategory) {
-        allowedCategoryIds.add(selectedCategory);
-      } else {
-        allowedCategoryIds.add(activeMainTab);
-        categories
-          .filter(c => c.parentId === activeMainTab)
-          .forEach(c => allowedCategoryIds.add(c.id));
-      }
-      result = result.filter(d => d.categoryId && allowedCategoryIds.has(d.categoryId));
+    if (mode === 'materia_prima') {
+      result = result.filter(isMateriaPrimaItem);
+    } else if (mode === 'embalagens') {
+      result = result.filter(isPackagingItem);
+    } else if (activeMainTab !== 'ALL') {
+      const allowedId = selectedCategory || activeMainTab;
+      result = result.filter(d => d.categoryId === allowedId || resolveRootCategory(d.categoryId) === allowedId);
     }
-    if (selectedCategory) result = result.filter(d => d.categoryId === selectedCategory);
+
+    if (selectedCategory === 'unassigned') {
+      if (mode === 'embalagens') {
+        result = result.filter(d => !d.categoryId || d.categoryId === 'cat_emb' || d.categoryId === 'cat_mat');
+      } else if (mode === 'materia_prima') {
+        result = result.filter(d => !d.categoryId || d.categoryId === 'cat_mp');
+      } else {
+        result = result.filter(d => !d.categoryId || d.categoryId === 'cat_mp' || d.categoryId === 'cat_emb' || d.categoryId === 'cat_mat');
+      }
+    } else if (selectedCategory) {
+      result = result.filter(d => d.categoryId === selectedCategory);
+    }
+
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter(d => (d.itemCode || '').toLowerCase().includes(q) || (d.description || '').toLowerCase().includes(q));
@@ -472,7 +598,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
       return sortDir === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
     });
     return result;
-  }, [demands, activeMainTab, selectedCategory, categories, search, urgencyFilter, sortKey, sortDir]);
+  }, [demands, activeMainTab, selectedCategory, search, urgencyFilter, sortKey, sortDir, mode, categories]);
 
   const paginatedDemands = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -534,21 +660,6 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     else setSelectedItems(new Set(filteredDemands.map(d => d.itemCode)));
   };
 
-  const handleCreateQuotation = async () => {
-    if (selectedItems.size === 0) return;
-    const title = prompt('Título para a nova cotação:');
-    if (!title) return;
-    try {
-      const selectedDemands = demands.filter(d => selectedItems.has(d.itemCode));
-      await api.createQuotation(title, selectedDemands.map(d => d.itemCode), selectedDemands.map(d => d.recommendedQty));
-      alert('Cotação criada com sucesso!');
-      setSelectedItems(new Set());
-    } catch (e) { 
-      console.error(e); 
-      alert('Erro ao criar cotação: ' + (e instanceof Error ? e.message : String(e))); 
-    }
-  };
-
   const handlePrint = () => {
     setShowPrintModal(false);
     
@@ -572,12 +683,19 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     iframe.style.border = 'none';
     iframe.style.opacity = '0';
     iframe.style.pointerEvents = 'none';
+    iframe.setAttribute('data-natum-print', '1');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.src = 'about:blank';
+    if (!document.body) {
+      alert("Não foi possível iniciar a impressão.");
+      return;
+    }
     document.body.appendChild(iframe);
-    
-    const doc = iframe.contentWindow?.document;
+
+    const doc = iframe.contentDocument || iframe.contentWindow?.document;
     if (!doc) {
       alert("Não foi possível iniciar a impressão.");
-      document.body.removeChild(iframe);
+      try { iframe.remove(); } catch { /* ignore */ }
       return;
     }
     
@@ -606,6 +724,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
           <td style="text-align: right;">${item.overallAvg.toLocaleString('pt-BR')} ${item.unit || ''}</td>
           <td style="text-align: center; font-size: 9px;">${item.triggerDays !== undefined ? `${item.triggerDays}d` : '-'}</td>
           <td style="text-align: center; font-size: 9px;">${item.targetDays !== undefined ? `${item.targetDays}d` : '-'}</td>
+          <td style="text-align: right;">${(item.simProducao ?? 0) > 0 ? (item.simProducao ?? 0).toLocaleString('pt-BR') : '-'}</td>
           <td style="text-align: right;">${item.futureStockForecast.toLocaleString('pt-BR')} ${item.unit || ''}</td>
           <td style="text-align: right; font-weight: ${item.estimatedDurationDays < 60 ? 'bold' : 'normal'};">
             ${item.estimatedDurationDays === 9999 ? '9999+' : `${item.estimatedDurationDays} dias`}
@@ -622,7 +741,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Relatório de Necessidade de Compras — NatumHub</title>
+        <title>Relatório de Necessidade de Compras — Nexus</title>
         <meta charset="utf-8">
         <style>
           @page {
@@ -752,6 +871,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
               <th style="width: 70px; text-align: right;">Consumo Mês</th>
               <th style="width: 55px; text-align: center;">Disparo</th>
               <th style="width: 55px; text-align: center;">Objetivo</th>
+              <th style="width: 70px; text-align: right;">Sim. Prod.</th>
               <th style="width: 70px; text-align: right;">Prev. Futura</th>
               <th style="width: 70px; text-align: right;">Duração Est.</th>
               <th style="width: 85px; text-align: right; background-color: #f4f4f5; border-bottom: 2px solid #27272a;">Recomendado</th>
@@ -767,6 +887,8 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
           <ul style="margin: 0; padding-left: 12px; line-height: 1.4;">
             <li style="margin-bottom: 3px;"><strong>Consumo Mês (Média):</strong> Média mensal calculada com o período configurado por item (Tempo de Cálculo da Média), usando saídas reais de estoque ou faturamento. Na ausência de movimentação, usa mediana anual ajustada.</li>
             <li style="margin-bottom: 3px;"><strong>Disparo / Objetivo:</strong> Dias de cobertura por item conforme regras personalizadas (item → subcategoria → padrão do módulo).</li>
+            <li style="margin-bottom: 3px;"><strong>Sim. Produção:</strong> Consumo de insumos se produzir produtos em Produzir Urgente / Abrir Ordem (qtd recomendada × formulação).</li>
+            <li style="margin-bottom: 3px;"><strong>Prev. Futura:</strong> <code style="font-family: monospace;">estoque + pedidos abertos − sim. produção</code> (mais entradas/saídas manuais OPEN).</li>
             <li style="margin-bottom: 3px;"><strong>Duração de Estoque:</strong> Calculada como <code style="font-family: monospace;">Estoque Projetado Futuro / Consumo Diário</code>.</li>
             <li><strong>Recomendado:</strong> Quantidade sugerida para atingir o objetivo de cobertura do item quando a duração estimada está abaixo do objetivo.</li>
           </ul>
@@ -784,7 +906,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
         </div>
 
         <footer>
-          <div>NatumHub — Sistema de Gestão Unificado</div>
+          <div>Nexus — Sistema de Gestão Unificado</div>
           <div>Impressão Direta</div>
         </footer>
       </body>
@@ -797,21 +919,39 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     
     // Trigger print in the iframe
     setTimeout(() => {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-      
-      // Clean up DOM after printing
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-      }, 1000);
+      try {
+        const win = iframe.contentWindow;
+        if (!win) {
+          iframe.remove();
+          return;
+        }
+        const cleanup = () => {
+          try {
+            if (document.activeElement === iframe) iframe.blur();
+            window.focus();
+            iframe.src = 'about:blank';
+            iframe.remove();
+          } catch {
+            try { iframe.remove(); } catch { /* ignore */ }
+          }
+        };
+        win.addEventListener('afterprint', cleanup, { once: true });
+        win.focus();
+        win.print();
+        setTimeout(cleanup, 60_000);
+      } catch {
+        try { iframe.remove(); } catch { /* ignore */ }
+      }
     }, 500);
   };
 
 
   return (
     <div className={cn(
-      "flex flex-col gap-4 w-full",
-      (mode === 'materia_prima' || mode === 'embalagens') ? "h-[calc(100vh-6.25rem)]" : "h-[calc(100vh-12.25rem)]"
+      "flex flex-col gap-4 w-full min-h-0",
+      (mode === 'materia_prima' || mode === 'embalagens')
+        ? "h-[calc(100dvh-10.5rem)] md:h-[calc(100vh-6.25rem)]"
+        : "h-[calc(100dvh-14.5rem)] md:h-[calc(100vh-12.25rem)]"
     )}>
       {mode !== 'materia_prima' && mode !== 'embalagens' && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 shrink-0">
@@ -846,10 +986,10 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
         </div>
       )}
 
-      <div className="flex-1 flex gap-4 overflow-hidden relative">
-        <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden flex flex-col w-full">
+      <div className="flex-1 flex gap-4 overflow-hidden relative min-h-0">
+        <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden flex flex-col w-full min-h-0">
           {mode === 'all' && !initialCategoryFilter && (
-            <div className="flex border-b border-zinc-200 bg-zinc-50/50 px-4 pt-2 shrink-0 gap-2">
+            <div className="flex border-b border-zinc-200 bg-zinc-50/50 px-4 pt-2 shrink-0 gap-2 overflow-x-auto">
               {([
                 { id: 'ALL', name: 'Todos', count: counts.all },
                 { id: 'cat_mp', name: 'Matéria-prima', count: counts.mp },
@@ -874,22 +1014,23 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 {lastErpStockSync.count > 0 && ` (${lastErpStockSync.count.toLocaleString('pt-BR')} itens)`}
               </span>
               <span className="text-zinc-400 hidden sm:inline">
-                · Coluna Estoque = nQtdeEstoque do ERP. Se divergir, rode Sync ERP em Configurações.
+                · Estoque = nQtdeEstoque do ERP · R = nqtdeReserva · P = pedidos de compra abertos (não confundir com a tela). Se o estoque divergir, use Verificar estoque / Sync em Configurações.
               </span>
             </div>
           )}
 
           <div className="px-4 py-2 border-b border-zinc-200 bg-zinc-50 flex items-center justify-between shrink-0 gap-4 flex-wrap">
             <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-2 bg-white border border-zinc-300 rounded-md px-3 py-1.5">
-                <Search className="h-4 w-4 text-zinc-400" />
-                <input type="text" placeholder="Buscar código ou descrição..." value={search} onChange={e => setSearch(e.target.value)} className="text-sm bg-transparent border-none focus:outline-none w-48" />
+              <div className="flex items-center gap-2 bg-white border border-zinc-300 rounded-md px-3 py-1.5 w-full sm:w-auto">
+                <Search className="h-4 w-4 text-zinc-400 shrink-0" />
+                <input type="text" placeholder="Buscar código ou descrição..." value={search} onChange={e => setSearch(e.target.value)} className="text-sm bg-transparent border-none focus:outline-none w-full sm:w-48" />
               </div>
               {!initialCategoryFilter && (
                 <div className="flex items-center gap-2">
                   <Filter className="h-4 w-4 text-zinc-500" />
                   <select value={selectedCategory || ''} onChange={e => setSelectedCategory(e.target.value || null)} className="text-sm border border-zinc-300 rounded-md px-2 py-1.5 bg-white focus:ring-1 focus:ring-zinc-900 focus:outline-none">
-                    <option value="">{activeMainTab === 'ALL' ? 'Todas as Categorias' : 'Todas as Subcategorias'}</option>
+                    <option value="">{mode === 'embalagens' ? 'Todas as Embalagens' : mode === 'materia_prima' ? 'Todas as Matérias-Primas' : (activeMainTab === 'ALL' ? 'Todas as Categorias' : 'Todas deste grupo')}</option>
+                    <option value="unassigned">Somente sem subcategoria</option>
                     {filteredSubcategories.map(c => (<option key={c.id} value={c.id}>{c.name}</option>))}
                   </select>
                 </div>
@@ -905,6 +1046,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 <input
                   type="number"
                   value={tempTriggerDays}
+                  disabled={!canConfig}
                   onChange={e => setTempTriggerDays(e.target.value)}
                   onBlur={() => handleSaveTriggerDays(Number(tempTriggerDays) || 0)}
                   onKeyDown={e => {
@@ -914,13 +1056,14 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                     }
                   }}
                   placeholder="Disp"
-                  title="Ponto de Disparo (dias)"
-                  className="w-11 text-xs border border-zinc-300 rounded-md px-1.5 py-1 focus:ring-1 focus:ring-zinc-900 focus:outline-none text-center"
+                  title={canConfig ? 'Ponto de Disparo (dias)' : 'Apenas supervisor pode alterar Disp./Obj.'}
+                  className="w-11 text-xs border border-zinc-300 rounded-md px-1.5 py-1 focus:ring-1 focus:ring-zinc-900 focus:outline-none text-center disabled:bg-zinc-100 disabled:text-zinc-500 disabled:cursor-not-allowed"
                 />
                 <span className="text-zinc-400 text-xs">/</span>
                 <input
                   type="number"
                   value={tempTargetDays}
+                  disabled={!canConfig}
                   onChange={e => setTempTargetDays(e.target.value)}
                   onBlur={() => handleSaveTargetDays(Number(tempTargetDays) || 0)}
                   onKeyDown={e => {
@@ -930,14 +1073,24 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                     }
                   }}
                   placeholder="Obj"
-                  title="Objetivo (dias)"
-                  className="w-11 text-xs border border-zinc-300 rounded-md px-1.5 py-1 focus:ring-1 focus:ring-zinc-900 focus:outline-none text-center"
+                  title={canConfig ? 'Objetivo (dias)' : 'Apenas supervisor pode alterar Disp./Obj.'}
+                  className="w-11 text-xs border border-zinc-300 rounded-md px-1.5 py-1 focus:ring-1 focus:ring-zinc-900 focus:outline-none text-center disabled:bg-zinc-100 disabled:text-zinc-500 disabled:cursor-not-allowed"
                 />
                 <span className="text-[10px] text-zinc-400">d</span>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
               <span className="text-xs text-zinc-500">{filteredDemands.length} itens</span>
+              {selectedItems.size > 0 && (
+                <button 
+                  onClick={handleAddSelectedToPrintList}
+                  className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-md font-medium flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                  title="Adicionar itens selecionados à aba Lista"
+                >
+                  <PlusCircle className="h-3.5 w-3.5" />
+                  <span>Adicionar à Lista ({selectedItems.size})</span>
+                </button>
+              )}
               <button 
                 onClick={() => {
                   const neededCount = filteredDemands.filter(d => d.recommendedQty > 0).length;
@@ -947,18 +1100,13 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 className="text-xs bg-zinc-900 hover:bg-zinc-800 text-white px-3 py-1.5 rounded-md font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <Printer className="h-3.5 w-3.5" />
-                Imprimir Relatório
+                <span className="sm:hidden">Imprimir</span>
+                <span className="hidden sm:inline">Imprimir Relatório</span>
               </button>
-              {mode !== 'materia_prima' && mode !== 'embalagens' && (
-                <button onClick={handleCreateQuotation} disabled={selectedItems.size === 0} className="text-sm bg-zinc-900 text-white px-4 py-2 rounded-md font-medium hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
-                  <ShoppingCart className="h-4 w-4" />
-                  Criar Cotação ({selectedItems.size})
-                </button>
-              )}
             </div>
           </div>
 
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-auto min-h-0">
             {loading ? (
               <div className="flex items-center justify-center h-full text-zinc-500">Carregando...</div>
             ) : filteredDemands.length === 0 ? (
@@ -967,7 +1115,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 <p>Nenhuma demanda encontrada.</p>
               </div>
             ) : (
-              <table className="w-full text-left text-sm whitespace-nowrap">
+              <table className="w-full min-w-[900px] text-left text-sm whitespace-nowrap">
                 <thead className="bg-zinc-100 sticky top-0 z-10 shadow-sm">
                   <tr>
                     {mode !== 'materia_prima' && mode !== 'embalagens' && (
@@ -979,6 +1127,12 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                     <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-right cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('currentStock')}><span className="flex items-center justify-end gap-1">Estoque <SortIcon col="currentStock" /></span></th>
                     <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-right cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('overallAvg')}><span className="flex items-center justify-end gap-1">Média Mês <SortIcon col="overallAvg" /></span></th>
                     <th className="px-4 py-3 font-semibold text-zinc-500 border-b border-zinc-200 text-center text-[10px] uppercase tracking-wider">Médias (24 | 25 | 26)</th>
+                    <th
+                      className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-right"
+                      title="Consumo se produzir produtos em Produzir Urgente / Abrir Ordem (qtd recomendada)"
+                    >
+                      Sim. Produção
+                    </th>
                     <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-right cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('futureStockForecast')}><span className="flex items-center justify-end gap-1">Prev. Futura <SortIcon col="futureStockForecast" /></span></th>
                     <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-center cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('estimatedDurationDays')}><span className="flex items-center justify-center gap-1">Duração Est. <SortIcon col="estimatedDurationDays" /></span></th>
                     <th className="px-4 py-3 font-semibold text-zinc-900 border-b border-zinc-200 text-right cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('recommendedQty')}><span className="flex items-center justify-end gap-1">Qtd Recom. <SortIcon col="recommendedQty" /></span></th>
@@ -996,15 +1150,75 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       <td className="px-4 py-3">
                         <div className="font-mono text-xs text-zinc-500">{demand.itemCode}</div>
                         <div className="font-medium text-zinc-900" title={demand.description}>{demand.description}</div>
+                        {(() => {
+                          const cleanCode = (demand.itemCode || '').replace(/\./g, '');
+                          const activeReq = activeRequests[cleanCode] || activeRequests[demand.itemCode];
+                          if (!activeReq) return null;
+                          return (
+                            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                              {activeReq.erpPedidoNumero ? (
+                                <span 
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200"
+                                  title={`Pedido ERP #${activeReq.erpPedidoNumero} em ${activeReq.erpPedidoData || ''} (${activeReq.erpFornecedor || ''}) - Qtd: ${activeReq.erpPedidoQtd || ''}`}
+                                >
+                                  <Package className="h-3 w-3" /> Pedido ERP #{activeReq.erpPedidoNumero}
+                                </span>
+                              ) : (
+                                <span 
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200"
+                                  title={`Solicitado no ${activeReq.loteNumero} há ${activeReq.daysAgo} dias (Qtd: ${activeReq.quantityRequested})`}
+                                >
+                                  <Clock className="h-3 w-3" /> Solicitado ({activeReq.loteNumero} · {activeReq.daysAgo === 0 ? 'hoje' : `há ${activeReq.daysAgo}d`})
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                         {demand.notes && <div className="text-[10px] text-zinc-400 italic mt-0.5 truncate max-w-xs">Obs: {demand.notes}</div>}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <div className="font-medium">{demand.currentStock.toLocaleString('pt-BR')} {demand.unit}</div>
-                        <div className="text-xs text-zinc-500" title="R = reservada ERP (já refletida no estoque). P = pedidos em trânsito. Prev. Futura = estoque + pedidos.">-{demand.reservedQty} R / +{demand.inOrders} P</div>
+                        <div
+                          className="font-medium"
+                          title="Estoque = nQtdeEstoque da tela do ERP (último sync)"
+                        >
+                          {demand.currentStock.toLocaleString('pt-BR', {
+                            maximumFractionDigits: 4,
+                            minimumFractionDigits: 0,
+                          })}{' '}
+                          {demand.unit}
+                        </div>
+                        <div
+                          className="text-xs text-zinc-500"
+                          title={
+                            'R = nqtdeReserva do ERP (espelho). P = pedidos de compra abertos no Hub (não é nQtdePedidos do cadastro). Prev. Futura = estoque + pedidos − sim. produção — não comparar com estoque da tela.'
+                          }
+                        >
+                          −
+                          {(demand.reservedQty ?? 0).toLocaleString('pt-BR', {
+                            maximumFractionDigits: 3,
+                          })}{' '}
+                          R / +
+                          {(demand.inOrders ?? 0).toLocaleString('pt-BR', {
+                            maximumFractionDigits: 3,
+                          })}{' '}
+                          P
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-right font-medium text-zinc-700">{demand.overallAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {demand.unit}</td>
                       <td className="px-4 py-3 text-center">
                         <div className="text-[10px] text-zinc-400 bg-zinc-50 py-1 rounded">{demand.avg2024.toFixed(0)} | {demand.avg2025.toFixed(0)} | {demand.avg2026.toFixed(0)}</div>
+                      </td>
+                      <td
+                        className="px-4 py-3 text-right font-medium"
+                        title="Consumo se produzir produtos em Produzir Urgente / Abrir Ordem (qtd recomendada)"
+                      >
+                        {(demand.simProducao ?? 0) > 0 ? (
+                          <span className="text-violet-700">
+                            −{(demand.simProducao ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {demand.unit}
+                          </span>
+                        ) : (
+                          <span className="text-zinc-300">-</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right font-medium text-zinc-900">{demand.futureStockForecast.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {demand.unit}</td>
                       <td className="px-4 py-3 text-center">
@@ -1042,8 +1256,8 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
           </div>
 
           {totalPages > 1 && (
-            <div className="px-6 py-4 border-t border-zinc-200 bg-zinc-50 flex items-center justify-between shrink-0">
-              <span className="text-xs text-zinc-500">Mostrando {Math.min(filteredDemands.length, (currentPage - 1) * itemsPerPage + 1)} a {Math.min(filteredDemands.length, currentPage * itemsPerPage)} de {filteredDemands.length} itens</span>
+            <div className="px-4 sm:px-6 py-4 border-t border-zinc-200 bg-zinc-50 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 shrink-0">
+              <span className="text-[10px] sm:text-xs text-zinc-500">Mostrando {Math.min(filteredDemands.length, (currentPage - 1) * itemsPerPage + 1)} a {Math.min(filteredDemands.length, currentPage * itemsPerPage)} de {filteredDemands.length} itens</span>
               <div className="flex items-center gap-2">
                 <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))} className="px-3 py-1.5 rounded-lg border border-zinc-200 text-xs font-bold bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed">Anterior</button>
                 <span className="text-xs text-zinc-500">Pág {currentPage} de {totalPages}</span>
@@ -1077,13 +1291,14 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
               </div>
 
             {/* Drawer Tab Navigation */}
-            <div className="flex border-b border-zinc-200 bg-zinc-50 shrink-0">
+            <div className="flex border-b border-zinc-200 bg-zinc-50 shrink-0 overflow-x-auto">
               {([
                 { id: 'visao_geral' as const, label: 'Visão Geral', icon: Info, show: true },
                 { id: 'consumo' as const, label: 'Consumo', icon: BarChart3, show: true },
                 { id: 'pedidos' as const, label: 'Pedidos Abertos', icon: Clock, show: true },
                 { id: 'historico_pedidos' as const, label: 'Histórico de Pedidos', icon: FileText, show: true },
                 { id: 'producao' as const, label: 'Produção', icon: Factory, show: true },
+                { id: 'simulacao' as const, label: 'Simulação', icon: Calculator, show: true },
                 { id: 'semelhantes' as const, label: '', icon: Layers, show: similarItems.length > 0 },
                 { id: 'configuracoes' as const, label: 'Configurações', icon: Settings, show: true },
               ]).filter(t => t.show).map(tab => (
@@ -1091,12 +1306,12 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                   key={tab.id}
                   onClick={() => setDrawerTab(tab.id)}
                   className={cn(
-                    "flex-1 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center justify-center gap-1.5",
+                    "shrink-0 px-3 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center justify-center gap-1.5",
                     drawerTab === tab.id ? "border-zinc-900 text-zinc-900 font-extrabold" : "border-transparent text-zinc-500 hover:text-zinc-800"
                   )}
                 >
                   <tab.icon className="h-3.5 w-3.5" />
-                  {tab.label}
+                  <span className="hidden sm:inline">{tab.label}</span>
                 </button>
               ))}
             </div>
@@ -1108,19 +1323,30 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                 Carregando análises detalhadas...
               </div>
             ) : details ? (
-              <div className="flex-1 overflow-y-auto p-6 space-y-6 text-left">
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 text-left">
 
                 {/* ===== TAB: Visão Geral ===== */}
                 {drawerTab === 'visao_geral' && (
                   <>
                     {/* Info Stats Cards */}
-                    <div className="grid grid-cols-3 gap-4">
-                      <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
-                        <span className="text-[9px] text-zinc-400 font-bold uppercase block tracking-wider">Estoque Atual</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                      <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left relative group">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] text-zinc-400 font-bold uppercase block tracking-wider">Estoque Atual</span>
+                          <button
+                            onClick={() => handleSyncDrawerStockLive(details.code)}
+                            disabled={syncingDrawerStock}
+                            title="Reconsultar saldo do ERP em tempo real"
+                            className="p-1 text-zinc-400 hover:text-zinc-800 hover:bg-zinc-200 rounded transition-all cursor-pointer disabled:opacity-50"
+                          >
+                            <RefreshCw className={cn("h-3 w-3", syncingDrawerStock && "animate-spin text-zinc-700")} />
+                          </button>
+                        </div>
                         <p className="text-lg font-extrabold text-zinc-900 mt-1">
                           {details.currentStock.toLocaleString('pt-BR')} <span className="text-xs font-semibold text-zinc-500">{details.unit}</span>
                         </p>
                       </div>
+
                       <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
                         <span className="text-[9px] text-zinc-400 font-bold uppercase block tracking-wider">Último Recebimento</span>
                         <p className="text-xs font-bold text-zinc-805 mt-2 truncate" title={details.lastReceivedDoc ? `NF #${details.lastReceivedDoc}` : undefined}>
@@ -1146,7 +1372,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                         <span className="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">
                           Uso Desde o Último Recebimento ({formatDate(details.lastReceivedDate)})
                         </span>
-                        <div className="grid grid-cols-3 gap-4 pt-1">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 pt-1">
                           <div>
                             <span className="text-[9px] text-zinc-400 font-bold block">Consumo Total</span>
                             <span className="text-sm font-bold text-zinc-800">
@@ -1580,8 +1806,16 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                   };
 
                                   return (
-                                    <tr key={`${op.productCode}-${op.loteNumber}-${idx}`} className="hover:bg-zinc-50/50 transition-colors">
-                                      <td className="px-3 py-2 font-bold text-zinc-700 font-mono text-[10px]">
+                                    <tr
+                                      key={`${op.productCode}-${op.loteNumber}-${idx}`}
+                                      className={cn(
+                                        'hover:bg-zinc-50/50 transition-colors',
+                                        op.loteNumber && 'cursor-pointer'
+                                      )}
+                                      onClick={() => op.loteNumber && setLoteDetailsNumber(op.loteNumber)}
+                                      title={op.loteNumber ? 'Clique para ver análise detalhada do lote' : undefined}
+                                    >
+                                      <td className="px-3 py-2 font-bold text-indigo-700 font-mono text-[10px] hover:underline">
                                         {op.loteNumber || 'S/L'}
                                       </td>
                                       <td className="px-3 py-2">
@@ -1611,6 +1845,98 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                     </div>
                   </>
                 )}
+                {/* ===== TAB: Simulação ===== */}
+                {drawerTab === 'simulacao' && (
+                  <>
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 border-b border-zinc-105 pb-2">
+                        <Calculator className="h-4 w-4 text-zinc-650" />
+                        <h4 className="font-extrabold text-sm text-zinc-900">Simulação Automática (Produzir Urgente / Abrir Ordem)</h4>
+                      </div>
+                      {!details.simulation || details.simulation.products.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-12 text-zinc-400">
+                          <Calculator className="h-8 w-8 text-zinc-300 mb-2" />
+                          <p className="text-sm font-medium text-center px-4">
+                            Nenhum produto em Produzir Urgente / Abrir Ordem usa este insumo na simulação.
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-2 gap-2.5 mb-3">
+                            <div className="bg-amber-50/40 border border-amber-100 p-2.5 rounded-xl text-left">
+                              <span className="text-[9px] text-amber-600 font-bold uppercase tracking-wider block">Total Insumo</span>
+                              <p className="text-lg font-extrabold text-amber-700 mt-0.5">
+                                {details.simulation.totalInsumoQty.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
+                                <span className="text-[10px] font-semibold text-zinc-500 ml-1">{details.unit}</span>
+                              </p>
+                            </div>
+                            <div className="bg-zinc-50 border border-zinc-150 p-2.5 rounded-xl text-left">
+                              <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider block">Produtos</span>
+                              <p className="text-lg font-extrabold text-zinc-800 mt-0.5">{details.simulation.productCount}</p>
+                            </div>
+                          </div>
+                          <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
+                            <table className="w-full text-left text-xs whitespace-nowrap">
+                              <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
+                                <tr>
+                                  <th className="px-3 py-2.5">Código</th>
+                                  <th className="px-3 py-2.5">Produto / componente</th>
+                                  <th className="px-3 py-2.5 text-center">Origem</th>
+                                  <th className="px-3 py-2.5 text-right">Qtd produzir</th>
+                                  <th className="px-3 py-2.5 text-right">Uso/un</th>
+                                  <th className="px-3 py-2.5 text-right">Total insumo</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-zinc-100 text-[11px]">
+                                {details.simulation.products.map((p) => (
+                                  <tr key={p.productCode} className="hover:bg-zinc-50/50 transition-colors">
+                                    <td className="px-3 py-2.5 font-mono font-bold text-zinc-700">{p.productCode}</td>
+                                    <td className="px-3 py-2.5 font-semibold text-zinc-800 max-w-[160px] truncate" title={p.description}>
+                                      {p.description || '-'}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-center">
+                                      <span className={cn(
+                                        "px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide",
+                                        p.status === 'critico' && "bg-red-50 text-red-700",
+                                        p.status === 'ordem' && "bg-amber-50 text-amber-700",
+                                        p.status === 'saindo_de_linha' && "bg-orange-50 text-orange-700",
+                                        !['critico', 'ordem', 'saindo_de_linha'].includes(p.status) && "bg-zinc-100 text-zinc-600",
+                                      )}>
+                                        {p.statusLabel || p.status}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right text-zinc-800">
+                                      {p.productionQty.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right text-zinc-600">
+                                      <span className="font-mono">{p.qtyPerUnit.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}</span>
+                                      {p.qtyPerUnit > 0 && p.qtyPerUnit < 0.999 && (() => {
+                                        const inv = 1 / p.qtyPerUnit;
+                                        const r = Math.round(inv);
+                                        if (Math.abs(r - inv) < 0.05 && r >= 2) {
+                                          return (
+                                            <span className="text-[9px] text-zinc-400 block leading-none mt-0.5" title={`1 ${details.unit || 'un'} a cada ${r} unidades do produto`}>
+                                              1 {details.unit || 'cx'} / {r} un
+                                            </span>
+                                          );
+                                        }
+                                        return null;
+                                      })()}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right font-bold text-zinc-900">
+                                      {p.insumoQty.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
+
                 {/* ===== TAB: Semelhantes ===== */}
                 {drawerTab === 'semelhantes' && (
                   <div className="space-y-6">
@@ -1638,6 +1964,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       const totalEstoque = currentDemand.currentStock + similarDemands.reduce((acc, s) => acc + s.currentStock, 0);
                       const totalMedia = currentDemand.overallAvg + similarDemands.reduce((acc, s) => acc + s.overallAvg, 0);
                       const totalPedidos = currentDemand.inOrders + similarDemands.reduce((acc, s) => acc + s.inOrders, 0);
+                      const totalSim = (currentDemand.simProducao ?? 0) + similarDemands.reduce((acc, s) => acc + (s.simProducao ?? 0), 0);
                       const totalFuturo = currentDemand.futureStockForecast + similarDemands.reduce((acc, s) => acc + s.futureStockForecast, 0);
                       const totalReservado = (currentDemand.reservedQty || 0) + similarDemands.reduce((acc, s) => acc + (s.reservedQty || 0), 0);
                       
@@ -1654,6 +1981,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                   <th className="px-4 py-3 text-right">Estoque</th>
                                   <th className="px-4 py-3 text-right">Média Mês</th>
                                   <th className="px-4 py-3 text-right">Pedidos</th>
+                                  <th className="px-4 py-3 text-right">Sim. Prod.</th>
                                   <th className="px-4 py-3 text-right">Prev. Futura</th>
                                   <th className="px-4 py-3 text-center">Duração</th>
                                 </tr>
@@ -1669,6 +1997,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                   <td className="px-4 py-3 text-right font-medium">{currentDemand.currentStock.toLocaleString('pt-BR')} {currentDemand.unit}</td>
                                   <td className="px-4 py-3 text-right font-medium">{currentDemand.overallAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {currentDemand.unit}</td>
                                   <td className="px-4 py-3 text-right text-zinc-500">+{currentDemand.inOrders.toLocaleString('pt-BR')}</td>
+                                  <td className="px-4 py-3 text-right text-violet-700">{(currentDemand.simProducao ?? 0) > 0 ? `−${(currentDemand.simProducao ?? 0).toLocaleString('pt-BR')}` : '-'}</td>
                                   <td className="px-4 py-3 text-right font-bold text-zinc-900">{currentDemand.futureStockForecast.toLocaleString('pt-BR')}</td>
                                   <td className="px-4 py-3 text-center">
                                     <span className={cn(
@@ -1691,6 +2020,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                     <td className="px-4 py-3 text-right text-zinc-650">{sim.currentStock.toLocaleString('pt-BR')} {sim.unit}</td>
                                     <td className="px-4 py-3 text-right text-zinc-650">{sim.overallAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {sim.unit}</td>
                                     <td className="px-4 py-3 text-right text-zinc-500">+{sim.inOrders.toLocaleString('pt-BR')}</td>
+                                    <td className="px-4 py-3 text-right text-violet-700">{(sim.simProducao ?? 0) > 0 ? `−${(sim.simProducao ?? 0).toLocaleString('pt-BR')}` : '-'}</td>
                                     <td className="px-4 py-3 text-right font-semibold text-zinc-800">{sim.futureStockForecast.toLocaleString('pt-BR')}</td>
                                     <td className="px-4 py-3 text-center">
                                       <span className={cn(
@@ -1710,6 +2040,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                                   <td className="px-4 py-4 text-right">{totalEstoque.toLocaleString('pt-BR')} {currentDemand.unit}</td>
                                   <td className="px-4 py-4 text-right">{totalMedia.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} {currentDemand.unit}</td>
                                   <td className="px-4 py-4 text-right text-zinc-400">+{totalPedidos.toLocaleString('pt-BR')}</td>
+                                  <td className="px-4 py-4 text-right text-violet-300">{totalSim > 0 ? `−${totalSim.toLocaleString('pt-BR')}` : '-'}</td>
                                   <td className="px-4 py-4 text-right text-emerald-400">{totalFuturo.toLocaleString('pt-BR')}</td>
                                   <td className="px-4 py-4 text-center">
                                     <span className={cn(
@@ -1790,7 +2121,10 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       </div>
                       <select
                         value={details.categoryId || ''}
+                        disabled={!canConfig}
+                        title={canConfig ? undefined : 'Apenas supervisor pode alterar categoria'}
                         onChange={async (e) => {
+                          if (!canConfig) return;
                           try {
                             await api.updateItemsCategory([details.code], e.target.value || null);
                             await loadDetails(details.code);
@@ -1799,7 +2133,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                             console.error(ex);
                           }
                         }}
-                        className="text-xs border border-zinc-300 rounded-md px-2 py-1.5 bg-white w-full focus:ring-1 focus:ring-zinc-900 focus:outline-none"
+                        className="text-xs border border-zinc-300 rounded-md px-2 py-1.5 bg-white w-full focus:ring-1 focus:ring-zinc-900 focus:outline-none disabled:bg-zinc-100 disabled:text-zinc-500 disabled:cursor-not-allowed"
                       >
                         <option value="">Sem Categoria</option>
                         {categories
@@ -1815,9 +2149,13 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
 
                     {/* Reordenação Customizada */}
                     {itemConfig && (
-                      <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-4">
+                      <div className={cn("bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-4", !canConfig && "opacity-70 pointer-events-none")}>
                         <h5 className="text-xs font-bold text-zinc-800">Regras de Reposição Personalizadas</h5>
-                        
+                        {!canConfig && (
+                          <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1">
+                            Apenas supervisor pode alterar Disp./Obj. e regras do item.
+                          </p>
+                        )}
                         {/* Ponto de Disparo (Start Compra) */}
                         <div className="space-y-2">
                           <span className="text-xs font-semibold text-zinc-700 block">Gatilho / Ponto de Disparo:</span>
@@ -2219,6 +2557,14 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
           </div>
         </div>
       )}
+
+      <LoteDetailsDrawer
+        open={!!loteDetailsNumber}
+        loteNumber={loteDetailsNumber}
+        onClose={() => setLoteDetailsNumber(null)}
+        readOnly
+        highlightInsumoCode={selectedItemCode}
+      />
       </div>
     </div>
   );

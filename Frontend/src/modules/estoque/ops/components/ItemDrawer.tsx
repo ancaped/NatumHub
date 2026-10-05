@@ -3,14 +3,46 @@ import {
   AlertTriangle,
   ArrowDownToLine,
   ArrowUpFromLine,
+  FileText,
   Loader2,
   Save,
   X,
+  Camera,
+  Trash2,
+  LineChart,
 } from 'lucide-react';
+import { apiJson } from '../../../geral/lib/http';
 import type { AlmoxMovement, AlmoxOpsItem } from '../types';
 import { SECTION_LABELS } from '../types';
 
-type DrawerTab = 'visao' | 'movimentos' | 'config';
+type DrawerTab = 'visao' | 'movimentos' | 'consumo' | 'fotos' | 'config';
+
+const SECTOR_SUGGESTIONS = [
+  'Produção',
+  'Embalagem',
+  'Expedição',
+  'Qualidade',
+  'Manutenção',
+  'Administrativo',
+  'Laboratório',
+];
+
+interface NfHeader {
+  invoiceNumber: string;
+  invoiceDate?: string | null;
+  supplierName?: string | null;
+  totalValue?: number;
+  itemsCount?: number;
+}
+
+interface NfItem {
+  itemCode: string;
+  description?: string;
+  unit?: string;
+  quantity: number;
+  unitPrice?: number;
+  totalValue?: number;
+}
 
 export interface ItemConfigPayload {
   active: boolean;
@@ -33,6 +65,7 @@ export interface MovementPayload {
   unitCost?: number | null;
   reason?: string | null;
   documentRef?: string | null;
+  sector?: string | null;
   variantLabel?: string | null;
   packLabel?: string | null;
   packCount?: number | null;
@@ -91,6 +124,20 @@ export default function ItemDrawer({
   const isErp = item.source !== 'local';
 
   const [tab, setTab] = useState<DrawerTab>('visao');
+  const [packUnit, setPackUnit] = useState<'g' | 'kg'>('kg');
+
+  // Consumption States
+  const [consumption, setConsumption] = useState<{
+    consumptionYoy: { year: number; quantity: number }[];
+    monthlyConsumption: { month: string; quantity: number }[];
+  } | null>(null);
+  const [consumptionLoading, setConsumptionLoading] = useState(false);
+
+  // Photos States
+  const [fotos, setFotos] = useState<{ id: string; photoData: string; notes?: string | null; createdAt: string }[]>([]);
+  const [fotosLoading, setFotosLoading] = useState(false);
+  const [newFotoNotes, setNewFotoNotes] = useState('');
+
   const [active, setActive] = useState(item.active);
   const [description, setDescription] = useState(item.description || '');
   const [unit, setUnit] = useState(item.unit || 'UN');
@@ -118,19 +165,37 @@ export default function ItemDrawer({
   const [mvPackCount, setMvPackCount] = useState('');
   const [mvContentPerPack, setMvContentPerPack] = useState('');
   const [mvTotalPaid, setMvTotalPaid] = useState('');
+  const [mvSector, setMvSector] = useState('');
+  const [nfSearch, setNfSearch] = useState('');
+  const [nfLoading, setNfLoading] = useState(false);
+  const [nfResults, setNfResults] = useState<NfHeader[]>([]);
+  const [nfHint, setNfHint] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
 
   const showPackEntrada = isSupermercado && mvType === 'entrada';
+  const showNfEntrada =
+    mvType === 'entrada' &&
+    (item.section === 'almoxarifado' || item.section === 'pecas');
+  const showSectorSaida =
+    mvType === 'saida' &&
+    (item.section === 'almoxarifado' || item.section === 'pecas');
+  const contentUnitLabel =
+    item.unit?.toUpperCase() === 'KG' || item.unit?.toUpperCase() === 'KG'
+      ? 'kg'
+      : item.unit || 'UN';
 
   const packPreview = useMemo(() => {
     if (!showPackEntrada) return null;
     const pc = Number(mvPackCount);
-    const cpp = Number(mvContentPerPack);
+    let cpp = Number(mvContentPerPack);
     const total = Number(mvTotalPaid);
+    if (packUnit === 'g') {
+      cpp = cpp / 1000.0;
+    }
     const qty = pc > 0 && cpp > 0 ? pc * cpp : 0;
     const unitCost = qty > 0 && total > 0 ? total / qty : null;
     return { qty, unitCost };
-  }, [showPackEntrada, mvPackCount, mvContentPerPack, mvTotalPaid]);
+  }, [showPackEntrada, mvPackCount, mvContentPerPack, mvTotalPaid, packUnit]);
 
   useEffect(() => {
     setActive(item.active);
@@ -155,7 +220,152 @@ export default function ItemDrawer({
     setMvPackCount('');
     setMvContentPerPack('');
     setMvTotalPaid('');
+    setMvSector('');
+    setNfSearch('');
+    setNfResults([]);
+    setNfHint(null);
+    setPackUnit('kg');
+    setConsumption(null);
+    setConsumptionLoading(false);
+    setFotos([]);
+    setFotosLoading(false);
+    setNewFotoNotes('');
   }, [item]);
+
+  // Load consumption when tab is active
+  useEffect(() => {
+    if (tab === 'consumo' && item.code && !consumption && !consumptionLoading) {
+      setConsumptionLoading(true);
+      apiJson<{
+        consumptionYoy: { year: number; quantity: number }[];
+        monthlyConsumption: { month: string; quantity: number }[];
+      }>(`/almox/items/${encodeURIComponent(item.code)}/consumption`)
+        .then((res) => {
+          setConsumption(res);
+        })
+        .catch((e) => {
+          console.error("Erro ao carregar consumo:", e);
+        })
+        .finally(() => {
+          setConsumptionLoading(false);
+        });
+    }
+  }, [tab, item.code, consumption, consumptionLoading]);
+
+  // Load photos when tab is active
+  useEffect(() => {
+    if (tab === 'fotos' && item.code && fotos.length === 0 && !fotosLoading) {
+      setFotosLoading(true);
+      apiJson<{ fotos: any[] }>(`/almox/fotos/item/${encodeURIComponent(item.code)}`)
+        .then((res) => {
+          setFotos(res.fotos ?? []);
+        })
+        .catch((e) => {
+          console.error("Erro ao carregar fotos:", e);
+        })
+        .finally(() => {
+          setFotosLoading(false);
+        });
+    }
+  }, [tab, item.code, fotos.length, fotosLoading]);
+
+  const handleAddFoto = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const base64 = e.target?.result as string;
+      if (!base64) return;
+      setLocalError(null);
+      try {
+        const res = await apiJson<{ foto: any }>(`/almox/fotos/item/${encodeURIComponent(item.code)}`, {
+          method: 'POST',
+          body: JSON.stringify({
+            photoData: base64,
+            notes: newFotoNotes.trim() || null,
+          }),
+        });
+        setFotos((prev) => [res.foto, ...prev]);
+        setNewFotoNotes('');
+      } catch (err: unknown) {
+        setLocalError(err instanceof Error ? err.message : 'Erro ao salvar foto');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDeleteFoto = async (id: string) => {
+    setLocalError(null);
+    try {
+      await apiJson(`/almox/fotos/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      setFotos((prev) => prev.filter((f) => f.id !== id));
+    } catch (err: unknown) {
+      setLocalError(err instanceof Error ? err.message : 'Erro ao excluir foto');
+    }
+  };
+
+  const applyNf = async (invoiceNumber: string) => {
+    setNfLoading(true);
+    setNfHint(null);
+    setLocalError(null);
+    try {
+      const detail = await apiJson<{ items?: NfItem[] }>(
+        `/compras/notas/${encodeURIComponent(invoiceNumber)}`
+      );
+      const items = detail.items ?? [];
+      const match =
+        items.find((it) => it.itemCode === item.code) ||
+        items.find(
+          (it) =>
+            it.itemCode?.toLowerCase() === item.code.toLowerCase() ||
+            (it.description || '').toLowerCase().includes((item.description || '').toLowerCase())
+        );
+      if (!match) {
+        setNfHint(
+          `NF ${invoiceNumber} carregada, mas o item ${item.code} não está nela. Informe qty/custo manualmente.`
+        );
+        setMvDoc(invoiceNumber);
+        setNfResults([]);
+        return;
+      }
+      setMvDoc(invoiceNumber);
+      setMvQty(String(match.quantity || ''));
+      if (match.unitPrice != null) setMvCost(String(match.unitPrice));
+      setNfHint(
+        `Pré-preenchido da NF ${invoiceNumber}: ${match.quantity} ${match.unit || item.unit}` +
+          (match.unitPrice != null ? ` · R$ ${match.unitPrice}` : '')
+      );
+      setNfResults([]);
+    } catch (e: unknown) {
+      setLocalError(e instanceof Error ? e.message : 'Erro ao carregar NF');
+    } finally {
+      setNfLoading(false);
+    }
+  };
+
+  const searchNf = async () => {
+    const term = nfSearch.trim();
+    if (!term) return;
+    setNfLoading(true);
+    setNfHint(null);
+    setLocalError(null);
+    try {
+      const list = await apiJson<NfHeader[]>(
+        `/compras/notas?search=${encodeURIComponent(term)}`
+      );
+      const arr = Array.isArray(list) ? list : [];
+      setNfResults(arr.slice(0, 8));
+      if (arr.length === 0) {
+        setNfHint('Nenhuma NF encontrada. Entrada manual permanece disponível.');
+      } else if (arr.length === 1) {
+        await applyNf(arr[0].invoiceNumber);
+      }
+    } catch (e: unknown) {
+      setLocalError(e instanceof Error ? e.message : 'Erro ao buscar NF');
+    } finally {
+      setNfLoading(false);
+    }
+  };
 
   const saveConfig = async () => {
     setLocalError(null);
@@ -184,8 +394,11 @@ export default function ItemDrawer({
 
     if (showPackEntrada) {
       const packCount = Number(mvPackCount);
-      const contentPerPack = Number(mvContentPerPack);
+      let contentPerPack = Number(mvContentPerPack);
       const totalPaid = Number(mvTotalPaid);
+      if (packUnit === 'g') {
+        contentPerPack = contentPerPack / 1000.0;
+      }
       const quantity = packCount > 0 && contentPerPack > 0 ? packCount * contentPerPack : 0;
       if (quantity <= 0) {
         setLocalError('Informe qtd. de embalagens e conteúdo por embalagem.');
@@ -217,6 +430,7 @@ export default function ItemDrawer({
         setMvPackCount('');
         setMvContentPerPack('');
         setMvTotalPaid('');
+        setMvSector('');
         setTab('movimentos');
       } catch (err: unknown) {
         setLocalError(err instanceof Error ? err.message : 'Erro no movimento');
@@ -237,11 +451,13 @@ export default function ItemDrawer({
         unitCost: mvCost ? Number(mvCost) : null,
         reason: mvReason || null,
         documentRef: mvDoc || null,
+        sector: showSectorSaida ? mvSector.trim() || null : null,
       });
       setMvQty('');
       setMvCost('');
       setMvReason('');
       setMvDoc('');
+      setMvSector('');
       setTab('movimentos');
     } catch (err: unknown) {
       setLocalError(err instanceof Error ? err.message : 'Erro no movimento');
@@ -251,6 +467,8 @@ export default function ItemDrawer({
   const tabs: { id: DrawerTab; label: string }[] = [
     { id: 'visao', label: 'Visão geral' },
     { id: 'movimentos', label: 'Movimentos' },
+    { id: 'consumo', label: 'Consumo' },
+    { id: 'fotos', label: 'Fotos' },
     { id: 'config', label: 'Config' },
   ];
 
@@ -355,6 +573,27 @@ export default function ItemDrawer({
                 )}
               </div>
 
+              {(() => {
+                const percent = item.idealQty > 0 ? Math.min(100, Math.max(0, (item.qtyOnHand / item.idealQty) * 100)) : 0;
+                const isBelowMin = item.minQty > 0 && item.qtyOnHand < item.minQty;
+                const barColor = isBelowMin ? 'bg-red-500' : percent < 75 ? 'bg-amber-500' : 'bg-emerald-500';
+                return (
+                  <div className="bg-zinc-50 border border-zinc-150 rounded-2xl p-5 space-y-3">
+                    <div className="flex items-center justify-between text-xs font-bold text-zinc-500">
+                      <span className="uppercase tracking-wider">Saúde do Estoque</span>
+                      <span>{percent.toFixed(0)}% do Ideal</span>
+                    </div>
+                    <div className="w-full h-3 bg-zinc-250 rounded-full overflow-hidden">
+                      <div className={`h-full ${barColor} transition-all duration-500`} style={{ width: `${percent}%` }}></div>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] text-zinc-400 font-bold uppercase tracking-wider pt-1">
+                      <span>Crítico ({item.minQty.toLocaleString('pt-BR')} {item.unit})</span>
+                      <span>Ideal ({item.idealQty.toLocaleString('pt-BR')} {item.unit})</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {item.notes && (
                 <div className="rounded-2xl border border-zinc-100 bg-amber-50/40 px-4 py-3">
                   <p className="text-[10px] font-bold uppercase text-zinc-400 mb-1">Notas</p>
@@ -390,6 +629,54 @@ export default function ItemDrawer({
                     Saída
                   </button>
                 </div>
+
+                {showNfEntrada && (
+                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 space-y-2">
+                    <div className="flex items-center gap-2 text-[10px] font-bold uppercase text-zinc-500">
+                      <FileText className="h-3.5 w-3.5" />
+                      Entrada por NF (importada)
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        value={nfSearch}
+                        onChange={(e) => setNfSearch(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            void searchNf();
+                          }
+                        }}
+                        placeholder="Nº da NF ou fornecedor"
+                        className="flex-1 rounded-xl border border-zinc-200 px-3 py-2 text-sm bg-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void searchNf()}
+                        disabled={nfLoading || !nfSearch.trim()}
+                        className="px-3 py-2 rounded-xl bg-zinc-900 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
+                      >
+                        {nfLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Buscar'}
+                      </button>
+                    </div>
+                    {nfHint && <p className="text-[11px] text-zinc-600">{nfHint}</p>}
+                    {nfResults.length > 1 && (
+                      <ul className="space-y-1 max-h-28 overflow-y-auto">
+                        {nfResults.map((nf) => (
+                          <li key={nf.invoiceNumber}>
+                            <button
+                              type="button"
+                              onClick={() => void applyNf(nf.invoiceNumber)}
+                              className="w-full text-left text-xs px-2 py-1.5 rounded-lg hover:bg-white border border-transparent hover:border-zinc-200 cursor-pointer"
+                            >
+                              <span className="font-mono font-bold">{nf.invoiceNumber}</span>
+                              {nf.supplierName ? ` · ${nf.supplierName}` : ''}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
 
                 {showPackEntrada ? (
                   <>
@@ -432,10 +719,38 @@ export default function ItemDrawer({
                           className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
                         />
                       </label>
-                      <label className="space-y-1">
-                        <span className="text-[10px] font-bold uppercase text-zinc-400">
-                          Conteúdo / emb.
-                        </span>
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold uppercase text-zinc-400">
+                            Conteúdo / emb. ({packUnit})
+                          </span>
+                          {contentUnitLabel === 'kg' && (
+                            <div className="flex gap-1 bg-zinc-100 rounded-lg p-0.5 border border-zinc-200">
+                              <button
+                                type="button"
+                                onClick={() => setPackUnit('g')}
+                                className={`px-1.5 py-0.5 text-[9px] font-bold rounded-md transition-all cursor-pointer ${
+                                  packUnit === 'g'
+                                    ? 'bg-white text-zinc-900 shadow-sm shadow-zinc-200'
+                                    : 'text-zinc-400 hover:text-zinc-650'
+                                }`}
+                              >
+                                g
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPackUnit('kg')}
+                                className={`px-1.5 py-0.5 text-[9px] font-bold rounded-md transition-all cursor-pointer ${
+                                  packUnit === 'kg'
+                                    ? 'bg-white text-zinc-900 shadow-sm shadow-zinc-200'
+                                    : 'text-zinc-400 hover:text-zinc-650'
+                                }`}
+                              >
+                                kg
+                              </button>
+                            </div>
+                          )}
+                        </div>
                         <input
                           value={mvContentPerPack}
                           onChange={(e) => setMvContentPerPack(e.target.value)}
@@ -443,9 +758,12 @@ export default function ItemDrawer({
                           min="0"
                           step="any"
                           required
+                          placeholder={
+                            packUnit === 'kg' ? 'Ex: 5 (kg)' : 'Ex: 500 (g)'
+                          }
                           className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
                         />
-                      </label>
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <label className="space-y-1">
@@ -474,14 +792,14 @@ export default function ItemDrawer({
                       </label>
                     </div>
                     {packPreview && packPreview.qty > 0 && (
-                      <div className="rounded-xl bg-zinc-50 border border-zinc-100 px-3 py-2 text-xs text-zinc-600">
+                      <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2 text-xs text-zinc-700">
                         <span className="font-bold text-zinc-900">
-                          {packPreview.qty.toLocaleString('pt-BR')} {item.unit}
+                          Entrada: {packPreview.qty.toLocaleString('pt-BR')} {contentUnitLabel}
                         </span>
                         {packPreview.unitCost != null && (
                           <>
                             {' '}
-                            · {money(packPreview.unitCost)}/{item.unit}
+                            · {money(packPreview.unitCost)}/{contentUnitLabel}
                           </>
                         )}
                       </div>
@@ -544,6 +862,25 @@ export default function ItemDrawer({
                         className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
                       />
                     </label>
+                    {showSectorSaida && (
+                      <label className="block space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-zinc-400">
+                          Setor destino
+                        </span>
+                        <input
+                          list="almox-sector-suggestions"
+                          value={mvSector}
+                          onChange={(e) => setMvSector(e.target.value)}
+                          placeholder="Ex: Produção"
+                          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                        />
+                        <datalist id="almox-sector-suggestions">
+                          {SECTOR_SUGGESTIONS.map((s) => (
+                            <option key={s} value={s} />
+                          ))}
+                        </datalist>
+                      </label>
+                    )}
                   </>
                 )}
                 <button
@@ -582,6 +919,7 @@ export default function ItemDrawer({
                           </p>
                           <p className="text-xs text-zinc-500 mt-0.5">
                             {new Date(m.occurredAt).toLocaleString('pt-BR')}
+                            {m.sector ? ` · Setor: ${m.sector}` : ''}
                             {m.reason ? ` · ${m.reason}` : ''}
                           </p>
                         </div>
@@ -640,6 +978,150 @@ export default function ItemDrawer({
                     </div>
                   );
                 })
+              )}
+            </div>
+          )}
+
+          {tab === 'consumo' && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-zinc-900 border-b border-zinc-100 pb-2">
+                <LineChart className="h-4 w-4 text-zinc-400" />
+                <h4 className="text-sm font-bold">Histórico de Consumo</h4>
+              </div>
+              
+              {consumptionLoading ? (
+                <div className="flex items-center justify-center py-10 text-zinc-400 text-xs">
+                  <Loader2 className="h-5 w-5 animate-spin mr-2" /> Carregando histórico...
+                </div>
+              ) : !consumption || (consumption.consumptionYoy.length === 0 && consumption.monthlyConsumption.length === 0) ? (
+                <p className="text-center py-10 text-xs text-zinc-400">Nenhum consumo registrado para este item.</p>
+              ) : (
+                <div className="space-y-6">
+                  {consumption.consumptionYoy.length > 0 && (
+                    <div className="bg-zinc-50 border border-zinc-150 rounded-2xl p-4">
+                      <h5 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3">Consumo Anual (YoY)</h5>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {consumption.consumptionYoy.map((y) => (
+                          <div key={y.year} className="bg-white border border-zinc-100 rounded-xl p-3 shadow-sm">
+                            <span className="text-[10px] font-bold text-zinc-400">{y.year}</span>
+                            <p className="text-base font-extrabold text-zinc-950 mt-0.5">
+                              {y.quantity.toLocaleString('pt-BR')} {item.unit}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {consumption.monthlyConsumption.length > 0 && (
+                    <div className="bg-zinc-50 border border-zinc-150 rounded-2xl p-4">
+                      <h5 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3">Consumo Mensal (Últimos 24 meses)</h5>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="border-b border-zinc-200 text-[10px] uppercase font-bold text-zinc-400">
+                              <th className="py-2">Mês/Ano</th>
+                              <th className="py-2 text-right">Consumido ({item.unit})</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-zinc-100 text-xs font-semibold text-zinc-700">
+                            {consumption.monthlyConsumption.map((m) => {
+                              const [yr, mth] = m.month.split('-');
+                              const formattedMonth = mth && yr ? `${mth}/${yr}` : m.month;
+                              return (
+                                <tr key={m.month} className="hover:bg-zinc-100/50">
+                                  <td className="py-2 font-mono">{formattedMonth}</td>
+                                  <td className="py-2 text-right font-bold text-zinc-950">
+                                    {m.quantity.toLocaleString('pt-BR')}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === 'fotos' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
+                <div className="flex items-center gap-2 text-zinc-900">
+                  <Camera className="h-4 w-4 text-zinc-400" />
+                  <h4 className="text-sm font-bold font-sans">Fotos & Referências</h4>
+                </div>
+                <span className="text-[10px] bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded-full font-bold">
+                  {fotos.length} {fotos.length === 1 ? 'foto' : 'fotos'}
+                </span>
+              </div>
+
+              <div className="bg-zinc-50 border border-dashed border-zinc-250 rounded-2xl p-4 flex flex-col items-center justify-center space-y-3">
+                <input
+                  type="text"
+                  placeholder="Nota ou legenda para a foto (opcional)"
+                  value={newFotoNotes}
+                  onChange={(e) => setNewFotoNotes(e.target.value)}
+                  className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-700 shadow-sm focus:border-zinc-400 focus:outline-none"
+                />
+                
+                <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-900 text-white text-xs font-bold shadow-md cursor-pointer hover:bg-zinc-800 transition-all">
+                  <Camera className="h-4 w-4" />
+                  Adicionar foto
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleAddFoto(file);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+
+              {fotosLoading ? (
+                <div className="flex items-center justify-center py-10 text-zinc-400 text-xs">
+                  <Loader2 className="h-5 w-5 animate-spin mr-2" /> Carregando fotos...
+                </div>
+              ) : fotos.length === 0 ? (
+                <p className="text-center py-10 text-xs text-zinc-400">Nenhuma foto adicionada.</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {fotos.map((f) => (
+                    <div key={f.id} className="relative rounded-2xl border border-zinc-150 overflow-hidden bg-zinc-50 shadow-sm flex flex-col group">
+                      <div className="relative aspect-video w-full overflow-hidden bg-zinc-900 flex items-center justify-center">
+                        <img
+                          src={f.photoData}
+                          alt={f.notes || "Foto do item"}
+                          className="w-full h-full object-cover group-hover:scale-102 transition-all duration-300"
+                        />
+                      </div>
+                      <div className="p-3 flex-1 flex flex-col justify-between space-y-2">
+                        {f.notes ? (
+                          <p className="text-xs text-zinc-700 font-medium">{f.notes}</p>
+                        ) : (
+                          <p className="text-[10px] text-zinc-400 italic">Sem legenda</p>
+                        )}
+                        <div className="flex justify-between items-center text-[10px] text-zinc-400 font-bold border-t border-zinc-100 pt-2 shrink-0">
+                          <span>{f.createdAt ? f.createdAt.slice(0, 10).split('-').reverse().join('/') : ''}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteFoto(f.id)}
+                            className="text-red-550 hover:text-red-750 flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Excluir
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}

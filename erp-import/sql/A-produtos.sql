@@ -1,6 +1,7 @@
 -- Passo A: Produtos acabados + médias mensais de venda (ano corrente)
 -- Destino: produtos, estoque_atual
 -- Estoque: nQtdeEstoque / nQtdeProducao / nPedidos como FLOAT (não truncar decimais)
+-- Código de barras: Produtos.cCodBarras (EAN unitário). CX/CX2 = caixas (fora do escopo).
 
 SELECT 
     p.cCodProd COLLATE Latin1_General_CI_AS as cCodProd,
@@ -21,7 +22,8 @@ SELECT
     CAST(ISNULL(v.M9, 0) AS INT) as M9,
     CAST(ISNULL(v.M10, 0) AS INT) as M10,
     CAST(ISNULL(v.M11, 0) AS INT) as M11,
-    CAST(ISNULL(v.M12, 0) AS INT) as M12
+    CAST(ISNULL(v.M12, 0) AS INT) as M12,
+    NULLIF(LTRIM(RTRIM(p.cCodBarras COLLATE Latin1_General_CI_AS)), '') as cCodBarras
 FROM Produtos p WITH (NOLOCK)
 LEFT JOIN (
     SELECT 

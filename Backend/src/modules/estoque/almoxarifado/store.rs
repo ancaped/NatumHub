@@ -66,6 +66,102 @@ pub async fn ensure_tables(pool: &PgPool) -> Result<(), String> {
         );
     }
 
+    // 013 — sector + sequência de código local (idempotente)
+    sqlx::query("ALTER TABLE almox_movements ADD COLUMN IF NOT EXISTS sector TEXT")
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS almox_local_code_seq (
+          id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+          next_val INT NOT NULL DEFAULT 1
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    sqlx::query(
+        "INSERT INTO almox_local_code_seq (id, next_val) VALUES (1, 1) ON CONFLICT (id) DO NOTHING",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS estoque_fotos (
+          id TEXT PRIMARY KEY,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          photo_data TEXT NOT NULL,
+          notes TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP::TEXT
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query("ALTER TABLE estoque_manutencoes ADD COLUMN IF NOT EXISTS routine TEXT")
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("ALTER TABLE estoque_equipamentos ADD COLUMN IF NOT EXISTS brand TEXT")
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("ALTER TABLE estoque_equipamentos ADD COLUMN IF NOT EXISTS model TEXT")
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query(
+        "ALTER TABLE estoque_equipamentos ADD COLUMN IF NOT EXISTS manufacture_year INTEGER",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    sqlx::query("ALTER TABLE estoque_equipamentos ADD COLUMN IF NOT EXISTS serial_number TEXT")
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("ALTER TABLE estoque_manutencoes ADD COLUMN IF NOT EXISTS scheduled_at TEXT")
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("ALTER TABLE estoque_equipamento_pecas ADD COLUMN IF NOT EXISTS installed_at TEXT")
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query(
+        "ALTER TABLE estoque_equipamento_pecas ADD COLUMN IF NOT EXISTS expected_lifespan_days INTEGER",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    sqlx::query("ALTER TABLE estoque_equipamento_pecas ADD COLUMN IF NOT EXISTS notes TEXT")
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS estoque_manutencao_pecas (
+          id TEXT PRIMARY KEY,
+          maintenance_id TEXT NOT NULL REFERENCES estoque_manutencoes(id) ON DELETE CASCADE,
+          item_code TEXT NOT NULL REFERENCES items(code),
+          quantity DOUBLE PRECISION NOT NULL DEFAULT 1,
+          replaced BOOLEAN NOT NULL DEFAULT TRUE,
+          unit_cost DOUBLE PRECISION,
+          notes TEXT
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
     Ok(())
 }
 
@@ -504,7 +600,20 @@ pub async fn create_local_item(
     } else {
         req.unit.trim().to_string()
     };
-    let code = format!("APP_{}", &Uuid::new_v4().to_string().replace('-', "")[..10].to_uppercase());
+
+    // Código curto local APP_#### (sequência numérica, sem colidir com ERP)
+    let next: i32 = sqlx::query_scalar(
+        r#"
+        UPDATE almox_local_code_seq
+        SET next_val = next_val + 1
+        WHERE id = 1
+        RETURNING next_val - 1
+        "#,
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    let code = format!("APP_{:04}", next);
     let now = now_iso();
 
     sqlx::query(
@@ -709,8 +818,8 @@ pub async fn create_movement(
         INSERT INTO almox_movements
           (id, item_code, movement_type, quantity, unit_cost, reason, document_ref, operator_id,
            occurred_at, created_at, demand_id,
-           variant_label, pack_label, pack_count, content_per_pack, total_paid)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+           variant_label, pack_label, pack_count, content_per_pack, total_paid, sector)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
         "#,
     )
     .bind(&id)
@@ -729,6 +838,7 @@ pub async fn create_movement(
     .bind(pack_count)
     .bind(content_per_pack)
     .bind(total_paid)
+    .bind(req.sector.as_deref())
     .execute(&mut *tx)
     .await
     .map_err(|e| e.to_string())?;
@@ -785,6 +895,7 @@ pub async fn create_movement(
         pack_count,
         content_per_pack,
         total_paid,
+        sector: req.sector.clone(),
     })
 }
 
@@ -804,7 +915,8 @@ pub async fn list_movements(
                m.movement_type,
                m.quantity, m.unit_cost, m.reason, m.document_ref, m.operator_id,
                m.occurred_at, m.created_at, m.demand_id,
-               m.variant_label, m.pack_label, m.pack_count, m.content_per_pack, m.total_paid
+               m.variant_label, m.pack_label, m.pack_count, m.content_per_pack, m.total_paid,
+               m.sector
         FROM almox_movements m
         LEFT JOIN items i ON i.code = m.item_code
         LEFT JOIN almox_item_config c ON c.item_code = m.item_code
@@ -843,6 +955,7 @@ pub async fn list_movements(
             pack_count: r.try_get("pack_count").ok(),
             content_per_pack: r.try_get("content_per_pack").ok(),
             total_paid: r.try_get("total_paid").ok(),
+            sector: r.try_get("sector").ok(),
         })
         .collect())
 }
@@ -950,6 +1063,7 @@ pub async fn seed_from_erp(pool: &PgPool, code: &str, operator_id: Option<&str>)
         document_ref: Some("seed-erp".into()),
         occurred_at: None,
         allow_negative: Some(false),
+        sector: None,
         variant_label: None,
         pack_label: None,
         pack_count: None,
@@ -1167,6 +1281,7 @@ pub async fn receive_demand(
             document_ref: Some(id.to_string()),
             occurred_at: None,
             allow_negative: Some(false),
+            sector: None,
             variant_label: None,
             pack_label: None,
             pack_count: None,
@@ -1225,12 +1340,207 @@ pub async fn create_demands_from_replenishment(
 
 // --- Equipamentos ---
 
+fn normalize_eq_status(raw: &str) -> Result<String, String> {
+    let s = raw.trim().to_lowercase();
+    Ok(match s.as_str() {
+        "em_operacao" | "ativo" | "ativa" => "em_operacao".into(),
+        "em_manutencao" | "manutencao" => "em_manutencao".into(),
+        "parado" | "inativo" | "inativa" => "parado".into(),
+        _ => return Err("status inválido. Use em_operacao, em_manutencao ou parado.".into()),
+    })
+}
+
+fn parse_iso_date(s: &str) -> Option<chrono::NaiveDate> {
+    let t = s.trim();
+    if t.len() >= 10 {
+        chrono::NaiveDate::parse_from_str(&t[..10], "%Y-%m-%d").ok()
+    } else {
+        None
+    }
+}
+
+fn avg_interval_days(dates: &[chrono::NaiveDate]) -> Option<f64> {
+    if dates.len() < 2 {
+        return None;
+    }
+    let mut gaps: Vec<i64> = Vec::new();
+    for w in dates.windows(2) {
+        let d = (w[1] - w[0]).num_days();
+        if d > 0 {
+            gaps.push(d);
+        }
+    }
+    if gaps.is_empty() {
+        return None;
+    }
+    Some(gaps.iter().sum::<i64>() as f64 / gaps.len() as f64)
+}
+
+async fn equipment_cover_photo(pool: &PgPool, id: &str) -> Result<Option<String>, String> {
+    sqlx::query_scalar(
+        r#"
+        SELECT photo_data FROM estoque_fotos
+        WHERE entity_type = 'equipment' AND entity_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| e.to_string())
+}
+
+async fn equipment_totals(pool: &PgPool, id: &str) -> Result<(f64, i64), String> {
+    let spent: f64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(cost), 0)::float8 FROM estoque_manutencoes WHERE equipment_id = $1",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0.0);
+    let open: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*) FROM estoque_manutencoes
+        WHERE equipment_id = $1 AND status IN ('pendente', 'em_andamento')
+        "#,
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+    Ok((spent, open))
+}
+
+async fn load_equipment_peca_stats(
+    pool: &PgPool,
+    equipment_id: &str,
+) -> Result<Vec<EquipmentPecaStat>, String> {
+    let rows = sqlx::query(
+        r#"
+        SELECT ep.item_code,
+               COALESCE(c.description, i.description) AS description,
+               COALESCE(b.qty_on_hand, 0) AS qty_on_hand,
+               p.lifespan_days,
+               ep.expected_lifespan_days,
+               ep.installed_at,
+               p.next_exchange_at,
+               p.expires_at
+        FROM estoque_equipamento_pecas ep
+        LEFT JOIN items i ON i.code = ep.item_code
+        LEFT JOIN almox_item_config c ON c.item_code = ep.item_code
+        LEFT JOIN almox_balances b ON b.item_code = ep.item_code
+        LEFT JOIN estoque_peca_meta p ON p.item_code = ep.item_code
+        WHERE ep.equipment_id = $1
+        ORDER BY COALESCE(c.description, i.description, ep.item_code)
+        "#,
+    )
+    .bind(equipment_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let hist = sqlx::query(
+        r#"
+        SELECT COALESCE(mp.item_code, m.item_code) AS item_code,
+               COALESCE(m.completed_at, m.occurred_at) AS at
+        FROM estoque_manutencoes m
+        LEFT JOIN estoque_manutencao_pecas mp ON mp.maintenance_id = m.id
+        WHERE m.equipment_id = $1
+          AND m.status = 'concluida'
+          AND (
+            (mp.replaced IS TRUE)
+            OR (mp.id IS NULL AND m.item_code IS NOT NULL)
+          )
+        ORDER BY 2
+        "#,
+    )
+    .bind(equipment_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut by_item: std::collections::HashMap<String, Vec<chrono::NaiveDate>> =
+        std::collections::HashMap::new();
+    for h in hist {
+        let code: String = h.try_get("item_code").unwrap_or_default();
+        if code.is_empty() {
+            continue;
+        }
+        if let Some(d) = h
+            .try_get::<String, _>("at")
+            .ok()
+            .as_deref()
+            .and_then(parse_iso_date)
+        {
+            by_item.entry(code).or_default().push(d);
+        }
+    }
+    for v in by_item.values_mut() {
+        v.sort();
+        v.dedup();
+    }
+
+    let mut out = Vec::new();
+    for r in rows {
+        let item_code: String = r.try_get("item_code").unwrap_or_default();
+        let dates = by_item.get(&item_code).cloned().unwrap_or_default();
+        let last_replaced_at = dates.last().map(|d| d.to_string());
+        let next_ex: Option<String> = r.try_get("next_exchange_at").ok();
+        let expires: Option<String> = r.try_get("expires_at").ok();
+        out.push(EquipmentPecaStat {
+            item_code,
+            description: r.try_get("description").ok(),
+            qty_on_hand: r.try_get("qty_on_hand").unwrap_or(0.0),
+            lifespan_days: r.try_get("lifespan_days").ok(),
+            expected_lifespan_days: r.try_get("expected_lifespan_days").ok(),
+            installed_at: r.try_get("installed_at").ok(),
+            last_replaced_at,
+            times_replaced: dates.len() as i64,
+            avg_usage_days: avg_interval_days(&dates),
+            next_exchange_at: next_ex.clone(),
+            exchange_status: exchange_status(next_ex.as_deref(), expires.as_deref()),
+        });
+    }
+    Ok(out)
+}
+
+fn map_equipment_row(
+    r: &sqlx::postgres::PgRow,
+    peca_codes: Vec<String>,
+    cover_photo: Option<String>,
+    total_spent: f64,
+    open_maintenances: i64,
+    pecas: Vec<EquipmentPecaStat>,
+) -> EquipmentRow {
+    EquipmentRow {
+        id: r.try_get("id").unwrap_or_default(),
+        code: r.try_get("code").unwrap_or_default(),
+        name: r.try_get("name").unwrap_or_default(),
+        sector: r.try_get("sector").ok(),
+        status: r.try_get("status").unwrap_or_else(|_| "em_operacao".into()),
+        brand: r.try_get("brand").ok(),
+        model: r.try_get("model").ok(),
+        manufacture_year: r.try_get("manufacture_year").ok(),
+        serial_number: r.try_get("serial_number").ok(),
+        maintenance_interval_days: r.try_get("maintenance_interval_days").ok(),
+        last_maintenance_at: r.try_get("last_maintenance_at").ok(),
+        next_maintenance_at: r.try_get("next_maintenance_at").ok(),
+        notes: r.try_get("notes").ok(),
+        peca_codes,
+        cover_photo,
+        total_spent,
+        open_maintenances,
+        pecas,
+    }
+}
+
 pub async fn list_equipments(pool: &PgPool) -> Result<Vec<EquipmentRow>, String> {
     ensure_tables(pool).await?;
     let rows = sqlx::query(
         r#"
-        SELECT id, code, name, sector, status, maintenance_interval_days,
-               last_maintenance_at, next_maintenance_at, notes
+        SELECT id, code, name, sector, status, brand, model, manufacture_year, serial_number,
+               maintenance_interval_days, last_maintenance_at, next_maintenance_at, notes
         FROM estoque_equipamentos
         ORDER BY name
         "#,
@@ -1249,20 +1559,104 @@ pub async fn list_equipments(pool: &PgPool) -> Result<Vec<EquipmentRow>, String>
         .fetch_all(pool)
         .await
         .map_err(|e| e.to_string())?;
-        out.push(EquipmentRow {
-            id,
-            code: r.try_get("code").unwrap_or_default(),
-            name: r.try_get("name").unwrap_or_default(),
-            sector: r.try_get("sector").ok(),
-            status: r.try_get("status").unwrap_or_else(|_| "em_operacao".into()),
-            maintenance_interval_days: r.try_get("maintenance_interval_days").ok(),
-            last_maintenance_at: r.try_get("last_maintenance_at").ok(),
-            next_maintenance_at: r.try_get("next_maintenance_at").ok(),
-            notes: r.try_get("notes").ok(),
-            peca_codes: pecas,
-        });
+        let cover = equipment_cover_photo(pool, &id).await?;
+        let (spent, open) = equipment_totals(pool, &id).await?;
+        out.push(map_equipment_row(&r, pecas, cover, spent, open, vec![]));
     }
     Ok(out)
+}
+
+pub async fn get_equipment(pool: &PgPool, id: &str) -> Result<EquipmentRow, String> {
+    ensure_tables(pool).await?;
+    let r = sqlx::query(
+        r#"
+        SELECT id, code, name, sector, status, brand, model, manufacture_year, serial_number,
+               maintenance_interval_days, last_maintenance_at, next_maintenance_at, notes
+        FROM estoque_equipamentos
+        WHERE id = $1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| e.to_string())?
+    .ok_or_else(|| "Equipamento não encontrado.".to_string())?;
+
+    let peca_stats = load_equipment_peca_stats(pool, id).await?;
+    let peca_codes: Vec<String> = peca_stats.iter().map(|p| p.item_code.clone()).collect();
+    let cover = equipment_cover_photo(pool, id).await?;
+    let (spent, open) = equipment_totals(pool, id).await?;
+    Ok(map_equipment_row(
+        &r,
+        peca_codes,
+        cover,
+        spent,
+        open,
+        peca_stats,
+    ))
+}
+
+async fn replace_equipment_pecas(
+    pool: &PgPool,
+    eid: &str,
+    pecas: Option<&Vec<EquipmentPecaInput>>,
+    peca_codes: Option<&Vec<String>>,
+) -> Result<(), String> {
+    if pecas.is_none() && peca_codes.is_none() {
+        return Ok(());
+    }
+    sqlx::query("DELETE FROM estoque_equipamento_pecas WHERE equipment_id = $1")
+        .bind(eid)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if let Some(list) = pecas {
+        for p in list {
+            let code = p.item_code.trim();
+            if code.is_empty() {
+                continue;
+            }
+            sqlx::query(
+                r#"
+                INSERT INTO estoque_equipamento_pecas
+                  (equipment_id, item_code, installed_at, expected_lifespan_days, notes)
+                VALUES ($1,$2,$3,$4,$5)
+                ON CONFLICT (equipment_id, item_code) DO UPDATE SET
+                  installed_at = COALESCE(EXCLUDED.installed_at, estoque_equipamento_pecas.installed_at),
+                  expected_lifespan_days = COALESCE(EXCLUDED.expected_lifespan_days, estoque_equipamento_pecas.expected_lifespan_days),
+                  notes = COALESCE(EXCLUDED.notes, estoque_equipamento_pecas.notes)
+                "#,
+            )
+            .bind(eid)
+            .bind(code)
+            .bind(p.installed_at.as_deref())
+            .bind(p.expected_lifespan_days)
+            .bind(p.notes.as_deref())
+            .execute(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+        return Ok(());
+    }
+
+    if let Some(codes) = peca_codes {
+        for c in codes {
+            let code = c.trim();
+            if code.is_empty() {
+                continue;
+            }
+            sqlx::query(
+                "INSERT INTO estoque_equipamento_pecas (equipment_id, item_code) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+            )
+            .bind(eid)
+            .bind(code)
+            .execute(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 pub async fn upsert_equipment(
@@ -1271,15 +1665,10 @@ pub async fn upsert_equipment(
     req: &UpsertEquipmentRequest,
 ) -> Result<EquipmentRow, String> {
     ensure_tables(pool).await?;
-    let status = req
-        .status
-        .as_deref()
-        .unwrap_or("em_operacao")
-        .trim()
-        .to_lowercase();
-    if !matches!(status.as_str(), "em_operacao" | "em_manutencao" | "parado") {
-        return Err("status inválido.".into());
+    if req.code.trim().is_empty() || req.name.trim().is_empty() {
+        return Err("Código e nome são obrigatórios.".into());
     }
+    let status = normalize_eq_status(req.status.as_deref().unwrap_or("em_operacao"))?;
     let now = now_iso();
     let eid = id
         .map(|s| s.to_string())
@@ -1290,7 +1679,8 @@ pub async fn upsert_equipment(
             r#"
             UPDATE estoque_equipamentos SET
               code = $2, name = $3, sector = $4, status = $5,
-              maintenance_interval_days = $6, next_maintenance_at = $7, notes = $8, updated_at = $9
+              brand = $6, model = $7, manufacture_year = $8, serial_number = $9,
+              maintenance_interval_days = $10, next_maintenance_at = $11, notes = $12, updated_at = $13
             WHERE id = $1
             "#,
         )
@@ -1299,6 +1689,10 @@ pub async fn upsert_equipment(
         .bind(req.name.trim())
         .bind(req.sector.as_deref())
         .bind(&status)
+        .bind(req.brand.as_deref())
+        .bind(req.model.as_deref())
+        .bind(req.manufacture_year)
+        .bind(req.serial_number.as_deref())
         .bind(req.maintenance_interval_days)
         .bind(req.next_maintenance_at.as_deref())
         .bind(req.notes.as_deref())
@@ -1310,8 +1704,9 @@ pub async fn upsert_equipment(
         sqlx::query(
             r#"
             INSERT INTO estoque_equipamentos
-              (id, code, name, sector, status, maintenance_interval_days, next_maintenance_at, notes, created_at, updated_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)
+              (id, code, name, sector, status, brand, model, manufacture_year, serial_number,
+               maintenance_interval_days, next_maintenance_at, notes, created_at, updated_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
             "#,
         )
         .bind(&eid)
@@ -1319,6 +1714,10 @@ pub async fn upsert_equipment(
         .bind(req.name.trim())
         .bind(req.sector.as_deref())
         .bind(&status)
+        .bind(req.brand.as_deref())
+        .bind(req.model.as_deref())
+        .bind(req.manufacture_year)
+        .bind(req.serial_number.as_deref())
         .bind(req.maintenance_interval_days)
         .bind(req.next_maintenance_at.as_deref())
         .bind(req.notes.as_deref())
@@ -1328,33 +1727,80 @@ pub async fn upsert_equipment(
         .map_err(|e| e.to_string())?;
     }
 
-    if let Some(codes) = &req.peca_codes {
-        sqlx::query("DELETE FROM estoque_equipamento_pecas WHERE equipment_id = $1")
-            .bind(&eid)
-            .execute(pool)
-            .await
-            .map_err(|e| e.to_string())?;
-        for c in codes {
-            let code = c.trim();
-            if code.is_empty() {
-                continue;
-            }
-            sqlx::query(
-                "INSERT INTO estoque_equipamento_pecas (equipment_id, item_code) VALUES ($1,$2) ON CONFLICT DO NOTHING",
-            )
-            .bind(&eid)
-            .bind(code)
-            .execute(pool)
-            .await
-            .map_err(|e| e.to_string())?;
+    replace_equipment_pecas(pool, &eid, req.pecas.as_ref(), req.peca_codes.as_ref()).await?;
+    get_equipment(pool, &eid).await
+}
+
+async fn load_maintenance_parts(
+    pool: &PgPool,
+    maintenance_id: &str,
+) -> Result<Vec<MaintenancePartRow>, String> {
+    let rows = sqlx::query(
+        r#"
+        SELECT mp.item_code,
+               COALESCE(c.description, i.description) AS description,
+               mp.quantity, mp.replaced, mp.unit_cost, mp.notes
+        FROM estoque_manutencao_pecas mp
+        LEFT JOIN items i ON i.code = mp.item_code
+        LEFT JOIN almox_item_config c ON c.item_code = mp.item_code
+        WHERE mp.maintenance_id = $1
+        ORDER BY mp.item_code
+        "#,
+    )
+    .bind(maintenance_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(rows
+        .into_iter()
+        .map(|r| MaintenancePartRow {
+            item_code: r.try_get("item_code").unwrap_or_default(),
+            description: r.try_get("description").ok(),
+            quantity: r.try_get("quantity").unwrap_or(1.0),
+            replaced: r.try_get("replaced").unwrap_or(true),
+            unit_cost: r.try_get("unit_cost").ok(),
+            notes: r.try_get("notes").ok(),
+        })
+        .collect())
+}
+
+fn map_maintenance_row(r: &sqlx::postgres::PgRow, parts: Vec<MaintenancePartRow>) -> MaintenanceRow {
+    let item_code: Option<String> = r.try_get("item_code").ok();
+    let mut parts = parts;
+    if parts.is_empty() {
+        if let Some(code) = item_code.clone().filter(|c| !c.is_empty()) {
+            parts.push(MaintenancePartRow {
+                item_code: code,
+                description: r.try_get("item_description").ok(),
+                quantity: r.try_get("quantity").unwrap_or(0.0),
+                replaced: true,
+                unit_cost: None,
+                notes: None,
+            });
         }
     }
-
-    list_equipments(pool)
-        .await?
-        .into_iter()
-        .find(|e| e.id == eid)
-        .ok_or_else(|| "Equipamento salvo, mas não listado.".into())
+    MaintenanceRow {
+        id: r.try_get("id").unwrap_or_default(),
+        equipment_id: r.try_get("equipment_id").unwrap_or_default(),
+        equipment_code: r.try_get("equipment_code").ok(),
+        equipment_name: r.try_get("equipment_name").ok(),
+        kind: r.try_get("kind").unwrap_or_default(),
+        status: r.try_get("status").unwrap_or_default(),
+        routine: r.try_get("routine").ok(),
+        item_code,
+        item_description: r.try_get("item_description").ok(),
+        quantity: r.try_get("quantity").unwrap_or(0.0),
+        technician: r.try_get("technician").ok(),
+        cost: r.try_get("cost").ok(),
+        notes: r.try_get("notes").ok(),
+        occurred_at: r.try_get("occurred_at").unwrap_or_default(),
+        scheduled_at: r.try_get("scheduled_at").ok(),
+        completed_at: r.try_get("completed_at").ok(),
+        created_by: r.try_get("created_by").ok(),
+        created_at: r.try_get("created_at").unwrap_or_default(),
+        parts,
+    }
 }
 
 pub async fn list_maintenances(
@@ -1369,7 +1815,7 @@ pub async fn list_maintenances(
         JOIN estoque_equipamentos e ON e.id = m.equipment_id
         LEFT JOIN items i ON i.code = m.item_code
         WHERE ($1::text IS NULL OR m.equipment_id = $1)
-        ORDER BY m.occurred_at DESC
+        ORDER BY COALESCE(m.scheduled_at, m.occurred_at) DESC
     "#;
     let rows = sqlx::query(sql)
         .bind(equipment_id)
@@ -1377,27 +1823,63 @@ pub async fn list_maintenances(
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(rows
-        .into_iter()
-        .map(|r| MaintenanceRow {
-            id: r.try_get("id").unwrap_or_default(),
-            equipment_id: r.try_get("equipment_id").unwrap_or_default(),
-            equipment_code: r.try_get("equipment_code").ok(),
-            equipment_name: r.try_get("equipment_name").ok(),
-            kind: r.try_get("kind").unwrap_or_default(),
-            status: r.try_get("status").unwrap_or_default(),
-            item_code: r.try_get("item_code").ok(),
-            item_description: r.try_get("item_description").ok(),
-            quantity: r.try_get("quantity").unwrap_or(0.0),
-            technician: r.try_get("technician").ok(),
-            cost: r.try_get("cost").ok(),
-            notes: r.try_get("notes").ok(),
-            occurred_at: r.try_get("occurred_at").unwrap_or_default(),
-            completed_at: r.try_get("completed_at").ok(),
-            created_by: r.try_get("created_by").ok(),
-            created_at: r.try_get("created_at").unwrap_or_default(),
-        })
-        .collect())
+    let mut out = Vec::new();
+    for r in rows {
+        let id: String = r.try_get("id").unwrap_or_default();
+        let parts = load_maintenance_parts(pool, &id).await?;
+        out.push(map_maintenance_row(&r, parts));
+    }
+    Ok(out)
+}
+
+async fn insert_maintenance_parts(
+    pool: &PgPool,
+    maintenance_id: &str,
+    parts: &[MaintenancePartInput],
+) -> Result<(), String> {
+    for p in parts {
+        let code = p.item_code.trim();
+        if code.is_empty() {
+            continue;
+        }
+        let pid = Uuid::new_v4().to_string();
+        sqlx::query(
+            r#"
+            INSERT INTO estoque_manutencao_pecas
+              (id, maintenance_id, item_code, quantity, replaced, unit_cost, notes)
+            VALUES ($1,$2,$3,$4,$5,$6,$7)
+            "#,
+        )
+        .bind(&pid)
+        .bind(maintenance_id)
+        .bind(code)
+        .bind(p.quantity.unwrap_or(1.0))
+        .bind(p.replaced.unwrap_or(true))
+        .bind(p.unit_cost)
+        .bind(p.notes.as_deref())
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn normalize_maint_kind(raw: &str) -> Result<String, String> {
+    let k = raw.trim().to_lowercase();
+    match k.as_str() {
+        "preventiva" | "corretiva" | "preditiva" => Ok(k),
+        "troca_peca" => Ok("corretiva".into()),
+        _ => Err("kind inválido. Use preventiva, corretiva ou preditiva.".into()),
+    }
+}
+
+fn normalize_maint_status(raw: &str) -> String {
+    match raw.trim().to_lowercase().as_str() {
+        "aberta" | "agendada" | "programada" => "pendente".into(),
+        "em_andamento" => "em_andamento".into(),
+        "concluida" | "concluída" => "concluida".into(),
+        other => other.to_string(),
+    }
 }
 
 pub async fn create_maintenance(
@@ -1406,79 +1888,139 @@ pub async fn create_maintenance(
     req: &CreateMaintenanceRequest,
 ) -> Result<MaintenanceRow, String> {
     ensure_tables(pool).await?;
-    let kind = req.kind.trim().to_lowercase();
-    if !matches!(kind.as_str(), "preventiva" | "corretiva" | "preditiva") {
-        return Err("kind inválido.".into());
+    let kind = normalize_maint_kind(&req.kind)?;
+    let status = normalize_maint_status(req.status.as_deref().unwrap_or("pendente"));
+    if !matches!(status.as_str(), "pendente" | "em_andamento" | "concluida") {
+        return Err("status inválido.".into());
     }
-    let status = req
-        .status
-        .as_deref()
-        .unwrap_or("pendente")
-        .trim()
-        .to_lowercase();
     let now = now_iso();
     let occurred = req
         .occurred_at
         .as_deref()
         .filter(|s| !s.is_empty())
+        .or(req.scheduled_at.as_deref().filter(|s| !s.is_empty()))
         .unwrap_or(&now);
     let id = Uuid::new_v4().to_string();
-    let qty = req.quantity.unwrap_or(0.0);
+    let parts = req.parts.clone().unwrap_or_default();
+    let first_code = parts
+        .first()
+        .map(|p| p.item_code.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| req.item_code.clone().filter(|s| !s.trim().is_empty()));
+    let qty = parts
+        .first()
+        .and_then(|p| p.quantity)
+        .or(req.quantity)
+        .unwrap_or(0.0);
 
     sqlx::query(
         r#"
         INSERT INTO estoque_manutencoes
-          (id, equipment_id, kind, status, item_code, quantity, technician, cost, notes,
-           occurred_at, created_by, created_at, updated_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12)
+          (id, equipment_id, kind, status, routine, item_code, quantity, technician, cost, notes,
+           occurred_at, scheduled_at, created_by, created_at, updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14)
         "#,
     )
     .bind(&id)
     .bind(&req.equipment_id)
     .bind(&kind)
     .bind(&status)
-    .bind(req.item_code.as_deref())
+    .bind(req.routine.as_deref())
+    .bind(first_code.as_deref())
     .bind(qty)
     .bind(req.technician.as_deref())
     .bind(req.cost)
     .bind(req.notes.as_deref())
     .bind(occurred)
+    .bind(req.scheduled_at.as_deref())
     .bind(created_by)
     .bind(&now)
     .execute(pool)
     .await
     .map_err(|e| e.to_string())?;
 
+    if !parts.is_empty() {
+        insert_maintenance_parts(pool, &id, &parts).await?;
+    } else if let Some(code) = first_code.as_deref() {
+        insert_maintenance_parts(
+            pool,
+            &id,
+            &[MaintenancePartInput {
+                item_code: code.into(),
+                quantity: Some(qty),
+                replaced: Some(true),
+                unit_cost: None,
+                notes: None,
+            }],
+        )
+        .await?;
+    }
+
     if req.consume_stock.unwrap_or(false) {
-        if let Some(code) = req.item_code.as_deref().filter(|c| !c.is_empty()) {
+        let to_consume: Vec<(String, f64)> = if !parts.is_empty() {
+            parts
+                .iter()
+                .filter(|p| p.replaced.unwrap_or(true))
+                .map(|p| (p.item_code.trim().to_string(), p.quantity.unwrap_or(1.0)))
+                .filter(|(c, q)| !c.is_empty() && *q > 0.0)
+                .collect()
+        } else if let Some(code) = first_code.as_deref() {
             if qty > 0.0 {
-                create_movement(
-                    pool,
-                    created_by,
-                    &CreateMovementRequest {
-                        item_code: code.into(),
-                        movement_type: "saida".into(),
-                        quantity: qty,
-                        unit_cost: None,
-                        reason: Some(format!("Manutenção {id}")),
-                        document_ref: Some(id.clone()),
-                        occurred_at: Some(occurred.to_string()),
-                        allow_negative: None,
-                        variant_label: None,
-                        pack_label: None,
-                        pack_count: None,
-                        content_per_pack: None,
-                        total_paid: None,
-                    },
-                    false,
-                    None,
-                )
-                .await?;
+                vec![(code.to_string(), qty)]
+            } else {
+                vec![]
             }
+        } else {
+            vec![]
+        };
+        for (code, q) in to_consume {
+            create_movement(
+                pool,
+                created_by,
+                &CreateMovementRequest {
+                    item_code: code,
+                    movement_type: "saida".into(),
+                    quantity: q,
+                    unit_cost: None,
+                    reason: Some(format!("Manutenção {id}")),
+                    document_ref: Some(id.clone()),
+                    occurred_at: Some(occurred.to_string()),
+                    allow_negative: None,
+                    sector: None,
+                    variant_label: None,
+                    pack_label: None,
+                    pack_count: None,
+                    content_per_pack: None,
+                    total_paid: None,
+                },
+                false,
+                None,
+            )
+            .await?;
         }
     }
 
-    list_maintenances(pool, None)
+    if status == "concluida" {
+        sqlx::query(
+            "UPDATE estoque_equipamentos SET last_maintenance_at = $2, updated_at = $2 WHERE id = $1",
+        )
+        .bind(&req.equipment_id)
+        .bind(&now)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    } else if status == "em_andamento" {
+        sqlx::query(
+            "UPDATE estoque_equipamentos SET status = 'em_manutencao', updated_at = $2 WHERE id = $1",
+        )
+        .bind(&req.equipment_id)
+        .bind(&now)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+
+    list_maintenances(pool, Some(&req.equipment_id))
         .await?
         .into_iter()
         .find(|m| m.id == id)
@@ -1492,7 +2034,7 @@ pub async fn update_maintenance(
 ) -> Result<MaintenanceRow, String> {
     ensure_tables(pool).await?;
     let now = now_iso();
-    let status = req.status.as_deref().map(|s| s.trim().to_lowercase());
+    let status = req.status.as_deref().map(normalize_maint_status);
     if let Some(ref s) = status {
         if !matches!(s.as_str(), "pendente" | "em_andamento" | "concluida") {
             return Err("status inválido.".into());
@@ -1512,37 +2054,51 @@ pub async fn update_maintenance(
         r#"
         UPDATE estoque_manutencoes SET
           status = COALESCE($2, status),
-          technician = COALESCE($3, technician),
-          cost = COALESCE($4, cost),
-          notes = COALESCE($5, notes),
-          completed_at = COALESCE($6, completed_at),
-          updated_at = $7
+          routine = COALESCE($3, routine),
+          technician = COALESCE($4, technician),
+          cost = COALESCE($5, cost),
+          notes = COALESCE($6, notes),
+          completed_at = COALESCE($7, completed_at),
+          scheduled_at = COALESCE($8, scheduled_at),
+          updated_at = $9
         WHERE id = $1
         "#,
     )
     .bind(id)
     .bind(status.as_deref())
+    .bind(req.routine.as_deref())
     .bind(req.technician.as_deref())
     .bind(req.cost)
     .bind(req.notes.as_deref())
     .bind(completed.as_deref())
+    .bind(req.scheduled_at.as_deref())
     .bind(&now)
     .execute(pool)
     .await
     .map_err(|e| e.to_string())?;
 
-    if status.as_deref() == Some("concluida") {
-        let eq_id: Option<String> =
-            sqlx::query_scalar("SELECT equipment_id FROM estoque_manutencoes WHERE id = $1")
-                .bind(id)
-                .fetch_optional(pool)
-                .await
-                .map_err(|e| e.to_string())?;
-        if let Some(eq) = eq_id {
+    let eq_id: Option<String> =
+        sqlx::query_scalar("SELECT equipment_id FROM estoque_manutencoes WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+    if let Some(eq) = &eq_id {
+        if status.as_deref() == Some("concluida") {
             sqlx::query(
-                "UPDATE estoque_equipamentos SET last_maintenance_at = $2, updated_at = $2 WHERE id = $1",
+                "UPDATE estoque_equipamentos SET last_maintenance_at = $2, status = 'em_operacao', updated_at = $2 WHERE id = $1",
             )
-            .bind(&eq)
+            .bind(eq)
+            .bind(&now)
+            .execute(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        } else if status.as_deref() == Some("em_andamento") {
+            sqlx::query(
+                "UPDATE estoque_equipamentos SET status = 'em_manutencao', updated_at = $2 WHERE id = $1",
+            )
+            .bind(eq)
             .bind(&now)
             .execute(pool)
             .await
@@ -1550,9 +2106,301 @@ pub async fn update_maintenance(
         }
     }
 
-    list_maintenances(pool, None)
+    list_maintenances(pool, eq_id.as_deref())
         .await?
         .into_iter()
         .find(|m| m.id == id)
         .ok_or_else(|| "Manutenção não encontrada.".into())
+}
+
+pub async fn list_fotos(
+    pool: &PgPool,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<EstoqueFotoRow>, String> {
+    ensure_tables(pool).await?;
+    let rows = sqlx::query(
+        r#"
+        SELECT id, entity_type, entity_id, photo_data, notes, created_at
+        FROM estoque_fotos
+        WHERE entity_type = $1 AND entity_id = $2
+        ORDER BY created_at DESC
+        "#,
+    )
+    .bind(entity_type)
+    .bind(entity_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let out = rows
+        .into_iter()
+        .map(|r| EstoqueFotoRow {
+            id: r.try_get("id").unwrap_or_default(),
+            entity_type: r.try_get("entity_type").unwrap_or_default(),
+            entity_id: r.try_get("entity_id").unwrap_or_default(),
+            photo_data: r.try_get("photo_data").unwrap_or_default(),
+            notes: r.try_get("notes").ok(),
+            created_at: r.try_get("created_at").unwrap_or_default(),
+        })
+        .collect();
+
+    Ok(out)
+}
+
+pub async fn add_foto(
+    pool: &PgPool,
+    entity_type: &str,
+    entity_id: &str,
+    photo_data: &str,
+    notes: Option<&str>,
+) -> Result<EstoqueFotoRow, String> {
+    ensure_tables(pool).await?;
+    let id = Uuid::new_v4().to_string();
+    let now = now_iso();
+
+    sqlx::query(
+        r#"
+        INSERT INTO estoque_fotos (id, entity_type, entity_id, photo_data, notes, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        "#,
+    )
+    .bind(&id)
+    .bind(entity_type)
+    .bind(entity_id)
+    .bind(photo_data)
+    .bind(notes)
+    .bind(&now)
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(EstoqueFotoRow {
+        id,
+        entity_type: entity_type.to_string(),
+        entity_id: entity_id.to_string(),
+        photo_data: photo_data.to_string(),
+        notes: notes.map(|s| s.to_string()),
+        created_at: now,
+    })
+}
+
+pub async fn delete_foto(pool: &PgPool, id: &str) -> Result<(), String> {
+    ensure_tables(pool).await?;
+    sqlx::query("DELETE FROM estoque_fotos WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub async fn get_item_consumption(
+    pool: &PgPool,
+    code: &str,
+) -> Result<AlmoxConsumptionData, String> {
+    ensure_tables(pool).await?;
+
+    let local_yoy = sqlx::query(
+        r#"
+        SELECT COALESCE(SUBSTRING(occurred_at, 1, 4)::int, 0) AS year,
+               SUM(quantity) AS quantity
+        FROM almox_movements
+        WHERE item_code = $1 AND movement_type = 'saida'
+        GROUP BY year
+        ORDER BY year DESC
+        "#,
+    )
+    .bind(code)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let local_monthly = sqlx::query(
+        r#"
+        SELECT SUBSTRING(occurred_at, 1, 7) AS month,
+               SUM(quantity) AS quantity
+        FROM almox_movements
+        WHERE item_code = $1 AND movement_type = 'saida'
+        GROUP BY month
+        ORDER BY month DESC
+        LIMIT 24
+        "#,
+    )
+    .bind(code)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut yoy_map: std::collections::HashMap<i32, f64> = local_yoy
+        .into_iter()
+        .map(|r| (r.try_get::<i32, _>("year").unwrap_or(0), r.try_get::<f64, _>("quantity").unwrap_or(0.0)))
+        .collect();
+
+    let mut monthly_map: std::collections::HashMap<String, f64> = local_monthly
+        .into_iter()
+        .map(|r| (r.try_get::<String, _>("month").unwrap_or_default(), r.try_get::<f64, _>("quantity").unwrap_or(0.0)))
+        .collect();
+
+    if !code.starts_with("APP_") {
+        let erp_yoy = sqlx::query(
+            r#"
+            SELECT year, COALESCE(SUM(quantity), 0.0) AS quantity
+            FROM consumption
+            WHERE item_code = $1
+            GROUP BY year
+            "#,
+        )
+        .bind(code)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+        for r in erp_yoy {
+            let yr: i32 = r.try_get("year").unwrap_or(0);
+            let qty: f64 = r.try_get("quantity").unwrap_or(0.0);
+            *yoy_map.entry(yr).or_insert(0.0) += qty;
+        }
+
+        let erp_monthly = sqlx::query(
+            r#"
+            SELECT year, month, COALESCE(SUM(quantity), 0.0) AS quantity
+            FROM consumption
+            WHERE item_code = $1
+            GROUP BY year, month
+            "#,
+        )
+        .bind(code)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+        for r in erp_monthly {
+            let yr: i32 = r.try_get("year").unwrap_or(0);
+            let mth: i32 = r.try_get("month").unwrap_or(0);
+            let qty: f64 = r.try_get("quantity").unwrap_or(0.0);
+            let month_str = format!("{:04}-{:02}", yr, mth);
+            *monthly_map.entry(month_str).or_insert(0.0) += qty;
+        }
+    }
+
+    let mut consumption_yoy: Vec<ConsumptionYoYItem> = yoy_map
+        .into_iter()
+        .map(|(year, quantity)| ConsumptionYoYItem { year, quantity })
+        .collect();
+    consumption_yoy.sort_by(|a, b| b.year.cmp(&a.year));
+
+    let mut monthly_consumption: Vec<MonthlyConsumptionItem> = monthly_map
+        .into_iter()
+        .map(|(month, quantity)| MonthlyConsumptionItem { month, quantity })
+        .collect();
+    monthly_consumption.sort_by(|a, b| b.month.cmp(&a.month));
+
+    Ok(AlmoxConsumptionData {
+        consumption_yoy,
+        monthly_consumption,
+    })
+}
+
+pub async fn get_dashboard_stats(pool: &PgPool) -> Result<AlmoxDashboardStats, String> {
+    ensure_tables(pool).await?;
+
+    let item_counts = sqlx::query(
+        r#"
+        SELECT 
+            COUNT(*)::bigint AS total,
+            COUNT(*) FILTER (WHERE c.section = 'almoxarifado')::bigint AS total_almox,
+            COUNT(*) FILTER (WHERE c.section = 'supermercado')::bigint AS total_supermercado,
+            COUNT(*) FILTER (WHERE c.section = 'pecas')::bigint AS total_pecas,
+            COUNT(*) FILTER (WHERE c.section = 'almoxarifado' AND COALESCE(b.qty_on_hand, 0) < COALESCE(c.min_qty, 0) AND COALESCE(c.min_qty, 0) > 0.0)::bigint AS below_almox,
+            COUNT(*) FILTER (WHERE c.section = 'supermercado' AND COALESCE(b.qty_on_hand, 0) < COALESCE(c.min_qty, 0) AND COALESCE(c.min_qty, 0) > 0.0)::bigint AS below_super,
+            COUNT(*) FILTER (WHERE c.section = 'pecas' AND COALESCE(b.qty_on_hand, 0) < COALESCE(c.min_qty, 0) AND COALESCE(c.min_qty, 0) > 0.0)::bigint AS below_pecas
+        FROM almox_item_config c
+        INNER JOIN items i ON c.item_code = i.code
+        LEFT JOIN almox_balances b ON b.item_code = i.code
+        WHERE COALESCE(i.is_ignored, 0) = 0 AND COALESCE(c.active, 0) = 1
+        "#
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let total_items: i64 = item_counts.get("total");
+    let total_almox_items: i64 = item_counts.get("total_almox");
+    let total_supermercado_items: i64 = item_counts.get("total_supermercado");
+    let total_pecas_items: i64 = item_counts.get("total_pecas");
+    let almox_below_min: i64 = item_counts.get("below_almox");
+    let supermercado_below_min: i64 = item_counts.get("below_super");
+    let pecas_below_min: i64 = item_counts.get("below_pecas");
+
+    let equip_counts = sqlx::query(
+        r#"
+        SELECT
+            COUNT(*)::bigint AS total,
+            COUNT(*) FILTER (WHERE status = 'em_operacao' OR status = 'ativo')::bigint AS in_op,
+            COUNT(*) FILTER (WHERE status = 'em_manutencao')::bigint AS in_maint,
+            COUNT(*) FILTER (WHERE status = 'parado')::bigint AS stopped
+        FROM estoque_equipamentos
+        "#
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let total_equipments: i64 = equip_counts.get("total");
+    let equipments_in_operation: i64 = equip_counts.get("in_op");
+    let equipments_in_maintenance: i64 = equip_counts.get("in_maint");
+    let equipments_stopped: i64 = equip_counts.get("stopped");
+
+    let open_maintenances: i64 = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM estoque_manutencoes WHERE status IN ('pendente', 'em_andamento')"
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let pieces = sqlx::query(
+        r#"
+        SELECT p.next_exchange_at, p.expires_at 
+        FROM estoque_peca_meta p
+        INNER JOIN almox_item_config c ON c.item_code = p.item_code
+        INNER JOIN items i ON c.item_code = i.code
+        WHERE COALESCE(i.is_ignored, 0) = 0 AND COALESCE(c.active, 0) = 1
+        "#
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut pecas_overdue = 0;
+    let mut pecas_due_soon = 0;
+
+    for row in pieces {
+        let next_ex: Option<String> = row.get(0);
+        let expires: Option<String> = row.get(1);
+        if let Some(status) = exchange_status(next_ex.as_deref(), expires.as_deref()) {
+            if status == "overdue" {
+                pecas_overdue += 1;
+            } else if status == "due_soon" {
+                pecas_due_soon += 1;
+            }
+        }
+    }
+
+    Ok(AlmoxDashboardStats {
+        total_items,
+        total_almox_items,
+        total_supermercado_items,
+        total_pecas_items,
+        almox_below_min,
+        supermercado_below_min,
+        pecas_below_min,
+        pecas_overdue,
+        pecas_due_soon,
+        total_equipments,
+        equipments_in_operation,
+        equipments_in_maintenance,
+        equipments_stopped,
+        open_maintenances,
+    })
 }

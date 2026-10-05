@@ -1,13 +1,13 @@
-pub mod backup;
 pub mod configuracoes;
 pub mod feedbacks;
 pub mod acesso;
 pub mod hub;
 pub mod auth;
+pub mod audit;
+pub mod chat;
+pub mod mapa;
 pub mod notifications;
 pub mod postgres_bootstrap;
-pub mod releases;
-pub mod updater;
 
 pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
     axum::Router::new()
@@ -21,16 +21,16 @@ pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
         .route("/api/admin/pg-backup/run", axum::routing::post(configuracoes::admin_handlers::run_pg_backup_now))
         .route("/api/admin/db-reset", axum::routing::post(configuracoes::admin_handlers::reset_operational_data))
         .route("/api/admin/audit/stock/resync-insumos", axum::routing::post(configuracoes::admin_handlers::resync_insumo_stocks))
+        .route("/api/admin/audit/stock/resync-produtos", axum::routing::post(configuracoes::admin_handlers::resync_produto_stocks))
+        .route("/api/admin/audit/stock/verify-insumos", axum::routing::post(configuracoes::admin_handlers::verify_insumo_stocks))
+        .route("/api/admin/audit/stock/verify-all", axum::routing::post(configuracoes::admin_handlers::verify_all_stocks_stream))
         .route("/api/admin/audit/stock/:code", axum::routing::get(configuracoes::admin_handlers::audit_stock))
         .route("/api/admin/audit/stock/:code/refresh", axum::routing::post(configuracoes::admin_handlers::refresh_stock_from_erp))
-        .route("/api/google/status", axum::routing::get(backup::google_drive::get_google_status))
-        .route("/api/google/config", axum::routing::post(backup::google_drive::save_google_config))
-        .route("/api/google/auth-url", axum::routing::get(backup::google_drive::google_auth_url))
-        .route("/api/google/callback", axum::routing::get(backup::google_drive::google_callback))
-        .route("/api/google/sync", axum::routing::post(backup::google_drive::trigger_sync))
         .route("/api/auth/session", axum::routing::get(acesso::get_session).post(acesso::save_session).delete(acesso::clear_session))
         .merge(hub::router())
         .merge(auth::router())
-        .merge(releases::router())
+        .merge(audit::router())
+        .merge(chat::router())
+        .merge(mapa::router())
         .merge(notifications::router())
 }

@@ -1,12 +1,12 @@
 # API REST Axum — referência compacta
 
-Servidor: **`:3001`** · Auth: `Authorization: Bearer <token>` (exceto rotas públicas abaixo).
+Servidor: **`nexus-server` `:3001`** (API + SPA) · Clientes: `http://nexus.local:3001` · Auth: `Authorization: Bearer <token>` (exceto rotas públicas abaixo). O header de dispositivo continua `X-Natum-Device-Id`.
 
-Implementação: `Backend/src/lib.rs` + `modules/*/router`. Detalhes multi-usuário: [`../arquitetura/multi_usuario.md`](../arquitetura/multi_usuario.md).
+Implementação: `Backend/src/server.rs` + `modules/*/router`. Detalhes multi-usuário: [`../arquitetura/multi_usuario.md`](../arquitetura/multi_usuario.md).
 
 ## Rotas públicas
 
-`/api/health` · `/api/auth/login` · `/api/auth/operators` · `/api/auth/session` · `/login` · `GET /api/hub/client-config` · `/api/google/callback`
+`/` (SPA) · assets estáticos · `/login` · `/mapa` · `/api/health` · `/api/auth/login` · `/api/auth/operators` · `/api/auth/session` · `/api/auth/setup-status` · `/api/auth/setup-supervisor` · `GET /api/hub/client-config` · `GET /api/hub/public-config`
 
 ## Auth operador
 
@@ -25,6 +25,7 @@ Implementação: `Backend/src/lib.rs` + `modules/*/router`. Detalhes multi-usuá
 |--------|------|-------|
 | GET | `/api/hub/status` | Status + db conectado |
 | GET/POST | `/api/hub/client-config` | Config local do dispositivo |
+| GET | `/api/hub/public-config` | Hint de URL (`nexus.local`) |
 
 ## Notificações
 
@@ -54,7 +55,7 @@ Doc: [`../feedbacks/README.md`](../feedbacks/README.md) — fila e resolução v
 
 | Método | Rota | Notas |
 |--------|------|-------|
-| GET/POST | `/api/settings/:key` | sql_*, firebase_*, etc. |
+| GET/POST | `/api/settings/:key` | sql_*, erp_*, etc. |
 | GET/POST | `/api/import/watch-config` | Pasta planilhas |
 | GET/POST | `/api/import/erp-sync-schedule` | POST admin — horários sync auto |
 
@@ -82,7 +83,7 @@ Sync ERP: [`../erp-import/README.md`](../erp-import/README.md) · `legacy_db::sy
 | GET/POST | `/api/overrides`, `/api/overrides/bulk` |
 | GET/POST/DELETE | `/api/historico`, `/api/historico/:id` |
 | GET | `/api/producao/lotes`, `/api/producao/lotes/:n`, `/api/producao/lotes/:n/detalhes` |
-| GET | `/api/vendas/pedidos`, `/api/vendas/faltas` |
+| GET | `/api/vendas/pedidos`, `/api/vendas/pedidos/detalhe`, `/api/vendas/faltas`, `/api/vendas/clientes`, `/api/vendas/clientes/:codigo/pedidos` |
 
 ## Almoxarifado / Estoque ops
 
@@ -96,9 +97,59 @@ Hub `almoxarifado_hub`. Doc: [`../modulos/almoxarifado.md`](../modulos/almoxarif
 | POST | `/api/almox/items/local` | só supermercado (`APP_*`) |
 | GET/PUT | `/api/almox/items/:code` / `…/config` | |
 | GET/POST | `/api/almox/movements` | pack/totalPaid no Super |
-| GET/POST/PUT | `/api/almox/equipments` | |
-| GET/POST/PUT | `/api/almox/maintenances` | |
+| GET/POST | `/api/almox/equipments` | parque (ficha + foto capa + gastos) |
+| GET/PUT | `/api/almox/equipments/:id` | detalhe com peças associadas e tempo médio |
+| GET/POST | `/api/almox/maintenances` | OS; `parts[]` (trocada ou não) + `scheduledAt` |
+| PUT | `/api/almox/maintenances/:id` | status / conclusão |
 | GET/POST | `/api/almox/demands` | compras |
+| PUT | `/api/almox/demands/:id` | edita item, quantidade, quem pediu, cotação e valor |
+| GET | `/api/almox/counts/latest` | última contagem e a próxima, sete dias depois |
+| POST | `/api/almox/counts` | contagem semanal; grava saída ou entrada da diferença |
+
+## Estoque — listas de contagem
+
+Consulta (matéria-prima, embalagens, coloração, apoio, produtos). Não grava saldo.
+
+| Método | Rota | Notas |
+|--------|------|-------|
+| GET | `/api/estoque/contagens?escopo=` | listas do módulo, com itens |
+| POST | `/api/estoque/contagens` | nova lista aberta |
+| POST | `/api/estoque/contagens/:id/itens` | congela o saldo lido agora no ERP (`nQtdeEstoque`) |
+| POST | `/api/estoque/contagens/:id/atualizar-saldos` | relê o saldo do ERP dos itens da lista aberta |
+| PUT/DELETE | `/api/estoque/contagens/:id/itens/:itemId` | corrige reserva, pedido e contagens 1–3 |
+| POST | `/api/estoque/contagens/:id/encerrar` | marca lançada, sem movimento |
+| POST | `/api/estoque/contagens/:id/reabrir` | volta a editar |
+| GET | `/api/estoque/compras-pendentes` | pedido de compra em aberto (`n_qtde - n_chegou`), por código |
+
+## Estoque — Ordens Manuais
+
+| Método | Rota | Notas |
+|--------|------|-------|
+| GET/POST | `/api/estoque/ordens-manuais` | Lista / cria (`OPEN`) |
+| GET/PUT/DELETE | `/api/estoque/ordens-manuais/:id` | Detalhe; edita/exclui só `OPEN` |
+| POST | `/api/estoque/ordens-manuais/:id/postar` | Marca `POSTED` (lançado no ERP) |
+| POST | `/api/estoque/ordens-manuais/:id/reabrir` | Volta a `OPEN` |
+| GET | `/api/estoque/ordens-manuais/itens/busca` | Autocomplete `items` MP/Emb |
+| GET | `/api/estoque/ordens-manuais/pendencias/por-item` | Agregado OPEN (Prev. Futura) |
+| GET/POST | `/api/estoque/ordens-manuais/tipos` | Tipos de registro (Venda, Uso/Interno…) |
+| DELETE | `/api/estoque/ordens-manuais/tipos/:id` | Remove tipo do cadastro |
+
+## Qualidade — Documentação / POPs
+
+| Método | Rota | Notas |
+|--------|------|-------|
+| * | `/api/qualidade/documentacao/...` | Famílias, tipos, docs, PDF, alertas |
+| GET/POST | `/api/qualidade/pops/sectors` | Setores |
+| GET/POST | `/api/qualidade/pops/documents` | Lista / cria (draft) |
+| GET/PUT | `/api/qualidade/pops/documents/:id` | Detalhe / edita draft |
+| POST | `/api/qualidade/pops/documents/:id/publish` | Publica (initial ou content) |
+| POST | `/api/qualidade/pops/documents/:id/revalidate` | Nova revisão sem mudar seções |
+| GET | `/api/qualidade/pops/documents/:id/versions` | Histórico |
+| GET | `/api/qualidade/pops/documents/:id/versions/:vid` | Snapshot |
+| GET/PUT | `/api/qualidade/pops/settings` | Logo (PUT multipart) |
+| GET | `/api/qualidade/pops/settings/logo` | Bytes do logo |
+| POST | `/api/qualidade/pops/seed-inventory` | Importa 31 POPs draft |
+| POST | `/api/qualidade/pops/check-alerts` | Vencidos / 30-15-7 |
 
 ## Admin / auditoria (supervisor)
 
@@ -111,16 +162,38 @@ Hub `almoxarifado_hub`. Doc: [`../modulos/almoxarifado.md`](../modulos/almoxarif
 | POST | `/api/admin/db-reset` | Reset operacional |
 | GET | `/api/admin/audit/stock/:code` | Hub × ERP ao vivo (estoque/reserva/prod/pedidos) |
 | POST | `/api/admin/audit/stock/:code/refresh` | Re-lê D1/D2/A pontual e grava |
-| POST | `/api/admin/audit/stock/resync-insumos` | Regrava todos os insumos com `nQtdeEstoqueA` |
+| POST | `/api/admin/audit/stock/verify-insumos` | Confere Hub × ERP e corrige divergências de insumos (`nQtdeEstoque`) |
+| POST | `/api/admin/audit/stock/resync-insumos` | Regrava todos os insumos com `nQtdeEstoque` |
+| POST | `/api/admin/audit/stock/resync-produtos` | Regrava `estoque_atual` com `Produtos.nQtdeEstoque` |
+
+## Mapa operacional (supervisor)
+
+| Método | Rota | Notas |
+|--------|------|-------|
+| GET | `/api/mapa/snapshot` | groups+modules+edges+routes+tasks+activity |
+| PUT | `/api/mapa/layout` | posições em lote (drag) |
+| PUT | `/api/mapa/modules/:key` | purpose/detail/hints |
+| POST | `/api/mapa/modules` | módulo planned + task |
+| POST | `/api/mapa/edges` | conexão |
+| GET/POST | `/api/mapa/tasks` | fila |
+| PATCH | `/api/mapa/tasks/:id` | status done |
+| GET | `/api/mapa/tasks/export.md` | export task.md |
+| GET/POST | `/api/mapa/activity` | registro |
+| POST | `/api/mapa/resync-scan` | reimporta rotas do `mapa-app.json` |
+
+Tabelas: `018_mapa_hub.sql`. UI Hub: view `mapa_arquitetura`. Browser: **`http://127.0.0.1:3001/mapa`** (login igual ao Hub).
 
 Regra canônica: [`../../erp-import/ESTOQUE.md`](../../erp-import/ESTOQUE.md).
 
-## Google backup (principal)
+## Impressoras
 
-| Método | Rota |
-|--------|------|
-| GET | `/api/google/status`, `/api/google/auth-url` |
-| POST | `/api/google/config`, `/api/google/sync` |
+| POST | `/api/ferramentas/impressoras/direct` | envia etiqueta PNG ao spooler do Windows, sem diálogo do navegador |
+
+A tela de todo módulo é o `PrintModal`. Contrato: [`../modulos/etiquetas.md`](../modulos/etiquetas.md).
+
+## Backup
+
+Backup operacional = **PostgreSQL local** (`/api/admin/pg-backup*`). Sem Firebase/Google Drive.
 
 ## Módulos via `/api/hub/*`
 

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Boxes, User, Settings, LogOut, ChevronRight, UserCog, ClipboardList, Shield } from 'lucide-react';
+import { User, Settings, LogOut, ChevronRight, UserCog, ClipboardList, Shield, Network } from 'lucide-react';
 import { localAuth } from '../../lib/api';
 import { isPrincipalPc } from '../../lib/connectionConfig';
 import { canAccessView } from '../../lib/modules/permissions';
@@ -7,6 +7,8 @@ import { isSupervisor, canSeeFeedbacks } from '../../lib/auth';
 import type { AuthUser } from '../../lib/auth';
 import Modal from '../ui/Modal';
 import NotificationsPanel from './NotificationsPanel';
+import NexusLogo from '../NexusLogo';
+import { APP_VERSION } from '../../lib/utils';
 
 interface HeaderProps {
   view: string;
@@ -70,13 +72,7 @@ export default function Header({
             onClick={() => setView('hub')}
             className="flex items-center gap-2.5 hover:opacity-80 transition-opacity focus:outline-none text-left cursor-pointer"
           >
-            <div className="bg-zinc-900 text-white p-2 rounded-lg shadow-sm">
-              <Boxes className="h-5 w-5" />
-            </div>
-            <div>
-              <span className="font-extrabold text-sm tracking-tight text-zinc-900 uppercase">NatumHub</span>
-              <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider -mt-0.5">Gestão Integrada</p>
-            </div>
+            <NexusLogo variant="full" size="md" subtitle="Gestão Integrada" />
           </button>
 
           {moduleTitle && (
@@ -93,7 +89,7 @@ export default function Header({
         {/* Right Side: Notifications + Profile */}
         <div className="flex items-center gap-3">
           <span className="text-xs text-zinc-400 font-mono hidden sm:inline">
-            v0.0.11
+            v{APP_VERSION}
           </span>
 
           {currentUser && <NotificationsPanel currentUser={currentUser} />}
@@ -171,6 +167,19 @@ export default function Header({
                       >
                         <ClipboardList className="h-4 w-4 text-zinc-400" />
                         Gestão de Feedbacks
+                      </button>
+                    )}
+
+                    {isSupervisor(currentUser) && (
+                      <button
+                        onClick={() => {
+                          setDropdownOpen(false);
+                          setView('mapa_arquitetura');
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left"
+                      >
+                        <Network className="h-4 w-4 text-zinc-400" />
+                        Mapa operacional
                       </button>
                     )}
 

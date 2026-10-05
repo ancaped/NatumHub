@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import React, { useState, useEffect } from 'react';
 import {
   Monitor, Loader2, ArrowRight, AlertTriangle, CheckCircle2, Server, Laptop, Database,
 } from 'lucide-react';
 import { APP_NAME } from '../lib/utils';
+import NexusLogo from '../components/NexusLogo';
 import {
   loadConnectionConfig,
   saveConfigToTauri,
@@ -38,7 +38,7 @@ export default function SetupConnectionView({ onComplete, reason }: SetupConnect
   const [deviceLabel, setDeviceLabel] = useState(() => existing.deviceLabel || '');
   const [masterOrigin, setMasterOrigin] = useState(() => {
     if (existing.appMode === 'client' && existing.apiOrigin) return existing.apiOrigin;
-    return `http://127.0.0.1:${DEFAULT_API_PORT}`;
+    return `http://natumhub.local:${DEFAULT_API_PORT}`;
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +102,7 @@ export default function SetupConnectionView({ onComplete, reason }: SetupConnect
     if (role === 'terminal') {
       const origin = masterOrigin.trim().replace(/\/$/, '');
       if (!origin.startsWith('http://') && !origin.startsWith('https://')) {
-        setError('Informe a URL do PC Principal (ex.: http://100.x.x.x:3001).');
+        setError('Informe a URL do PC Principal (ex.: http://natumhub.local:3001).');
         return;
       }
       setTesting(true);
@@ -133,14 +133,14 @@ export default function SetupConnectionView({ onComplete, reason }: SetupConnect
   return (
     <div className="h-full w-full min-h-0 flex flex-col items-center justify-center bg-zinc-50 font-sans text-zinc-900 p-4 sm:p-6 overflow-y-auto">
       <div className="w-full max-w-[480px] my-auto bg-white border border-zinc-200 rounded-2xl shadow-sm p-6 sm:p-8 space-y-6">
-        <div className="text-center space-y-2">
-          <div className="mx-auto bg-emerald-100 text-emerald-700 p-3 rounded-xl w-fit">
-            <Monitor className="h-7 w-7" />
+        <div className="text-center space-y-3 flex flex-col items-center">
+          <NexusLogo variant="badge" size="lg" />
+          <div className="space-y-1">
+            <h1 className="text-2xl font-black tracking-tight text-zinc-900 uppercase">Bem-vindo ao Nexus</h1>
+            <p className="text-xs text-zinc-500 leading-relaxed">
+              Escolha o papel deste computador. O banco PostgreSQL fica no PC Principal.
+            </p>
           </div>
-          <h1 className="text-xl font-bold tracking-tight">Bem-vindo ao {APP_NAME}</h1>
-          <p className="text-sm text-zinc-500 leading-relaxed">
-            Escolha o papel deste computador. O banco PostgreSQL fica no PC Principal.
-          </p>
         </div>
 
         {reason && (
@@ -180,7 +180,7 @@ export default function SetupConnectionView({ onComplete, reason }: SetupConnect
             <Laptop className="h-5 w-5" />
             <span className="text-xs font-extrabold uppercase tracking-wide">Terminal</span>
             <span className={`text-[11px] leading-snug ${role === 'terminal' ? 'text-zinc-300' : 'text-zinc-500'}`}>
-              Só o app; conecta na API do master
+              Navegador em http://natumhub.local:3001 (sem instalador)
             </span>
           </button>
         </div>
@@ -208,12 +208,12 @@ export default function SetupConnectionView({ onComplete, reason }: SetupConnect
               type="url"
               value={masterOrigin}
               onChange={(e) => setMasterOrigin(e.target.value)}
-              placeholder={`http://100.x.x.x:${DEFAULT_API_PORT}`}
+              placeholder={`http://natumhub.local:${DEFAULT_API_PORT}`}
               className="mt-1.5 w-full border border-zinc-200 rounded-xl px-3 py-2.5 text-sm bg-zinc-50 font-mono"
               disabled={saving || testing}
             />
             <p className="text-[10px] text-zinc-400 mt-1">
-              LAN ou Tailscale (MagicDNS/IP). Ex.: http://pc-master:3001
+              Preferência: http://natumhub.local:3001 (hosts/DNS). Alternativa: IP LAN ou Tailscale.
             </p>
           </div>
         )}

@@ -1,11 +1,11 @@
 import { apiFetch } from '../../geral/lib/http';
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  ArrowLeft, Search, CheckCircle2, RefreshCw, X, ShieldAlert,
+  Search, CheckCircle2, RefreshCw, X, ShieldAlert,
   Edit, Info, Check, Filter, Layers, ListFilter, AlertTriangle, HelpCircle,
   Database, Trash2, Plus, PlusCircle, Loader2, Settings, Rocket, GraduationCap, UploadCloud
 } from 'lucide-react';
-import { cn } from '../../geral/lib/utils';
+import { cn, randomId } from '../../geral/lib/utils';
 import { Category, PRODUCT_LINE_STATUSES, GraduationCandidate } from '../../geral/lib/types';
 import { api } from '../../geral/lib/api';
 import KitCompositionDrawer from '../../producao/components/KitCompositionDrawer';
@@ -22,6 +22,13 @@ interface ProductOverride {
   linha_prefix_manual: string | null;
   status_produto: string | null;
   categoria_produto: string | null;
+  produzir_apenas_kit?: number | null;
+  lancamento_meta_meses?: number | null;
+  lancamento_data_inicio?: string | null;
+  terceirizado_modo?: string | null;
+  is_producao_programada?: number | null;
+  producao_programada_disparo?: number | null;
+  producao_programada_objetivo?: number | null;
 }
 
 interface ProductResult {
@@ -48,6 +55,13 @@ interface ProductResult {
   categoria_produto: string | null;
   base_codigo?: string | null;
   terceirizado_modo?: string | null;
+  produzir_apenas_kit?: number | null;
+  is_kit?: boolean;
+  is_kit_component?: boolean;
+  parent_kits?: string[];
+  estoque_ideal_manual?: number | null;
+  estoque_ideal_qtd?: number;
+  estoque_ideal_meses?: number;
 }
 
 interface LineConfig {
@@ -75,6 +89,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [lineFilter, setLineFilter] = useState('ALL');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [productTypeFilter, setProductTypeFilter] = useState<'ALL' | 'PRODUCTS' | 'KITS'>('ALL');
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set());
   const [selectedOverrideCodes, setSelectedOverrideCodes] = useState<Set<string>>(new Set());
 
@@ -90,6 +105,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const [salesOverride, setSalesOverride] = useState('');
   const [ordersOverride, setOrdersOverride] = useState('');
   const [obsForm, setObsForm] = useState('');
+  const [produzirApenasKitForm, setProduzirApenasKitForm] = useState<number>(0);
   const [isLaunchOverride, setIsLaunchOverride] = useState('AUTO'); // 'AUTO' | 'YES' | 'NO'
   const [visibleOverride, setVisibleOverride] = useState('1'); // '1' = visível, '0' = oculto
   const [lancamentoMetaForm, setLancamentoMetaForm] = useState('6');
@@ -209,7 +225,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     setLoading(true);
     try {
       const [prodsRes, confRes, ovrRes, catsData, ignoredRes, gradRes, kitsRes, diasRes, limitRes, metaGlobalRes] = await Promise.all([
-        apiFetch(`/products?limit=5000&show_hidden=true`),
+        apiFetch(`/products?limit=5000&show_hidden=true&include_kits=true`),
         apiFetch(`/configs`),
         apiFetch(`/overrides`),
         api.getCategories(),
@@ -431,6 +447,15 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     return false;
   };
 
+  const kitCategoryIds = useMemo(() => {
+    return categories
+      .filter(c => {
+        const name = (c.name || '').toLowerCase();
+        return name === 'kits' || name === 'kit';
+      })
+      .map(c => c.id);
+  }, [categories]);
+
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
       const matchesSearch = 
@@ -445,9 +470,21 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
       const matchesCategory = isCategoryMatch(p.categoria_produto, categoryFilter);
 
-      return matchesSearch && matchesStatus && matchesLine && matchesCategory;
+      const isKit = Boolean(
+        p.is_kit || 
+        p.categoria_produto === 'kit' || 
+        (p.categoria_produto && kitCategoryIds.includes(p.categoria_produto)) || 
+        kitComposicao.some(kc => kc.kit_codigo === p.codigo)
+      );
+
+      const matchesType = 
+        productTypeFilter === 'ALL' ||
+        (productTypeFilter === 'PRODUCTS' && !isKit) ||
+        (productTypeFilter === 'KITS' && isKit);
+
+      return matchesSearch && matchesStatus && matchesLine && matchesCategory && matchesType;
     });
-  }, [products, search, statusFilter, lineFilter, categoryFilter, categories]);
+  }, [products, search, statusFilter, lineFilter, categoryFilter, productTypeFilter, categories, kitCategoryIds, kitComposicao]);
 
   // Group categories by parent category
   const groupedCategories = useMemo(() => {
@@ -492,14 +529,10 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     setBaseCodigoForm(p.base_codigo || '');
     setTerceirizadoModoForm(p.terceirizado_modo || '');
     setLineOverride(p.linha_prefix_manual || 'AUTO');
-    setIdealStockOverride(p.visivel === 0 ? '' : (p.producao_recomendada === 0 && p.status === 'descontinuado' ? '' : '')); // We will check actual overrides
-    
-    // We need to fetch the exact raw override from backend/local list if possible
-    // For simplicity, let's prefill based on product data (if they exist)
+    setIdealStockOverride(p.estoque_ideal_manual != null ? p.estoque_ideal_manual.toString() : '');
     setObsForm(p.observacao || '');
+    setProduzirApenasKitForm(p.produzir_apenas_kit === 1 ? 1 : 0);
     
-    const isLaunch = p.is_lancamento;
-    // We'll set overrides based on the values in the calculated results
     setIsLaunchOverride(
       p.linha_prefix_manual === null && p.status_produto === null ? 'AUTO' : 'AUTO'
     );
@@ -524,6 +557,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
           setSalesOverride(override.media_manual?.toString() || '');
           setOrdersOverride(override.pedidos_manual?.toString() || '');
           setObsForm(override.observacao || '');
+          setProduzirApenasKitForm(override.produzir_apenas_kit === 1 ? 1 : 0);
           
           if (override.is_lancamento_manual === 1) setIsLaunchOverride('YES');
           else if (override.is_lancamento_manual === 0) setIsLaunchOverride('NO');
@@ -543,6 +577,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
           setLancamentoMetaForm('6');
           setLancamentoDataInicioForm('');
           setVisibleOverride('1');
+          setProduzirApenasKitForm(0);
         }
       }
     } catch (e) {
@@ -573,6 +608,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         terceirizado_modo: statusForm === 'terceirizado' ? (terceirizadoModoForm.trim() || null) : null,
         lancamento_meta_meses: statusForm === 'lancamento' ? parseInt(lancamentoMetaForm, 10) || 6 : null,
         lancamento_data_inicio: statusForm === 'lancamento' ? (lancamentoDataInicioForm.trim() || new Date().toISOString().split('T')[0]) : null,
+        produzir_apenas_kit: produzirApenasKitForm,
       };
 
       const res = await apiFetch(`/overrides`, {
@@ -785,7 +821,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
     try {
       const newCat: Category = {
-        id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9),
+        id: randomId(),
         name: configNewCatName.trim(),
         parentId: configNewCatParent || null,
       };
@@ -894,17 +930,6 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
       {/* Sidebar */}
       <div className="w-64 bg-white border-r border-zinc-200 flex flex-col shrink-0">
 
-        {/* Back Button */}
-        <div className="p-3 border-b border-zinc-100">
-          <button
-            onClick={onBackToHub}
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 transition-all cursor-pointer border border-zinc-200"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Voltar ao Administrativo
-          </button>
-        </div>
-
         {/* Navigation Tabs */}
         <div className="p-2 border-b border-zinc-100 space-y-0.5">
           <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
@@ -997,17 +1022,31 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
               )}
               {/* Filtering and Search Header */}
               <div className="toolbar-section !rounded-2xl !mb-0 shrink-0">
-                <div className="w-full grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                   {/* Search Bar */}
-                  <div className="relative md:col-span-2">
+                  <div className="relative lg:col-span-2">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                     <input
                       type="text"
-                      placeholder="Buscar produto por código ou descrição..."
+                      placeholder="Buscar por código ou descrição (ex: 10.13.003)..."
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 text-sm"
+                      className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 text-sm font-medium"
                     />
+                  </div>
+
+                  {/* Type Filter */}
+                  <div className="relative">
+                    <select
+                      value={productTypeFilter}
+                      onChange={(e) => setProductTypeFilter(e.target.value as any)}
+                      className="w-full pl-3 pr-8 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 text-sm appearance-none cursor-pointer font-semibold text-zinc-700"
+                    >
+                      <option value="ALL">Todos os Tipos</option>
+                      <option value="PRODUCTS">Produtos Acabados</option>
+                      <option value="KITS">Kits Comerciais</option>
+                    </select>
+                    <Layers className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400 pointer-events-none" />
                   </div>
 
                   {/* Status Filter */}
@@ -1039,7 +1078,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                         <option key={c.linha_prefix} value={c.linha_prefix}>{c.nome_linha}</option>
                       ))}
                     </select>
-                    <Layers className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400 pointer-events-none" />
+                    <ListFilter className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400 pointer-events-none" />
                   </div>
                 </div>
 
@@ -1105,6 +1144,12 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                       ) : (
                         filteredProducts.map((p) => {
                           const isSelected = selectedCodes.has(p.codigo);
+                          const isKit = Boolean(
+                            p.is_kit || 
+                            p.categoria_produto === 'kit' || 
+                            (p.categoria_produto && kitCategoryIds.includes(p.categoria_produto)) || 
+                            kitComposicao.some(kc => kc.kit_codigo === p.codigo)
+                          );
                           return (
                             <tr 
                               key={p.codigo} 
@@ -1123,7 +1168,26 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                                 />
                               </td>
                               <td className="px-4 py-2.5 font-mono font-bold text-zinc-500">{p.codigo}</td>
-                              <td className="px-4 py-2.5 font-bold text-zinc-800">{p.descricao}</td>
+                              <td className="px-4 py-2.5 font-bold text-zinc-800">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span>{p.descricao}</span>
+                                  {isKit && (
+                                    <span className="px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide bg-purple-50 text-purple-700 border border-purple-250 rounded">
+                                      KIT
+                                    </span>
+                                  )}
+                                  {p.produzir_apenas_kit === 1 && (
+                                    <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-amber-50 text-amber-700 border border-amber-250 rounded" title={p.parent_kits?.length ? `Usado nos kits: ${p.parent_kits.join(', ')}` : 'Produzido apenas para kits'}>
+                                      Apenas Kit
+                                    </span>
+                                  )}
+                                  {p.is_kit_component && p.produzir_apenas_kit !== 1 && (
+                                    <span className="px-1.5 py-0.5 text-[9px] font-medium text-zinc-500 bg-zinc-100 border border-zinc-200 rounded" title={p.parent_kits?.length ? `Usado nos kits: ${p.parent_kits.join(', ')}` : 'Componente de kit'}>
+                                      Comp. Kit
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
                               <td className="px-4 py-2.5 text-zinc-600">
                                 {p.linha_prefix_manual ? (
                                   <span className="flex items-center gap-1">
@@ -1151,18 +1215,18 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                                 <button
                                   onClick={() => handleOpenEdit(p)}
                                   className="p-1.5 hover:bg-zinc-150 text-zinc-400 hover:text-zinc-800 rounded-lg transition-colors cursor-pointer"
-                                  title="Editar Produto"
+                                  title="Editar Produto/Kit"
                                 >
                                   <Edit className="w-4 h-4" />
                                 </button>
-                                {(p.categoria_produto === 'kit' || (p.descricao || '').toLowerCase().includes('kit') || (p.codigo || '').startsWith('2.11.')) && (
+                                {isKit && (
                                   <button
                                     onClick={() => {
                                       setSelectedDrawerKitCode(p.codigo);
                                       setSelectedDrawerKitDesc(p.descricao);
                                       setIsDrawerOpen(true);
                                     }}
-                                    className="p-1.5 hover:bg-emerald-100 text-emerald-600 rounded-lg transition-colors cursor-pointer"
+                                    className="p-1.5 hover:bg-purple-100 text-purple-600 rounded-lg transition-colors cursor-pointer"
                                     title="Gerenciar Composição do Kit"
                                   >
                                     <Layers className="w-4 h-4" />
@@ -2074,12 +2138,41 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         ) : (
           <form onSubmit={handleSaveIndividualOverride} className="flex-1 overflow-y-auto p-6 space-y-5 text-left">
             {/* Product Info Display */}
-            <div>
+            <div className="space-y-1">
               <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider block">Descrição</span>
-              <p className="font-bold text-zinc-800 text-sm mt-0.5">{selectedProduct?.descricao}</p>
+              <p className="font-bold text-zinc-800 text-sm">{selectedProduct?.descricao}</p>
             </div>
 
-            {/* Status Select — ciclo de vida (não confundir com categoria de roteamento) */}
+            {/* Kit Fast Action Banner if it's a Kit */}
+            {(selectedProduct?.is_kit || selectedProduct?.categoria_produto === 'kit' || kitComposicao.some(kc => kc.kit_codigo === selectedProduct?.codigo)) && (
+              <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-extrabold text-purple-900 uppercase tracking-wide flex items-center gap-1.5">
+                    <Layers className="w-4 h-4 text-purple-600" />
+                    Kit Comercial Montável
+                  </span>
+                </div>
+                <p className="text-[11px] text-purple-700 leading-snug">
+                  Este item é montado a partir de componentes/insumos.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedProduct) {
+                      setSelectedDrawerKitCode(selectedProduct.codigo);
+                      setSelectedDrawerKitDesc(selectedProduct.descricao);
+                      setIsDrawerOpen(true);
+                    }
+                  }}
+                  className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+                >
+                  <Layers className="w-4 h-4" />
+                  Ver / Editar Composição deste Kit
+                </button>
+              </div>
+            )}
+
+            {/* Status Select — ciclo de vida */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-zinc-700 block">Status de ciclo de vida</label>
               <select
@@ -2094,6 +2187,42 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
               <span className="text-[10px] text-zinc-400 font-semibold block leading-tight">
                 {PRODUCT_LINE_STATUSES.find(s => s.value === statusForm)?.description || (categoryForm === 'cat_base' ? 'Produto base: use a categoria abaixo; status de ciclo de vida continua aplicável.' : 'Status alteram recomendações de produção e compras.')}
               </span>
+            </div>
+
+            {/* Modo de Demanda & Produção (Apenas Kit vs Vendido Individual) */}
+            <div className="space-y-1.5 p-3.5 bg-zinc-50 border border-zinc-200 rounded-xl">
+              <label className="text-xs font-bold text-zinc-700 block">Modo de Demanda & Produção</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setProduzirApenasKitForm(0)}
+                  className={`p-2.5 rounded-lg text-xs font-bold border transition-all text-left flex flex-col gap-0.5 cursor-pointer ${
+                    produzirApenasKitForm === 0
+                      ? 'bg-white border-zinc-900 shadow-xs text-zinc-900'
+                      : 'bg-zinc-100/60 border-zinc-200 text-zinc-500 hover:text-zinc-700'
+                  }`}
+                >
+                  <span>Vendido Individual</span>
+                  <span className="text-[10px] font-normal text-zinc-400">Tem vendas avulsas e pode compor kits</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProduzirApenasKitForm(1)}
+                  className={`p-2.5 rounded-lg text-xs font-bold border transition-all text-left flex flex-col gap-0.5 cursor-pointer ${
+                    produzirApenasKitForm === 1
+                      ? 'bg-purple-50 border-purple-600 shadow-xs text-purple-900'
+                      : 'bg-zinc-100/60 border-zinc-200 text-zinc-500 hover:text-zinc-700'
+                  }`}
+                >
+                  <span>Apenas para Kit</span>
+                  <span className="text-[10px] font-normal text-zinc-400">Demanda gerada pela montagem dos kits</span>
+                </button>
+              </div>
+              {selectedProduct?.parent_kits && selectedProduct.parent_kits.length > 0 && (
+                <p className="text-[10px] text-zinc-500 pt-1">
+                  Utilizado nos kits: <strong className="text-zinc-700">{selectedProduct.parent_kits.join(', ')}</strong>
+                </p>
+              )}
             </div>
 
             {/* Launch Parameters (conditional) */}
@@ -2208,22 +2337,63 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
               </select>
             </div>
 
-            <div className="border-t border-zinc-150 my-2 pt-3">
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-3">Overrides de Estoque & Metas</span>
-              
-              {/* Ideal Stock Override Input */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-zinc-650 block">Estoque Ideal Fixo</label>
+            {/* Política de Estoque Ideal */}
+            <div className="space-y-2 p-3.5 bg-zinc-50 border border-zinc-200 rounded-xl">
+              <label className="text-xs font-bold text-zinc-700 block">Política de Estoque Ideal</label>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-zinc-700 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="stockPolicy"
+                    checked={!idealStockOverride}
+                    onChange={() => setIdealStockOverride('')}
+                    className="text-zinc-900 focus:ring-zinc-900 cursor-pointer"
+                  />
+                  Variável (Média da Linha)
+                </label>
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-zinc-700 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="stockPolicy"
+                    checked={Boolean(idealStockOverride)}
+                    onChange={() => {
+                      if (!idealStockOverride) {
+                        const defaultQty = selectedProduct?.estoque_ideal_qtd ? Math.round(selectedProduct.estoque_ideal_qtd) : 100;
+                        setIdealStockOverride(String(defaultQty));
+                      }
+                    }}
+                    className="text-zinc-900 focus:ring-zinc-900 cursor-pointer"
+                  />
+                  Fixo em Unidades
+                </label>
+              </div>
+
+              {idealStockOverride ? (
+                <div className="space-y-1 pt-1">
+                  <label className="text-[11px] font-bold text-zinc-650 block">Estoque Ideal Fixo (Unidades Alvo)</label>
                   <input
                     type="number"
-                    placeholder="Automático (meses)"
+                    min="0"
+                    placeholder="Ex: 500"
                     value={idealStockOverride}
                     onChange={(e) => setIdealStockOverride(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
+                    className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-bold text-zinc-900"
                   />
+                  <span className="text-[10px] text-zinc-400 block">
+                    O sistema usará fixamente {idealStockOverride || 0} unidades como alvo ideal, sem recalcular por média móvel.
+                  </span>
                 </div>
+              ) : (
+                <div className="text-[11px] text-zinc-500 bg-white p-2.5 rounded-lg border border-zinc-200 leading-relaxed">
+                  <span className="font-semibold text-zinc-700">Calculado dinamicamente:</span> Média Mensal ({selectedProduct?.media_vendas?.toFixed(1) || '0.0'}) × Multiplicador da Linha ({configs.find(c => c.linha_prefix === (lineOverride === 'AUTO' ? selectedProduct?.linha_prefix : lineOverride))?.estoque_ideal_mult || 3.0} meses) = <strong className="text-zinc-900 font-bold">{Math.round(selectedProduct?.estoque_ideal_qtd || 0)} un ideais</strong>.
+                </div>
+              )}
+            </div>
 
+            <div className="border-t border-zinc-150 my-2 pt-3">
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-3">Overrides de Vendas & Carteira</span>
+              
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-zinc-650 block">Override Média Vendas</label>
                   <input
@@ -2235,9 +2405,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
                   />
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3 mt-3">
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-zinc-650 block">Pedidos em Aberto</label>
                   <input
@@ -2248,7 +2416,9 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
                   />
                 </div>
+              </div>
 
+              <div className="mt-3">
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-zinc-650 block">Visibilidade</label>
                   <select

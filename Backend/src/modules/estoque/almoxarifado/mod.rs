@@ -4,13 +4,14 @@ pub mod store;
 
 use std::sync::Arc;
 use axum::{
-    routing::{get, post, put},
+    routing::{get, post, put, delete},
     Router,
 };
 use crate::handlers::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
+        .route("/api/almox/dashboard/stats", get(handlers::get_dashboard_stats))
         .route("/api/almox/items", get(handlers::list_items))
         .route("/api/almox/items/search", get(handlers::search_catalog))
         .route("/api/almox/items/link", post(handlers::link_erp_item))
@@ -27,6 +28,18 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/api/almox/items/:code/seed-from-erp",
             post(handlers::seed_from_erp),
+        )
+        .route(
+            "/api/almox/items/:code/consumption",
+            get(handlers::get_item_consumption),
+        )
+        .route(
+            "/api/almox/fotos/:entity_type/:entity_id",
+            get(handlers::list_fotos).post(handlers::add_foto),
+        )
+        .route(
+            "/api/almox/fotos/:id",
+            delete(handlers::delete_foto),
         )
         .route(
             "/api/almox/movements",
@@ -55,7 +68,7 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route(
             "/api/almox/equipments/:id",
-            put(handlers::update_equipment),
+            get(handlers::get_equipment).put(handlers::update_equipment),
         )
         .route(
             "/api/almox/maintenances",

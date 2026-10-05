@@ -7,7 +7,7 @@ import {
   X, ShoppingBag, Clock, ShieldAlert, CreditCard, Store, TrendingUp, 
   ArrowUpRight, ArrowDownRight, Equal
 } from 'lucide-react';
-import { cn } from '../../../geral/lib/utils';
+import { cn, randomId } from '../../../geral/lib/utils';
 
 export function OnlineOrdersManager() {
   const [orders, setOrders] = useState<OnlineOrder[]>([]);
@@ -184,7 +184,7 @@ export function OnlineOrdersManager() {
       return;
     }
 
-    const orderId = editingOrder ? editingOrder.id : crypto.randomUUID();
+    const orderId = editingOrder ? editingOrder.id : randomId();
     let currentReceiptPath = receiptPath;
 
     if (receiptFile) {
@@ -313,7 +313,7 @@ export function OnlineOrdersManager() {
     }
 
     const payload: OnlineStore = {
-      id: editingStore ? editingStore.id : crypto.randomUUID(),
+      id: editingStore ? editingStore.id : randomId(),
       name: storeFormName.trim(),
       url: storeFormUrl.trim() || null,
       notes: storeFormNotes.trim() || null

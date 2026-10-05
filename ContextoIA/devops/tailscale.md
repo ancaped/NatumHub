@@ -1,40 +1,44 @@
-# Tailscale (rede sem LAN / “offline” remoto)
+# Tailscale — Acesso Remoto Seguro e Multi-Dispositivo
 
-Use Tailscale quando os PCs não estão na mesma Wi‑Fi/rede cabeada, mas precisam falar com o **PC Principal** (API `:3001`).
+O **Tailscale** cria uma rede virtual segura (VPN mesh ponto a ponto) conectando o servidor central (Linux / CasaOS ou Windows) a todos os computadores, notebooks e dispositivos operacionais da fábrica e do escritório, sem a necessidade de abrir portas no roteador ou ter IP público.
 
-## 1. Conta e instalação
+---
 
-1. Crie conta em https://tailscale.com (gratuita para uso pequeno).
-2. Instale o cliente Tailscale em **todos** os PCs (master + terminais).
-3. Faça login com a mesma organização/conta.
-
-## 2. Rede
-
-- Cada PC recebe um IP `100.x.x.x` e, se MagicDNS estiver ativo, um hostname (ex.: `pc-escritorio`).
-- No master, confirme que o NatumHub está como **PC Principal** e a API responde em `:3001`.
-
-## 3. Terminais
-
-No wizard do terminal, use:
+## 1. Como Funciona no Nexus
 
 ```
-http://<hostname-tailscale>:3001
+ [ Servidor Nexus (CasaOS / Linux) ]  ─── IP Tailscale (ex: 100.120.161.52:3001)
+                  ▲
+                  │  (Túnel seguro WireGuard)
+                  ▼
+ [ PC Operador / Terminal Cliente ]  ─── Acessa via http://nexus.local:3001
 ```
 
-ou
+1. O **Servidor Nexus** (Linux/CasaOS) e os **PCs Clientes** estão conectados na mesma conta Tailscale.
+2. Cada máquina recebe um IP virtual fixo seguro (ex.: `100.x.y.z`).
+3. O PC cliente roda `Nexus-Setup-Cliente.bat` para associar o domínio amigável `nexus.local` ao IP Tailscale do servidor.
+4. O operador abre o navegador em `http://nexus.local:3001` e opera normalmente.
 
-```
-http://100.x.x.x:3001
-```
+---
 
-Teste antes: no navegador do terminal, abra `http://…:3001/api/health` (deve responder ok).
+## 2. Configuração Rápida em um Novo PC Cliente
 
-## 4. Notas
+1. Instale o Tailscale no computador e faça login na sua conta.
+2. Copie o arquivo **[`Nexus-Setup-Cliente.bat`](../../Nexus-Setup-Cliente.bat)** para a máquina.
+3. Clique com o botão direito e selecione **"Executar como Administrador"**.
+4. O script solicitará o IP do servidor (ou confirmará o IP padrão), configurará o arquivo `hosts`, limpará o cache DNS e abrirá o Nexus diretamente no navegador padrão.
 
-- Postgres continua **só no master** (localhost); não exponha `5432` na tailnet.
-- Firewall do Windows no master ainda precisa aceitar a API (Tailscale costuma contornar NAT).
-- “Offline” aqui = sem internet pública fixa; a mesh Tailscale precisa que os nós estejam online na VPN.
+---
 
-## 5. Alternativa
+## 3. Acesso Direto via Navegador
 
-Se todos os PCs estão na mesma LAN, Tailscale é opcional — use o IP local do master.
+Qualquer dispositivo conectado à mesma conta Tailscale (inclusive celulares e tablets) pode acessar diretamente por:
+- `http://<IP_TAILSCALE_DO_SERVIDOR>:3001`
+- `http://nexus.local:3001` (nos computadores configurados)
+
+---
+
+## 4. Segurança
+
+- **Porta 3001:** Deve permanecer acessível apenas para a rede local (LAN) e para a interface do Tailscale (`tailscale0`). Nunca a exponha na internet pública sem proxy reverso com HTTPS.
+- **PostgreSQL (Porta 5432):** Deve ser acessível apenas pelo servidor Nexus e pelo PC de desenvolvimento, protegida por senha forte.

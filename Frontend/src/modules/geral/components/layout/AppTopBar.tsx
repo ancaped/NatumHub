@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, User, Settings, LogOut, UserCog, ClipboardList, Shield, ArrowLeft } from 'lucide-react';
-import { cn } from '../../lib/utils';
-import { localAuth } from '../../lib/api';
+import { ChevronDown, Settings, LogOut, UserCog, ClipboardList, Shield, ArrowLeft, Network, Loader2, RefreshCw, RotateCcw, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { cn, APP_VERSION } from '../../lib/utils';
 import { canAccessView } from '../../lib/modules/permissions';
 import { isSupervisor, canSeeFeedbacks } from '../../lib/auth';
 import type { AuthUser } from '../../lib/auth';
+import { apiJson, ApiError } from '../../lib/http';
 import Modal from '../ui/Modal';
 import NotificationsPanel from './NotificationsPanel';
+import NexusLogo from '../NexusLogo';
 import {
   getAccessibleSubmodules,
   getModuleGroupForView,
@@ -17,6 +18,40 @@ import {
   type NavSubmodule,
 } from '../../lib/nav/navRegistry';
 import { getModuleTitle } from '../../lib/viewLabels';
+
+interface ProfileForm {
+  fullName: string;
+  cpf: string;
+  phone: string;
+  email: string;
+  birthDate: string;
+  hireDate: string;
+  addressStreet: string;
+  addressNumber: string;
+  addressComplement: string;
+  addressNeighborhood: string;
+  addressCity: string;
+  addressState: string;
+  addressZip: string;
+  notes: string;
+}
+
+const EMPTY_PROFILE: ProfileForm = {
+  fullName: '',
+  cpf: '',
+  phone: '',
+  email: '',
+  birthDate: '',
+  hireDate: '',
+  addressStreet: '',
+  addressNumber: '',
+  addressComplement: '',
+  addressNeighborhood: '',
+  addressCity: '',
+  addressState: '',
+  addressZip: '',
+  notes: '',
+};
 
 interface AppTopBarProps {
   view: string;
@@ -48,7 +83,12 @@ export default function AppTopBar({
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
-  const [editName, setEditName] = useState(currentUser?.displayName || '');
+  const [profileForm, setProfileForm] = useState<ProfileForm>(EMPTY_PROFILE);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [quickSyncing, setQuickSyncing] = useState(false);
+  const [quickSyncHint, setQuickSyncHint] = useState<string | null>(null);
   const barRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
@@ -57,6 +97,90 @@ export default function AppTopBar({
 
   const groups = getNavModuleGroups(currentUser);
   const activeGroup = getModuleGroupForView(view);
+  const canQuickSync = isSupervisor(currentUser);
+
+  const handleQuickErpSync = useCallback(async () => {
+    if (!canQuickSync || quickSyncing) return;
+    setQuickSyncing(true);
+    setQuickSyncHint(null);
+    try {
+      const lock = await apiJson<{ running?: boolean }>('/import/sync-lock');
+      if (lock.running) {
+        setQuickSyncHint('Sync já em andamento');
+        return;
+      }
+      const data = await apiJson<{ message?: string }>('/import/sync', { method: 'POST' });
+      setQuickSyncHint(data.message || 'Sync ERP concluído');
+    } catch (e: unknown) {
+      const msg =
+        e instanceof ApiError
+          ? String((e.body as { error?: string })?.error || e.message)
+          : e instanceof Error
+            ? e.message
+            : 'Falha no sync ERP';
+      setQuickSyncHint(msg);
+    } finally {
+      setQuickSyncing(false);
+      window.setTimeout(() => setQuickSyncHint(null), 6000);
+    }
+  }, [canQuickSync, quickSyncing]);
+
+  const [restartModalOpen, setRestartModalOpen] = useState(false);
+  const [restartingServer, setRestartingServer] = useState(false);
+  const [restartSuccess, setRestartSuccess] = useState(false);
+  const [restartError, setRestartError] = useState<string | null>(null);
+  const [restartCountdown, setRestartCountdown] = useState<number | null>(null);
+
+  const handleRestartServer = useCallback(async () => {
+    if (!isSupervisor(currentUser) || restartingServer) return;
+    setRestartingServer(true);
+    setRestartError(null);
+    setRestartSuccess(false);
+    setRestartCountdown(12);
+
+    try {
+      await apiJson('/server-manager/restart', { method: 'POST' });
+    } catch (e: unknown) {
+      // Conexão encerrada pelo encerramento do processo é esperado
+      console.info('Reinício do servidor disparado');
+    }
+  }, [currentUser, restartingServer]);
+
+  useEffect(() => {
+    if (restartCountdown === null) return;
+
+    let pollInterval: number;
+    let timer: number;
+
+    if (restartCountdown > 0) {
+      timer = window.setTimeout(() => {
+        setRestartCountdown((prev) => (prev !== null && prev > 0 ? prev - 1 : 0));
+      }, 1000);
+    }
+
+    if (restartCountdown <= 10) {
+      pollInterval = window.setInterval(async () => {
+        try {
+          const res = await fetch('/api/server-manager/status');
+          if (res.ok) {
+            setRestartSuccess(true);
+            setRestartCountdown(null);
+            clearInterval(pollInterval);
+            window.setTimeout(() => {
+              window.location.reload();
+            }, 1000);
+          }
+        } catch {
+          // Servidor ainda não respondeu, aguarda próxima tentativa
+        }
+      }, 1200);
+    }
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(pollInterval);
+    };
+  }, [restartCountdown]);
 
   const clearCloseTimer = useCallback(() => {
     if (closeTimerRef.current !== null) {
@@ -141,18 +265,56 @@ export default function AppTopBar({
     };
   }, [menuAnchor?.groupKey]);
 
+  const openProfileModal = async () => {
+    setDropdownOpen(false);
+    setProfileModalOpen(true);
+    setProfileError(null);
+    setProfileLoading(true);
+    try {
+      const raw = await apiJson<Record<string, unknown>>('/administrativo/funcionarios/me');
+      setProfileForm({
+        fullName: String(raw.fullName ?? ''),
+        cpf: String(raw.cpf ?? ''),
+        phone: String(raw.phone ?? ''),
+        email: String(raw.email ?? ''),
+        birthDate: String(raw.birthDate ?? ''),
+        hireDate: String(raw.hireDate ?? ''),
+        addressStreet: String(raw.addressStreet ?? ''),
+        addressNumber: String(raw.addressNumber ?? ''),
+        addressComplement: String(raw.addressComplement ?? ''),
+        addressNeighborhood: String(raw.addressNeighborhood ?? ''),
+        addressCity: String(raw.addressCity ?? ''),
+        addressState: String(raw.addressState ?? ''),
+        addressZip: String(raw.addressZip ?? ''),
+        notes: String(raw.notes ?? ''),
+      });
+    } catch (e: unknown) {
+      setProfileForm(EMPTY_PROFILE);
+      setProfileError(e instanceof Error ? e.message : 'Falha ao carregar perfil');
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editName.trim()) {
-      try {
-        const user = await localAuth.signIn(editName.trim());
-        setEditName(user.displayName);
-        setProfileModalOpen(false);
-        window.location.reload();
-      } catch {
-        // erro exibido via reload ou toast futuro
-      }
+    setProfileSaving(true);
+    setProfileError(null);
+    try {
+      await apiJson('/administrativo/funcionarios/me', {
+        method: 'PUT',
+        body: JSON.stringify(profileForm),
+      });
+      setProfileModalOpen(false);
+    } catch (err: unknown) {
+      setProfileError(err instanceof Error ? err.message : 'Erro ao salvar perfil');
+    } finally {
+      setProfileSaving(false);
     }
+  };
+
+  const setPF = (key: keyof ProfileForm, value: string) => {
+    setProfileForm((prev) => ({ ...prev, [key]: value }));
   };
 
   const navigateTo = (target: string) => {
@@ -224,6 +386,8 @@ export default function AppTopBar({
 
   const moduleMenuPortal =
     menuAnchor &&
+    typeof document !== 'undefined' &&
+    document.body &&
     createPortal(
       <div
         ref={menuRef}
@@ -268,6 +432,15 @@ export default function AppTopBar({
         ref={barRef}
         className="no-print h-14 w-full bg-white border-b border-zinc-200 px-4 sm:px-6 flex items-center gap-4 shadow-sm shrink-0 z-40 relative select-none overflow-visible"
       >
+        <button
+          type="button"
+          onClick={() => setView('hub')}
+          className="flex items-center hover:opacity-80 transition-opacity focus:outline-none shrink-0 mr-1 cursor-pointer"
+          title="Início"
+        >
+          <NexusLogo variant="badge" size="sm" />
+        </button>
+
         {showModules ? (
           <nav
             className="flex items-center gap-1 flex-1 min-w-0 overflow-visible"
@@ -293,7 +466,39 @@ export default function AppTopBar({
         )}
 
         <div className="flex items-center gap-3 shrink-0">
-          <span className="text-xs text-zinc-400 font-mono hidden sm:inline">v0.0.11</span>
+          <span className="text-xs text-zinc-400 font-mono hidden sm:inline">v{APP_VERSION}</span>
+
+          {canQuickSync && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => void handleQuickErpSync()}
+                disabled={quickSyncing}
+                className="p-2 rounded-xl border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Sync ERP rápido (incremental)"
+                aria-label="Sync ERP rápido"
+              >
+                <RefreshCw className={cn('h-4 w-4', quickSyncing && 'animate-spin')} />
+              </button>
+              {quickSyncHint && (
+                <div className="absolute right-0 top-full mt-1 z-50 max-w-[220px] rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[10px] font-semibold text-zinc-700 shadow-md">
+                  {quickSyncHint}
+                </div>
+              )}
+            </div>
+          )}
+
+          {isSupervisor(currentUser) && (
+            <button
+              type="button"
+              onClick={() => setRestartModalOpen(true)}
+              className="p-2 rounded-xl border border-zinc-200 bg-white text-zinc-650 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 transition-colors cursor-pointer"
+              title="Reiniciar Servidor Nexus (Apenas Supervisor)"
+              aria-label="Reiniciar Servidor"
+            >
+              <RotateCcw className="h-4 w-4" />
+            </button>
+          )}
 
           {currentUser && <NotificationsPanel currentUser={currentUser} />}
 
@@ -345,11 +550,8 @@ export default function AppTopBar({
 
                   <div className="p-1 space-y-0.5">
                     <button
-                      onClick={() => {
-                        setDropdownOpen(false);
-                        setEditName(currentUser.displayName);
-                        setProfileModalOpen(true);
-                      }}
+                      type="button"
+                      onClick={() => void openProfileModal()}
                       className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left"
                     >
                       <UserCog className="h-4 w-4 text-zinc-400" />
@@ -373,6 +575,19 @@ export default function AppTopBar({
                       <button
                         onClick={() => {
                           setDropdownOpen(false);
+                          setView('mapa_arquitetura');
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left"
+                      >
+                        <Network className="h-4 w-4 text-zinc-400" />
+                        Mapa operacional
+                      </button>
+                    )}
+
+                    {isSupervisor(currentUser) && (
+                      <button
+                        onClick={() => {
+                          setDropdownOpen(false);
                           fetchSqlConfig();
                           setView('hub_supervisor');
                         }}
@@ -380,6 +595,19 @@ export default function AppTopBar({
                       >
                         <Shield className="h-4 w-4 text-violet-500" />
                         Painel Supervisor
+                      </button>
+                    )}
+
+                    {isSupervisor(currentUser) && (
+                      <button
+                        onClick={() => {
+                          setDropdownOpen(false);
+                          setRestartModalOpen(true);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer text-left"
+                      >
+                        <RotateCcw className="h-4 w-4 text-rose-500" />
+                        Reiniciar Servidor
                       </button>
                     )}
 
@@ -420,30 +648,94 @@ export default function AppTopBar({
       {moduleMenuPortal}
 
       {profileModalOpen && (
-        <Modal title="Dados do Perfil" onClose={() => setProfileModalOpen(false)}>
-          <form onSubmit={handleSaveProfile} className="space-y-4">
-            <div className="space-y-2">
-              <label
-                htmlFor="profile-name"
-                className="text-xs font-bold text-zinc-500 uppercase tracking-wider"
-              >
-                Nome do Operador
-              </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-400">
-                  <User className="h-4 w-4" />
-                </span>
-                <input
-                  id="profile-name"
-                  type="text"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  placeholder="Nome do operador..."
-                  className="w-full bg-white border border-zinc-300 rounded-xl pl-10 pr-4 py-3 text-sm font-semibold text-zinc-800 shadow-sm focus:outline-none focus:border-zinc-500"
-                  autoFocus
-                />
-              </div>
+        <Modal isOpen={true} title="Dados do Perfil" onClose={() => setProfileModalOpen(false)}>
+          <form onSubmit={handleSaveProfile} className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+            <div className="rounded-xl bg-zinc-50 border border-zinc-100 px-3 py-2 text-xs text-zinc-600">
+              Login: <strong>{currentUser?.displayName}</strong>
+              {currentUser?.role ? ` · ${currentUser.role}` : ''}
             </div>
+
+            {profileError && (
+              <p className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">
+                {profileError}
+              </p>
+            )}
+
+            {profileLoading ? (
+              <div className="flex items-center gap-2 text-sm text-zinc-500 py-6">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Carregando perfil…
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <label className="col-span-2 space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Nome completo</span>
+                  <input
+                    value={profileForm.fullName}
+                    onChange={(e) => setPF('fullName', e.target.value)}
+                    className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm"
+                    autoFocus
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">CPF</span>
+                  <input value={profileForm.cpf} onChange={(e) => setPF('cpf', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Telefone</span>
+                  <input value={profileForm.phone} onChange={(e) => setPF('phone', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="col-span-2 space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">E-mail</span>
+                  <input type="email" value={profileForm.email} onChange={(e) => setPF('email', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Nascimento</span>
+                  <input type="date" value={profileForm.birthDate} onChange={(e) => setPF('birthDate', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Admissão</span>
+                  <input type="date" value={profileForm.hireDate} onChange={(e) => setPF('hireDate', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="col-span-2 space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Rua</span>
+                  <input value={profileForm.addressStreet} onChange={(e) => setPF('addressStreet', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Número</span>
+                  <input value={profileForm.addressNumber} onChange={(e) => setPF('addressNumber', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Complemento</span>
+                  <input value={profileForm.addressComplement} onChange={(e) => setPF('addressComplement', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Bairro</span>
+                  <input value={profileForm.addressNeighborhood} onChange={(e) => setPF('addressNeighborhood', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Cidade</span>
+                  <input value={profileForm.addressCity} onChange={(e) => setPF('addressCity', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">UF</span>
+                  <input value={profileForm.addressState} onChange={(e) => setPF('addressState', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">CEP</span>
+                  <input value={profileForm.addressZip} onChange={(e) => setPF('addressZip', e.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm" />
+                </label>
+                <label className="col-span-2 space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Observações</span>
+                  <textarea
+                    value={profileForm.notes}
+                    onChange={(e) => setPF('notes', e.target.value)}
+                    rows={2}
+                    className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm"
+                  />
+                </label>
+              </div>
+            )}
 
             <div className="flex justify-end gap-2 pt-2 border-t border-zinc-100">
               <button
@@ -455,12 +747,99 @@ export default function AppTopBar({
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 cursor-pointer"
+                disabled={profileLoading || profileSaving}
+                className="px-4 py-2 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 cursor-pointer disabled:opacity-50 inline-flex items-center gap-2"
               >
-                Salvar Alterações
+                {profileSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Salvar Perfil
               </button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {restartModalOpen && (
+        <Modal isOpen={true} title="Reiniciar Servidor Nexus" onClose={() => !restartingServer && setRestartModalOpen(false)}>
+          <div className="space-y-4 p-1 text-zinc-800">
+            {restartSuccess ? (
+              <div className="py-6 text-center space-y-3">
+                <div className="h-12 w-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="h-6 w-6" />
+                </div>
+                <h4 className="font-extrabold text-base text-emerald-900">Servidor Reiniciado com Sucesso!</h4>
+                <p className="text-xs text-zinc-500">Reconectado aos serviços. A aplicação será recarregada em instantes...</p>
+              </div>
+            ) : restartingServer ? (
+              <div className="py-6 text-center space-y-3">
+                <div className="h-12 w-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                </div>
+                <h4 className="font-extrabold text-sm text-zinc-900">Reiniciando o Servidor Nexus...</h4>
+                <p className="text-xs text-zinc-500 max-w-sm mx-auto">
+                  O processo do servidor está sendo reinicializado. Aguarde a reconexão automática.
+                </p>
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-zinc-100 rounded-xl text-xs font-mono font-bold text-zinc-700">
+                  <span>Reconectando:</span>
+                  <span className="text-rose-600 font-extrabold">
+                    {restartCountdown !== null && restartCountdown > 0 ? `${restartCountdown}s` : 'Verificando porta...'}
+                  </span>
+                </div>
+                {restartCountdown === 0 && (
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => window.location.reload()}
+                      className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-xl cursor-pointer shadow-sm"
+                    >
+                      Recarregar Página Agora
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="flex items-start gap-3 p-3 bg-rose-50 border border-rose-200/80 rounded-2xl">
+                  <div className="p-2 bg-white text-rose-600 rounded-xl border border-rose-100 shrink-0">
+                    <AlertTriangle className="h-5 w-5" />
+                  </div>
+                  <div className="space-y-1 text-xs">
+                    <span className="font-bold text-rose-900 block">Ação Exclusiva do Supervisor</span>
+                    <p className="text-rose-800 leading-relaxed">
+                      Esta ação reinicia o processo do servidor HTTP e recarrega os módulos no computador principal. Não é necessário fechar ou clicar novamente no <code className="font-mono bg-white/70 px-1 py-0.5 rounded font-semibold text-rose-900">server.bat</code>.
+                    </p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-zinc-600 leading-relaxed px-1">
+                  Durante a reinicialização (cerca de 2 a 5 segundos), as conexões com outros computadores da rede serão brevemente restabelecidas.
+                </p>
+
+                {restartError && (
+                  <p className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-xl p-3 font-semibold">
+                    {restartError}
+                  </p>
+                )}
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-zinc-100">
+                  <button
+                    type="button"
+                    onClick={() => setRestartModalOpen(false)}
+                    className="px-4 py-2 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-650 hover:bg-zinc-50 cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRestartServer}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 shadow-sm"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Reiniciar Servidor Agora
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </Modal>
       )}
     </>

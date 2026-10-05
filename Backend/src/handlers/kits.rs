@@ -4,7 +4,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
@@ -111,11 +111,14 @@ pub async fn delete_kit_composicao_handler(
 ) -> impl IntoResponse {
     match state.db.delete_kit_composicao(&kit, &comp).await {
         Ok(_) => (StatusCode::OK, Json(json!({ "status": "success" }))).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao excluir relação de kit: {}", e) })),
-        )
-            .into_response(),
+        Err(e) => {
+            let status = if e.contains("sincronizado do ERP") {
+                StatusCode::FORBIDDEN
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (status, Json(json!({ "error": format!("Erro ao excluir relação de kit: {}", e) }))).into_response()
+        }
     }
 }
 
@@ -166,13 +169,7 @@ pub async fn upload_kit_composicao(
         )
             .into_response();
     }
-    if let Err(e) = state.db.delete_all_kit_composicao().await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao limpar composições existentes: {}", e) })),
-        )
-            .into_response();
-    }
+    // Limpeza de linhas manuais ocorre dentro de parse_kits_excel (tx).
     let pool = state.db.pool();
     match crate::modules::compras::planejamento::parser::parse_kits_excel(&temp_path, pool).await
     {
@@ -210,7 +207,7 @@ pub async fn upload_kit_composicao(
     }
 }
 
-async fn fetch_kit_orders(pool: &PgPool) -> Result<Vec<crate::models::KitAssemblyOrder>, String> {
+pub async fn fetch_kit_orders(pool: &PgPool) -> Result<Vec<crate::models::KitAssemblyOrder>, String> {
     let rows = sqlx::query(
         "SELECT id, order_number, kit_product_code, kit_product_description, quantity,
                 status, created_at, completed_at, assembled_by, checked_by, observations,
@@ -299,7 +296,12 @@ pub async fn create_kit_order(
             let last_id = crate::core::pg_row::pg_i64(&row, 0);
             (
                 StatusCode::CREATED,
-                Json(json!({ "id": last_id, "message": "Ordem de montagem criada" })),
+                Json(json!({
+                    "id": last_id,
+                    "orderNumber": payload.order_number,
+                    "createdAt": created_at,
+                    "message": "Ordem de montagem criada"
+                })),
             )
                 .into_response()
         }
@@ -322,6 +324,16 @@ pub async fn update_kit_order(
 
     let mut separated = qb.separated(", ");
 
+    if let Some(ref order_number) = payload.order_number {
+        separated.push("order_number = ");
+        separated.push_bind_unseparated(order_number);
+        has_set = true;
+    }
+    if let Some(quantity) = payload.quantity {
+        separated.push("quantity = ");
+        separated.push_bind_unseparated(quantity);
+        has_set = true;
+    }
     if let Some(ref status) = payload.status {
         separated.push("status = ");
         separated.push_bind_unseparated(status);
@@ -545,11 +557,21 @@ pub async fn delete_vira_composicao(
 }
 
 async fn fetch_vira_orders(pool: &PgPool) -> Result<Vec<crate::models::ViraOrder>, String> {
+    // Garante colunas de reembalagem (015) sem exigir bootstrap completo
+    let _ = sqlx::query(
+        "ALTER TABLE vira_ordens ADD COLUMN IF NOT EXISTS packaging_deductions TEXT",
+    )
+    .execute(pool)
+    .await;
+    let _ = sqlx::query("ALTER TABLE vira_ordens ADD COLUMN IF NOT EXISTS motivo TEXT")
+        .execute(pool)
+        .await;
+
     let rows = sqlx::query(
         "SELECT id, order_number, de_produto_codigo, de_produto_descricao,
                 para_produto_codigo, para_produto_descricao, quantity, status,
                 created_at, completed_at, assembled_by, checked_by, observations,
-                erp_launched, quantity_assembled
+                erp_launched, quantity_assembled, packaging_deductions, motivo
          FROM vira_ordens
          ORDER BY id DESC",
     )
@@ -584,6 +606,8 @@ async fn fetch_vira_orders(pool: &PgPool) -> Result<Vec<crate::models::ViraOrder
                         .flatten()
                         .map(|v| v as f64)
                 }),
+            packaging_deductions: row.try_get(15).ok().flatten(),
+            motivo: row.try_get(16).ok().flatten(),
         })
         .collect())
 }
@@ -609,12 +633,27 @@ pub async fn create_vira_order(
     let status = payload.status.unwrap_or_else(|| "PENDING".to_string());
     let qty_assembled = payload.quantity_assembled.unwrap_or(payload.quantity);
 
+    let packaging_json = match &payload.packaging_deductions {
+        Some(raw) if !raw.trim().is_empty() => match normalize_packaging_deductions_json(raw) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": e })),
+                )
+                    .into_response();
+            }
+        },
+        _ => None,
+    };
+
     let last_id: i64 = match sqlx::query(
         "INSERT INTO vira_ordens (
             order_number, de_produto_codigo, de_produto_descricao,
             para_produto_codigo, para_produto_descricao, quantity, status,
-            created_at, assembled_by, checked_by, observations, erp_launched, quantity_assembled
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12)
+            created_at, assembled_by, checked_by, observations, erp_launched, quantity_assembled,
+            packaging_deductions, motivo
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12, $13, $14)
          RETURNING id",
     )
     .bind(&payload.order_number)
@@ -629,6 +668,8 @@ pub async fn create_vira_order(
     .bind(&payload.checked_by)
     .bind(&payload.observations)
     .bind(qty_assembled)
+    .bind(&packaging_json)
+    .bind(&payload.motivo)
     .fetch_one(pool)
     .await
     {
@@ -636,7 +677,7 @@ pub async fn create_vira_order(
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({ "error": format!("Erro ao criar ordem de vira: {}", e) })),
+                Json(json!({ "error": format!("Erro ao criar ordem de reembalagem: {}", e) })),
             )
                 .into_response();
         }
@@ -710,6 +751,26 @@ pub async fn update_vira_order(
         separated.push_bind_unseparated(quantity_assembled);
         has_set = true;
     }
+    if let Some(ref packaging_deductions) = payload.packaging_deductions {
+        let normalized = match normalize_packaging_deductions_json(packaging_deductions) {
+            Ok(s) => s,
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": e })),
+                )
+                    .into_response();
+            }
+        };
+        separated.push("packaging_deductions = ");
+        separated.push_bind_unseparated(normalized);
+        has_set = true;
+    }
+    if let Some(ref motivo) = payload.motivo {
+        separated.push("motivo = ");
+        separated.push_bind_unseparated(motivo);
+        has_set = true;
+    }
 
     if !has_set {
         return (
@@ -725,7 +786,7 @@ pub async fn update_vira_order(
     match qb.build().execute(pool).await {
         Ok(_) => (
             StatusCode::OK,
-            Json(json!({ "message": "Ordem de vira atualizada" })),
+            Json(json!({ "message": "Ordem de reembalagem atualizada" })),
         )
             .into_response(),
         Err(e) => (
@@ -771,4 +832,200 @@ pub async fn get_next_vira_order_number(State(state): State<Arc<AppState>>) -> i
 
     let next_order = compute_next_order_number(last_order, "V-1001");
     (StatusCode::OK, Json(json!({ "nextOrderNumber": next_order }))).into_response()
+}
+
+// —— Embalagens na conversão (somente registro em vira_ordens; sem mexer estoque) ——
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackagingPreviewQuery {
+    pub de: String,
+    pub para: String,
+    pub qty_de: Option<f64>,
+    pub qty_para: Option<f64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ViraPackagingMeta {
+    pub qty_de: f64,
+    pub fator: f64,
+    pub qty_para: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ViraPackagingLine {
+    pub code: String,
+    pub description: String,
+    pub qty: f64,
+    /// `return` | `consume`
+    pub role: String,
+    pub product_code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub returned: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ViraPackagingDeductions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<ViraPackagingMeta>,
+    pub items: Vec<ViraPackagingLine>,
+}
+
+fn is_packaging_ingredient(code: &str) -> bool {
+    !code.trim().starts_with("9.15.")
+}
+
+async fn fetch_product_packaging(
+    pool: &PgPool,
+    product_code: &str,
+) -> Result<Vec<(String, String, f64)>, String> {
+    let rows = sqlx::query(
+        "SELECT ingredient_code, COALESCE(description, ''), quantity
+         FROM formulations
+         WHERE TRIM(REPLACE(product_code, '\"', '')) = TRIM(REPLACE($1, '\"', ''))",
+    )
+    .bind(product_code)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            let code: String = row.get(0);
+            if !is_packaging_ingredient(&code) {
+                return None;
+            }
+            let desc: String = row.get(1);
+            let qty: f64 = crate::core::pg_row::pg_f64(&row, 2);
+            Some((code, desc, qty))
+        })
+        .collect())
+}
+
+/// Normaliza `packaging_deductions` para JSON tipado `{ meta?, items }`.
+/// Aceita legado: array puro de linhas.
+pub fn normalize_packaging_deductions_json(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(String::new());
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(trimmed).map_err(|e| format!("JSON inválido em packaging_deductions: {e}"))?;
+
+    let payload = if value.is_array() {
+        let items: Vec<ViraPackagingLine> = serde_json::from_value(value)
+            .map_err(|e| format!("Linhas de embalagem inválidas: {e}"))?;
+        ViraPackagingDeductions { meta: None, items }
+    } else {
+        serde_json::from_value(value)
+            .map_err(|e| format!("packaging_deductions inválido: {e}"))?
+    };
+
+    for line in &payload.items {
+        let role = line.role.trim().to_ascii_lowercase();
+        if role != "return" && role != "consume" {
+            return Err(format!(
+                "role inválido '{}' (use return ou consume)",
+                line.role
+            ));
+        }
+        if line.code.trim().is_empty() {
+            return Err("código de embalagem vazio".into());
+        }
+    }
+
+    serde_json::to_string(&payload).map_err(|e| e.to_string())
+}
+
+// GET /api/turnovers/packaging-preview?de=&para=&qtyDe=&qtyPara=
+pub async fn preview_vira_packaging(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<PackagingPreviewQuery>,
+) -> impl IntoResponse {
+    let de = q.de.trim().to_string();
+    let para = q.para.trim().to_string();
+    if de.is_empty() || para.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Parâmetros de e para são obrigatórios" })),
+        )
+            .into_response();
+    }
+
+    let pool = state.db.pool();
+    let fator: f64 = sqlx::query_scalar(
+        "SELECT quantidade FROM vira_composicao
+         WHERE TRIM(REPLACE(de_produto_codigo, '\"', '')) = TRIM(REPLACE($1, '\"', ''))
+           AND TRIM(REPLACE(para_produto_codigo, '\"', '')) = TRIM(REPLACE($2, '\"', ''))
+         LIMIT 1",
+    )
+    .bind(&de)
+    .bind(&para)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or(1.0);
+
+    let qty_de = q.qty_de.filter(|v| *v > 0.0).unwrap_or(1.0);
+    let qty_para = q
+        .qty_para
+        .filter(|v| *v > 0.0)
+        .unwrap_or_else(|| qty_de * fator);
+
+    let (pack_de, pack_para) = match (
+        fetch_product_packaging(pool, &de).await,
+        fetch_product_packaging(pool, &para).await,
+    ) {
+        (Ok(a), Ok(b)) => (a, b),
+        (Err(e), _) | (_, Err(e)) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("Erro ao ler formulações: {e}") })),
+            )
+                .into_response();
+        }
+    };
+
+    let returns: Vec<_> = pack_de
+        .into_iter()
+        .map(|(code, description, unit_qty)| {
+            json!({
+                "code": code,
+                "description": description,
+                "unitQty": unit_qty,
+                "qty": unit_qty * qty_de,
+                "role": "return",
+                "productCode": de,
+                "returned": true,
+            })
+        })
+        .collect();
+
+    let consumes: Vec<_> = pack_para
+        .into_iter()
+        .map(|(code, description, unit_qty)| {
+            json!({
+                "code": code,
+                "description": description,
+                "unitQty": unit_qty,
+                "qty": unit_qty * qty_para,
+                "role": "consume",
+                "productCode": para,
+            })
+        })
+        .collect();
+
+    Json(json!({
+        "fator": fator,
+        "qtyDe": qty_de,
+        "qtyPara": qty_para,
+        "returns": returns,
+        "consumes": consumes,
+    }))
+    .into_response()
 }

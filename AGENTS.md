@@ -1,59 +1,49 @@
-# NatumHub — instruções para agentes de IA
+# Nexus — Instruções para Agentes de IA
+
+O produto se chama **Nexus**. Skills internas ainda usam o prefixo `natumhub-*` (id da pasta). O database PostgreSQL continua `natumhub`. O repositório GitHub continua `ancaped/NatumHub`.
 
 Leia **`ContextoIA/INDEX.md`** antes de explorar o código.
 
-Idioma das respostas: **pt-BR**. Escopo mínimo; validar com `cargo check` e `npm run build`.
+Idioma: **pt-BR**. Escopo mínimo; `cargo check --bin nexus-server --no-default-features` + `npm run build`. Melhor parte = nenhuma parte.
 
----
+## Skills (`.cursor/skills/`)
 
-## Skills do projeto (especialidades)
-
-Skills em **`.cursor/skills/`** — **leia o `SKILL.md` correspondente imediatamente** quando a tarefa combinar com os gatilhos abaixo.
-
-| Skill | Arquivo | Use quando o usuário ou a tarefa envolver… |
-|-------|---------|---------------------------------------------|
-| **natumhub-feedbacks** | [`.cursor/skills/natumhub-feedbacks/SKILL.md`](.cursor/skills/natumhub-feedbacks/SKILL.md) | Triagem admin, widget de feedback, prioridade, status, gestão de reports, `FeedbacksAdminPanel` |
-| **natumhub-resolve-bugs** | [`.cursor/skills/natumhub-resolve-bugs/SKILL.md`](.cursor/skills/natumhub-resolve-bugs/SKILL.md) | Resolver bug, executar fila, corrigir feedback, consultar Postgres (`feedbacks`), nota + `awaiting_review` |
-| **natumhub-modulos** | [`.cursor/skills/natumhub-modulos/SKILL.md`](.cursor/skills/natumhub-modulos/SKILL.md) | Novo módulo/submódulo, `module_key`, permissões, view no hub, registry FE/BE |
-| **natumhub-erp-sql** | [`.cursor/skills/natumhub-erp-sql/SKILL.md`](.cursor/skills/natumhub-erp-sql/SKILL.md) | Sync ERP, SQL Server, `legacy_db`, `erp-import/sql`, passos A–N, agenda de sync |
-| **natumhub-api** | [`.cursor/skills/natumhub-api/SKILL.md`](.cursor/skills/natumhub-api/SKILL.md) | Nova rota REST, endpoint Axum, `apiJson`/`hubJson`, auth 401/403 |
-
-### Roteamento rápido
+| Skill | Quando |
+|-------|--------|
+| `natumhub-feedbacks` | Triagem / widget / API feedbacks |
+| `natumhub-resolve-bugs` | Corrigir fila Postgres → `awaiting_review` |
+| `natumhub-modulos` | Novo módulo / `module_key` / view |
+| `natumhub-tasks` | Fila mapa (`/api/mapa/tasks` ou `task.md`) |
+| `natumhub-erp-sql` | Sync ERP / `erp-import` / `legacy_db` |
+| `natumhub-api` | Rota REST / `apiJson` / auth |
 
 ```
-Feedback / triagem admin     → natumhub-feedbacks
-Corrigir bug da fila         → mencionar Feedbacks/feedback.md  (+ skill natumhub-resolve-bugs)
-Criar tela ou módulo novo    → natumhub-modulos
-Importação ou query ERP      → natumhub-erp-sql
-Rota HTTP ou cliente API     → natumhub-api
-Tarefa genérica / dúvida     → ContextoIA/inicio/gemini.md
+Feedbacks admin     → natumhub-feedbacks
+Fila de bugs        → Feedbacks/feedback.md + natumhub-resolve-bugs
+Fila do mapa        → /api/mapa/tasks (+ task.md) + natumhub-tasks
+Módulo novo         → natumhub-modulos
+Sync ERP            → natumhub-erp-sql
+Rota HTTP           → natumhub-api
+Genérico            → ContextoIA/inicio/gemini.md
 ```
 
-Múltiplas skills podem aplicar (ex.: bug no sync ERP → `natumhub-resolve-bugs` + `natumhub-erp-sql`).
+## Documentação Principal
 
----
+| Tema | Onde |
+|------|------|
+| Índice Geral | `ContextoIA/INDEX.md` |
+| Migração CasaOS / Linux | `ContextoIA/devops/migracao_casaos_linux.md` |
+| Servidor Headless Axum | `ContextoIA/devops/instalacao_servidor.md` |
+| Conectividade Tailscale | `ContextoIA/devops/tailscale.md` |
+| Mapa de Arquitetura | `ContextoIA/arquitetura/mapa-app.html` |
+| Rotas da API | `ContextoIA/api/routes.md` |
+| Esquema do Banco | `ContextoIA/banco-dados/database_blueprint.md` + `Backend/supabase/` |
+| Impressão de etiquetas | `ContextoIA/modulos/etiquetas.md` — `PrintModal` é a tela padrão |
+| Sync ERP | `erp-import/` |
 
-## Mapa de documentação
+## Stack Atual
 
-| Tema | Caminho |
-|------|---------|
-| Índice IA | `ContextoIA/INDEX.md` |
-| Playbook | `ContextoIA/inicio/gemini.md` |
-| Arquitetura | `ContextoIA/arquitetura/` |
-| Auth / rede / notificações | `ContextoIA/arquitetura/multi_usuario.md` |
-| API REST (referência) | `ContextoIA/api/routes.md` |
-| Sync ERP (referência) | `ContextoIA/erp-import/README.md` → `erp-import/` |
-| Schema PostgreSQL | `ContextoIA/banco-dados/database_blueprint.md` + `Backend/supabase/` |
-| Criar módulo (referência) | `ContextoIA/modulos/criacao.md` |
-| Feedbacks (referência) | `ContextoIA/feedbacks/README.md` · playbook `Feedbacks/feedback.md` |
-| Bugs pendentes (fila) | Playbook [`Feedbacks/feedback.md`](Feedbacks/feedback.md) · dados no Postgres |
-| Instalação / updates | `ContextoIA/devops/` · `.github/RELEASE.md` |
-
----
-
-## Stack (lembrete)
-
-Tauri 2 + React + Rust Axum (:3001) + **PostgreSQL** (`Saves/postgres.env` no PC Principal) · Auth operador (Bearer) · Supervisor cadastra usuários.
-
-**PC Principal precisa de PostgreSQL** (banco operacional). Terminais só falam com a API. **Não** usar SQLite/`data.db`. Instalação: `ContextoIA/devops/`.
-
+- **Servidor:** Rust Axum `:3001` (API REST + Servidor de arquivos SPA `Frontend/dist`).
+- **Frontend:** React + TypeScript + Vite + Tailwind CSS.
+- **Acesso:** 100% Web no Navegador via `http://nexus.local:3001` ou IP Tailscale.
+- **Banco de Dados:** **PostgreSQL 17** (`Saves/postgres.env`). O database se chama `natumhub`.

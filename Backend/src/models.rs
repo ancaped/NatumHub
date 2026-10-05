@@ -55,6 +55,9 @@ pub struct ProductOverride {
     /// Atualiza `produtos.base_codigo` quando informado (não persiste em overrides).
     pub base_codigo: Option<String>,
     pub terceirizado_modo: Option<String>,
+    pub is_producao_programada: Option<i32>,
+    pub producao_programada_disparo: Option<i64>,
+    pub producao_programada_objetivo: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -90,6 +93,9 @@ pub struct ProductCalculationResult {
     pub lancamento_data_inicio: Option<String>,
     pub terceirizado_modo: Option<String>,
     pub is_kit_component: Option<bool>,
+    pub is_producao_programada: Option<i32>,
+    pub producao_programada_disparo: Option<i64>,
+    pub producao_programada_objetivo: Option<i64>,
 
     // Sales Statistics
     pub media_vendas: f64,          // Mean of sales
@@ -121,6 +127,9 @@ pub struct ProductCalculationResult {
     pub faltas_ativas: Option<i64>,
     pub pedidos_compra_aberto: Option<i64>,
     pub sugestao_compra: Option<i64>,
+
+    pub is_kit: Option<bool>,
+    pub parent_kits: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,6 +145,10 @@ pub struct QueryParams {
     pub sort: Option<String>,
     pub order: Option<String>,
     pub suspended_only: Option<bool>,
+    pub programadas_only: Option<bool>,
+    pub include_programadas: Option<bool>,
+    pub include_kits: Option<bool>,
+    pub include_bases: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -164,6 +177,9 @@ pub struct SalesOrder {
     pub d_entrega: Option<String>,
     pub m_observac: Option<String>,
     pub items: Vec<SalesOrderItem>,
+    /// SUM GREATEST(n_qtde - n_qtde_fat, 0) dos itens.
+    #[serde(default)]
+    pub residual_un: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -176,6 +192,8 @@ pub struct ProductFaltaItem {
     pub n_qtde_fat: i32,
     pub falta: i32,
     pub d_previsao: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_codigo: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -248,7 +266,10 @@ pub struct KitCalculationResult {
     #[serde(flatten)]
     pub kit_detalhes: ProductCalculationResult,
     pub componentes: Vec<KitComponentDetail>,
+    /// Capacidade com EFP (estoque + produção − pedidos).
     pub max_montavel: i64,
+    /// Capacidade só com estoque físico dos componentes.
+    pub max_montavel_estoque: i64,
     pub componentes_criticos: Vec<String>,
 }
 
@@ -346,6 +367,13 @@ pub struct KitComposicaoRow {
     pub quantidade: f64,
     pub fator_proporcao_qtd: Option<f64>,
     pub fator_proporcao_kits: Option<i32>,
+    /// `erp` (Passo P) ou `manual` (CRUD/Excel).
+    #[serde(default = "default_kit_origem")]
+    pub origem: String,
+}
+
+fn default_kit_origem() -> String {
+    "manual".into()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -480,6 +508,28 @@ pub struct InsumoDetalhesResponse {
     pub consumed_since_last_received: Option<f64>,
     pub days_since_last_received: Option<i64>,
     pub avg_monthly_since_last_received: Option<f64>,
+    #[serde(default)]
+    pub simulation: InsumoSimulationBreakdown,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InsumoSimulationBreakdown {
+    pub total_insumo_qty: f64,
+    pub product_count: i32,
+    pub products: Vec<InsumoSimulationProduct>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct InsumoSimulationProduct {
+    pub product_code: String,
+    pub description: String,
+    pub status: String,
+    pub status_label: String,
+    pub production_qty: f64,
+    pub qty_per_unit: f64,
+    pub insumo_qty: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -609,6 +659,21 @@ pub struct ProductionLote {
     pub conferencia_error: Option<bool>,
     pub is_resolved: Option<bool>,
     pub resolution_obs: Option<String>,
+    pub snap_estoque: Option<i64>,
+    pub snap_producao: Option<i64>,
+    pub snap_pedidos: Option<i64>,
+    pub snap_efp: Option<i64>,
+    pub snap_media_vendas: Option<f64>,
+    pub snap_duracao_meses: Option<f64>,
+    pub snap_status: Option<String>,
+    pub snap_status_label: Option<String>,
+    pub snap_producao_recomendada: Option<i64>,
+    pub snap_estoque_ideal_qtd: Option<f64>,
+    pub snap_demanda_ajustada: Option<f64>,
+    pub observacoes: Option<String>,
+    pub custom_status: Option<String>,
+    pub is_terceirizado: Option<bool>,
+    pub data_previsao: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -658,6 +723,8 @@ pub struct CreateKitOrderRequest {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateKitOrderRequest {
+    pub order_number: Option<String>,
+    pub quantity: Option<f64>,
     pub status: Option<String>,
     pub completed_at: Option<String>,
     pub assembled_by: Option<String>,
@@ -704,6 +771,10 @@ pub struct ViraOrder {
     pub observations: Option<String>,
     pub erp_launched: i32,
     pub quantity_assembled: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packaging_deductions: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub motivo: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -718,6 +789,8 @@ pub struct CreateViraOrderRequest {
     pub checked_by: Option<String>,
     pub observations: Option<String>,
     pub quantity_assembled: Option<f64>,
+    pub packaging_deductions: Option<String>,
+    pub motivo: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -730,6 +803,8 @@ pub struct UpdateViraOrderRequest {
     pub observations: Option<String>,
     pub erp_launched: Option<i32>,
     pub quantity_assembled: Option<f64>,
+    pub packaging_deductions: Option<String>,
+    pub motivo: Option<String>,
 }
 
 

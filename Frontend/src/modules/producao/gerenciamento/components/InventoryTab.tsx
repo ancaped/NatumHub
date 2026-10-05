@@ -1,10 +1,12 @@
 import React from 'react';
 import { 
   Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, HelpCircle, 
-  AlertTriangle, ChevronLeft, ChevronRight, Edit3, CheckCircle2, PlusCircle 
+  AlertTriangle, ChevronLeft, ChevronRight, Edit3, CheckCircle2, PlusCircle,
+  Zap, Package, Sliders
 } from 'lucide-react';
 
 export function InventoryTab({
+  stats,
   products,
   configs,
   bases,
@@ -39,8 +41,73 @@ export function InventoryTab({
   productionApprovalList = [],
   onToggleApprovalList
 }) {
+  const [hideQueued, setHideQueued] = React.useState(false);
+  const displayedProducts = React.useMemo(() => {
+    if (!hideQueued) return products;
+    const queueLookup = new Set(productionApprovalList);
+    return products.filter((p) => !queueLookup.has(p.codigo));
+  }, [products, hideQueued, productionApprovalList]);
+
   return (
     <div className="view-container animate-in fade-in duration-200">
+      {/* Summary KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <div 
+          className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-rose-300 hover:shadow-md ${selectedStatus === 'critico' ? 'ring-2 ring-rose-500 border-rose-500 bg-rose-50/20' : 'border-zinc-200'}`}
+          onClick={() => { setSelectedStatus(selectedStatus === 'critico' ? 'ALL' : 'critico'); setPage(1); }}
+          title="Clique para filtrar por itens críticos"
+        >
+          <div className="p-2.5 rounded-lg bg-rose-50 text-rose-600 shrink-0">
+            <Zap size={20} />
+          </div>
+          <div>
+            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Produzir Urgente</div>
+            <div className="text-xl font-bold text-rose-600">{stats?.critico ?? 0}</div>
+          </div>
+        </div>
+
+        <div 
+          className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-amber-300 hover:shadow-md ${selectedStatus === 'ordem' ? 'ring-2 ring-amber-500 border-amber-500 bg-amber-50/20' : 'border-zinc-200'}`}
+          onClick={() => { setSelectedStatus(selectedStatus === 'ordem' ? 'ALL' : 'ordem'); setPage(1); }}
+          title="Clique para filtrar por abrir ordem"
+        >
+          <div className="p-2.5 rounded-lg bg-amber-50 text-amber-600 shrink-0">
+            <AlertTriangle size={20} />
+          </div>
+          <div>
+            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Abrir Ordem</div>
+            <div className="text-xl font-bold text-amber-600">{stats?.ordem ?? 0}</div>
+          </div>
+        </div>
+
+        <div 
+          className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-emerald-300 hover:shadow-md ${selectedStatus === 'saudavel' ? 'ring-2 ring-emerald-500 border-emerald-500 bg-emerald-50/20' : 'border-zinc-200'}`}
+          onClick={() => { setSelectedStatus(selectedStatus === 'saudavel' ? 'ALL' : 'saudavel'); setPage(1); }}
+          title="Clique para filtrar por estoque saudável"
+        >
+          <div className="p-2.5 rounded-lg bg-emerald-50 text-emerald-600 shrink-0">
+            <CheckCircle2 size={20} />
+          </div>
+          <div>
+            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Estoque Saudável</div>
+            <div className="text-xl font-bold text-emerald-600">{stats?.saudavel ?? 0}</div>
+          </div>
+        </div>
+
+        <div 
+          className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-blue-300 hover:shadow-md ${selectedStatus === 'abundante' ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50/20' : 'border-zinc-200'}`}
+          onClick={() => { setSelectedStatus(selectedStatus === 'abundante' ? 'ALL' : 'abundante'); setPage(1); }}
+          title="Clique para filtrar por estoque abundante"
+        >
+          <div className="p-2.5 rounded-lg bg-blue-50 text-blue-600 shrink-0">
+            <Package size={20} />
+          </div>
+          <div>
+            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Estoque Abundante</div>
+            <div className="text-xl font-bold text-blue-600">{stats?.abundante ?? 0}</div>
+          </div>
+        </div>
+      </div>
       {/* Tabs Nav */}
       <div className="tabs-container">
         {tabOptions.map((opt) => (
@@ -95,6 +162,15 @@ export function InventoryTab({
               <option key={baseName} value={baseName}>{baseName}</option>
             ))}
           </select>
+
+          <label className="toolbar-checkbox-wrapper select-none cursor-pointer flex items-center gap-1.5 text-[11px] font-semibold text-zinc-650" title="Ocultar produtos que já foram colocados no Planejamento Semanal">
+            <input 
+              type="checkbox" 
+              checked={hideQueued} 
+              onChange={(e) => setHideQueued(e.target.checked)} 
+            />
+            <span>Ocultar no Planejamento {productionApprovalList.length > 0 && `(${productionApprovalList.length})`}</span>
+          </label>
 
           <label className="toolbar-checkbox-wrapper">
             <input 
@@ -152,9 +228,11 @@ export function InventoryTab({
                     style={{ width: '10%', cursor: 'pointer' }}
                     onClick={() => toggleSort('estoque_futuro_com_producao', sortField, setSortField, sortDir, setSortDir)}
                     className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px] select-none hover:bg-zinc-100 transition-colors text-right"
+                    title="EFP = Estoque + Produção − Pedidos (disponível projetado). Não confundir com Est (espelho nQtdeEstoque do ERP)."
                   >
                     <div className="flex items-center gap-1 justify-end">
                       EFP
+                      <HelpCircle size={11} className="text-zinc-400 shrink-0" aria-hidden />
                       <SortIcon field="estoque_futuro_com_producao" activeField={sortField} activeDir={sortDir} />
                     </div>
                   </th>
@@ -193,7 +271,7 @@ export function InventoryTab({
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
-                {products.map((p) => {
+                {displayedProducts.map((p) => {
                   const isOverridden = p.estoque_ideal_manual !== null || 
                                        p.pedidos_manual !== null || 
                                        p.media_manual !== null ||
@@ -228,11 +306,21 @@ export function InventoryTab({
                         <div className="product-subinfo flex flex-wrap gap-1.5 mt-1 items-center">
                           <span className="text-[10px] text-zinc-500 font-semibold bg-zinc-100 px-1.5 py-0.5 rounded">Linha: {p.nome_linha}</span>
                           {p.base && <span className="base-badge">Base: {p.base}</span>}
-                          {p.is_kit_component && (
-                            <span className="usa-em-kit-badge" title="Este produto é um componente de kit(s)">
-                              Usa em Kit
+                          {p.produzir_apenas_kit === 1 ? (
+                            <span 
+                              className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-amber-50 text-amber-700 border border-amber-200 rounded" 
+                              title={p.parent_kits && p.parent_kits.length > 0 ? `Produzido apenas para os kits: ${p.parent_kits.join(', ')}` : 'Produzido exclusivamente para kits'}
+                            >
+                              Apenas Kit{p.parent_kits && p.parent_kits.length > 0 ? ` (${p.parent_kits.join(', ')})` : ''}
                             </span>
-                          )}
+                          ) : p.is_kit_component ? (
+                            <span 
+                              className="px-1.5 py-0.5 text-[9px] font-medium bg-zinc-100 text-zinc-700 border border-zinc-200 rounded" 
+                              title={p.parent_kits && p.parent_kits.length > 0 ? `Usado nos kits: ${p.parent_kits.join(', ')}` : 'Componente de kit'}
+                            >
+                              Comp. Kit{p.parent_kits && p.parent_kits.length > 0 ? ` (${p.parent_kits.join(', ')})` : ''}
+                            </span>
+                          ) : null}
                           {p.is_lancamento && (
                             <span className="lancamento-badge">
                               Lançamento
@@ -272,9 +360,21 @@ export function InventoryTab({
                         )}
                       </td>
                       <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-right font-bold text-zinc-900">
-                        {p.estoque_futuro_com_producao}
+                        <span title="EFP = Est + Prod − Ped (projeção Hub; não comparar com nQtdeEstoque do ERP)">
+                          {p.estoque_futuro_com_producao}
+                        </span>
                         <div className="text-[10px] text-zinc-400 font-semibold mt-0.5">
-                          Est: {p.estoque} | Prod: {p.producao} | Ped: {p.pedidos_aberto}
+                          <span title="Est = espelho ERP Produtos.nQtdeEstoque (não é EFP)">
+                            Est: {p.estoque}
+                          </span>
+                          {' | '}
+                          <span title="Em produção: maior entre nQtdeProducao (ERP) e soma de Unidades dos lotes abertos no Hub">
+                            Prod: {p.producao}
+                          </span>
+                          {' | '}
+                          <span title="Faltas a faturar (unidades) — pedidos PP/LB/EX/CF/AL, janela Configurações. Diferente de nPedidos do cadastro ERP.">
+                            Ped: {p.pedidos_aberto}
+                          </span>
                         </div>
                       </td>
                       <td className="px-4 py-2.5 border-b border-zinc-150 align-middle">
@@ -316,7 +416,7 @@ export function InventoryTab({
                               ? 'text-emerald-650 hover:bg-emerald-50'
                               : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600'
                           }`}
-                          title={productionApprovalList.includes(p.codigo) ? "Remover da Fila de Aprovação" : "Adicionar à Fila de Aprovação"}
+                          title={productionApprovalList.includes(p.codigo) ? "Remover do Planejamento Semanal" : "Adicionar ao Planejamento Semanal"}
                         >
                           {productionApprovalList.includes(p.codigo) ? (
                             <CheckCircle2 size={14} />

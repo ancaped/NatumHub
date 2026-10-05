@@ -1,28 +1,39 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
+  BookOpen,
   Boxes,
   Briefcase,
+  CalendarClock,
   CheckCircle2,
   ClipboardCheck,
   ClipboardList,
   Cog,
   DollarSign,
   FileText,
+  FolderOpen,
   FlaskConical,
   Globe,
+  GraduationCap,
   Layers,
   Package,
+  PackageCheck,
+  PackageX,
   Palette,
+  FileSpreadsheet,
   ShoppingCart,
   ShoppingBag,
+  Sparkles,
   Store,
   Tag,
+  Thermometer,
   TrendingUp,
   Truck,
+  Users,
   Wrench,
   Warehouse,
   Calculator,
+  Printer,
 } from 'lucide-react';
 import type { AuthUser } from '../auth';
 import { canAccessView } from '../modules/permissions';
@@ -39,6 +50,7 @@ export const TOP_NAV_GROUP_KEYS = [
   'expedicao',
   'administrativo',
   'financeiro',
+  'ferramentas',
 ] as const;
 
 export type TopNavGroupKey = (typeof TOP_NAV_GROUP_KEYS)[number];
@@ -69,6 +81,7 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   compras_pedidos: ClipboardList,
   compras_notas: FileText,
   compras_simulation: Calculator,
+  planejamento_producao: CalendarClock,
   producao: Package,
   montagem_kits: Layers,
   microbiologia: FlaskConical,
@@ -79,6 +92,7 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   estoque_embalagens: Layers,
   estoque_coloracao: Palette,
   estoque_apoio: Tag,
+  estoque_ordens_manuais: ClipboardList,
   estoque_itens: Boxes,
   estoque_almoxarifado: Warehouse,
   estoque_supermercado: Store,
@@ -87,16 +101,31 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   estoque_manutencoes: ClipboardList,
   compras_almoxarifado: Warehouse,
   admin_linha_produtos: CheckCircle2,
+  admin_relatorios: FileSpreadsheet,
+  admin_produtos_ativos_relatorios: FileSpreadsheet,
+  admin_funcionarios: Users,
   estoque_ativos: CheckCircle2,
   vendas: TrendingUp,
   vendas_online: ShoppingBag,
   controle_qualidade: ClipboardCheck,
+  qualidade_devolucoes: PackageX,
+  qualidade_pops: BookOpen,
+  qualidade_treinamentos: GraduationCap,
+  qualidade_temperatura: Thermometer,
+  qualidade_limpeza: Sparkles,
+  qualidade_recebimento_mp: PackageCheck,
+  qualidade_documentacao: FolderOpen,
   administrativo: Briefcase,
+  expedicao_ecommerce: Globe,
   expedicao: Truck,
   financeiro: DollarSign,
+  ferramentas: Wrench,
+  ferramentas_etiquetas: Tag,
+  ferramentas_editor: Palette,
+  ferramentas_impressoras: Printer,
 };
 
-const DEPRECATED_HUB_VIEWS = new Set(['compras_hub', 'producao_hub', 'estoque_hub', 'almoxarifado_hub', 'vendas_hub']);
+const DEPRECATED_HUB_VIEWS = new Set(['compras_hub', 'producao_hub', 'estoque_hub', 'almoxarifado_hub', 'vendas_hub', 'qualidade_hub', 'expedicao_hub', 'ferramentas_hub']);
 
 export function isDeprecatedHubView(view: string): boolean {
   return DEPRECATED_HUB_VIEWS.has(view);
@@ -169,7 +198,8 @@ export function shouldShowNavColumn(view: string): boolean {
     view === 'hub' ||
     view === 'hub_settings' ||
     view === 'hub_supervisor' ||
-    view === 'hub_feedbacks'
+    view === 'hub_feedbacks' ||
+    view === 'mapa_arquitetura'
   ) {
     return false;
   }

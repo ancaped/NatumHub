@@ -1,13 +1,13 @@
 ---
 name: natumhub-resolve-bugs
 description: >-
-  Resolve bugs do NatumHub a partir da fila no PostgreSQL (feedbacks com status
+  Resolve bugs do Nexus a partir da fila no PostgreSQL (feedbacks com status
   queued/in_progress): lê logs/screenshot no banco, corrige código FE/BE, grava
   nota de resolução e marca awaiting_review (Em aberto). Use quando o usuário
   pedir resolver bug, corrigir feedback, executar fila ou analisar report pendente.
 ---
 
-# NatumHub — Skill: Resolver Bugs
+# Nexus — Skill: Resolver Bugs
 
 ## Quando usar
 
@@ -53,8 +53,7 @@ Acesso obrigatório ao banco:
 2. Tabelas `feedbacks` / `feedback_notes`
 3. Playbook: `Feedbacks/feedback.md`
 
-Instalado: `%LOCALAPPDATA%\NatumHub\Saves\postgres.env`  
-Detalhes: `ContextoIA/feedbacks/README.md`.
+Instalado: `%LOCALAPPDATA%\Nexus\Saves\postgres.env`
 
 ## Leitura dirigida (economia de tokens)
 
@@ -64,7 +63,7 @@ Detalhes: `ContextoIA/feedbacks/README.md`.
 | HTTP sem token | `Frontend/src/modules/geral/lib/http.ts` — usar `apiFetch`/`apiJson` |
 | Permissões | `ContextoIA/arquitetura/multi_usuario.md` |
 | Schema DB | `ContextoIA/banco-dados/database_blueprint.md` (só tabelas afetadas) |
-| Módulo específico | `Frontend|Backend/src/modules/<area>/<sub>/docs/README.md` |
+| Módulo específico | código em `Frontend|Backend/src/modules/<area>/<sub>/` (sem docs/ por módulo) |
 
 **Não** ler `legacy_db.rs` inteiro salvo se o bug for sync ERP.
 

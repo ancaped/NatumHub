@@ -14,9 +14,17 @@
 }
 
 @media print {
-  @page { margin: 5mm; size: A4 portrait; }
-  body { background: white !important; }
-  .no-print { display: none !important; }
+  @page { margin: 8mm; size: A4 landscape; }
+  body { 
+    background: white !important; 
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact !important; 
+    print-color-adjust: exact !important; 
+  }
+  .no-print, nav, aside, header, .drawer, button:not(.allow-print) { 
+    display: none !important; 
+  }
+  .print-only { display: block !important; }
 }
 
 .print-only { display: none; }
@@ -638,6 +646,18 @@ tr:hover td {
   border-color: hsl(var(--warning-border-hsl));
 }
 
+.status-badge.montar {
+  background-color: #fff7ed;
+  color: #c2410c;
+  border-color: #fdba74;
+}
+
+.status-badge.aguardando {
+  background-color: #eff6ff;
+  color: #1d4ed8;
+  border-color: #93c5fd;
+}
+
 .status-badge.saudavel {
   background-color: hsl(var(--success-bg-hsl));
   color: hsl(var(--success-hsl));
@@ -737,6 +757,7 @@ tr:hover td {
   justify-content: space-between;
   align-items: center;
   padding: 0.75rem 1rem;
+  padding-right: 4.5rem; /* espaço para o FAB de feedback (canto inferior direito) */
   border-top: 1px solid hsl(var(--card-border-hsl));
   font-size: 0.75rem;
   color: hsl(var(--text-secondary-hsl));

@@ -63,6 +63,7 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
   const [selectedItemCode, setSelectedItemCode] = useState<string | null>(null);
   const [details, setDetails] = useState<InsumoDetalhes | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [syncingStock, setSyncingStock] = useState(false);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
 
   // Reset selected category when filter changes
@@ -115,7 +116,21 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
     }
   };
 
+  const handleSyncStockLive = async (code: string) => {
+    if (syncingStock) return;
+    setSyncingStock(true);
+    try {
+      await api.refreshItemStockLive(code);
+      await loadDetails(code);
+    } catch (e) {
+      console.error("Erro ao sincronizar estoque do ERP:", e);
+    } finally {
+      setSyncingStock(false);
+    }
+  };
+
   useEffect(() => {
+
     if (selectedItemCode) {
       loadDetails(selectedItemCode);
     } else {
@@ -125,14 +140,21 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
 
   const displayedCategories = useMemo(() => {
     if (!parentCategoryFilter) return categories;
+    if (parentCategoryFilter === 'cat_emb') {
+      return categories.filter(c => c.parentId === 'cat_emb' || c.parentId === 'cat_mat');
+    }
     return categories.filter(c => c.parentId === parentCategoryFilter);
   }, [categories, parentCategoryFilter]);
 
   const filteredItems = useMemo(() => {
     const allowedCategoryIds = new Set<string>();
     if (parentCategoryFilter) {
+      allowedCategoryIds.add(parentCategoryFilter);
+      if (parentCategoryFilter === 'cat_emb') {
+        allowedCategoryIds.add('cat_mat');
+      }
       categories.forEach(c => {
-        if (c.parentId === parentCategoryFilter) {
+        if (c.parentId === parentCategoryFilter || (parentCategoryFilter === 'cat_emb' && c.parentId === 'cat_mat')) {
           allowedCategoryIds.add(c.id);
         }
       });
@@ -143,10 +165,20 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
         (i.description || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (i.code || '').toLowerCase().includes(searchTerm.toLowerCase());
       
-      const matchesCategory = 
-        selectedCategory === 'ALL'
-          ? (!parentCategoryFilter || (i.categoryId && allowedCategoryIds.has(i.categoryId)))
-          : i.categoryId === selectedCategory;
+      let matchesCategory = false;
+      if (selectedCategory === 'ALL') {
+        if (!parentCategoryFilter) {
+          matchesCategory = true;
+        } else {
+          const isCategoryMatch = i.categoryId && allowedCategoryIds.has(i.categoryId);
+          const isCodeMatch = parentCategoryFilter === 'cat_emb'
+            ? (i.code && (i.code.startsWith('08.') || (!i.code.startsWith('9.15.') && i.code.startsWith('9.'))))
+            : (i.code && i.code.startsWith('9.15.'));
+          matchesCategory = Boolean(isCategoryMatch || isCodeMatch);
+        }
+      } else {
+        matchesCategory = i.categoryId === selectedCategory;
+      }
 
       return matchesSearch && matchesCategory;
     });
@@ -325,12 +357,23 @@ export function InsumosDetalhesTab({ parentCategoryFilter = null, active = false
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {/* Info Stats Cards */}
               <div className="grid grid-cols-3 gap-4">
-                <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
-                  <span className="text-[9px] text-zinc-400 font-bold uppercase block">Estoque Atual</span>
+                <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left relative group">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] text-zinc-400 font-bold uppercase block">Estoque Atual</span>
+                    <button
+                      onClick={() => handleSyncStockLive(details.code)}
+                      disabled={syncingStock}
+                      title="Reconsultar saldo do ERP em tempo real"
+                      className="p-1 text-zinc-400 hover:text-zinc-800 hover:bg-zinc-200 rounded transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      <RefreshCw className={cn("h-3 w-3", syncingStock && "animate-spin text-zinc-700")} />
+                    </button>
+                  </div>
                   <p className="text-lg font-extrabold text-zinc-900 mt-1">
                     {details.currentStock.toLocaleString('pt-BR')} <span className="text-xs font-semibold text-zinc-500">{details.unit}</span>
                   </p>
                 </div>
+
                 <div className="bg-zinc-50 border border-zinc-150 p-4 rounded-xl shadow-sm text-left">
                   <span className="text-[9px] text-zinc-400 font-bold uppercase block">Último Recebimento</span>
                   <p className="text-xs font-bold text-zinc-800 mt-2 truncate" title={details.lastReceivedDoc ? `NF #${details.lastReceivedDoc}` : undefined}>
