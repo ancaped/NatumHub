@@ -184,17 +184,21 @@ pub async fn list_acompanhamento(
             UNION ALL
 
             SELECT 
-                COALESCE(NULLIF(pp.lote_erp, ''), 'PL-' || SUBSTRING(pp.id FROM 1 FOR 8)) AS document_number,
+                COALESCE(NULLIF(TRIM(pp.lote_erp), ''), 'PL-' || SUBSTRING(pp.id FROM 1 FOR 8)) AS document_number,
                 pp.codigo_produto AS item_code,
                 pp.quantidade_planejada::float8 AS quantity,
                 to_char(pp.data_planejada, 'YYYY-MM-DD') AS date,
                 'Planejamento Semanal' AS details
             FROM producao_planejamento_semanal pp
-            WHERE (pp.ordem_status = 'aprovado' OR (pp.lote_erp IS NOT NULL AND pp.lote_erp != ''))
-              AND NOT EXISTS (
-                  SELECT 1 FROM stock_movements sm2
-                  WHERE sm2.item_type = 'produto' AND sm2.movement_type = 'entrada'
-                    AND sm2.document_number = pp.lote_erp
+            WHERE (pp.ordem_status = 'aprovado' OR (pp.lote_erp IS NOT NULL AND TRIM(pp.lote_erp) != ''))
+              AND (
+                  pp.lote_erp IS NULL 
+                  OR TRIM(pp.lote_erp) = ''
+                  OR NOT EXISTS (
+                      SELECT 1 FROM stock_movements sm2
+                      WHERE sm2.item_type = 'produto' AND sm2.movement_type = 'entrada'
+                        AND sm2.document_number = TRIM(pp.lote_erp)
+                  )
               )
         ) m
         LEFT JOIN produtos p ON m.item_code = p.codigo

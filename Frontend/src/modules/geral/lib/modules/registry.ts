@@ -36,6 +36,7 @@ export const MODULE_KEYS = {
   ADMIN_PRODUTOS_ATIVOS_RELATORIOS: 'admin_produtos_ativos_relatorios',
   ADMIN_FUNCIONARIOS: 'admin_funcionarios',
   ADMIN_ACOMPANHAMENTO_PRODUCAO: 'admin_acompanhamento_producao',
+  PLANEJAMENTO_PRODUCAO: 'planejamento_producao',
   PRODUCAO: 'producao',
   PRODUCAO_BASES: 'producao_bases',
   PRODUCAO_LOTES: 'producao_lotes',
@@ -127,6 +128,7 @@ export function moduleRegistry(): ModuleGroup[] {
       label: 'Produção',
       hubView: 'producao_hub',
       children: [
+        { key: MODULE_KEYS.PLANEJAMENTO_PRODUCAO, label: 'Planejamento de Produção' },
         { key: MODULE_KEYS.PRODUCAO, label: 'Gerenciamento' },
         { key: MODULE_KEYS.PRODUCAO_PROC, label: 'PROC (Processos)' },
         { key: MODULE_KEYS.MONTAGEM_KITS, label: 'Kits' },

@@ -45,6 +45,7 @@ export default function ProducaoView({
       kits: 'Gerenciamento de Kits',
       programadas: 'Produções Programadas',
       aprovacao: 'Planejamento Semanal de Ordens',
+      acompanhamento: 'Acompanhamento / Quadros de Produção',
       calendar: 'Calendário',
       lotes: 'Lotes de Produção',
       erros: 'Erros de Estoque',
@@ -1397,11 +1398,8 @@ export default function ProducaoView({
     { id: 'inventory', label: 'Gerenciamento de Produção', icon: Table },
     { id: 'kits', label: 'Gerenciamento de Kits', icon: Layers },
     { id: 'programadas', label: 'Produções Programadas', icon: CalendarClock },
-    { id: 'aprovacao', label: 'Planejamento Semanal', icon: CalendarClock, badge: productionApprovalList.length },
-    { id: 'calendar', label: 'Calendário', icon: Calendar },
     { id: 'history', label: 'Histórico', icon: History },
     { id: 'ignored_items', label: 'Produtos Suspensos', icon: EyeOff },
-    { id: 'settings', label: 'Configurações', icon: Settings },
   ];
 
   const sidebarItems =
@@ -1425,6 +1423,8 @@ export default function ProducaoView({
       fetchProgramadas();
     } else if (tabId === 'aprovacao') {
       setCurrentView('aprovacao');
+    } else if (tabId === 'acompanhamento') {
+      setCurrentView('acompanhamento');
     } else if (tabId === 'calendar') {
       setCurrentView('calendar');
       fetchLotes();
@@ -1571,6 +1571,8 @@ export default function ProducaoView({
               }}
             />
           )}
+
+
 
           {/* VIEW: BASES MANAGEMENT */}
           {currentView === 'bases' && (

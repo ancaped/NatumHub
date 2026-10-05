@@ -4197,26 +4197,28 @@ pub async fn save_planejamento_item(
         .await
     {
         Ok(_) => {
-            if let Some(ref lote) = item.lote_erp {
-                let clean = lote.trim();
-                if !clean.is_empty() {
-                    let _ = sqlx::query(r#"
-                        INSERT INTO lote_custom_status (
-                            lote_number, custom_status, data_pesagem, data_producao, data_previsao, updated_at
-                        ) VALUES (
-                            $1, 'Pesagem', $2::date, $2::date, $2::date, CURRENT_TIMESTAMP
-                        )
-                        ON CONFLICT (lote_number) DO UPDATE SET
-                            data_pesagem = COALESCE(lote_custom_status.data_pesagem, EXCLUDED.data_pesagem),
-                            data_producao = COALESCE(lote_custom_status.data_producao, EXCLUDED.data_producao),
-                            data_previsao = COALESCE(lote_custom_status.data_previsao, EXCLUDED.data_previsao),
-                            updated_at = CURRENT_TIMESTAMP
-                    "#)
-                    .bind(clean)
-                    .bind(&item.data_planejada)
-                    .execute(pool)
-                    .await;
-                }
+            let doc_num = match &item.lote_erp {
+                Some(l) if !l.trim().is_empty() => Some(l.trim().to_string()),
+                _ if item.ordem_status.as_deref() == Some("aprovado") => Some(format!("PL-{}", &item.id[..item.id.len().min(8)])),
+                _ => None,
+            };
+            if let Some(clean) = doc_num {
+                let _ = sqlx::query(r#"
+                    INSERT INTO lote_custom_status (
+                        lote_number, custom_status, data_pesagem, data_producao, data_previsao, updated_at
+                    ) VALUES (
+                        $1, 'Pesagem', $2::date, $2::date, $2::date, CURRENT_TIMESTAMP
+                    )
+                    ON CONFLICT (lote_number) DO UPDATE SET
+                        data_pesagem = COALESCE(lote_custom_status.data_pesagem, EXCLUDED.data_pesagem),
+                        data_producao = COALESCE(lote_custom_status.data_producao, EXCLUDED.data_producao),
+                        data_previsao = COALESCE(lote_custom_status.data_previsao, EXCLUDED.data_previsao),
+                        updated_at = CURRENT_TIMESTAMP
+                "#)
+                .bind(&clean)
+                .bind(&item.data_planejada)
+                .execute(pool)
+                .await;
             }
             (StatusCode::OK, Json(json!({ "ok": true, "id": item.id }))).into_response()
         },
@@ -4290,6 +4292,30 @@ pub async fn bulk_save_planejamento(
             .await
         {
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response();
+        }
+
+        let doc_num = match &item.lote_erp {
+            Some(l) if !l.trim().is_empty() => Some(l.trim().to_string()),
+            _ if item.ordem_status.as_deref() == Some("aprovado") => Some(format!("PL-{}", &item.id[..item.id.len().min(8)])),
+            _ => None,
+        };
+        if let Some(clean) = doc_num {
+            let _ = sqlx::query(r#"
+                INSERT INTO lote_custom_status (
+                    lote_number, custom_status, data_pesagem, data_producao, data_previsao, updated_at
+                ) VALUES (
+                    $1, 'Pesagem', $2::date, $2::date, $2::date, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT (lote_number) DO UPDATE SET
+                    data_pesagem = COALESCE(lote_custom_status.data_pesagem, EXCLUDED.data_pesagem),
+                    data_producao = COALESCE(lote_custom_status.data_producao, EXCLUDED.data_producao),
+                    data_previsao = COALESCE(lote_custom_status.data_previsao, EXCLUDED.data_previsao),
+                    updated_at = CURRENT_TIMESTAMP
+            "#)
+            .bind(&clean)
+            .bind(&item.data_planejada)
+            .execute(pool)
+            .await;
         }
     }
     (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
@@ -4388,5 +4414,154 @@ pub async fn clear_planejamento_semana(
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response()
     }
 }
+
+#[derive(Debug, serde::Deserialize)]
+pub struct UltimoLoteQuery {
+    pub code: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct UltimoLoteResponse {
+    pub code: String,
+    pub ultimo_lote: Option<String>,
+    pub data_ultimo_lote: Option<String>,
+    pub origem: Option<String>,
+    pub sugestao_proximo: Option<String>,
+    pub historico: Vec<LoteHistoricoItem>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct LoteHistoricoItem {
+    pub lote: String,
+    pub date: Option<String>,
+    pub source: String,
+}
+
+pub async fn get_ultimo_lote_produto_query(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<UltimoLoteQuery>,
+) -> impl IntoResponse {
+    let code = query.code.unwrap_or_default();
+    get_ultimo_lote_impl(state, code).await
+}
+
+pub async fn get_ultimo_lote_produto(
+    State(state): State<Arc<AppState>>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    get_ultimo_lote_impl(state, code).await
+}
+
+async fn get_ultimo_lote_impl(
+    state: Arc<AppState>,
+    code: String,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    let clean_code = clean_product_code(&code);
+
+    let sql = r#"
+        SELECT lote, date, source FROM (
+            SELECT sm.document_number AS lote, sm.date::text AS date, 'ERP' AS source, 1 AS prio, sm.date::text AS sort_dt
+            FROM stock_movements sm
+            WHERE sm.item_code = $1 
+              AND sm.document_number IS NOT NULL 
+              AND TRIM(sm.document_number) != ''
+              AND sm.document_number NOT LIKE 'PL-%'
+              AND sm.movement_type = 'entrada'
+
+            UNION ALL
+
+            SELECT pp.lote_erp AS lote, to_char(pp.data_planejada, 'YYYY-MM-DD') AS date, 'Planejamento' AS source, 2 AS prio, to_char(pp.data_planejada, 'YYYY-MM-DD') AS sort_dt
+            FROM producao_planejamento_semanal pp
+            WHERE pp.codigo_produto = $1 
+              AND pp.lote_erp IS NOT NULL 
+              AND TRIM(pp.lote_erp) != ''
+              AND pp.lote_erp NOT LIKE 'PL-%'
+
+            UNION ALL
+
+            SELECT pe.lote_number AS lote, to_char(pe.data_programada, 'YYYY-MM-DD') AS date, 'Envase' AS source, 3 AS prio, to_char(pe.data_programada, 'YYYY-MM-DD') AS sort_dt
+            FROM programacao_envase pe
+            WHERE pe.product_code = $1
+              AND pe.lote_number IS NOT NULL
+              AND TRIM(pe.lote_number) != ''
+
+            UNION ALL
+
+            SELECT pr.lote_number AS lote, to_char(pr.data_programada, 'YYYY-MM-DD') AS date, 'Rotulagem' AS source, 4 AS prio, to_char(pr.data_programada, 'YYYY-MM-DD') AS sort_dt
+            FROM programacao_rotulagem pr
+            WHERE pr.product_code = $1
+              AND pr.lote_number IS NOT NULL
+              AND TRIM(pr.lote_number) != ''
+
+            UNION ALL
+
+            SELECT ts.lote_number AS lote, to_char(ts.created_at, 'YYYY-MM-DD') AS date, 'Terceirizado' AS source, 5 AS prio, to_char(ts.created_at, 'YYYY-MM-DD') AS sort_dt
+            FROM terceirizados_solicitacoes ts
+            WHERE ts.product_code = $1 
+              AND ts.lote_number IS NOT NULL 
+              AND TRIM(ts.lote_number) != ''
+        ) all_lotes
+        ORDER BY sort_dt DESC NULLS LAST, lote DESC
+        LIMIT 10
+    "#;
+
+    match sqlx::query(sql)
+        .bind(&clean_code)
+        .fetch_all(pool)
+        .await
+    {
+        Ok(rows) => {
+            let mut historico = Vec::new();
+            let mut seen_lotes = std::collections::HashSet::new();
+
+            for row in rows {
+                let lote: String = row.try_get("lote").unwrap_or_default();
+                let date: Option<String> = row.try_get("date").ok();
+                let source: String = row.try_get("source").unwrap_or_else(|_| "ERP".to_string());
+                let clean_lote = lote.trim().to_string();
+                if !clean_lote.is_empty() && seen_lotes.insert(clean_lote.clone()) {
+                    historico.push(LoteHistoricoItem {
+                        lote: clean_lote,
+                        date,
+                        source,
+                    });
+                }
+            }
+
+            let first = historico.first();
+            let ultimo_lote = first.map(|x| x.lote.clone());
+            let data_ultimo_lote = first.and_then(|x| x.date.clone());
+            let origem = first.map(|x| x.source.clone());
+
+            let sugestao_proximo = ultimo_lote.as_ref().and_then(|l| {
+                if let Ok(num) = l.parse::<i64>() {
+                    Some((num + 1).to_string())
+                } else {
+                    None
+                }
+            });
+
+            (
+                StatusCode::OK,
+                Json(UltimoLoteResponse {
+                    code: clean_code,
+                    ultimo_lote,
+                    data_ultimo_lote,
+                    origem,
+                    sugestao_proximo,
+                    historico,
+                }),
+            )
+                .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Erro ao buscar último lote: {}", e) })),
+        )
+            .into_response(),
+    }
+}
+
 
 

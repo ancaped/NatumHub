@@ -23,6 +23,7 @@ pub const MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS: &str = "admin_produtos_ativos
 pub const MODULE_ADMIN_FUNCIONARIOS: &str = "admin_funcionarios";
 pub const MODULE_ADMIN_ACOMPANHAMENTO_PRODUCAO: &str = "admin_acompanhamento_producao";
 
+pub const MODULE_PLANEJAMENTO_PRODUCAO: &str = "planejamento_producao";
 pub const MODULE_PRODUCAO: &str = "producao";
 pub const MODULE_PRODUCAO_BASES: &str = "producao_bases";
 pub const MODULE_PRODUCAO_LOTES: &str = "producao_lotes";
@@ -86,6 +87,7 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS,
     MODULE_ADMIN_FUNCIONARIOS,
     MODULE_ADMIN_ACOMPANHAMENTO_PRODUCAO,
+    MODULE_PLANEJAMENTO_PRODUCAO,
     MODULE_PRODUCAO,
     MODULE_PRODUCAO_BASES,
     MODULE_PRODUCAO_LOTES,
@@ -173,6 +175,7 @@ pub fn module_registry() -> Vec<ModuleGroup> {
             label: "Produção".into(),
             hub_view: "producao_hub".into(),
             children: vec![
+                leaf(MODULE_PLANEJAMENTO_PRODUCAO, "Planejamento de Produção"),
                 leaf(MODULE_PRODUCAO, "Gerenciamento"),
                 leaf(MODULE_PRODUCAO_BASES, "Gestão de Bases"),
                 leaf(MODULE_PRODUCAO_PROC, "PROC (Processos)"),
@@ -304,6 +307,7 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
         .map(String::from)
         .collect(),
         "producao" | "produção" => vec![
+            MODULE_PLANEJAMENTO_PRODUCAO,
             MODULE_PRODUCAO,
             MODULE_PRODUCAO_BASES,
             MODULE_PRODUCAO_LOTES,

@@ -93,6 +93,9 @@ interface PlanejamentoSemanalTabProps {
   diasComerciais?: number;
   configs?: any[];
   onLaunchSuccess?: () => void;
+  currentDate?: Date;
+  onCurrentDateChange?: (d: Date) => void;
+  hideHeaderNav?: boolean;
 }
 
 // Reatores padrão de fábrica solicitados por Edson com classificação Quente / Frio / Shampoos / Bombonas
@@ -192,6 +195,23 @@ export function parseProductUnitWeightKg(descricao?: string): number {
     return val / 1000.0;
   }
   return 1.0;
+}
+
+export function getShortReatorName(id: string, recipDetail?: string, reatoresList?: ReatorConfig[]): string {
+  if (id === 'BOMBONAS') {
+    return recipDetail && recipDetail !== 'Reator' ? recipDetail : 'Bombona';
+  }
+  if (id === 'R_1000_SHAMPOO' || id === 'R_1000') return 'R-1000 (Shampoo)';
+  if (id === 'R_1000_MISTO') return 'R-1000 (Misto)';
+  if (id === 'R_500') return 'R-500';
+  if (id === 'R_200') return 'R-200';
+  if (id === 'R_100') return 'R-100 (Resistência)';
+  if (id === 'R_40') return 'R-40 (Quente)';
+  if (reatoresList) {
+    const r = reatoresList.find(x => x.id === id);
+    if (r) return r.nome;
+  }
+  return id;
 }
 
 /**
@@ -387,10 +407,22 @@ export function PlanejamentoSemanalTab({
   onToggleApprovalList,
   diasComerciais = 30,
   configs = [],
-  onLaunchSuccess
+  onLaunchSuccess,
+  currentDate: propCurrentDate,
+  onCurrentDateChange,
+  hideHeaderNav = false,
 }: PlanejamentoSemanalTabProps) {
-  // Estado da semana atual selecionada
-  const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
+  // Estado da semana atual selecionada (sincronizada com prop se fornecida)
+  const [internalCurrentDate, setInternalCurrentDate] = useState<Date>(() => new Date());
+  const currentDate = propCurrentDate || internalCurrentDate;
+  const setCurrentDate = (d: Date | ((prev: Date) => Date)) => {
+    const nextVal = typeof d === 'function' ? d(currentDate) : d;
+    if (onCurrentDateChange) {
+      onCurrentDateChange(nextVal);
+    } else {
+      setInternalCurrentDate(nextVal);
+    }
+  };
   
   // Reatores
   const [reatores, setReatores] = useState<ReatorConfig[]>(DEFAULT_REATORES);
@@ -429,7 +461,15 @@ export function PlanejamentoSemanalTab({
   const [isSubmittingDispatch, setIsSubmittingDispatch] = useState(false);
 
   // Modal para Vincular / Editar Lote ERP diretamente no Card
-  const [linkLoteModalItem, setLinkLoteModalItem] = useState<{ item: PlanejamentoItem; lote: string } | null>(null);
+  const [linkLoteModalItem, setLinkLoteModalItem] = useState<{
+    item: PlanejamentoItem;
+    lote: string;
+    loadingUltimoLote?: boolean;
+    ultimoLote?: string | null;
+    dataUltimoLote?: string | null;
+    sugestaoProximo?: string | null;
+    origemUltimoLote?: string | null;
+  } | null>(null);
 
   // Modal para Editar Quantidade Planejada (kg) diretamente no Card
   const [editQtyModalItem, setEditQtyModalItem] = useState<{ item: PlanejamentoItem; newQty: number } | null>(null);
@@ -841,6 +881,42 @@ export function PlanejamentoSemanalTab({
     }
   };
 
+  // Abertura do Modal de Lote ERP com busca automática do último lote
+  const handleOpenLinkLoteModal = async (item: PlanejamentoItem) => {
+    setLinkLoteModalItem({
+      item,
+      lote: item.lote_erp || '',
+      loadingUltimoLote: true,
+      ultimoLote: null,
+      dataUltimoLote: null,
+      sugestaoProximo: null,
+      origemUltimoLote: null,
+    });
+
+    try {
+      const res = await apiFetch(`/producao/ultimo-lote/${encodeURIComponent(item.codigo_produto)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setLinkLoteModalItem(prev => {
+          if (!prev || prev.item.id !== item.id) return prev;
+          return {
+            ...prev,
+            loadingUltimoLote: false,
+            ultimoLote: data.ultimo_lote,
+            dataUltimoLote: data.data_ultimo_lote,
+            sugestaoProximo: data.sugestao_proximo,
+            origemUltimoLote: data.origem,
+          };
+        });
+      } else {
+        setLinkLoteModalItem(prev => prev ? { ...prev, loadingUltimoLote: false } : null);
+      }
+    } catch (err) {
+      console.warn('Erro ao buscar histórico de lotes:', err);
+      setLinkLoteModalItem(prev => prev ? { ...prev, loadingUltimoLote: false } : null);
+    }
+  };
+
   // Vincular / Atualizar Lote ERP diretamente no Card
   const handleConfirmLinkLote = async () => {
     if (!linkLoteModalItem) return;
@@ -850,11 +926,13 @@ export function PlanejamentoSemanalTab({
     const updated: PlanejamentoItem = {
       ...item,
       lote_erp: cleanLote || undefined,
+      ordem_status: cleanLote ? 'aprovado' : item.ordem_status,
     };
 
     setPlannedItems(prev => prev.map(p => p.id === item.id ? updated : p));
     setLinkLoteModalItem(null);
     await handleSaveItem(updated);
+    window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
   };
 
   // Editar Quantidade a ser Produzida (Massa em kg)
@@ -1283,19 +1361,7 @@ export function PlanejamentoSemanalTab({
       }
     }
 
-    const getShortReatorName = (id: string, recipDetail?: string) => {
-      if (id === 'BOMBONAS') {
-        return recipDetail && recipDetail !== 'Reator' ? recipDetail : 'Bombona';
-      }
-      if (id === 'R_1000_SHAMPOO' || id === 'R_1000') return 'R-1000 (Shampoo)';
-      if (id === 'R_1000_MISTO') return 'R-1000 (Misto)';
-      if (id === 'R_500') return 'R-500';
-      if (id === 'R_200') return 'R-200';
-      if (id === 'R_100') return 'R-100 (Resistência)';
-      if (id === 'R_40') return 'R-40 (Quente)';
-      const r = reatores.find(x => x.id === id);
-      return r ? r.nome : id;
-    };
+    const formatPrintReatorName = (id: string, recipDetail?: string) => getShortReatorName(id, recipDetail, reatores);
 
     // Gera detalhamento dia a dia
     const daysHtml = weekDays.map(day => {
@@ -1317,7 +1383,7 @@ export function PlanejamentoSemanalTab({
         const isBase = item.codigo_produto.includes('.36.') || (item.descricao || '').toUpperCase().startsWith('BASE ');
         const uWeight = parseProductUnitWeightKg(item.descricao);
         const yieldText = isBase ? 'Granel' : `${Math.round(item.quantidade_planejada / (uWeight || 1)).toLocaleString('pt-BR')} un`;
-        const reatorNome = getShortReatorName(item.reator_id, item.recipiente_detalhe);
+        const reatorNome = formatPrintReatorName(item.reator_id, item.recipiente_detalhe);
 
         return `
           <tr>
@@ -2660,7 +2726,7 @@ export function PlanejamentoSemanalTab({
                                                   type="button"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
-                                                    setLinkLoteModalItem({ item, lote: item.lote_erp || '' });
+                                                    handleOpenLinkLoteModal(item);
                                                   }}
                                                   className="font-mono text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 font-bold text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1 cursor-pointer transition-colors shrink-0"
                                                   title="Lote ERP vinculado. Clique para editar."
@@ -2673,7 +2739,7 @@ export function PlanejamentoSemanalTab({
                                                   type="button"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
-                                                    setLinkLoteModalItem({ item, lote: '' });
+                                                    handleOpenLinkLoteModal(item);
                                                   }}
                                                   className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 font-semibold text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1 cursor-pointer transition-colors shrink-0"
                                                   title="Vincular Lote ERP a esta batelada"
@@ -3430,6 +3496,51 @@ export function PlanejamentoSemanalTab({
               </div>
             </div>
 
+            {/* Histórico / Sugestão do Último Lote Adicionado */}
+            {linkLoteModalItem.loadingUltimoLote ? (
+              <div className="flex items-center gap-2 p-2.5 bg-blue-50/60 border border-blue-150 rounded-lg text-xs text-blue-700">
+                <RefreshCw size={13} className="animate-spin text-blue-600 shrink-0" />
+                <span>Consultando histórico de lotes no ERP...</span>
+              </div>
+            ) : linkLoteModalItem.ultimoLote ? (
+              <div className="p-2.5 bg-blue-50/80 border border-blue-200 rounded-lg text-xs space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-600 text-[11px] font-medium">Último lote registrado:</span>
+                  <span className="font-mono font-bold text-blue-900 bg-white px-2 py-0.5 rounded border border-blue-200 shadow-2xs">
+                    #{linkLoteModalItem.ultimoLote}
+                  </span>
+                </div>
+                {linkLoteModalItem.dataUltimoLote && (
+                  <div className="text-[10px] text-zinc-500 flex items-center justify-between">
+                    <span>Data: {linkLoteModalItem.dataUltimoLote.split('T')[0].split(' ')[0].split('-').reverse().join('/')}</span>
+                    <span className="text-blue-600 font-semibold">{linkLoteModalItem.origemUltimoLote || 'ERP'}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-1.5 pt-1.5 border-t border-blue-200/60">
+                  <button
+                    type="button"
+                    onClick={() => setLinkLoteModalItem({ ...linkLoteModalItem, lote: linkLoteModalItem.ultimoLote! })}
+                    className="px-2.5 py-1 bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 rounded text-[11px] font-semibold cursor-pointer transition-colors shadow-2xs"
+                  >
+                    Usar #{linkLoteModalItem.ultimoLote}
+                  </button>
+                  {linkLoteModalItem.sugestaoProximo && (
+                    <button
+                      type="button"
+                      onClick={() => setLinkLoteModalItem({ ...linkLoteModalItem, lote: linkLoteModalItem.sugestaoProximo! })}
+                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[11px] font-bold cursor-pointer transition-colors shadow-2xs"
+                    >
+                      Sugerir Próximo: #{linkLoteModalItem.sugestaoProximo}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="p-2 bg-zinc-50 border border-zinc-200 rounded-lg text-[11px] text-zinc-500">
+                Nenhum lote anterior registrado para este produto.
+              </div>
+            )}
+
             <div>
               <label className="font-semibold text-zinc-700 text-xs block mb-1">
                 Número do Lote ERP:
@@ -3437,7 +3548,7 @@ export function PlanejamentoSemanalTab({
               <input
                 type="text"
                 autoFocus
-                placeholder="Ex: 261005, L2409..."
+                placeholder="Ex: 261005, L2409 ou use a sugestão..."
                 value={linkLoteModalItem.lote}
                 onChange={(e) => setLinkLoteModalItem({ ...linkLoteModalItem, lote: e.target.value })}
                 onKeyDown={(e) => {
@@ -3446,7 +3557,7 @@ export function PlanejamentoSemanalTab({
                 className="w-full p-2.5 font-mono text-sm border border-zinc-300 rounded-lg bg-white font-bold text-zinc-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
               <p className="text-[11px] text-zinc-500 mt-1">
-                Ao vincular o lote, ele será sincronizado automaticamente com os quadros de acompanhamento de produção.
+                Ao salvar, o lote é sincronizado automaticamente com os quadros de acompanhamento de produção.
               </p>
             </div>
 
@@ -3491,7 +3602,7 @@ export function PlanejamentoSemanalTab({
               <strong className="text-zinc-900 block">{editQtyModalItem.item.descricao || editQtyModalItem.item.codigo_produto}</strong>
               <div className="flex items-center justify-between text-zinc-500 mt-1">
                 <span>Data: <strong>{editQtyModalItem.item.data_planejada}</strong></span>
-                <span>Equipamento: <strong>{getShortReatorName(editQtyModalItem.item.reator_id, editQtyModalItem.item.recipiente_detalhe)}</strong></span>
+                <span>Equipamento: <strong>{getShortReatorName(editQtyModalItem.item.reator_id, editQtyModalItem.item.recipiente_detalhe, reatores)}</strong></span>
               </div>
             </div>
 

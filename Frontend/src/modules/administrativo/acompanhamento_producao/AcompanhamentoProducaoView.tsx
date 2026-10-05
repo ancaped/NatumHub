@@ -2796,6 +2796,14 @@ export default function AcompanhamentoProducaoView({ onBack }: Props) {
   }, [fetchLotes, fetchKitOrders, fetchSolicitacoes, fetchFiscoAnalyses, fetchProgramacaoRotulagem]);
 
   useEffect(() => {
+    const handleRefresh = () => {
+      fetchLotes();
+    };
+    window.addEventListener('natum:refresh-acompanhamento', handleRefresh);
+    return () => window.removeEventListener('natum:refresh-acompanhamento', handleRefresh);
+  }, [fetchLotes]);
+
+  useEffect(() => {
     if (currentTab === 'quadro_envase') {
       fetchProgramacaoEnvase('TODOS');
     } else if (currentTab === 'calendar' && calendarViewMode === 'quadro_envase') {
@@ -6899,6 +6907,7 @@ export default function AcompanhamentoProducaoView({ onBack }: Props) {
   };
 
   // Lotes aguardando início de pesagem + lotes em espera (Fila Unificada de Pesagem)
+  // Lotes em espera / ordens paradas (Fila de Pesagem limpa)
   const baseLotesFilaPesagem = useMemo(() => {
     const raw = lotes
       .filter(l => {
@@ -6915,21 +6924,15 @@ export default function AcompanhamentoProducaoView({ onBack }: Props) {
         const isNaBalanca = sortedLotesPesando.some(p => p.loteNumber === l.loteNumber);
         if (isNaBalanca) return false;
 
+        // REGRA REQUISITADA: Fila de pesagem deve ser limpa, deixando apenas as ordens paradas (em espera)
         const esperaDetails = getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem);
-        // REGRA REQUISITADA: Lotes em espera NUNCA são filtrados por data! Continuam aparecendo todos os dias
-        if (esperaDetails.isEmEspera) {
-          if (selectedInsumoFaltanteFilter !== 'TODOS') {
-            if ((l.insumoFaltanteCodigo || (l as any).insumo_faltante_codigo) !== selectedInsumoFaltanteFilter) return false;
-          }
-          return true;
-        }
+        const etapaStatus = getLoteEtapaStatus(l, 'pesagem');
+        const isOrdemParada = esperaDetails.isEmEspera || etapaStatus.isEspera || l.customStatus === 'Em Espera' || l.customStatus === 'Fila Pesagem' || !!l.motivoEspera;
 
-        // Se foi adicionado manualmente à fila de pesagem
+        // Se foi adicionado manualmente à fila pelo operador
         const isManual = (manualFilasAdicionados.pesagem || []).includes(l.loteNumber);
-        if (isManual) return true;
 
-        // REGRA REQUISITADA: Pegar lotes abertos da semana, lotes antigos ignorar
-        if (!isLoteDaSemana(l, 'pesagem', pesagemSelectedDate)) {
+        if (!isOrdemParada && !isManual) {
           return false;
         }
 
@@ -6939,7 +6942,7 @@ export default function AcompanhamentoProducaoView({ onBack }: Props) {
         return true;
       });
     return deduplicateLotesByNumber(raw);
-  }, [lotes, isLoteTerceirizado, selectedInsumoFaltanteFilter, sortedLotesPesando, pesagemSelectedDate, pesagemSearch, manualFilasAdicionados, programacaoEnvase, programacaoRotulagem]);
+  }, [lotes, isLoteTerceirizado, selectedInsumoFaltanteFilter, sortedLotesPesando, pesagemSearch, manualFilasAdicionados, programacaoEnvase, programacaoRotulagem]);
 
   const lotesFilaPesagem = useMemo(() => {
     let list = filterLotesBySearch(baseLotesFilaPesagem, pesagemSearch);
@@ -6970,12 +6973,13 @@ export default function AcompanhamentoProducaoView({ onBack }: Props) {
         if (etapaStatus.isEspera) return false;
 
         // Permite coexistência: se estiver em produção ou alocado nos reatores, ou concluído na data
+        // ou aprovado / lote vinculado do planejamento semanal na data selecionada
         const isProd = (
           etapaStatus.status === 'ativo' ||
           etapaStatus.isConcluido ||
           producaoOrderOverrides.includes(l.loteNumber) ||
           producaoConcluidosLotes.includes(l.loteNumber) ||
-          ((l.customStatus === 'Produção' || l.customStatus === 'Produzido' || (!l.customStatus && l.erpStatus === 'PR')) && etapaStatus.status !== 'fila')
+          ((l.customStatus === 'Produção' || l.customStatus === 'Produzido' || l.customStatus === 'Pesagem' || (!l.customStatus && l.erpStatus === 'PR')) && etapaStatus.status !== 'fila')
         );
         if (!isProd) return false;
         if (selectedInsumoFaltanteFilter !== 'TODOS') {

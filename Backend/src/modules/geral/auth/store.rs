@@ -1271,6 +1271,7 @@ pub fn is_public_path(path: &str) -> bool {
         || path.starts_with("/api/chat")
         || path == "/api/server-manager/status"
         || path == "/api/server-manager/links"
+        || path.starts_with("/api/producao/ultimo-lote")
         || path.starts_with("/api/google/callback")
 }
 

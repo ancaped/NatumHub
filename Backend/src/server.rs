@@ -253,6 +253,14 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
             "/api/producao/planejamento-semanal/clear",
             delete(handlers::clear_planejamento_semana),
         )
+        .route(
+            "/api/producao/ultimo-lote",
+            get(handlers::get_ultimo_lote_produto_query),
+        )
+        .route(
+            "/api/producao/ultimo-lote/:code",
+            get(handlers::get_ultimo_lote_produto),
+        )
         .merge(modules::producao::proc::router())
         .merge(modules::compras::router())
         .merge(modules::estoque::router())
