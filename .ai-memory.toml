@@ -1,0 +1,17 @@
+workspace = "default"
+project = "nexus"
+project_strategy = "repo-root"
+
+[briefing]
+inject_on_session_start = "true"
+max_chars = 4000
+
+[capture]
+ignore_paths = [
+  "Saves/**",
+  "**/*.env",
+  "**/*secret*",
+  "**/*creds*",
+  ".github_token",
+  "server_*.log"
+]
