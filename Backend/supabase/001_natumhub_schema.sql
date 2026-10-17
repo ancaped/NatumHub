@@ -50,7 +50,10 @@ CREATE TABLE IF NOT EXISTS overrides_produtos (
     produzir_apenas_kit INTEGER DEFAULT 0,
     lancamento_meta_meses INTEGER DEFAULT 6,
     lancamento_data_inicio TEXT,
-    terceirizado_modo TEXT
+    terceirizado_modo TEXT,
+    is_producao_programada INTEGER DEFAULT 0,
+    producao_programada_disparo BIGINT,
+    producao_programada_objetivo BIGINT
 );
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -65,6 +68,8 @@ CREATE TABLE IF NOT EXISTS kit_composicao (
     quantidade NUMERIC(12,4) NOT NULL DEFAULT 1.0,
     fator_proporcao_qtd NUMERIC(12,4) DEFAULT 1.0,
     fator_proporcao_kits INTEGER DEFAULT 1,
+    -- erp = Passo P (sync); manual = CRUD/Excel (preservado no sync)
+    origem TEXT NOT NULL DEFAULT 'manual' CHECK (origem IN ('erp', 'manual')),
     PRIMARY KEY (kit_codigo, componente_codigo)
 );
 
@@ -556,6 +561,7 @@ CREATE TABLE IF NOT EXISTS hub_operators (
 CREATE TABLE IF NOT EXISTS hub_operator_modules (
     operator_id TEXT NOT NULL REFERENCES hub_operators(id) ON DELETE CASCADE,
     module_key TEXT NOT NULL,
+    access_level TEXT NOT NULL DEFAULT 'edit',
     PRIMARY KEY (operator_id, module_key)
 );
 

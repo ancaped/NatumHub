@@ -1,12 +1,13 @@
-import { invoke } from '@tauri-apps/api/core';
 import { hubJson, ApiError, apiJson } from './http';
 import type {
   Category, Supplier, Item, Invoice,
   DemandResult, Quotation, QuotationItem, QuotationPrice,
   ImportResult, StockImport, PricePoint, SupplierSpend, CategorySpend,
-  ComprasAppConfig, MicrobioAppConfig, Feedback, Product, Report, OnlineOrder, OnlineStore,
+  ComprasAppConfig, MicrobioAppConfig, FiscoAppConfig, Feedback, Product, Report, OnlineOrder, OnlineStore,
   FiscoQuimicaPattern, FiscoQuimicaAgent, FiscoQuimicaAnalysis, LoteLookup,
-  CustomPurchaseConfigRow
+  FiscoErpLoteItem, FiscoErpLoteInsumo,
+  CustomPurchaseConfigRow,
+  PurchaseRequestBatch, PurchaseRequestBatchDetail, CreatePurchaseRequestBatchInput, ActiveRequestedItemSummary
 } from './types';
 import type { FeedbackSubmitInput, FeedbackAdminUpdate, FeedbackNote, FeedbackDetail } from './types';
 
@@ -80,6 +81,27 @@ export const api = {
     return hubJson(`compras/custom-configs${qs({ level, targetId })}`, { method: 'DELETE' });
   },
 
+  // === COMPRAS: LOTES DE SOLICITAÇÃO & LISTAS ===
+  getPurchaseLists(params?: { modulo?: string; status?: string; search?: string }): Promise<PurchaseRequestBatch[]> {
+    return hubJson(`compras/listas${qs({ modulo: params?.modulo, status: params?.status, search: params?.search })}`);
+  },
+  getPurchaseListDetail(id: string): Promise<PurchaseRequestBatchDetail> {
+    return hubJson(`compras/listas/${encodeURIComponent(id)}`);
+  },
+  createPurchaseList(payload: CreatePurchaseRequestBatchInput): Promise<PurchaseRequestBatchDetail> {
+    return hubJson('compras/listas', { method: 'POST', body: JSON.stringify(payload) });
+  },
+  updatePurchaseList(id: string, payload: { status?: string; observacoes?: string }): Promise<void> {
+    return hubJson(`compras/listas/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) });
+  },
+  deletePurchaseList(id: string): Promise<void> {
+    return hubJson(`compras/listas/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+  getActiveRequestedItems(): Promise<ActiveRequestedItemSummary[]> {
+    return hubJson('compras/itens-solicitados');
+  },
+
+
   // === COMPRAS: COTAÇÕES ===
   createQuotation(title: string, itemCodes: string[], recommendedQtys: number[]): Promise<string> {
     return hubJson('compras/quotations', { method: 'POST', body: JSON.stringify({ title, itemCodes, recommendedQtys }) });
@@ -122,6 +144,12 @@ export const api = {
   saveSupplier(supplier: Supplier): Promise<void> {
     return hubJson('compras/suppliers', { method: 'POST', body: JSON.stringify(supplier) });
   },
+  unifySuppliers(parentId: string, childIds: string[]): Promise<void> {
+    return hubJson('compras/suppliers/unify', { method: 'POST', body: JSON.stringify({ parentId, childIds }) });
+  },
+  unlinkSupplier(supplierId: string): Promise<void> {
+    return hubJson('compras/suppliers/unlink', { method: 'POST', body: JSON.stringify({ supplierId }) });
+  },
   getSupplierHistory(id: string): Promise<{ invoices: Invoice[]; pricePoints: PricePoint[] }> {
     return hubJson(`compras/suppliers/${encodeURIComponent(id)}/history`);
   },
@@ -146,6 +174,15 @@ export const api = {
   },
   deleteCategory(id: string): Promise<void> {
     return hubJson(`compras/categories/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+  getPinnedSubcategories(): Promise<string[]> {
+    return hubJson('compras/pinned-subcategories');
+  },
+  savePinnedSubcategories(ids: string[]): Promise<void> {
+    return hubJson('compras/pinned-subcategories', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
   },
 
   // === COMPRAS: CONFIG ===
@@ -176,6 +213,12 @@ export const api = {
     const list = Array.isArray(reports) ? reports : [reports];
     return hubJson('microbio/reports', { method: 'POST', body: JSON.stringify({ reports: list }) });
   },
+  markReportsPrinted(ids: string[], printed: boolean = true): Promise<void> {
+    return hubJson('microbio/reports/printed', {
+      method: 'POST',
+      body: JSON.stringify({ ids, printed }),
+    });
+  },
   deleteReport(id: string): Promise<void> {
     return hubJson(`microbio/reports/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
@@ -186,16 +229,7 @@ export const api = {
     return hubJson('microbio/config', { method: 'POST', body: JSON.stringify(config) });
   },
 
-  // === BACKUP / ADMIN (PostgreSQL via REST) ===
-  exportErpSummary(): Promise<{
-    filename: string;
-    sizeBytes: number;
-    tablesCopied: string[];
-    elapsedMs: number;
-    tableRowCounts: Record<string, number>;
-  }> {
-    return hubJson('import/dump', { method: 'POST' });
-  },
+  // === ADMIN (PostgreSQL via REST) ===
   resetOperationalData(): Promise<{ status: string; message: string }> {
     return hubJson('admin/db-reset', { method: 'POST' });
   },
@@ -250,6 +284,12 @@ export const api = {
   },
 
   // === FÍSICO-QUÍMICA ===
+  getFiscoConfig(): Promise<FiscoAppConfig | null> {
+    return hubJson('fisco/config');
+  },
+  saveFiscoConfig(config: FiscoAppConfig): Promise<void> {
+    return hubJson('fisco/config', { method: 'POST', body: JSON.stringify(config) });
+  },
   getFiscoQuimicaPatterns(): Promise<FiscoQuimicaPattern[]> {
     return hubJson('fisco/patterns');
   },
@@ -277,6 +317,53 @@ export const api = {
   deleteFiscoQuimicaAnalysis(id: string): Promise<void> {
     return hubJson(`fisco/analyses/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
+  getFiscoErpLotes(params?: {
+    search?: string;
+    status_laudo?: string;
+    status_erp?: string;
+    date_from?: string;
+    date_to?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    items: FiscoErpLoteItem[];
+    total: number;
+    page: number;
+    limit: number;
+    total_pages: number;
+    stats: {
+      total_lotes: number;
+      com_laudo: number;
+      sem_laudo: number;
+      total_kg: number;
+    };
+  }> {
+    return hubJson(`fisco/erp-lotes${qs(params || {})}`);
+  },
+  getFiscoErpLoteInsumos(lote: string): Promise<FiscoErpLoteInsumo[]> {
+    return hubJson(`fisco/erp-lotes/${encodeURIComponent(lote)}/insumos`);
+  },
+  pushFiscoLaudosToErp(analysisIds?: string[], allPending?: boolean): Promise<{ success: boolean; updated_count: number; errors?: string[] }> {
+    return hubJson('fisco/push-to-erp', {
+      method: 'POST',
+      body: JSON.stringify({ analysis_ids: analysisIds, all_pending: allPending }),
+    });
+  },
+  getFiscoCorrectiveBatches(): Promise<import('./types').CorrectiveWeekSummary[]> {
+    return hubJson('fisco/corrective-batches');
+  },
+  toggleFiscoCorrectiveBaixa(data: { week_key: string; is_baixa: boolean; usuario?: string; observacoes?: string }): Promise<void> {
+    return hubJson('fisco/corrective-batches/toggle-baixa', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+  migrateErpHistoricalAnalyses(): Promise<{ success: boolean; migrated_count: number }> {
+    return hubJson('fisco/migrate-erp-history', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
 
   async getLoteByNumber(loteNumber: string): Promise<LoteLookup | null> {
     const trimmed = loteNumber.trim();
@@ -290,7 +377,64 @@ export const api = {
       throw err;
     }
   },
+
+  createFeedback(data: { type: string; description: string; page: string; logs?: string; screenshot?: string }): Promise<void> {
+    return apiJson('/api/hub/feedbacks', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2),
+        feedbackType: data.type,
+        description: data.description,
+        page: data.page,
+        logs: data.logs || '',
+        screenshot: data.screenshot || '',
+      }),
+    });
+  },
+
+  // === PRODUÇÃO: PROCS (Processos ANVISA / Fabricação) ===
+  getProcs(params?: { search?: string; status?: string; categoria?: string; limit?: number; offset?: number }): Promise<import('./types').ListProcsResponse> {
+    return apiJson('/api/producao/proc' + qs(params || {}));
+  },
+  getProcSummary(): Promise<import('./types').ProcSummaryMetrics> {
+    return apiJson('/api/producao/proc/summary');
+  },
+  getProcMap(): Promise<import('./types').ProcMapResponse> {
+    return apiJson('/api/producao/proc/map');
+  },
+  getProcById(id: string): Promise<import('./types').ProcItem> {
+    return apiJson(`/api/producao/proc/${encodeURIComponent(id)}`);
+  },
+  createProc(payload: Partial<import('./types').ProcItem>): Promise<import('./types').ProcItem> {
+    return apiJson('/api/producao/proc', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  updateProc(id: string, payload: Partial<import('./types').ProcItem>): Promise<import('./types').ProcItem> {
+    return apiJson(`/api/producao/proc/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+  deleteProc(id: string): Promise<{ success: boolean; message: string }> {
+    return apiJson(`/api/producao/proc/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+  generateProc(payload: { descricao: string; codigoProduto?: string; categoriaFamilia?: string }): Promise<import('./types').ProcGenerateResponse> {
+    return apiJson('/api/producao/proc/generate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  refreshItemStockLive(code: string): Promise<{ status: string; code: string; stockQty: number; reservedQty: number; inProduction: number; inOrders: number }> {
+    return apiJson(`/admin/audit/stock/${encodeURIComponent(code)}/refresh`, {
+      method: 'POST',
+    });
+  },
 };
+
 
 import {
   getAuthUser,

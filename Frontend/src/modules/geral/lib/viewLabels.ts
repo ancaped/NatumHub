@@ -11,12 +11,14 @@ export function getModuleTitle(view: string): string {
       return 'Produção > Gestão de Bases';
     case 'producao_lotes':
       return 'Produção > Lotes de Produção';
+    case 'producao_proc':
+      return 'Produção > Processos (PROC)';
     case 'microbiologia':
       return 'Produção > Microbiologia';
     case 'fisco_quimica':
       return 'Produção > Físico-Química';
     case 'montagem_kits':
-      return 'Produção > Montagem de Kits';
+      return 'Produção > Kits';
     case 'compras_hub':
       return 'Compras';
     case 'compras_materia_prima':
@@ -53,6 +55,8 @@ export function getModuleTitle(view: string): string {
       return 'Estoque > Coloração';
     case 'estoque_apoio':
       return 'Estoque > Material de Apoio';
+    case 'estoque_ordens_manuais':
+      return 'Estoque > Ordens Manuais';
     case 'estoque_itens':
       return 'Almoxarifado > Itens';
     case 'estoque_almoxarifado':
@@ -62,36 +66,70 @@ export function getModuleTitle(view: string): string {
     case 'estoque_pecas':
       return 'Almoxarifado > Peças de Reposição';
     case 'estoque_equipamentos':
-      return 'Almoxarifado > Equipamentos';
     case 'estoque_manutencoes':
-      return 'Almoxarifado > Manutenções';
+      return 'Almoxarifado > Equipamentos';
     case 'compras_almoxarifado':
       return 'Compras > Almoxarifado';
     case 'admin_linha_produtos':
     case 'estoque_ativos':
       return 'Administrativo > Linha de Produtos';
+    case 'admin_relatorios':
+      return 'Administrativo > Relatórios';
+    case 'admin_produtos_ativos_relatorios':
+      return 'Administrativo > Relatórios · Produtos Ativos';
+    case 'admin_funcionarios':
+      return 'Administrativo > Funcionários';
     case 'vendas':
       return 'Vendas > Vendas Geral';
     case 'vendas_hub':
       return 'Vendas';
     case 'vendas_online':
       return 'Vendas > Vendas Online';
+    case 'qualidade_hub':
+      return 'Qualidade';
     case 'controle_qualidade':
       return 'Qualidade > Controle de Qualidade';
+    case 'qualidade_devolucoes':
+      return 'Qualidade > Devoluções';
+    case 'qualidade_pops':
+      return 'Qualidade > POPs';
+    case 'qualidade_treinamentos':
+      return 'Qualidade > Treinamentos';
+    case 'qualidade_temperatura':
+      return 'Qualidade > Temperatura';
+    case 'qualidade_limpeza':
+      return 'Qualidade > Limpeza';
+    case 'qualidade_recebimento_mp':
+      return 'Qualidade > Recebimento MP';
+    case 'qualidade_documentacao':
+      return 'Qualidade > Documentação';
     case 'administrativo':
       return 'Administrativo';
-    case 'expedicao':
+    case 'expedicao_hub':
       return 'Expedição';
+    case 'expedicao_ecommerce':
+    case 'expedicao':
+      return 'Expedição > E-commerce';
     case 'linha_produtos':
       return 'Administrativo > Linha de Produtos';
     case 'financeiro':
       return 'Financeiro';
+    case 'ferramentas_hub':
+      return 'Ferramentas';
+    case 'ferramentas_etiquetas':
+      return 'Ferramentas > Etiquetas';
+    case 'ferramentas_editor':
+      return 'Ferramentas > Editor de Etiquetas';
+    case 'ferramentas_impressoras':
+      return 'Ferramentas > Central de Impressoras';
     case 'hub_settings':
       return 'Configurações Gerais';
     case 'hub_supervisor':
       return 'Painel Supervisor';
     case 'hub_feedbacks':
       return 'Gestão de Feedbacks';
+    case 'mapa_arquitetura':
+      return 'Mapa operacional';
     default:
       return '';
   }

@@ -9,7 +9,7 @@ export default function ControleQualidadeView({ onBackToHub }: Props) {
   return (
     <ModulePlaceholderView
       title="Controle de Qualidade"
-      description="Laudos, especificações, não-conformidades e rastreabilidade de lotes. Em breve integrado à produção e estoque."
+      description="Visão geral de laudos, especificações, não-conformidades e rastreabilidade de lotes."
       onBackToHub={onBackToHub}
     />
   );

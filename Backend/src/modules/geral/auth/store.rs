@@ -14,15 +14,31 @@ const SESSION_DAYS: i64 = 30;
 const MIN_SUPERVISOR_PASSWORD_LEN: usize = 8;
 const MIN_OPERATOR_PASSWORD_LEN: usize = 4;
 
+static AUTH_INIT_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub async fn init_auth_tables(pool: &PgPool) -> Result<(), String> {
+    if AUTH_INIT_DONE.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(());
+    }
     seed_default_operators(pool).await?;
     migrate_operator_modules(pool).await?;
+    migrate_operator_modules_access_level(pool).await?;
     migrate_linha_produtos_module_key(pool).await?;
     migrate_estoque_submodules(pool).await?;
     migrate_channels_to_stable(pool).await?;
     migrate_supervisor_role(pool).await?;
     migrate_kit_composicao_schema(pool).await?;
+    migrate_overrides_programadas_schema(pool).await?;
     let _ = ensure_supervisor_password_ready(pool).await;
+    AUTH_INIT_DONE.store(true, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
+async fn migrate_operator_modules_access_level(pool: &PgPool) -> Result<(), String> {
+    sqlx::query("ALTER TABLE hub_operator_modules ADD COLUMN IF NOT EXISTS access_level VARCHAR(20) NOT NULL DEFAULT 'edit'")
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -124,6 +140,12 @@ async fn migrate_kit_composicao_schema(pool: &PgPool) -> Result<(), String> {
     .execute(pool)
     .await;
 
+    let _ = sqlx::query(
+        "ALTER TABLE kit_composicao ADD COLUMN IF NOT EXISTS origem TEXT NOT NULL DEFAULT 'manual'",
+    )
+    .execute(pool)
+    .await;
+
     let ok: bool = sqlx::query_scalar(
         "SELECT EXISTS (
             SELECT 1 FROM information_schema.columns
@@ -131,6 +153,9 @@ async fn migrate_kit_composicao_schema(pool: &PgPool) -> Result<(), String> {
          ) AND EXISTS (
             SELECT 1 FROM information_schema.columns
             WHERE table_schema = 'public' AND table_name = 'kit_composicao' AND column_name = 'fator_proporcao_kits'
+         ) AND EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'kit_composicao' AND column_name = 'origem'
          )",
     )
     .fetch_one(pool)
@@ -139,11 +164,24 @@ async fn migrate_kit_composicao_schema(pool: &PgPool) -> Result<(), String> {
 
     if !ok {
         return Err(
-            "Tabela kit_composicao sem fator_proporcao_qtd/fator_proporcao_kits. \
-             Aplique Backend/supabase/005_kit_composicao.sql no Postgres."
+            "Tabela kit_composicao sem fator_proporcao_qtd/fator_proporcao_kits/origem. \
+             Aplique Backend/supabase/005_kit_composicao.sql e 027_kit_composicao_origem.sql no Postgres."
                 .into(),
         );
     }
+    Ok(())
+}
+
+/// Garante colunas de produções programadas em overrides_produtos.
+async fn migrate_overrides_programadas_schema(pool: &PgPool) -> Result<(), String> {
+    let _ = sqlx::query(
+        "ALTER TABLE overrides_produtos
+         ADD COLUMN IF NOT EXISTS is_producao_programada INTEGER DEFAULT 0,
+         ADD COLUMN IF NOT EXISTS producao_programada_disparo BIGINT,
+         ADD COLUMN IF NOT EXISTS producao_programada_objetivo BIGINT",
+    )
+    .execute(pool)
+    .await;
     Ok(())
 }
 
@@ -628,10 +666,41 @@ pub async fn get_operator_modules(pool: &PgPool, operator_id: &str) -> Result<Ve
     Ok(rows.into_iter().map(|(k,)| k).collect())
 }
 
+pub async fn get_operator_modules_and_permissions(
+    pool: &PgPool,
+    operator_id: &str,
+) -> Result<(Vec<String>, std::collections::HashMap<String, String>), String> {
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT module_key, access_level FROM hub_operator_modules WHERE operator_id = $1 ORDER BY module_key",
+    )
+    .bind(operator_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut modules = Vec::new();
+    let mut perms = std::collections::HashMap::new();
+    for (key, level) in rows {
+        let lvl = level.unwrap_or_else(|| "edit".to_string());
+        perms.insert(key.clone(), lvl);
+        modules.push(key);
+    }
+    Ok((modules, perms))
+}
+
 pub async fn set_operator_modules(
     pool: &PgPool,
     operator_id: &str,
     modules: &[String],
+) -> Result<(), String> {
+    set_operator_modules_with_permissions(pool, operator_id, modules, None).await
+}
+
+pub async fn set_operator_modules_with_permissions(
+    pool: &PgPool,
+    operator_id: &str,
+    modules: &[String],
+    permissions: Option<&std::collections::HashMap<String, String>>,
 ) -> Result<(), String> {
     let normalized = normalize_modules(modules);
     sqlx::query("DELETE FROM hub_operator_modules WHERE operator_id = $1")
@@ -640,11 +709,17 @@ pub async fn set_operator_modules(
         .await
         .map_err(|e| e.to_string())?;
     for key in normalized {
+        let level = permissions
+            .and_then(|p| p.get(&key))
+            .map(|s| s.as_str())
+            .unwrap_or("edit");
+        let level = if level == "view" { "view" } else { "edit" };
         sqlx::query(
-            "INSERT INTO hub_operator_modules (operator_id, module_key) VALUES ($1, $2)",
+            "INSERT INTO hub_operator_modules (operator_id, module_key, access_level) VALUES ($1, $2, $3)",
         )
         .bind(operator_id)
         .bind(&key)
+        .bind(level)
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
@@ -656,12 +731,17 @@ async fn resolve_modules_for_operator(
     pool: &PgPool,
     operator_id: &str,
     role: &str,
-) -> Result<Vec<String>, String> {
-    let stored = get_operator_modules(pool, operator_id).await?;
+) -> Result<(Vec<String>, std::collections::HashMap<String, String>), String> {
+    let (stored, perms) = get_operator_modules_and_permissions(pool, operator_id).await?;
     if !stored.is_empty() {
-        return Ok(stored);
+        return Ok((stored, perms));
     }
-    Ok(default_modules_for_role(role))
+    let default_mods = default_modules_for_role(role);
+    let mut default_perms = std::collections::HashMap::new();
+    for m in &default_mods {
+        default_perms.insert(m.clone(), "edit".to_string());
+    }
+    Ok((default_mods, default_perms))
 }
 
 pub async fn list_active_operators(pool: &PgPool) -> Result<Vec<OperatorPublic>, String> {
@@ -689,7 +769,7 @@ pub async fn list_all_operators(pool: &PgPool) -> Result<Vec<OperatorDetail>, St
     let mut out = Vec::new();
     for (id, display_name, role, active_raw, update_channel, password_hash) in rows {
         let active = active_raw == 1;
-        let modules = resolve_modules_for_operator(pool, &id, &role).await?;
+        let (modules, permissions) = resolve_modules_for_operator(pool, &id, &role).await?;
         let channel = normalize_update_channel(&role, Some(&update_channel))?;
         let has_password = password_hash.as_ref().is_some_and(|h| !h.is_empty());
         out.push(OperatorDetail {
@@ -698,6 +778,7 @@ pub async fn list_all_operators(pool: &PgPool) -> Result<Vec<OperatorDetail>, St
             role,
             active,
             modules,
+            permissions,
             update_channel: channel,
             has_password,
         });
@@ -733,7 +814,7 @@ pub async fn find_operator_by_id(pool: &PgPool, id: &str) -> Result<Option<Opera
     match row {
         Some((id, display_name, role, active_raw, update_channel, password_hash)) => {
             let active = active_raw == 1;
-            let modules = resolve_modules_for_operator(pool, &id, &role).await?;
+            let (modules, permissions) = resolve_modules_for_operator(pool, &id, &role).await?;
             let channel = normalize_update_channel(&role, Some(&update_channel))?;
             Ok(Some(OperatorDetail {
                 id,
@@ -741,6 +822,7 @@ pub async fn find_operator_by_id(pool: &PgPool, id: &str) -> Result<Option<Opera
                 role,
                 active,
                 modules,
+                permissions,
                 update_channel: channel,
                 has_password: password_hash.as_ref().is_some_and(|h| !h.is_empty()),
             }))
@@ -805,7 +887,7 @@ async fn create_session_for_operator(
     pool: &PgPool,
     operator: &Operator,
 ) -> Result<(String, Operator, Vec<String>, String), String> {
-    let modules = resolve_modules_for_operator(pool, &operator.id, &operator.role).await?;
+    let (modules, _) = resolve_modules_for_operator(pool, &operator.id, &operator.role).await?;
 
     let token = Uuid::new_v4().to_string();
     let expires_at = (Utc::now() + Duration::days(SESSION_DAYS))
@@ -830,6 +912,15 @@ pub async fn build_auth_user(
     device_id: Option<&str>,
 ) -> Result<super::models::AuthUser, String> {
     let role = OperatorRole::from_str(&operator.role);
+    let (resolved_modules, mut permissions) = resolve_modules_for_operator(pool, &operator.id, &operator.role).await?;
+    let mut final_modules = if modules.is_empty() { resolved_modules } else { modules };
+    if role.is_supervisor() {
+        final_modules = all_module_keys_vec();
+        permissions.clear();
+        for m in &final_modules {
+            permissions.insert(m.clone(), "edit".to_string());
+        }
+    }
     let user_channel = get_operator_update_channel(pool, &operator.id, &operator.role).await?;
     let device_channel = match device_id.filter(|s| !s.trim().is_empty()) {
         Some(did) => get_device_update_channel(pool, did).await?,
@@ -845,10 +936,12 @@ pub async fn build_auth_user(
             operator_id: operator.id.clone(),
             display_name: operator.display_name.clone(),
             role: role.clone(),
-            modules: modules.clone(),
+            modules: final_modules.clone(),
+            permissions: permissions.clone(),
         }
         .avatar_url(),
-        modules,
+        modules: final_modules,
+        permissions,
         update_channel: effective.clone(),
         user_update_channel: user_channel,
         device_update_channel: device_channel,
@@ -862,6 +955,7 @@ pub async fn create_operator(
     display_name: &str,
     role: &str,
     modules: &[String],
+    permissions: Option<&std::collections::HashMap<String, String>>,
     update_channel: Option<&str>,
     password: Option<&str>,
 ) -> Result<OperatorDetail, String> {
@@ -916,7 +1010,7 @@ pub async fn create_operator(
     } else {
         normalize_modules(modules)
     };
-    set_operator_modules(pool, &id, &mods).await?;
+    set_operator_modules_with_permissions(pool, &id, &mods, permissions).await?;
 
     find_operator_by_id(pool, &id)
         .await?
@@ -930,21 +1024,34 @@ pub async fn update_operator(
     role: &str,
     active: bool,
     modules: &[String],
+    permissions: Option<&std::collections::HashMap<String, String>>,
     update_channel: Option<&str>,
     password: Option<&str>,
     supervisor_id: Option<&str>,
     supervisor_password: Option<&str>,
 ) -> Result<OperatorDetail, String> {
-    if role == "supervisor" || role == "admin" {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM hub_operators WHERE role IN ('supervisor', 'admin') AND active = 1 AND id != $1",
-        )
-        .bind(id)
-        .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
-        if count > 0 && active {
-            return Err("Já existe um supervisor ativo.".to_string());
+    // Só bloqueia promoção a supervisor/admin se já existe outro ativo.
+    // Atualizar um supervisor já existente (ex.: senha) deve ser permitido.
+    if (role == "supervisor" || role == "admin") && active {
+        let current_role: Option<String> =
+            sqlx::query_scalar("SELECT role FROM hub_operators WHERE id = $1")
+                .bind(id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| e.to_string())?;
+        let already_supervisor = current_role
+            .as_deref()
+            .is_some_and(|r| r == "supervisor" || r == "admin");
+        if !already_supervisor {
+            let count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM hub_operators WHERE role IN ('supervisor', 'admin') AND active = 1",
+            )
+            .fetch_one(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+            if count > 0 {
+                return Err("Já existe um supervisor ativo.".to_string());
+            }
         }
     }
 
@@ -963,7 +1070,11 @@ pub async fn update_operator(
     let active_val: i32 = if active { 1 } else { 0 };
 
     if let Some(pwd) = password.filter(|p| !p.trim().is_empty()) {
-        validate_operator_password(pwd)?;
+        if role == "supervisor" || role == "admin" {
+            validate_supervisor_password(pwd)?;
+        } else {
+            validate_operator_password(pwd)?;
+        }
         let hash = hash_password(pwd)?;
         sqlx::query(
             "UPDATE hub_operators SET display_name = $2, role = $3, active = $4, update_channel = $5, password_hash = $6 WHERE id = $1",
@@ -996,7 +1107,7 @@ pub async fn update_operator(
     } else {
         normalize_modules(modules)
     };
-    set_operator_modules(pool, id, &mods).await?;
+    set_operator_modules_with_permissions(pool, id, &mods, permissions).await?;
 
     if !active {
         sqlx::query("DELETE FROM hub_sessions WHERE operator_id = $1")
@@ -1092,15 +1203,20 @@ pub async fn resolve_session(pool: &PgPool, token: &str) -> Result<Option<AuthCo
     match row {
         Some((id, display_name, role_str)) => {
             let role = OperatorRole::from_str(&role_str);
-            let mut modules = resolve_modules_for_operator(pool, &id, &role_str).await?;
+            let (mut modules, mut permissions) = resolve_modules_for_operator(pool, &id, &role_str).await?;
             if role.is_supervisor() {
                 modules = all_module_keys_vec();
+                permissions.clear();
+                for m in &modules {
+                    permissions.insert(m.clone(), "edit".to_string());
+                }
             }
             Ok(Some(AuthContext {
                 operator_id: id,
                 display_name,
                 role,
                 modules,
+                permissions,
             }))
         }
         None => Ok(None),
@@ -1137,6 +1253,10 @@ pub async fn log_audit(
 }
 
 pub fn is_public_path(path: &str) -> bool {
+    // SPA / assets estáticos (servidos fora do middleware via fallback; defesa em profundidade)
+    if !path.starts_with("/api") {
+        return true;
+    }
     matches!(
         path,
         "/api/health"
@@ -1145,14 +1265,23 @@ pub fn is_public_path(path: &str) -> bool {
             | "/api/auth/session"
             | "/api/auth/setup-status"
             | "/api/auth/setup-supervisor"
-            | "/login"
     ) || path.starts_with("/api/hub/client-config")
-        || path.starts_with("/api/hub/updater-manifest/")
         || path == "/api/hub/public-config"
+        || path.starts_with("/api/hub/feedbacks")
+        || path.starts_with("/api/chat")
+        || path == "/api/server-manager/status"
+        || path == "/api/server-manager/links"
+        || path.starts_with("/api/producao/ultimo-lote")
         || path.starts_with("/api/google/callback")
 }
 
 pub fn requires_supervisor(path: &str, method: &str) -> bool {
+    if path.starts_with("/api/server-manager") {
+        return matches!(method, "POST" | "PUT" | "DELETE");
+    }
+    if path.starts_with("/api/mapa") {
+        return matches!(method, "GET" | "POST" | "PUT" | "PATCH" | "DELETE");
+    }
     if path.starts_with("/api/admin/db-usage") {
         return matches!(method, "GET");
     }
@@ -1162,7 +1291,14 @@ pub fn requires_supervisor(path: &str, method: &str) -> bool {
     if path.starts_with("/api/admin/pg-backup/") {
         return matches!(method, "POST");
     }
-    if path == "/api/admin/audit/stock/resync-insumos" {
+    if path == "/api/admin/audit/events" {
+        return matches!(method, "GET");
+    }
+    if path == "/api/admin/audit/stock/resync-insumos"
+        || path == "/api/admin/audit/stock/resync-produtos"
+        || path == "/api/admin/audit/stock/verify-insumos"
+        || path == "/api/admin/audit/stock/verify-all"
+    {
         return matches!(method, "POST");
     }
     if path.starts_with("/api/admin/audit/stock/") {
@@ -1177,11 +1313,17 @@ pub fn requires_supervisor(path: &str, method: &str) -> bool {
     if path.starts_with("/api/auth/devices/manage") {
         return matches!(method, "GET" | "PUT");
     }
-    if path.starts_with("/api/auth/releases/") {
-        return matches!(method, "GET" | "POST" | "PUT");
-    }
-    if !matches!(method, "POST" | "PUT" | "DELETE") {
+    if !matches!(method, "POST" | "PUT" | "DELETE" | "PATCH") {
         return false;
+    }
+    // Configuração de Compras (Disp/Obj, categorias, regras, config app)
+    if path.starts_with("/api/hub/compras/custom-configs")
+        || path.starts_with("/api/hub/compras/categories")
+        || path == "/api/hub/compras/config"
+        || path == "/api/hub/compras/pinned-subcategories"
+        || path == "/api/hub/compras/items/category"
+    {
+        return true;
     }
     path.starts_with("/api/import/sync")
         || path.starts_with("/api/import/dump")
@@ -1191,7 +1333,7 @@ pub fn requires_supervisor(path: &str, method: &str) -> bool {
 }
 
 pub fn requires_module(path: &str, method: &str) -> Option<&'static str> {
-    if !matches!(method, "POST" | "PUT" | "DELETE") {
+    if !matches!(method, "POST" | "PUT" | "DELETE" | "PATCH") {
         return None;
     }
     if path.starts_with("/api/hub/microbio") {
@@ -1224,11 +1366,11 @@ pub fn has_write_access(ctx: &AuthContext, path: &str, method: &str) -> bool {
     if ctx.role.is_supervisor() {
         return true;
     }
-    if !matches!(method, "POST" | "PUT" | "DELETE") {
+    if !matches!(method, "POST" | "PUT" | "DELETE" | "PATCH") {
         return true;
     }
     if path.starts_with("/api/hub/compras") {
-        return ctx.modules.iter().any(|m| m.starts_with("compras"));
+        return ctx.modules.iter().any(|m| m.starts_with("compras") && ctx.can_edit_module(m));
     }
     if path.starts_with("/api/almox") && !path.starts_with("/api/almox/demands") {
         use super::modules_registry::*;
@@ -1241,11 +1383,26 @@ pub fn has_write_access(ctx: &AuthContext, path: &str, method: &str) -> bool {
                     | MODULE_ESTOQUE_PECAS
                     | MODULE_ESTOQUE_EQUIPAMENTOS
                     | MODULE_ESTOQUE_MANUTENCOES
-            )
+            ) && ctx.can_edit_module(m)
         });
     }
     if let Some(required) = requires_module(path, method) {
-        return ctx.has_module(required);
+        return ctx.can_edit_module(required);
+    }
+    if path.starts_with("/api/products") || path.starts_with("/api/overrides") || path.starts_with("/api/lotes") {
+        return ctx.can_edit_module(super::modules_registry::MODULE_PRODUCAO);
+    }
+    if path.starts_with("/api/kits") {
+        return ctx.can_edit_module(super::modules_registry::MODULE_MONTAGEM_KITS);
+    }
+    if path.starts_with("/api/qualidade") {
+        return ctx.can_edit_module(super::modules_registry::MODULE_CONTROLE_QUALIDADE)
+            || ctx.can_edit_module(super::modules_registry::MODULE_QUALIDADE_POPS)
+            || ctx.can_edit_module(super::modules_registry::MODULE_QUALIDADE_DEVOLUCOES)
+            || ctx.can_edit_module(super::modules_registry::MODULE_QUALIDADE_DOCUMENTACAO);
+    }
+    if path.starts_with("/api/vendas") {
+        return ctx.can_edit_module(super::modules_registry::MODULE_VENDAS);
     }
     true
 }

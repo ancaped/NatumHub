@@ -1,13 +1,13 @@
 ---
 name: natumhub-feedbacks
 description: >-
-  Gerencia o sistema de feedbacks do NatumHub: triagem admin, prioridades,
+  Gerencia o sistema de feedbacks do Nexus: triagem admin, prioridades,
   status, widget de envio, API /api/hub/feedbacks e tabelas PostgreSQL
   feedbacks/feedback_notes. Use quando o usuário pedir feedback, triagem,
   gestão de reports, prioridade ou alterações no FeedbackWidget/FeedbacksAdminView.
 ---
 
-# NatumHub — Skill: Feedbacks
+# Nexus — Skill: Feedbacks
 
 ## Quando usar
 
@@ -16,7 +16,7 @@ Triagem admin, alterar fluxo de envio, API de feedbacks, ou schema das tabelas d
 
 ## Ler primeiro
 
-1. `ContextoIA/feedbacks/README.md`
+1. Playbook: `Feedbacks/feedback.md`
 2. Código: `Backend/src/modules/geral/feedbacks/`, `Frontend/src/modules/geral/components/FeedbackWidget.tsx`, `Frontend/src/modules/geral/feedbacks/FeedbacksAdminView.tsx`
 
 ## Fluxo do sistema
@@ -58,7 +58,7 @@ Frontend: `api.submitFeedback`, `getFeedbacksManage`, `getFeedbackDetail`, `upda
 
 ## Regras
 
-- Fonte de verdade = banco. Playbook do agente: `Feedbacks/feedback.md`. Espelho opcional: `Feedbacks/feedback_index.md`.
+- Fonte de verdade = Postgres (`feedbacks` / `feedback_notes`). Playbook: `Feedbacks/feedback.md`.
 - Solicitante vem de `AuthContext.display_name` no submit.
 - Gestão admin: **somente** `role === 'admin'`.
 - `awaiting_review` exige nota em `feedback_notes`.
@@ -70,4 +70,4 @@ Frontend: `api.submitFeedback`, `getFeedbacksManage`, `getFeedbackDetail`, `upda
 - [ ] Status/prioridade refletem no Postgres (e no painel admin)
 - [ ] Admin panel só no dropdown do perfil
 - [ ] Widget sem lista/resolver (só envio)
-- [ ] Doc atualizada se contrato API mudou (`ContextoIA/feedbacks/`)
+- [ ] Contrato API: atualizar `ContextoIA/api/routes.md` se mudou

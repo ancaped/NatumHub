@@ -1,6 +1,7 @@
 -- Passo E: Notas fiscais de compra (itens)
 -- Destino: invoices
 -- Full: últimos 48 meses | Incremental: desde watermark − 2 dias
+-- Inclui impostos do item, frete da NF, duplicatas (DUP1..4) e conhecimento de frete (CTe / F_*)
 
 SELECT 
     c.NOTA,
@@ -31,7 +32,18 @@ SELECT
     CAST(f.DUP3_VALOR AS FLOAT) as D3_VAL,
     f.DUP4_NUMERO COLLATE Latin1_General_CI_AS as D4_NUM,
     f.DUP4_VENC as D4_VENC,
-    CAST(f.DUP4_VALOR AS FLOAT) as D4_VAL
+    CAST(f.DUP4_VALOR AS FLOAT) as D4_VAL,
+    f.F_Conhecimento COLLATE Latin1_General_CI_AS as FTE_NUM,
+    CAST(f.F_Valor_Doc_Fiscal AS FLOAT) as FTE_VALOR,
+    f.F_Transportadora COLLATE Latin1_General_CI_AS as FTE_CARRIER_NAME,
+    f.F_CNPJ COLLATE Latin1_General_CI_AS as FTE_CARRIER_CNPJ,
+    f.F_Data_Emissao as FTE_ISSUE_DATE,
+    f.F_Data_Entrada as FTE_ENTRY_DATE,
+    f.F_CIF_FOB COLLATE Latin1_General_CI_AS as FTE_CIF_FOB,
+    f.F_Serie COLLATE Latin1_General_CI_AS as FTE_SERIE,
+    f.F_CFOP COLLATE Latin1_General_CI_AS as FTE_CFOP,
+    f.F_Natureza COLLATE Latin1_General_CI_AS as FTE_NATUREZA,
+    CAST(f.F_Valor_ICMS AS FLOAT) as FTE_ICMS
 FROM COMPRAS2 c WITH (NOLOCK)
 LEFT JOIN COMPRAS1 f WITH (NOLOCK) ON c.nCodFornec = f.nCodFornec AND c.NOTA = f.NOTA
 WHERE f.DATA_EMISSAO >= DATEADD(month, -48, GETDATE())

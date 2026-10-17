@@ -98,6 +98,7 @@ export function HistoryTab({
             onChange={(e) => setHistoryActiveTab(e.target.value)}
           >
             <option value="ALL">Todas as Linhas</option>
+            <option value="KITS">📦 Kits Comerciais</option>
             {configs.filter(c => c.visivel !== 0).map(c => (
               <option key={c.linha_prefix} value={c.linha_prefix}>{c.nome_linha}</option>
             ))}

@@ -80,6 +80,7 @@ pub async fn get_erp_sync_schedule_handler(State(state): State<Arc<AppState>>) -
                 horarios,
                 ultima_execucao: ultima,
                 proxima_execucao: proxima,
+                auto_audit_interval_minutes: cfg.auto_audit_interval_minutes,
             };
             (StatusCode::OK, Json(body)).into_response()
         }
@@ -108,6 +109,7 @@ pub async fn save_erp_sync_schedule_handler(
     let normalized = ErpSyncScheduleConfig {
         ativo: cfg.ativo,
         horarios: horarios.clone(),
+        auto_audit_interval_minutes: cfg.auto_audit_interval_minutes.max(0),
     };
 
     match state.db.save_erp_sync_schedule(&normalized).await {
@@ -121,9 +123,8 @@ pub async fn save_erp_sync_schedule_handler(
                 StatusCode::OK,
                 Json(json!({
                     "status": "success",
-                    "ativo": normalized.ativo,
-                    "horarios": horarios,
                     "proxima_execucao": proxima,
+                    "auto_audit_interval_minutes": normalized.auto_audit_interval_minutes
                 })),
             )
                 .into_response()

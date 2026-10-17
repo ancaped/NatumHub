@@ -163,7 +163,14 @@ const DEMANDS_SQL_ITEMS: &str = "
              SELECT 
                  i.code, i.description, i.unit, i.category_id, COALESCE(c.name, 'Sem Categoria') as category_name,
                  COALESCE(s.stock_qty, 0) as stock_qty, COALESCE(s.reserved_qty, 0) as reserved_qty, 
-                 COALESCE(s.in_production, 0) as in_production, COALESCE(s.in_orders, 0) as in_orders,
+                 COALESCE(s.in_production, 0) as in_production,
+                 COALESCE((
+                     SELECT SUM(poi.n_qtde - poi.n_chegou)
+                     FROM purchase_order_items poi
+                     JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
+                     WHERE po.c_status <> 'T' AND (poi.n_qtde > poi.n_chegou)
+                       AND poi.c_referencia = i.code
+                 ), 0.0) as in_orders,
                  COALESCE(c2024.monthly_avg, 0) as monthly_avg_2024, 
                  COALESCE(c2025.monthly_avg, 0) as monthly_avg_2025, 
                  COALESCE(c2026.monthly_avg, 0) as monthly_avg_2026,
@@ -171,11 +178,11 @@ const DEMANDS_SQL_ITEMS: &str = "
              FROM items i
              LEFT JOIN categories c ON i.category_id = c.id
              LEFT JOIN (
-                 SELECT DISTINCT ON (item_code)
-                    item_code, stock_qty, reserved_qty, in_production, in_orders
+                 SELECT DISTINCT ON (TRIM(item_code))
+                    TRIM(item_code) as item_code, stock_qty, reserved_qty, in_production, in_orders
                  FROM stock_snapshots
-                 ORDER BY item_code, snapshot_date DESC, id DESC
-             ) s ON i.code = s.item_code
+                 ORDER BY TRIM(item_code), snapshot_date DESC, id DESC
+             ) s ON TRIM(i.code) = s.item_code
              LEFT JOIN consumption c2024 ON i.code = c2024.item_code AND c2024.year = 2024
              LEFT JOIN consumption c2025 ON i.code = c2025.item_code AND c2025.year = 2025
              LEFT JOIN consumption c2026 ON i.code = c2026.item_code AND c2026.year = 2026
@@ -202,11 +209,12 @@ const DEMANDS_SQL_PRODUCTS: &str = "
                          SELECT SUM(soi.n_qtde - soi.n_qtde_fat)
                          FROM sales_order_items soi
                          JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
-                         WHERE so.c_status NOT IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
+                         WHERE TRIM(COALESCE(so.c_status, '')) IN ('PP', 'LB', 'EX', 'CF', 'AL')
+                           AND (soi.n_qtde > soi.n_qtde_fat)
                            AND soi.c_cod_prod = p.codigo
                            AND (
-                                CAST(COALESCE((SELECT value FROM settings WHERE key = 'sales_faltas_days_limit'), '180') AS INTEGER) = 0 
-                                OR so.d_pedido::date >= CURRENT_DATE - (COALESCE((SELECT value FROM settings WHERE key = 'sales_faltas_days_limit'), '180') || ' days')::interval
+                                CAST(COALESCE((SELECT value FROM settings WHERE key = 'sales_faltas_days_limit'), '90') AS INTEGER) = 0
+                                OR so.d_pedido::date >= CURRENT_DATE - (COALESCE((SELECT value FROM settings WHERE key = 'sales_faltas_days_limit'), '90') || ' days')::interval
                            )
                      ), 0.0))
                  ) as in_orders,
@@ -250,6 +258,353 @@ fn build_demands_sql(include_products: bool) -> String {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct SimProducaoContribution {
+    pub ingredient_code: String,
+    pub product_code: String,
+    pub product_desc: String,
+    pub status: String,
+    pub status_label: String,
+    pub production_qty: f64,
+    pub qty_per_unit: f64,
+    pub insumo_qty: f64,
+}
+
+/// Contribuições por produto×insumo da simulação automática (Produzir Urgente / Abrir Ordem).
+/// Kits: explode `kit_composicao` → formulações dos componentes + itens diretos (ex. caixa).
+pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProducaoContribution> {
+    use std::collections::HashSet;
+
+    let db = crate::core::db::Db::new(pool.clone());
+    let Ok((products, stocks, fat_map, configs, overrides, _)) =
+        crate::handlers::producao::fetch_calculation_data(&db).await
+    else {
+        return Vec::new();
+    };
+
+    let mut computed =
+        crate::modules::producao::gerenciamento::calculations::calculate_products(
+            &products,
+            &stocks,
+            &fat_map,
+            &configs,
+            &overrides,
+        );
+    let kit_composition = db.get_kit_composition().await.unwrap_or_default();
+    crate::handlers::producao::post_process_kit_only_production(&mut computed, &kit_composition);
+
+    let mut needed: Vec<(String, String, String, String, f64)> = Vec::new();
+    for p in &computed {
+        if p.producao_recomendada <= 0 {
+            continue;
+        }
+        if p.status == "critico" || p.status == "ordem" || p.status == "saindo_de_linha" {
+            needed.push((
+                p.codigo.trim().to_string(),
+                p.descricao.clone(),
+                p.status.clone(),
+                p.status_label.clone(),
+                p.producao_recomendada as f64,
+            ));
+        }
+    }
+    if needed.is_empty() {
+        return Vec::new();
+    }
+
+    let needed_codes: HashSet<String> = needed.iter().map(|(c, _, _, _, _)| c.clone()).collect();
+
+    // Formulações: códigos needed + todos os componentes dos kits urgentes.
+    let mut form_codes: HashSet<String> = needed_codes.clone();
+    for (kit_code, comps) in &kit_composition {
+        if !needed_codes.contains(kit_code.trim()) {
+            continue;
+        }
+        for (comp, _, _, _) in comps {
+            form_codes.insert(comp.trim().to_string());
+        }
+    }
+    let form_codes_vec: Vec<String> = form_codes.into_iter().collect();
+
+    let mut formulations: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+    if let Ok(rows) = sqlx::query(
+        "SELECT product_code, ingredient_code, quantity FROM formulations WHERE product_code = ANY($1)",
+    )
+    .bind(&form_codes_vec)
+    .fetch_all(pool)
+    .await
+    {
+        for row in rows {
+            let p_code: String = row.get::<String, _>(0).trim().to_string();
+            let ing: String = row.get::<String, _>(1).trim().to_string();
+            let qty: f64 = row.get(2);
+            formulations.entry(p_code).or_default().push((ing, qty));
+        }
+    }
+
+    // Carrega formulações de bases/semi-acabados (sub-ingredientes de receitas)
+    let mut sub_codes: HashSet<String> = HashSet::new();
+    for list in formulations.values() {
+        for (ing, _) in list {
+            sub_codes.insert(ing.trim().to_string());
+        }
+    }
+    let sub_codes_vec: Vec<String> = sub_codes.into_iter().collect();
+    let mut base_formulations: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+    if !sub_codes_vec.is_empty() {
+        if let Ok(rows) = sqlx::query(
+            "SELECT product_code, ingredient_code, quantity FROM formulations WHERE product_code = ANY($1)",
+        )
+        .bind(&sub_codes_vec)
+        .fetch_all(pool)
+        .await
+        {
+            for row in rows {
+                let p_code: String = row.get::<String, _>(0).trim().to_string();
+                let ing: String = row.get::<String, _>(1).trim().to_string();
+                let qty: f64 = row.get(2);
+                base_formulations.entry(p_code).or_default().push((ing, qty));
+            }
+        }
+    }
+
+    // Index kit_composicao by trimmed kit code.
+    let mut kits_by_code: HashMap<String, &Vec<(String, f64, Option<f64>, Option<i32>)>> =
+        HashMap::new();
+    for (kit_code, comps) in &kit_composition {
+        kits_by_code.insert(kit_code.trim().to_string(), comps);
+    }
+
+    // Descrições dos componentes (produto ou item) para breakdown auditável.
+    let mut comp_descs: HashMap<String, String> = HashMap::new();
+    for p in &computed {
+        comp_descs.insert(p.codigo.trim().to_string(), p.descricao.clone());
+    }
+    let mut missing_desc: Vec<String> = Vec::new();
+    for (kit_code, comps) in &kit_composition {
+        if !needed_codes.contains(kit_code.trim()) {
+            continue;
+        }
+        for (comp, _, _, _) in comps {
+            let k = comp.trim().to_string();
+            if !comp_descs.contains_key(&k) {
+                missing_desc.push(k);
+            }
+        }
+    }
+    if !missing_desc.is_empty() {
+        if let Ok(rows) = sqlx::query(
+            "SELECT TRIM(code), description FROM items WHERE TRIM(code) = ANY($1)",
+        )
+        .bind(&missing_desc)
+        .fetch_all(pool)
+        .await
+        {
+            for row in rows {
+                let code: String = row.get(0);
+                let desc: String = row.get(1);
+                comp_descs.entry(code).or_insert(desc);
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+
+    let push_item_demand = |
+        out_vec: &mut Vec<SimProducaoContribution>,
+        ing_code: &str,
+        unit_qty: f64,
+        comp_prod_qty: f64,
+        product_code: &str,
+        product_desc: &str,
+        status: &str,
+        status_label: &str,
+        bases_map: &HashMap<String, Vec<(String, f64)>>,
+    | {
+        let ing_key = ing_code.trim();
+        if let Some(sub_ings) = bases_map.get(ing_key) {
+            // Explode base em matérias-primas reais
+            for (sub_ing, sub_unit_qty) in sub_ings {
+                let effective_unit_qty = unit_qty * sub_unit_qty;
+                out_vec.push(SimProducaoContribution {
+                    ingredient_code: sub_ing.clone(),
+                    product_code: product_code.to_string(),
+                    product_desc: product_desc.to_string(),
+                    status: status.to_string(),
+                    status_label: status_label.to_string(),
+                    production_qty: comp_prod_qty,
+                    qty_per_unit: effective_unit_qty,
+                    insumo_qty: comp_prod_qty * effective_unit_qty,
+                });
+            }
+        } else {
+            // Item direto de embalagem ou matéria-prima direta
+            out_vec.push(SimProducaoContribution {
+                ingredient_code: ing_key.to_string(),
+                product_code: product_code.to_string(),
+                product_desc: product_desc.to_string(),
+                status: status.to_string(),
+                status_label: status_label.to_string(),
+                production_qty: comp_prod_qty,
+                qty_per_unit: unit_qty,
+                insumo_qty: comp_prod_qty * unit_qty,
+            });
+        }
+    };
+
+    for (p_code, p_desc, status, status_label, prod_qty) in needed {
+        if let Some(comps) = kits_by_code.get(&p_code) {
+            // Explode BOM do Kit: atribui aos componentes e suas bases
+            let via_label = format!("via {p_code} · {status_label}");
+            for (comp, qty_comp, _, _) in *comps {
+                let comp_key = comp.trim().to_string();
+                let comp_norm = comp_key.replace('.', "");
+                let is_comp_in_needed = needed_codes.contains(&comp_key) || needed_codes.contains(&comp_norm);
+                let has_own_formulation = formulations.contains_key(&comp_key) || formulations.contains_key(&comp_norm);
+
+                // Se o componente é um produto fabricado e já está na lista de produtos a produzir,
+                // não duplicar a necessidade de insumos através do kit.
+                if has_own_formulation && is_comp_in_needed {
+                    continue;
+                }
+
+                let qty_comp = *qty_comp;
+                if qty_comp <= 0.0 {
+                    continue;
+                }
+                let comp_desc = comp_descs
+                    .get(&comp_key)
+                    .cloned()
+                    .unwrap_or_else(|| comp_key.clone());
+                let comp_prod_qty = prod_qty * qty_comp;
+                if let Some(ings) = formulations.get(&comp_key) {
+                    for (ing, unit_qty) in ings {
+                        push_item_demand(
+                            &mut out,
+                            ing,
+                            *unit_qty,
+                            comp_prod_qty,
+                            &comp_key,
+                            &comp_desc,
+                            &status,
+                            &via_label,
+                            &base_formulations,
+                        );
+                    }
+                } else {
+                    // Item direto na composição (caixa / embalagem sem fórmula).
+                    // Se o item já faz parte da fórmula de algum componente deste kit (ex: fração da caixa
+                    // já alocada no frasco/shampoo/condicionador), não adicionar pelo kit para não duplicar/triplicar.
+                    let is_in_comp_form = comps.iter().any(|(c, _, _, _)| {
+                        let k = c.trim();
+                        let kn = k.replace('.', "");
+                        let check_form = |list: &Vec<(String, f64)>| {
+                            list.iter().any(|(ing, _)| {
+                                let ing_trim = ing.trim();
+                                ing_trim == comp_key || ing_trim.replace('.', "") == comp_norm
+                            })
+                        };
+                        formulations.get(k).map_or(false, check_form)
+                            || formulations.get(&kn).map_or(false, check_form)
+                    });
+
+                    if is_in_comp_form {
+                        continue;
+                    }
+
+                    out.push(SimProducaoContribution {
+                        ingredient_code: comp_key.clone(),
+                        product_code: p_code.clone(),
+                        product_desc: format!("{p_desc} (kit)"),
+                        status: status.clone(),
+                        status_label: via_label.clone(),
+                        production_qty: prod_qty,
+                        qty_per_unit: qty_comp,
+                        insumo_qty: comp_prod_qty,
+                    });
+                }
+            }
+            continue;
+        }
+
+        if let Some(ings) = formulations.get(&p_code) {
+            for (ing, unit_qty) in ings {
+                push_item_demand(
+                    &mut out,
+                    ing,
+                    *unit_qty,
+                    prod_qty,
+                    &p_code,
+                    &p_desc,
+                    &status,
+                    &status_label,
+                    &base_formulations,
+                );
+            }
+        }
+    }
+    out
+}
+
+/// Demanda de insumos se produzir produtos critico/ordem (e saindo_de_linha com qty > 0).
+async fn compute_sim_producao_map(pool: &PgPool) -> HashMap<String, f64> {
+    let mut map: HashMap<String, f64> = HashMap::new();
+    for c in collect_sim_producao_contributions(pool).await {
+        *map.entry(c.ingredient_code).or_default() += c.insumo_qty;
+    }
+    map
+}
+
+/// Breakdown da simulação automática filtrado por código do insumo (match trimado).
+pub async fn get_insumo_simulation_breakdown(
+    pool: &PgPool,
+    ingredient_code: &str,
+) -> crate::models::InsumoSimulationBreakdown {
+    let target = ingredient_code.trim();
+    let mut by_product: HashMap<String, crate::models::InsumoSimulationProduct> = HashMap::new();
+
+    for c in collect_sim_producao_contributions(pool).await {
+        if c.ingredient_code.trim() != target {
+            continue;
+        }
+        by_product
+            .entry(c.product_code.clone())
+            .and_modify(|existing| {
+                existing.insumo_qty += c.insumo_qty;
+                existing.production_qty = existing.production_qty.max(c.production_qty);
+                if existing.production_qty > 0.0 {
+                    existing.qty_per_unit = existing.insumo_qty / existing.production_qty;
+                } else {
+                    existing.qty_per_unit += c.qty_per_unit;
+                }
+            })
+            .or_insert(crate::models::InsumoSimulationProduct {
+                product_code: c.product_code,
+                description: c.product_desc,
+                status: c.status,
+                status_label: c.status_label,
+                production_qty: c.production_qty,
+                qty_per_unit: c.qty_per_unit,
+                insumo_qty: c.insumo_qty,
+            });
+    }
+
+    let mut products: Vec<_> = by_product.into_values().collect();
+    products.sort_by(|a, b| {
+        b.insumo_qty
+            .partial_cmp(&a.insumo_qty)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let total_insumo_qty: f64 = products.iter().map(|p| p.insumo_qty).sum();
+    let product_count = products.len() as i32;
+
+    crate::models::InsumoSimulationBreakdown {
+        total_insumo_qty,
+        product_count,
+        products,
+    }
+}
+
 fn build_demand_result(
     row: sqlx::postgres::PgRow,
     target_days: i32,
@@ -264,6 +619,9 @@ fn build_demand_result(
     period_by_config_key: &HashMap<String, i32>,
     fat_map: &HashMap<String, [i64; 12]>,
     lead_time_map: &HashMap<String, i32>,
+    override_period: Option<i32>,
+    manual_pending: &HashMap<String, (f64, f64)>,
+    sim_producao_map: &HashMap<String, f64>,
 ) -> Result<DemandResult, String> {
     let code: String = row.get(0);
     let desc: String = row.get(1);
@@ -279,8 +637,8 @@ fn build_demand_result(
     let avg26: f64 = row.get(11);
     let notes: Option<String> = row.get(12);
 
-    let total_reserved = total_reserved_map.get(&code).copied().unwrap_or(0.0);
-    let _remaining_reserved = remaining_reserved_map.get(&code).copied().unwrap_or(0.0);
+    let _total_reserved = total_reserved_map.get(&code).copied().unwrap_or(0.0);
+    let remaining_reserved = remaining_reserved_map.get(&code).copied().unwrap_or(0.0);
 
     use chrono::Datelike;
     let now = chrono::Local::now();
@@ -344,14 +702,18 @@ fn build_demand_result(
     };
 
     let cat_id_ref = cat_id.as_deref();
-    let resolved_period = resolve_periodo_media(
-        &code,
-        cat_id_ref,
-        item_configs,
-        subcat_configs,
-        cat_parent_map,
-        period_by_config_key,
-    );
+    let resolved_period = if let Some(op) = override_period {
+        op
+    } else {
+        resolve_periodo_media(
+            &code,
+            cat_id_ref,
+            item_configs,
+            subcat_configs,
+            cat_parent_map,
+            period_by_config_key,
+        )
+    };
     let sum_qty = sum_movements_for_period(monthly_movements, &code, resolved_period);
 
     let overall_avg = if sum_qty > 0.0 {
@@ -363,19 +725,34 @@ fn build_demand_result(
     };
     let daily_avg = overall_avg / 30.0;
 
-    // Estoque (nQtdeEstoqueA) já vem líquido da reserva no ERP — não descontar R/lotes de novo.
-    // Prev. Futura = estoque + pedidos (produção ignorada nesta previsão).
-    let future_stock_forecast = current_stock + in_orders;
+    // Estoque = nQtdeEstoque (tela ERP). Reserva (−R) = nqtdeReserva do ERP (espelho);
+    // lotes abertos só como fallback quando o ERP não informa reserva. Não descontar de novo.
+    // pedidos (+P) = POs abertos (não nQtdePedidos do cadastro).
+    // Prev. Futura = estoque + pedidos + manuais − sim_producao (Produzir Urgente / Abrir Ordem).
+    let (manual_in, manual_out) = manual_pending
+        .get(&code)
+        .copied()
+        .unwrap_or((0.0, 0.0));
+    let sim_producao = sim_producao_map
+        .get(&code)
+        .copied()
+        .unwrap_or(0.0)
+        .max(0.0);
+    let future_stock_forecast =
+        current_stock + in_orders + manual_in - manual_out - sim_producao;
     let max_forecast = if future_stock_forecast > 0.0 {
         future_stock_forecast
     } else {
         0.0
     };
 
-    let reserved_display = if reserved_qty_imported > 0.0 {
+    // Preferir espelho ERP (nqtdeReserva). Lotes só se ERP vier zerado — evita "falso erro"
+    // Hub×ERP quando a reserva do cadastro existe e a de lotes diverge.
+    let reserved_qty_erp = Some(reserved_qty_imported);
+    let reserved_display = if reserved_qty_imported.abs() > 1e-9 {
         reserved_qty_imported
     } else {
-        total_reserved
+        remaining_reserved
     };
 
     let estimated_duration_days = if daily_avg > 0.0 {
@@ -437,12 +814,14 @@ fn build_demand_result(
         }
     }
 
+    // Usa Prev. Futura real (pode ser negativa por sim_producao). Clamp em max_forecast
+    // só para duração — senão o déficit da simulação some da compra recomendada.
     let recommended_qty = if daily_avg <= 0.0 {
         0.0
     } else if estimated_duration_days >= (target_days_val as f64) {
         0.0
     } else {
-        let raw_rec = target_stock - max_forecast;
+        let raw_rec = target_stock - future_stock_forecast;
         if raw_rec > 0.0 {
             raw_rec.round()
         } else {
@@ -469,8 +848,10 @@ fn build_demand_result(
         category_name: cat_name,
         current_stock,
         reserved_qty: reserved_display,
+        reserved_qty_erp,
         in_production,
         in_orders,
+        sim_producao,
         avg2024: avg24_corrected,
         avg2025: avg25_corrected,
         avg2026: avg26_corrected,
@@ -494,6 +875,7 @@ pub async fn get_demands_query(
     pool: PgPool,
     category_id: Option<String>,
     target_days: i32,
+    override_period: Option<i32>,
 ) -> Result<Vec<DemandResult>, String> {
     let mut custom_configs: Vec<TempConfig> = Vec::new();
     if let Ok(rows) = sqlx::query(
@@ -565,232 +947,21 @@ pub async fn get_demands_query(
         }
     }
 
-    let mut open_lotes = Vec::new();
-    if let Ok(rows) = sqlx::query(
-        "SELECT document_number, item_code, quantity, details 
-         FROM stock_movements 
-         WHERE item_type = 'produto' AND movement_type = 'entrada'
-           AND COALESCE(document_number, '') <> ''
-           AND details IS NOT NULL
-           AND details NOT LIKE '%Status: EA%'
-           AND details NOT LIKE '%Status: CF%'
-           AND details NOT LIKE '%Status: FP%'
-           AND details NOT LIKE '%Status: CA%'
-           AND details NOT LIKE '%Status: FI%'",
-    )
-    .fetch_all(&pool)
-    .await
-    {
-        for row in rows {
-            if let (
-                Ok(doc_num),
-                Ok(item_code),
-                Ok(qty),
-                Ok(details),
-            ) = (
-                row.try_get::<Option<String>, _>(0),
-                row.try_get::<String, _>(1),
-                row.try_get::<f64, _>(2),
-                row.try_get::<Option<String>, _>(3),
-            ) {
-                let doc_num = doc_num.unwrap_or_default();
-                let details = details.unwrap_or_default();
-                if !doc_num.is_empty() {
-                    let mut d_pesado = String::new();
-                    for part in details.split('|') {
-                        let part = part.trim();
-                        if part.starts_with("dPesado:") {
-                            d_pesado = part.trim_start_matches("dPesado:").trim().to_string();
-                        }
-                    }
-                    open_lotes.push((doc_num, item_code, qty, d_pesado));
-                }
-            }
-        }
-    }
-
-    struct FormEntry {
-        ingredient_code: String,
-        quantity: f64,
-        percentage: f64,
-        unit: String,
-    }
-    let mut formulations_map: std::collections::HashMap<String, Vec<FormEntry>> =
-        std::collections::HashMap::new();
-    let mut formulation_bulk_sums: std::collections::HashMap<String, f64> =
-        std::collections::HashMap::new();
-    let mut formulation_total_sums: std::collections::HashMap<String, f64> =
-        std::collections::HashMap::new();
-
-    if let Ok(rows) = sqlx::query(
-        "SELECT f.product_code, f.ingredient_code, f.quantity, COALESCE(f.percentage, 0.0), COALESCE(i.unit, 'UN')
-        FROM formulations f
-        LEFT JOIN items i ON f.ingredient_code = i.code",
-    )
-    .fetch_all(&pool)
-    .await
-    {
-        for row in rows {
-            if let (Ok(prod_code), Ok(ing_code), Ok(qty), Ok(pct), Ok(unit)) = (
-                row.try_get::<String, _>(0),
-                row.try_get::<String, _>(1),
-                row.try_get::<f64, _>(2),
-                row.try_get::<f64, _>(3),
-                row.try_get::<String, _>(4),
-            ) {
-                let norm_prod = prod_code.strip_prefix('0').unwrap_or(&prod_code).to_string();
-                let unit_upper = unit.trim().to_uppercase();
-                formulations_map
-                    .entry(norm_prod.clone())
-                    .or_default()
-                    .push(FormEntry {
-                        ingredient_code: ing_code,
-                        quantity: qty,
-                        percentage: pct,
-                        unit: unit_upper.clone(),
-                    });
-                if unit_upper != "UN" {
-                    *formulation_bulk_sums.entry(norm_prod.clone()).or_insert(0.0) += qty;
-                }
-                *formulation_total_sums.entry(norm_prod).or_insert(0.0) += qty;
-            }
-        }
-    }
-
-    let mut exits_map: std::collections::HashMap<(String, String), f64> =
-        std::collections::HashMap::new();
-    let open_docs: Vec<String> = open_lotes.iter().map(|(d, _, _, _)| d.clone()).collect();
-    if !open_docs.is_empty() {
-        if let Ok(rows) = sqlx::query(
-            "SELECT document_number, item_code, SUM(quantity) 
-             FROM stock_movements 
-             WHERE item_type = 'insumo' AND movement_type = 'saida'
-               AND document_number = ANY($1)
-             GROUP BY document_number, item_code",
-        )
-        .bind(&open_docs)
-        .fetch_all(&pool)
-        .await
-        {
-            for row in rows {
-                if let (Ok(doc_num), Ok(item_code), Ok(qty)) = (
-                    row.try_get::<Option<String>, _>(0),
-                    row.try_get::<String, _>(1),
-                    row.try_get::<f64, _>(2),
-                ) {
-                    exits_map.insert((doc_num.unwrap_or_default(), item_code), qty);
-                }
-            }
-        }
-    }
-
-    let mut lotes_baixas_map: std::collections::HashMap<(i64, String), Vec<f64>> =
-        std::collections::HashMap::new();
-
-    let lote_ids: Vec<i64> = open_lotes
-        .iter()
-        .filter_map(|(doc_num, _, _, _)| doc_num.parse::<i64>().ok())
-        .collect();
-
-    if !lote_ids.is_empty() {
-        if let Ok(rows) = sqlx::query(
-            "SELECT nLote, cReferencia, nQtdeRef FROM lotes_baixas WHERE nLote = ANY($1) ORDER BY Registro ASC",
-        )
-        .bind(&lote_ids)
-        .fetch_all(&pool)
-        .await
-        {
-            for row in rows {
-                let n_lote = crate::core::pg_row::pg_i64(&row, 0);
-                if let (Ok(c_ref), Ok(n_qtde_ref)) = (
-                    row.try_get::<String, _>(1),
-                    row.try_get::<f64, _>(2),
-                ) {
-                    lotes_baixas_map
-                        .entry((n_lote, c_ref))
-                        .or_default()
-                        .push(n_qtde_ref);
-                }
-            }
-        }
-    }
-
-    let mut total_reserved_map: std::collections::HashMap<String, f64> =
-        std::collections::HashMap::new();
-    let mut remaining_reserved_map: std::collections::HashMap<String, f64> =
-        std::collections::HashMap::new();
-    for (lote_number, product_code, quantity, d_pesado) in open_lotes {
-        let norm_prod = product_code.strip_prefix('0').unwrap_or(&product_code).to_string();
-        if let Some(ingredients) = formulations_map.get(&norm_prod) {
-            let bulk_sum = formulation_bulk_sums.get(&norm_prod).copied().unwrap_or(0.0);
-            let total_sum = formulation_total_sums.get(&norm_prod).copied().unwrap_or(0.0);
-            let lote_int = lote_number.parse::<i64>().unwrap_or(-1);
-
-            for ing in ingredients {
-                let factor = if ing.percentage > 0.0 {
-                    ing.percentage / 100.0
-                } else if ing.unit == "UN" {
-                    if bulk_sum > 0.0 {
-                        ing.quantity / bulk_sum
-                    } else if total_sum > 0.0 {
-                        ing.quantity / total_sum
-                    } else {
-                        ing.quantity
-                    }
-                } else if bulk_sum > 0.0 {
-                    ing.quantity / bulk_sum
-                } else if total_sum > 0.0 {
-                    ing.quantity / total_sum
-                } else {
-                    0.0
-                };
-                let fallback_expected = quantity * factor;
-
-                let mut expected = fallback_expected;
-                if lote_int != -1 {
-                    if let Some(queue) = lotes_baixas_map.get_mut(&(lote_int, ing.ingredient_code.clone())) {
-                        if !queue.is_empty() {
-                            expected = queue.remove(0);
-                        }
-                    }
-                }
-
-                let exited_qty = exits_map
-                    .get(&(lote_number.clone(), ing.ingredient_code.clone()))
-                    .copied()
-                    .unwrap_or(0.0);
-                let mut remaining = (expected - exited_qty).max(0.0);
-
-                if !d_pesado.is_empty() {
-                    remaining = 0.0;
-                }
-
-                if fallback_expected > 0.0 {
-                    *total_reserved_map
-                        .entry(ing.ingredient_code.clone())
-                        .or_insert(0.0) += fallback_expected;
-                }
-                if remaining > 0.0 {
-                    *remaining_reserved_map
-                        .entry(ing.ingredient_code.clone())
-                        .or_insert(0.0) += remaining;
-                }
-            }
-        }
-    }
+    let reserve_maps = crate::core::production_reserve::compute_production_reserve_maps(&pool).await;
+    let total_reserved_map = reserve_maps.total_by_ingredient;
+    let remaining_reserved_map = reserve_maps.remaining_by_ingredient;
+    let manual_pending =
+        crate::modules::estoque::ordens_manuais::handlers::pending_net_by_item(&pool).await;
 
     let include_products = match category_id.as_deref() {
         Some("cat_mp") | Some("cat_emb") => false,
         _ => true,
     };
     let demands_base = build_demands_sql(include_products);
+    // Filtro exato: cat_mp/cat_emb = só itens da raiz; subcategoria = só ela.
+    // (Itens já classificados em Fragrâncias etc. não entram na lista principal.)
     let sql = if category_id.is_some() {
-        format!(
-            "{demands_base} AND (
-                t.category_id = $1
-                OR t.category_id IN (SELECT id FROM categories WHERE parent_id = $1)
-             ) ORDER BY t.description"
-        )
+        format!("{demands_base} AND t.category_id = $1 ORDER BY t.description")
     } else {
         format!("{demands_base} ORDER BY t.description")
     };
@@ -823,7 +994,7 @@ pub async fn get_demands_query(
 
     let mut last_supplier_invoice_map = std::collections::HashMap::new();
     if let Ok(rows) = sqlx::query(
-        "SELECT DISTINCT ON (item_code) item_code, invoice_number
+        "SELECT DISTINCT ON (item_code) item_code, invoice_number, supplier_name, invoice_date, unit_price
          FROM invoices
          WHERE invoice_number IS NOT NULL AND invoice_number <> ''
          ORDER BY item_code, invoice_date DESC NULLS LAST, id DESC",
@@ -837,7 +1008,39 @@ pub async fn get_demands_query(
                 row.try_get::<String, _>(1),
             ) {
                 if !invoice_number.is_empty() {
-                    last_supplier_invoice_map.insert(code, invoice_number);
+                    let supplier_name = row.try_get::<Option<String>, _>(2).ok().flatten();
+                    let invoice_date = row.try_get::<Option<String>, _>(3).ok().flatten();
+                    let unit_price = row.try_get::<Option<f64>, _>(4).ok().flatten();
+
+                    let formatted_date = invoice_date.as_deref().map(|d| {
+                        if d.len() >= 10 {
+                            let parts: Vec<&str> = d[..10].split('-').collect();
+                            if parts.len() == 3 {
+                                format!("{}/{}/{}", parts[2], parts[1], parts[0])
+                            } else {
+                                d.to_string()
+                            }
+                        } else {
+                            d.to_string()
+                        }
+                    }).unwrap_or_else(|| "-".to_string());
+
+                    let formatted_price = unit_price.map(|p| {
+                        let s = format!("{:.2}", p);
+                        s.replace('.', ",")
+                    }).unwrap_or_else(|| "0,00".to_string());
+
+                    let supplier = supplier_name.as_deref().unwrap_or("-").trim();
+
+                    let formatted_invoice = format!(
+                        "{} | {} | R$ {} | NF {}",
+                        supplier,
+                        formatted_date,
+                        formatted_price,
+                        invoice_number
+                    );
+
+                    last_supplier_invoice_map.insert(code, formatted_invoice);
                 }
             }
         }
@@ -935,6 +1138,7 @@ pub async fn get_demands_query(
     .map_err(|e| e.to_string())?;
 
     let auto_ignored = get_auto_ignored_ingredients_query(pool.clone()).await?;
+    let sim_producao_map = compute_sim_producao_map(&pool).await;
 
     let mut results = Vec::with_capacity(rows.len());
     for row in rows {
@@ -952,22 +1156,13 @@ pub async fn get_demands_query(
             &period_by_config_key,
             &fat_map,
             &lead_time_map,
+            override_period,
+            &manual_pending,
+            &sim_producao_map,
         )?;
         if !auto_ignored.contains_key(&item.item_code) {
             results.push(item);
         }
     }
     Ok(results)
-}
-
-use tauri::State;
-use crate::DbState;
-
-#[tauri::command]
-pub fn get_demands(
-    _state: State<DbState>,
-    _category_id: Option<String>,
-    _target_days: i32,
-) -> Result<Vec<DemandResult>, String> {
-    Err("Use a API REST (/api/hub/compras/demands)".into())
 }

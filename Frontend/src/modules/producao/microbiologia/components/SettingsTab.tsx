@@ -1,16 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../geral/lib/api';
-import { MicrobioAppConfig as AppConfig, TemplateConfig } from '../../../geral/lib/types';
-import { Loader2, Save, Database, X } from 'lucide-react';
+import { MicrobioAppConfig as AppConfig, TemplateConfig, Report } from '../../../geral/lib/types';
+import { Loader2, Save, Database, X, Calendar, Layers, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LAB_NAME, DEPT_NAME, COMPANY_INFO, DEFAULT_TESTS, cn } from '../../../geral/lib/microbioUtils';
+import { getAllMonthRangesSummary } from '../../../geral/lib/reportNumberUtils';
 
 interface SettingsTabProps {
   config: AppConfig | null;
+  reports?: Report[];
   onRefresh?: () => void;
 }
 
-export function SettingsTab({ config, onRefresh }: SettingsTabProps) {
+export function SettingsTab({ config, reports = [], onRefresh }: SettingsTabProps) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [nextNum, setNextNum] = useState<number>(config?.nextReportNumber || 0);
@@ -45,6 +47,10 @@ export function SettingsTab({ config, onRefresh }: SettingsTabProps) {
       setCurrYear(config.currentYear);
     }
   }, [config, prevConfigTemplate]);
+
+  const monthSummaries = useMemo(() => {
+    return getAllMonthRangesSummary(reports, currYear);
+  }, [reports, currYear]);
 
   const handleUpdate = async () => {
     setSaving(true);
@@ -98,14 +104,13 @@ export function SettingsTab({ config, onRefresh }: SettingsTabProps) {
             <div
               className={cn(
                 'px-6 py-4 rounded-2xl shadow-2xl border text-sm font-bold flex items-center justify-between',
-                message.type === 'success' ? 'bg-white text-green-600 border-green-200' : 'bg-white text-red-600 border-red-200'
+                message.type === 'success'
+                  ? 'bg-zinc-900 border-zinc-700 text-white'
+                  : 'bg-red-600 border-red-500 text-white',
               )}
             >
-              <div className="flex items-center gap-3">
-                <div className={cn('h-2 w-2 rounded-full', message.type === 'success' ? 'bg-green-500' : 'bg-red-500')} />
-                {message.text}
-              </div>
-              <button onClick={() => setMessage(null)} className="text-zinc-400 hover:text-zinc-600 transition-colors cursor-pointer">
+              <span>{message.text}</span>
+              <button onClick={() => setMessage(null)} className="text-white/60 hover:text-white cursor-pointer">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -114,38 +119,85 @@ export function SettingsTab({ config, onRefresh }: SettingsTabProps) {
       </AnimatePresence>
 
       <div className="view-header">
-        <h2 className="view-title">Configurações</h2>
+        <h2 className="view-title">Configurações do Módulo</h2>
+        <p className="text-xs text-zinc-500 mt-0.5">
+          Gerencie o modelo do laudo e acompanhe a reserva de numeração mensal sequencial.
+        </p>
       </div>
 
-      <div className="panel-card text-left">
-        <div className="flex items-start justify-between mb-8 flex-col md:flex-row gap-4">
+      {/* Faixas Mensais Reservadas */}
+      <div className="panel-card text-left mb-6">
+        <div className="flex items-start justify-between mb-4 flex-col sm:flex-row gap-2">
           <div>
-            <h3 className="text-base font-bold text-zinc-800">Sequenciamento Automático</h3>
-          </div>
-          <div className="bg-zinc-50 border border-zinc-200 rounded-md p-4 flex gap-6 px-6 self-start md:self-auto">
-            <div className="flex flex-col">
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Próximo Nº</span>
-              <input
-                type="number"
-                value={nextNum}
-                onChange={(e) => setNextNum(parseInt(e.target.value) || 0)}
-                className="bg-white border border-zinc-300 rounded-md px-3 py-1.5 text-lg font-bold text-zinc-900 outline-none focus:border-zinc-800 w-24"
-              />
-            </div>
-            <div className="flex flex-col border-l border-zinc-300 pl-6">
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Ano Corrente</span>
-              <input
-                type="number"
-                value={currYear}
-                onChange={(e) => setCurrYear(parseInt(e.target.value) || 2026)}
-                className="bg-white border border-zinc-300 rounded-md px-3 py-1.5 text-lg font-bold text-zinc-900 outline-none focus:border-zinc-800 w-24"
-              />
-            </div>
+            <h3 className="text-base font-bold text-zinc-800 flex items-center gap-2">
+              <Layers className="h-4 w-4 text-zinc-600" />
+              <span>Reserva de Numeração por Mês ({currYear})</span>
+            </h3>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              Cada mês possui um bloco exclusivo de numeração reservada. Ao lançar qualquer lote de meses anteriores ou futuros, a sequência do respectivo mês é mantida intacta.
+            </p>
           </div>
         </div>
 
-        <div className="h-px bg-zinc-100 w-full mb-10" />
+        <div className="table-card overflow-x-auto">
+          <table className="w-full text-left text-xs whitespace-nowrap">
+            <thead className="bg-zinc-50 border-b border-zinc-200 text-[10px] uppercase font-bold text-zinc-500 tracking-wider">
+              <tr>
+                <th className="px-4 py-2.5">Mês</th>
+                <th className="px-4 py-2.5 text-center">Faixa Reservada</th>
+                <th className="px-4 py-2.5 text-center">Reserva Total</th>
+                <th className="px-4 py-2.5 text-center">Laudos Emitidos</th>
+                <th className="px-4 py-2.5 text-center">Próximo Laudo</th>
+                <th className="px-4 py-2.5 text-center">Restantes</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-100 font-sans">
+              {monthSummaries.map((m) => {
+                const isCurrentOrFuture = m.month >= 6;
+                return (
+                  <tr
+                    key={m.month}
+                    className={`hover:bg-zinc-50 transition-colors ${
+                      m.count > 0 ? 'bg-white font-medium' : 'bg-zinc-50/50 text-zinc-400'
+                    }`}
+                  >
+                    <td className="px-4 py-2 font-bold text-zinc-800 flex items-center gap-2">
+                      <Calendar className="h-3.5 w-3.5 text-zinc-400" />
+                      <span>{m.monthName} / {m.year}</span>
+                      {m.count > 0 && (
+                        <span className="text-[9px] bg-zinc-100 text-zinc-600 px-1.5 py-0.2 rounded font-mono font-bold">
+                          Ativo
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-center font-mono font-bold text-zinc-700">
+                      {m.startNumber} – {m.endNumber}
+                    </td>
+                    <td className="px-4 py-2 text-center text-zinc-500">
+                      {m.reservedCount} lotes
+                    </td>
+                    <td className="px-4 py-2 text-center">
+                      <span className={`px-2 py-0.5 rounded-full font-bold ${
+                        m.count > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'text-zinc-400'
+                      }`}>
+                        {m.count}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-center font-mono font-black text-zinc-900">
+                      {m.nextReportId}
+                    </td>
+                    <td className="px-4 py-2 text-center text-zinc-500 font-mono">
+                      {m.remaining}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
+      <div className="panel-card text-left">
         <div className="flex items-center justify-between mb-8 flex-col sm:flex-row gap-4">
           <div>
             <h3 className="text-base font-bold text-zinc-800">Modelo do Relatório</h3>
@@ -178,182 +230,158 @@ export function SettingsTab({ config, onRefresh }: SettingsTabProps) {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
-          <div className="flex flex-col space-y-1">
-            <label className="text-[10px] font-bold uppercase text-zinc-500">Nome Comercial do Laboratório</label>
-            <input
-              value={template.labName || ''}
-              onChange={(e) => setTemplate({ ...template, labName: e.target.value })}
-              className="bg-white border border-zinc-300 rounded-md px-3 py-2 text-sm font-medium focus:ring-1 focus:ring-zinc-800 focus:border-zinc-800 outline-none text-zinc-900"
-            />
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">
+                Laboratório
+              </label>
+              <input
+                type="text"
+                value={template.labName}
+                onChange={(e) => setTemplate({ ...template, labName: e.target.value })}
+                className="search-input font-bold"
+                style={{ paddingLeft: '0.75rem' }}
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">
+                Departamento
+              </label>
+              <input
+                type="text"
+                value={template.deptName}
+                onChange={(e) => setTemplate({ ...template, deptName: e.target.value })}
+                className="search-input font-bold"
+                style={{ paddingLeft: '0.75rem' }}
+              />
+            </div>
           </div>
-          <div className="flex flex-col space-y-1">
-            <label className="text-[10px] font-bold uppercase text-zinc-500">Departamento / Setor</label>
-            <input
-              value={template.deptName || ''}
-              onChange={(e) => setTemplate({ ...template, deptName: e.target.value })}
-              className="bg-white border border-zinc-300 rounded-md px-3 py-2 text-sm font-medium focus:ring-1 focus:ring-zinc-800 focus:border-zinc-800 outline-none text-zinc-900"
-            />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">
+                Empresa
+              </label>
+              <input
+                type="text"
+                value={template.companyName}
+                onChange={(e) => setTemplate({ ...template, companyName: e.target.value })}
+                className="search-input font-bold"
+                style={{ paddingLeft: '0.75rem' }}
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">
+                Tipo da Amostra
+              </label>
+              <input
+                type="text"
+                value={template.sampleType}
+                onChange={(e) => setTemplate({ ...template, sampleType: e.target.value })}
+                className="search-input font-bold"
+                style={{ paddingLeft: '0.75rem' }}
+              />
+            </div>
           </div>
-          <div className="col-span-1 md:col-span-2 flex flex-col space-y-1">
-            <label className="text-[10px] font-bold uppercase text-zinc-500">Razão Social da Empresa</label>
+
+          <div>
+            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">
+              Endereço da Empresa
+            </label>
             <input
-              value={template.companyName || ''}
-              onChange={(e) => setTemplate({ ...template, companyName: e.target.value })}
-              className="bg-white border border-zinc-300 rounded-md px-3 py-2 text-sm font-medium focus:ring-1 focus:ring-zinc-800 focus:border-zinc-800 outline-none text-zinc-900"
-            />
-          </div>
-          <div className="col-span-1 md:col-span-2 flex flex-col space-y-1">
-            <label className="text-[10px] font-bold uppercase text-zinc-500">Endereço Completo</label>
-            <input
-              value={template.companyAddress || ''}
+              type="text"
+              value={template.companyAddress}
               onChange={(e) => setTemplate({ ...template, companyAddress: e.target.value })}
-              className="bg-white border border-zinc-300 rounded-md px-3 py-2 text-sm font-medium focus:ring-1 focus:ring-zinc-800 focus:border-zinc-800 outline-none text-zinc-900"
+              className="search-input font-medium"
+              style={{ paddingLeft: '0.75rem' }}
             />
           </div>
-          <div className="flex flex-col space-y-1">
-            <label className="text-[10px] font-bold uppercase text-zinc-500">E-mail de Contato</label>
-            <input
-              value={template.companyEmail || ''}
-              onChange={(e) => setTemplate({ ...template, companyEmail: e.target.value })}
-              className="bg-white border border-zinc-300 rounded-md px-3 py-2 text-sm font-medium focus:ring-1 focus:ring-zinc-800 focus:border-zinc-800 outline-none text-zinc-900"
-            />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">
+                Email
+              </label>
+              <input
+                type="text"
+                value={template.companyEmail}
+                onChange={(e) => setTemplate({ ...template, companyEmail: e.target.value })}
+                className="search-input font-medium"
+                style={{ paddingLeft: '0.75rem' }}
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">
+                Contato
+              </label>
+              <input
+                type="text"
+                value={template.companyContact}
+                onChange={(e) => setTemplate({ ...template, companyContact: e.target.value })}
+                className="search-input font-medium"
+                style={{ paddingLeft: '0.75rem' }}
+              />
+            </div>
           </div>
-          <div className="flex flex-col space-y-1">
-            <label className="text-[10px] font-bold uppercase text-zinc-500">Telefone / WhatsApp</label>
-            <input
-              value={template.companyContact || ''}
-              onChange={(e) => setTemplate({ ...template, companyContact: e.target.value })}
-              className="bg-white border border-zinc-300 rounded-md px-3 py-2 text-sm font-medium focus:ring-1 focus:ring-zinc-800 focus:border-zinc-800 outline-none text-zinc-900"
-            />
-          </div>
-          <div className="col-span-1 md:col-span-2 flex flex-col space-y-1">
-            <label className="text-[10px] font-bold uppercase text-zinc-500">Tipo Padrão de Amostra</label>
-            <input
-              value={template.sampleType || ''}
-              onChange={(e) => setTemplate({ ...template, sampleType: e.target.value })}
-              className="bg-white border border-zinc-300 rounded-md px-3 py-2 text-sm font-medium focus:ring-1 focus:ring-zinc-800 focus:border-zinc-800 outline-none text-zinc-900"
-            />
-          </div>
-          <div className="flex flex-col space-y-1">
-            <label className="text-[10px] font-bold uppercase text-zinc-500">Assinatura: Nome do Responsável</label>
-            <input
-              value={template.technicianSignName || ''}
-              onChange={(e) => setTemplate({ ...template, technicianSignName: e.target.value })}
-              className="bg-white border border-zinc-300 rounded-md px-3 py-2 text-sm font-medium focus:ring-1 focus:ring-zinc-800 focus:border-zinc-800 outline-none text-zinc-900"
-            />
-          </div>
-          <div className="flex flex-col space-y-1">
-            <label className="text-[10px] font-bold uppercase text-zinc-500">Assinatura: Título / Cargo</label>
-            <input
-              value={template.technicianSignTitle || ''}
-              onChange={(e) => setTemplate({ ...template, technicianSignTitle: e.target.value })}
-              className="bg-white border border-zinc-300 rounded-md px-3 py-2 text-sm font-medium focus:ring-1 focus:ring-zinc-800 focus:border-zinc-800 outline-none text-zinc-900"
-            />
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">
+                Técnico de Coleta / Preparo Padrão
+              </label>
+              <input
+                type="text"
+                value={template.defaultTechnician || ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setTemplate({ ...template, defaultTechnician: val });
+                  try {
+                    localStorage.setItem('natum_hub_microbio_technician', val);
+                  } catch (_) {}
+                }}
+                placeholder="Ex: EDSON FERRARI"
+                className="search-input font-bold"
+                style={{ paddingLeft: '0.75rem' }}
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">
+                Nome do Signatário (Responsável)
+              </label>
+              <input
+                type="text"
+                value={template.technicianSignName}
+                onChange={(e) => setTemplate({ ...template, technicianSignName: e.target.value })}
+                className="search-input font-bold"
+                style={{ paddingLeft: '0.75rem' }}
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">
+                Cargo do Signatário
+              </label>
+              <input
+                type="text"
+                value={template.technicianSignTitle}
+                onChange={(e) => setTemplate({ ...template, technicianSignTitle: e.target.value })}
+                className="search-input font-bold"
+                style={{ paddingLeft: '0.75rem' }}
+              />
+            </div>
           </div>
         </div>
 
-        <div className="mt-12 text-left">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-black text-zinc-800 flex items-center gap-3">
-              Ensaios Técnicos Padrão
-              <span className="text-[9px] bg-zinc-100 px-3 py-1 rounded-full text-zinc-800 uppercase font-bold tracking-widest border border-zinc-200">
-                Escopo do Sistema
-              </span>
-            </h3>
-          </div>
-
-          <div className="space-y-3">
-            {template.defaultTests.map((test: any, idx: number) => (
-              <div
-                key={idx}
-                className="grid grid-cols-1 md:grid-cols-12 gap-2 p-3 bg-zinc-50 rounded-md border border-zinc-200 hover:border-zinc-300 transition-colors"
-              >
-                <div className="md:col-span-4 space-y-1">
-                  <span className="text-[10px] font-bold text-zinc-500 uppercase">Ensaio</span>
-                  <input
-                    className="w-full bg-white px-3 py-1.5 text-xs font-medium border border-zinc-300 rounded-md outline-none focus:border-zinc-800 text-zinc-900"
-                    value={test.name}
-                    onChange={(e) => {
-                      const newTests = [...template.defaultTests];
-                      newTests[idx].name = e.target.value;
-                      setTemplate({ ...template, defaultTests: newTests });
-                    }}
-                  />
-                </div>
-                <div className="md:col-span-2 space-y-1">
-                  <span className="text-[10px] font-bold text-zinc-500 uppercase">Resultado</span>
-                  <input
-                    className="w-full bg-white px-3 py-1.5 text-xs font-medium border border-zinc-300 rounded-md outline-none focus:border-zinc-800 text-zinc-900"
-                    value={test.result}
-                    onChange={(e) => {
-                      const newTests = [...template.defaultTests];
-                      newTests[idx].result = e.target.value;
-                      setTemplate({ ...template, defaultTests: newTests });
-                    }}
-                  />
-                </div>
-                <div className="md:col-span-1 space-y-1">
-                  <span className="text-[10px] font-bold text-zinc-500 uppercase">Unid.</span>
-                  <input
-                    className="w-full bg-white px-3 py-1.5 text-xs font-medium border border-zinc-300 rounded-md outline-none focus:border-zinc-800 text-zinc-900"
-                    value={test.unit}
-                    onChange={(e) => {
-                      const newTests = [...template.defaultTests];
-                      newTests[idx].unit = e.target.value;
-                      setTemplate({ ...template, defaultTests: newTests });
-                    }}
-                  />
-                </div>
-                <div className="md:col-span-3 space-y-1">
-                  <span className="text-[10px] font-bold text-zinc-500 uppercase">Limite</span>
-                  <input
-                    className="w-full bg-white px-3 py-1.5 text-[10px] font-medium border border-zinc-300 rounded-md outline-none focus:border-zinc-800 text-zinc-900"
-                    value={test.limit}
-                    onChange={(e) => {
-                      const newTests = [...template.defaultTests];
-                      newTests[idx].limit = e.target.value;
-                      setTemplate({ ...template, defaultTests: newTests });
-                    }}
-                  />
-                </div>
-                <div className="md:col-span-1 space-y-1">
-                  <span className="text-[10px] font-bold text-zinc-500 uppercase">LQ</span>
-                  <input
-                    className="w-full bg-white px-3 py-1.5 text-xs font-medium border border-zinc-300 rounded-md outline-none focus:border-zinc-800 text-zinc-900"
-                    value={test.lq}
-                    onChange={(e) => {
-                      const newTests = [...template.defaultTests];
-                      newTests[idx].lq = e.target.value;
-                      setTemplate({ ...template, defaultTests: newTests });
-                    }}
-                  />
-                </div>
-                <div className="md:col-span-1 space-y-1">
-                  <span className="text-[10px] font-bold text-zinc-500 uppercase">Método</span>
-                  <input
-                    className="w-full bg-white px-3 py-1.5 text-xs font-medium border border-zinc-300 rounded-md outline-none focus:border-zinc-800 text-zinc-900"
-                    value={test.method}
-                    onChange={(e) => {
-                      const newTests = [...template.defaultTests];
-                      newTests[idx].method = e.target.value;
-                      setTemplate({ ...template, defaultTests: newTests });
-                    }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+        <div className="mt-8 flex justify-end">
+          <button
+            onClick={handleUpdate}
+            disabled={saving}
+            className="btn-primary flex items-center gap-2 cursor-pointer"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            Salvar Configurações
+          </button>
         </div>
-
-        <button
-          onClick={handleUpdate}
-          disabled={saving}
-          className="w-full mt-8 bg-zinc-900 text-white py-3 rounded-md font-bold hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2 disabled:bg-zinc-400 cursor-pointer"
-        >
-          {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
-          {saving ? 'Gravando Alterações...' : 'Confirmar e Salvar Modelo'}
-        </button>
       </div>
     </div>
   );

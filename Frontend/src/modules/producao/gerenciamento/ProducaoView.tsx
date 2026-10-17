@@ -3,23 +3,29 @@ import {
   AlertTriangle, CheckCircle2, X, RefreshCw, Database, Check, Play,
   ArrowUpDown, ArrowUp, ArrowDown, LayoutDashboard, Table, Layers, History,
   Settings, ArrowLeft, ClipboardList, User, TrendingUp, BarChart3,
-  Scale, Package, FileText, EyeOff, HelpCircle, Info, Search, ClipboardCheck
+  Scale, Package, FileText, EyeOff, HelpCircle, Info, Search, ClipboardCheck, Calendar,
+  CalendarClock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import { apiFetch } from '../../geral/lib/http';
+import { salesOrderStatusLabel } from '../../geral/lib/salesOrderStatus';
 
 
 // Import subcomponents
-import { DashboardTab } from './components/DashboardTab';
 import { InventoryTab } from './components/InventoryTab';
+import { ProgramadasTab } from './components/ProgramadasTab';
 import { KitsTab } from './components/KitsTab';
 import { BasesTab } from './components/BasesTab';
 import ItemRegistry from '../../compras/planejamento/components/ItemRegistry';
 import { HistoryTab } from './components/HistoryTab';
 import { SettingsTab } from './components/SettingsTab';
 import { LotesTab } from './components/LotesTab';
+import { LotesCalendarTab } from './components/LotesCalendarTab';
 import { AprovacaoTab } from './components/AprovacaoTab';
+import { PlanejamentoSemanalTab } from './components/PlanejamentoSemanalTab';
+import { LoteDetailsDrawer } from './components/LoteDetailsDrawer';
+import KitCompositionDrawer from '../components/KitCompositionDrawer';
 
 type ProducaoLockedView = 'bases' | 'lotes';
 
@@ -31,16 +37,21 @@ export default function ProducaoView({
   lockedView?: ProducaoLockedView | null;
 }) {
   // Navigation State
-  const [currentView, setCurrentView] = useState(lockedView || 'dashboard');
+  const [currentView, setCurrentView] = useState(lockedView || 'inventory');
 
   useEffect(() => {
     const viewLabels = {
-      dashboard: 'Dashboard',
       inventory: 'Gerenciamento de Produção',
-      aprovacao: 'Aprovação de Produção',
-      kits: 'Gestão de Kits',
+      kits: 'Gerenciamento de Kits',
+      programadas: 'Produções Programadas',
+      aprovacao: 'Planejamento Semanal de Ordens',
+      acompanhamento: 'Acompanhamento / Quadros de Produção',
+      calendar: 'Calendário',
+      lotes: 'Lotes de Produção',
+      erros: 'Erros de Estoque',
       bases: 'Gestão de Bases',
-      history: 'Histórico de Produção',
+      history: 'Histórico',
+      ignored_items: 'Produtos Suspensos',
       imports: 'Importações ERP',
       settings: 'Configurações'
     };
@@ -122,7 +133,22 @@ export default function ProducaoView({
   const [overrideLine, setOverrideLine] = useState('AUTO'); // 'AUTO' ou prefixo da linha
   const [overrideObs, setOverrideObs] = useState('');
   const [overrideApenasKit, setOverrideApenasKit] = useState(0);
+  const [overrideIsProgramada, setOverrideIsProgramada] = useState(0);
+  const [overrideProgramadaDisparo, setOverrideProgramadaDisparo] = useState('');
+  const [overrideProgramadaObjetivo, setOverrideProgramadaObjetivo] = useState('');
   const [showHidden, setShowHidden] = useState(false);
+
+  // Programadas Module States
+  const [programadasProducts, setProgramadasProducts] = useState([]);
+  const [programadasPage, setProgramadasPage] = useState(1);
+  const [programadasTotalPages, setProgramadasTotalPages] = useState(1);
+  const [programadasTotalItems, setProgramadasTotalItems] = useState(0);
+  const [programadasSearch, setProgramadasSearch] = useState('');
+  const [programadasSelectedStatus, setProgramadasSelectedStatus] = useState('ALL');
+  const [programadasActiveTab, setProgramadasActiveTab] = useState('ALL');
+  const [programadasSortField, setProgramadasSortField] = useState('codigo');
+  const [programadasSortDir, setProgramadasSortDir] = useState<'asc' | 'desc'>('asc');
+  const [programadasLoading, setProgramadasLoading] = useState(false);
 
   // Bulk Edit States
   const [allProducts, setAllProducts] = useState([]);
@@ -137,6 +163,8 @@ export default function ProducaoView({
 
   // Kits Module States
   const [kits, setKits] = useState([]);
+  const [kitsStats, setKitsStats] = useState({ total: 0, montar: 0, critico: 0, aguardando: 0, ordem: 0, saudavel: 0, abundante: 0 });
+  const [coloracoes, setColoracoes] = useState([]);
   const [kitsPage, setKitsPage] = useState(1);
   const [kitsTotalPages, setKitsTotalPages] = useState(1);
   const [kitsTotalItems, setKitsTotalItems] = useState(0);
@@ -145,12 +173,6 @@ export default function ProducaoView({
   const [kitsActiveTab, setKitsActiveTab] = useState('ALL');
   const [expandedKits, setExpandedKits] = useState([]);
   const [uploadingKits, setUploadingKits] = useState(false);
-
-  // Google Drive Sync State
-  const [googleStatus, setGoogleStatus] = useState({ configured: false, authenticated: false, client_id: '', last_sync: 'Nunca sincronizado' });
-  const [clientId, setClientId] = useState('');
-  const [clientSecret, setClientSecret] = useState('');
-  const [syncingGoogle, setSyncingGoogle] = useState(false);
 
   // Production History States
   const [historyRecords, setHistoryRecords] = useState([]);
@@ -182,12 +204,15 @@ export default function ProducaoView({
   const [lotes, setLotes] = useState([]);
   const [lotesLoading, setLotesLoading] = useState(false);
   const [selectedLoteStatus, setSelectedLoteStatus] = useState('ALL');
+  const [loteViewMode, setLoteViewMode] = useState<'table' | 'calendar'>('table');
 
   // Product Details Drawer State
   const [selectedProductDetails, setSelectedProductDetails] = useState(null);
   const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
   const [detailsDrawerLoading, setDetailsDrawerLoading] = useState(false);
   const [detailsDrawerActiveTab, setDetailsDrawerActiveTab] = useState('geral');
+  const [productPendingOrders, setProductPendingOrders] = useState(null);
+  const [simulatedBatchQty, setSimulatedBatchQty] = useState<number>(100);
 
   // Suspended Products States
   const [suspendedProducts, setSuspendedProducts] = useState([]);
@@ -195,62 +220,44 @@ export default function ProducaoView({
   const [suspendedSearch, setSuspendedSearch] = useState('');
 
   // Lote Details Drawer State
-  const [selectedLoteDetails, setSelectedLoteDetails] = useState(null);
   const [loteDetailsDrawerOpen, setLoteDetailsDrawerOpen] = useState(false);
-  const [loteDetailsDrawerLoading, setLoteDetailsDrawerLoading] = useState(false);
-  const [loteActiveSubTab, setLoteActiveSubTab] = useState('inicio');
-  const [resolutionObs, setResolutionObs] = useState('');
-  const [resolveLoteLoading, setResolveLoteLoading] = useState(false);
-  const [associateSwapSimilar, setAssociateSwapSimilar] = useState(true);
-  const [selectedExpectedCode, setSelectedExpectedCode] = useState('');
-  const [selectedActualCode, setSelectedActualCode] = useState('');
-  const [mappedSwaps, setMappedSwaps] = useState([]);
-  const [resolveBaseCode, setResolveBaseCode] = useState('');
-  const [resolveBaseQty, setResolveBaseQty] = useState('');
-  const [baseProductOptions, setBaseProductOptions] = useState([]);
+  const [loteDetailsNumber, setLoteDetailsNumber] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (selectedLoteDetails && selectedLoteDetails.pesagem_items) {
-      const missing = selectedLoteDetails.pesagem_items.filter(item => item.status === 'MISSING');
-      const unplanned = selectedLoteDetails.pesagem_items.filter(item => item.status === 'UNPLANNED');
-      if (missing.length > 0) {
-        setSelectedExpectedCode(missing[0].ingredient_code);
+  // Kit Composition Drawer State
+  const [compositionDrawerOpen, setCompositionDrawerOpen] = useState(false);
+  const [selectedKitForComposition, setSelectedKitForComposition] = useState<{ codigo: string; descricao?: string } | null>(null);
+
+  const handleOpenKitComposition = (kitCode: string, kitDesc?: string) => {
+    setSelectedKitForComposition({ codigo: kitCode, descricao: kitDesc });
+    setCompositionDrawerOpen(true);
+  };
+
+  const handleToggleComponentApenasKit = async (compCode: string, currentValue: number) => {
+    const newValue = currentValue === 1 ? 0 : 1;
+    try {
+      const res = await apiFetch(`/overrides`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          codigo: compCode,
+          produzir_apenas_kit: newValue,
+        }),
+      });
+      if (res.ok) {
+        showToast(
+          `Item ${compCode} alterado para: ${newValue === 1 ? 'Apenas Kit (Demanda via Kits)' : 'Vendido Avulso (Demanda Direta + Kits)'}`,
+          'success'
+        );
+        fetchProducts();
+        fetchKits();
       } else {
-        setSelectedExpectedCode('');
+        showToast('Erro ao atualizar política do componente', 'error');
       }
-      if (unplanned.length > 0) {
-        setSelectedActualCode(unplanned[0].ingredient_code);
-      } else {
-        setSelectedActualCode('');
-      }
-    } else {
-      setSelectedExpectedCode('');
-      setSelectedActualCode('');
+    } catch (e) {
+      console.error(e);
+      showToast('Falha de conexão', 'error');
     }
-  }, [selectedLoteDetails]);
-
-  useEffect(() => {
-    if (!loteDetailsDrawerOpen) return;
-    apiFetch('/products?limit=5000&status=base')
-      .then((res) => (res.ok ? res.json() : { items: [] }))
-      .then((data) => setBaseProductOptions(data.items || []))
-      .catch(() => setBaseProductOptions([]));
-  }, [loteDetailsDrawerOpen]);
-
-  useEffect(() => {
-    if (selectedLoteDetails) {
-      setResolutionObs(selectedLoteDetails.resolutionObs || selectedLoteDetails.resolution_obs || '');
-      setResolveBaseCode(
-        selectedLoteDetails.resolvedBaseCode ||
-        selectedLoteDetails.resolved_base_code ||
-        selectedLoteDetails.base_codigo ||
-        selectedLoteDetails.baseCodigo ||
-        ''
-      );
-      const qty = selectedLoteDetails.resolvedBaseQuantity ?? selectedLoteDetails.resolved_base_quantity;
-      setResolveBaseQty(qty != null && qty > 0 ? String(qty) : '');
-    }
-  }, [selectedLoteDetails]);
+  };
 
   useEffect(() => {
     if (!launchingProduct) {
@@ -262,8 +269,12 @@ export default function ProducaoView({
     }
 
     // 1. Find the base product in the current products list
-    if (launchingProduct.base) {
-      const baseNameUpper = launchingProduct.base.trim().toUpperCase();
+    const productBase = launchingProduct.base || 
+      products.find(p => p.codigo === launchingProduct.codigo)?.base || 
+      allProducts.find(p => p.codigo === launchingProduct.codigo)?.base;
+
+    if (productBase) {
+      const baseNameUpper = productBase.trim().toUpperCase();
       const baseExpanded = baseNameUpper
         .replace("SH ", "SHAMPOO ")
         .replace("COND ", "CONDICIONADOR ")
@@ -303,7 +314,7 @@ export default function ProducaoView({
       .catch(err => console.error("Error fetching similar products:", err))
       .finally(() => setSimilarLoading(false));
 
-  }, [launchingProduct, products]);
+  }, [launchingProduct, products, allProducts]);
 
   // New Line Creation States
   const [showAddLineForm, setShowAddLineForm] = useState(false);
@@ -627,6 +638,7 @@ export default function ProducaoView({
         setKits(data.items || []);
         setKitsTotalItems(data.total || 0);
         setKitsTotalPages(data.total_pages || 1);
+        if (data.stats) setKitsStats(data.stats);
       } else {
         showToast("Erro ao buscar kits da API", "error");
       }
@@ -639,11 +651,49 @@ export default function ProducaoView({
   }, [kitsSearch, kitsActiveTab, kitsSelectedStatus, kitsPage, limitPerPage, showHidden, kitSortField, kitSortDir]);
 
   useEffect(() => {
-    // Kits só sob demanda (evita /products + /kits no mount)
-    if (kitsSearch || kitsActiveTab !== 'ALL' || kitsSelectedStatus !== 'ALL' || kitsPage > 1) {
+    if (currentView === 'kits') {
       fetchKits();
     }
-  }, [fetchKits, kitsSearch, kitsActiveTab, kitsSelectedStatus, kitsPage]);
+  }, [currentView, fetchKits]);
+
+  // Fetch programadas from API
+  const fetchProgramadas = useCallback(async () => {
+    setProgramadasLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.append('programadas_only', 'true');
+      if (programadasSearch.trim()) params.append('search', programadasSearch.trim());
+      if (programadasActiveTab !== 'ALL') params.append('linha', programadasActiveTab);
+      if (programadasSelectedStatus !== 'ALL') params.append('status', programadasSelectedStatus);
+      params.append('page', programadasPage.toString());
+      params.append('limit', limitPerPage.toString());
+      if (programadasSortField) {
+        params.append('sort', programadasSortField);
+        params.append('order', programadasSortDir);
+      }
+
+      const res = await apiFetch(`/products?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setProgramadasProducts(data.items || []);
+        setProgramadasTotalItems(data.total || 0);
+        setProgramadasTotalPages(data.total_pages || 1);
+      } else {
+        showToast("Erro ao buscar produções programadas da API", "error");
+      }
+    } catch (e) {
+      console.error("Error fetching programadas:", e);
+      showToast("Falha de conexão ao carregar produções programadas", "error");
+    } finally {
+      setProgramadasLoading(false);
+    }
+  }, [programadasSearch, programadasActiveTab, programadasSelectedStatus, programadasPage, limitPerPage, programadasSortField, programadasSortDir]);
+
+  useEffect(() => {
+    if (currentView === 'programadas') {
+      fetchProgramadas();
+    }
+  }, [currentView, fetchProgramadas]);
 
   // Fetch production history from API
   const fetchHistory = useCallback(async () => {
@@ -699,7 +749,7 @@ export default function ProducaoView({
   }, []);
 
   useEffect(() => {
-    if (currentView === 'lotes' || lockedView === 'lotes') {
+    if (currentView === 'lotes' || currentView === 'calendar' || currentView === 'erros' || lockedView === 'lotes') {
       fetchLotes();
     }
   }, [currentView, lockedView, fetchLotes]);
@@ -784,14 +834,23 @@ export default function ProducaoView({
     setDetailsDrawerActiveTab('geral');
     setDetailsDrawerLoading(true);
     setSelectedProductDetails(null);
+    setProductPendingOrders(null);
     setDetailsDrawerOpen(true);
     try {
-      const res = await apiFetch(`/produtos/${code}/detalhes`);
-      if (res.ok) {
-        const data = await res.json();
+      const [detRes, pedRes] = await Promise.all([
+        apiFetch(`/produtos/${code}/detalhes`),
+        apiFetch(`/produtos/${code}/pedidos-pendentes`),
+      ]);
+      if (detRes.ok) {
+        const data = await detRes.json();
         setSelectedProductDetails(data);
+        const defaultQty = data.producao_recomendada > 0 ? data.producao_recomendada : 100;
+        setSimulatedBatchQty(defaultQty);
       } else {
         showToast("Erro ao buscar detalhes do produto", "error");
+      }
+      if (pedRes.ok) {
+        setProductPendingOrders(await pedRes.json());
       }
     } catch (e) {
       console.error("Error fetching product details:", e);
@@ -801,101 +860,9 @@ export default function ProducaoView({
     }
   };
 
-  const fetchLoteDetails = async (loteNumber) => {
-    setLoteActiveSubTab('inicio');
-    setLoteDetailsDrawerLoading(true);
-    setSelectedLoteDetails(null);
+  const fetchLoteDetails = (loteNumber: string) => {
+    setLoteDetailsNumber(loteNumber);
     setLoteDetailsDrawerOpen(true);
-    setResolutionObs('');
-    setAssociateSwapSimilar(true);
-    setMappedSwaps([]);
-    try {
-      const res = await apiFetch(`/producao/lotes/${loteNumber}/detalhes`);
-      if (res.ok) {
-        const data = await res.json();
-        setSelectedLoteDetails(data);
-      } else {
-        showToast("Erro ao buscar detalhes do lote", "error");
-      }
-    } catch (e) {
-      console.error("Error fetching lote details:", e);
-      showToast("Falha ao carregar detalhes do lote", "error");
-    } finally {
-      setLoteDetailsDrawerLoading(false);
-    }
-  };
-
-  const handleResolveLoteErrors = async (loteNumber) => {
-    if (!resolutionObs.trim()) {
-      showToast("Por favor, preencha a justificativa / observação.", "error");
-      return;
-    }
-    setResolveLoteLoading(true);
-    try {
-      const res = await apiFetch(`/producao/lotes/${loteNumber}/resolver`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          observations: resolutionObs,
-          resolved_by: "Administrador",
-          base_code: resolveBaseCode.trim() || null,
-          base_quantity: resolveBaseQty.trim() ? parseFloat(resolveBaseQty) : null,
-          substitutions: mappedSwaps.map((swap) => ({
-            expected_code: swap.expectedCode,
-            actual_code: swap.actualCode,
-          })),
-        }),
-      });
-
-      if (res.ok) {
-        showToast("Desvios do lote justificados com sucesso!", "success");
-
-        if (associateSwapSimilar && mappedSwaps.length > 0) {
-          for (const swap of mappedSwaps) {
-            try {
-              await api.addSimilarItem(swap.expectedCode, swap.actualCode);
-            } catch (err) {
-              console.error(`Erro ao associar ${swap.expectedCode} e ${swap.actualCode} como semelhantes:`, err);
-            }
-          }
-          showToast(`${mappedSwaps.length} substituição(ões) salva(s) no cadastro de semelhantes!`, "success");
-        }
-
-        fetchLoteDetails(loteNumber);
-        fetchLotes();
-      } else {
-        showToast("Erro ao justificar desvios do lote", "error");
-      }
-    } catch (e) {
-      console.error("Error resolving lote:", e);
-      showToast("Falha ao justificar desvios", "error");
-    } finally {
-      setResolveLoteLoading(false);
-    }
-  };
-
-  const handleUndoResolveLoteErrors = async (loteNumber) => {
-    if (!window.confirm("Deseja reabrir os desvios deste lote e remover a justificativa?")) return;
-    setResolveLoteLoading(true);
-    try {
-      const res = await apiFetch(`/producao/lotes/${loteNumber}/resolver`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        showToast("Resolução estornada com sucesso!", "success");
-        fetchLoteDetails(loteNumber);
-        fetchLotes();
-      } else {
-        showToast("Erro ao estornar resolução", "error");
-      }
-    } catch (e) {
-      console.error(e);
-      showToast("Falha ao estornar resolução", "error");
-    } finally {
-      setResolveLoteLoading(false);
-    }
   };
 
   const handleLaunchProduction = async (e) => {
@@ -1280,10 +1247,17 @@ export default function ProducaoView({
     setOverrideLine(prod.linha_prefix_manual !== null ? prod.linha_prefix_manual : 'AUTO');
     setOverrideObs(prod.observacao !== null ? prod.observacao : '');
     setOverrideApenasKit(prod.produzir_apenas_kit !== null ? prod.produzir_apenas_kit : 0);
+    setOverrideIsProgramada(prod.is_producao_programada === 1 ? 1 : 0);
+    setOverrideProgramadaDisparo(prod.producao_programada_disparo !== null && prod.producao_programada_disparo !== undefined ? prod.producao_programada_disparo.toString() : '');
+    setOverrideProgramadaObjetivo(prod.producao_programada_objetivo !== null && prod.producao_programada_objetivo !== undefined ? prod.producao_programada_objetivo.toString() : '');
   };
 
   const handleSaveOverrides = async () => {
     if (!editingProduct) return;
+
+    const isProg = overrideIsProgramada === 1 || 
+      (overrideProgramadaDisparo.trim() !== '' && parseInt(overrideProgramadaDisparo, 10) > 0) ||
+      (overrideProgramadaObjetivo.trim() !== '' && parseInt(overrideProgramadaObjetivo, 10) > 0);
 
     const payload = {
       codigo: editingProduct.codigo,
@@ -1295,6 +1269,9 @@ export default function ProducaoView({
       linha_prefix_manual: overrideLine === 'AUTO' ? null : overrideLine,
       observacao: overrideObs.trim() === '' ? null : overrideObs,
       produzir_apenas_kit: overrideApenasKit,
+      is_producao_programada: isProg ? 1 : 0,
+      producao_programada_disparo: isProg && overrideProgramadaDisparo.trim() !== '' ? parseInt(overrideProgramadaDisparo, 10) || 0 : null,
+      producao_programada_objetivo: isProg && overrideProgramadaObjetivo.trim() !== '' ? parseInt(overrideProgramadaObjetivo, 10) || 0 : null,
     };
 
     try {
@@ -1305,9 +1282,15 @@ export default function ProducaoView({
       });
 
       if (res.ok) {
-        showToast(`Overrides salvos para ${editingProduct.codigo}`, "success");
+        showToast(
+          isProg 
+            ? `Produto ${editingProduct.codigo} configurado na Produção Programada!` 
+            : `Overrides salvos para ${editingProduct.codigo}`, 
+          "success"
+        );
         setEditingProduct(null);
         fetchProducts();
+        fetchProgramadas();
       } else {
         showToast("Erro ao salvar overrides manuais", "error");
       }
@@ -1326,6 +1309,18 @@ export default function ProducaoView({
       }
     } catch (e) {
       console.error("Error fetching all products:", e);
+    }
+  };
+
+  const fetchColoracoes = async () => {
+    try {
+      const res = await apiFetch(`/products?status=coloracao&limit=9999&show_hidden=true`);
+      if (res.ok) {
+        const data = await res.json();
+        setColoracoes(data.items || []);
+      }
+    } catch (e) {
+      console.error("Error fetching coloracoes:", e);
     }
   };
 
@@ -1366,78 +1361,10 @@ export default function ProducaoView({
     }
   };
 
-  const fetchGoogleStatus = async () => {
-    try {
-      const res = await apiFetch(`/google/status`);
-      if (res.ok) {
-        const data = await res.json();
-        setGoogleStatus(data);
-        if (data.client_id) setClientId(data.client_id);
-      }
-    } catch (e) {
-      console.error("Error fetching Google status:", e);
-    }
-  };
-
-  const handleSaveGoogleConfig = async () => {
-    try {
-      const res = await apiFetch(`/google/config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        showToast(data.message || "Credenciais salvas com sucesso!", "success");
-        fetchGoogleStatus();
-      } else {
-        showToast(data.error || "Erro ao salvar credenciais", "error");
-      }
-    } catch (e) {
-      console.error(e);
-      showToast("Falha de conexão com a API do Google Config", "error");
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    try {
-      const res = await apiFetch(`/google/auth-url`);
-      const data = await res.json();
-      if (res.ok && data.url) {
-        window.open(data.url, '_blank');
-        showToast("Link de login do Google aberto no navegador", "info");
-      } else {
-        showToast(data.error || "Configure o Client ID antes de fazer login", "error");
-      }
-    } catch (e) {
-      console.error(e);
-      showToast("Erro ao requisitar link de autenticação", "error");
-    }
-  };
-
-  const handleGoogleSync = async () => {
-    setSyncingGoogle(true);
-    try {
-      const res = await apiFetch(`/google/sync`, { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        showToast(data.message || "Sincronização realizada com sucesso!", "success");
-        fetchGoogleStatus();
-      } else {
-        showToast(data.error || "Falha na sincronização. Verifique o login.", "error");
-      }
-    } catch (e) {
-      console.error(e);
-      showToast("Erro ao tentar sincronizar com o Google Drive", "error");
-    } finally {
-      setSyncingGoogle(false);
-    }
-  };
-
   useEffect(() => {
     fetchConfigs();
-    fetchGoogleStatus();
     fetchAllProducts();
+    fetchColoracoes();
     fetchImportStatus();
     fetchImportHistory();
     fetchWatchConfig();
@@ -1468,43 +1395,60 @@ export default function ProducaoView({
   ];
 
   const gerenciamentoSidebarItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'inventory', label: 'Gerenciamento de Produção', icon: Table },
-    { id: 'aprovacao', label: 'Aprovação de Produção', icon: ClipboardCheck, badge: productionApprovalList.length },
-    { id: 'history', label: 'Histórico de Produção', icon: History },
+    { id: 'kits', label: 'Gerenciamento de Kits', icon: Layers },
+    { id: 'programadas', label: 'Produções Programadas', icon: CalendarClock },
+    { id: 'history', label: 'Histórico', icon: History },
     { id: 'ignored_items', label: 'Produtos Suspensos', icon: EyeOff },
-    { id: 'settings', label: 'Configurações', icon: Settings },
   ];
 
   const sidebarItems =
     lockedView === 'bases'
       ? [{ id: 'bases', label: 'Gestão de Bases', icon: Database }]
-      : lockedView === 'lotes'
-        ? [
-            { id: 'lotes', label: 'Lotes de Produção', icon: ClipboardList },
-            { id: 'erros', label: 'Erros de Estoque', icon: AlertTriangle },
-          ]
-        : gerenciamentoSidebarItems;
+      : gerenciamentoSidebarItems;
 
-  const layoutActiveTab = (() => {
-    if (currentView === 'lotes') {
-      if (selectedLoteStatus === 'ERR_ANY_ERROR') return 'erros';
-      return 'lotes';
-    }
-    return currentView;
-  })();
+  const layoutActiveTab = currentView;
 
   const handleLayoutTabChange = (tabId) => {
     if (tabId === 'inventory') {
       setCurrentView('inventory');
       setSelectedStatus('ALL');
       setPage(1);
-    } else if (tabId === 'erros') {
-      setCurrentView('lotes');
-      setSelectedLoteStatus('ERR_ANY_ERROR');
+    } else if (tabId === 'programadas') {
+      setCurrentView('programadas');
+      setProgramadasActiveTab('ALL');
+      setProgramadasSearch('');
+      setProgramadasSelectedStatus('ALL');
+      setProgramadasPage(1);
+      fetchProgramadas();
+    } else if (tabId === 'aprovacao') {
+      setCurrentView('aprovacao');
+    } else if (tabId === 'acompanhamento') {
+      setCurrentView('acompanhamento');
+    } else if (tabId === 'calendar') {
+      setCurrentView('calendar');
+      fetchLotes();
     } else if (tabId === 'lotes') {
       setCurrentView('lotes');
       setSelectedLoteStatus('ALL');
+      fetchLotes();
+    } else if (tabId === 'erros') {
+      setCurrentView('erros');
+      setSelectedLoteStatus('ERR_ANY_ERROR');
+      fetchLotes();
+    } else if (tabId === 'kits') {
+      setCurrentView('kits');
+      setKitsActiveTab('ALL');
+      setKitsSearch('');
+      setKitsSelectedStatus('ALL');
+      setKitsPage(1);
+      fetchKits();
+    } else if (tabId === 'history') {
+      setCurrentView('history');
+      fetchHistory();
+    } else if (tabId === 'ignored_items') {
+      setCurrentView('ignored_items');
+      fetchSuspendedProducts();
     } else if (tabId === 'settings') {
       setCurrentView('settings');
       fetchKitComposicao();
@@ -1531,22 +1475,10 @@ export default function ProducaoView({
       headerActions={headerActions}
     >
           
-          {/* VIEW: DASHBOARD */}
-          {currentView === 'dashboard' && (
-            <DashboardTab
-              stats={stats}
-              totalItems={totalItems}
-              bases={bases}
-              productsLength={products.length}
-              setCurrentView={setCurrentView}
-              setSelectedStatus={setSelectedStatus}
-              setSelectedBase={setSelectedBase}
-            />
-          )}
-
           {/* VIEW: STOCK & ALERTS */}
           {currentView === 'inventory' && (
             <InventoryTab
+              stats={stats}
               onShowDetails={fetchProductDetails}
               products={products}
               configs={configs}
@@ -1591,9 +1523,43 @@ export default function ProducaoView({
             />
           )}
 
-          {/* VIEW: APPROVAL QUEUE */}
+          {/* VIEW: PRODUÇÕES PROGRAMADAS */}
+          {currentView === 'programadas' && (
+            <ProgramadasTab
+              products={programadasProducts}
+              configs={configs}
+              bases={bases}
+              activeTab={programadasActiveTab}
+              handleTabChange={(t) => { setProgramadasActiveTab(t); setProgramadasPage(1); }}
+              search={programadasSearch}
+              setSearch={setProgramadasSearch}
+              selectedStatus={programadasSelectedStatus}
+              setSelectedStatus={setProgramadasSelectedStatus}
+              page={programadasPage}
+              setPage={setProgramadasPage}
+              totalPages={programadasTotalPages}
+              totalItems={programadasTotalItems}
+              limitPerPage={limitPerPage}
+              diasComerciais={diasComerciais}
+              sortField={programadasSortField}
+              setSortField={setProgramadasSortField}
+              sortDir={programadasSortDir}
+              setSortDir={setProgramadasSortDir}
+              onEditOverrides={openEditModal}
+              onRefresh={fetchProgramadas}
+              loading={programadasLoading}
+              tabOptions={tabOptions}
+              toggleSort={toggleSort}
+              SortIcon={SortIcon}
+              onShowDetails={fetchProductDetails}
+              productionApprovalList={productionApprovalList}
+              onToggleApprovalList={handleToggleApprovalList}
+            />
+          )}
+
+          {/* VIEW: PLANEJAMENTO SEMANAL DE ORDENS (REATORES & HEURÍSTICA) */}
           {currentView === 'aprovacao' && (
-            <AprovacaoTab
+            <PlanejamentoSemanalTab
               active={currentView === 'aprovacao'}
               productionApprovalList={productionApprovalList}
               onToggleApprovalList={handleToggleApprovalList}
@@ -1605,6 +1571,8 @@ export default function ProducaoView({
               }}
             />
           )}
+
+
 
           {/* VIEW: BASES MANAGEMENT */}
           {currentView === 'bases' && (
@@ -1624,6 +1592,52 @@ export default function ProducaoView({
               onRefresh={fetchProducts}
               productionApprovalList={productionApprovalList}
               onToggleApprovalList={handleToggleApprovalList}
+            />
+          )}
+
+          {/* VIEW: KITS MANAGEMENT */}
+          {currentView === 'kits' && (
+            <KitsTab
+              kitsStats={kitsStats}
+              kits={kits}
+              configs={configs}
+              kitsActiveTab={kitsActiveTab}
+              setKitsActiveTab={setKitsActiveTab}
+              kitsSearch={kitsSearch}
+              setKitsSearch={setKitsSearch}
+              kitsSelectedStatus={kitsSelectedStatus}
+              setKitsSelectedStatus={setKitsSelectedStatus}
+              kitsPage={kitsPage}
+              setKitsPage={setKitsPage}
+              kitsTotalPages={kitsTotalPages}
+              kitsTotalItems={kitsTotalItems}
+              limitPerPage={limitPerPage}
+              showHidden={showHidden}
+              kitSortField={kitSortField}
+              setKitSortField={setKitSortField}
+              kitSortDir={kitSortDir}
+              setKitSortDir={setKitSortDir}
+              onLaunchProduct={(p) => {
+                setLaunchingProduct(p);
+                setLaunchQty(p.producao_recomendada > 0 ? p.producao_recomendada : 100);
+                const today = new Date();
+                const yyyy = today.getFullYear();
+                const mm = String(today.getMonth() + 1).padStart(2, '0');
+                const dd = String(today.getDate()).padStart(2, '0');
+                setLaunchDate(`${yyyy}-${mm}-${dd}`);
+              }}
+              onEditOverrides={openEditModal}
+              onRefresh={fetchKits}
+              loading={loading}
+              tabOptions={tabOptions}
+              toggleSort={toggleSort}
+              SortIcon={SortIcon}
+              expandedKits={expandedKits}
+              toggleKitExpanded={toggleKitExpanded}
+              productionApprovalList={productionApprovalList}
+              onToggleApprovalList={handleToggleApprovalList}
+              onOpenComposition={handleOpenKitComposition}
+              onToggleApenasKit={handleToggleComponentApenasKit}
             />
           )}
 
@@ -1652,14 +1666,36 @@ export default function ProducaoView({
             />
           )}
 
-          {/* VIEW: PRODUCTION LOTS (ERP) */}
+          {/* VIEW: CALENDÁRIO DE PRODUÇÃO */}
+          {currentView === 'calendar' && (
+            <LotesCalendarTab
+              lotes={lotes}
+              onRefresh={fetchLotes}
+              loading={lotesLoading}
+              onOpenDetails={fetchLoteDetails}
+            />
+          )}
+
+          {/* VIEW: LOTES DE PRODUÇÃO (ERP) */}
           {currentView === 'lotes' && (
             <LotesTab 
               lotes={lotes} 
               onRefresh={fetchLotes} 
               loading={lotesLoading} 
               onOpenDetails={fetchLoteDetails}
-              selectedStatus={selectedLoteStatus}
+              selectedStatus="ALL"
+              setSelectedStatus={setSelectedLoteStatus}
+            />
+          )}
+
+          {/* VIEW: ERROS DE ESTOQUE */}
+          {currentView === 'erros' && (
+            <LotesTab 
+              lotes={lotes} 
+              onRefresh={fetchLotes} 
+              loading={lotesLoading} 
+              onOpenDetails={fetchLoteDetails}
+              selectedStatus="ERR_ANY_ERROR"
               setSelectedStatus={setSelectedLoteStatus}
             />
           )}
@@ -1894,6 +1930,61 @@ export default function ProducaoView({
                 </label>
               </div>
 
+              {/* Seção Produção Programada */}
+              <div className="bg-blue-50/60 border border-blue-200 rounded-lg p-3 my-3">
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="checkbox"
+                    id="is_producao_programada"
+                    checked={overrideIsProgramada === 1}
+                    onChange={(e) => setOverrideIsProgramada(e.target.checked ? 1 : 0)}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                  />
+                  <label htmlFor="is_producao_programada" className="cursor-pointer font-bold text-blue-900 text-xs select-none">
+                    Habilitar Produção Programada (Gatilho e Objetivo)
+                  </label>
+                </div>
+                <p className="text-[11px] text-blue-700/80 mt-1">
+                  Ao marcar como Produção Programada, o item sairá da listagem de Gerenciamento de Produção e será gerenciado exclusivamente na aba <strong>Produções Programadas</strong>.
+                </p>
+
+                {overrideIsProgramada === 1 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 pt-3 border-t border-blue-200/60">
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="text-xs font-semibold text-zinc-700">
+                        Estoque de Disparo (Gatilho)
+                      </label>
+                      <input 
+                        type="number" 
+                        className="form-control text-zinc-900 mt-1" 
+                        placeholder="Ex: 500 (Dispara se EFP ≤ valor)"
+                        value={overrideProgramadaDisparo}
+                        onChange={(e) => setOverrideProgramadaDisparo(e.target.value)}
+                      />
+                      <span className="text-[10px] text-zinc-500 mt-0.5 block">
+                        Dispara sugestão quando EFP for menor ou igual a este valor.
+                      </span>
+                    </div>
+
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="text-xs font-semibold text-zinc-700">
+                        Quantidade Objetivo (Lote)
+                      </label>
+                      <input 
+                        type="number" 
+                        className="form-control text-zinc-900 mt-1" 
+                        placeholder="Ex: 1000 (Lote a produzir)"
+                        value={overrideProgramadaObjetivo}
+                        onChange={(e) => setOverrideProgramadaObjetivo(e.target.value)}
+                      />
+                      <span className="text-[10px] text-zinc-500 mt-0.5 block">
+                        Quantidade fixa sugerida a cada ciclo de produção.
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="form-group" style={{ marginTop: '0.75rem' }}>
                 <label>Observação de Produção</label>
                 <textarea 
@@ -1931,7 +2022,7 @@ export default function ProducaoView({
               
               <div className="modal-info-box">
                 <div className="modal-info-title">
-                  <strong>{launchingProduct.codigo} — {launchingProduct.descricao}</strong>
+                  <strong>{launchingProduct.codigo}  {launchingProduct.descricao}</strong>
                   <div className="modal-info-sub">
                     Estoque atual: {launchingProduct.estoque} | Em Produção: {launchingProduct.producao} | Sugestão: {launchingProduct.producao_recomendada > 0 ? `${launchingProduct.producao_recomendada} un` : 'Nenhuma'}
                   </div>
@@ -2146,6 +2237,19 @@ export default function ProducaoView({
                   >
                     Lotes de Produção
                   </button>
+                  <button
+                    onClick={() => setDetailsDrawerActiveTab('pedidos')}
+                    className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer focus:outline-none ${
+                      detailsDrawerActiveTab === 'pedidos'
+                        ? 'border-zinc-900 text-zinc-900 font-extrabold'
+                        : 'border-transparent text-zinc-450 hover:text-zinc-650'
+                    }`}
+                  >
+                    Pedidos
+                    {productPendingOrders?.pending_sales_orders?.length
+                      ? ` (${productPendingOrders.pending_sales_orders.length})`
+                      : ''}
+                  </button>
                 </div>
               )}
 
@@ -2280,18 +2384,57 @@ export default function ProducaoView({
                       </div>
                     )}
 
-                    {/* TAB: FÓRMULA & INGREDIENTES */}
+                    {/* TAB: FÓRMULA & INGREDIENTES & SIMULADOR DE PRODUÇÃO COMPLETA */}
                     {detailsDrawerActiveTab === 'formula' && (
-                      <div className="space-y-3 animate-in fade-in duration-150 text-left">
-                        <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
-                          <Layers className="h-4 w-4 text-zinc-650" />
-                          <h4 className="font-extrabold text-sm text-zinc-900">Fórmula & Ingredientes</h4>
+                      <div className="space-y-4 animate-in fade-in duration-150 text-left">
+                        <div className="flex items-center justify-between border-b border-zinc-150 pb-3">
+                          <div className="flex items-center gap-2">
+                            <Layers className="h-4 w-4 text-zinc-650" />
+                            <h4 className="font-extrabold text-sm text-zinc-900">Fórmula & Necessidade de Produção</h4>
+                          </div>
                         </div>
+
                         {selectedProductDetails.formulation.length === 0 ? (
                           <p className="text-xs text-zinc-400 py-3">Nenhuma fórmula registrada para este produto.</p>
                         ) : (() => {
-                          const rawMaterials = selectedProductDetails.formulation.filter(line => line.categoryId !== 'cat_emb');
-                          const packaging = selectedProductDetails.formulation.filter(line => line.categoryId === 'cat_emb');
+                          const formulation = selectedProductDetails.formulation || [];
+                          const batchQty = Math.max(1, simulatedBatchQty || 1);
+
+                          // Calculate bottlenecks and total requirements
+                          let maxPossibleBatches = Infinity;
+                          let bottleneckItem = null;
+                          let missingItemsCount = 0;
+
+                          const processedFormulation = formulation.map((line) => {
+                            const unitQty = line.quantity || 0;
+                            const totalNeeded = unitQty * batchQty;
+                            const currentStock = line.currentStock ?? 0;
+                            const missingQty = Math.max(0, totalNeeded - currentStock);
+                            const maxThisItem = unitQty > 0 ? Math.floor(currentStock / unitQty) : Infinity;
+
+                            if (maxThisItem < maxPossibleBatches) {
+                              maxPossibleBatches = maxThisItem;
+                              bottleneckItem = line;
+                            }
+
+                            if (missingQty > 0) {
+                              missingItemsCount++;
+                            }
+
+                            return {
+                              ...line,
+                              unitQty,
+                              totalNeeded,
+                              currentStock,
+                              missingQty,
+                              isSufficient: currentStock >= totalNeeded,
+                              maxThisItem
+                            };
+                          });
+
+                          const rawMaterials = processedFormulation.filter(line => line.categoryId !== 'cat_emb');
+                          const packaging = processedFormulation.filter(line => line.categoryId === 'cat_emb');
+                          const isFullyAvailable = missingItemsCount === 0;
 
                           const renderTable = (list, title) => {
                             if (list.length === 0) return null;
@@ -2302,39 +2445,49 @@ export default function ProducaoView({
                                   <table className="w-full text-left text-xs">
                                     <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
                                       <tr>
-                                        <th className="px-4 py-3">Ingrediente</th>
-                                        <th className="px-4 py-3 text-right">Qtd</th>
-                                        <th className="px-4 py-3 text-right">Fórmula %</th>
-                                        <th className="px-4 py-3 text-right">Estoque Insumo</th>
+                                        <th className="px-3 py-2.5">Componente</th>
+                                        <th className="px-3 py-2.5 text-right" title="Quantidade na fórmula unitária">Qtd Unit.</th>
+                                        <th className="px-3 py-2.5 text-right font-bold text-zinc-800" title={`Total necessário para produzir ${batchQty} un`}>Necessidade ({batchQty} un)</th>
+                                        <th className="px-3 py-2.5 text-right">Estoque Insumo</th>
+                                        <th className="px-3 py-2.5 text-right">Falta p/ Lote</th>
+                                        <th className="px-3 py-2.5 text-center">Status</th>
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-zinc-100">
                                       {list.map((line) => {
-                                        const needsPercentage = line.percentage !== null && line.percentage !== undefined;
-                                        const pctVal = needsPercentage ? line.percentage * 100 : 0;
-                                        const isOutOfStock = (line.currentStock ?? 0) <= 0;
-
                                         return (
                                           <tr key={line.ingredientCode} className="hover:bg-zinc-50/50 transition-colors">
-                                            <td className="px-4 py-2.5">
+                                            <td className="px-3 py-2">
                                               <div className="font-bold text-zinc-800">{line.description}</div>
                                               <div className="font-mono text-[9px] text-zinc-400">{line.ingredientCode}</div>
                                             </td>
-                                            <td className="px-4 py-2.5 text-right font-medium text-zinc-700">
-                                              {(line.quantity ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
+                                            <td className="px-3 py-2 text-right font-medium text-zinc-600">
+                                              {line.unitQty.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
                                             </td>
-                                            <td className="px-4 py-2.5 text-right text-zinc-550">
-                                              {needsPercentage ? `${pctVal.toFixed(3)}%` : '-'}
+                                            <td className="px-3 py-2 text-right font-bold text-zinc-900">
+                                              {line.totalNeeded.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
                                             </td>
-                                            <td className="px-4 py-2.5 text-right">
+                                            <td className="px-3 py-2 text-right font-medium text-zinc-700">
+                                              {line.currentStock.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+                                            </td>
+                                            <td className="px-3 py-2 text-right font-bold">
+                                              {line.missingQty > 0 ? (
+                                                <span className="text-red-600">
+                                                  -{line.missingQty.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+                                                </span>
+                                              ) : (
+                                                <span className="text-green-600">0 (OK)</span>
+                                              )}
+                                            </td>
+                                            <td className="px-3 py-2 text-center">
                                               <span
-                                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                                  isOutOfStock
-                                                    ? 'bg-red-100 text-red-700 border border-red-200'
-                                                    : 'bg-green-100 text-green-700 border border-green-200'
+                                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold inline-block ${
+                                                  line.isSufficient
+                                                    ? 'bg-green-100 text-green-700 border border-green-200'
+                                                    : 'bg-red-100 text-red-700 border border-red-200'
                                                 }`}
                                               >
-                                                {(line.currentStock ?? 0).toLocaleString('pt-BR')}
+                                                {line.isSufficient ? 'Disponível' : `Faltam ${line.missingQty.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}`}
                                               </span>
                                             </td>
                                           </tr>
@@ -2348,9 +2501,70 @@ export default function ProducaoView({
                           };
 
                           return (
-                            <div className="space-y-6">
-                              {renderTable(rawMaterials, "Matérias-Primas")}
-                              {renderTable(packaging, "Embalagens")}
+                            <div className="space-y-4">
+                              {/* Production Batch Simulator Header */}
+                              <div className="bg-zinc-50 border border-zinc-200 p-4 rounded-xl space-y-3">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <div>
+                                    <span className="text-[10px] text-zinc-400 font-bold uppercase block">Simulação de Batelada</span>
+                                    <h5 className="font-bold text-xs text-zinc-800">O que é preciso para a produção completa deste item:</h5>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <label className="text-xs font-bold text-zinc-600">Qtd a Produzir ({selectedProductDetails.unit || 'UN'}):</label>
+                                    <input 
+                                      type="number"
+                                      min="1"
+                                      value={simulatedBatchQty}
+                                      onChange={(e) => setSimulatedBatchQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                                      className="w-24 px-2 py-1 text-sm font-bold text-zinc-900 border border-zinc-300 rounded-lg text-right focus:outline-none focus:border-zinc-800 bg-white"
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Viability Overview Cards */}
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
+                                  <div className="bg-white p-2.5 rounded-lg border border-zinc-150 shadow-2xs">
+                                    <span className="text-[9px] text-zinc-400 font-bold uppercase block">Capacidade Imediata</span>
+                                    <p className="text-sm font-extrabold text-zinc-900 mt-0.5">
+                                      {maxPossibleBatches === Infinity ? '0' : maxPossibleBatches.toLocaleString('pt-BR')} {selectedProductDetails.unit || 'UN'}
+                                    </p>
+                                    <span className="text-[9px] text-zinc-500 block truncate" title={bottleneckItem ? `Limitado por: ${bottleneckItem.description}` : ''}>
+                                      Gargalo: {bottleneckItem ? bottleneckItem.description : 'Nenhum'}
+                                    </span>
+                                  </div>
+
+                                  <div className="bg-white p-2.5 rounded-lg border border-zinc-150 shadow-2xs">
+                                    <span className="text-[9px] text-zinc-400 font-bold uppercase block">Itens com Falta</span>
+                                    <p className="text-sm font-extrabold text-zinc-900 mt-0.5">
+                                      <span className={missingItemsCount > 0 ? 'text-red-600' : 'text-green-600'}>
+                                        {missingItemsCount} {missingItemsCount === 1 ? 'componente' : 'componentes'}
+                                      </span>
+                                    </p>
+                                    <span className="text-[9px] text-zinc-500 block">
+                                      Para produzir {batchQty} {selectedProductDetails.unit || 'UN'}
+                                    </span>
+                                  </div>
+
+                                  <div className="bg-white p-2.5 rounded-lg border border-zinc-150 shadow-2xs col-span-2 sm:col-span-1">
+                                    <span className="text-[9px] text-zinc-400 font-bold uppercase block">Status da Produção</span>
+                                    <div className="mt-1">
+                                      {isFullyAvailable ? (
+                                        <span className="inline-flex items-center gap-1 text-xs font-extrabold text-green-700 bg-green-50 px-2 py-0.5 rounded border border-green-200">
+                                          <CheckCircle2 size={12} /> Pronto para Produzir
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 text-xs font-extrabold text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200">
+                                          <AlertTriangle size={12} /> Insumos Insuficientes
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Tables for Raw materials and packaging */}
+                              {renderTable(rawMaterials, "Matérias-Primas Necessárias")}
+                              {renderTable(packaging, "Embalagens Necessárias")}
                             </div>
                           );
                         })()}
@@ -2425,6 +2639,92 @@ export default function ProducaoView({
                         )}
                       </div>
                     )}
+
+                    {/* TAB: PEDIDOS DE VENDA ABERTOS */}
+                    {detailsDrawerActiveTab === 'pedidos' && (
+                      <div className="space-y-3 animate-in fade-in duration-150 text-left">
+                        <div className="flex items-center gap-2 border-b border-zinc-100 pb-2">
+                          <Package className="h-4 w-4 text-zinc-650" />
+                          <h4 className="font-extrabold text-sm text-zinc-900">Pedidos em aberto</h4>
+                        </div>
+                        <p className="text-xs text-zinc-500 font-medium">
+                          Pedidos de venda PP/LB/EX/CF/AL — faltas a faturar (unidades).
+                        </p>
+                        {(!productPendingOrders?.pending_sales_orders ||
+                          productPendingOrders.pending_sales_orders.length === 0) ? (
+                          <p className="text-xs text-zinc-400 py-3">
+                            Nenhum pedido de venda pendente para este produto.
+                          </p>
+                        ) : (
+                          <div className="space-y-3">
+                            {productPendingOrders.pending_sales_orders.map((so: any, index: number) => {
+                              const percent = so.n_qtde > 0 ? (so.n_qtde_fat / so.n_qtde) * 100 : 0;
+                              return (
+                                <div
+                                  key={`${so.n_pedido}-${index}`}
+                                  className="bg-white border border-zinc-150 p-4 rounded-xl shadow-sm space-y-3"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="px-2 py-0.5 bg-blue-50 text-blue-600 border border-blue-200 text-[9px] font-bold uppercase rounded">
+                                      Pedido #{so.n_pedido}
+                                      {so.n_codigo != null ? ` · Cli ${so.n_codigo}` : ''}
+                                    </span>
+                                    <span className="text-[10px] text-zinc-500 font-semibold">
+                                      {salesOrderStatusLabel(so.c_status)}
+                                    </span>
+                                  </div>
+                                  <div className="text-[10px] text-zinc-400 font-medium">
+                                    {so.d_pedido
+                                      ? new Date(so.d_pedido).toLocaleDateString('pt-BR')
+                                      : '—'}
+                                  </div>
+                                  <div className="grid grid-cols-3 gap-3 text-xs">
+                                    <div>
+                                      <span className="text-zinc-400 font-medium">Pedida</span>
+                                      <p className="font-bold text-zinc-900">
+                                        {(so.n_qtde ?? 0).toLocaleString('pt-BR')}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <span className="text-zinc-400 font-medium">Faturada</span>
+                                      <p className="font-bold text-emerald-600">
+                                        {(so.n_qtde_fat ?? 0).toLocaleString('pt-BR')}
+                                      </p>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className="text-zinc-400 font-medium">Pendente</span>
+                                      <p className="font-bold text-amber-600">
+                                        {(so.falta ?? 0).toLocaleString('pt-BR')}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full bg-blue-500 rounded-full"
+                                      style={{ width: `${Math.min(percent, 100)}%` }}
+                                    />
+                                  </div>
+                                  <div className="flex justify-between text-xs text-zinc-550 pt-2 border-t border-zinc-100 items-center">
+                                    <span
+                                      className="font-bold text-zinc-700 truncate max-w-[170px]"
+                                      title={so.c_nome || ''}
+                                    >
+                                      {so.c_nome || 'Cliente não informado'}
+                                    </span>
+                                    <span className="font-semibold text-zinc-400">
+                                      Previsão:{' '}
+                                      {so.d_previsao
+                                        ? new Date(so.d_previsao).toLocaleDateString('pt-BR')
+                                        : 'Não informado'}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div className="flex-1 flex items-center justify-center text-zinc-400">
@@ -2437,672 +2737,27 @@ export default function ProducaoView({
           )}
         </AnimatePresence>
 
-        <AnimatePresence>
-          {loteDetailsDrawerOpen && (
-            <>
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0.5 }}
-              exit={{ opacity: 0 }}
-              className="modal-backdrop bg-black/60 backdrop-blur-sm"
-              style={{ zIndex: 190 }}
-              onClick={() => setLoteDetailsDrawerOpen(false)}
-            />
-            {/* Drawer container */}
-            <motion.div
-              initial={{ x: '100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed right-0 top-0 h-screen w-full max-w-3xl bg-white border-l border-zinc-200 shadow-2xl flex flex-col text-left text-zinc-800 font-sans"
-              style={{ zIndex: 200 }}
-            >
-              {/* Header */}
-              <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50 flex items-center justify-between shrink-0">
-                <div className="min-w-0 flex-1 pr-4">
-                  <h3 className="font-extrabold text-zinc-900 text-base tracking-tight truncate">
-                    Lote #{selectedLoteDetails?.lote_number || '...'}
-                  </h3>
-                  <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mt-0.5 truncate">
-                    Análise Detalhada de Lote
-                  </p>
-                  <p className="text-xs text-zinc-500 mt-1.5 flex items-center gap-1.5 min-w-0">
-                    <span className="font-mono font-bold text-zinc-700 bg-white px-2 py-0.5 rounded-lg border border-zinc-200 shrink-0">
-                      {selectedLoteDetails?.product_code}
-                    </span>
-                    <span className="text-zinc-300">·</span>
-                    <span className="truncate text-zinc-600">{selectedLoteDetails?.product_description}</span>
-                  </p>
-                </div>
-                <button
-                  onClick={() => setLoteDetailsDrawerOpen(false)}
-                  className="text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200 p-1.5 rounded-lg transition-colors cursor-pointer shrink-0"
-                  title="Fechar"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+        <LoteDetailsDrawer
+          open={loteDetailsDrawerOpen}
+          loteNumber={loteDetailsNumber}
+          onClose={() => setLoteDetailsDrawerOpen(false)}
+          onToast={(message, type) => showToast(message, type || 'success')}
+          onResolved={fetchLotes}
+        />
 
-              {/* Sub-tab Navigation */}
-              <div className="px-6 py-3 bg-white border-b border-zinc-200 flex flex-wrap gap-1.5 shrink-0">
-                {[
-                  { id: 'inicio', label: 'Início', icon: LayoutDashboard },
-                  { id: 'pesagem', label: 'Pesagem', icon: Scale },
-                  { id: 'envase', label: 'Envase', icon: Package },
-                  { id: 'conferencia', label: 'Conferência', icon: FileText },
-                ].map(t => {
-                  const Icon = t.icon;
-                  const isActive = loteActiveSubTab === t.id;
-                  return (
-                    <button
-                      key={t.id}
-                      onClick={() => setLoteActiveSubTab(t.id)}
-                      className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
-                        isActive 
-                          ? 'bg-zinc-900 text-white' 
-                          : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 border border-transparent'
-                      }`}
-                    >
-                      <Icon size={14} />
-                      {t.label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Body */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-zinc-50/40">
-                {loteDetailsDrawerLoading ? (
-                  <div className="flex flex-col items-center justify-center h-64 gap-3 text-zinc-400">
-                    <RefreshCw className="h-8 w-8 animate-spin text-zinc-500" />
-                    <span className="font-medium text-sm text-zinc-500">Analisando registros de estoque do lote...</span>
-                  </div>
-                ) : selectedLoteDetails ? (
-                  <>
-                    {/* TAB: INÍCIO */}
-                    {loteActiveSubTab === 'inicio' && (
-                      <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-200">
-                        {/* Meta Cards Grid */}
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="bg-white border border-zinc-200 p-4 rounded-2xl shadow-sm text-left">
-                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Status do Lote</span>
-                            <div className="mt-2">
-                              <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border ${
-                                selectedLoteDetails.status.toUpperCase() === 'EA' 
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                  : selectedLoteDetails.status.toUpperCase() === 'CA'
-                                  ? 'bg-rose-50 text-rose-700 border-rose-100'
-                                  : 'bg-amber-50 text-amber-700 border-amber-100'
-                              }`}>
-                                {selectedLoteDetails.status_label}
-                              </span>
-                            </div>
-                          </div>
-                          
-                          <div className="bg-white border border-zinc-200 p-4 rounded-2xl shadow-sm text-left">
-                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Data de Abertura</span>
-                            <p className="text-sm font-bold text-zinc-800 mt-2">
-                              {new Date(selectedLoteDetails.date.replace(' ', 'T')).toLocaleDateString('pt-BR')}
-                            </p>
-                          </div>
-                          
-                          <div className="bg-white border border-zinc-200 p-4 rounded-2xl shadow-sm text-left">
-                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Operador (Pesagem/Prod)</span>
-                            <p className="text-sm font-bold text-zinc-800 mt-2">
-                              {selectedLoteDetails.fabricated_by || 'Não registrado'}
-                            </p>
-                          </div>
-
-                          <div className="bg-white border border-zinc-200 p-4 rounded-2xl shadow-sm text-left">
-                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Autorização (Liberação)</span>
-                            <p className="text-sm font-bold text-zinc-800 mt-2">
-                              {selectedLoteDetails.authorized_by || 'Não registrado'}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Batch yields */}
-                        <div className="bg-white border border-zinc-200 p-5 rounded-2xl space-y-4 shadow-sm">
-                          <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-wider border-b border-zinc-100 pb-2">Rendimento Geral do Lote</h4>
-                          <div className="grid grid-cols-3 gap-4">
-                            <div className="text-left">
-                              <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Massa Teórica (Pesada)</span>
-                              <p className="text-lg font-extrabold text-zinc-900 mt-1">{(selectedLoteDetails.pesagem_total_actual ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} Kg</p>
-                            </div>
-                            <div className="text-left">
-                              <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Massa Envasada (SKUs)</span>
-                              <p className="text-lg font-extrabold text-zinc-900 mt-1">{(selectedLoteDetails.total_packaged_weight_kg ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} Kg</p>
-                            </div>
-                            <div className="text-left">
-                              <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Aproveitamento de Massa</span>
-                              <p className={`text-lg font-extrabold mt-1 ${
-                                selectedLoteDetails.bulk_yield_percentage >= 90.0 ? 'text-emerald-600' : 'text-amber-600'
-                              }`}>
-                                {selectedLoteDetails.bulk_yield_percentage.toFixed(2)}%
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="p-3.5 bg-zinc-50 rounded-xl border border-zinc-100 text-xs text-zinc-500">
-                            O lote registrou uma perda de <strong className="text-zinc-800 font-bold">{selectedLoteDetails.bulk_loss_kg.toFixed(3)} Kg</strong> de massa entre a pesagem de matérias-primas e a conferência final de envase.
-                          </div>
-                        </div>
-
-                        {/* DESVIOS E RESOLUÇÃO */}
-                        {(() => {
-                          const hasYieldError = selectedLoteDetails.bulk_yield_percentage < 90.0;
-                          const hasPesagemError = selectedLoteDetails.pesagem_items.some(item => item.status !== 'OK');
-                          const hasEnvaseError = selectedLoteDetails.envase_products.some(p => p.packaging_items.some(item => item.status !== 'OK'));
-                          const hasConfError = selectedLoteDetails.conferencia_items.some(item => item.status !== 'OK');
-                          const hasErrors = hasYieldError || hasPesagemError || hasEnvaseError || hasConfError;
-
-                          // Swap detection
-                          const missingIngredients = selectedLoteDetails.pesagem_items.filter(item => item.status === 'MISSING');
-                          const unplannedIngredients = selectedLoteDetails.pesagem_items.filter(item => item.status === 'UNPLANNED');
-                          
-                          const missingIng = missingIngredients[0];
-                          const unplannedIng = unplannedIngredients[0];
-                          const swapSuggestion = missingIng && unplannedIng ? {
-                            expected: missingIng.ingredient_code,
-                            expectedDesc: missingIng.description,
-                            actual: unplannedIng.ingredient_code,
-                            actualDesc: unplannedIng.description
-                          } : null;
-
-                          if (selectedLoteDetails.is_resolved) {
-                            return (
-                              <div className="bg-white border border-zinc-200 rounded-2xl p-5 space-y-3 text-left shadow-sm">
-                                <div className="flex items-center gap-2 text-emerald-700 font-bold text-sm">
-                                  <CheckCircle2 className="h-4 w-4 shrink-0" />
-                                  <span>Desvios Justificados e Aprovados</span>
-                                </div>
-                                <div className="text-xs text-zinc-700 font-medium space-y-1.5 bg-zinc-50 p-3.5 rounded-xl border border-zinc-100">
-                                  <p className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Justificativa</p>
-                                  <p className="text-zinc-800 leading-relaxed">"{selectedLoteDetails.resolution_obs}"</p>
-                                </div>
-                                <button
-                                  disabled={resolveLoteLoading}
-                                  onClick={() => handleUndoResolveLoteErrors(selectedLoteDetails.lote_number)}
-                                  className="text-xs text-rose-600 hover:text-rose-700 font-bold hover:underline cursor-pointer disabled:opacity-50"
-                                >
-                                  Estornar Justificativa (Reabrir Desvios)
-                                </button>
-                              </div>
-                            );
-                          }
-
-                          if (!hasErrors) {
-                            return (
-                              <div className="bg-white border border-zinc-200 rounded-2xl p-4 flex items-center gap-3 text-left shadow-sm">
-                                <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex-shrink-0 border border-emerald-100">
-                                  <CheckCircle2 className="h-4 w-4" />
-                                </div>
-                                <div>
-                                  <p className="text-xs font-bold text-zinc-900">Lote sem desvios críticos</p>
-                                  <p className="text-[11px] text-zinc-500 mt-0.5">Todos os parâmetros de pesagem, envase e rendimento estão dentro da tolerância esperada.</p>
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          return (
-                            <div className="bg-white border border-zinc-200 rounded-2xl p-5 space-y-4 text-left shadow-sm">
-                              <div className="flex items-start justify-between gap-3 border-b border-zinc-100 pb-3">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-rose-50 text-rose-600 border border-rose-100 shrink-0">
-                                    <AlertTriangle className="h-4 w-4" />
-                                  </div>
-                                  <div className="min-w-0">
-                                    <h4 className="font-extrabold text-sm text-zinc-900 tracking-tight">Justificar Desvios do Lote</h4>
-                                    <p className="text-[11px] text-zinc-500 mt-0.5">
-                                      Informe a base utilizada (se aplicável) e registre a justificativa dos desvios.
-                                    </p>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4 space-y-3">
-                                <div>
-                                  <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Base de produção consumida</p>
-                                  <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
-                                    Quando o ERP pesou só fragrância/aditivos, selecione a base pré-produzida. O NatumHub gera a baixa local de estoque.
-                                  </p>
-                                </div>
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div className="space-y-1">
-                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Produto base</label>
-                                    <select
-                                      value={resolveBaseCode}
-                                      onChange={(e) => setResolveBaseCode(e.target.value)}
-                                      className="w-full text-xs border border-zinc-200 rounded-xl p-2.5 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                                    >
-                                      <option value="">— Não aplicável —</option>
-                                      {baseProductOptions.map((p) => (
-                                        <option key={p.codigo} value={p.codigo}>
-                                          {p.descricao} ({p.codigo})
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                  <div className="space-y-1">
-                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Quantidade (kg/un)</label>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      step="0.01"
-                                      value={resolveBaseQty}
-                                      onChange={(e) => setResolveBaseQty(e.target.value)}
-                                      className="w-full text-xs border border-zinc-200 rounded-xl p-2.5 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                                      placeholder="Ex: 65"
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-
-                              {(() => {
-                                const availableMissing = missingIngredients.filter(item => 
-                                  !mappedSwaps.some(swap => swap.expectedCode === item.ingredient_code)
-                                );
-                                const availableUnplanned = unplannedIngredients.filter(item => 
-                                  !mappedSwaps.some(swap => swap.actualCode === item.ingredient_code)
-                                );
-
-                                const handleAddSwap = () => {
-                                  if (!selectedExpectedCode || !selectedActualCode) return;
-                                  const expectedItem = missingIngredients.find(item => item.ingredient_code === selectedExpectedCode);
-                                  const actualItem = unplannedIngredients.find(item => item.ingredient_code === selectedActualCode);
-                                  if (expectedItem && actualItem) {
-                                    setMappedSwaps([...mappedSwaps, {
-                                      expectedCode: selectedExpectedCode,
-                                      expectedDesc: expectedItem.description,
-                                      actualCode: selectedActualCode,
-                                      actualDesc: actualItem.description
-                                    }]);
-                                    setSelectedExpectedCode('');
-                                    setSelectedActualCode('');
-                                  }
-                                };
-
-                                return (
-                                  <>
-                                    {missingIngredients.length > 0 && unplannedIngredients.length > 0 && (
-                                      <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4 space-y-3">
-                                        <div>
-                                          <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Mapear Substituições de Insumos</p>
-                                          <p className="text-[11px] text-zinc-500 mt-1">
-                                            Selecione um insumo planejado ausente e o respectivo substituto para vinculá-los.
-                                          </p>
-                                        </div>
-                                        
-                                        <div className="grid grid-cols-2 gap-3 text-xs">
-                                          <div className="space-y-1">
-                                            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Insumo Planejado (Ausente)</label>
-                                            <select
-                                              value={selectedExpectedCode}
-                                              onChange={(e) => setSelectedExpectedCode(e.target.value)}
-                                              className="w-full text-xs border border-zinc-200 rounded-xl p-2.5 focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white font-medium"
-                                            >
-                                              <option value="">-- Selecione o Insumo --</option>
-                                              {availableMissing.map(item => (
-                                                <option key={item.ingredient_code} value={item.ingredient_code}>
-                                                  {item.description} ({item.ingredient_code})
-                                                </option>
-                                              ))}
-                                            </select>
-                                          </div>
-                                          
-                                          <div className="space-y-1">
-                                            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Insumo Utilizado (Substituto)</label>
-                                            <select
-                                              value={selectedActualCode}
-                                              onChange={(e) => setSelectedActualCode(e.target.value)}
-                                              className="w-full text-xs border border-zinc-200 rounded-xl p-2.5 focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white font-medium"
-                                            >
-                                              <option value="">-- Selecione o Insumo --</option>
-                                              {availableUnplanned.map(item => (
-                                                <option key={item.ingredient_code} value={item.ingredient_code}>
-                                                  {item.description} ({item.ingredient_code})
-                                                </option>
-                                              ))}
-                                            </select>
-                                          </div>
-                                        </div>
-
-                                        <button
-                                          type="button"
-                                          disabled={!selectedExpectedCode || !selectedActualCode}
-                                          onClick={handleAddSwap}
-                                          className="w-full py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold disabled:opacity-50 cursor-pointer transition-colors"
-                                        >
-                                          + Vincular Substituição
-                                        </button>
-
-                                        {mappedSwaps.length > 0 && (
-                                          <div className="space-y-1.5 bg-white rounded-xl border border-zinc-200 p-3">
-                                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Substituições vinculadas</span>
-                                            <div className="space-y-1.5 mt-1.5">
-                                              {mappedSwaps.map((swap, idx) => (
-                                                <div key={idx} className="flex justify-between items-center bg-zinc-50 border border-zinc-100 rounded-lg px-2.5 py-2 text-[11px]">
-                                                  <div className="font-medium text-zinc-700 flex items-center gap-1.5 flex-1 truncate">
-                                                    <span className="font-bold text-zinc-900 truncate max-w-[100px]" title={swap.expectedDesc}>{swap.expectedDesc}</span>
-                                                    <span className="text-zinc-400">→</span>
-                                                    <span className="font-bold text-zinc-900 truncate max-w-[100px]" title={swap.actualDesc}>{swap.actualDesc}</span>
-                                                  </div>
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                      setMappedSwaps(mappedSwaps.filter((_, i) => i !== idx));
-                                                    }}
-                                                    className="text-rose-600 hover:text-rose-700 font-bold ml-2 cursor-pointer shrink-0"
-                                                  >
-                                                    Remover
-                                                  </button>
-                                                </div>
-                                              ))}
-                                            </div>
-                                          </div>
-                                        )}
-
-                                        <label className="flex items-start gap-2.5 bg-white border border-zinc-200 rounded-xl p-3 cursor-pointer text-[11px] font-medium text-zinc-700 select-none">
-                                          <input
-                                            type="checkbox"
-                                            checked={associateSwapSimilar}
-                                            onChange={(e) => setAssociateSwapSimilar(e.target.checked)}
-                                            className="mt-0.5 accent-zinc-900 rounded"
-                                          />
-                                          <span>Cadastrar substituições vinculadas como insumos semelhantes (não alertar nas próximas produções)</span>
-                                        </label>
-                                      </div>
-                                    )}
-                                  </>
-                                );
-                              })()}
-
-                              <div className="space-y-1.5">
-                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Justificativa / Observação</label>
-                                <textarea
-                                  value={resolutionObs}
-                                  onChange={(e) => setResolutionObs(e.target.value)}
-                                  placeholder="Digite a justificativa dos desvios observados..."
-                                  rows={3}
-                                  className="w-full text-xs border border-zinc-200 rounded-xl p-3 focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white font-medium"
-                                />
-                              </div>
-
-                              <button
-                                onClick={() => handleResolveLoteErrors(selectedLoteDetails.lote_number)}
-                                disabled={resolveLoteLoading || !resolutionObs.trim()}
-                                className="w-full py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
-                              >
-                                {resolveLoteLoading ? (
-                                  <>
-                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                                    Processando...
-                                  </>
-                                ) : (
-                                  "Resolver Desvios e Aprovar Lote"
-                                )}
-                              </button>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    )}
-
-                    {/* TAB: PESAGEM */}
-                    {loteActiveSubTab === 'pesagem' && (
-                      <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-200">
-                        <div className="flex justify-between items-center border-b border-zinc-200 pb-3">
-                          <div>
-                            <h4 className="font-extrabold text-sm text-zinc-900">Ficha de Pesagem de Matérias-Primas</h4>
-                            <p className="text-[10px] text-zinc-500 mt-0.5">Comparativo do previsto em formulação vs o real lançado pelas baixas no lote.</p>
-                          </div>
-                          <div className="text-right">
-                            <span className="text-[10px] text-zinc-400 font-bold uppercase">Total Pesado</span>
-                            <p className="text-sm font-extrabold text-zinc-900">{(selectedLoteDetails.pesagem_total_actual ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} Kg</p>
-                          </div>
-                        </div>
-
-                        <div className="bg-white border border-zinc-150 rounded-xl overflow-hidden shadow-sm">
-                          <table className="w-full text-left text-xs">
-                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
-                              <tr>
-                                <th className="px-4 py-3">Insumo</th>
-                                <th className="px-4 py-3 text-right">Previsto</th>
-                                <th className="px-4 py-3 text-right">Pesado</th>
-                                <th className="px-4 py-3 text-right">Desvio</th>
-                                <th className="px-4 py-3 text-center">Status</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-zinc-100">
-                              {selectedLoteDetails.pesagem_items.map((item) => (
-                                <tr key={item.ingredient_code} className="hover:bg-zinc-50/50 transition-colors">
-                                  <td className="px-4 py-3">
-                                    <div className="font-bold text-zinc-800">{item.description}</div>
-                                    <div className="text-[9px] text-zinc-400 font-mono mt-0.5">{item.ingredient_code}</div>
-                                  </td>
-                                  <td className="px-4 py-3 text-right font-medium text-zinc-500 font-mono">
-                                    {(item.expected_qty ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} Kg
-                                  </td>
-                                  <td className="px-4 py-3 text-right font-bold text-zinc-900 font-mono">
-                                    {(item.actual_qty ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} Kg
-                                  </td>
-                                  <td className={`px-4 py-3 text-right font-bold font-mono ${
-                                    Math.abs(item.difference ?? 0) < 0.0001 ? 'text-zinc-500' :
-                                    (item.difference ?? 0) > 0.0 ? 'text-emerald-600' : 'text-rose-600'
-                                  }`}>
-                                    {(item.difference ?? 0) > 0.0 ? '+' : ''}{(item.difference ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })} Kg
-                                    {item.expected_qty > 0.0 && (
-                                      <span className="text-[9px] font-normal block opacity-80 mt-0.5">
-                                        ({item.percentage_diff > 0.0 ? '+' : ''}{item.percentage_diff.toFixed(1)}%)
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="px-4 py-3 text-center">
-                                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border ${
-                                      item.status === 'OK' ? 'bg-emerald-50 text-emerald-700 border-emerald-200/50' :
-                                      item.status === 'MISSING' ? 'bg-rose-50 text-rose-700 border-rose-200/50' :
-                                      item.status === 'EXTRA' ? 'bg-blue-50 text-blue-700 border-blue-200/50' :
-                                      'bg-amber-50 text-amber-700 border-amber-200/50'
-                                    }`}>
-                                      {item.status === 'OK' ? 'OK' : 
-                                       item.status === 'MISSING' ? 'Faltando' :
-                                       item.status === 'EXTRA' ? 'Extra' : 'Desvio'}
-                                    </span>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* TAB: ENVASE */}
-                    {loteActiveSubTab === 'envase' && (
-                      <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-200">
-                        {selectedLoteDetails.envase_products.map((prod) => (
-                          <div key={prod.product_code} className="space-y-3 bg-zinc-50/50 border border-zinc-150 p-4 rounded-xl shadow-sm">
-                            <div className="flex justify-between items-center border-b border-zinc-150 pb-2">
-                              <div>
-                                <h4 className="font-extrabold text-sm text-zinc-850">{prod.description}</h4>
-                                <p className="text-[10px] text-zinc-500 font-mono mt-0.5">Código: {prod.product_code} | Embalagem Unitária: {prod.unit_weight_kg * 1000}g</p>
-                              </div>
-                              <div className="text-right">
-                                <span className="text-[10px] text-zinc-400 font-bold uppercase">Unidades Envasadas</span>
-                                <p className="text-sm font-extrabold text-zinc-900">{(prod.actual_units_envasadas ?? 0).toLocaleString('pt-BR')} un</p>
-                              </div>
-                            </div>
-
-                            {!prod.has_packaging_formula ? (
-                              <div className="flex items-center gap-3 bg-blue-50/80 border border-blue-200/60 rounded-xl px-4 py-3.5">
-                                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-100/80 text-blue-600 flex-shrink-0">
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-                                </div>
-                                <div>
-                                  <p className="text-xs font-bold text-blue-800">Nenhuma embalagem cadastrada</p>
-                                  <p className="text-[10px] text-blue-600 mt-0.5">Este produto não possui embalagens registradas na formulação. Não foi feita baixa de embalagens.</p>
-                                </div>
-                              </div>
-                            ) : prod.packaging_items.length === 0 ? (
-                              <div className="flex items-center gap-3 bg-amber-50/80 border border-amber-200/60 rounded-xl px-4 py-3.5">
-                                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-100/80 text-amber-600 flex-shrink-0">
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
-                                </div>
-                                <div>
-                                  <p className="text-xs font-bold text-amber-800">Sem movimentação de embalagens</p>
-                                  <p className="text-[10px] text-amber-600 mt-0.5">Embalagens estão cadastradas na formulação, mas nenhuma saída foi registrada neste lote.</p>
-                                </div>
-                              </div>
-                            ) : (
-                            <div className="overflow-hidden rounded-lg border border-zinc-150 bg-white shadow-sm">
-                              <table className="w-full text-left text-xs">
-                                <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
-                                  <tr>
-                                    <th className="px-4 py-2.5">Insumo Embalagem</th>
-                                    <th className="px-4 py-2.5 text-right">Previsto</th>
-                                    <th className="px-4 py-2.5 text-right">Consumido</th>
-                                    <th className="px-4 py-2.5 text-right">Diferença</th>
-                                    <th className="px-4 py-2.5 text-center">Status</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-zinc-100">
-                                  {prod.packaging_items.map((item) => (
-                                    <tr key={item.packaging_code} className="hover:bg-zinc-50/50 transition-colors">
-                                      <td className="px-4 py-2.5">
-                                        <div className="font-bold text-zinc-800">{item.description}</div>
-                                        <div className="text-[9px] text-zinc-400 font-mono mt-0.5">{item.packaging_code}</div>
-                                      </td>
-                                      <td className="px-4 py-2.5 text-right font-semibold text-zinc-500 font-mono">
-                                        {(item.expected_qty ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
-                                      </td>
-                                      <td className="px-4 py-2.5 text-right font-bold text-zinc-900 font-mono">
-                                        {(item.actual_qty ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
-                                      </td>
-                                      <td className={`px-4 py-2.5 text-right font-bold font-mono ${
-                                        Math.abs(item.difference ?? 0) < 0.01 ? 'text-zinc-500' :
-                                        (item.difference ?? 0) > 0.0 ? 'text-emerald-600' : 'text-rose-600'
-                                      }`}>
-                                        {(item.difference ?? 0) > 0.0 ? '+' : ''}{(item.difference ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
-                                      </td>
-                                      <td className="px-4 py-2.5 text-center">
-                                        <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border ${
-                                          item.status === 'OK' ? 'bg-emerald-50 text-emerald-700 border-emerald-200/50' :
-                                          item.status === 'MISSING' ? 'bg-rose-50 text-rose-700 border-rose-200/50' :
-                                          'bg-amber-50 text-amber-700 border-amber-200/50'
-                                        }`}>
-                                          {item.status === 'OK' ? 'OK' : item.status === 'MISSING' ? 'Ausente' : 'Desvio'}
-                                        </span>
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* TAB: CONFERÊNCIA */}
-                    {loteActiveSubTab === 'conferencia' && (
-                      <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-200">
-                        <div className="border-b border-zinc-200 pb-3">
-                          <h4 className="font-extrabold text-sm text-zinc-900">Conferência de Finalização do Lote</h4>
-                          <p className="text-[10px] text-zinc-500 mt-0.5">Validação das unidades envasadas (menos 1 para retém) versus o saldo lançado em Estoque Atualizado (EA).</p>
-                        </div>
-
-                        {selectedLoteDetails.status.toUpperCase() !== 'EA' && (
-                          <div className="flex items-center gap-3 bg-blue-50/80 border border-blue-200/60 rounded-xl px-4 py-3.5">
-                            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-100/80 text-blue-600 flex-shrink-0">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-                            </div>
-                            <div>
-                              <p className="text-xs font-bold text-blue-800">Lote em aberto — Status: {selectedLoteDetails.status_label}</p>
-                              <p className="text-[10px] text-blue-600 mt-0.5">A conferência de estoque só é possível após a finalização do lote (status EA — Estoque Atualizado). As colunas de lançamento no estoque e discrepância não se aplicam neste momento.</p>
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
-                          <table className="w-full text-left text-xs">
-                            <thead className="bg-zinc-50 font-bold text-zinc-500 border-b border-zinc-150">
-                              <tr>
-                                <th className="px-4 py-3">Produto</th>
-                                <th className="px-4 py-3 text-right">Envasados (Frascos)</th>
-                                <th className="px-4 py-3 text-right">Previsto Final (F-1)</th>
-                                {selectedLoteDetails.status.toUpperCase() === 'EA' && (
-                                  <>
-                                    <th className="px-4 py-3 text-right">Lançado no Estoque</th>
-                                    <th className="px-4 py-3 text-right">Discrepância</th>
-                                    <th className="px-4 py-3 text-center">Status</th>
-                                  </>
-                                )}
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-zinc-100">
-                              {selectedLoteDetails?.conferencia_items.map((item) => (
-                                <tr key={item.product_code} className="hover:bg-zinc-50/50 transition-colors">
-                                  <td className="px-4 py-3">
-                                    <div className="font-bold text-zinc-800">{item.description}</div>
-                                    <div className="text-[9px] text-zinc-400 font-mono mt-0.5">{item.product_code}</div>
-                                  </td>
-                                  <td className="px-4 py-3 text-right font-semibold text-zinc-550 font-mono">
-                                    {(item.actual_units_envasadas ?? 0).toLocaleString('pt-BR')} un
-                                  </td>
-                                  <td className="px-4 py-3 text-right font-bold text-zinc-900 font-mono">
-                                    {(item.expected_finalized_units ?? 0).toLocaleString('pt-BR')} un
-                                  </td>
-                                  {selectedLoteDetails?.status.toUpperCase() === 'EA' && (
-                                    <>
-                                      <td className="px-4 py-3 text-right font-bold text-zinc-900 font-mono">
-                                        {(item.registered_units_stock ?? 0).toLocaleString('pt-BR')} un
-                                      </td>
-                                      <td className={`px-4 py-3 text-right font-bold font-mono ${
-                                        (item.discrepancy ?? 0) == 0.0 ? 'text-zinc-500' : 'text-rose-600'
-                                      }`}>
-                                        {(item.discrepancy ?? 0) > 0.0 ? '+' : ''}{(item.discrepancy ?? 0).toLocaleString('pt-BR')} un
-                                      </td>
-                                      <td className="px-4 py-3 text-center">
-                                        <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border ${
-                                          item.status === 'OK' ? 'bg-emerald-50 text-emerald-700 border-emerald-250/50' :
-                                          'bg-rose-50 text-rose-700 border-rose-250/50'
-                                        }`}>
-                                          {item.status === 'OK' ? 'Aprovado' : 'Discrepante'}
-                                        </span>
-                                      </td>
-                                    </>
-                                  )}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        <div className="p-4 bg-amber-50/20 border border-amber-100 rounded-xl space-y-2 text-xs">
-                          <h5 className="font-bold text-amber-800">Regra de Fechamento de Lote (Antigo ERP):</h5>
-                          <ul className="list-disc pl-4 space-y-1 text-zinc-650">
-                            <li>O operador registra o envase total (quantidade de frascos consumidos).</li>
-                            <li><strong>Retém Amostra</strong>: 1 unidade do lote deve ficar retida em laboratório (retém).</li>
-                            <li>O estoque lançado no sistema (EA) deve ser exatamente igual a <strong className="text-zinc-850 font-bold">Quantidade Envasada - 1</strong>.</li>
-                            <li>Qualquer desvio nesta contagem indica que o operador errou na digitação final ou que amostras de retém não foram contabilizadas corretamente.</li>
-                          </ul>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="flex-1 flex items-center justify-center text-zinc-500">
-                    Ocorreu um erro ao carregar os dados analíticos do lote.
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+        <KitCompositionDrawer
+          isOpen={compositionDrawerOpen}
+          onClose={() => {
+            setCompositionDrawerOpen(false);
+            setSelectedKitForComposition(null);
+          }}
+          kitCodigo={selectedKitForComposition?.codigo || ''}
+          kitDescricao={selectedKitForComposition?.descricao || ''}
+          onCompositionUpdated={() => {
+            fetchProducts();
+            fetchKits();
+          }}
+        />
 
       {/* Action status notification Toast */}
       {toast && (

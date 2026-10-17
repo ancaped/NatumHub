@@ -148,9 +148,8 @@ pub async fn parse_levantamento_excel<P: AsRef<Path>>(
         }
 
         let media_lev = cell_as_f64(&row[4]);
-        let estoque = cell_as_i64(&row[6]);
-        let producao = cell_as_i64(&row[7]);
-        let pedidos = cell_as_i64(&row[8]);
+        // Colunas 6–8 (estoque/produção/pedidos) são ignoradas de propósito:
+        // a fonte canônica é o ERP (passo A / resync-produtos). Excel não sobrescreve.
 
         let fase = if row.len() > 13 {
             let f = cell_as_string(&row[13]);
@@ -185,19 +184,14 @@ pub async fn parse_levantamento_excel<P: AsRef<Path>>(
         .execute(&mut *tx)
         .await?;
 
+        // Só garante a linha e atualiza fase; nunca sobrescreve estoque/produção/pedidos.
         sqlx::query(
             "INSERT INTO estoque_atual (codigo, estoque, producao, pedidos_aberto, fase)
-             VALUES ($1, $2, $3, $4, $5)
+             VALUES ($1, 0.0, 0.0, 0.0, $2)
              ON CONFLICT(codigo) DO UPDATE SET
-                estoque = EXCLUDED.estoque,
-                producao = EXCLUDED.producao,
-                pedidos_aberto = EXCLUDED.pedidos_aberto,
-                fase = EXCLUDED.fase",
+                fase = COALESCE(EXCLUDED.fase, estoque_atual.fase)",
         )
         .bind(&codigo)
-        .bind(estoque)
-        .bind(producao)
-        .bind(pedidos)
         .bind(&fase)
         .execute(&mut *tx)
         .await?;
@@ -218,7 +212,8 @@ pub async fn parse_kits_excel<P: AsRef<Path>>(
 
     let mut tx = pool.begin().await?;
 
-    sqlx::query("DELETE FROM kit_composicao")
+    // Não apaga origem=erp (Passo P). Só regrava linhas manuais do Excel.
+    sqlx::query("DELETE FROM kit_composicao WHERE COALESCE(origem, 'manual') = 'manual'")
         .execute(&mut *tx)
         .await?;
 
@@ -288,8 +283,13 @@ pub async fn parse_kits_excel<P: AsRef<Path>>(
             .await?;
 
             sqlx::query(
-                "INSERT INTO kit_composicao (kit_codigo, componente_codigo, quantidade, fator_proporcao_qtd, fator_proporcao_kits) VALUES ($1, $2, $3::numeric, 1.0, 1)
-                 ON CONFLICT(kit_codigo, componente_codigo) DO UPDATE SET quantidade = EXCLUDED.quantidade, fator_proporcao_qtd = 1.0, fator_proporcao_kits = 1",
+                "INSERT INTO kit_composicao (kit_codigo, componente_codigo, quantidade, fator_proporcao_qtd, fator_proporcao_kits, origem)
+                 VALUES ($1, $2, $3::numeric, 1.0, 1, 'manual')
+                 ON CONFLICT(kit_codigo, componente_codigo) DO UPDATE SET
+                    quantidade = EXCLUDED.quantidade,
+                    fator_proporcao_qtd = 1.0,
+                    fator_proporcao_kits = 1,
+                    origem = 'manual'",
             )
             .bind(&kit_code)
             .bind(&comp_code)

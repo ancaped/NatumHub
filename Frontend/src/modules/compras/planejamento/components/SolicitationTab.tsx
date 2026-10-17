@@ -318,7 +318,7 @@ export function SolicitationTab({ active = true }: { active?: boolean }) {
             <div>Gerado em: <strong>${today}</strong></div>
             <div class="meta-group">
               <div>Total de Itens: <strong>${requests.length}</strong></div>
-              <div>Origem: <strong>NatumHub Compras</strong></div>
+              <div>Origem: <strong>Nexus Compras</strong></div>
             </div>
           </div>
         </header>
@@ -351,7 +351,7 @@ export function SolicitationTab({ active = true }: { active?: boolean }) {
         </div>
 
         <footer>
-          <div>NatumHub — Sistema de Gestão Unificado</div>
+          <div>Nexus — Sistema de Gestão Unificado</div>
           <div>Relatório de Solicitações Manuais</div>
         </footer>
       </body>

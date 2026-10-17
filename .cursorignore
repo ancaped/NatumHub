@@ -1,0 +1,19 @@
+﻿# Build / deps — não indexar para agentes
+Frontend/node_modules/
+Backend/node_modules/
+Backend/target/
+Backend/target-migrate/
+Frontend/dist/
+
+# Runtime / secrets / dumps locais
+Saves/
+**/*.dump
+**/*.db
+**/*.db-*
+
+# Espelho opcional de feedbacks (fonte = Postgres)
+Feedbacks/feedback_index.md
+
+# Artefatos Tauri / instalador
+Backend/WixTools/
+Backend/gen/

@@ -94,8 +94,8 @@ export async function apiFetch(path: string, init?: RequestInit & { skipAuth?: b
   const origin = resolveApiOrigin();
   const hint =
     origin.includes('127.0.0.1') || origin.includes('localhost')
-      ? 'Verifique se o NatumHub está aberto e a API local (:3001) responde. Dados ficam no Supabase.'
-      : `Verifique a API em ${origin} e a conexão com o Supabase.`;
+      ? 'Verifique se o Nexus está aberto e a API local (:3001) responde.'
+      : `Verifique a API em ${origin}.`;
   const msg =
     lastErr instanceof Error && lastErr.message === 'Failed to fetch'
       ? `API inacessível. ${hint}`

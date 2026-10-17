@@ -1,0 +1,446 @@
+{
+  "glossary": {
+    "module_key": "Chave de permissão snake_case (ex.: qualidade_documentacao). Espelhada FE registry.ts ↔ BE modules_registry.rs.",
+    "hubView": "View intermediária do hub (ex.: qualidade_hub) visível se o operador tiver qualquer filho do grupo.",
+    "PC Principal": "Instalação master: sobe Axum :3001, Postgres, sync ERP, backups e updater.",
+    "Terminal": "Cliente: só UI; apiOrigin aponta para o PC Principal; sem Postgres local.",
+    "apiJson": "Cliente HTTP autenticado em Frontend/src/modules/geral/lib/http.ts — nunca fetch cru.",
+    "Saves": "Pasta local no master (postgres.env, PDFs, backups, manifests). Não versionar secrets."
+  },
+  "infraNodes": {
+    "auth": { "label": "Auth", "purpose": "Login, sessões, middleware Bearer, permissões por module_key." },
+    "notifications": { "label": "Notificações", "purpose": "hub_notifications + sino na UI." },
+    "audit": { "label": "Auditoria", "purpose": "hub_audit_events — trilha HTTP write + eventos de domínio." },
+    "postgres": { "label": "PostgreSQL", "purpose": "Banco canônico do Hub (Saves/postgres.env)." },
+    "erp": { "label": "SQL Server ERP", "purpose": "Fonte legada; sync via erp-import / legacy_db." },
+    "saves": { "label": "Disco Saves/", "purpose": "Arquivos binários (PDF, receipts, backups)." }
+  },
+  "routePrefixes": [
+    { "prefix": "/api/qualidade/documentacao", "moduleKey": "qualidade_documentacao", "summary": "CRUD documentação / PDF / alertas" },
+    { "prefix": "/api/qualidade/pops", "moduleKey": "qualidade_pops", "summary": "POPs versionados / setores / logo / alertas" },
+    { "prefix": "/api/qualidade/devolucoes", "moduleKey": "qualidade_devolucoes", "summary": "Devoluções cliente: recepção, CQ, disposição, ERP" },
+    { "prefix": "/api/almox", "moduleKey": "estoque_almoxarifado", "summary": "Almoxarifado ops (itens, movimentos, equipamentos)" },
+    { "prefix": "/api/estoque/ordens-manuais", "moduleKey": "estoque_ordens_manuais", "summary": "Ordens manuais entrada/saída de insumos" },
+    { "prefix": "/api/estoque", "moduleKey": "estoque_produtos", "summary": "Estoque / contagens / item-info" },
+    { "prefix": "/api/compras", "moduleKey": "compras_pedidos", "summary": "Pedidos, notas, lojas online (API compras)" },
+    { "prefix": "/api/hub/compras", "moduleKey": "compras_quotations", "summary": "Hub compras: cotações, itens, demandas, imports" },
+    { "prefix": "/api/expedicao", "moduleKey": "expedicao_ecommerce", "summary": "Pedidos e-commerce e lookups" },
+    { "prefix": "/api/financeiro", "moduleKey": "financeiro", "summary": "Contas / fluxo Tiny" },
+    { "prefix": "/api/vendas", "moduleKey": "vendas", "summary": "Pedidos de venda e faltas" },
+    { "prefix": "/api/hub/microbio", "moduleKey": "microbiologia", "summary": "Laudos e config microbiologia" },
+    { "prefix": "/api/hub/fisco", "moduleKey": "fisco_quimica", "summary": "Análises físico-químicas" },
+    { "prefix": "/api/hub/feedbacks", "moduleKey": "hub_settings", "summary": "Feedbacks admin" },
+    { "prefix": "/api/auth", "moduleKey": "hub_operadores", "summary": "Login, operadores, dispositivos" },
+    { "prefix": "/api/admin/audit/events", "moduleKey": "hub_settings", "summary": "Lista trilha hub_audit_events (supervisor)" },
+    { "prefix": "/api/admin", "moduleKey": "hub_settings", "summary": "Admin: backup, DB, audit estoque" },
+    { "prefix": "/api/import", "moduleKey": "hub_settings", "summary": "Sync ERP / dump / status" },
+    { "prefix": "/api/notifications", "moduleKey": "hub_settings", "summary": "Sino de notificações" },
+    { "prefix": "/api/kits", "moduleKey": "montagem_kits", "summary": "Kits e composição" },
+    { "prefix": "/api/producao", "moduleKey": "producao_lotes", "summary": "Lotes e recálculo" },
+    { "prefix": "/api/historico", "moduleKey": "producao", "summary": "Histórico de produção" },
+    { "prefix": "/api/turnovers", "moduleKey": "producao", "summary": "Virações / turnovers" },
+    { "prefix": "/api/products", "moduleKey": "admin_linha_produtos", "summary": "Catálogo produtos" },
+    { "prefix": "/api/produtos", "moduleKey": "admin_linha_produtos", "summary": "Detalhes / formulação produto" },
+    { "prefix": "/api/overrides", "moduleKey": "admin_linha_produtos", "summary": "Overrides de produto" },
+    { "prefix": "/api/configs", "moduleKey": "hub_settings", "summary": "Configs genéricas" },
+    { "prefix": "/api/settings", "moduleKey": "hub_settings", "summary": "Settings chave/valor" },
+    { "prefix": "/api/hub", "moduleKey": "hub_settings", "summary": "Status / client-config / health" },
+    { "prefix": "/api/health", "moduleKey": "hub_settings", "summary": "Healthcheck público" }
+  ],
+  "modules": {
+    "qualidade_documentacao": {
+      "label": "Documentação",
+      "purpose": "Cadastro de documentos de qualidade com PDF no disco do master, localização física, validade com alertas e controle de pagamento/comprovante.",
+      "status": "live",
+      "frontend": {
+        "view": "QualidadeDocumentacaoView",
+        "path": "Frontend/src/modules/qualidade/documentacao/"
+      },
+      "backend": {
+        "path": "Backend/src/modules/qualidade/documentacao/",
+        "routerPrefix": "/api/qualidade/documentacao"
+      },
+      "permissions": { "rolesDefault": ["qualidade", "admin"], "supervisorOnly": false },
+      "data": {
+        "tables": ["doc_families", "doc_types", "documents", "document_files"],
+        "filesOnDisk": ["Saves/documentacao/"]
+      },
+      "connectsTo": [
+        { "target": "notifications", "kind": "notify", "note": "check-alerts → hub_notifications" },
+        { "target": "auth", "kind": "guard", "note": "module_key qualidade_documentacao" },
+        { "target": "saves", "kind": "files", "note": "PDFs em Saves/documentacao/{doc_id}/" },
+        { "target": "postgres", "kind": "data", "note": "metadados migration 016" },
+        { "target": "audit", "kind": "audit", "note": "eventos create/update/delete documento" }
+      ],
+      "aiHints": [
+        "AppLayout com abas Documentos / Pendências / Famílias; sem h1 no main",
+        "PDFs via saves_dir()/documentacao — não ../receipts",
+        "apiJson / multipart FormData para upload",
+        "warn_days padrão 30/15/7 por família"
+      ],
+      "routeSummaries": {
+        "GET /api/qualidade/documentacao/families": "Lista famílias de documentos",
+        "POST /api/qualidade/documentacao/families": "Cria família",
+        "PUT /api/qualidade/documentacao/families/:id": "Atualiza família",
+        "DELETE /api/qualidade/documentacao/families/:id": "Remove família (se sem docs)",
+        "GET /api/qualidade/documentacao/types": "Lista tipos (filtro family_id)",
+        "POST /api/qualidade/documentacao/types": "Cria tipo",
+        "PUT /api/qualidade/documentacao/types/:id": "Atualiza tipo",
+        "DELETE /api/qualidade/documentacao/types/:id": "Remove tipo",
+        "GET /api/qualidade/documentacao/documents": "Lista documentos",
+        "POST /api/qualidade/documentacao/documents": "Cria documento",
+        "GET /api/qualidade/documentacao/documents/:id": "Detalhe documento + arquivos",
+        "PUT /api/qualidade/documentacao/documents/:id": "Atualiza documento",
+        "DELETE /api/qualidade/documentacao/documents/:id": "Remove documento e PDFs",
+        "POST /api/qualidade/documentacao/documents/:id/files": "Upload PDF (documento|comprovante)",
+        "GET /api/qualidade/documentacao/files/:id": "Download arquivo",
+        "DELETE /api/qualidade/documentacao/files/:id": "Remove arquivo",
+        "POST /api/qualidade/documentacao/check-alerts": "Gera notificações de validade/pagamento"
+      }
+    },
+    "qualidade_pops": {
+      "label": "POPs",
+      "purpose": "Procedimentos Operacionais Padrão em HTML/PDF no Hub, por setor, com validade anual, revisões versionadas, logo configurável e alertas 30/15/7.",
+      "status": "live",
+      "frontend": {
+        "view": "QualidadePopsView",
+        "path": "Frontend/src/modules/qualidade/pops/"
+      },
+      "backend": {
+        "path": "Backend/src/modules/qualidade/pops/",
+        "routerPrefix": "/api/qualidade/pops"
+      },
+      "permissions": { "rolesDefault": ["qualidade", "admin"], "supervisorOnly": false },
+      "data": {
+        "tables": ["pop_sectors", "pop_documents", "pop_versions"],
+        "filesOnDisk": ["Saves/pops/"]
+      },
+      "connectsTo": [
+        { "target": "notifications", "kind": "notify", "note": "check-alerts → hub_notifications" },
+        { "target": "auth", "kind": "guard", "note": "module_key qualidade_pops" },
+        { "target": "saves", "kind": "files", "note": "logo em Saves/pops/" },
+        { "target": "postgres", "kind": "data", "note": "migration 023" }
+      ],
+      "aiHints": [
+        "AppLayout: POPs / Setores / Configuração; sem h1 no main",
+        "Impressão HTML + window.print; logo configurável",
+        "Revalidar (mesmo conteúdo) vs publicar revisão (conteúdo + histórico)",
+        "Registros acompanhantes = fase 2 (não implementar na v1)"
+      ],
+      "routeSummaries": {
+        "GET /api/qualidade/pops/sectors": "Lista setores",
+        "POST /api/qualidade/pops/sectors": "Cria setor",
+        "GET /api/qualidade/pops/documents": "Lista POPs (filtro setor/status/q)",
+        "POST /api/qualidade/pops/documents": "Cria POP draft",
+        "GET /api/qualidade/pops/documents/:id": "Detalhe + versão atual",
+        "PUT /api/qualidade/pops/documents/:id": "Edita draft / metadados",
+        "POST /api/qualidade/pops/documents/:id/publish": "Publica initial ou content",
+        "POST /api/qualidade/pops/documents/:id/revalidate": "Nova revisão sem mudar seções",
+        "GET /api/qualidade/pops/documents/:id/versions": "Histórico de versões",
+        "GET /api/qualidade/pops/documents/:id/versions/:vid": "Snapshot antigo",
+        "GET /api/qualidade/pops/settings": "Config (logo)",
+        "PUT /api/qualidade/pops/settings": "Upload logo multipart",
+        "GET /api/qualidade/pops/settings/logo": "Bytes do logo",
+        "POST /api/qualidade/pops/seed-inventory": "Importa inventário 31 POPs",
+        "POST /api/qualidade/pops/check-alerts": "Alertas vencimento 30/15/7"
+      }
+    },
+    "qualidade_devolucoes": {
+      "label": "Devoluções",
+      "purpose": "Devoluções de produto acabado do cliente: recepção, conferência/disposição CQ por item, controle de relançamento ERP e impressão A4.",
+      "status": "live",
+      "frontend": {
+        "view": "DevolucoesView",
+        "path": "Frontend/src/modules/qualidade/devolucoes/"
+      },
+      "backend": {
+        "path": "Backend/src/modules/qualidade/devolucoes/",
+        "routerPrefix": "/api/qualidade/devolucoes"
+      },
+      "permissions": { "rolesDefault": ["qualidade", "admin"], "supervisorOnly": false },
+      "data": {
+        "tables": ["qualidade_devolucoes", "qualidade_devolucao_itens"],
+        "filesOnDisk": []
+      },
+      "connectsTo": [
+        { "target": "auth", "kind": "guard", "note": "module_key qualidade_devolucoes" },
+        { "target": "postgres", "kind": "data", "note": "migration 026" },
+        { "target": "erp", "kind": "process", "note": "só status por item (sem sync automático)" }
+      ],
+      "aiHints": [
+        "Sem vínculo obrigatório a NF/pedido ERP; autocomplete cliente via /vendas/clientes",
+        "Disposições fixas (não cadastráveis); lotes em texto livre",
+        "Impressão estilo PrintListTab: ficha completa + a lançar ERP",
+        "Status: rascunho→recebido→em_conferencia→disposto→parcialmente_lancado|finalizado"
+      ],
+      "routeSummaries": {
+        "GET /api/qualidade/devolucoes": "Lista devoluções (filtro status)",
+        "POST /api/qualidade/devolucoes": "Cria rascunho",
+        "GET /api/qualidade/devolucoes/:id": "Detalhe + itens",
+        "PUT /api/qualidade/devolucoes/:id": "Edita cabeçalho/itens (rascunho/recebido)",
+        "DELETE /api/qualidade/devolucoes/:id": "Remove só rascunho",
+        "POST /api/qualidade/devolucoes/:id/receber": "Assinatura recebedor → recebido",
+        "POST /api/qualidade/devolucoes/:id/iniciar-conferencia": "recebido → em_conferencia",
+        "POST /api/qualidade/devolucoes/:id/itens/:itemId/conferir": "Qtde conf. / análise / disposição",
+        "POST /api/qualidade/devolucoes/:id/fechar-cq": "Assinatura CQ → disposto",
+        "POST /api/qualidade/devolucoes/:id/itens/:itemId/erp": "em_processo|lancado"
+      }
+    },
+    "estoque_ordens_manuais": {
+      "label": "Ordens Manuais",
+      "purpose": "Entrada/saída manual de insumos com impressão física; ordens OPEN ajustam Prev. Futura em Compras até marcar lançado no ERP (POSTED). Não altera stock_snapshots.",
+      "status": "live",
+      "frontend": {
+        "view": "OrdensManuaisView",
+        "path": "Frontend/src/modules/estoque/ordens_manuais/"
+      },
+      "backend": {
+        "path": "Backend/src/modules/estoque/ordens_manuais/",
+        "routerPrefix": "/api/estoque/ordens-manuais"
+      },
+      "permissions": {
+        "rolesDefault": ["estoque", "admin"],
+        "supervisorOnly": false
+      },
+      "data": {
+        "tables": ["manual_stock_orders", "manual_stock_order_items"],
+        "filesOnDisk": []
+      },
+      "connectsTo": [
+        { "target": "auth", "kind": "guard", "note": "module_key estoque_ordens_manuais" },
+        { "target": "postgres", "kind": "data", "note": "migration 021" },
+        { "target": "erp", "kind": "process", "note": "POSTED após lançamento manual no ERP; sync D1 atualiza saldo" }
+      ],
+      "aiHints": [
+        "Dupla checagem só no papel (imprimir folhas); Hub não grava conferência",
+        "Prev. Futura = estoque + in_orders + entrada_OPEN − saida_OPEN",
+        "Catálogo items (MP/Emb); não produtos acabados na v1"
+      ]
+    },
+    "estoque_almoxarifado": {
+      "label": "Almoxarifado",
+      "purpose": "Operações de almox: itens ERP/locais, saldos, movimentações, demandas, equipamentos e manutenções.",
+      "status": "live",
+      "frontend": {
+        "view": "EstoqueOpsView / AlmoxarifadoView",
+        "path": "Frontend/src/modules/estoque/"
+      },
+      "backend": {
+        "path": "Backend/src/modules/estoque/almoxarifado/",
+        "routerPrefix": "/api/almox"
+      },
+      "permissions": {
+        "rolesDefault": ["estoque", "admin"],
+        "supervisorOnly": false
+      },
+      "data": {
+        "tables": [
+          "almox_item_config",
+          "almox_balances",
+          "almox_movements",
+          "estoque_equipamentos",
+          "estoque_manutencoes"
+        ],
+        "filesOnDisk": []
+      },
+      "connectsTo": [
+        { "target": "auth", "kind": "guard", "note": "seções almox por permissão" },
+        { "target": "postgres", "kind": "data", "note": "migrations 002–004, 013" },
+        { "target": "erp", "kind": "sync", "note": "seed/link itens ERP" },
+        { "target": "compras_almoxarifado", "kind": "related", "note": "demandas de reposição" }
+      ],
+      "aiHints": [
+        "Referência UX: EstoqueOpsView + AppLayout",
+        "Doc: ContextoIA/modulos/almoxarifado.md"
+      ]
+    },
+    "hub_settings": {
+      "label": "Configurações",
+      "purpose": "Painel de sistema: conexão, Postgres, backup, sync ERP, canais, auditoria e feedbacks admin.",
+      "status": "live",
+      "frontend": {
+        "view": "ConfiguracoesView",
+        "path": "Frontend/src/modules/geral/configuracoes/"
+      },
+      "backend": {
+        "path": "Backend/src/modules/geral/",
+        "routerPrefix": "/api/admin"
+      },
+      "permissions": { "rolesDefault": ["admin"], "supervisorOnly": true },
+      "data": {
+        "tables": ["settings", "hub_audit_events", "hub_notifications", "sync_status"],
+        "filesOnDisk": ["Saves/pg-backups/"]
+      },
+      "connectsTo": [
+        { "target": "auth", "kind": "guard", "note": "supervisor-only em várias rotas" },
+        { "target": "postgres", "kind": "data", "note": "usage + reset operacional" },
+        { "target": "erp", "kind": "sync", "note": "agenda e trigger sync" },
+        { "target": "audit", "kind": "audit", "note": "GET /api/admin/audit/events" },
+        { "target": "saves", "kind": "files", "note": "backups locais" }
+      ],
+      "aiHints": [
+        "AuditoriaPanel no painel supervisor",
+        "Não expor secrets em logs de audit"
+      ]
+    },
+    "hub_operadores": {
+      "label": "Gestão de Operadores",
+      "purpose": "CRUD de operadores, roles, module_keys e dispositivos — somente supervisor.",
+      "status": "live",
+      "frontend": {
+        "view": "OperadoresPanel",
+        "path": "Frontend/src/modules/geral/configuracoes/OperadoresPanel.tsx"
+      },
+      "backend": {
+        "path": "Backend/src/modules/geral/auth/",
+        "routerPrefix": "/api/auth"
+      },
+      "permissions": { "rolesDefault": ["admin"], "supervisorOnly": true },
+      "data": {
+        "tables": ["hub_operators", "hub_operator_modules", "hub_sessions", "hub_devices"],
+        "filesOnDisk": []
+      },
+      "connectsTo": [
+        { "target": "auth", "kind": "guard", "note": "requires_supervisor" },
+        { "target": "audit", "kind": "audit", "note": "create/update/delete operador" },
+        { "target": "postgres", "kind": "data", "note": "auth tables" }
+      ],
+      "aiHints": [
+        "Espelhar MODULE_KEYS FE/BE ao adicionar permissão",
+        "Nunca listar senhas; hash argon2"
+      ]
+    },
+    "compras_quotations": {
+      "label": "Cotações",
+      "purpose": "Fluxo de cotações, fornecedores, preços e imports de estoque/consumo/NF no hub de compras.",
+      "status": "live",
+      "frontend": {
+        "view": "ComprasView",
+        "path": "Frontend/src/modules/compras/planejamento/"
+      },
+      "backend": {
+        "path": "Backend/src/modules/hub_api/compras.rs",
+        "routerPrefix": "/api/hub/compras"
+      },
+      "permissions": { "rolesDefault": ["compras", "admin"], "supervisorOnly": false },
+      "data": {
+        "tables": ["quotations", "suppliers", "items", "categories", "invoices", "consumption"],
+        "filesOnDisk": []
+      },
+      "connectsTo": [
+        { "target": "postgres", "kind": "data", "note": "tabelas compras" },
+        { "target": "erp", "kind": "sync", "note": "imports e snapshots" },
+        { "target": "auth", "kind": "guard", "note": "module compras_*" }
+      ],
+      "aiHints": ["Rotas concentradas em hub_api/compras.rs", "Usar hubJson quando path /api/hub/..."]
+    },
+    "expedicao_ecommerce": {
+      "label": "E-commerce",
+      "purpose": "Pedidos de expedição e-commerce, importação Excel e cadastros de plataforma/frete/cliente.",
+      "status": "live",
+      "frontend": {
+        "view": "ExpedicaoView",
+        "path": "Frontend/src/modules/expedicao/"
+      },
+      "backend": {
+        "path": "Backend/src/modules/expedicao/",
+        "routerPrefix": "/api/expedicao"
+      },
+      "permissions": { "rolesDefault": ["expedicao", "admin"], "supervisorOnly": false },
+      "data": {
+        "tables": ["ecommerce_orders", "ecommerce_lookups"],
+        "filesOnDisk": []
+      },
+      "connectsTo": [
+        { "target": "postgres", "kind": "data", "note": "migrations 011, 014" },
+        { "target": "auth", "kind": "guard", "note": "module expedicao_ecommerce" }
+      ],
+      "aiHints": ["Multipart import Excel via FormData + apiJson"]
+    },
+    "financeiro": {
+      "label": "Financeiro",
+      "purpose": "Status financeiro Tiny: contas a pagar/receber e fluxo de caixa.",
+      "status": "live",
+      "frontend": {
+        "view": "FinanceiroView",
+        "path": "Frontend/src/modules/financeiro/"
+      },
+      "backend": {
+        "path": "Backend/src/modules/financeiro/",
+        "routerPrefix": "/api/financeiro"
+      },
+      "permissions": { "rolesDefault": ["financeiro", "admin"], "supervisorOnly": false },
+      "data": {
+        "tables": ["tiny_contas_pagar", "tiny_contas_receber"],
+        "filesOnDisk": []
+      },
+      "connectsTo": [
+        { "target": "postgres", "kind": "data", "note": "cache Tiny" },
+        { "target": "auth", "kind": "guard", "note": "module financeiro" }
+      ],
+      "aiHints": ["Token Tiny via POST /api/financeiro/token"]
+    },
+    "microbiologia": {
+      "label": "Microbiologia",
+      "purpose": "Laudos microbiológicos, produtos e configuração de template/numeração.",
+      "status": "live",
+      "frontend": {
+        "view": "MicrobiologiaView",
+        "path": "Frontend/src/modules/producao/microbiologia/"
+      },
+      "backend": {
+        "path": "Backend/src/modules/hub_api/microbio.rs",
+        "routerPrefix": "/api/hub/microbio"
+      },
+      "permissions": { "rolesDefault": ["micro", "admin"], "supervisorOnly": false },
+      "data": { "tables": ["products", "reports"], "filesOnDisk": [] },
+      "connectsTo": [
+        { "target": "postgres", "kind": "data", "note": "reports/products" },
+        { "target": "auth", "kind": "guard", "note": "module microbiologia" }
+      ],
+      "aiHints": ["Referência AppLayout + impressão de laudos"]
+    },
+    "montagem_kits": {
+      "label": "Kits",
+      "purpose": "Composição de kits, ordens e upload de composição.",
+      "status": "live",
+      "frontend": {
+        "view": "MontagemKitsView",
+        "path": "Frontend/src/modules/producao/montagem_kits/"
+      },
+      "backend": {
+        "path": "Backend/src/lib.rs (rotas /api/kits)",
+        "routerPrefix": "/api/kits"
+      },
+      "permissions": { "rolesDefault": ["producao", "admin"], "supervisorOnly": false },
+      "data": {
+        "tables": ["kit_composicao"],
+        "filesOnDisk": []
+      },
+      "connectsTo": [
+        { "target": "postgres", "kind": "data", "note": "005–006 kit_composicao" },
+        { "target": "auth", "kind": "guard", "note": "module montagem_kits" }
+      ],
+      "aiHints": ["Rotas ainda inline em lib.rs — não há modules/producao router"]
+    },
+    "controle_qualidade": {
+      "label": "Controle de Qualidade",
+      "purpose": "Hub/placeholder de controle de qualidade (evoluir conforme BPF).",
+      "status": "stub",
+      "aiHints": ["Verificar se ainda é placeholder antes de expandir"]
+    },
+    "qualidade_treinamentos": { "label": "Treinamentos", "purpose": "Registro de treinamentos de qualidade.", "status": "stub" },
+    "qualidade_temperatura": { "label": "Temperatura", "purpose": "Controle de temperatura.", "status": "stub" },
+    "qualidade_limpeza": { "label": "Limpeza", "purpose": "Registros de limpeza.", "status": "stub" },
+    "qualidade_recebimento_mp": { "label": "Recebimento MP", "purpose": "Recebimento de matéria-prima.", "status": "stub" }
+  },
+  "phase2": {
+    "title": "Fase 2 — loop SPEC → implementação",
+    "steps": [
+      "Agente lê SPEC exportado desta página",
+      "Valida contra mapa-app.json (key única, rotas, grupo)",
+      "Implementa via skill natumhub-modulos",
+      "Roda npm run map:arch e marca status planned → live"
+    ]
+  }
+}

@@ -4,6 +4,7 @@ import { useNavRecents } from '../../lib/nav/useNavRecents';
 import { isDeprecatedHubView, resolveDeprecatedHubView } from '../../lib/nav/navRegistry';
 import AppTopBar from './AppTopBar';
 import { NavShellProvider } from './NavShellContext';
+import NexusLogo from '../NexusLogo';
 
 interface AppShellProps {
   view: string;
@@ -17,17 +18,21 @@ interface AppShellProps {
 function HubWelcome() {
   return (
     <div className="flex-1 flex items-center justify-center p-8 bg-zinc-50">
-      <div className="text-center space-y-2 max-w-md">
-        <h2 className="text-xl font-extrabold text-zinc-900 tracking-tight">Bem-vindo ao NatumHub</h2>
-        <p className="text-sm text-zinc-500">
-          Passe o mouse ou clique em um módulo na barra superior para escolher a tela.
-        </p>
+      <div className="text-center space-y-4 max-w-md flex flex-col items-center">
+        <NexusLogo variant="badge" size="xl" />
+        <div className="space-y-1">
+          <div className="flex items-center justify-center gap-2">
+            <h2 className="text-2xl font-black text-zinc-900 tracking-tight uppercase">Nexus</h2>
+            <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-lg bg-zinc-900 text-white">0.1b</span>
+          </div>
+          <p className="text-sm text-zinc-500">
+            Passe o mouse ou clique em um módulo na barra superior para escolher a tela.
+          </p>
+        </div>
       </div>
     </div>
   );
 }
-
-const ADMIN_VIEWS = new Set(['hub_settings', 'hub_supervisor', 'hub_feedbacks']);
 
 export default function AppShell({
   view,
@@ -38,7 +43,7 @@ export default function AppShell({
   children,
 }: AppShellProps) {
   const { usage, recordViewVisit } = useNavRecents(currentUser);
-  const showModules = !ADMIN_VIEWS.has(view);
+  const showModules = true;
 
   useEffect(() => {
     if (isDeprecatedHubView(view)) {

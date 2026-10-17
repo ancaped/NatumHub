@@ -1,13 +1,13 @@
 ---
 name: natumhub-erp-sql
 description: >-
-  Integração ERP NatumHub: sync SQL Server → PostgreSQL, legacy_db, queries em
+  Integração ERP Nexus: sync SQL Server → PostgreSQL, legacy_db, queries em
   erp-import/sql, PASSOS, DESTINO-POSTGRES, scheduler e settings sql_*.
   Use quando o usuário pedir sync ERP, importação SQL, legacy_db, query ERP,
-  passo A-N, tabelas destino Postgres, agenda de sync ou conexão SQL Server.
+  passo A-P, tabelas destino Postgres, agenda de sync ou conexão SQL Server.
 ---
 
-# NatumHub — Skill: Integração ERP / SQL
+# Nexus — Skill: Integração ERP / SQL
 
 ## Quando usar
 
@@ -15,7 +15,7 @@ Alterar sync ERP, queries SQL Server, mapeamento para PostgreSQL, ou agenda auto
 
 ## Ler primeiro
 
-1. `ContextoIA/erp-import/README.md`
+1. `erp-import/README.md`
 2. `erp-import/PASSOS.md`
 3. `erp-import/DESTINO-POSTGRES.md`
 4. `erp-import/sql/<passo>.sql`
@@ -48,7 +48,7 @@ Alterar sync ERP, queries SQL Server, mapeamento para PostgreSQL, ou agenda auto
 
 ## Checklist alteração
 
-- [ ] Passo A–N em PASSOS.md
+- [ ] Passo A–P em PASSOS.md
 - [ ] Tabela destino em DESTINO-POSTGRES.md
 - [ ] Rust + .sql espelhados
 - [ ] `cargo check`

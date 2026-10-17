@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nexus — Mapa operacional</title>
+<style>
+:root {
+  --bg: #f4f4f5;
+  --panel: #ffffff;
+  --ink: #18181b;
+  --muted: #71717a;
+  --line: #e4e4e7;
+  --ring: rgba(24,24,27,.18);
+  --shadow: 0 8px 28px rgba(24,24,27,.08);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font-family: "Segoe UI", "IBM Plex Sans", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#loginGate {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(160deg, #fafafa 0%, #e4e4e7 100%);
+  padding: 1rem;
+}
+#loginGate.hidden { display: none; }
+.login-card {
+  width: 100%; max-width: 400px; background: #fff;
+  border: 1px solid var(--line); border-radius: 16px; padding: 1.75rem 1.5rem;
+  box-shadow: var(--shadow);
+}
+.login-card .logo {
+  width: 48px; height: 48px; border-radius: 12px; background: var(--ink); color: #fff;
+  display: grid; place-items: center; font-weight: 800; margin: 0 auto 0.75rem;
+}
+.login-card h1 { text-align: center; font-size: 1.2rem; margin: 0 0 0.25rem; letter-spacing: -0.02em; }
+.login-card .sub { text-align: center; color: var(--muted); font-size: 0.85rem; margin: 0 0 1.25rem; }
+.login-card label { display: block; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 0.25rem; }
+.login-card input, .login-card select {
+  width: 100%; padding: 0.65rem 0.75rem; border-radius: 12px; border: 1px solid var(--line);
+  background: #fafafa; font: inherit; margin-bottom: 0.85rem;
+}
+.login-card button[type=submit] {
+  width: 100%; padding: 0.75rem; border: 0; border-radius: 12px; background: var(--ink); color: #fff;
+  font: inherit; font-weight: 700; cursor: pointer;
+}
+.login-card button[type=submit]:disabled { opacity: .55; cursor: wait; }
+.login-msg { font-size: 0.82rem; border-radius: 10px; padding: 0.55rem 0.7rem; margin-bottom: 0.85rem; display: none; }
+.login-msg.err { display: block; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
+.login-msg.ok { display: block; background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; }
+.login-hint { font-size: 0.72rem; color: var(--muted); text-align: center; margin-top: 0.85rem; }
+.top {
+  display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;
+  padding: 0.55rem 0.85rem; border-bottom: 1px solid var(--line);
+  background: var(--panel); z-index: 20; flex-shrink: 0;
+}
+.brand { font-weight: 800; letter-spacing: -0.03em; font-size: 1.05rem; }
+.chip {
+  font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 999px; border: 1px solid var(--line);
+}
+.chip.live { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.chip.off { background: #fafafa; color: #71717a; }
+.chip.user { background: #f4f4f5; }
+.tabs { display: flex; gap: 0.2rem; flex-wrap: wrap; margin-left: auto; }
+.tabs button {
+  border: 1px solid transparent; background: transparent; border-radius: 8px;
+  padding: 0.35rem 0.55rem; font: inherit; font-size: 0.78rem; font-weight: 650; cursor: pointer; color: var(--muted);
+}
+.tabs button.active { background: var(--ink); color: #fff; }
+.search {
+  border: 1px solid var(--line); border-radius: 8px; padding: 0.35rem 0.55rem;
+  font: inherit; font-size: 0.8rem; min-width: 140px;
+}
+.btn {
+  border: 1px solid var(--line); background: #fff; border-radius: 10px;
+  padding: 0.35rem 0.65rem; font: inherit; font-size: 0.78rem; font-weight: 650; cursor: pointer;
+}
+.btn.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.workspace { flex: 1; display: flex; min-height: 0; position: relative; }
+.canvas-wrap {
+  flex: 1; position: relative; overflow: hidden;
+  background:
+    linear-gradient(to right, rgba(228,228,231,.55) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(228,228,231,.55) 1px, transparent 1px);
+  background-size: 24px 24px;
+  cursor: grab;
+}
+.canvas-wrap.grabbing { cursor: grabbing; }
+.canvas-wrap.doc { cursor: default; background: var(--bg); overflow: auto; }
+.viewport { position: absolute; inset: 0; transform-origin: 0 0; }
+.hint-bar {
+  position: absolute; top: 0.75rem; left: 50%; transform: translateX(-50%);
+  z-index: 6; background: rgba(24,24,27,.88); color: #fff;
+  font-size: 0.75rem; font-weight: 600; padding: 0.4rem 0.75rem; border-radius: 999px;
+  pointer-events: none; white-space: nowrap; max-width: 90vw; overflow: hidden; text-overflow: ellipsis;
+}
+.toolbar {
+  position: absolute; left: 1rem; bottom: 1rem; z-index: 5;
+  display: flex; gap: 0.35rem; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; padding: 0.35rem;
+  box-shadow: var(--shadow);
+}
+.toolbar button {
+  border: 0; background: #f4f4f5; border-radius: 8px; min-width: 32px; height: 32px;
+  padding: 0 0.45rem; font: inherit; font-weight: 700; cursor: pointer;
+}
+.inspector {
+  width: 400px; max-width: 46vw; background: var(--panel);
+  border-left: 1px solid var(--line); display: flex; flex-direction: column;
+  transform: translateX(100%); transition: transform .18s ease; position: absolute;
+  right: 0; top: 0; bottom: 0; z-index: 10; box-shadow: var(--shadow);
+}
+.inspector.open { transform: translateX(0); }
+.inspector header {
+  padding: 0.85rem 1rem; border-bottom: 1px solid var(--line);
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem;
+}
+.inspector .body { padding: 1rem; overflow: auto; flex: 1; }
+.eyebrow { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.inspector h2 { margin: 0.15rem 0 0; font-size: 1.15rem; letter-spacing: -0.02em; }
+.muted { color: var(--muted); font-size: 0.82rem; }
+.section-title {
+  font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); margin: 0.9rem 0 0.35rem;
+}
+.badge {
+  display: inline-block; font-size: 0.62rem; font-weight: 700; text-transform: uppercase;
+  padding: 0.12rem 0.4rem; border-radius: 6px; border: 1px solid var(--line);
+}
+.badge.live { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.badge.stub { background: #f4f4f5; color: #52525b; }
+.badge.planned { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+.pill {
+  display: inline-block; padding: 0.08rem 0.4rem; border-radius: 999px;
+  border: 1px solid var(--line); font-size: 0.62rem; margin-right: 0.15rem; font-weight: 700;
+}
+.pill.GET { color: #047857; background: #ecfdf5; }
+.pill.POST { color: #1d4ed8; background: #eff6ff; }
+.pill.PUT { color: #b45309; background: #fffbeb; }
+.pill.PATCH { color: #7c3aed; background: #f5f3ff; }
+.pill.DELETE { color: #b91c1c; background: #fef2f2; }
+.node {
+  position: absolute; border: 1px solid var(--line); border-radius: 14px;
+  background: var(--panel); padding: 0.55rem 0.7rem; cursor: grab;
+  box-shadow: 0 1px 0 rgba(24,24,27,.04); user-select: none;
+  width: 180px;
+}
+.node:hover { border-color: #a1a1aa; }
+.node.selected { border-color: var(--ink); box-shadow: 0 0 0 3px var(--ring), var(--shadow); }
+.node.dragging { cursor: grabbing; opacity: .92; z-index: 2; }
+.node .s { font-size: 0.68rem; color: var(--muted); font-weight: 500; margin-top: 0.15rem; }
+.node .key { font-family: ui-monospace, Consolas, monospace; font-size: 0.62rem; color: #a1a1aa; }
+.group-box {
+  position: absolute; border: 1px dashed #d4d4d8; border-radius: 16px;
+  background: rgba(255,255,255,.35); pointer-events: none;
+}
+.group-box span {
+  display: inline-block; margin: 6px 10px; font-size: 0.65rem; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+}
+svg.edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.doc-panel { max-width: 960px; margin: 1rem auto; padding: 0 1rem 2rem; }
+.card {
+  border: 1px solid var(--line); border-radius: 12px; padding: 0.75rem 0.9rem;
+  background: var(--panel); margin-bottom: 0.5rem;
+}
+.card strong { display: block; }
+input, select, textarea {
+  width: 100%; padding: 0.5rem 0.65rem; border-radius: 10px;
+  border: 1px solid var(--line); font: inherit; margin: 0.25rem 0 0.55rem;
+}
+textarea { min-height: 70px; resize: vertical; }
+table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+th, td { text-align: left; padding: 0.35rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-size: 0.65rem; text-transform: uppercase; }
+code, pre { font-family: ui-monospace, Consolas, monospace; font-size: 0.72rem; }
+pre { background: #f4f4f5; padding: 0.65rem; border-radius: 10px; overflow: auto; max-height: 28vh; white-space: pre-wrap; }
+.detail-item {
+  border: 1px solid var(--line); border-radius: 10px; padding: 0.45rem 0.55rem; margin-bottom: 0.35rem; font-size: 0.8rem;
+}
+.detail-item .d { color: var(--muted); font-size: 0.72rem; margin-top: 0.15rem; }
+.modal-bg {
+  position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 50;
+  display: none; align-items: center; justify-content: center; padding: 1rem;
+}
+.modal-bg.open { display: flex; }
+.modal {
+  width: 100%; max-width: 420px; background: #fff; border-radius: 16px; padding: 1.1rem;
+  border: 1px solid var(--line); box-shadow: var(--shadow);
+}
+.modal h3 { margin: 0 0 0.75rem; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.6rem; }
+.close-x { border: 0; background: transparent; font-size: 1.1rem; cursor: pointer; color: var(--muted); }
+.ok { color: #047857; font-size: 0.8rem; }
+.err { color: #b91c1c; font-size: 0.8rem; }
+#appShell.hidden { display: none !important; }
+#appShell { display: flex; flex-direction: column; height: 100%; }
+</style>
+</head>
+<body>
+
+<div id="loginGate">
+  <form class="login-card" id="loginForm">
+    <div class="logo">N</div>
+    <h1>Nexus</h1>
+    <p class="sub">Mapa operacional — entre com a mesma conta do Hub</p>
+    <div class="login-msg" id="loginMsg"></div>
+    <label for="loginName">Nome</label>
+    <input id="loginName" autocomplete="username" placeholder="Seu nome de operador" required />
+    <label for="loginPass">Senha</label>
+    <input id="loginPass" type="password" autocomplete="current-password" required />
+    <label for="loginApi">API (master)</label>
+    <input id="loginApi" value="http://127.0.0.1:3001" />
+    <button type="submit" id="loginBtn">Entrar</button>
+    <p class="login-hint">Mesmo login do app. Supervisor vê e edita o mapa (arrastar, +módulo, detalhes).</p>
+  </form>
+</div>
+
+<div id="appShell" class="hidden">
+  <div class="top">
+    <div class="brand">Nexus</div>
+    <span class="chip off" id="apiChip">—</span>
+    <span class="chip user" id="userChip">—</span>
+    <button type="button" class="btn primary" id="btnAddMod">+ Módulo</button>
+    <button type="button" class="btn" id="btnResync">Resync rotas</button>
+    <button type="button" class="btn" id="btnLogout">Sair</button>
+    <input class="search" id="search" placeholder="Buscar módulo…" />
+    <div class="tabs" id="tabs"></div>
+  </div>
+  <div class="workspace">
+    <div class="canvas-wrap" id="canvasWrap">
+      <div class="hint-bar" id="hintBar">Arraste um submódulo · clique para ver detalhes · + Módulo para criar</div>
+      <div class="viewport" id="viewport">
+        <svg class="edges" id="edges"></svg>
+        <div id="groups"></div>
+        <div id="nodes"></div>
+      </div>
+      <div class="toolbar" id="toolbar">
+        <button type="button" data-z="in">+</button>
+        <button type="button" data-z="out">−</button>
+        <button type="button" data-z="fit" title="Fit">⌂</button>
+      </div>
+      <div class="doc-panel" id="docPanel" style="display:none"></div>
+    </div>
+    <aside class="inspector" id="inspector">
+      <header>
+        <div>
+          <div class="eyebrow" id="insEyebrow">—</div>
+          <h2 id="insTitle">—</h2>
+        </div>
+        <button type="button" class="close-x" id="insClose">×</button>
+      </header>
+      <div class="body" id="insBody"></div>
+    </aside>
+  </div>
+</div>
+
+<div class="modal-bg" id="addModal">
+  <div class="modal">
+    <h3>+ Adicionar módulo</h3>
+    <label class="eyebrow">module_key</label>
+    <input id="addKey" placeholder="ex: qualidade_auditoria" />
+    <label class="eyebrow">Label</label>
+    <input id="addLabel" placeholder="Auditoria" />
+    <label class="eyebrow">Grupo</label>
+    <select id="addGroup"></select>
+    <label class="eyebrow">Purpose</label>
+    <textarea id="addPurpose" placeholder="Para que serve…"></textarea>
+    <div class="btn-row">
+      <button type="button" class="btn primary" id="addGo">Criar + task</button>
+      <button type="button" class="btn" id="addCancel">Cancelar</button>
+    </div>
+    <p class="muted" id="addMsg"></p>
+  </div>
+</div>
+
+<script type="application/json" id="mapa-data">__MAPA_JSON__</script>
+<script>
+const FALLBACK = JSON.parse(document.getElementById('mapa-data').textContent);
+const TOKEN_KEY = 'natum_auth_token';
+const USER_KEY = 'natum_auth_user';
+const API_KEY = 'natum_mapa_api';
+
+const state = {
+  view: 'org',
+  scale: 0.85,
+  panX: 40,
+  panY: 40,
+  selected: null,
+  panning: false,
+  lastX: 0,
+  lastY: 0,
+  drag: null,
+  apiBase: localStorage.getItem(API_KEY) || (location.protocol.startsWith('http') ? location.origin : 'http://127.0.0.1:3001'),
+  token: localStorage.getItem(TOKEN_KEY) || '',
+  user: null,
+  apiLive: false,
+  snap: null,
+  positions: {},
+  activity: [],
+  tasks: [],
+  feedbacks: [],
+  routeFilter: '',
+};
+
+try {
+  state.user = JSON.parse(localStorage.getItem(USER_KEY) || 'null');
+} catch { state.user = null; }
+
+const TABS = [
+  ['org', 'Organograma'],
+  ['tasks', 'Tasks'],
+  ['registro', 'Registro'],
+  ['feedbacks', 'Feedbacks'],
+  ['routes', 'Rotas'],
+  ['edges', 'Conexões'],
+  ['glossary', 'Glossário'],
+];
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function apiUrl(path) {
+  const base = state.apiBase.replace(/\/$/, '');
+  if (path.startsWith('/api/')) return base + path;
+  return base + '/api' + (path.startsWith('/') ? path : '/' + path);
+}
+
+async function api(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {});
+  if (opts.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+  if (state.token && !opts.skipAuth) headers['Authorization'] = 'Bearer ' + state.token;
+  const r = await fetch(apiUrl(path), Object.assign({}, opts, { headers }));
+  const text = await r.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!r.ok) {
+    const msg = (data && data.error) || (typeof data === 'string' ? data : '') || ('HTTP ' + r.status);
+    const err = new Error(msg);
+    err.status = r.status;
+    throw err;
+  }
+  return data;
+}
+
+function setLoginMsg(text, kind) {
+  const el = document.getElementById('loginMsg');
+  el.className = 'login-msg ' + (kind || 'err');
+  el.textContent = text || '';
+  if (!text) el.className = 'login-msg';
+}
+
+function showApp() {
+  document.getElementById('loginGate').classList.add('hidden');
+  document.getElementById('appShell').classList.remove('hidden');
+}
+
+function showLogin() {
+  document.getElementById('loginGate').classList.remove('hidden');
+  document.getElementById('appShell').classList.add('hidden');
+}
+
+function isSupervisor() {
+  const u = state.user;
+  if (!u) return false;
+  return Boolean(u.isSupervisor || u.is_supervisor) || u.role === 'supervisor' || u.role === 'admin';
+}
+
+function applySnapshot(snap) {
+  state.snap = snap;
+  state.positions = {};
+  (snap.modules || []).forEach(m => {
+    state.positions[m.moduleKey] = { x: m.posX, y: m.posY };
+  });
+  state.tasks = snap.tasksOpen || [];
+  state.activity = snap.activity || [];
+  state.apiLive = true;
+  const chip = document.getElementById('apiChip');
+  chip.textContent = 'Postgres';
+  chip.className = 'chip live';
+  chip.title = state.apiBase;
+  document.getElementById('userChip').textContent = (state.user && (state.user.displayName || state.user.display_name)) || 'operador';
+  document.getElementById('hintBar').textContent = isSupervisor()
+    ? 'Arraste um submódulo para reposicionar · clique = detalhes · + Módulo cria planned + task'
+    : 'Leitura: clique nos nós para ver detalhes (edição exige supervisor)';
+  fillAddGroups();
+}
+
+function fallbackAsSnap() {
+  const groups = (FALLBACK.moduleGroups || []).map((g, i) => ({
+    key: g.key, label: g.label, hubView: g.hubView || '', sortOrder: i * 10, color: null,
+  }));
+  const modules = Object.values(FALLBACK.modules || {}).map((m, i) => ({
+    moduleKey: m.key,
+    groupKey: m.group || (FALLBACK.moduleGroups || []).find(g => (g.children || []).includes(m.key))?.key || 'sistema',
+    label: m.label || m.key,
+    purpose: m.purpose || '',
+    status: m.status || 'stub',
+    sortOrder: i,
+    posX: 40 + (i % 8) * 220,
+    posY: 120 + Math.floor(i / 8) * 90,
+    frontendPath: m.frontend?.path || null,
+    backendPath: m.backend?.path || null,
+    routerPrefix: m.backend?.routerPrefix || null,
+    aiHints: m.aiHints || [],
+    detail: m.detail || { tabs: [], functions: [], notes: m.purpose || '' },
+  }));
+  return {
+    groups,
+    modules,
+    edges: (FALLBACK.edges || []).map((e, i) => ({
+      id: 'e' + i, fromKey: e.from, toKey: e.to, kind: e.kind || 'related', note: e.note || '',
+    })),
+    routes: FALLBACK.routeCatalog || [],
+    tasksOpen: [],
+    activity: [],
+  };
+}
+
+async function loadSnapshot() {
+  const snap = await api('/mapa/snapshot');
+  applySnapshot(snap);
+}
+
+async function trySession() {
+  if (!state.token) return false;
+  try {
+    const me = await api('/auth/me');
+    state.user = me;
+    localStorage.setItem(USER_KEY, JSON.stringify(me));
+    await loadSnapshot();
+    showApp();
+    render();
+    setTimeout(fitAll, 40);
+    return true;
+  } catch {
+    state.token = '';
+    localStorage.removeItem(TOKEN_KEY);
+    return false;
+  }
+}
+
+document.getElementById('loginApi').value = state.apiBase || (location.protocol.startsWith('http') ? location.origin : 'http://127.0.0.1:3001');
+document.getElementById('loginForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true;
+  setLoginMsg('');
+  state.apiBase = document.getElementById('loginApi').value.trim().replace(/\/$/, '') || 'http://127.0.0.1:3001';
+  localStorage.setItem(API_KEY, state.apiBase);
+  const displayName = document.getElementById('loginName').value.trim();
+  const password = document.getElementById('loginPass').value;
+  try {
+    const res = await api('/auth/login', {
+      method: 'POST',
+      skipAuth: true,
+      body: JSON.stringify({
+        displayName,
+        password,
+        deviceId: 'mapa-html',
+        deviceLabel: 'Mapa operacional (browser)',
+      }),
+    });
+    state.token = res.token;
+    state.user = res.user;
+    localStorage.setItem(TOKEN_KEY, res.token);
+    localStorage.setItem(USER_KEY, JSON.stringify(res.user));
+    if (!isSupervisor()) {
+      setLoginMsg('Logado, mas só supervisor edita o mapa. Abrindo em leitura…', 'ok');
+    }
+    await loadSnapshot();
+    showApp();
+    render();
+    setTimeout(fitAll, 40);
+  } catch (err) {
+    setLoginMsg(err.message || 'Falha no login. Master em :3001?');
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+document.getElementById('btnLogout').onclick = () => {
+  state.token = '';
+  state.user = null;
+  state.snap = null;
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+  showLogin();
+};
+
+function fillAddGroups() {
+  const sel = document.getElementById('addGroup');
+  const groups = (state.snap?.groups || []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+  sel.innerHTML = groups.map(g => '<option value="' + esc(g.key) + '">' + esc(g.label) + '</option>').join('');
+}
+
+document.getElementById('btnAddMod').onclick = () => {
+  if (!isSupervisor()) { alert('Precisa ser supervisor para adicionar módulo.'); return; }
+  fillAddGroups();
+  document.getElementById('addMsg').textContent = '';
+  document.getElementById('addModal').classList.add('open');
+};
+document.getElementById('addCancel').onclick = () => document.getElementById('addModal').classList.remove('open');
+document.getElementById('addGo').onclick = async () => {
+  const msg = document.getElementById('addMsg');
+  try {
+    await api('/mapa/modules', {
+      method: 'POST',
+      body: JSON.stringify({
+        moduleKey: document.getElementById('addKey').value.trim(),
+        label: document.getElementById('addLabel').value.trim(),
+        groupKey: document.getElementById('addGroup').value,
+        purpose: document.getElementById('addPurpose').value.trim() || undefined,
+        posX: 80,
+        posY: 160,
+      }),
+    });
+    document.getElementById('addModal').classList.remove('open');
+    await loadSnapshot();
+    state.view = 'tasks';
+    render();
+  } catch (err) {
+    msg.textContent = err.message;
+    msg.className = 'err';
+  }
+};
+
+document.getElementById('btnResync').onclick = async () => {
+  if (!isSupervisor()) { alert('Supervisor only'); return; }
+  try {
+    await api('/mapa/resync-scan', { method: 'POST', body: '{}' });
+    await loadSnapshot();
+    render();
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
+function modulesList() {
+  return state.snap?.modules || [];
+}
+function groupsList() {
+  return (state.snap?.groups || []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function applyTransform() {
+  document.getElementById('viewport').style.transform =
+    'translate(' + state.panX + 'px,' + state.panY + 'px) scale(' + state.scale + ')';
+}
+
+function drawEdges() {
+  const edges = state.snap?.edges || [];
+  let paths = '';
+  edges.forEach(e => {
+    const a = state.positions[e.fromKey];
+    const b = state.positions[e.toKey];
+    if (!a || !b) return;
+    const x1 = a.x + 90, y1 = a.y + 28, x2 = b.x + 90, y2 = b.y + 28;
+    paths += '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 +
+      '" stroke="#a1a1aa" stroke-width="1.5" marker-end="url(#arr)"/>';
+  });
+  const svg = document.getElementById('edges');
+  svg.setAttribute('width', 5000);
+  svg.setAttribute('height', 3000);
+  svg.innerHTML = '<defs><marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#a1a1aa"/></marker></defs>' + paths;
+}
+
+function renderOrg() {
+  const wrap = document.getElementById('canvasWrap');
+  wrap.classList.remove('doc');
+  document.getElementById('viewport').style.display = 'block';
+  document.getElementById('toolbar').style.display = 'flex';
+  document.getElementById('hintBar').style.display = 'block';
+  document.getElementById('docPanel').style.display = 'none';
+
+  drawEdges();
+  const q = (document.getElementById('search').value || '').toLowerCase();
+  const gHost = document.getElementById('groups');
+  const nHost = document.getElementById('nodes');
+  gHost.innerHTML = '';
+  nHost.innerHTML = '';
+
+  groupsList().forEach(g => {
+    const kids = modulesList().filter(m => m.groupKey === g.key);
+    if (!kids.length) return;
+    const xs = kids.map(m => (state.positions[m.moduleKey] || { x: m.posX }).x);
+    const ys = kids.map(m => (state.positions[m.moduleKey] || { y: m.posY }).y);
+    const minX = Math.min(...xs) - 14;
+    const minY = Math.min(...ys) - 32;
+    const maxX = Math.max(...xs) + 194;
+    const maxY = Math.max(...ys) + 72;
+    const box = document.createElement('div');
+    box.className = 'group-box';
+    box.style.left = minX + 'px';
+    box.style.top = minY + 'px';
+    box.style.width = (maxX - minX) + 'px';
+    box.style.height = (maxY - minY) + 'px';
+    box.innerHTML = '<span>' + esc(g.label) + '</span>';
+    gHost.appendChild(box);
+  });
+
+  modulesList().forEach(m => {
+    const hay = (m.label + ' ' + m.moduleKey + ' ' + (m.purpose || '')).toLowerCase();
+    if (q && !hay.includes(q)) return;
+    const p = state.positions[m.moduleKey] || { x: m.posX, y: m.posY };
+    const el = document.createElement('div');
+    el.className = 'node leaf' + (state.selected === m.moduleKey ? ' selected' : '');
+    el.style.left = p.x + 'px';
+    el.style.top = p.y + 'px';
+    el.innerHTML =
+      '<div class="key">' + esc(m.moduleKey) + '</div>' +
+      '<div><strong>' + esc(m.label) + '</strong></div>' +
+      '<div class="s"><span class="badge ' + esc(m.status) + '">' + esc(m.status) + '</span></div>';
+    el.onpointerdown = (ev) => {
+      if (ev.button !== 0) return;
+      ev.stopPropagation();
+      el.setPointerCapture(ev.pointerId);
+      state.drag = {
+        key: m.moduleKey,
+        startX: ev.clientX,
+        startY: ev.clientY,
+        origX: p.x,
+        origY: p.y,
+        moved: false,
+      };
+      el.classList.add('dragging');
+    };
+    el.onpointermove = (ev) => {
+      if (!state.drag || state.drag.key !== m.moduleKey) return;
+      const dx = (ev.clientX - state.drag.startX) / state.scale;
+      const dy = (ev.clientY - state.drag.startY) / state.scale;
+      if (Math.abs(dx) + Math.abs(dy) > 3) state.drag.moved = true;
+      state.positions[m.moduleKey] = { x: state.drag.origX + dx, y: state.drag.origY + dy };
+      el.style.left = state.positions[m.moduleKey].x + 'px';
+      el.style.top = state.positions[m.moduleKey].y + 'px';
+      drawEdges();
+    };
+    el.onpointerup = async (ev) => {
+      if (!state.drag || state.drag.key !== m.moduleKey) return;
+      const moved = state.drag.moved;
+      const key = state.drag.key;
+      state.drag = null;
+      el.classList.remove('dragging');
+      state.selected = key;
+      openInspector(key);
+      if (moved && isSupervisor()) {
+        try {
+          const pos = state.positions[key];
+          await api('/mapa/layout', {
+            method: 'PUT',
+            body: JSON.stringify({ items: [{ moduleKey: key, posX: pos.x, posY: pos.y }] }),
+          });
+        } catch (err) {
+          alert('Não salvou posição: ' + err.message);
+        }
+      }
+      renderOrg();
+    };
+    nHost.appendChild(el);
+  });
+  applyTransform();
+}
+
+function moduleRoutes(m) {
+  const routes = state.snap?.routes || [];
+  const prefix = m.routerPrefix || '';
+  return routes.filter(r =>
+    r.moduleKey === m.moduleKey || (prefix && String(r.path || '').startsWith(prefix))
+  ).slice(0, 50);
+}
+
+function openInspector(key) {
+  const m = modulesList().find(x => x.moduleKey === key);
+  if (!m) return;
+  const ins = document.getElementById('inspector');
+  ins.classList.add('open');
+  document.getElementById('insEyebrow').textContent = m.groupKey;
+  document.getElementById('insTitle').textContent = m.label;
+  const detail = m.detail || {};
+  const tabs = detail.tabs || [];
+  const funcs = detail.functions || [];
+  const notes = detail.notes || '';
+  const refs = detail.codeRefs || [];
+  const edges = (state.snap?.edges || []).filter(e => e.fromKey === key || e.toKey === key);
+  const routes = moduleRoutes(m);
+  const canEdit = isSupervisor();
+
+  const body = document.getElementById('insBody');
+  body.innerHTML =
+    '<span class="badge ' + esc(m.status) + '">' + esc(m.status) + '</span> ' +
+    '<code class="muted">' + esc(m.moduleKey) + '</code>' +
+    '<div class="section-title">Visão geral</div>' +
+    (canEdit
+      ? '<textarea id="insPurpose">' + esc(m.purpose || '') + '</textarea>'
+      : '<p>' + esc(m.purpose || '—') + '</p>') +
+    '<div class="section-title">Abas / UI</div>' +
+    (tabs.length
+      ? tabs.map(t => '<div class="detail-item"><strong>' + esc(t.label || t.id) + '</strong><div class="d">' + esc(t.desc || '') + '</div></div>').join('')
+      : '<p class="muted">Sem abas curadas ainda.</p>') +
+    '<div class="section-title">Funções</div>' +
+    (funcs.length
+      ? funcs.map(f => '<div class="detail-item"><code>' + esc(f.name) + '</code><div class="d">' + esc(f.desc || '') + '</div></div>').join('')
+      : '<p class="muted">—</p>') +
+    '<div class="section-title">Rotas</div>' +
+    (routes.length
+      ? '<table><thead><tr><th>Mét.</th><th>Path</th></tr></thead><tbody>' +
+        routes.map(r => '<tr><td>' + (r.methods || []).map(x => '<span class="pill ' + x + '">' + x + '</span>').join('') +
+        '</td><td><code>' + esc(r.path) + '</code></td></tr>').join('') + '</tbody></table>'
+      : '<p class="muted">Nenhuma rota ligada (use Resync rotas).</p>') +
+    '<div class="section-title">Código</div>' +
+    '<p class="muted">FE <code>' + esc(m.frontendPath || '—') + '</code></p>' +
+    '<p class="muted">BE <code>' + esc(m.backendPath || '—') + '</code></p>' +
+    (refs.map(c => '<p class="muted"><code>' + esc(c) + '</code></p>').join('')) +
+    '<div class="section-title">Conexões</div>' +
+    (edges.length
+      ? edges.map(e => '<div class="detail-item">' + esc(e.fromKey) + ' → ' + esc(e.toKey) +
+        ' <span class="muted">(' + esc(e.kind) + ')</span><div class="d">' + esc(e.note || '') + '</div></div>').join('')
+      : '<p class="muted">—</p>') +
+    '<div class="section-title">Notas</div>' +
+    (canEdit
+      ? '<textarea id="insNotes">' + esc(notes) + '</textarea>' +
+        '<div class="btn-row"><button type="button" class="btn primary" id="insSave">Salvar detalhe</button></div>'
+      : '<p>' + esc(notes || '—') + '</p>');
+
+  const saveBtn = body.querySelector('#insSave');
+  if (saveBtn) {
+    saveBtn.onclick = async () => {
+      try {
+        const purpose = body.querySelector('#insPurpose').value;
+        const newNotes = body.querySelector('#insNotes').value;
+        await api('/mapa/modules/' + encodeURIComponent(key), {
+          method: 'PUT',
+          body: JSON.stringify({
+            purpose,
+            detail: Object.assign({}, detail, { notes: newNotes, tabs, functions: funcs, codeRefs: refs }),
+          }),
+        });
+        await loadSnapshot();
+        openInspector(key);
+        renderOrg();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+  }
+}
+
+document.getElementById('insClose').onclick = () => document.getElementById('inspector').classList.remove('open');
+
+function renderTabs() {
+  const openCount = (state.tasks || []).filter(t => t.status === 'open').length;
+  document.getElementById('tabs').innerHTML = TABS.map(([id, label]) => {
+    const extra = id === 'tasks' && openCount ? ' (' + openCount + ')' : '';
+    return '<button type="button" class="' + (state.view === id ? 'active' : '') + '" data-tab="' + id + '">' + label + extra + '</button>';
+  }).join('');
+  document.querySelectorAll('#tabs [data-tab]').forEach(b => {
+    b.onclick = () => { state.view = b.dataset.tab; render(); };
+  });
+}
+
+async function renderDoc() {
+  const wrap = document.getElementById('canvasWrap');
+  wrap.classList.add('doc');
+  document.getElementById('viewport').style.display = 'none';
+  document.getElementById('toolbar').style.display = 'none';
+  document.getElementById('hintBar').style.display = 'none';
+  document.getElementById('docPanel').style.display = 'block';
+  document.getElementById('inspector').classList.remove('open');
+  const panel = document.getElementById('docPanel');
+
+  if (state.view === 'tasks') {
+    try { state.tasks = await api('/mapa/tasks?limit=200'); } catch { /* keep */ }
+    panel.innerHTML = '<h2>Tasks (Postgres)</h2>' +
+      ((state.tasks || []).map(t =>
+        '<div class="card"><strong>' + esc(t.title) + '</strong>' +
+        '<span class="muted">' + esc(t.id) + ' · ' + esc(t.type) + ' · ' + esc(t.status) + '</span>' +
+        (t.status === 'open' && isSupervisor()
+          ? '<div class="btn-row"><button type="button" class="btn" data-done="' + esc(t.id) + '">Marcar done</button></div>'
+          : '') +
+        '</div>'
+      ).join('') || '<p class="muted">Nenhuma task.</p>');
+    panel.querySelectorAll('[data-done]').forEach(b => {
+      b.onclick = async () => {
+        await api('/mapa/tasks/' + encodeURIComponent(b.getAttribute('data-done')), {
+          method: 'PATCH', body: JSON.stringify({ status: 'done' }),
+        });
+        render();
+      };
+    });
+  } else if (state.view === 'registro') {
+    try { state.activity = await api('/mapa/activity?limit=200'); } catch { /* */ }
+    panel.innerHTML = '<h2>Registro</h2>' +
+      ((state.activity || []).map(a =>
+        '<div class="card"><strong>' + esc(a.action) + '</strong>' +
+        '<span class="muted">' + esc(a.at) + ' · ' + esc(a.actor || 'system') + '</span>' +
+        '<pre>' + esc(JSON.stringify(a.meta || {}, null, 0)) + '</pre></div>'
+      ).join('') || '<p class="muted">Vazio.</p>');
+  } else if (state.view === 'feedbacks') {
+    panel.innerHTML = '<h2>Feedbacks</h2><p class="muted">Carregando…</p>';
+    try {
+      const list = await api('/hub/feedbacks/manage');
+      state.feedbacks = Array.isArray(list) ? list : [];
+      panel.innerHTML = '<h2>Feedbacks (' + state.feedbacks.length + ')</h2>' +
+        (state.feedbacks.slice(0, 100).map(f =>
+          '<div class="card"><strong>' + esc((f.description || '').slice(0, 140)) + '</strong>' +
+          '<span class="muted">' + esc(f.status) + ' · ' + esc(f.feedbackType) + '</span></div>'
+        ).join('') || '<p class="muted">Vazio.</p>');
+    } catch (err) {
+      panel.innerHTML = '<h2>Feedbacks</h2><p class="err">' + esc(err.message) + '</p>';
+    }
+  } else if (state.view === 'routes') {
+    const catalog = state.snap?.routes || FALLBACK.routeCatalog || [];
+    const rows = catalog.filter(r => {
+      if (!state.routeFilter) return true;
+      const hay = (r.path + ' ' + (r.methods || []).join(' ') + ' ' + (r.moduleKey || '')).toLowerCase();
+      return hay.includes(state.routeFilter.toLowerCase());
+    });
+    panel.innerHTML = '<h2>Rotas (' + rows.length + ')</h2>' +
+      '<input id="rf" placeholder="Filtrar…" value="' + esc(state.routeFilter) + '"/>' +
+      '<table><thead><tr><th>Mét.</th><th>Path</th><th>Módulo</th></tr></thead><tbody>' +
+      rows.map(r => '<tr><td>' + (r.methods || []).map(m => '<span class="pill ' + m + '">' + m + '</span>').join('') +
+      '</td><td><code>' + esc(r.path) + '</code></td><td class="muted">' + esc(r.moduleKey || '—') + '</td></tr>').join('') +
+      '</tbody></table>';
+    panel.querySelector('#rf').oninput = e => { state.routeFilter = e.target.value; renderDoc(); };
+  } else if (state.view === 'edges') {
+    const edges = state.snap?.edges || [];
+    panel.innerHTML = '<h2>Conexões (' + edges.length + ')</h2>' +
+      edges.map(e => '<div class="card"><strong>' + esc(e.fromKey) + ' → ' + esc(e.toKey) +
+      '</strong><span class="muted">' + esc(e.kind) + ' · ' + esc(e.note || '') + '</span></div>').join('');
+  } else if (state.view === 'glossary') {
+    panel.innerHTML = '<h2>Glossário</h2>' +
+      Object.entries(FALLBACK.glossary || {}).map(([k, v]) =>
+        '<div class="card"><strong>' + esc(k) + '</strong><span class="muted">' + esc(v) + '</span></div>'
+      ).join('');
+  }
+}
+
+function render() {
+  renderTabs();
+  if (state.view === 'org') renderOrg();
+  else renderDoc();
+}
+
+function fitAll() {
+  const mods = modulesList();
+  if (!mods.length) return;
+  let maxX = 0, maxY = 0;
+  mods.forEach(m => {
+    const p = state.positions[m.moduleKey] || { x: m.posX, y: m.posY };
+    maxX = Math.max(maxX, p.x + 200);
+    maxY = Math.max(maxY, p.y + 80);
+  });
+  const wrap = document.getElementById('canvasWrap');
+  const sx = (wrap.clientWidth - 80) / (maxX + 40);
+  const sy = (wrap.clientHeight - 80) / (maxY + 40);
+  state.scale = Math.min(1.1, Math.max(0.35, Math.min(sx, sy)));
+  state.panX = 40;
+  state.panY = 30;
+  applyTransform();
+}
+
+(function bindCanvas() {
+  const wrap = document.getElementById('canvasWrap');
+  wrap.addEventListener('pointerdown', e => {
+    if (state.view !== 'org') return;
+    if (e.target.closest('.node') || e.target.closest('.toolbar') || e.target.closest('.hint-bar')) return;
+    state.panning = true;
+    state.lastX = e.clientX; state.lastY = e.clientY;
+    wrap.classList.add('grabbing');
+  });
+  window.addEventListener('pointermove', e => {
+    if (!state.panning) return;
+    state.panX += e.clientX - state.lastX;
+    state.panY += e.clientY - state.lastY;
+    state.lastX = e.clientX; state.lastY = e.clientY;
+    applyTransform();
+  });
+  window.addEventListener('pointerup', () => {
+    state.panning = false;
+    wrap.classList.remove('grabbing');
+  });
+  wrap.addEventListener('wheel', e => {
+    if (state.view !== 'org') return;
+    e.preventDefault();
+    state.scale = Math.min(1.8, Math.max(0.3, state.scale * (e.deltaY > 0 ? 0.92 : 1.08)));
+    applyTransform();
+  }, { passive: false });
+  document.querySelectorAll('#toolbar [data-z]').forEach(b => {
+    b.onclick = () => {
+      const z = b.dataset.z;
+      if (z === 'in') state.scale = Math.min(1.8, state.scale * 1.12);
+      if (z === 'out') state.scale = Math.max(0.3, state.scale * 0.9);
+      if (z === 'fit') fitAll();
+      applyTransform();
+    };
+  });
+})();
+
+document.getElementById('search').oninput = () => { if (state.view === 'org') renderOrg(); };
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.getElementById('inspector').classList.remove('open');
+});
+
+(async function boot() {
+  const ok = await trySession();
+  if (!ok) {
+    // pré-carrega JSON só para glossário; organograma exige login
+    applySnapshot(fallbackAsSnap());
+    state.apiLive = false;
+    document.getElementById('apiChip').textContent = 'JSON';
+    document.getElementById('apiChip').className = 'chip off';
+    showLogin();
+  }
+})();
+</script>
+</body>
+</html>

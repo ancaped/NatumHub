@@ -1,6 +1,5 @@
 /**
  * Autenticação local de operadores (sem Google/Firebase).
- * Firebase permanece exclusivo para backup na nuvem no PC master.
  */
 
 import { apiJson } from './http';
@@ -19,6 +18,7 @@ export interface AuthUser {
   role: string;
   photoURL: string;
   modules: string[];
+  permissions?: Record<string, 'view' | 'edit'>;
   /** Sempre 'stable' (compat API). */
   updateChannel: UpdateChannel;
   userUpdateChannel: UpdateChannel;
@@ -38,6 +38,7 @@ export interface OperatorDetail {
   role: string;
   active: boolean;
   modules: string[];
+  permissions?: Record<string, 'view' | 'edit'>;
   updateChannel: UpdateChannel;
   hasPassword: boolean;
 }
@@ -63,20 +64,31 @@ export interface LoginResult {
   expiresAt: string;
 }
 
-function parseChannel(_raw?: unknown): UpdateChannel {
+function parseChannel(raw: unknown): UpdateChannel {
   return 'stable';
+}
+
+function parsePermissions(raw: unknown): Record<string, 'view' | 'edit'> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<string, 'view' | 'edit'> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    out[k] = v === 'view' ? 'view' : 'edit';
+  }
+  return out;
 }
 
 function mapUser(raw: Record<string, unknown>): AuthUser {
   const modulesRaw = raw.modules ?? raw.module_keys;
   const modules = Array.isArray(modulesRaw) ? modulesRaw.map(String) : [];
   const role = String(raw.role ?? 'operador');
+  const permissions = parsePermissions(raw.permissions);
   return {
     id: String(raw.id ?? ''),
     displayName: String(raw.displayName ?? raw.display_name ?? ''),
     role,
     photoURL: String(raw.photoURL ?? raw.photo_url ?? ''),
     modules,
+    permissions,
     updateChannel: 'stable',
     userUpdateChannel: 'stable',
     deviceUpdateChannel: 'stable',
@@ -93,6 +105,7 @@ function mapOperator(raw: Record<string, unknown>): OperatorDetail {
     role: String(raw.role ?? 'operador'),
     active: raw.active !== false,
     modules: Array.isArray(modulesRaw) ? modulesRaw.map(String) : [],
+    permissions: parsePermissions(raw.permissions),
     updateChannel: parseChannel(raw.updateChannel ?? raw.update_channel),
     hasPassword: Boolean(raw.hasPassword ?? raw.has_password),
   };
@@ -232,6 +245,7 @@ export async function createOperator(data: {
   displayName: string;
   role: string;
   modules: string[];
+  permissions?: Record<string, 'view' | 'edit'>;
   updateChannel?: UpdateChannel;
   password: string;
 }): Promise<OperatorDetail> {
@@ -241,6 +255,7 @@ export async function createOperator(data: {
       displayName: data.displayName.trim(),
       role: data.role,
       modules: data.modules,
+      permissions: data.permissions,
       updateChannel: data.updateChannel,
       password: data.password,
     }),
@@ -255,6 +270,7 @@ export async function updateOperator(
     role: string;
     active: boolean;
     modules: string[];
+    permissions?: Record<string, 'view' | 'edit'>;
     updateChannel: UpdateChannel;
     password?: string;
     supervisorPassword?: string;
@@ -267,6 +283,7 @@ export async function updateOperator(
       role: data.role,
       active: data.active,
       modules: data.modules,
+      permissions: data.permissions,
       updateChannel: data.updateChannel,
       password: data.password,
       supervisorPassword: data.supervisorPassword,
@@ -351,115 +368,17 @@ export function canSeeFeedbacks(user: AuthUser | null): boolean {
   return isSupervisor(user);
 }
 
-export interface ChannelManifestInfo {
-  channel: UpdateChannel;
-  version?: string | null;
-  notes?: string | null;
-  pubDate?: string | null;
-  url?: string | null;
-  availableOnServer?: boolean;
-  source?: string | null;
+/** Verifica se o usuário tem permissão para visualizar o módulo */
+export function canView(user: AuthUser | null, moduleKey: string): boolean {
+  if (!user) return false;
+  if (isSupervisor(user)) return true;
+  return user.modules.includes(moduleKey);
 }
 
-export interface ReleasesStatus {
-  manifests: ChannelManifestInfo[];
-  githubConfigured: boolean;
-  githubRepo: string;
-  githubBranch: string;
-}
-
-export interface GithubReleaseConfig {
-  githubConfigured: boolean;
-  githubRepo: string;
-  githubBranch: string;
-}
-
-export async function fetchReleasesStatus(): Promise<ReleasesStatus> {
-  const raw = await apiJson<Record<string, unknown>>('/auth/releases/status');
-  const manifestsRaw = (raw.manifests ?? []) as Record<string, unknown>[];
-  return {
-    manifests: manifestsRaw.map((m) => ({
-      channel: parseChannel(m.channel),
-      version: (m.version as string | null | undefined) ?? null,
-      notes: (m.notes as string | null | undefined) ?? null,
-      pubDate: (m.pubDate ?? m.pub_date) as string | null | undefined,
-      url: (m.url as string | null | undefined) ?? null,
-      availableOnServer: Boolean(m.availableOnServer ?? m.available_on_server),
-      source: (m.source as string | null | undefined) ?? null,
-    })),
-    githubConfigured: Boolean(raw.githubConfigured ?? raw.github_configured),
-    githubRepo: String(raw.githubRepo ?? raw.github_repo ?? 'ancaped/NatumHub'),
-    githubBranch: String(raw.githubBranch ?? raw.github_branch ?? 'main'),
-  };
-}
-
-export async function fetchGithubReleaseConfig(): Promise<GithubReleaseConfig> {
-  const raw = await apiJson<Record<string, unknown>>('/auth/releases/github-config');
-  return {
-    githubConfigured: Boolean(raw.githubConfigured ?? raw.github_configured),
-    githubRepo: String(raw.githubRepo ?? raw.github_repo ?? 'ancaped/NatumHub'),
-    githubBranch: String(raw.githubBranch ?? raw.github_branch ?? 'main'),
-  };
-}
-
-export async function saveGithubReleaseConfig(data: {
-  githubToken: string;
-  githubRepo?: string;
-  githubBranch?: string;
-  supervisorPassword: string;
-}): Promise<GithubReleaseConfig> {
-  const raw = await apiJson<Record<string, unknown>>('/auth/releases/github-config', {
-    method: 'POST',
-    body: JSON.stringify({
-      githubToken: data.githubToken,
-      githubRepo: data.githubRepo,
-      githubBranch: data.githubBranch,
-      supervisorPassword: data.supervisorPassword,
-    }),
-  });
-  return {
-    githubConfigured: Boolean(raw.githubConfigured ?? raw.github_configured),
-    githubRepo: String(raw.githubRepo ?? raw.github_repo ?? 'ancaped/NatumHub'),
-    githubBranch: String(raw.githubBranch ?? raw.github_branch ?? 'main'),
-  };
-}
-
-export async function promoteRelease(data: {
-  versionTag: string;
-  releaseNotes?: string;
-  supervisorPassword: string;
-}): Promise<{ ok: boolean; message: string; channel: string; versionTag: string }> {
-  const raw = await apiJson<Record<string, unknown>>('/auth/releases/promote', {
-    method: 'POST',
-    body: JSON.stringify({
-      channel: 'stable',
-      versionTag: data.versionTag,
-      releaseNotes: data.releaseNotes,
-      supervisorPassword: data.supervisorPassword,
-    }),
-  });
-  return {
-    ok: Boolean(raw.ok),
-    message: String(raw.message ?? ''),
-    channel: String(raw.channel ?? 'stable'),
-    versionTag: String(raw.versionTag ?? raw.version_tag ?? data.versionTag),
-  };
-}
-
-export async function syncUpdaterManifests(data: {
-  supervisorPassword: string;
-  versionTag?: string;
-}): Promise<{ ok: boolean; message: string; synced: string[] }> {
-  const raw = await apiJson<Record<string, unknown>>('/auth/releases/sync-manifests', {
-    method: 'POST',
-    body: JSON.stringify({
-      supervisorPassword: data.supervisorPassword,
-      versionTag: data.versionTag,
-    }),
-  });
-  return {
-    ok: Boolean(raw.ok),
-    message: String(raw.message ?? ''),
-    synced: Array.isArray(raw.synced) ? (raw.synced as string[]) : [],
-  };
+/** Verifica se o usuário tem permissão para editar/alterar dados no módulo */
+export function canEdit(user: AuthUser | null, moduleKey: string): boolean {
+  if (!user) return false;
+  if (isSupervisor(user)) return true;
+  if (!user.modules.includes(moduleKey)) return false;
+  return user.permissions?.[moduleKey] !== 'view';
 }

@@ -148,3 +148,92 @@ pub async fn start_erp_sync_scheduler(state: Arc<AppState>) {
         }
     }
 }
+
+/// Task em background: auto-auditoria periódica leve de estoque (Insumos + Materiais + Produtos).
+/// Executa a cada N minutos (padrão 15 min) e alinha o Hub com nQtdeEstoque da tela do ERP.
+pub async fn start_stock_auto_audit_scheduler(state: Arc<AppState>) {
+    // Aguarda 45s após o boot para dar tempo do servidor e outros serviços iniciarem
+    tokio::time::sleep(Duration::from_secs(45)).await;
+
+    let mut ticker = interval(Duration::from_secs(60));
+    ticker.tick().await;
+
+    let mut last_run = std::time::Instant::now();
+    // Executa a primeira verificação logo no início
+    let mut is_first_run = true;
+
+    loop {
+        ticker.tick().await;
+
+        let interval_mins: u64 = state
+            .db
+            .get_setting("stock_auto_audit_interval_minutes")
+            .await
+            .ok()
+            .flatten()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(15);
+
+        if interval_mins == 0 {
+            // 0 = desativado pelo administrador
+            continue;
+        }
+
+        let elapsed = last_run.elapsed();
+        if !is_first_run && elapsed < Duration::from_secs(interval_mins * 60) {
+            continue;
+        }
+
+        is_first_run = false;
+        last_run = std::time::Instant::now();
+
+        if SYNC_IN_PROGRESS.load(Ordering::SeqCst) {
+            eprintln!("[Stock Auto-Audit] Sync ERP geral em andamento — pulando ciclo leve de estoque.");
+            continue;
+        }
+
+        let pool = state.db.pool();
+        match crate::core::legacy_db::verify_and_repair_all_stocks(pool, None).await {
+            Ok(res) => {
+                if res.repaired > 0 {
+                    println!(
+                        "[Stock Auto-Audit] {} item(ns) corrigidos para bater com o ERP (I={} M={} P={}) de {} verificados.",
+                        res.repaired,
+                        res.by_source.insumos,
+                        res.by_source.materiais,
+                        res.by_source.produtos,
+                        res.checked
+                    );
+                    let body = format!(
+                        "{} item(ns) de estoque foram atualizados automaticamente com o ERP.",
+                        res.repaired
+                    );
+                    crate::modules::geral::notifications::notify_config(
+                        &state,
+                        "info",
+                        "Estoque sincronizado (Auto-Auditor)",
+                        &body,
+                        None,
+                    );
+                    crate::modules::geral::notifications::notify(
+                        &state,
+                        crate::modules::geral::auth::modules_registry::MODULE_COMPRAS_MP,
+                        "info",
+                        "Estoque sincronizado (Auto-Auditor)",
+                        &body,
+                        None,
+                    );
+                } else {
+                    println!(
+                        "[Stock Auto-Audit] Verificação de estoque OK: {} itens conferidos sem divergências.",
+                        res.checked
+                    );
+                }
+            }
+            Err(e) => {
+                eprintln!("[Stock Auto-Audit] Verificação leve de estoque ignorada (ERP inacessível ou erro): {}", e);
+            }
+        }
+    }
+}
+

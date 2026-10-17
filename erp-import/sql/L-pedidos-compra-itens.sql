@@ -14,5 +14,5 @@ SELECT
     c2.nRegistro,
     c2.cChegada COLLATE Latin1_General_CI_AS as cChegada
 FROM PedidoCpa2 c2 WITH (NOLOCK)
-INNER JOIN PedidoCpa1 p1 WITH (NOLOCK) ON p1.nPedido = c2.nPedido AND p1.dPedido = c2.dPedido
+INNER JOIN PedidoCpa1 p1 WITH (NOLOCK) ON p1.nRegistro = c2.nRegistro
 WHERE (p1.dPedido >= DATEADD(month, -12, GETDATE()) OR (p1.cStatus <> 'T' AND p1.cStatus IS NOT NULL));

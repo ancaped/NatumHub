@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 interface ModalProps {
-  isOpen: boolean;
+  isOpen?: boolean;
   onClose: () => void;
   title: string;
   subtitle?: string;
@@ -12,7 +12,7 @@ interface ModalProps {
 }
 
 export default function Modal({
-  isOpen,
+  isOpen = true,
   onClose,
   title,
   subtitle,
@@ -34,7 +34,7 @@ export default function Modal({
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  if (isOpen === false) return null;
 
   const sizeClasses = {
     sm: 'max-w-md',

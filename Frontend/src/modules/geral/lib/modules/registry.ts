@@ -20,18 +20,27 @@ export const MODULE_KEYS = {
   ESTOQUE_EMB: 'estoque_embalagens',
   ESTOQUE_COLOR: 'estoque_coloracao',
   ESTOQUE_APOIO: 'estoque_apoio',
+  ESTOQUE_ORDENS_MANUAIS: 'estoque_ordens_manuais',
+  ESTOQUE_PREVISAO_USO: 'estoque_previsao_uso',
   ESTOQUE_ITENS: 'estoque_itens',
   ESTOQUE_ALMOX: 'estoque_almoxarifado',
   ESTOQUE_SUPERMERCADO: 'estoque_supermercado',
   ESTOQUE_PECAS: 'estoque_pecas',
   ESTOQUE_EQUIPAMENTOS: 'estoque_equipamentos',
   ESTOQUE_MANUTENCOES: 'estoque_manutencoes',
+  ESTOQUE_MOVIMENTACOES: 'estoque_movimentacoes',
   /** @deprecated alias — use ADMIN_LINHA_PRODUTOS */
   ESTOQUE_ATIVOS: 'estoque_ativos',
   ADMIN_LINHA_PRODUTOS: 'admin_linha_produtos',
+  ADMIN_RELATORIOS: 'admin_relatorios',
+  ADMIN_PRODUTOS_ATIVOS_RELATORIOS: 'admin_produtos_ativos_relatorios',
+  ADMIN_FUNCIONARIOS: 'admin_funcionarios',
+  ADMIN_ACOMPANHAMENTO_PRODUCAO: 'admin_acompanhamento_producao',
+  PLANEJAMENTO_PRODUCAO: 'planejamento_producao',
   PRODUCAO: 'producao',
   PRODUCAO_BASES: 'producao_bases',
   PRODUCAO_LOTES: 'producao_lotes',
+  PRODUCAO_PROC: 'producao_proc',
   MONTAGEM_KITS: 'montagem_kits',
   MICROBIOLOGIA: 'microbiologia',
   FISCO_QUIMICA: 'fisco_quimica',
@@ -50,9 +59,22 @@ export const MODULE_KEYS = {
   VENDAS: 'vendas',
   VENDAS_ONLINE: 'vendas_online',
   CONTROLE_QUALIDADE: 'controle_qualidade',
+  QUALIDADE_POPS: 'qualidade_pops',
+  QUALIDADE_TREINAMENTOS: 'qualidade_treinamentos',
+  QUALIDADE_TEMPERATURA: 'qualidade_temperatura',
+  QUALIDADE_LIMPEZA: 'qualidade_limpeza',
+  QUALIDADE_RECEBIMENTO_MP: 'qualidade_recebimento_mp',
+  QUALIDADE_DOCUMENTACAO: 'qualidade_documentacao',
+  QUALIDADE_DEVOLUCOES: 'qualidade_devolucoes',
   ADMINISTRATIVO: 'administrativo',
+  /** @deprecated alias — use EXPEDICAO_ECOMMERCE */
   EXPEDICAO: 'expedicao',
+  EXPEDICAO_ECOMMERCE: 'expedicao_ecommerce',
+  EXPEDICAO_SEPARACAO: 'expedicao_separacao',
   FINANCEIRO: 'financeiro',
+  FERRAMENTAS_ETIQUETAS: 'ferramentas_etiquetas',
+  FERRAMENTAS_EDITOR: 'ferramentas_editor',
+  FERRAMENTAS_IMPRESSORAS: 'ferramentas_impressoras',
   CONFIGURACOES: 'hub_settings',
   OPERADORES: 'hub_operadores',
 } as const;
@@ -83,6 +105,8 @@ export function moduleRegistry(): ModuleGroup[] {
         { key: MODULE_KEYS.ESTOQUE_EMB, label: 'Embalagens' },
         { key: MODULE_KEYS.ESTOQUE_COLOR, label: 'Coloração' },
         { key: MODULE_KEYS.ESTOQUE_APOIO, label: 'Material de Apoio' },
+        { key: MODULE_KEYS.ESTOQUE_ORDENS_MANUAIS, label: 'Ordens Manuais' },
+        { key: MODULE_KEYS.ESTOQUE_PRODUTOS, label: 'Produtos Acabados' },
       ],
     },
     {
@@ -96,6 +120,7 @@ export function moduleRegistry(): ModuleGroup[] {
         { key: MODULE_KEYS.ESTOQUE_PECAS, label: 'Peças de Reposição' },
         { key: MODULE_KEYS.ESTOQUE_EQUIPAMENTOS, label: 'Equipamentos' },
         { key: MODULE_KEYS.ESTOQUE_MANUTENCOES, label: 'Manutenções' },
+        { key: MODULE_KEYS.ESTOQUE_MOVIMENTACOES, label: 'Movimentações' },
       ],
     },
     {
@@ -103,10 +128,10 @@ export function moduleRegistry(): ModuleGroup[] {
       label: 'Produção',
       hubView: 'producao_hub',
       children: [
+        { key: MODULE_KEYS.PLANEJAMENTO_PRODUCAO, label: 'Planejamento de Produção' },
         { key: MODULE_KEYS.PRODUCAO, label: 'Gerenciamento' },
-        { key: MODULE_KEYS.PRODUCAO_BASES, label: 'Gestão de Bases' },
-        { key: MODULE_KEYS.PRODUCAO_LOTES, label: 'Lotes de Produção' },
-        { key: MODULE_KEYS.MONTAGEM_KITS, label: 'Montagem de Kits' },
+        { key: MODULE_KEYS.PRODUCAO_PROC, label: 'PROC (Processos)' },
+        { key: MODULE_KEYS.MONTAGEM_KITS, label: 'Kits' },
         { key: MODULE_KEYS.MICROBIOLOGIA, label: 'Microbiologia' },
         { key: MODULE_KEYS.FISCO_QUIMICA, label: 'Físico-Química' },
       ],
@@ -120,11 +145,8 @@ export function moduleRegistry(): ModuleGroup[] {
         { key: MODULE_KEYS.COMPRAS_EMB, label: 'Embalagens' },
         { key: MODULE_KEYS.COMPRAS_COLOR, label: 'Coloração' },
         { key: MODULE_KEYS.COMPRAS_APOIO, label: 'Material de Apoio' },
-        { key: MODULE_KEYS.COMPRAS_COT, label: 'Cotações' },
-        { key: MODULE_KEYS.COMPRAS_ONLINE, label: 'Compras Online' },
         { key: MODULE_KEYS.COMPRAS_PEDIDOS, label: 'Pedidos' },
         { key: MODULE_KEYS.COMPRAS_NOTAS, label: 'Notas Fiscais' },
-        { key: MODULE_KEYS.COMPRAS_ALMOX, label: 'Almoxarifado' },
         { key: MODULE_KEYS.COMPRAS_SIMULATION, label: 'Simulador' },
       ],
     },
@@ -140,26 +162,49 @@ export function moduleRegistry(): ModuleGroup[] {
     {
       key: 'qualidade',
       label: 'Qualidade',
-      hubView: 'controle_qualidade',
-      children: [{ key: MODULE_KEYS.CONTROLE_QUALIDADE, label: 'Controle de Qualidade' }],
+      hubView: 'qualidade_hub',
+      children: [
+        { key: MODULE_KEYS.CONTROLE_QUALIDADE, label: 'Controle de Qualidade' },
+        { key: MODULE_KEYS.QUALIDADE_DEVOLUCOES, label: 'Devoluções' },
+        { key: MODULE_KEYS.QUALIDADE_POPS, label: 'POPs' },
+        { key: MODULE_KEYS.QUALIDADE_TREINAMENTOS, label: 'Treinamentos' },
+        { key: MODULE_KEYS.QUALIDADE_TEMPERATURA, label: 'Temperatura' },
+        { key: MODULE_KEYS.QUALIDADE_LIMPEZA, label: 'Limpeza' },
+        { key: MODULE_KEYS.QUALIDADE_RECEBIMENTO_MP, label: 'Recebimento MP' },
+        { key: MODULE_KEYS.QUALIDADE_DOCUMENTACAO, label: 'Documentação' },
+      ],
     },
     {
       key: 'administrativo',
       label: 'Administrativo',
       hubView: 'administrativo',
-      children: [{ key: MODULE_KEYS.ADMIN_LINHA_PRODUTOS, label: 'Linha de Produtos' }],
+      children: [
+        { key: MODULE_KEYS.ADMIN_LINHA_PRODUTOS, label: 'Linha de Produtos' },
+        { key: MODULE_KEYS.ADMIN_RELATORIOS, label: 'Relatórios' },
+        { key: MODULE_KEYS.ADMIN_FUNCIONARIOS, label: 'Funcionários' },
+        { key: MODULE_KEYS.ADMIN_ACOMPANHAMENTO_PRODUCAO, label: 'Acompanhamento de Produção' },
+      ],
     },
     {
       key: 'expedicao',
       label: 'Expedição',
-      hubView: 'expedicao',
-      children: [{ key: MODULE_KEYS.EXPEDICAO, label: 'Expedição' }],
-    },
-    {
+      hubView: 'expedicao_hub',
+      children: [{ key: MODULE_KEYS.EXPEDICAO_ECOMMERCE, label: 'E-commerce' }],
+    },    {
       key: 'financeiro',
       label: 'Financeiro',
       hubView: 'financeiro',
       children: [{ key: MODULE_KEYS.FINANCEIRO, label: 'Financeiro' }],
+    },
+    {
+      key: 'ferramentas',
+      label: 'Ferramentas',
+      hubView: 'ferramentas_hub',
+      children: [
+        { key: MODULE_KEYS.FERRAMENTAS_ETIQUETAS, label: 'Etiquetas' },
+        { key: MODULE_KEYS.FERRAMENTAS_EDITOR, label: 'Editor de Etiquetas' },
+        { key: MODULE_KEYS.FERRAMENTAS_IMPRESSORAS, label: 'Central de Impressoras' },
+      ],
     },
     {
       key: 'sistema',
@@ -183,18 +228,20 @@ export function defaultModulesForRole(role: string): string[] {
         MODULE_KEYS.ESTOQUE_EMB,
         MODULE_KEYS.ESTOQUE_COLOR,
         MODULE_KEYS.ESTOQUE_APOIO,
+        MODULE_KEYS.ESTOQUE_ORDENS_MANUAIS,
         MODULE_KEYS.ESTOQUE_ITENS,
         MODULE_KEYS.ESTOQUE_ALMOX,
         MODULE_KEYS.ESTOQUE_SUPERMERCADO,
         MODULE_KEYS.ESTOQUE_PECAS,
         MODULE_KEYS.ESTOQUE_EQUIPAMENTOS,
         MODULE_KEYS.ESTOQUE_MANUTENCOES,
+        MODULE_KEYS.ESTOQUE_MOVIMENTACOES,
+        MODULE_KEYS.ESTOQUE_PRODUTOS,
       ];
     case 'producao':
     case 'produção':
       return [
         MODULE_KEYS.PRODUCAO,
-        MODULE_KEYS.PRODUCAO_BASES,
         MODULE_KEYS.PRODUCAO_LOTES,
         MODULE_KEYS.MONTAGEM_KITS,
       ];
@@ -222,11 +269,25 @@ export function defaultModulesForRole(role: string): string[] {
     case 'vendas':
       return [MODULE_KEYS.VENDAS, MODULE_KEYS.VENDAS_ONLINE];
     case 'qualidade':
-      return [MODULE_KEYS.CONTROLE_QUALIDADE];
+      return [
+        MODULE_KEYS.CONTROLE_QUALIDADE,
+        MODULE_KEYS.QUALIDADE_DEVOLUCOES,
+        MODULE_KEYS.QUALIDADE_POPS,
+        MODULE_KEYS.QUALIDADE_TREINAMENTOS,
+        MODULE_KEYS.QUALIDADE_TEMPERATURA,
+        MODULE_KEYS.QUALIDADE_LIMPEZA,
+        MODULE_KEYS.QUALIDADE_RECEBIMENTO_MP,
+        MODULE_KEYS.QUALIDADE_DOCUMENTACAO,
+      ];
     case 'administrativo':
-      return [MODULE_KEYS.ADMIN_LINHA_PRODUTOS];
+      return [
+        MODULE_KEYS.ADMIN_LINHA_PRODUTOS,
+        MODULE_KEYS.ADMIN_PRODUTOS_ATIVOS_RELATORIOS,
+        MODULE_KEYS.ADMIN_FUNCIONARIOS,
+        MODULE_KEYS.ADMIN_ACOMPANHAMENTO_PRODUCAO,
+      ];
     case 'expedicao':
-      return [MODULE_KEYS.EXPEDICAO];
+      return [MODULE_KEYS.EXPEDICAO_ECOMMERCE];
     default:
       return [];
   }

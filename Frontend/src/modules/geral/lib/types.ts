@@ -51,12 +51,25 @@ export interface Category {
   parentId: string | null;
 }
 
+export interface SupplierSummary {
+  id: string;
+  name: string;
+  cnpj?: string | null;
+  contact?: string | null;
+  email?: string | null;
+}
+
 export interface Supplier {
   id: string;
   name: string;
   contact: string;
   email: string;
   notes: string;
+  cnpj?: string | null;
+  parentId?: string | null;
+  parentName?: string | null;
+  linkedSuppliers?: SupplierSummary[] | null;
+  linkedCount?: number | null;
 }
 
 export interface Item {
@@ -159,8 +172,12 @@ export interface DemandResult {
   categoryName: string;
   currentStock: number;
   reservedQty: number;
+  /** Reserva espelhada do ERP (tooltip). */
+  reservedQtyErp?: number | null;
   inProduction: number;
   inOrders: number;
+  /** Consumo se produzir produtos em Produzir Urgente / Abrir Ordem. */
+  simProducao?: number;
   avg2024: number;
   avg2025: number;
   avg2026: number;
@@ -261,6 +278,94 @@ export interface CategorySpend {
   itemCount: number;
 }
 
+export interface PurchaseRequestBatchItem {
+  id: string;
+  batchId: string;
+  itemCode: string;
+  itemDescription: string;
+  unit: string;
+  quantityRequested: number;
+  currentStockAtTime: number;
+  overallAvgAtTime: number;
+  simProducaoAtTime: number;
+  futureStockAtTime: number;
+  targetDaysAtTime: number;
+  triggerDaysAtTime: number;
+  supplierName?: string | null;
+  observacao?: string | null;
+  status: 'solicitado' | 'pedido_gerado' | 'entregue' | 'cancelado' | string;
+  erpPedidoNumero?: number | null;
+  erpPedidoData?: string | null;
+  erpFornecedor?: string | null;
+  erpPedidoQtd?: number | null;
+  erpPedidoChegou?: number | null;
+  erpPrevisaoEntrega?: string | null;
+  erpSyncedAt?: string | null;
+  createdAt: string;
+}
+
+export interface PurchaseRequestBatch {
+  id: string;
+  loteNumero: string;
+  modulo: string;
+  titulo?: string | null;
+  observacoes?: string | null;
+  createdBy?: string | null;
+  status: 'pendente' | 'parcial' | 'atendido' | 'concluido' | 'cancelado' | string;
+  totalItems: number;
+  itemsWithOrder: number;
+  itemsCompleted: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PurchaseRequestBatchDetail {
+  batch: PurchaseRequestBatch;
+  items: PurchaseRequestBatchItem[];
+}
+
+export interface CreatePurchaseRequestItemInput {
+  itemCode: string;
+  itemDescription: string;
+  unit?: string;
+  quantityRequested: number;
+  currentStockAtTime?: number;
+  overallAvgAtTime?: number;
+  simProducaoAtTime?: number;
+  futureStockAtTime?: number;
+  targetDaysAtTime?: number;
+  triggerDaysAtTime?: number;
+  supplierName?: string | null;
+  observacao?: string | null;
+}
+
+export interface CreatePurchaseRequestBatchInput {
+  modulo: string;
+  titulo?: string | null;
+  observacoes?: string | null;
+  createdBy?: string | null;
+  items: CreatePurchaseRequestItemInput[];
+}
+
+export interface ActiveRequestedItemSummary {
+  itemCode: string;
+  itemDescription: string;
+  batchId: string;
+  loteNumero: string;
+  modulo: string;
+  createdAt: string;
+  daysAgo: number;
+  quantityRequested: number;
+  status: string;
+  erpPedidoNumero?: number | null;
+  erpPedidoData?: string | null;
+  erpFornecedor?: string | null;
+  erpPedidoQtd?: number | null;
+  erpPedidoChegou?: number | null;
+  erpPrevisaoEntrega?: string | null;
+}
+
+
 export interface ComprasAppConfig {
   targetDays: number;
   itemOverrides: Record<string, number>;
@@ -291,6 +396,9 @@ export interface Report {
   collectionDate: string;
   technician: string;
   createdAt: any;
+  manufacturingDate?: string;
+  printed?: boolean;
+  printedAt?: string;
 }
 
 export interface TestDefinition {
@@ -312,6 +420,7 @@ export interface TemplateConfig {
   sampleType: string;
   technicianSignName: string;
   technicianSignTitle: string;
+  defaultTechnician?: string;
   defaultTests: TestDefinition[];
 }
 
@@ -354,6 +463,27 @@ export interface OnlineStore {
   createdAt?: string;
 }
 
+export interface FiscoTemplateConfig {
+  labName: string;
+  deptName: string;
+  companyName: string;
+  companyAddress: string;
+  companyEmail: string;
+  companyContact: string;
+  sampleType: string;
+  technicianSignName: string;
+  technicianSignTitle: string;
+  defaultTechnician?: string;
+  defaultFabricatedBy?: string;
+  defaultAuthorizedBy?: string;
+  defaultAspect?: string;
+  defaultColorOdor?: string;
+}
+
+export interface FiscoAppConfig {
+  template?: FiscoTemplateConfig;
+}
+
 export interface FiscoQuimicaPattern {
   productCode: string;
   phMin: number;
@@ -365,11 +495,16 @@ export interface FiscoQuimicaPattern {
   packageVolume: number;
   packageUnit: 'mL' | 'L' | 'g' | 'kg';
   allowedAgents?: string[];
+  aspect?: string;
+  color?: string;
+  odor?: string;
+  imageUrl?: string;
 }
 
 export interface FiscoQuimicaAgent {
   id: string;
   name: string;
+  category?: 'VISCOSIDADE' | 'PH' | 'OUTROS' | string;
   createdAt?: string;
 }
 
@@ -395,7 +530,47 @@ export interface FiscoQuimicaAnalysis {
   batchSize: number | null;
   totalAgentRequired?: number | null;
   notes: string | null;
+  fabricatedBy?: string | null;
+  authorizedBy?: string | null;
+  syncedToErp?: boolean | null;
+  erpSyncedAt?: string | null;
   createdAt?: string;
+  status?: 'CONFORME' | 'EM_CORRECAO' | 'AJUSTADO' | 'FORA_PADRAO' | string;
+  mediaUrl?: string;
+  aspectOk?: boolean | null;
+  aspectResult?: string | null;
+  colorOk?: boolean | null;
+  colorResult?: string | null;
+  odorOk?: boolean | null;
+  odorResult?: string | null;
+}
+
+export interface CorrectiveBatchItem {
+  analysis_id: string;
+  batch: string;
+  product_code: string;
+  product_name: string;
+  analysis_date: string;
+  agent_name: string;
+  agent_category: string;
+  trial_qty_g_per_l?: number | null;
+  batch_size_kg?: number | null;
+  total_agent_kg: number;
+  notes?: string | null;
+}
+
+export interface CorrectiveWeekSummary {
+  week_key: string;
+  label: string;
+  year: number;
+  week_num: number;
+  is_baixa_realizada: boolean;
+  baixa_data?: string | null;
+  baixa_usuario?: string | null;
+  observacoes?: string | null;
+  total_agents_kg: number;
+  agent_totals: Record<string, number>;
+  items: CorrectiveBatchItem[];
 }
 
 export interface LoteProductLine {
@@ -411,11 +586,57 @@ export interface LoteLookup {
   productDescription: string;
   quantity: number;
   date: string;
+  dLote?: string;
+  dPesado?: string;
+  dEnvase?: string;
   status: string;
   statusLabel: string;
   fabricatedBy: string;
   authorizedBy: string;
   products: LoteProductLine[];
+}
+
+export interface FiscoErpLoteItem {
+  lote: string;
+  product_code: string;
+  product_name: string;
+  qty_kg: number;
+  date_erp: string;
+  status_erp: string;
+  fabricated_by: string;
+  authorized_by: string;
+  unidades: number;
+  d_pesado?: string | null;
+  d_envase?: string | null;
+  ph_erp?: number | null;
+  viscosidade_erp?: number | null;
+  densidade_erp?: number | null;
+  viscosidade_24h_erp?: number | null;
+  responsavel_cq_erp?: string | null;
+  resultado_cq_erp?: string | null;
+  data_inspecao_erp?: string | null;
+  observacoes_erp?: string | null;
+  has_laudo_erp: boolean;
+  has_laudo_hub: boolean;
+  has_laudo: boolean;
+  laudo_id?: string | null;
+  laudo_date?: string | null;
+  technician?: string | null;
+  ph_measured?: number | null;
+  viscosity_measured?: number | null;
+  density_measured?: number | null;
+  fraction_weight?: number | null;
+  has_adjustment?: boolean | null;
+}
+
+export interface FiscoErpLoteInsumo {
+  item_code: string;
+  item_description: string;
+  unit?: string | null;
+  quantity: number;
+  date: string;
+  user?: string | null;
+  justificativa?: string | null;
 }
 
 export interface ProductionLote {
@@ -564,3 +785,65 @@ export interface FlowSummary {
   weeklyProjection: WeeklyProjection[];
   flow: MonthlyFlow[];
 }
+
+// === PROC / PROCESSOS ANVISA TYPES ===
+export interface ProcItem {
+  id: string;
+  codigoProduto: string | null;
+  descricao: string;
+  proc: string | null;
+  status: 'ATIVO' | 'EM_BRANCO' | 'CANCELADO' | 'VENCIDO' | string;
+  observacoes: string | null;
+  categoriaFamilia: string | null;
+  processoInstrucoes: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface ProcSummaryMetrics {
+  total: number;
+  ativos: number;
+  emBranco: number;
+  familias: number;
+}
+
+export interface ProcMapResponse {
+  byCode: Record<string, ProcItem>;
+  byDescription: Record<string, ProcItem>;
+  list: ProcItem[];
+}
+
+export interface ListProcsResponse {
+  items: ProcItem[];
+  total: number;
+  metrics: ProcSummaryMetrics;
+}
+
+export interface ProcStep {
+  ordem: number;
+  titulo: string;
+  descricao: string;
+  temperatura?: string | null;
+  agitacao?: string | null;
+  tempo?: string | null;
+}
+
+export interface ProcGenerateResponse {
+  descricao: string;
+  codigoProduto?: string | null;
+  categoriaFamilia: string;
+  categoriaLabel: string;
+  sugeridoProcBase?: string | null;
+  similaresReferencia: ProcItem[];
+  phFaixaSugerida: string;
+  viscosidadeFaixaSugerida: string;
+  densidadeFaixaSugerida: string;
+  aspectoSugerido: string;
+  corSugerida: string;
+  odorSugerido: string;
+  equipamentosRecomendados: string[];
+  episRecomendados: string[];
+  etapas: ProcStep[];
+  processoTextoFormatado: string;
+}
+

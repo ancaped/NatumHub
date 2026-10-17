@@ -1,4 +1,4 @@
-# Skills NatumHub
+# Skills Nexus
 
 Skills de especialidade para agentes Cursor neste repositório.
 

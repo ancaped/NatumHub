@@ -71,7 +71,8 @@ function screenshotSrc(raw: string): string {
 
 function latestAiNote(notes: FeedbackNote[]): FeedbackNote | null {
   for (let i = notes.length - 1; i >= 0; i -= 1) {
-    if (isAiAuthor(notes[i].author)) return notes[i];
+    const n = notes[i];
+    if (n && isAiAuthor(n.author)) return n;
   }
   return null;
 }
@@ -124,7 +125,8 @@ function FeedbackListItem({
 }
 
 function NoteCard({ n }: { n: FeedbackNote }) {
-  const role = noteRole(n.author);
+  if (!n) return null;
+  const role = noteRole(n.author || '');
   return (
     <div
       className={cn(
@@ -149,7 +151,7 @@ function NoteCard({ n }: { n: FeedbackNote }) {
         <span className="text-[10px] font-bold text-zinc-500 truncate">{n.author}</span>
         <span className="text-[10px] text-zinc-400 ml-auto shrink-0">{formatDateTime(n.createdAt)}</span>
       </div>
-      <p className="text-sm text-zinc-800 whitespace-pre-wrap leading-relaxed">{n.body}</p>
+      <p className="text-sm text-zinc-800 whitespace-pre-wrap leading-relaxed">{n.body ?? ''}</p>
     </div>
   );
 }
@@ -335,7 +337,7 @@ function FeedbackDetailPanel({
             </h3>
             <span className="text-[10px] text-violet-600 ml-auto">{formatDateTime(aiResolution.createdAt)}</span>
           </div>
-          <p className="text-sm text-zinc-900 whitespace-pre-wrap leading-relaxed">{aiResolution.body}</p>
+          <p className="text-sm text-zinc-900 whitespace-pre-wrap leading-relaxed">{aiResolution.body ?? ''}</p>
         </div>
       )}
 

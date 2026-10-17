@@ -77,7 +77,7 @@ export function ReportDashboard({ mode = 'all', active = false }: { mode?: strin
       if (!(i.categoryId === 'cat_mp' || (cat && cat.parentId === 'cat_mp'))) return false;
     } else if (mode === 'embalagens') {
       const cat = categories.find(c => c.id === i.categoryId);
-      if (!(i.categoryId === 'cat_emb' || (cat && cat.parentId === 'cat_emb'))) return false;
+      if (!(i.categoryId === 'cat_emb' || i.categoryId === 'cat_mat' || (cat && (cat.parentId === 'cat_emb' || cat.parentId === 'cat_mat')) || (i.code && (i.code.startsWith('08.') || (!i.code.startsWith('9.15.') && i.code.startsWith('9.')))))) return false;
     }
     return (
       (i.code || '').toLowerCase().includes(itemSearch.toLowerCase()) || 

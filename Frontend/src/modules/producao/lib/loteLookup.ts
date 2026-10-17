@@ -24,7 +24,7 @@ export function loteLookupErrorMessage(err: unknown, loteNumber: string): string
       return 'Sem permissão para consultar lotes de produção.';
     }
     if (err.status === 0) {
-      return err.message || 'Servidor inacessível. Verifique se o NatumHub está aberto.';
+      return err.message || 'Servidor inacessível. Verifique se o Nexus está aberto.';
     }
     return err.message || `Erro ao consultar lote (HTTP ${err.status}).`;
   }

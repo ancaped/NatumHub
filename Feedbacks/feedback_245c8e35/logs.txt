@@ -1,1 +1,0 @@
-[2026-07-12T05:52:02.553Z] [ERROR] Failed to fetch data: {"name":"ApiError","status":500,"body":{"error":"error returned from database: column \"reportid\" does not exist"}}

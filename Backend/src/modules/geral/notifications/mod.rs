@@ -34,7 +34,7 @@ pub fn notify(
     let title = title.to_string();
     let message = message.to_string();
     let metadata = metadata.map(|s| s.to_string());
-    tauri::async_runtime::spawn(async move {
+    tokio::spawn(async move {
         let _ = store::create_notification(
             &pool,
             &module_key,

@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nexus — Mapa operacional</title>
+<style>
+:root {
+  --bg: #f4f4f5;
+  --panel: #ffffff;
+  --ink: #18181b;
+  --muted: #71717a;
+  --line: #e4e4e7;
+  --ring: rgba(24,24,27,.18);
+  --shadow: 0 8px 28px rgba(24,24,27,.08);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font-family: "Segoe UI", "IBM Plex Sans", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#loginGate {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(160deg, #fafafa 0%, #e4e4e7 100%);
+  padding: 1rem;
+}
+#loginGate.hidden { display: none; }
+.login-card {
+  width: 100%; max-width: 400px; background: #fff;
+  border: 1px solid var(--line); border-radius: 16px; padding: 1.75rem 1.5rem;
+  box-shadow: var(--shadow);
+}
+.login-card .logo {
+  width: 48px; height: 48px; border-radius: 12px; background: var(--ink); color: #fff;
+  display: grid; place-items: center; font-weight: 800; margin: 0 auto 0.75rem;
+}
+.login-card h1 { text-align: center; font-size: 1.2rem; margin: 0 0 0.25rem; letter-spacing: -0.02em; }
+.login-card .sub { text-align: center; color: var(--muted); font-size: 0.85rem; margin: 0 0 1.25rem; }
+.login-card label { display: block; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 0.25rem; }
+.login-card input, .login-card select {
+  width: 100%; padding: 0.65rem 0.75rem; border-radius: 12px; border: 1px solid var(--line);
+  background: #fafafa; font: inherit; margin-bottom: 0.85rem;
+}
+.login-card button[type=submit] {
+  width: 100%; padding: 0.75rem; border: 0; border-radius: 12px; background: var(--ink); color: #fff;
+  font: inherit; font-weight: 700; cursor: pointer;
+}
+.login-card button[type=submit]:disabled { opacity: .55; cursor: wait; }
+.login-msg { font-size: 0.82rem; border-radius: 10px; padding: 0.55rem 0.7rem; margin-bottom: 0.85rem; display: none; }
+.login-msg.err { display: block; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
+.login-msg.ok { display: block; background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857; }
+.login-hint { font-size: 0.72rem; color: var(--muted); text-align: center; margin-top: 0.85rem; }
+.top {
+  display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;
+  padding: 0.55rem 0.85rem; border-bottom: 1px solid var(--line);
+  background: var(--panel); z-index: 20; flex-shrink: 0;
+}
+.brand { font-weight: 800; letter-spacing: -0.03em; font-size: 1.05rem; }
+.chip {
+  font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 999px; border: 1px solid var(--line);
+}
+.chip.live { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.chip.off { background: #fafafa; color: #71717a; }
+.chip.user { background: #f4f4f5; }
+.tabs { display: flex; gap: 0.2rem; flex-wrap: wrap; margin-left: auto; }
+.tabs button {
+  border: 1px solid transparent; background: transparent; border-radius: 8px;
+  padding: 0.35rem 0.55rem; font: inherit; font-size: 0.78rem; font-weight: 650; cursor: pointer; color: var(--muted);
+}
+.tabs button.active { background: var(--ink); color: #fff; }
+.search {
+  border: 1px solid var(--line); border-radius: 8px; padding: 0.35rem 0.55rem;
+  font: inherit; font-size: 0.8rem; min-width: 140px;
+}
+.btn {
+  border: 1px solid var(--line); background: #fff; border-radius: 10px;
+  padding: 0.35rem 0.65rem; font: inherit; font-size: 0.78rem; font-weight: 650; cursor: pointer;
+}
+.btn.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.workspace { flex: 1; display: flex; min-height: 0; position: relative; }
+.canvas-wrap {
+  flex: 1; position: relative; overflow: hidden;
+  background:
+    linear-gradient(to right, rgba(228,228,231,.55) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(228,228,231,.55) 1px, transparent 1px);
+  background-size: 24px 24px;
+  cursor: grab;
+}
+.canvas-wrap.grabbing { cursor: grabbing; }
+.canvas-wrap.doc { cursor: default; background: var(--bg); overflow: auto; }
+.viewport { position: absolute; inset: 0; transform-origin: 0 0; }
+.hint-bar {
+  position: absolute; top: 0.75rem; left: 50%; transform: translateX(-50%);
+  z-index: 6; background: rgba(24,24,27,.88); color: #fff;
+  font-size: 0.75rem; font-weight: 600; padding: 0.4rem 0.75rem; border-radius: 999px;
+  pointer-events: none; white-space: nowrap; max-width: 90vw; overflow: hidden; text-overflow: ellipsis;
+}
+.toolbar {
+  position: absolute; left: 1rem; bottom: 1rem; z-index: 5;
+  display: flex; gap: 0.35rem; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; padding: 0.35rem;
+  box-shadow: var(--shadow);
+}
+.toolbar button {
+  border: 0; background: #f4f4f5; border-radius: 8px; min-width: 32px; height: 32px;
+  padding: 0 0.45rem; font: inherit; font-weight: 700; cursor: pointer;
+}
+.inspector {
+  width: 400px; max-width: 46vw; background: var(--panel);
+  border-left: 1px solid var(--line); display: flex; flex-direction: column;
+  transform: translateX(100%); transition: transform .18s ease; position: absolute;
+  right: 0; top: 0; bottom: 0; z-index: 10; box-shadow: var(--shadow);
+}
+.inspector.open { transform: translateX(0); }
+.inspector header {
+  padding: 0.85rem 1rem; border-bottom: 1px solid var(--line);
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem;
+}
+.inspector .body { padding: 1rem; overflow: auto; flex: 1; }
+.eyebrow { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.inspector h2 { margin: 0.15rem 0 0; font-size: 1.15rem; letter-spacing: -0.02em; }
+.muted { color: var(--muted); font-size: 0.82rem; }
+.section-title {
+  font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); margin: 0.9rem 0 0.35rem;
+}
+.badge {
+  display: inline-block; font-size: 0.62rem; font-weight: 700; text-transform: uppercase;
+  padding: 0.12rem 0.4rem; border-radius: 6px; border: 1px solid var(--line);
+}
+.badge.live { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.badge.stub { background: #f4f4f5; color: #52525b; }
+.badge.planned { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+.pill {
+  display: inline-block; padding: 0.08rem 0.4rem; border-radius: 999px;
+  border: 1px solid var(--line); font-size: 0.62rem; margin-right: 0.15rem; font-weight: 700;
+}
+.pill.GET { color: #047857; background: #ecfdf5; }
+.pill.POST { color: #1d4ed8; background: #eff6ff; }
+.pill.PUT { color: #b45309; background: #fffbeb; }
+.pill.PATCH { color: #7c3aed; background: #f5f3ff; }
+.pill.DELETE { color: #b91c1c; background: #fef2f2; }
+.node {
+  position: absolute; border: 1px solid var(--line); border-radius: 14px;
+  background: var(--panel); padding: 0.55rem 0.7rem; cursor: grab;
+  box-shadow: 0 1px 0 rgba(24,24,27,.04); user-select: none;
+  width: 180px;
+}
+.node:hover { border-color: #a1a1aa; }
+.node.selected { border-color: var(--ink); box-shadow: 0 0 0 3px var(--ring), var(--shadow); }
+.node.dragging { cursor: grabbing; opacity: .92; z-index: 2; }
+.node .s { font-size: 0.68rem; color: var(--muted); font-weight: 500; margin-top: 0.15rem; }
+.node .key { font-family: ui-monospace, Consolas, monospace; font-size: 0.62rem; color: #a1a1aa; }
+.group-box {
+  position: absolute; border: 1px dashed #d4d4d8; border-radius: 16px;
+  background: rgba(255,255,255,.35); pointer-events: none;
+}
+.group-box span {
+  display: inline-block; margin: 6px 10px; font-size: 0.65rem; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+}
+svg.edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.doc-panel { max-width: 960px; margin: 1rem auto; padding: 0 1rem 2rem; }
+.card {
+  border: 1px solid var(--line); border-radius: 12px; padding: 0.75rem 0.9rem;
+  background: var(--panel); margin-bottom: 0.5rem;
+}
+.card strong { display: block; }
+input, select, textarea {
+  width: 100%; padding: 0.5rem 0.65rem; border-radius: 10px;
+  border: 1px solid var(--line); font: inherit; margin: 0.25rem 0 0.55rem;
+}
+textarea { min-height: 70px; resize: vertical; }
+table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+th, td { text-align: left; padding: 0.35rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-size: 0.65rem; text-transform: uppercase; }
+code, pre { font-family: ui-monospace, Consolas, monospace; font-size: 0.72rem; }
+pre { background: #f4f4f5; padding: 0.65rem; border-radius: 10px; overflow: auto; max-height: 28vh; white-space: pre-wrap; }
+.detail-item {
+  border: 1px solid var(--line); border-radius: 10px; padding: 0.45rem 0.55rem; margin-bottom: 0.35rem; font-size: 0.8rem;
+}
+.detail-item .d { color: var(--muted); font-size: 0.72rem; margin-top: 0.15rem; }
+.modal-bg {
+  position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 50;
+  display: none; align-items: center; justify-content: center; padding: 1rem;
+}
+.modal-bg.open { display: flex; }
+.modal {
+  width: 100%; max-width: 420px; background: #fff; border-radius: 16px; padding: 1.1rem;
+  border: 1px solid var(--line); box-shadow: var(--shadow);
+}
+.modal h3 { margin: 0 0 0.75rem; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.6rem; }
+.close-x { border: 0; background: transparent; font-size: 1.1rem; cursor: pointer; color: var(--muted); }
+.ok { color: #047857; font-size: 0.8rem; }
+.err { color: #b91c1c; font-size: 0.8rem; }
+#appShell.hidden { display: none !important; }
+#appShell { display: flex; flex-direction: column; height: 100%; }
+</style>
+</head>
+<body>
+
+<div id="loginGate">
+  <form class="login-card" id="loginForm">
+    <div class="logo">N</div>
+    <h1>Nexus</h1>
+    <p class="sub">Mapa operacional — entre com a mesma conta do Hub</p>
+    <div class="login-msg" id="loginMsg"></div>
+    <label for="loginName">Nome</label>
+    <input id="loginName" autocomplete="username" placeholder="Seu nome de operador" required />
+    <label for="loginPass">Senha</label>
+    <input id="loginPass" type="password" autocomplete="current-password" required />
+    <label for="loginApi">API (master)</label>
+    <input id="loginApi" value="http://127.0.0.1:3001" />
+    <button type="submit" id="loginBtn">Entrar</button>
+    <p class="login-hint">Mesmo login do app. Supervisor vê e edita o mapa (arrastar, +módulo, detalhes).</p>
+  </form>
+</div>
+
+<div id="appShell" class="hidden">
+  <div class="top">
+    <div class="brand">Nexus</div>
+    <span class="chip off" id="apiChip">—</span>
+    <span class="chip user" id="userChip">—</span>
+    <button type="button" class="btn primary" id="btnAddMod">+ Módulo</button>
+    <button type="button" class="btn" id="btnResync">Resync rotas</button>
+    <button type="button" class="btn" id="btnLogout">Sair</button>
+    <input class="search" id="search" placeholder="Buscar módulo…" />
+    <div class="tabs" id="tabs"></div>
+  </div>
+  <div class="workspace">
+    <div class="canvas-wrap" id="canvasWrap">
+      <div class="hint-bar" id="hintBar">Arraste um submódulo · clique para ver detalhes · + Módulo para criar</div>
+      <div class="viewport" id="viewport">
+        <svg class="edges" id="edges"></svg>
+        <div id="groups"></div>
+        <div id="nodes"></div>
+      </div>
+      <div class="toolbar" id="toolbar">
+        <button type="button" data-z="in">+</button>
+        <button type="button" data-z="out">−</button>
+        <button type="button" data-z="fit" title="Fit">⌂</button>
+      </div>
+      <div class="doc-panel" id="docPanel" style="display:none"></div>
+    </div>
+    <aside class="inspector" id="inspector">
+      <header>
+        <div>
+          <div class="eyebrow" id="insEyebrow">—</div>
+          <h2 id="insTitle">—</h2>
+        </div>
+        <button type="button" class="close-x" id="insClose">×</button>
+      </header>
+      <div class="body" id="insBody"></div>
+    </aside>
+  </div>
+</div>
+
+<div class="modal-bg" id="addModal">
+  <div class="modal">
+    <h3>+ Adicionar módulo</h3>
+    <label class="eyebrow">module_key</label>
+    <input id="addKey" placeholder="ex: qualidade_auditoria" />
+    <label class="eyebrow">Label</label>
+    <input id="addLabel" placeholder="Auditoria" />
+    <label class="eyebrow">Grupo</label>
+    <select id="addGroup"></select>
+    <label class="eyebrow">Purpose</label>
+    <textarea id="addPurpose" placeholder="Para que serve…"></textarea>
+    <div class="btn-row">
+      <button type="button" class="btn primary" id="addGo">Criar + task</button>
+      <button type="button" class="btn" id="addCancel">Cancelar</button>
+    </div>
+    <p class="muted" id="addMsg"></p>
+  </div>
+</div>
+
+<script type="application/json" id="mapa-data">{"meta":{"name":"Nexus","generatedAt":"2026-09-22T12:55:42.416Z","version":"0.1.0","generator":"scripts/generate-architecture-map.mjs","schemaVersion":2,"editable":{"version":{"value":"0.1.0","targets":["Frontend/package.json","Backend/Cargo.toml"]},"taskFile":"task.md"}},"runtime":{"stack":["nexus-server (Axum)","React","Vite","PostgreSQL","SQL Server (ERP sync)"],"api":{"port":3001,"bindDefault":"0.0.0.0","auth":"Bearer + X-Natum-Device-Id"},"masterClient":{"master":"nexus-server :3001, Postgres (Saves/postgres.env), sync ERP, backups, serve a SPA","client":"Navegador em http://nexus.local:3001; sem Postgres local"},"data":{"hub":"PostgreSQL (obrigatório no master)","erp":"SQL Server → sync incremental/full via legacy_db / erp-import","files":"Saves/ (documentacao, receipts, pg-backups)","databaseName":"natumhub"}},"repos":{"Frontend":"UI React + Vite (dist servido por nexus-server)","Backend":"nexus-server Axum + módulos de domínio","erp-import":"Queries SQL Server + PASSOS de sync","Saves":"postgres.env, client_config.json (não versionar secrets)","ContextoIA":"Docs para agentes + mapa-app","Feedbacks":"Playbook de bugs (dados no Postgres)","scripts":"Release / geradores"},"moduleGroups":[{"key":"estoque","label":"Estoque","hubView":"estoque_hub","children":["estoque_materia_prima","estoque_embalagens","estoque_coloracao","estoque_apoio","estoque_ordens_manuais","estoque_produtos","estoque_previsao_uso"]},{"key":"almoxarifado","label":"Almoxarifado","hubView":"almoxarifado_hub","children":["estoque_itens","estoque_almoxarifado","estoque_supermercado","estoque_pecas","estoque_equipamentos","estoque_manutencoes","estoque_movimentacoes"]},{"key":"producao","label":"Produção","hubView":"producao_hub","children":["producao","producao_bases","producao_lotes","montagem_kits","microbiologia","fisco_quimica"]},{"key":"compras","label":"Compras","hubView":"compras_hub","children":["compras_materia_prima","compras_embalagens","compras_coloracao","compras_apoio","compras_quotations","compras_online","compras_pedidos","compras_notas","compras_almoxarifado","compras_simulation"]},{"key":"vendas","label":"Vendas","hubView":"vendas_hub","children":["vendas","vendas_online"]},{"key":"qualidade","label":"Qualidade","hubView":"qualidade_hub","children":["controle_qualidade","qualidade_pops","qualidade_treinamentos","qualidade_temperatura","qualidade_limpeza","qualidade_recebimento_mp","qualidade_documentacao"]},{"key":"administrativo","label":"Administrativo","hubView":"administrativo","children":["admin_linha_produtos"]},{"key":"expedicao","label":"Expedição","hubView":"expedicao_hub","children":["expedicao_ecommerce"]},{"key":"financeiro","label":"Financeiro","hubView":"financeiro","children":["financeiro"]},{"key":"sistema","label":"Sistema","hubView":"hub","children":["hub_settings","hub_operadores"]}],"modules":{"estoque_materia_prima":{"key":"estoque_materia_prima","label":"Estoque Materia Prima","group":"estoque","purpose":"Submódulo Estoque Materia Prima do grupo Estoque.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key estoque_materia_prima"}],"aiHints":[]},"estoque_embalagens":{"key":"estoque_embalagens","label":"Estoque Embalagens","group":"estoque","purpose":"Submódulo Estoque Embalagens do grupo Estoque.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key estoque_embalagens"}],"aiHints":[]},"estoque_coloracao":{"key":"estoque_coloracao","label":"Estoque Coloracao","group":"estoque","purpose":"Submódulo Estoque Coloracao do grupo Estoque.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key estoque_coloracao"}],"aiHints":[]},"estoque_apoio":{"key":"estoque_apoio","label":"Estoque Apoio","group":"estoque","purpose":"Submódulo Estoque Apoio do grupo Estoque.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key estoque_apoio"}],"aiHints":[]},"estoque_ordens_manuais":{"key":"estoque_ordens_manuais","label":"Ordens Manuais","group":"estoque","purpose":"Entrada/saída manual de insumos com impressão física; ordens OPEN ajustam Prev. Futura em Compras até marcar lançado no ERP (POSTED). Não altera stock_snapshots.","status":"live","frontend":{"view":"OrdensManuaisView","path":"Frontend/src/modules/estoque/ordens_manuais/"},"backend":{"path":"Backend/src/modules/estoque/ordens_manuais/","routerPrefix":"/api/estoque/ordens-manuais"},"permissions":{"rolesDefault":["estoque","admin"],"supervisorOnly":false},"data":{"tables":["manual_stock_orders","manual_stock_order_items"],"filesOnDisk":[]},"routes":[{"methods":["GET"],"path":"/api/estoque/ordens-manuais","summary":"Ordens manuais entrada/saída de insumos","auth":"module","source":"Backend/src/modules/estoque/ordens_manuais/mod.rs"},{"methods":["POST"],"path":"/api/estoque/ordens-manuais/:id/postar","summary":"Ordens manuais entrada/saída de insumos","auth":"module","source":"Backend/src/modules/estoque/ordens_manuais/mod.rs"},{"methods":["GET"],"path":"/api/estoque/ordens-manuais/itens/busca","summary":"Ordens manuais entrada/saída de insumos","auth":"module","source":"Backend/src/modules/estoque/ordens_manuais/mod.rs"},{"methods":["GET"],"path":"/api/estoque/ordens-manuais/registros/:id","summary":"Ordens manuais entrada/saída de insumos","auth":"module","source":"Backend/src/modules/estoque/ordens_manuais/mod.rs"},{"methods":["POST"],"path":"/api/estoque/ordens-manuais/registros/:id/reabrir","summary":"Ordens manuais entrada/saída de insumos","auth":"module","source":"Backend/src/modules/estoque/ordens_manuais/mod.rs"},{"methods":["GET"],"path":"/api/estoque/ordens-manuais/tipos","summary":"Ordens manuais entrada/saída de insumos","auth":"module","source":"Backend/src/modules/estoque/ordens_manuais/mod.rs"},{"methods":["GET","DELETE"],"path":"/api/estoque/ordens-manuais/tipos/:id","summary":"Ordens manuais entrada/saída de insumos","auth":"module","source":"Backend/src/modules/estoque/ordens_manuais/mod.rs"}],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key estoque_ordens_manuais"},{"target":"postgres","kind":"data","note":"migration 021"},{"target":"erp","kind":"process","note":"POSTED após lançamento manual no ERP; sync D1 atualiza saldo"}],"aiHints":["Dupla checagem só no papel (imprimir folhas); Hub não grava conferência","Prev. Futura = estoque + in_orders + entrada_OPEN − saida_OPEN","Catálogo items (MP/Emb); não produtos acabados na v1"]},"estoque_produtos":{"key":"estoque_produtos","label":"Estoque Produtos","group":"estoque","purpose":"Submódulo Estoque Produtos do grupo Estoque.","status":"live","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[{"methods":["GET"],"path":"/api/estoque/item-info/:code","summary":"Estoque / contagens / item-info","auth":"module","source":"Backend/src/modules/compras/planejamento/mod.rs"},{"methods":["POST"],"path":"/api/estoque/produtos/:code/contagem","summary":"Estoque / contagens / item-info","auth":"module","source":"Backend/src/modules/estoque/estoque_geral/mod.rs"}],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key estoque_produtos"}],"aiHints":[]},"estoque_previsao_uso":{"key":"estoque_previsao_uso","label":"Estoque Previsao Uso","group":"estoque","purpose":"Submódulo Estoque Previsao Uso do grupo Estoque.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key estoque_previsao_uso"}],"aiHints":[]},"estoque_itens":{"key":"estoque_itens","label":"Estoque Itens","group":"almoxarifado","purpose":"Submódulo Estoque Itens do grupo Almoxarifado.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key estoque_itens"}],"aiHints":[]},"estoque_almoxarifado":{"key":"estoque_almoxarifado","label":"Almoxarifado","group":"almoxarifado","purpose":"Operações de almox: itens ERP/locais, saldos, movimentações, demandas, equipamentos e manutenções.","status":"live","frontend":{"view":"EstoqueOpsView / AlmoxarifadoView","path":"Frontend/src/modules/estoque/"},"backend":{"path":"Backend/src/modules/estoque/almoxarifado/","routerPrefix":"/api/almox"},"permissions":{"rolesDefault":["estoque","admin"],"supervisorOnly":false},"data":{"tables":["almox_item_config","almox_balances","almox_movements","estoque_equipamentos","estoque_manutencoes"],"filesOnDisk":[]},"routes":[{"methods":["GET"],"path":"/api/almox/dashboard/stats","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module","source":"Backend/src/modules/estoque/almoxarifado/mod.rs"},{"methods":["POST"],"path":"/api/almox/demands/:id/receive","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module","source":"Backend/src/modules/estoque/almoxarifado/mod.rs"},{"methods":["POST"],"path":"/api/almox/demands/from-min","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module","source":"Backend/src/modules/estoque/almoxarifado/mod.rs"},{"methods":["GET"],"path":"/api/almox/equipments/:id","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module","source":"Backend/src/modules/estoque/almoxarifado/mod.rs"},{"methods":["GET"],"path":"/api/almox/fotos/:entity_type/:entity_id","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module","source":"Backend/src/modules/estoque/almoxarifado/mod.rs"},{"methods":["DELETE"],"path":"/api/almox/fotos/:id","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module","source":"Backend/src/modules/estoque/almoxarifado/mod.rs"},{"methods":["PUT"],"path":"/api/almox/items/:code/config","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module","source":"Backend/src/modules/estoque/almoxarifado/mod.rs"},{"methods":["POST"],"path":"/api/almox/items/:code/seed-from-erp","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module","source":"Backend/src/modules/estoque/almoxarifado/mod.rs"},{"methods":["POST"],"path":"/api/almox/items/local","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module","source":"Backend/src/modules/estoque/almoxarifado/mod.rs"},{"methods":["GET"],"path":"/api/almox/items/search","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module","source":"Backend/src/modules/estoque/almoxarifado/mod.rs"},{"methods":["GET"],"path":"/api/almox/maintenances","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module","source":"Backend/src/modules/estoque/almoxarifado/mod.rs"},{"methods":["GET"],"path":"/api/almox/replenishment","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module","source":"Backend/src/modules/estoque/almoxarifado/mod.rs"}],"connectsTo":[{"target":"auth","kind":"guard","note":"seções almox por permissão"},{"target":"postgres","kind":"data","note":"migrations 002–004, 013"},{"target":"erp","kind":"sync","note":"seed/link itens ERP"},{"target":"compras_almoxarifado","kind":"related","note":"demandas de reposição"}],"aiHints":["Referência UX: EstoqueOpsView + AppLayout","Doc: ContextoIA/modulos/almoxarifado.md"]},"estoque_supermercado":{"key":"estoque_supermercado","label":"Estoque Supermercado","group":"almoxarifado","purpose":"Submódulo Estoque Supermercado do grupo Almoxarifado.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key estoque_supermercado"}],"aiHints":[]},"estoque_pecas":{"key":"estoque_pecas","label":"Estoque Pecas","group":"almoxarifado","purpose":"Submódulo Estoque Pecas do grupo Almoxarifado.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key estoque_pecas"}],"aiHints":[]},"estoque_equipamentos":{"key":"estoque_equipamentos","label":"Estoque Equipamentos","group":"almoxarifado","purpose":"Submódulo Estoque Equipamentos do grupo Almoxarifado.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key estoque_equipamentos"}],"aiHints":[]},"estoque_manutencoes":{"key":"estoque_manutencoes","label":"Estoque Manutencoes","group":"almoxarifado","purpose":"Submódulo Estoque Manutencoes do grupo Almoxarifado.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key estoque_manutencoes"}],"aiHints":[]},"estoque_movimentacoes":{"key":"estoque_movimentacoes","label":"Estoque Movimentacoes","group":"almoxarifado","purpose":"Submódulo Estoque Movimentacoes do grupo Almoxarifado.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key estoque_movimentacoes"}],"aiHints":[]},"producao":{"key":"producao","label":"Producao","group":"producao","purpose":"Submódulo Producao do grupo Produção.","status":"live","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[{"methods":["GET"],"path":"/api/historico","summary":"Histórico de produção","auth":"module","source":"Backend/src/server.rs"},{"methods":["DELETE"],"path":"/api/historico/:id","summary":"Histórico de produção","auth":"module","source":"Backend/src/server.rs"},{"methods":["DELETE"],"path":"/api/turnovers/composicao/:de/:para","summary":"Virações / turnovers","auth":"module","source":"Backend/src/server.rs"},{"methods":["GET"],"path":"/api/turnovers/next-order-number","summary":"Virações / turnovers","auth":"module","source":"Backend/src/server.rs"},{"methods":["PUT"],"path":"/api/turnovers/orders/:id","summary":"Virações / turnovers","auth":"module","source":"Backend/src/server.rs"}],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key producao"}],"aiHints":[]},"producao_bases":{"key":"producao_bases","label":"Producao Bases","group":"producao","purpose":"Submódulo Producao Bases do grupo Produção.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key producao_bases"}],"aiHints":[]},"producao_lotes":{"key":"producao_lotes","label":"Producao Lotes","group":"producao","purpose":"Submódulo Producao Lotes do grupo Produção.","status":"live","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[{"methods":["GET"],"path":"/api/producao/insumos-status/:code","summary":"Lotes e recálculo","auth":"module","source":"Backend/src/server.rs"},{"methods":["GET"],"path":"/api/producao/lotes/:number/detalhes","summary":"Lotes e recálculo","auth":"module","source":"Backend/src/server.rs"},{"methods":["POST"],"path":"/api/producao/lotes/:number/resolver","summary":"Lotes e recálculo","auth":"module","source":"Backend/src/server.rs"},{"methods":["GET"],"path":"/api/producao/proc","summary":"Lotes e recálculo","auth":"module","source":"Backend/src/modules/producao/proc/mod.rs"},{"methods":["POST"],"path":"/api/producao/proc/generate","summary":"Lotes e recálculo","auth":"module","source":"Backend/src/modules/producao/proc/mod.rs"},{"methods":["GET"],"path":"/api/producao/proc/map","summary":"Lotes e recálculo","auth":"module","source":"Backend/src/modules/producao/proc/mod.rs"},{"methods":["GET"],"path":"/api/producao/recalcular/preview","summary":"Lotes e recálculo","auth":"module","source":"Backend/src/server.rs"}],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key producao_lotes"}],"aiHints":[]},"montagem_kits":{"key":"montagem_kits","label":"Kits","group":"producao","purpose":"Composição de kits, ordens e upload de composição.","status":"live","frontend":{"view":"MontagemKitsView","path":"Frontend/src/modules/producao/montagem_kits/"},"backend":{"path":"Backend/src/lib.rs (rotas /api/kits)","routerPrefix":"/api/kits"},"permissions":{"rolesDefault":["producao","admin"],"supervisorOnly":false},"data":{"tables":["kit_composicao"],"filesOnDisk":[]},"routes":[{"methods":["GET"],"path":"/api/kits/component-candidates","summary":"Kits e composição","auth":"module","source":"Backend/src/server.rs"},{"methods":["POST"],"path":"/api/kits/composicao/upload","summary":"Kits e composição","auth":"module","source":"Backend/src/server.rs"},{"methods":["GET"],"path":"/api/kits/next-order-number","summary":"Kits e composição","auth":"module","source":"Backend/src/server.rs"},{"methods":["GET"],"path":"/api/kits/orders","summary":"Kits e composição","auth":"module","source":"Backend/src/server.rs"},{"methods":["PUT"],"path":"/api/kits/orders/:id","summary":"Kits e composição","auth":"module","source":"Backend/src/server.rs"}],"connectsTo":[{"target":"postgres","kind":"data","note":"005–006 kit_composicao"},{"target":"auth","kind":"guard","note":"module montagem_kits"}],"aiHints":["Rotas ainda inline em lib.rs — não há modules/producao router"]},"microbiologia":{"key":"microbiologia","label":"Microbiologia","group":"producao","purpose":"Laudos microbiológicos, produtos e configuração de template/numeração.","status":"live","frontend":{"view":"MicrobiologiaView","path":"Frontend/src/modules/producao/microbiologia/"},"backend":{"path":"Backend/src/modules/hub_api/microbio.rs","routerPrefix":"/api/hub/microbio"},"permissions":{"rolesDefault":["micro","admin"],"supervisorOnly":false},"data":{"tables":["products","reports"],"filesOnDisk":[]},"routes":[{"methods":["GET"],"path":"/api/hub/microbio/config","summary":"Laudos e config microbiologia","auth":"module","source":"Backend/src/modules/hub_api/microbio.rs"},{"methods":["GET"],"path":"/api/hub/microbio/products","summary":"Laudos e config microbiologia","auth":"module","source":"Backend/src/modules/hub_api/microbio.rs"},{"methods":["DELETE"],"path":"/api/hub/microbio/products/:code","summary":"Laudos e config microbiologia","auth":"module","source":"Backend/src/modules/hub_api/microbio.rs"},{"methods":["POST"],"path":"/api/hub/microbio/reports/printed","summary":"Laudos e config microbiologia","auth":"module","source":"Backend/src/modules/hub_api/microbio.rs"}],"connectsTo":[{"target":"postgres","kind":"data","note":"reports/products"},{"target":"auth","kind":"guard","note":"module microbiologia"}],"aiHints":["Referência AppLayout + impressão de laudos"]},"fisco_quimica":{"key":"fisco_quimica","label":"Fisco Quimica","group":"producao","purpose":"Submódulo Fisco Quimica do grupo Produção.","status":"live","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[{"methods":["DELETE"],"path":"/api/hub/fisco/agents/:id","summary":"Análises físico-químicas","auth":"module","source":"Backend/src/modules/hub_api/fisco.rs"},{"methods":["DELETE"],"path":"/api/hub/fisco/analyses/:id","summary":"Análises físico-químicas","auth":"module","source":"Backend/src/modules/hub_api/fisco.rs"},{"methods":["GET"],"path":"/api/hub/fisco/config","summary":"Análises físico-químicas","auth":"module","source":"Backend/src/modules/hub_api/fisco.rs"},{"methods":["GET"],"path":"/api/hub/fisco/corrective-batches","summary":"Análises físico-químicas","auth":"module","source":"Backend/src/modules/hub_api/fisco.rs"},{"methods":["GET"],"path":"/api/hub/fisco/erp-lotes/:lote/insumos","summary":"Análises físico-químicas","auth":"module","source":"Backend/src/modules/hub_api/fisco.rs"},{"methods":["POST"],"path":"/api/hub/fisco/migrate-erp-history","summary":"Análises físico-químicas","auth":"module","source":"Backend/src/modules/hub_api/fisco.rs"},{"methods":["GET"],"path":"/api/hub/fisco/patterns","summary":"Análises físico-químicas","auth":"module","source":"Backend/src/modules/hub_api/fisco.rs"},{"methods":["DELETE"],"path":"/api/hub/fisco/patterns/:code","summary":"Análises físico-químicas","auth":"module","source":"Backend/src/modules/hub_api/fisco.rs"}],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key fisco_quimica"}],"aiHints":[]},"compras_materia_prima":{"key":"compras_materia_prima","label":"Compras Materia Prima","group":"compras","purpose":"Submódulo Compras Materia Prima do grupo Compras.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key compras_materia_prima"}],"aiHints":[]},"compras_embalagens":{"key":"compras_embalagens","label":"Compras Embalagens","group":"compras","purpose":"Submódulo Compras Embalagens do grupo Compras.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key compras_embalagens"}],"aiHints":[]},"compras_coloracao":{"key":"compras_coloracao","label":"Compras Coloracao","group":"compras","purpose":"Submódulo Compras Coloracao do grupo Compras.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key compras_coloracao"}],"aiHints":[]},"compras_apoio":{"key":"compras_apoio","label":"Compras Apoio","group":"compras","purpose":"Submódulo Compras Apoio do grupo Compras.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key compras_apoio"}],"aiHints":[]},"compras_quotations":{"key":"compras_quotations","label":"Cotações","group":"compras","purpose":"Fluxo de cotações, fornecedores, preços e imports de estoque/consumo/NF no hub de compras.","status":"live","frontend":{"view":"ComprasView","path":"Frontend/src/modules/compras/planejamento/"},"backend":{"path":"Backend/src/modules/hub_api/compras.rs","routerPrefix":"/api/hub/compras"},"permissions":{"rolesDefault":["compras","admin"],"supervisorOnly":false},"data":{"tables":["quotations","suppliers","items","categories","invoices","consumption"],"filesOnDisk":[]},"routes":[{"methods":["GET"],"path":"/api/hub/compras/categories","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["GET","DELETE"],"path":"/api/hub/compras/categories/:id","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["GET"],"path":"/api/hub/compras/demands","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["POST"],"path":"/api/hub/compras/imports/invoices","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["GET"],"path":"/api/hub/compras/imports/nf-control","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["POST"],"path":"/api/hub/compras/imports/stock","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["POST"],"path":"/api/hub/compras/items/category","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["GET"],"path":"/api/hub/compras/items/similar","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["GET"],"path":"/api/hub/compras/itens-solicitados","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["GET"],"path":"/api/hub/compras/listas","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["GET"],"path":"/api/hub/compras/listas/:id","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["DELETE"],"path":"/api/hub/compras/online-orders/:id","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["GET"],"path":"/api/hub/compras/pinned-subcategories","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["GET"],"path":"/api/hub/compras/quotations/:id","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["POST"],"path":"/api/hub/compras/quotations/:id/status","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["POST"],"path":"/api/hub/compras/quotations/prices","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["GET"],"path":"/api/hub/compras/spending/category","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["GET"],"path":"/api/hub/compras/suppliers","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["GET"],"path":"/api/hub/compras/suppliers/:id/history","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"},{"methods":["POST"],"path":"/api/hub/compras/suppliers/unify","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module","source":"Backend/src/modules/hub_api/compras.rs"}],"connectsTo":[{"target":"postgres","kind":"data","note":"tabelas compras"},{"target":"erp","kind":"sync","note":"imports e snapshots"},{"target":"auth","kind":"guard","note":"module compras_*"}],"aiHints":["Rotas concentradas em hub_api/compras.rs","Usar hubJson quando path /api/hub/..."]},"compras_online":{"key":"compras_online","label":"Compras Online","group":"compras","purpose":"Submódulo Compras Online do grupo Compras.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key compras_online"}],"aiHints":[]},"compras_pedidos":{"key":"compras_pedidos","label":"Compras Pedidos","group":"compras","purpose":"Submódulo Compras Pedidos do grupo Compras.","status":"live","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[{"methods":["GET"],"path":"/api/compras/lojas","summary":"Pedidos, notas, lojas online (API compras)","auth":"module","source":"Backend/src/modules/compras/compras_online/mod.rs"},{"methods":["GET"],"path":"/api/compras/notas","summary":"Pedidos, notas, lojas online (API compras)","auth":"module","source":"Backend/src/modules/compras/planejamento/mod.rs"},{"methods":["GET"],"path":"/api/compras/pedidos","summary":"Pedidos, notas, lojas online (API compras)","auth":"module","source":"Backend/src/modules/compras/planejamento/mod.rs"}],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key compras_pedidos"}],"aiHints":[]},"compras_notas":{"key":"compras_notas","label":"Compras Notas","group":"compras","purpose":"Submódulo Compras Notas do grupo Compras.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key compras_notas"}],"aiHints":[]},"compras_almoxarifado":{"key":"compras_almoxarifado","label":"Compras Almoxarifado","group":"compras","purpose":"Submódulo Compras Almoxarifado do grupo Compras.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key compras_almoxarifado"}],"aiHints":[]},"compras_simulation":{"key":"compras_simulation","label":"Compras Simulation","group":"compras","purpose":"Submódulo Compras Simulation do grupo Compras.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key compras_simulation"}],"aiHints":[]},"vendas":{"key":"vendas","label":"Vendas","group":"vendas","purpose":"Submódulo Vendas do grupo Vendas.","status":"live","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[{"methods":["GET"],"path":"/api/vendas/clientes/:codigo/pedidos","summary":"Pedidos de venda e faltas","auth":"module","source":"Backend/src/server.rs"},{"methods":["GET"],"path":"/api/vendas/faltas","summary":"Pedidos de venda e faltas","auth":"module","source":"Backend/src/server.rs"},{"methods":["GET"],"path":"/api/vendas/pedidos","summary":"Pedidos de venda e faltas","auth":"module","source":"Backend/src/server.rs"}],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key vendas"}],"aiHints":[]},"vendas_online":{"key":"vendas_online","label":"Vendas Online","group":"vendas","purpose":"Submódulo Vendas Online do grupo Vendas.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key vendas_online"}],"aiHints":[]},"controle_qualidade":{"key":"controle_qualidade","label":"Controle de Qualidade","group":"qualidade","purpose":"Hub/placeholder de controle de qualidade (evoluir conforme BPF).","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key controle_qualidade"}],"aiHints":["Verificar se ainda é placeholder antes de expandir"]},"qualidade_pops":{"key":"qualidade_pops","label":"POPs","group":"qualidade","purpose":"Procedimentos Operacionais Padrão em HTML/PDF no Hub, por setor, com validade anual, revisões versionadas, logo configurável e alertas 30/15/7.","status":"live","frontend":{"view":"QualidadePopsView","path":"Frontend/src/modules/qualidade/pops/"},"backend":{"path":"Backend/src/modules/qualidade/pops/","routerPrefix":"/api/qualidade/pops"},"permissions":{"rolesDefault":["qualidade","admin"],"supervisorOnly":false},"data":{"tables":["pop_sectors","pop_documents","pop_versions"],"filesOnDisk":["Saves/pops/"]},"routes":[{"methods":["GET"],"path":"/api/qualidade/pops/documents","summary":"Lista POPs (filtro setor/status/q)","auth":"module","source":"Backend/src/modules/qualidade/pops/mod.rs"},{"methods":["GET"],"path":"/api/qualidade/pops/documents/:id","summary":"Detalhe + versão atual","auth":"module","source":"Backend/src/modules/qualidade/pops/mod.rs"},{"methods":["POST"],"path":"/api/qualidade/pops/documents/:id/publish","summary":"Publica initial ou content","auth":"module","source":"Backend/src/modules/qualidade/pops/mod.rs"},{"methods":["GET"],"path":"/api/qualidade/pops/documents/:id/versions","summary":"Histórico de versões","auth":"module","source":"Backend/src/modules/qualidade/pops/mod.rs"},{"methods":["GET"],"path":"/api/qualidade/pops/sectors","summary":"Lista setores","auth":"module","source":"Backend/src/modules/qualidade/pops/mod.rs"},{"methods":["GET"],"path":"/api/qualidade/pops/settings","summary":"Config (logo)","auth":"module","source":"Backend/src/modules/qualidade/pops/mod.rs"},{"methods":["GET"],"path":"/api/qualidade/pops/settings/logo","summary":"Bytes do logo","auth":"module","source":"Backend/src/modules/qualidade/pops/mod.rs"}],"connectsTo":[{"target":"notifications","kind":"notify","note":"check-alerts → hub_notifications"},{"target":"auth","kind":"guard","note":"module_key qualidade_pops"},{"target":"saves","kind":"files","note":"logo em Saves/pops/"},{"target":"postgres","kind":"data","note":"migration 023"}],"aiHints":["AppLayout: POPs / Setores / Configuração; sem h1 no main","Impressão HTML + window.print; logo configurável","Revalidar (mesmo conteúdo) vs publicar revisão (conteúdo + histórico)","Registros acompanhantes = fase 2 (não implementar na v1)"]},"qualidade_treinamentos":{"key":"qualidade_treinamentos","label":"Treinamentos","group":"qualidade","purpose":"Registro de treinamentos de qualidade.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key qualidade_treinamentos"}],"aiHints":[]},"qualidade_temperatura":{"key":"qualidade_temperatura","label":"Temperatura","group":"qualidade","purpose":"Controle de temperatura.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key qualidade_temperatura"}],"aiHints":[]},"qualidade_limpeza":{"key":"qualidade_limpeza","label":"Limpeza","group":"qualidade","purpose":"Registros de limpeza.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key qualidade_limpeza"}],"aiHints":[]},"qualidade_recebimento_mp":{"key":"qualidade_recebimento_mp","label":"Recebimento MP","group":"qualidade","purpose":"Recebimento de matéria-prima.","status":"stub","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key qualidade_recebimento_mp"}],"aiHints":[]},"qualidade_documentacao":{"key":"qualidade_documentacao","label":"Documentação","group":"qualidade","purpose":"Cadastro de documentos de qualidade com PDF no disco do master, localização física, validade com alertas e controle de pagamento/comprovante.","status":"live","frontend":{"view":"QualidadeDocumentacaoView","path":"Frontend/src/modules/qualidade/documentacao/"},"backend":{"path":"Backend/src/modules/qualidade/documentacao/","routerPrefix":"/api/qualidade/documentacao"},"permissions":{"rolesDefault":["qualidade","admin"],"supervisorOnly":false},"data":{"tables":["doc_families","doc_types","documents","document_files"],"filesOnDisk":["Saves/documentacao/"]},"routes":[{"methods":["GET"],"path":"/api/qualidade/documentacao/documents","summary":"Lista documentos","auth":"module","source":"Backend/src/modules/qualidade/documentacao/mod.rs"},{"methods":["GET"],"path":"/api/qualidade/documentacao/documents/:id","summary":"Detalhe documento + arquivos","auth":"module","source":"Backend/src/modules/qualidade/documentacao/mod.rs"},{"methods":["POST"],"path":"/api/qualidade/documentacao/documents/:id/files","summary":"Upload PDF (documento|comprovante)","auth":"module","source":"Backend/src/modules/qualidade/documentacao/mod.rs"},{"methods":["GET"],"path":"/api/qualidade/documentacao/families","summary":"Lista famílias de documentos","auth":"module","source":"Backend/src/modules/qualidade/documentacao/mod.rs"},{"methods":["PUT"],"path":"/api/qualidade/documentacao/families/:id","summary":"Atualiza família","auth":"module","source":"Backend/src/modules/qualidade/documentacao/mod.rs"},{"methods":["GET"],"path":"/api/qualidade/documentacao/types","summary":"Lista tipos (filtro family_id)","auth":"module","source":"Backend/src/modules/qualidade/documentacao/mod.rs"},{"methods":["PUT"],"path":"/api/qualidade/documentacao/types/:id","summary":"Atualiza tipo","auth":"module","source":"Backend/src/modules/qualidade/documentacao/mod.rs"}],"connectsTo":[{"target":"notifications","kind":"notify","note":"check-alerts → hub_notifications"},{"target":"auth","kind":"guard","note":"module_key qualidade_documentacao"},{"target":"saves","kind":"files","note":"PDFs em Saves/documentacao/{doc_id}/"},{"target":"postgres","kind":"data","note":"metadados migration 016"},{"target":"audit","kind":"audit","note":"eventos create/update/delete documento"}],"aiHints":["AppLayout com abas Documentos / Pendências / Famílias; sem h1 no main","PDFs via saves_dir()/documentacao — não ../receipts","apiJson / multipart FormData para upload","warn_days padrão 30/15/7 por família"]},"admin_linha_produtos":{"key":"admin_linha_produtos","label":"Admin Linha Produtos","group":"administrativo","purpose":"Submódulo Admin Linha Produtos do grupo Administrativo.","status":"live","frontend":null,"backend":null,"permissions":{"rolesDefault":[],"supervisorOnly":false},"data":{"tables":[],"filesOnDisk":[]},"routes":[{"methods":["POST"],"path":"/api/overrides/bulk","summary":"Overrides de produto","auth":"module","source":"Backend/src/server.rs"},{"methods":["GET"],"path":"/api/products","summary":"Catálogo produtos","auth":"module","source":"Backend/src/server.rs"},{"methods":["GET"],"path":"/api/produtos/:code/detalhes","summary":"Detalhes / formulação produto","auth":"module","source":"Backend/src/server.rs"},{"methods":["GET"],"path":"/api/produtos/formulacao/:code","summary":"Detalhes / formulação produto","auth":"module","source":"Backend/src/server.rs"}],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key admin_linha_produtos"}],"aiHints":[]},"expedicao_ecommerce":{"key":"expedicao_ecommerce","label":"E-commerce","group":"expedicao","purpose":"Pedidos de expedição e-commerce, importação Excel e cadastros de plataforma/frete/cliente.","status":"live","frontend":{"view":"ExpedicaoView","path":"Frontend/src/modules/expedicao/"},"backend":{"path":"Backend/src/modules/expedicao/","routerPrefix":"/api/expedicao"},"permissions":{"rolesDefault":["expedicao","admin"],"supervisorOnly":false},"data":{"tables":["ecommerce_orders","ecommerce_lookups"],"filesOnDisk":[]},"routes":[{"methods":["GET"],"path":"/api/expedicao/ecommerce","summary":"Pedidos e-commerce e lookups","auth":"module","source":"Backend/src/modules/expedicao/mod.rs"},{"methods":["PUT"],"path":"/api/expedicao/ecommerce/:id","summary":"Pedidos e-commerce e lookups","auth":"module","source":"Backend/src/modules/expedicao/mod.rs"},{"methods":["POST"],"path":"/api/expedicao/ecommerce/import","summary":"Pedidos e-commerce e lookups","auth":"module","source":"Backend/src/modules/expedicao/mod.rs"},{"methods":["GET"],"path":"/api/expedicao/lookups/clients","summary":"Pedidos e-commerce e lookups","auth":"module","source":"Backend/src/modules/expedicao/mod.rs"},{"methods":["PUT"],"path":"/api/expedicao/lookups/clients/:id","summary":"Pedidos e-commerce e lookups","auth":"module","source":"Backend/src/modules/expedicao/mod.rs"},{"methods":["PUT"],"path":"/api/expedicao/lookups/platforms/:id","summary":"Pedidos e-commerce e lookups","auth":"module","source":"Backend/src/modules/expedicao/mod.rs"},{"methods":["GET"],"path":"/api/expedicao/lookups/shipping","summary":"Pedidos e-commerce e lookups","auth":"module","source":"Backend/src/modules/expedicao/mod.rs"},{"methods":["PUT"],"path":"/api/expedicao/lookups/shipping/:id","summary":"Pedidos e-commerce e lookups","auth":"module","source":"Backend/src/modules/expedicao/mod.rs"}],"connectsTo":[{"target":"postgres","kind":"data","note":"migrations 011, 014"},{"target":"auth","kind":"guard","note":"module expedicao_ecommerce"}],"aiHints":["Multipart import Excel via FormData + apiJson"]},"financeiro":{"key":"financeiro","label":"Financeiro","group":"financeiro","purpose":"Status financeiro Tiny: contas a pagar/receber e fluxo de caixa.","status":"live","frontend":{"view":"FinanceiroView","path":"Frontend/src/modules/financeiro/"},"backend":{"path":"Backend/src/modules/financeiro/","routerPrefix":"/api/financeiro"},"permissions":{"rolesDefault":["financeiro","admin"],"supervisorOnly":false},"data":{"tables":["tiny_contas_pagar","tiny_contas_receber"],"filesOnDisk":[]},"routes":[{"methods":["GET"],"path":"/api/financeiro/contas","summary":"Contas / fluxo Tiny","auth":"module","source":"Backend/src/modules/financeiro/mod.rs"},{"methods":["GET"],"path":"/api/financeiro/status","summary":"Contas / fluxo Tiny","auth":"module","source":"Backend/src/modules/financeiro/mod.rs"}],"connectsTo":[{"target":"postgres","kind":"data","note":"cache Tiny"},{"target":"auth","kind":"guard","note":"module financeiro"}],"aiHints":["Token Tiny via POST /api/financeiro/token"]},"hub_settings":{"key":"hub_settings","label":"Configurações","group":"sistema","purpose":"Painel de sistema: conexão, Postgres, backup, sync ERP, canais, auditoria e feedbacks admin.","status":"live","frontend":{"view":"ConfiguracoesView","path":"Frontend/src/modules/geral/configuracoes/"},"backend":{"path":"Backend/src/modules/geral/","routerPrefix":"/api/admin"},"permissions":{"rolesDefault":["admin"],"supervisorOnly":true},"data":{"tables":["settings","hub_audit_events","hub_notifications","sync_status"],"filesOnDisk":["Saves/pg-backups/"]},"routes":[{"methods":["GET"],"path":"/api/admin/audit/events","summary":"Lista trilha hub_audit_events (supervisor)","auth":"supervisor","source":"Backend/src/modules/geral/audit/mod.rs"},{"methods":["POST"],"path":"/api/admin/audit/stock/:code/refresh","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/geral/mod.rs"},{"methods":["POST"],"path":"/api/admin/audit/stock/resync-produtos","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/geral/mod.rs"},{"methods":["POST"],"path":"/api/admin/audit/stock/verify-all","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/geral/mod.rs"},{"methods":["POST"],"path":"/api/admin/db-reset","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/geral/mod.rs"},{"methods":["GET"],"path":"/api/admin/db-usage","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/geral/mod.rs"},{"methods":["POST"],"path":"/api/admin/pg-backup/config","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/geral/mod.rs"},{"methods":["GET"],"path":"/api/administrativo/acompanhamento-producao","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"},{"methods":["POST"],"path":"/api/administrativo/acompanhamento-producao/sheets/sync","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"},{"methods":["DELETE"],"path":"/api/administrativo/envase/programacao/:id","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"},{"methods":["GET"],"path":"/api/administrativo/funcionarios","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/administrativo/funcionarios/mod.rs"},{"methods":["GET"],"path":"/api/administrativo/funcionarios/me","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/administrativo/funcionarios/mod.rs"},{"methods":["POST"],"path":"/api/administrativo/lote-ficha","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"},{"methods":["DELETE"],"path":"/api/administrativo/lote-status/:number","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"},{"methods":["POST"],"path":"/api/administrativo/lote-status/:number/terceirizado","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"},{"methods":["GET"],"path":"/api/administrativo/terceirizados/produto/:code","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"},{"methods":["GET"],"path":"/api/administrativo/terceirizados/solicitacoes","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"},{"methods":["DELETE"],"path":"/api/administrativo/terceirizados/solicitacoes/:id","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"},{"methods":["POST"],"path":"/api/administrativo/terceirizados/solicitacoes/:id/previsao","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"},{"methods":["POST"],"path":"/api/administrativo/terceirizados/solicitacoes/:id/vincular","summary":"Admin: backup, DB, audit estoque","auth":"supervisor","source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs"},{"methods":["GET"],"path":"/api/configs","summary":"Configs genéricas","auth":"module","source":"Backend/src/server.rs"},{"methods":["DELETE"],"path":"/api/configs/:prefix","summary":"Configs genéricas","auth":"module","source":"Backend/src/server.rs"},{"methods":["GET"],"path":"/api/health","summary":"Healthcheck público","auth":"public","source":"Backend/src/modules/geral/hub/mod.rs"},{"methods":["GET"],"path":"/api/hub/feedbacks","summary":"Feedbacks admin","auth":"module","source":"Backend/src/modules/geral/feedbacks/handlers.rs"},{"methods":["POST"],"path":"/api/hub/feedbacks/:id/notes","summary":"Feedbacks admin","auth":"module","source":"Backend/src/modules/geral/feedbacks/handlers.rs"},{"methods":["GET"],"path":"/api/hub/feedbacks/manage","summary":"Feedbacks admin","auth":"module","source":"Backend/src/modules/geral/feedbacks/handlers.rs"},{"methods":["GET"],"path":"/api/hub/public-config","summary":"Status / client-config / health","auth":"public","source":"Backend/src/modules/geral/hub/mod.rs"},{"methods":["POST"],"path":"/api/import/dump","summary":"Sync ERP / dump / status","auth":"module","source":"Backend/src/server.rs"},{"methods":["GET"],"path":"/api/import/erp-sync-schedule","summary":"Sync ERP / dump / status","auth":"module","source":"Backend/src/modules/geral/mod.rs"},{"methods":["POST"],"path":"/api/import/faturamento","summary":"Sync ERP / dump / status","auth":"module","source":"Backend/src/server.rs"},{"methods":["POST"],"path":"/api/import/kits","summary":"Sync ERP / dump / status","auth":"module","source":"Backend/src/server.rs"},{"methods":["GET"],"path":"/api/import/status","summary":"Sync ERP / dump / status","auth":"module","source":"Backend/src/server.rs"},{"methods":["GET"],"path":"/api/import/sync-lock","summary":"Sync ERP / dump / status","auth":"module","source":"Backend/src/server.rs"},{"methods":["GET"],"path":"/api/import/watch-config","summary":"Sync ERP / dump / status","auth":"module","source":"Backend/src/modules/geral/mod.rs"},{"methods":["GET"],"path":"/api/notifications","summary":"Sino de notificações","auth":"module","source":"Backend/src/modules/geral/notifications/mod.rs"},{"methods":["POST"],"path":"/api/notifications/:id/read","summary":"Sino de notificações","auth":"module","source":"Backend/src/modules/geral/notifications/mod.rs"}],"connectsTo":[{"target":"auth","kind":"guard","note":"supervisor-only em várias rotas"},{"target":"postgres","kind":"data","note":"usage + reset operacional"},{"target":"erp","kind":"sync","note":"agenda e trigger sync"},{"target":"audit","kind":"audit","note":"GET /api/admin/audit/events"},{"target":"saves","kind":"files","note":"backups locais"}],"aiHints":["AuditoriaPanel no painel supervisor","Não expor secrets em logs de audit"]},"hub_operadores":{"key":"hub_operadores","label":"Gestão de Operadores","group":"sistema","purpose":"CRUD de operadores, roles, module_keys e dispositivos — somente supervisor.","status":"live","frontend":{"view":"OperadoresPanel","path":"Frontend/src/modules/geral/configuracoes/OperadoresPanel.tsx"},"backend":{"path":"Backend/src/modules/geral/auth/","routerPrefix":"/api/auth"},"permissions":{"rolesDefault":["admin"],"supervisorOnly":true},"data":{"tables":["hub_operators","hub_operator_modules","hub_sessions","hub_devices"],"filesOnDisk":[]},"routes":[{"methods":["GET"],"path":"/api/auth/devices/manage","summary":"Login, operadores, dispositivos","auth":"supervisor","source":"Backend/src/modules/geral/auth/mod.rs"},{"methods":["POST"],"path":"/api/auth/logout","summary":"Login, operadores, dispositivos","auth":"module","source":"Backend/src/modules/geral/auth/mod.rs"},{"methods":["GET"],"path":"/api/auth/modules/registry","summary":"Login, operadores, dispositivos","auth":"module","source":"Backend/src/modules/geral/auth/mod.rs"},{"methods":["GET"],"path":"/api/auth/operators","summary":"Login, operadores, dispositivos","auth":"module","source":"Backend/src/modules/geral/auth/mod.rs"},{"methods":["PUT"],"path":"/api/auth/operators/manage/:id","summary":"Login, operadores, dispositivos","auth":"supervisor","source":"Backend/src/modules/geral/auth/mod.rs"},{"methods":["GET"],"path":"/api/auth/setup-status","summary":"Login, operadores, dispositivos","auth":"module","source":"Backend/src/modules/geral/auth/mod.rs"}],"connectsTo":[{"target":"auth","kind":"guard","note":"requires_supervisor"},{"target":"audit","kind":"audit","note":"create/update/delete operador"},{"target":"postgres","kind":"data","note":"auth tables"}],"aiHints":["Espelhar MODULE_KEYS FE/BE ao adicionar permissão","Nunca listar senhas; hash argon2"]},"qualidade_devolucoes":{"key":"qualidade_devolucoes","label":"Devoluções","group":"sistema","purpose":"Devoluções de produto acabado do cliente: recepção, conferência/disposição CQ por item, controle de relançamento ERP e impressão A4.","status":"live","frontend":{"view":"DevolucoesView","path":"Frontend/src/modules/qualidade/devolucoes/"},"backend":{"path":"Backend/src/modules/qualidade/devolucoes/","routerPrefix":"/api/qualidade/devolucoes"},"permissions":{"rolesDefault":["qualidade","admin"],"supervisorOnly":false},"data":{"tables":["qualidade_devolucoes","qualidade_devolucao_itens"],"filesOnDisk":[]},"routes":[],"connectsTo":[{"target":"auth","kind":"guard","note":"module_key qualidade_devolucoes"},{"target":"postgres","kind":"data","note":"migration 026"},{"target":"erp","kind":"process","note":"só status por item (sem sync automático)"}],"aiHints":["Sem vínculo obrigatório a NF/pedido ERP; autocomplete cliente via /vendas/clientes","Disposições fixas (não cadastráveis); lotes em texto livre","Impressão estilo PrintListTab: ficha completa + a lançar ERP","Status: rascunho→recebido→em_conferencia→disposto→parcialmente_lancado|finalizado"]}},"edges":[{"from":"estoque_materia_prima","to":"auth","kind":"guard","note":"module_key estoque_materia_prima"},{"from":"estoque_embalagens","to":"auth","kind":"guard","note":"module_key estoque_embalagens"},{"from":"estoque_coloracao","to":"auth","kind":"guard","note":"module_key estoque_coloracao"},{"from":"estoque_apoio","to":"auth","kind":"guard","note":"module_key estoque_apoio"},{"from":"estoque_ordens_manuais","to":"auth","kind":"guard","note":"module_key estoque_ordens_manuais"},{"from":"estoque_ordens_manuais","to":"postgres","kind":"data","note":"migration 021"},{"from":"estoque_ordens_manuais","to":"erp","kind":"process","note":"POSTED após lançamento manual no ERP; sync D1 atualiza saldo"},{"from":"estoque_produtos","to":"auth","kind":"guard","note":"module_key estoque_produtos"},{"from":"estoque_previsao_uso","to":"auth","kind":"guard","note":"module_key estoque_previsao_uso"},{"from":"estoque_itens","to":"auth","kind":"guard","note":"module_key estoque_itens"},{"from":"estoque_almoxarifado","to":"auth","kind":"guard","note":"seções almox por permissão"},{"from":"estoque_almoxarifado","to":"postgres","kind":"data","note":"migrations 002–004, 013"},{"from":"estoque_almoxarifado","to":"erp","kind":"sync","note":"seed/link itens ERP"},{"from":"estoque_almoxarifado","to":"compras_almoxarifado","kind":"related","note":"demandas de reposição"},{"from":"estoque_supermercado","to":"auth","kind":"guard","note":"module_key estoque_supermercado"},{"from":"estoque_pecas","to":"auth","kind":"guard","note":"module_key estoque_pecas"},{"from":"estoque_equipamentos","to":"auth","kind":"guard","note":"module_key estoque_equipamentos"},{"from":"estoque_manutencoes","to":"auth","kind":"guard","note":"module_key estoque_manutencoes"},{"from":"estoque_movimentacoes","to":"auth","kind":"guard","note":"module_key estoque_movimentacoes"},{"from":"producao","to":"auth","kind":"guard","note":"module_key producao"},{"from":"producao_bases","to":"auth","kind":"guard","note":"module_key producao_bases"},{"from":"producao_lotes","to":"auth","kind":"guard","note":"module_key producao_lotes"},{"from":"montagem_kits","to":"postgres","kind":"data","note":"005–006 kit_composicao"},{"from":"montagem_kits","to":"auth","kind":"guard","note":"module montagem_kits"},{"from":"microbiologia","to":"postgres","kind":"data","note":"reports/products"},{"from":"microbiologia","to":"auth","kind":"guard","note":"module microbiologia"},{"from":"fisco_quimica","to":"auth","kind":"guard","note":"module_key fisco_quimica"},{"from":"compras_materia_prima","to":"auth","kind":"guard","note":"module_key compras_materia_prima"},{"from":"compras_embalagens","to":"auth","kind":"guard","note":"module_key compras_embalagens"},{"from":"compras_coloracao","to":"auth","kind":"guard","note":"module_key compras_coloracao"},{"from":"compras_apoio","to":"auth","kind":"guard","note":"module_key compras_apoio"},{"from":"compras_quotations","to":"postgres","kind":"data","note":"tabelas compras"},{"from":"compras_quotations","to":"erp","kind":"sync","note":"imports e snapshots"},{"from":"compras_quotations","to":"auth","kind":"guard","note":"module compras_*"},{"from":"compras_online","to":"auth","kind":"guard","note":"module_key compras_online"},{"from":"compras_pedidos","to":"auth","kind":"guard","note":"module_key compras_pedidos"},{"from":"compras_notas","to":"auth","kind":"guard","note":"module_key compras_notas"},{"from":"compras_almoxarifado","to":"auth","kind":"guard","note":"module_key compras_almoxarifado"},{"from":"compras_simulation","to":"auth","kind":"guard","note":"module_key compras_simulation"},{"from":"vendas","to":"auth","kind":"guard","note":"module_key vendas"},{"from":"vendas_online","to":"auth","kind":"guard","note":"module_key vendas_online"},{"from":"controle_qualidade","to":"auth","kind":"guard","note":"module_key controle_qualidade"},{"from":"qualidade_pops","to":"notifications","kind":"notify","note":"check-alerts → hub_notifications"},{"from":"qualidade_pops","to":"auth","kind":"guard","note":"module_key qualidade_pops"},{"from":"qualidade_pops","to":"saves","kind":"files","note":"logo em Saves/pops/"},{"from":"qualidade_pops","to":"postgres","kind":"data","note":"migration 023"},{"from":"qualidade_treinamentos","to":"auth","kind":"guard","note":"module_key qualidade_treinamentos"},{"from":"qualidade_temperatura","to":"auth","kind":"guard","note":"module_key qualidade_temperatura"},{"from":"qualidade_limpeza","to":"auth","kind":"guard","note":"module_key qualidade_limpeza"},{"from":"qualidade_recebimento_mp","to":"auth","kind":"guard","note":"module_key qualidade_recebimento_mp"},{"from":"qualidade_documentacao","to":"notifications","kind":"notify","note":"check-alerts → hub_notifications"},{"from":"qualidade_documentacao","to":"auth","kind":"guard","note":"module_key qualidade_documentacao"},{"from":"qualidade_documentacao","to":"saves","kind":"files","note":"PDFs em Saves/documentacao/{doc_id}/"},{"from":"qualidade_documentacao","to":"postgres","kind":"data","note":"metadados migration 016"},{"from":"qualidade_documentacao","to":"audit","kind":"audit","note":"eventos create/update/delete documento"},{"from":"admin_linha_produtos","to":"auth","kind":"guard","note":"module_key admin_linha_produtos"},{"from":"expedicao_ecommerce","to":"postgres","kind":"data","note":"migrations 011, 014"},{"from":"expedicao_ecommerce","to":"auth","kind":"guard","note":"module expedicao_ecommerce"},{"from":"financeiro","to":"postgres","kind":"data","note":"cache Tiny"},{"from":"financeiro","to":"auth","kind":"guard","note":"module financeiro"},{"from":"hub_settings","to":"auth","kind":"guard","note":"supervisor-only em várias rotas"},{"from":"hub_settings","to":"postgres","kind":"data","note":"usage + reset operacional"},{"from":"hub_settings","to":"erp","kind":"sync","note":"agenda e trigger sync"},{"from":"hub_settings","to":"audit","kind":"audit","note":"GET /api/admin/audit/events"},{"from":"hub_settings","to":"saves","kind":"files","note":"backups locais"},{"from":"hub_operadores","to":"auth","kind":"guard","note":"requires_supervisor"},{"from":"hub_operadores","to":"audit","kind":"audit","note":"create/update/delete operador"},{"from":"hub_operadores","to":"postgres","kind":"data","note":"auth tables"},{"from":"qualidade_devolucoes","to":"auth","kind":"guard","note":"module_key qualidade_devolucoes"},{"from":"qualidade_devolucoes","to":"postgres","kind":"data","note":"migration 026"},{"from":"qualidade_devolucoes","to":"erp","kind":"process","note":"só status por item (sem sync automático)"}],"infraNodes":{"auth":{"label":"Auth","purpose":"Login, sessões, middleware Bearer, permissões por module_key."},"notifications":{"label":"Notificações","purpose":"hub_notifications + sino na UI."},"audit":{"label":"Auditoria","purpose":"hub_audit_events — trilha HTTP write + eventos de domínio."},"postgres":{"label":"PostgreSQL","purpose":"Banco canônico do Hub (Saves/postgres.env)."},"erp":{"label":"SQL Server ERP","purpose":"Fonte legada; sync via erp-import / legacy_db."},"saves":{"label":"Disco Saves/","purpose":"Arquivos binários (PDF, receipts, backups)."}},"glossary":{"module_key":"Chave de permissão snake_case (ex.: qualidade_documentacao). Espelhada FE registry.ts ↔ BE modules_registry.rs.","hubView":"View intermediária do hub (ex.: qualidade_hub) visível se o operador tiver qualquer filho do grupo.","PC Principal":"Instalação master: sobe Axum :3001, Postgres, sync ERP, backups e updater.","Terminal":"Cliente: só UI; apiOrigin aponta para o PC Principal; sem Postgres local.","apiJson":"Cliente HTTP autenticado em Frontend/src/modules/geral/lib/http.ts — nunca fetch cru.","Saves":"Pasta local no master (postgres.env, PDFs, backups, manifests). Não versionar secrets."},"phase2":{"title":"Fase 2 — loop SPEC → implementação","steps":["Agente lê SPEC exportado desta página","Valida contra mapa-app.json (key única, rotas, grupo)","Implementa via skill natumhub-modulos","Roda npm run map:arch e marca status planned → live"]},"routeCatalog":[{"path":"/api/admin/audit/events","methods":["GET"],"source":"Backend/src/modules/geral/audit/mod.rs","moduleKey":"hub_settings","summary":"Lista trilha hub_audit_events (supervisor)","auth":"supervisor"},{"path":"/api/admin/audit/stock/:code/refresh","methods":["POST"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/admin/audit/stock/resync-produtos","methods":["POST"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/admin/audit/stock/verify-all","methods":["POST"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/admin/db-reset","methods":["POST"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/admin/db-usage","methods":["GET"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/admin/pg-backup/config","methods":["POST"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/acompanhamento-producao","methods":["GET"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/acompanhamento-producao/sheets/sync","methods":["POST"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/envase/programacao/:id","methods":["DELETE"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/funcionarios","methods":["GET"],"source":"Backend/src/modules/administrativo/funcionarios/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/funcionarios/me","methods":["GET"],"source":"Backend/src/modules/administrativo/funcionarios/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/lote-ficha","methods":["POST"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/lote-status/:number","methods":["DELETE"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/lote-status/:number/terceirizado","methods":["POST"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/terceirizados/produto/:code","methods":["GET"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/terceirizados/solicitacoes","methods":["GET"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/terceirizados/solicitacoes/:id","methods":["DELETE"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/terceirizados/solicitacoes/:id/previsao","methods":["POST"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/terceirizados/solicitacoes/:id/vincular","methods":["POST"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/almox/dashboard/stats","methods":["GET"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/demands/:id/receive","methods":["POST"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/demands/from-min","methods":["POST"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/equipments/:id","methods":["GET"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/fotos/:entity_type/:entity_id","methods":["GET"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/fotos/:id","methods":["DELETE"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/items/:code/config","methods":["PUT"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/items/:code/seed-from-erp","methods":["POST"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/items/local","methods":["POST"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/items/search","methods":["GET"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/maintenances","methods":["GET"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/replenishment","methods":["GET"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/auth/devices/manage","methods":["GET"],"source":"Backend/src/modules/geral/auth/mod.rs","moduleKey":"hub_operadores","summary":"Login, operadores, dispositivos","auth":"supervisor"},{"path":"/api/auth/logout","methods":["POST"],"source":"Backend/src/modules/geral/auth/mod.rs","moduleKey":"hub_operadores","summary":"Login, operadores, dispositivos","auth":"module"},{"path":"/api/auth/modules/registry","methods":["GET"],"source":"Backend/src/modules/geral/auth/mod.rs","moduleKey":"hub_operadores","summary":"Login, operadores, dispositivos","auth":"module"},{"path":"/api/auth/operators","methods":["GET"],"source":"Backend/src/modules/geral/auth/mod.rs","moduleKey":"hub_operadores","summary":"Login, operadores, dispositivos","auth":"module"},{"path":"/api/auth/operators/manage/:id","methods":["PUT"],"source":"Backend/src/modules/geral/auth/mod.rs","moduleKey":"hub_operadores","summary":"Login, operadores, dispositivos","auth":"supervisor"},{"path":"/api/auth/setup-status","methods":["GET"],"source":"Backend/src/modules/geral/auth/mod.rs","moduleKey":"hub_operadores","summary":"Login, operadores, dispositivos","auth":"module"},{"path":"/api/chat/conversations","methods":["GET"],"source":"Backend/src/modules/geral/chat/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/chat/verify-password","methods":["POST"],"source":"Backend/src/modules/geral/chat/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/compras/lojas","methods":["GET"],"source":"Backend/src/modules/compras/compras_online/mod.rs","moduleKey":"compras_pedidos","summary":"Pedidos, notas, lojas online (API compras)","auth":"module"},{"path":"/api/compras/notas","methods":["GET"],"source":"Backend/src/modules/compras/planejamento/mod.rs","moduleKey":"compras_pedidos","summary":"Pedidos, notas, lojas online (API compras)","auth":"module"},{"path":"/api/compras/pedidos","methods":["GET"],"source":"Backend/src/modules/compras/planejamento/mod.rs","moduleKey":"compras_pedidos","summary":"Pedidos, notas, lojas online (API compras)","auth":"module"},{"path":"/api/configs","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"hub_settings","summary":"Configs genéricas","auth":"module"},{"path":"/api/configs/:prefix","methods":["DELETE"],"source":"Backend/src/server.rs","moduleKey":"hub_settings","summary":"Configs genéricas","auth":"module"},{"path":"/api/estoque/item-info/:code","methods":["GET"],"source":"Backend/src/modules/compras/planejamento/mod.rs","moduleKey":"estoque_produtos","summary":"Estoque / contagens / item-info","auth":"module"},{"path":"/api/estoque/ordens-manuais","methods":["GET"],"source":"Backend/src/modules/estoque/ordens_manuais/mod.rs","moduleKey":"estoque_ordens_manuais","summary":"Ordens manuais entrada/saída de insumos","auth":"module"},{"path":"/api/estoque/ordens-manuais/:id/postar","methods":["POST"],"source":"Backend/src/modules/estoque/ordens_manuais/mod.rs","moduleKey":"estoque_ordens_manuais","summary":"Ordens manuais entrada/saída de insumos","auth":"module"},{"path":"/api/estoque/ordens-manuais/itens/busca","methods":["GET"],"source":"Backend/src/modules/estoque/ordens_manuais/mod.rs","moduleKey":"estoque_ordens_manuais","summary":"Ordens manuais entrada/saída de insumos","auth":"module"},{"path":"/api/estoque/ordens-manuais/registros/:id","methods":["GET"],"source":"Backend/src/modules/estoque/ordens_manuais/mod.rs","moduleKey":"estoque_ordens_manuais","summary":"Ordens manuais entrada/saída de insumos","auth":"module"},{"path":"/api/estoque/ordens-manuais/registros/:id/reabrir","methods":["POST"],"source":"Backend/src/modules/estoque/ordens_manuais/mod.rs","moduleKey":"estoque_ordens_manuais","summary":"Ordens manuais entrada/saída de insumos","auth":"module"},{"path":"/api/estoque/ordens-manuais/tipos","methods":["GET"],"source":"Backend/src/modules/estoque/ordens_manuais/mod.rs","moduleKey":"estoque_ordens_manuais","summary":"Ordens manuais entrada/saída de insumos","auth":"module"},{"path":"/api/estoque/ordens-manuais/tipos/:id","methods":["GET","DELETE"],"source":"Backend/src/modules/estoque/ordens_manuais/mod.rs","moduleKey":"estoque_ordens_manuais","summary":"Ordens manuais entrada/saída de insumos","auth":"module"},{"path":"/api/estoque/produtos/:code/contagem","methods":["POST"],"source":"Backend/src/modules/estoque/estoque_geral/mod.rs","moduleKey":"estoque_produtos","summary":"Estoque / contagens / item-info","auth":"module"},{"path":"/api/expedicao/ecommerce","methods":["GET"],"source":"Backend/src/modules/expedicao/mod.rs","moduleKey":"expedicao_ecommerce","summary":"Pedidos e-commerce e lookups","auth":"module"},{"path":"/api/expedicao/ecommerce/:id","methods":["PUT"],"source":"Backend/src/modules/expedicao/mod.rs","moduleKey":"expedicao_ecommerce","summary":"Pedidos e-commerce e lookups","auth":"module"},{"path":"/api/expedicao/ecommerce/import","methods":["POST"],"source":"Backend/src/modules/expedicao/mod.rs","moduleKey":"expedicao_ecommerce","summary":"Pedidos e-commerce e lookups","auth":"module"},{"path":"/api/expedicao/lookups/clients","methods":["GET"],"source":"Backend/src/modules/expedicao/mod.rs","moduleKey":"expedicao_ecommerce","summary":"Pedidos e-commerce e lookups","auth":"module"},{"path":"/api/expedicao/lookups/clients/:id","methods":["PUT"],"source":"Backend/src/modules/expedicao/mod.rs","moduleKey":"expedicao_ecommerce","summary":"Pedidos e-commerce e lookups","auth":"module"},{"path":"/api/expedicao/lookups/platforms/:id","methods":["PUT"],"source":"Backend/src/modules/expedicao/mod.rs","moduleKey":"expedicao_ecommerce","summary":"Pedidos e-commerce e lookups","auth":"module"},{"path":"/api/expedicao/lookups/shipping","methods":["GET"],"source":"Backend/src/modules/expedicao/mod.rs","moduleKey":"expedicao_ecommerce","summary":"Pedidos e-commerce e lookups","auth":"module"},{"path":"/api/expedicao/lookups/shipping/:id","methods":["PUT"],"source":"Backend/src/modules/expedicao/mod.rs","moduleKey":"expedicao_ecommerce","summary":"Pedidos e-commerce e lookups","auth":"module"},{"path":"/api/ferramentas/etiquetas/catalog-products","methods":["GET"],"source":"Backend/src/modules/ferramentas/etiquetas/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/ferramentas/etiquetas/history","methods":["GET"],"source":"Backend/src/modules/ferramentas/etiquetas/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/ferramentas/etiquetas/templates","methods":["GET"],"source":"Backend/src/modules/ferramentas/etiquetas/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/ferramentas/etiquetas/templates/:id","methods":["GET"],"source":"Backend/src/modules/ferramentas/etiquetas/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/ferramentas/impressoras","methods":["GET"],"source":"Backend/src/modules/ferramentas/impressoras/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/ferramentas/impressoras/jobs/:id/cancel","methods":["POST"],"source":"Backend/src/modules/ferramentas/impressoras/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/ferramentas/impressoras/system-scan","methods":["GET"],"source":"Backend/src/modules/ferramentas/impressoras/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/financeiro/contas","methods":["GET"],"source":"Backend/src/modules/financeiro/mod.rs","moduleKey":"financeiro","summary":"Contas / fluxo Tiny","auth":"module"},{"path":"/api/financeiro/status","methods":["GET"],"source":"Backend/src/modules/financeiro/mod.rs","moduleKey":"financeiro","summary":"Contas / fluxo Tiny","auth":"module"},{"path":"/api/health","methods":["GET"],"source":"Backend/src/modules/geral/hub/mod.rs","moduleKey":"hub_settings","summary":"Healthcheck público","auth":"public"},{"path":"/api/historico","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"producao","summary":"Histórico de produção","auth":"module"},{"path":"/api/historico/:id","methods":["DELETE"],"source":"Backend/src/server.rs","moduleKey":"producao","summary":"Histórico de produção","auth":"module"},{"path":"/api/hub/compras/categories","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/categories/:id","methods":["GET","DELETE"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/demands","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/imports/invoices","methods":["POST"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/imports/nf-control","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/imports/stock","methods":["POST"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/items/category","methods":["POST"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/items/similar","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/itens-solicitados","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/listas","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/listas/:id","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/online-orders/:id","methods":["DELETE"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/pinned-subcategories","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/quotations/:id","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/quotations/:id/status","methods":["POST"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/quotations/prices","methods":["POST"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/spending/category","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/suppliers","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/suppliers/:id/history","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/suppliers/unify","methods":["POST"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/feedbacks","methods":["GET"],"source":"Backend/src/modules/geral/feedbacks/handlers.rs","moduleKey":"hub_settings","summary":"Feedbacks admin","auth":"module"},{"path":"/api/hub/feedbacks/:id/notes","methods":["POST"],"source":"Backend/src/modules/geral/feedbacks/handlers.rs","moduleKey":"hub_settings","summary":"Feedbacks admin","auth":"module"},{"path":"/api/hub/feedbacks/manage","methods":["GET"],"source":"Backend/src/modules/geral/feedbacks/handlers.rs","moduleKey":"hub_settings","summary":"Feedbacks admin","auth":"module"},{"path":"/api/hub/fisco/agents/:id","methods":["DELETE"],"source":"Backend/src/modules/hub_api/fisco.rs","moduleKey":"fisco_quimica","summary":"Análises físico-químicas","auth":"module"},{"path":"/api/hub/fisco/analyses/:id","methods":["DELETE"],"source":"Backend/src/modules/hub_api/fisco.rs","moduleKey":"fisco_quimica","summary":"Análises físico-químicas","auth":"module"},{"path":"/api/hub/fisco/config","methods":["GET"],"source":"Backend/src/modules/hub_api/fisco.rs","moduleKey":"fisco_quimica","summary":"Análises físico-químicas","auth":"module"},{"path":"/api/hub/fisco/corrective-batches","methods":["GET"],"source":"Backend/src/modules/hub_api/fisco.rs","moduleKey":"fisco_quimica","summary":"Análises físico-químicas","auth":"module"},{"path":"/api/hub/fisco/erp-lotes/:lote/insumos","methods":["GET"],"source":"Backend/src/modules/hub_api/fisco.rs","moduleKey":"fisco_quimica","summary":"Análises físico-químicas","auth":"module"},{"path":"/api/hub/fisco/migrate-erp-history","methods":["POST"],"source":"Backend/src/modules/hub_api/fisco.rs","moduleKey":"fisco_quimica","summary":"Análises físico-químicas","auth":"module"},{"path":"/api/hub/fisco/patterns","methods":["GET"],"source":"Backend/src/modules/hub_api/fisco.rs","moduleKey":"fisco_quimica","summary":"Análises físico-químicas","auth":"module"},{"path":"/api/hub/fisco/patterns/:code","methods":["DELETE"],"source":"Backend/src/modules/hub_api/fisco.rs","moduleKey":"fisco_quimica","summary":"Análises físico-químicas","auth":"module"},{"path":"/api/hub/microbio/config","methods":["GET"],"source":"Backend/src/modules/hub_api/microbio.rs","moduleKey":"microbiologia","summary":"Laudos e config microbiologia","auth":"module"},{"path":"/api/hub/microbio/products","methods":["GET"],"source":"Backend/src/modules/hub_api/microbio.rs","moduleKey":"microbiologia","summary":"Laudos e config microbiologia","auth":"module"},{"path":"/api/hub/microbio/products/:code","methods":["DELETE"],"source":"Backend/src/modules/hub_api/microbio.rs","moduleKey":"microbiologia","summary":"Laudos e config microbiologia","auth":"module"},{"path":"/api/hub/microbio/reports/printed","methods":["POST"],"source":"Backend/src/modules/hub_api/microbio.rs","moduleKey":"microbiologia","summary":"Laudos e config microbiologia","auth":"module"},{"path":"/api/hub/public-config","methods":["GET"],"source":"Backend/src/modules/geral/hub/mod.rs","moduleKey":"hub_settings","summary":"Status / client-config / health","auth":"public"},{"path":"/api/import/dump","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":"hub_settings","summary":"Sync ERP / dump / status","auth":"module"},{"path":"/api/import/erp-sync-schedule","methods":["GET"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":"hub_settings","summary":"Sync ERP / dump / status","auth":"module"},{"path":"/api/import/faturamento","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":"hub_settings","summary":"Sync ERP / dump / status","auth":"module"},{"path":"/api/import/kits","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":"hub_settings","summary":"Sync ERP / dump / status","auth":"module"},{"path":"/api/import/status","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"hub_settings","summary":"Sync ERP / dump / status","auth":"module"},{"path":"/api/import/sync-lock","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"hub_settings","summary":"Sync ERP / dump / status","auth":"module"},{"path":"/api/import/watch-config","methods":["GET"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":"hub_settings","summary":"Sync ERP / dump / status","auth":"module"},{"path":"/api/kits/component-candidates","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"montagem_kits","summary":"Kits e composição","auth":"module"},{"path":"/api/kits/composicao/upload","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":"montagem_kits","summary":"Kits e composição","auth":"module"},{"path":"/api/kits/next-order-number","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"montagem_kits","summary":"Kits e composição","auth":"module"},{"path":"/api/kits/orders","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"montagem_kits","summary":"Kits e composição","auth":"module"},{"path":"/api/kits/orders/:id","methods":["PUT"],"source":"Backend/src/server.rs","moduleKey":"montagem_kits","summary":"Kits e composição","auth":"module"},{"path":"/api/mapa/activity","methods":["GET"],"source":"Backend/src/modules/geral/mapa/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/mapa/layout","methods":["PUT"],"source":"Backend/src/modules/geral/mapa/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/mapa/modules/:key","methods":["PUT"],"source":"Backend/src/modules/geral/mapa/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/mapa/tasks","methods":["GET"],"source":"Backend/src/modules/geral/mapa/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/mapa/tasks/export.md","methods":["GET"],"source":"Backend/src/modules/geral/mapa/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/notifications","methods":["GET"],"source":"Backend/src/modules/geral/notifications/mod.rs","moduleKey":"hub_settings","summary":"Sino de notificações","auth":"module"},{"path":"/api/notifications/:id/read","methods":["POST"],"source":"Backend/src/modules/geral/notifications/mod.rs","moduleKey":"hub_settings","summary":"Sino de notificações","auth":"module"},{"path":"/api/overrides/bulk","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":"admin_linha_produtos","summary":"Overrides de produto","auth":"module"},{"path":"/api/producao/insumos-status/:code","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"producao_lotes","summary":"Lotes e recálculo","auth":"module"},{"path":"/api/producao/lotes/:number/detalhes","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"producao_lotes","summary":"Lotes e recálculo","auth":"module"},{"path":"/api/producao/lotes/:number/resolver","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":"producao_lotes","summary":"Lotes e recálculo","auth":"module"},{"path":"/api/producao/proc","methods":["GET"],"source":"Backend/src/modules/producao/proc/mod.rs","moduleKey":"producao_lotes","summary":"Lotes e recálculo","auth":"module"},{"path":"/api/producao/proc/generate","methods":["POST"],"source":"Backend/src/modules/producao/proc/mod.rs","moduleKey":"producao_lotes","summary":"Lotes e recálculo","auth":"module"},{"path":"/api/producao/proc/map","methods":["GET"],"source":"Backend/src/modules/producao/proc/mod.rs","moduleKey":"producao_lotes","summary":"Lotes e recálculo","auth":"module"},{"path":"/api/producao/recalcular/preview","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"producao_lotes","summary":"Lotes e recálculo","auth":"module"},{"path":"/api/products","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"admin_linha_produtos","summary":"Catálogo produtos","auth":"module"},{"path":"/api/produtos/:code/detalhes","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"admin_linha_produtos","summary":"Detalhes / formulação produto","auth":"module"},{"path":"/api/produtos/formulacao/:code","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"admin_linha_produtos","summary":"Detalhes / formulação produto","auth":"module"},{"path":"/api/qualidade/devolucoes","methods":["GET"],"source":"Backend/src/modules/qualidade/devolucoes/mod.rs","moduleKey":"qualidade_devolucoes","summary":"Lista devoluções (filtro status)","auth":"module"},{"path":"/api/qualidade/devolucoes/:id","methods":["GET"],"source":"Backend/src/modules/qualidade/devolucoes/mod.rs","moduleKey":"qualidade_devolucoes","summary":"Detalhe + itens","auth":"module"},{"path":"/api/qualidade/devolucoes/:id/fechar-cq","methods":["POST"],"source":"Backend/src/modules/qualidade/devolucoes/mod.rs","moduleKey":"qualidade_devolucoes","summary":"Assinatura CQ → disposto","auth":"module"},{"path":"/api/qualidade/devolucoes/:id/receber","methods":["POST"],"source":"Backend/src/modules/qualidade/devolucoes/mod.rs","moduleKey":"qualidade_devolucoes","summary":"Assinatura recebedor → recebido","auth":"module"},{"path":"/api/qualidade/documentacao/documents","methods":["GET"],"source":"Backend/src/modules/qualidade/documentacao/mod.rs","moduleKey":"qualidade_documentacao","summary":"Lista documentos","auth":"module"},{"path":"/api/qualidade/documentacao/documents/:id","methods":["GET"],"source":"Backend/src/modules/qualidade/documentacao/mod.rs","moduleKey":"qualidade_documentacao","summary":"Detalhe documento + arquivos","auth":"module"},{"path":"/api/qualidade/documentacao/documents/:id/files","methods":["POST"],"source":"Backend/src/modules/qualidade/documentacao/mod.rs","moduleKey":"qualidade_documentacao","summary":"Upload PDF (documento|comprovante)","auth":"module"},{"path":"/api/qualidade/documentacao/families","methods":["GET"],"source":"Backend/src/modules/qualidade/documentacao/mod.rs","moduleKey":"qualidade_documentacao","summary":"Lista famílias de documentos","auth":"module"},{"path":"/api/qualidade/documentacao/families/:id","methods":["PUT"],"source":"Backend/src/modules/qualidade/documentacao/mod.rs","moduleKey":"qualidade_documentacao","summary":"Atualiza família","auth":"module"},{"path":"/api/qualidade/documentacao/types","methods":["GET"],"source":"Backend/src/modules/qualidade/documentacao/mod.rs","moduleKey":"qualidade_documentacao","summary":"Lista tipos (filtro family_id)","auth":"module"},{"path":"/api/qualidade/documentacao/types/:id","methods":["PUT"],"source":"Backend/src/modules/qualidade/documentacao/mod.rs","moduleKey":"qualidade_documentacao","summary":"Atualiza tipo","auth":"module"},{"path":"/api/qualidade/pops/documents","methods":["GET"],"source":"Backend/src/modules/qualidade/pops/mod.rs","moduleKey":"qualidade_pops","summary":"Lista POPs (filtro setor/status/q)","auth":"module"},{"path":"/api/qualidade/pops/documents/:id","methods":["GET"],"source":"Backend/src/modules/qualidade/pops/mod.rs","moduleKey":"qualidade_pops","summary":"Detalhe + versão atual","auth":"module"},{"path":"/api/qualidade/pops/documents/:id/publish","methods":["POST"],"source":"Backend/src/modules/qualidade/pops/mod.rs","moduleKey":"qualidade_pops","summary":"Publica initial ou content","auth":"module"},{"path":"/api/qualidade/pops/documents/:id/versions","methods":["GET"],"source":"Backend/src/modules/qualidade/pops/mod.rs","moduleKey":"qualidade_pops","summary":"Histórico de versões","auth":"module"},{"path":"/api/qualidade/pops/sectors","methods":["GET"],"source":"Backend/src/modules/qualidade/pops/mod.rs","moduleKey":"qualidade_pops","summary":"Lista setores","auth":"module"},{"path":"/api/qualidade/pops/settings","methods":["GET"],"source":"Backend/src/modules/qualidade/pops/mod.rs","moduleKey":"qualidade_pops","summary":"Config (logo)","auth":"module"},{"path":"/api/qualidade/pops/settings/logo","methods":["GET"],"source":"Backend/src/modules/qualidade/pops/mod.rs","moduleKey":"qualidade_pops","summary":"Bytes do logo","auth":"module"},{"path":"/api/server-manager/clear-logs","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/server-manager/devices","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/server-manager/open-browser","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/server-manager/restart","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/server-manager/start","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/turnovers/composicao/:de/:para","methods":["DELETE"],"source":"Backend/src/server.rs","moduleKey":"producao","summary":"Virações / turnovers","auth":"module"},{"path":"/api/turnovers/next-order-number","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"producao","summary":"Virações / turnovers","auth":"module"},{"path":"/api/turnovers/orders/:id","methods":["PUT"],"source":"Backend/src/server.rs","moduleKey":"producao","summary":"Virações / turnovers","auth":"module"},{"path":"/api/vendas/clientes/:codigo/pedidos","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"vendas","summary":"Pedidos de venda e faltas","auth":"module"},{"path":"/api/vendas/faltas","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"vendas","summary":"Pedidos de venda e faltas","auth":"module"},{"path":"/api/vendas/pedidos","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"vendas","summary":"Pedidos de venda e faltas","auth":"module"},{"path":"/login","methods":["GET"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/mapa","methods":["GET"],"source":"Backend/src/modules/geral/mapa/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/server-control","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":null,"summary":"","auth":"module"}],"httpRoutes":[{"path":"/api/admin/audit/events","methods":["GET"],"source":"Backend/src/modules/geral/audit/mod.rs","moduleKey":"hub_settings","summary":"Lista trilha hub_audit_events (supervisor)","auth":"supervisor"},{"path":"/api/admin/audit/stock/:code/refresh","methods":["POST"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/admin/audit/stock/resync-produtos","methods":["POST"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/admin/audit/stock/verify-all","methods":["POST"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/admin/db-reset","methods":["POST"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/admin/db-usage","methods":["GET"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/admin/pg-backup/config","methods":["POST"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/acompanhamento-producao","methods":["GET"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/acompanhamento-producao/sheets/sync","methods":["POST"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/envase/programacao/:id","methods":["DELETE"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/funcionarios","methods":["GET"],"source":"Backend/src/modules/administrativo/funcionarios/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/funcionarios/me","methods":["GET"],"source":"Backend/src/modules/administrativo/funcionarios/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/lote-ficha","methods":["POST"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/lote-status/:number","methods":["DELETE"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/lote-status/:number/terceirizado","methods":["POST"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/terceirizados/produto/:code","methods":["GET"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/terceirizados/solicitacoes","methods":["GET"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/terceirizados/solicitacoes/:id","methods":["DELETE"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/terceirizados/solicitacoes/:id/previsao","methods":["POST"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/administrativo/terceirizados/solicitacoes/:id/vincular","methods":["POST"],"source":"Backend/src/modules/administrativo/acompanhamento_producao/mod.rs","moduleKey":"hub_settings","summary":"Admin: backup, DB, audit estoque","auth":"supervisor"},{"path":"/api/almox/dashboard/stats","methods":["GET"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/demands/:id/receive","methods":["POST"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/demands/from-min","methods":["POST"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/equipments/:id","methods":["GET"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/fotos/:entity_type/:entity_id","methods":["GET"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/fotos/:id","methods":["DELETE"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/items/:code/config","methods":["PUT"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/items/:code/seed-from-erp","methods":["POST"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/items/local","methods":["POST"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/items/search","methods":["GET"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/maintenances","methods":["GET"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/almox/replenishment","methods":["GET"],"source":"Backend/src/modules/estoque/almoxarifado/mod.rs","moduleKey":"estoque_almoxarifado","summary":"Almoxarifado ops (itens, movimentos, equipamentos)","auth":"module"},{"path":"/api/auth/devices/manage","methods":["GET"],"source":"Backend/src/modules/geral/auth/mod.rs","moduleKey":"hub_operadores","summary":"Login, operadores, dispositivos","auth":"supervisor"},{"path":"/api/auth/logout","methods":["POST"],"source":"Backend/src/modules/geral/auth/mod.rs","moduleKey":"hub_operadores","summary":"Login, operadores, dispositivos","auth":"module"},{"path":"/api/auth/modules/registry","methods":["GET"],"source":"Backend/src/modules/geral/auth/mod.rs","moduleKey":"hub_operadores","summary":"Login, operadores, dispositivos","auth":"module"},{"path":"/api/auth/operators","methods":["GET"],"source":"Backend/src/modules/geral/auth/mod.rs","moduleKey":"hub_operadores","summary":"Login, operadores, dispositivos","auth":"module"},{"path":"/api/auth/operators/manage/:id","methods":["PUT"],"source":"Backend/src/modules/geral/auth/mod.rs","moduleKey":"hub_operadores","summary":"Login, operadores, dispositivos","auth":"supervisor"},{"path":"/api/auth/setup-status","methods":["GET"],"source":"Backend/src/modules/geral/auth/mod.rs","moduleKey":"hub_operadores","summary":"Login, operadores, dispositivos","auth":"module"},{"path":"/api/chat/conversations","methods":["GET"],"source":"Backend/src/modules/geral/chat/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/chat/verify-password","methods":["POST"],"source":"Backend/src/modules/geral/chat/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/compras/lojas","methods":["GET"],"source":"Backend/src/modules/compras/compras_online/mod.rs","moduleKey":"compras_pedidos","summary":"Pedidos, notas, lojas online (API compras)","auth":"module"},{"path":"/api/compras/notas","methods":["GET"],"source":"Backend/src/modules/compras/planejamento/mod.rs","moduleKey":"compras_pedidos","summary":"Pedidos, notas, lojas online (API compras)","auth":"module"},{"path":"/api/compras/pedidos","methods":["GET"],"source":"Backend/src/modules/compras/planejamento/mod.rs","moduleKey":"compras_pedidos","summary":"Pedidos, notas, lojas online (API compras)","auth":"module"},{"path":"/api/configs","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"hub_settings","summary":"Configs genéricas","auth":"module"},{"path":"/api/configs/:prefix","methods":["DELETE"],"source":"Backend/src/server.rs","moduleKey":"hub_settings","summary":"Configs genéricas","auth":"module"},{"path":"/api/estoque/item-info/:code","methods":["GET"],"source":"Backend/src/modules/compras/planejamento/mod.rs","moduleKey":"estoque_produtos","summary":"Estoque / contagens / item-info","auth":"module"},{"path":"/api/estoque/ordens-manuais","methods":["GET"],"source":"Backend/src/modules/estoque/ordens_manuais/mod.rs","moduleKey":"estoque_ordens_manuais","summary":"Ordens manuais entrada/saída de insumos","auth":"module"},{"path":"/api/estoque/ordens-manuais/:id/postar","methods":["POST"],"source":"Backend/src/modules/estoque/ordens_manuais/mod.rs","moduleKey":"estoque_ordens_manuais","summary":"Ordens manuais entrada/saída de insumos","auth":"module"},{"path":"/api/estoque/ordens-manuais/itens/busca","methods":["GET"],"source":"Backend/src/modules/estoque/ordens_manuais/mod.rs","moduleKey":"estoque_ordens_manuais","summary":"Ordens manuais entrada/saída de insumos","auth":"module"},{"path":"/api/estoque/ordens-manuais/registros/:id","methods":["GET"],"source":"Backend/src/modules/estoque/ordens_manuais/mod.rs","moduleKey":"estoque_ordens_manuais","summary":"Ordens manuais entrada/saída de insumos","auth":"module"},{"path":"/api/estoque/ordens-manuais/registros/:id/reabrir","methods":["POST"],"source":"Backend/src/modules/estoque/ordens_manuais/mod.rs","moduleKey":"estoque_ordens_manuais","summary":"Ordens manuais entrada/saída de insumos","auth":"module"},{"path":"/api/estoque/ordens-manuais/tipos","methods":["GET"],"source":"Backend/src/modules/estoque/ordens_manuais/mod.rs","moduleKey":"estoque_ordens_manuais","summary":"Ordens manuais entrada/saída de insumos","auth":"module"},{"path":"/api/estoque/ordens-manuais/tipos/:id","methods":["GET","DELETE"],"source":"Backend/src/modules/estoque/ordens_manuais/mod.rs","moduleKey":"estoque_ordens_manuais","summary":"Ordens manuais entrada/saída de insumos","auth":"module"},{"path":"/api/estoque/produtos/:code/contagem","methods":["POST"],"source":"Backend/src/modules/estoque/estoque_geral/mod.rs","moduleKey":"estoque_produtos","summary":"Estoque / contagens / item-info","auth":"module"},{"path":"/api/expedicao/ecommerce","methods":["GET"],"source":"Backend/src/modules/expedicao/mod.rs","moduleKey":"expedicao_ecommerce","summary":"Pedidos e-commerce e lookups","auth":"module"},{"path":"/api/expedicao/ecommerce/:id","methods":["PUT"],"source":"Backend/src/modules/expedicao/mod.rs","moduleKey":"expedicao_ecommerce","summary":"Pedidos e-commerce e lookups","auth":"module"},{"path":"/api/expedicao/ecommerce/import","methods":["POST"],"source":"Backend/src/modules/expedicao/mod.rs","moduleKey":"expedicao_ecommerce","summary":"Pedidos e-commerce e lookups","auth":"module"},{"path":"/api/expedicao/lookups/clients","methods":["GET"],"source":"Backend/src/modules/expedicao/mod.rs","moduleKey":"expedicao_ecommerce","summary":"Pedidos e-commerce e lookups","auth":"module"},{"path":"/api/expedicao/lookups/clients/:id","methods":["PUT"],"source":"Backend/src/modules/expedicao/mod.rs","moduleKey":"expedicao_ecommerce","summary":"Pedidos e-commerce e lookups","auth":"module"},{"path":"/api/expedicao/lookups/platforms/:id","methods":["PUT"],"source":"Backend/src/modules/expedicao/mod.rs","moduleKey":"expedicao_ecommerce","summary":"Pedidos e-commerce e lookups","auth":"module"},{"path":"/api/expedicao/lookups/shipping","methods":["GET"],"source":"Backend/src/modules/expedicao/mod.rs","moduleKey":"expedicao_ecommerce","summary":"Pedidos e-commerce e lookups","auth":"module"},{"path":"/api/expedicao/lookups/shipping/:id","methods":["PUT"],"source":"Backend/src/modules/expedicao/mod.rs","moduleKey":"expedicao_ecommerce","summary":"Pedidos e-commerce e lookups","auth":"module"},{"path":"/api/ferramentas/etiquetas/catalog-products","methods":["GET"],"source":"Backend/src/modules/ferramentas/etiquetas/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/ferramentas/etiquetas/history","methods":["GET"],"source":"Backend/src/modules/ferramentas/etiquetas/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/ferramentas/etiquetas/templates","methods":["GET"],"source":"Backend/src/modules/ferramentas/etiquetas/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/ferramentas/etiquetas/templates/:id","methods":["GET"],"source":"Backend/src/modules/ferramentas/etiquetas/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/ferramentas/impressoras","methods":["GET"],"source":"Backend/src/modules/ferramentas/impressoras/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/ferramentas/impressoras/jobs/:id/cancel","methods":["POST"],"source":"Backend/src/modules/ferramentas/impressoras/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/ferramentas/impressoras/system-scan","methods":["GET"],"source":"Backend/src/modules/ferramentas/impressoras/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/financeiro/contas","methods":["GET"],"source":"Backend/src/modules/financeiro/mod.rs","moduleKey":"financeiro","summary":"Contas / fluxo Tiny","auth":"module"},{"path":"/api/financeiro/status","methods":["GET"],"source":"Backend/src/modules/financeiro/mod.rs","moduleKey":"financeiro","summary":"Contas / fluxo Tiny","auth":"module"},{"path":"/api/health","methods":["GET"],"source":"Backend/src/modules/geral/hub/mod.rs","moduleKey":"hub_settings","summary":"Healthcheck público","auth":"public"},{"path":"/api/historico","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"producao","summary":"Histórico de produção","auth":"module"},{"path":"/api/historico/:id","methods":["DELETE"],"source":"Backend/src/server.rs","moduleKey":"producao","summary":"Histórico de produção","auth":"module"},{"path":"/api/hub/compras/categories","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/categories/:id","methods":["GET","DELETE"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/demands","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/imports/invoices","methods":["POST"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/imports/nf-control","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/imports/stock","methods":["POST"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/items/category","methods":["POST"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/items/similar","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/itens-solicitados","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/listas","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/listas/:id","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/online-orders/:id","methods":["DELETE"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/pinned-subcategories","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/quotations/:id","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/quotations/:id/status","methods":["POST"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/quotations/prices","methods":["POST"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/spending/category","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/suppliers","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/suppliers/:id/history","methods":["GET"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/compras/suppliers/unify","methods":["POST"],"source":"Backend/src/modules/hub_api/compras.rs","moduleKey":"compras_quotations","summary":"Hub compras: cotações, itens, demandas, imports","auth":"module"},{"path":"/api/hub/feedbacks","methods":["GET"],"source":"Backend/src/modules/geral/feedbacks/handlers.rs","moduleKey":"hub_settings","summary":"Feedbacks admin","auth":"module"},{"path":"/api/hub/feedbacks/:id/notes","methods":["POST"],"source":"Backend/src/modules/geral/feedbacks/handlers.rs","moduleKey":"hub_settings","summary":"Feedbacks admin","auth":"module"},{"path":"/api/hub/feedbacks/manage","methods":["GET"],"source":"Backend/src/modules/geral/feedbacks/handlers.rs","moduleKey":"hub_settings","summary":"Feedbacks admin","auth":"module"},{"path":"/api/hub/fisco/agents/:id","methods":["DELETE"],"source":"Backend/src/modules/hub_api/fisco.rs","moduleKey":"fisco_quimica","summary":"Análises físico-químicas","auth":"module"},{"path":"/api/hub/fisco/analyses/:id","methods":["DELETE"],"source":"Backend/src/modules/hub_api/fisco.rs","moduleKey":"fisco_quimica","summary":"Análises físico-químicas","auth":"module"},{"path":"/api/hub/fisco/config","methods":["GET"],"source":"Backend/src/modules/hub_api/fisco.rs","moduleKey":"fisco_quimica","summary":"Análises físico-químicas","auth":"module"},{"path":"/api/hub/fisco/corrective-batches","methods":["GET"],"source":"Backend/src/modules/hub_api/fisco.rs","moduleKey":"fisco_quimica","summary":"Análises físico-químicas","auth":"module"},{"path":"/api/hub/fisco/erp-lotes/:lote/insumos","methods":["GET"],"source":"Backend/src/modules/hub_api/fisco.rs","moduleKey":"fisco_quimica","summary":"Análises físico-químicas","auth":"module"},{"path":"/api/hub/fisco/migrate-erp-history","methods":["POST"],"source":"Backend/src/modules/hub_api/fisco.rs","moduleKey":"fisco_quimica","summary":"Análises físico-químicas","auth":"module"},{"path":"/api/hub/fisco/patterns","methods":["GET"],"source":"Backend/src/modules/hub_api/fisco.rs","moduleKey":"fisco_quimica","summary":"Análises físico-químicas","auth":"module"},{"path":"/api/hub/fisco/patterns/:code","methods":["DELETE"],"source":"Backend/src/modules/hub_api/fisco.rs","moduleKey":"fisco_quimica","summary":"Análises físico-químicas","auth":"module"},{"path":"/api/hub/microbio/config","methods":["GET"],"source":"Backend/src/modules/hub_api/microbio.rs","moduleKey":"microbiologia","summary":"Laudos e config microbiologia","auth":"module"},{"path":"/api/hub/microbio/products","methods":["GET"],"source":"Backend/src/modules/hub_api/microbio.rs","moduleKey":"microbiologia","summary":"Laudos e config microbiologia","auth":"module"},{"path":"/api/hub/microbio/products/:code","methods":["DELETE"],"source":"Backend/src/modules/hub_api/microbio.rs","moduleKey":"microbiologia","summary":"Laudos e config microbiologia","auth":"module"},{"path":"/api/hub/microbio/reports/printed","methods":["POST"],"source":"Backend/src/modules/hub_api/microbio.rs","moduleKey":"microbiologia","summary":"Laudos e config microbiologia","auth":"module"},{"path":"/api/hub/public-config","methods":["GET"],"source":"Backend/src/modules/geral/hub/mod.rs","moduleKey":"hub_settings","summary":"Status / client-config / health","auth":"public"},{"path":"/api/import/dump","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":"hub_settings","summary":"Sync ERP / dump / status","auth":"module"},{"path":"/api/import/erp-sync-schedule","methods":["GET"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":"hub_settings","summary":"Sync ERP / dump / status","auth":"module"},{"path":"/api/import/faturamento","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":"hub_settings","summary":"Sync ERP / dump / status","auth":"module"},{"path":"/api/import/kits","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":"hub_settings","summary":"Sync ERP / dump / status","auth":"module"},{"path":"/api/import/status","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"hub_settings","summary":"Sync ERP / dump / status","auth":"module"},{"path":"/api/import/sync-lock","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"hub_settings","summary":"Sync ERP / dump / status","auth":"module"},{"path":"/api/import/watch-config","methods":["GET"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":"hub_settings","summary":"Sync ERP / dump / status","auth":"module"},{"path":"/api/kits/component-candidates","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"montagem_kits","summary":"Kits e composição","auth":"module"},{"path":"/api/kits/composicao/upload","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":"montagem_kits","summary":"Kits e composição","auth":"module"},{"path":"/api/kits/next-order-number","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"montagem_kits","summary":"Kits e composição","auth":"module"},{"path":"/api/kits/orders","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"montagem_kits","summary":"Kits e composição","auth":"module"},{"path":"/api/kits/orders/:id","methods":["PUT"],"source":"Backend/src/server.rs","moduleKey":"montagem_kits","summary":"Kits e composição","auth":"module"},{"path":"/api/mapa/activity","methods":["GET"],"source":"Backend/src/modules/geral/mapa/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/mapa/layout","methods":["PUT"],"source":"Backend/src/modules/geral/mapa/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/mapa/modules/:key","methods":["PUT"],"source":"Backend/src/modules/geral/mapa/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/mapa/tasks","methods":["GET"],"source":"Backend/src/modules/geral/mapa/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/mapa/tasks/export.md","methods":["GET"],"source":"Backend/src/modules/geral/mapa/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/notifications","methods":["GET"],"source":"Backend/src/modules/geral/notifications/mod.rs","moduleKey":"hub_settings","summary":"Sino de notificações","auth":"module"},{"path":"/api/notifications/:id/read","methods":["POST"],"source":"Backend/src/modules/geral/notifications/mod.rs","moduleKey":"hub_settings","summary":"Sino de notificações","auth":"module"},{"path":"/api/overrides/bulk","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":"admin_linha_produtos","summary":"Overrides de produto","auth":"module"},{"path":"/api/producao/insumos-status/:code","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"producao_lotes","summary":"Lotes e recálculo","auth":"module"},{"path":"/api/producao/lotes/:number/detalhes","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"producao_lotes","summary":"Lotes e recálculo","auth":"module"},{"path":"/api/producao/lotes/:number/resolver","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":"producao_lotes","summary":"Lotes e recálculo","auth":"module"},{"path":"/api/producao/proc","methods":["GET"],"source":"Backend/src/modules/producao/proc/mod.rs","moduleKey":"producao_lotes","summary":"Lotes e recálculo","auth":"module"},{"path":"/api/producao/proc/generate","methods":["POST"],"source":"Backend/src/modules/producao/proc/mod.rs","moduleKey":"producao_lotes","summary":"Lotes e recálculo","auth":"module"},{"path":"/api/producao/proc/map","methods":["GET"],"source":"Backend/src/modules/producao/proc/mod.rs","moduleKey":"producao_lotes","summary":"Lotes e recálculo","auth":"module"},{"path":"/api/producao/recalcular/preview","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"producao_lotes","summary":"Lotes e recálculo","auth":"module"},{"path":"/api/products","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"admin_linha_produtos","summary":"Catálogo produtos","auth":"module"},{"path":"/api/produtos/:code/detalhes","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"admin_linha_produtos","summary":"Detalhes / formulação produto","auth":"module"},{"path":"/api/produtos/formulacao/:code","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"admin_linha_produtos","summary":"Detalhes / formulação produto","auth":"module"},{"path":"/api/qualidade/devolucoes","methods":["GET"],"source":"Backend/src/modules/qualidade/devolucoes/mod.rs","moduleKey":"qualidade_devolucoes","summary":"Lista devoluções (filtro status)","auth":"module"},{"path":"/api/qualidade/devolucoes/:id","methods":["GET"],"source":"Backend/src/modules/qualidade/devolucoes/mod.rs","moduleKey":"qualidade_devolucoes","summary":"Detalhe + itens","auth":"module"},{"path":"/api/qualidade/devolucoes/:id/fechar-cq","methods":["POST"],"source":"Backend/src/modules/qualidade/devolucoes/mod.rs","moduleKey":"qualidade_devolucoes","summary":"Assinatura CQ → disposto","auth":"module"},{"path":"/api/qualidade/devolucoes/:id/receber","methods":["POST"],"source":"Backend/src/modules/qualidade/devolucoes/mod.rs","moduleKey":"qualidade_devolucoes","summary":"Assinatura recebedor → recebido","auth":"module"},{"path":"/api/qualidade/documentacao/documents","methods":["GET"],"source":"Backend/src/modules/qualidade/documentacao/mod.rs","moduleKey":"qualidade_documentacao","summary":"Lista documentos","auth":"module"},{"path":"/api/qualidade/documentacao/documents/:id","methods":["GET"],"source":"Backend/src/modules/qualidade/documentacao/mod.rs","moduleKey":"qualidade_documentacao","summary":"Detalhe documento + arquivos","auth":"module"},{"path":"/api/qualidade/documentacao/documents/:id/files","methods":["POST"],"source":"Backend/src/modules/qualidade/documentacao/mod.rs","moduleKey":"qualidade_documentacao","summary":"Upload PDF (documento|comprovante)","auth":"module"},{"path":"/api/qualidade/documentacao/families","methods":["GET"],"source":"Backend/src/modules/qualidade/documentacao/mod.rs","moduleKey":"qualidade_documentacao","summary":"Lista famílias de documentos","auth":"module"},{"path":"/api/qualidade/documentacao/families/:id","methods":["PUT"],"source":"Backend/src/modules/qualidade/documentacao/mod.rs","moduleKey":"qualidade_documentacao","summary":"Atualiza família","auth":"module"},{"path":"/api/qualidade/documentacao/types","methods":["GET"],"source":"Backend/src/modules/qualidade/documentacao/mod.rs","moduleKey":"qualidade_documentacao","summary":"Lista tipos (filtro family_id)","auth":"module"},{"path":"/api/qualidade/documentacao/types/:id","methods":["PUT"],"source":"Backend/src/modules/qualidade/documentacao/mod.rs","moduleKey":"qualidade_documentacao","summary":"Atualiza tipo","auth":"module"},{"path":"/api/qualidade/pops/documents","methods":["GET"],"source":"Backend/src/modules/qualidade/pops/mod.rs","moduleKey":"qualidade_pops","summary":"Lista POPs (filtro setor/status/q)","auth":"module"},{"path":"/api/qualidade/pops/documents/:id","methods":["GET"],"source":"Backend/src/modules/qualidade/pops/mod.rs","moduleKey":"qualidade_pops","summary":"Detalhe + versão atual","auth":"module"},{"path":"/api/qualidade/pops/documents/:id/publish","methods":["POST"],"source":"Backend/src/modules/qualidade/pops/mod.rs","moduleKey":"qualidade_pops","summary":"Publica initial ou content","auth":"module"},{"path":"/api/qualidade/pops/documents/:id/versions","methods":["GET"],"source":"Backend/src/modules/qualidade/pops/mod.rs","moduleKey":"qualidade_pops","summary":"Histórico de versões","auth":"module"},{"path":"/api/qualidade/pops/sectors","methods":["GET"],"source":"Backend/src/modules/qualidade/pops/mod.rs","moduleKey":"qualidade_pops","summary":"Lista setores","auth":"module"},{"path":"/api/qualidade/pops/settings","methods":["GET"],"source":"Backend/src/modules/qualidade/pops/mod.rs","moduleKey":"qualidade_pops","summary":"Config (logo)","auth":"module"},{"path":"/api/qualidade/pops/settings/logo","methods":["GET"],"source":"Backend/src/modules/qualidade/pops/mod.rs","moduleKey":"qualidade_pops","summary":"Bytes do logo","auth":"module"},{"path":"/api/server-manager/clear-logs","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/server-manager/devices","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/server-manager/open-browser","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/server-manager/restart","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/server-manager/start","methods":["POST"],"source":"Backend/src/server.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/api/turnovers/composicao/:de/:para","methods":["DELETE"],"source":"Backend/src/server.rs","moduleKey":"producao","summary":"Virações / turnovers","auth":"module"},{"path":"/api/turnovers/next-order-number","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"producao","summary":"Virações / turnovers","auth":"module"},{"path":"/api/turnovers/orders/:id","methods":["PUT"],"source":"Backend/src/server.rs","moduleKey":"producao","summary":"Virações / turnovers","auth":"module"},{"path":"/api/vendas/clientes/:codigo/pedidos","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"vendas","summary":"Pedidos de venda e faltas","auth":"module"},{"path":"/api/vendas/faltas","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"vendas","summary":"Pedidos de venda e faltas","auth":"module"},{"path":"/api/vendas/pedidos","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":"vendas","summary":"Pedidos de venda e faltas","auth":"module"},{"path":"/login","methods":["GET"],"source":"Backend/src/modules/geral/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/mapa","methods":["GET"],"source":"Backend/src/modules/geral/mapa/mod.rs","moduleKey":null,"summary":"","auth":"module"},{"path":"/server-control","methods":["GET"],"source":"Backend/src/server.rs","moduleKey":null,"summary":"","auth":"module"}],"backendModules":[{"id":"geral","path":"Backend/src/modules/geral","router":"modules::geral::router()","notes":"auth, hub, notifications, audit, settings"},{"id":"compras","path":"Backend/src/modules/compras","router":"modules::compras::router()"},{"id":"estoque","path":"Backend/src/modules/estoque","router":"modules::estoque::router()"},{"id":"financeiro","path":"Backend/src/modules/financeiro","router":"modules::financeiro::router()"},{"id":"expedicao","path":"Backend/src/modules/expedicao","router":"modules::expedicao::router()"},{"id":"qualidade","path":"Backend/src/modules/qualidade","router":"modules::qualidade::router()"},{"id":"hub_api","path":"Backend/src/modules/hub_api","router":"modules::hub_api::router()"},{"id":"producao","path":"Backend/src/modules/producao","router":null,"notes":"rotas inline lib.rs"},{"id":"vendas","path":"Backend/src/modules/vendas","router":null,"notes":"rotas inline lib.rs"}],"frontendModules":[{"view":"AdministrativoView.tsx","path":"Frontend/src/modules/administrativo/AdministrativoView.tsx"},{"view":"AcompanhamentoProducaoView.tsx","path":"Frontend/src/modules/administrativo/acompanhamento_producao/AcompanhamentoProducaoView.tsx"},{"view":"FuncionariosView.tsx","path":"Frontend/src/modules/administrativo/funcionarios/FuncionariosView.tsx"},{"view":"ActiveProductsView.tsx","path":"Frontend/src/modules/administrativo/linha_produtos/ActiveProductsView.tsx"},{"view":"ProdutosAtivosRelatoriosView.tsx","path":"Frontend/src/modules/administrativo/produtos_ativos_relatorios/ProdutosAtivosRelatoriosView.tsx"},{"view":"RelatoriosView.tsx","path":"Frontend/src/modules/administrativo/relatorios/RelatoriosView.tsx"},{"view":"ComprasAlmoxarifadoView.tsx","path":"Frontend/src/modules/compras/almoxarifado/ComprasAlmoxarifadoView.tsx"},{"view":"ComprasOnlineView.tsx","path":"Frontend/src/modules/compras/compras_online/ComprasOnlineView.tsx"},{"view":"PedidosView.tsx","path":"Frontend/src/modules/compras/controle_pedidos/PedidosView.tsx"},{"view":"NotasFiscaisView.tsx","path":"Frontend/src/modules/compras/notas_fiscais/NotasFiscaisView.tsx"},{"view":"ComprasView.tsx","path":"Frontend/src/modules/compras/planejamento/ComprasView.tsx"},{"view":"AlmoxarifadoView.tsx","path":"Frontend/src/modules/estoque/almoxarifado/AlmoxarifadoView.tsx"},{"view":"EquipamentosView.tsx","path":"Frontend/src/modules/estoque/equipamentos/EquipamentosView.tsx"},{"view":"EstoqueView.tsx","path":"Frontend/src/modules/estoque/estoque_geral/EstoqueView.tsx"},{"view":"EstoqueOpsView.tsx","path":"Frontend/src/modules/estoque/ops/EstoqueOpsView.tsx"},{"view":"OrdensManuaisView.tsx","path":"Frontend/src/modules/estoque/ordens_manuais/OrdensManuaisView.tsx"},{"view":"PrevisaoUsoView.tsx","path":"Frontend/src/modules/estoque/previsao_uso/PrevisaoUsoView.tsx"},{"view":"ExpedicaoView.tsx","path":"Frontend/src/modules/expedicao/ExpedicaoView.tsx"},{"view":"EditorEtiquetasView.tsx","path":"Frontend/src/modules/ferramentas/editor/EditorEtiquetasView.tsx"},{"view":"EtiquetasView.tsx","path":"Frontend/src/modules/ferramentas/etiquetas/EtiquetasView.tsx"},{"view":"ImpressorasView.tsx","path":"Frontend/src/modules/ferramentas/impressoras/ImpressorasView.tsx"},{"view":"FinanceiroView.tsx","path":"Frontend/src/modules/financeiro/FinanceiroView.tsx"},{"view":"LoginView.tsx","path":"Frontend/src/modules/geral/acesso/LoginView.tsx"},{"view":"RestartRequiredView.tsx","path":"Frontend/src/modules/geral/acesso/RestartRequiredView.tsx"},{"view":"SetupConnectionView.tsx","path":"Frontend/src/modules/geral/acesso/SetupConnectionView.tsx"},{"view":"SetupSupervisorView.tsx","path":"Frontend/src/modules/geral/acesso/SetupSupervisorView.tsx"},{"view":"ModulePlaceholderView.tsx","path":"Frontend/src/modules/geral/components/ModulePlaceholderView.tsx"},{"view":"ConfiguracoesView.tsx","path":"Frontend/src/modules/geral/configuracoes/ConfiguracoesView.tsx"},{"view":"DashboardView.tsx","path":"Frontend/src/modules/geral/dashboard/DashboardView.tsx"},{"view":"FeedbacksAdminView.tsx","path":"Frontend/src/modules/geral/feedbacks/FeedbacksAdminView.tsx"},{"view":"MapaArquiteturaView.tsx","path":"Frontend/src/modules/geral/mapa/MapaArquiteturaView.tsx"},{"view":"ProducaoBasesView.tsx","path":"Frontend/src/modules/producao/bases/ProducaoBasesView.tsx"},{"view":"FiscoQuimicaView.tsx","path":"Frontend/src/modules/producao/fisco_quimica/FiscoQuimicaView.tsx"},{"view":"ProducaoView.tsx","path":"Frontend/src/modules/producao/gerenciamento/ProducaoView.tsx"},{"view":"ProducaoLotesView.tsx","path":"Frontend/src/modules/producao/lotes/ProducaoLotesView.tsx"},{"view":"MicrobiologiaView.tsx","path":"Frontend/src/modules/producao/microbiologia/MicrobiologiaView.tsx"},{"view":"MontagemKitsView.tsx","path":"Frontend/src/modules/producao/montagem_kits/MontagemKitsView.tsx"},{"view":"ProcView.tsx","path":"Frontend/src/modules/producao/proc/ProcView.tsx"},{"view":"ControleQualidadeView.tsx","path":"Frontend/src/modules/qualidade/controle/ControleQualidadeView.tsx"},{"view":"DevolucoesView.tsx","path":"Frontend/src/modules/qualidade/devolucoes/DevolucoesView.tsx"},{"view":"QualidadeDocumentacaoView.tsx","path":"Frontend/src/modules/qualidade/documentacao/QualidadeDocumentacaoView.tsx"},{"view":"QualidadeLimpezaView.tsx","path":"Frontend/src/modules/qualidade/limpeza/QualidadeLimpezaView.tsx"},{"view":"QualidadePopsView.tsx","path":"Frontend/src/modules/qualidade/pops/QualidadePopsView.tsx"},{"view":"QualidadeRecebimentoMpView.tsx","path":"Frontend/src/modules/qualidade/recebimento_mp/QualidadeRecebimentoMpView.tsx"},{"view":"QualidadeTemperaturaView.tsx","path":"Frontend/src/modules/qualidade/temperatura/QualidadeTemperaturaView.tsx"},{"view":"QualidadeTreinamentosView.tsx","path":"Frontend/src/modules/qualidade/treinamentos/QualidadeTreinamentosView.tsx"},{"view":"VendasView.tsx","path":"Frontend/src/modules/vendas/vendas_geral/VendasView.tsx"},{"view":"VendasOnlineView.tsx","path":"Frontend/src/modules/vendas/vendas_online/VendasOnlineView.tsx"}],"infra":[{"id":"auth","path":"Backend/src/modules/geral/auth","role":"login, sessions, middleware"},{"id":"audit","path":"Backend/src/modules/geral/audit","role":"hub_audit_events"},{"id":"notifications","path":"Backend/src/modules/geral/notifications","role":"hub_notifications"},{"id":"postgres_bootstrap","path":"Backend/src/modules/geral/postgres_bootstrap","role":"migrations embutidas"},{"id":"erp_sync","path":"Backend/src/modules/geral/configuracoes/erp_sync_scheduler.rs","role":"agenda sync ERP"},{"id":"pg_backup","path":"Backend/src/modules/geral/configuracoes/pg_backup.rs","role":"backup local"}],"migrations":[{"file":"Backend/supabase/001_natumhub_schema.sql","id":"001_natumhub_schema"},{"file":"Backend/supabase/002_almoxarifado.sql","id":"002_almoxarifado"},{"file":"Backend/supabase/003_estoque_ops.sql","id":"003_estoque_ops"},{"file":"Backend/supabase/004_almox_erp_super.sql","id":"004_almox_erp_super"},{"file":"Backend/supabase/005_kit_composicao.sql","id":"005_kit_composicao"},{"file":"Backend/supabase/006_kit_composicao_item_fk.sql","id":"006_kit_composicao_item_fk"},{"file":"Backend/supabase/007_extend_invoices.sql","id":"007_extend_invoices"},{"file":"Backend/supabase/008_add_freight_details.sql","id":"008_add_freight_details"},{"file":"Backend/supabase/009_insumo_stock_divergencias.sql","id":"009_insumo_stock_divergencias"},{"file":"Backend/supabase/010_produto_stock_contagens.sql","id":"010_produto_stock_contagens"},{"file":"Backend/supabase/011_ecommerce_orders.sql","id":"011_ecommerce_orders"},{"file":"Backend/supabase/012_extend_fte_details.sql","id":"012_extend_fte_details"},{"file":"Backend/supabase/013_almox_movement_sector.sql","id":"013_almox_movement_sector"},{"file":"Backend/supabase/014_ecommerce_lookups.sql","id":"014_ecommerce_lookups"},{"file":"Backend/supabase/015_reembalagem_packaging.sql","id":"015_reembalagem_packaging"},{"file":"Backend/supabase/016_qualidade_documentacao.sql","id":"016_qualidade_documentacao"},{"file":"Backend/supabase/017_hub_audit_events.sql","id":"017_hub_audit_events"},{"file":"Backend/supabase/018_mapa_hub.sql","id":"018_mapa_hub"},{"file":"Backend/supabase/019_hub_operator_profiles.sql","id":"019_hub_operator_profiles"},{"file":"Backend/supabase/020_produtos_codigo_barras.sql","id":"020_produtos_codigo_barras"},{"file":"Backend/supabase/021_manual_stock_orders.sql","id":"021_manual_stock_orders"},{"file":"Backend/supabase/022_manual_stock_record_types.sql","id":"022_manual_stock_record_types"},{"file":"Backend/supabase/023_qualidade_pops.sql","id":"023_qualidade_pops"},{"file":"Backend/supabase/024_manual_stock_print_batches.sql","id":"024_manual_stock_print_batches"},{"file":"Backend/supabase/025_manual_stock_sheet_registers.sql","id":"025_manual_stock_sheet_registers"},{"file":"Backend/supabase/026_qualidade_devolucoes.sql","id":"026_qualidade_devolucoes"},{"file":"Backend/supabase/027_kit_composicao_origem.sql","id":"027_kit_composicao_origem"},{"file":"Backend/supabase/028_reports_manufacturing_date.sql","id":"028_reports_manufacturing_date"},{"file":"Backend/supabase/029_ferramentas_label_templates.sql","id":"029_ferramentas_label_templates"},{"file":"Backend/supabase/030_reports_printed.sql","id":"030_reports_printed"},{"file":"Backend/supabase/031_hub_operator_modules_access_level.sql","id":"031_hub_operator_modules_access_level"},{"file":"Backend/supabase/031_procs_produtos.sql","id":"031_procs_produtos"},{"file":"Backend/supabase/032_hub_chat_messages.sql","id":"032_hub_chat_messages"},{"file":"Backend/supabase/033_hub_chat_attachments.sql","id":"033_hub_chat_attachments"},{"file":"Backend/supabase/034_hub_chat_groups_passwords.sql","id":"034_hub_chat_groups_passwords"},{"file":"Backend/supabase/035_suppliers_unification.sql","id":"035_suppliers_unification"},{"file":"Backend/supabase/036_compras_listas_solicitacao.sql","id":"036_compras_listas_solicitacao"},{"file":"Backend/supabase/037_lote_custom_status.sql","id":"037_lote_custom_status"},{"file":"Backend/supabase/038_equipamentos_parque.sql","id":"038_equipamentos_parque"},{"file":"Backend/supabase/20260819_create_procs_produtos.sql","id":"20260819_create_procs_produtos"}],"keyFlows":[{"id":"login","steps":["LoginView","POST /api/auth/login","Bearer","GET /api/auth/me"]},{"id":"api_write","steps":["apiJson","auth_middleware","handler","audit hub_audit_events"]},{"id":"erp_sync","steps":["scheduler ou POST /api/import/sync","legacy_db","Postgres"]},{"id":"new_module","steps":["Propor no mapa-app.html","SPEC JSON","skill natumhub-modulos","npm run map:arch"]}],"docs":["ContextoIA/INDEX.md","ContextoIA/arquitetura/mapa-app.html","ContextoIA/arquitetura/mapa-app.json","ContextoIA/arquitetura/mapa-curated.json","ContextoIA/modulos/criacao.md","AGENTS.md"],"stats":{"httpRouteEntries":172,"migrations":40,"frontendViews":48,"modules":45,"edges":71}}</script>
+<script>
+const FALLBACK = JSON.parse(document.getElementById('mapa-data').textContent);
+const TOKEN_KEY = 'natum_auth_token';
+const USER_KEY = 'natum_auth_user';
+const API_KEY = 'natum_mapa_api';
+
+const state = {
+  view: 'org',
+  scale: 0.85,
+  panX: 40,
+  panY: 40,
+  selected: null,
+  panning: false,
+  lastX: 0,
+  lastY: 0,
+  drag: null,
+  apiBase: localStorage.getItem(API_KEY) || (location.protocol.startsWith('http') ? location.origin : 'http://127.0.0.1:3001'),
+  token: localStorage.getItem(TOKEN_KEY) || '',
+  user: null,
+  apiLive: false,
+  snap: null,
+  positions: {},
+  activity: [],
+  tasks: [],
+  feedbacks: [],
+  routeFilter: '',
+};
+
+try {
+  state.user = JSON.parse(localStorage.getItem(USER_KEY) || 'null');
+} catch { state.user = null; }
+
+const TABS = [
+  ['org', 'Organograma'],
+  ['tasks', 'Tasks'],
+  ['registro', 'Registro'],
+  ['feedbacks', 'Feedbacks'],
+  ['routes', 'Rotas'],
+  ['edges', 'Conexões'],
+  ['glossary', 'Glossário'],
+];
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function apiUrl(path) {
+  const base = state.apiBase.replace(/\/$/, '');
+  if (path.startsWith('/api/')) return base + path;
+  return base + '/api' + (path.startsWith('/') ? path : '/' + path);
+}
+
+async function api(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {});
+  if (opts.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+  if (state.token && !opts.skipAuth) headers['Authorization'] = 'Bearer ' + state.token;
+  const r = await fetch(apiUrl(path), Object.assign({}, opts, { headers }));
+  const text = await r.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!r.ok) {
+    const msg = (data && data.error) || (typeof data === 'string' ? data : '') || ('HTTP ' + r.status);
+    const err = new Error(msg);
+    err.status = r.status;
+    throw err;
+  }
+  return data;
+}
+
+function setLoginMsg(text, kind) {
+  const el = document.getElementById('loginMsg');
+  el.className = 'login-msg ' + (kind || 'err');
+  el.textContent = text || '';
+  if (!text) el.className = 'login-msg';
+}
+
+function showApp() {
+  document.getElementById('loginGate').classList.add('hidden');
+  document.getElementById('appShell').classList.remove('hidden');
+}
+
+function showLogin() {
+  document.getElementById('loginGate').classList.remove('hidden');
+  document.getElementById('appShell').classList.add('hidden');
+}
+
+function isSupervisor() {
+  const u = state.user;
+  if (!u) return false;
+  return Boolean(u.isSupervisor || u.is_supervisor) || u.role === 'supervisor' || u.role === 'admin';
+}
+
+function applySnapshot(snap) {
+  state.snap = snap;
+  state.positions = {};
+  (snap.modules || []).forEach(m => {
+    state.positions[m.moduleKey] = { x: m.posX, y: m.posY };
+  });
+  state.tasks = snap.tasksOpen || [];
+  state.activity = snap.activity || [];
+  state.apiLive = true;
+  const chip = document.getElementById('apiChip');
+  chip.textContent = 'Postgres';
+  chip.className = 'chip live';
+  chip.title = state.apiBase;
+  document.getElementById('userChip').textContent = (state.user && (state.user.displayName || state.user.display_name)) || 'operador';
+  document.getElementById('hintBar').textContent = isSupervisor()
+    ? 'Arraste um submódulo para reposicionar · clique = detalhes · + Módulo cria planned + task'
+    : 'Leitura: clique nos nós para ver detalhes (edição exige supervisor)';
+  fillAddGroups();
+}
+
+function fallbackAsSnap() {
+  const groups = (FALLBACK.moduleGroups || []).map((g, i) => ({
+    key: g.key, label: g.label, hubView: g.hubView || '', sortOrder: i * 10, color: null,
+  }));
+  const modules = Object.values(FALLBACK.modules || {}).map((m, i) => ({
+    moduleKey: m.key,
+    groupKey: m.group || (FALLBACK.moduleGroups || []).find(g => (g.children || []).includes(m.key))?.key || 'sistema',
+    label: m.label || m.key,
+    purpose: m.purpose || '',
+    status: m.status || 'stub',
+    sortOrder: i,
+    posX: 40 + (i % 8) * 220,
+    posY: 120 + Math.floor(i / 8) * 90,
+    frontendPath: m.frontend?.path || null,
+    backendPath: m.backend?.path || null,
+    routerPrefix: m.backend?.routerPrefix || null,
+    aiHints: m.aiHints || [],
+    detail: m.detail || { tabs: [], functions: [], notes: m.purpose || '' },
+  }));
+  return {
+    groups,
+    modules,
+    edges: (FALLBACK.edges || []).map((e, i) => ({
+      id: 'e' + i, fromKey: e.from, toKey: e.to, kind: e.kind || 'related', note: e.note || '',
+    })),
+    routes: FALLBACK.routeCatalog || [],
+    tasksOpen: [],
+    activity: [],
+  };
+}
+
+async function loadSnapshot() {
+  const snap = await api('/mapa/snapshot');
+  applySnapshot(snap);
+}
+
+async function trySession() {
+  if (!state.token) return false;
+  try {
+    const me = await api('/auth/me');
+    state.user = me;
+    localStorage.setItem(USER_KEY, JSON.stringify(me));
+    await loadSnapshot();
+    showApp();
+    render();
+    setTimeout(fitAll, 40);
+    return true;
+  } catch {
+    state.token = '';
+    localStorage.removeItem(TOKEN_KEY);
+    return false;
+  }
+}
+
+document.getElementById('loginApi').value = state.apiBase || (location.protocol.startsWith('http') ? location.origin : 'http://127.0.0.1:3001');
+document.getElementById('loginForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true;
+  setLoginMsg('');
+  state.apiBase = document.getElementById('loginApi').value.trim().replace(/\/$/, '') || 'http://127.0.0.1:3001';
+  localStorage.setItem(API_KEY, state.apiBase);
+  const displayName = document.getElementById('loginName').value.trim();
+  const password = document.getElementById('loginPass').value;
+  try {
+    const res = await api('/auth/login', {
+      method: 'POST',
+      skipAuth: true,
+      body: JSON.stringify({
+        displayName,
+        password,
+        deviceId: 'mapa-html',
+        deviceLabel: 'Mapa operacional (browser)',
+      }),
+    });
+    state.token = res.token;
+    state.user = res.user;
+    localStorage.setItem(TOKEN_KEY, res.token);
+    localStorage.setItem(USER_KEY, JSON.stringify(res.user));
+    if (!isSupervisor()) {
+      setLoginMsg('Logado, mas só supervisor edita o mapa. Abrindo em leitura…', 'ok');
+    }
+    await loadSnapshot();
+    showApp();
+    render();
+    setTimeout(fitAll, 40);
+  } catch (err) {
+    setLoginMsg(err.message || 'Falha no login. Master em :3001?');
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+document.getElementById('btnLogout').onclick = () => {
+  state.token = '';
+  state.user = null;
+  state.snap = null;
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+  showLogin();
+};
+
+function fillAddGroups() {
+  const sel = document.getElementById('addGroup');
+  const groups = (state.snap?.groups || []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+  sel.innerHTML = groups.map(g => '<option value="' + esc(g.key) + '">' + esc(g.label) + '</option>').join('');
+}
+
+document.getElementById('btnAddMod').onclick = () => {
+  if (!isSupervisor()) { alert('Precisa ser supervisor para adicionar módulo.'); return; }
+  fillAddGroups();
+  document.getElementById('addMsg').textContent = '';
+  document.getElementById('addModal').classList.add('open');
+};
+document.getElementById('addCancel').onclick = () => document.getElementById('addModal').classList.remove('open');
+document.getElementById('addGo').onclick = async () => {
+  const msg = document.getElementById('addMsg');
+  try {
+    await api('/mapa/modules', {
+      method: 'POST',
+      body: JSON.stringify({
+        moduleKey: document.getElementById('addKey').value.trim(),
+        label: document.getElementById('addLabel').value.trim(),
+        groupKey: document.getElementById('addGroup').value,
+        purpose: document.getElementById('addPurpose').value.trim() || undefined,
+        posX: 80,
+        posY: 160,
+      }),
+    });
+    document.getElementById('addModal').classList.remove('open');
+    await loadSnapshot();
+    state.view = 'tasks';
+    render();
+  } catch (err) {
+    msg.textContent = err.message;
+    msg.className = 'err';
+  }
+};
+
+document.getElementById('btnResync').onclick = async () => {
+  if (!isSupervisor()) { alert('Supervisor only'); return; }
+  try {
+    await api('/mapa/resync-scan', { method: 'POST', body: '{}' });
+    await loadSnapshot();
+    render();
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
+function modulesList() {
+  return state.snap?.modules || [];
+}
+function groupsList() {
+  return (state.snap?.groups || []).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function applyTransform() {
+  document.getElementById('viewport').style.transform =
+    'translate(' + state.panX + 'px,' + state.panY + 'px) scale(' + state.scale + ')';
+}
+
+function drawEdges() {
+  const edges = state.snap?.edges || [];
+  let paths = '';
+  edges.forEach(e => {
+    const a = state.positions[e.fromKey];
+    const b = state.positions[e.toKey];
+    if (!a || !b) return;
+    const x1 = a.x + 90, y1 = a.y + 28, x2 = b.x + 90, y2 = b.y + 28;
+    paths += '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 +
+      '" stroke="#a1a1aa" stroke-width="1.5" marker-end="url(#arr)"/>';
+  });
+  const svg = document.getElementById('edges');
+  svg.setAttribute('width', 5000);
+  svg.setAttribute('height', 3000);
+  svg.innerHTML = '<defs><marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#a1a1aa"/></marker></defs>' + paths;
+}
+
+function renderOrg() {
+  const wrap = document.getElementById('canvasWrap');
+  wrap.classList.remove('doc');
+  document.getElementById('viewport').style.display = 'block';
+  document.getElementById('toolbar').style.display = 'flex';
+  document.getElementById('hintBar').style.display = 'block';
+  document.getElementById('docPanel').style.display = 'none';
+
+  drawEdges();
+  const q = (document.getElementById('search').value || '').toLowerCase();
+  const gHost = document.getElementById('groups');
+  const nHost = document.getElementById('nodes');
+  gHost.innerHTML = '';
+  nHost.innerHTML = '';
+
+  groupsList().forEach(g => {
+    const kids = modulesList().filter(m => m.groupKey === g.key);
+    if (!kids.length) return;
+    const xs = kids.map(m => (state.positions[m.moduleKey] || { x: m.posX }).x);
+    const ys = kids.map(m => (state.positions[m.moduleKey] || { y: m.posY }).y);
+    const minX = Math.min(...xs) - 14;
+    const minY = Math.min(...ys) - 32;
+    const maxX = Math.max(...xs) + 194;
+    const maxY = Math.max(...ys) + 72;
+    const box = document.createElement('div');
+    box.className = 'group-box';
+    box.style.left = minX + 'px';
+    box.style.top = minY + 'px';
+    box.style.width = (maxX - minX) + 'px';
+    box.style.height = (maxY - minY) + 'px';
+    box.innerHTML = '<span>' + esc(g.label) + '</span>';
+    gHost.appendChild(box);
+  });
+
+  modulesList().forEach(m => {
+    const hay = (m.label + ' ' + m.moduleKey + ' ' + (m.purpose || '')).toLowerCase();
+    if (q && !hay.includes(q)) return;
+    const p = state.positions[m.moduleKey] || { x: m.posX, y: m.posY };
+    const el = document.createElement('div');
+    el.className = 'node leaf' + (state.selected === m.moduleKey ? ' selected' : '');
+    el.style.left = p.x + 'px';
+    el.style.top = p.y + 'px';
+    el.innerHTML =
+      '<div class="key">' + esc(m.moduleKey) + '</div>' +
+      '<div><strong>' + esc(m.label) + '</strong></div>' +
+      '<div class="s"><span class="badge ' + esc(m.status) + '">' + esc(m.status) + '</span></div>';
+    el.onpointerdown = (ev) => {
+      if (ev.button !== 0) return;
+      ev.stopPropagation();
+      el.setPointerCapture(ev.pointerId);
+      state.drag = {
+        key: m.moduleKey,
+        startX: ev.clientX,
+        startY: ev.clientY,
+        origX: p.x,
+        origY: p.y,
+        moved: false,
+      };
+      el.classList.add('dragging');
+    };
+    el.onpointermove = (ev) => {
+      if (!state.drag || state.drag.key !== m.moduleKey) return;
+      const dx = (ev.clientX - state.drag.startX) / state.scale;
+      const dy = (ev.clientY - state.drag.startY) / state.scale;
+      if (Math.abs(dx) + Math.abs(dy) > 3) state.drag.moved = true;
+      state.positions[m.moduleKey] = { x: state.drag.origX + dx, y: state.drag.origY + dy };
+      el.style.left = state.positions[m.moduleKey].x + 'px';
+      el.style.top = state.positions[m.moduleKey].y + 'px';
+      drawEdges();
+    };
+    el.onpointerup = async (ev) => {
+      if (!state.drag || state.drag.key !== m.moduleKey) return;
+      const moved = state.drag.moved;
+      const key = state.drag.key;
+      state.drag = null;
+      el.classList.remove('dragging');
+      state.selected = key;
+      openInspector(key);
+      if (moved && isSupervisor()) {
+        try {
+          const pos = state.positions[key];
+          await api('/mapa/layout', {
+            method: 'PUT',
+            body: JSON.stringify({ items: [{ moduleKey: key, posX: pos.x, posY: pos.y }] }),
+          });
+        } catch (err) {
+          alert('Não salvou posição: ' + err.message);
+        }
+      }
+      renderOrg();
+    };
+    nHost.appendChild(el);
+  });
+  applyTransform();
+}
+
+function moduleRoutes(m) {
+  const routes = state.snap?.routes || [];
+  const prefix = m.routerPrefix || '';
+  return routes.filter(r =>
+    r.moduleKey === m.moduleKey || (prefix && String(r.path || '').startsWith(prefix))
+  ).slice(0, 50);
+}
+
+function openInspector(key) {
+  const m = modulesList().find(x => x.moduleKey === key);
+  if (!m) return;
+  const ins = document.getElementById('inspector');
+  ins.classList.add('open');
+  document.getElementById('insEyebrow').textContent = m.groupKey;
+  document.getElementById('insTitle').textContent = m.label;
+  const detail = m.detail || {};
+  const tabs = detail.tabs || [];
+  const funcs = detail.functions || [];
+  const notes = detail.notes || '';
+  const refs = detail.codeRefs || [];
+  const edges = (state.snap?.edges || []).filter(e => e.fromKey === key || e.toKey === key);
+  const routes = moduleRoutes(m);
+  const canEdit = isSupervisor();
+
+  const body = document.getElementById('insBody');
+  body.innerHTML =
+    '<span class="badge ' + esc(m.status) + '">' + esc(m.status) + '</span> ' +
+    '<code class="muted">' + esc(m.moduleKey) + '</code>' +
+    '<div class="section-title">Visão geral</div>' +
+    (canEdit
+      ? '<textarea id="insPurpose">' + esc(m.purpose || '') + '</textarea>'
+      : '<p>' + esc(m.purpose || '—') + '</p>') +
+    '<div class="section-title">Abas / UI</div>' +
+    (tabs.length
+      ? tabs.map(t => '<div class="detail-item"><strong>' + esc(t.label || t.id) + '</strong><div class="d">' + esc(t.desc || '') + '</div></div>').join('')
+      : '<p class="muted">Sem abas curadas ainda.</p>') +
+    '<div class="section-title">Funções</div>' +
+    (funcs.length
+      ? funcs.map(f => '<div class="detail-item"><code>' + esc(f.name) + '</code><div class="d">' + esc(f.desc || '') + '</div></div>').join('')
+      : '<p class="muted">—</p>') +
+    '<div class="section-title">Rotas</div>' +
+    (routes.length
+      ? '<table><thead><tr><th>Mét.</th><th>Path</th></tr></thead><tbody>' +
+        routes.map(r => '<tr><td>' + (r.methods || []).map(x => '<span class="pill ' + x + '">' + x + '</span>').join('') +
+        '</td><td><code>' + esc(r.path) + '</code></td></tr>').join('') + '</tbody></table>'
+      : '<p class="muted">Nenhuma rota ligada (use Resync rotas).</p>') +
+    '<div class="section-title">Código</div>' +
+    '<p class="muted">FE <code>' + esc(m.frontendPath || '—') + '</code></p>' +
+    '<p class="muted">BE <code>' + esc(m.backendPath || '—') + '</code></p>' +
+    (refs.map(c => '<p class="muted"><code>' + esc(c) + '</code></p>').join('')) +
+    '<div class="section-title">Conexões</div>' +
+    (edges.length
+      ? edges.map(e => '<div class="detail-item">' + esc(e.fromKey) + ' → ' + esc(e.toKey) +
+        ' <span class="muted">(' + esc(e.kind) + ')</span><div class="d">' + esc(e.note || '') + '</div></div>').join('')
+      : '<p class="muted">—</p>') +
+    '<div class="section-title">Notas</div>' +
+    (canEdit
+      ? '<textarea id="insNotes">' + esc(notes) + '</textarea>' +
+        '<div class="btn-row"><button type="button" class="btn primary" id="insSave">Salvar detalhe</button></div>'
+      : '<p>' + esc(notes || '—') + '</p>');
+
+  const saveBtn = body.querySelector('#insSave');
+  if (saveBtn) {
+    saveBtn.onclick = async () => {
+      try {
+        const purpose = body.querySelector('#insPurpose').value;
+        const newNotes = body.querySelector('#insNotes').value;
+        await api('/mapa/modules/' + encodeURIComponent(key), {
+          method: 'PUT',
+          body: JSON.stringify({
+            purpose,
+            detail: Object.assign({}, detail, { notes: newNotes, tabs, functions: funcs, codeRefs: refs }),
+          }),
+        });
+        await loadSnapshot();
+        openInspector(key);
+        renderOrg();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+  }
+}
+
+document.getElementById('insClose').onclick = () => document.getElementById('inspector').classList.remove('open');
+
+function renderTabs() {
+  const openCount = (state.tasks || []).filter(t => t.status === 'open').length;
+  document.getElementById('tabs').innerHTML = TABS.map(([id, label]) => {
+    const extra = id === 'tasks' && openCount ? ' (' + openCount + ')' : '';
+    return '<button type="button" class="' + (state.view === id ? 'active' : '') + '" data-tab="' + id + '">' + label + extra + '</button>';
+  }).join('');
+  document.querySelectorAll('#tabs [data-tab]').forEach(b => {
+    b.onclick = () => { state.view = b.dataset.tab; render(); };
+  });
+}
+
+async function renderDoc() {
+  const wrap = document.getElementById('canvasWrap');
+  wrap.classList.add('doc');
+  document.getElementById('viewport').style.display = 'none';
+  document.getElementById('toolbar').style.display = 'none';
+  document.getElementById('hintBar').style.display = 'none';
+  document.getElementById('docPanel').style.display = 'block';
+  document.getElementById('inspector').classList.remove('open');
+  const panel = document.getElementById('docPanel');
+
+  if (state.view === 'tasks') {
+    try { state.tasks = await api('/mapa/tasks?limit=200'); } catch { /* keep */ }
+    panel.innerHTML = '<h2>Tasks (Postgres)</h2>' +
+      ((state.tasks || []).map(t =>
+        '<div class="card"><strong>' + esc(t.title) + '</strong>' +
+        '<span class="muted">' + esc(t.id) + ' · ' + esc(t.type) + ' · ' + esc(t.status) + '</span>' +
+        (t.status === 'open' && isSupervisor()
+          ? '<div class="btn-row"><button type="button" class="btn" data-done="' + esc(t.id) + '">Marcar done</button></div>'
+          : '') +
+        '</div>'
+      ).join('') || '<p class="muted">Nenhuma task.</p>');
+    panel.querySelectorAll('[data-done]').forEach(b => {
+      b.onclick = async () => {
+        await api('/mapa/tasks/' + encodeURIComponent(b.getAttribute('data-done')), {
+          method: 'PATCH', body: JSON.stringify({ status: 'done' }),
+        });
+        render();
+      };
+    });
+  } else if (state.view === 'registro') {
+    try { state.activity = await api('/mapa/activity?limit=200'); } catch { /* */ }
+    panel.innerHTML = '<h2>Registro</h2>' +
+      ((state.activity || []).map(a =>
+        '<div class="card"><strong>' + esc(a.action) + '</strong>' +
+        '<span class="muted">' + esc(a.at) + ' · ' + esc(a.actor || 'system') + '</span>' +
+        '<pre>' + esc(JSON.stringify(a.meta || {}, null, 0)) + '</pre></div>'
+      ).join('') || '<p class="muted">Vazio.</p>');
+  } else if (state.view === 'feedbacks') {
+    panel.innerHTML = '<h2>Feedbacks</h2><p class="muted">Carregando…</p>';
+    try {
+      const list = await api('/hub/feedbacks/manage');
+      state.feedbacks = Array.isArray(list) ? list : [];
+      panel.innerHTML = '<h2>Feedbacks (' + state.feedbacks.length + ')</h2>' +
+        (state.feedbacks.slice(0, 100).map(f =>
+          '<div class="card"><strong>' + esc((f.description || '').slice(0, 140)) + '</strong>' +
+          '<span class="muted">' + esc(f.status) + ' · ' + esc(f.feedbackType) + '</span></div>'
+        ).join('') || '<p class="muted">Vazio.</p>');
+    } catch (err) {
+      panel.innerHTML = '<h2>Feedbacks</h2><p class="err">' + esc(err.message) + '</p>';
+    }
+  } else if (state.view === 'routes') {
+    const catalog = state.snap?.routes || FALLBACK.routeCatalog || [];
+    const rows = catalog.filter(r => {
+      if (!state.routeFilter) return true;
+      const hay = (r.path + ' ' + (r.methods || []).join(' ') + ' ' + (r.moduleKey || '')).toLowerCase();
+      return hay.includes(state.routeFilter.toLowerCase());
+    });
+    panel.innerHTML = '<h2>Rotas (' + rows.length + ')</h2>' +
+      '<input id="rf" placeholder="Filtrar…" value="' + esc(state.routeFilter) + '"/>' +
+      '<table><thead><tr><th>Mét.</th><th>Path</th><th>Módulo</th></tr></thead><tbody>' +
+      rows.map(r => '<tr><td>' + (r.methods || []).map(m => '<span class="pill ' + m + '">' + m + '</span>').join('') +
+      '</td><td><code>' + esc(r.path) + '</code></td><td class="muted">' + esc(r.moduleKey || '—') + '</td></tr>').join('') +
+      '</tbody></table>';
+    panel.querySelector('#rf').oninput = e => { state.routeFilter = e.target.value; renderDoc(); };
+  } else if (state.view === 'edges') {
+    const edges = state.snap?.edges || [];
+    panel.innerHTML = '<h2>Conexões (' + edges.length + ')</h2>' +
+      edges.map(e => '<div class="card"><strong>' + esc(e.fromKey) + ' → ' + esc(e.toKey) +
+      '</strong><span class="muted">' + esc(e.kind) + ' · ' + esc(e.note || '') + '</span></div>').join('');
+  } else if (state.view === 'glossary') {
+    panel.innerHTML = '<h2>Glossário</h2>' +
+      Object.entries(FALLBACK.glossary || {}).map(([k, v]) =>
+        '<div class="card"><strong>' + esc(k) + '</strong><span class="muted">' + esc(v) + '</span></div>'
+      ).join('');
+  }
+}
+
+function render() {
+  renderTabs();
+  if (state.view === 'org') renderOrg();
+  else renderDoc();
+}
+
+function fitAll() {
+  const mods = modulesList();
+  if (!mods.length) return;
+  let maxX = 0, maxY = 0;
+  mods.forEach(m => {
+    const p = state.positions[m.moduleKey] || { x: m.posX, y: m.posY };
+    maxX = Math.max(maxX, p.x + 200);
+    maxY = Math.max(maxY, p.y + 80);
+  });
+  const wrap = document.getElementById('canvasWrap');
+  const sx = (wrap.clientWidth - 80) / (maxX + 40);
+  const sy = (wrap.clientHeight - 80) / (maxY + 40);
+  state.scale = Math.min(1.1, Math.max(0.35, Math.min(sx, sy)));
+  state.panX = 40;
+  state.panY = 30;
+  applyTransform();
+}
+
+(function bindCanvas() {
+  const wrap = document.getElementById('canvasWrap');
+  wrap.addEventListener('pointerdown', e => {
+    if (state.view !== 'org') return;
+    if (e.target.closest('.node') || e.target.closest('.toolbar') || e.target.closest('.hint-bar')) return;
+    state.panning = true;
+    state.lastX = e.clientX; state.lastY = e.clientY;
+    wrap.classList.add('grabbing');
+  });
+  window.addEventListener('pointermove', e => {
+    if (!state.panning) return;
+    state.panX += e.clientX - state.lastX;
+    state.panY += e.clientY - state.lastY;
+    state.lastX = e.clientX; state.lastY = e.clientY;
+    applyTransform();
+  });
+  window.addEventListener('pointerup', () => {
+    state.panning = false;
+    wrap.classList.remove('grabbing');
+  });
+  wrap.addEventListener('wheel', e => {
+    if (state.view !== 'org') return;
+    e.preventDefault();
+    state.scale = Math.min(1.8, Math.max(0.3, state.scale * (e.deltaY > 0 ? 0.92 : 1.08)));
+    applyTransform();
+  }, { passive: false });
+  document.querySelectorAll('#toolbar [data-z]').forEach(b => {
+    b.onclick = () => {
+      const z = b.dataset.z;
+      if (z === 'in') state.scale = Math.min(1.8, state.scale * 1.12);
+      if (z === 'out') state.scale = Math.max(0.3, state.scale * 0.9);
+      if (z === 'fit') fitAll();
+      applyTransform();
+    };
+  });
+})();
+
+document.getElementById('search').oninput = () => { if (state.view === 'org') renderOrg(); };
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.getElementById('inspector').classList.remove('open');
+});
+
+(async function boot() {
+  const ok = await trySession();
+  if (!ok) {
+    // pré-carrega JSON só para glossário; organograma exige login
+    applySnapshot(fallbackAsSnap());
+    state.apiLive = false;
+    document.getElementById('apiChip').textContent = 'JSON';
+    document.getElementById('apiChip').className = 'chip off';
+    showLogin();
+  }
+})();
+</script>
+</body>
+</html>

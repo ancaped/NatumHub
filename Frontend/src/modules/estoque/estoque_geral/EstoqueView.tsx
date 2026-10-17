@@ -1,4 +1,5 @@
 import { apiFetch } from '../../geral/lib/http';
+import { salesOrderStatusLabel } from '../../geral/lib/salesOrderStatus';
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../geral/lib/api';
 import { 
@@ -10,6 +11,7 @@ import {
 import { cn } from '../../geral/lib/utils';
 import { useGlobalNavActive } from '../../geral/components/layout/NavShellContext';
 import { StockMovement, FormulationLine, DbDumpResult } from '../../geral/lib/types';
+import { ProdutoContagemTab } from './components/ProdutoContagemTab';
 
 type EstoqueMode = 'materia_prima' | 'embalagens' | 'coloracao' | 'apoio' | 'insumos' | 'produtos';
 type DataKind = 'insumos' | 'produtos';
@@ -17,6 +19,7 @@ type DataKind = 'insumos' | 'produtos';
 interface EstoqueViewProps {
   mode: EstoqueMode;
   onBackToHub: () => void;
+  initialInsumosSubTab?: 'todas' | 'mp' | 'emb' | 'mat' | 'relatorios';
 }
 
 function activeTabForMode(mode: EstoqueMode): DataKind {
@@ -143,16 +146,22 @@ const MODE_CONFIGS: Record<EstoqueMode, { title: string; subtitle: string; icon:
   },
 };
 
-export default function EstoqueView({ mode = 'materia_prima', onBackToHub }: EstoqueViewProps) {
+export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initialInsumosSubTab }: EstoqueViewProps) {
   const globalNav = useGlobalNavActive();
   const activeTab = activeTabForMode(mode);
   const lockedSub = lockedInsumosSubTab(mode);
-  const [insumosSubTab, setInsumosSubTab] = useState<'todas' | 'mp' | 'emb' | 'mat' | 'relatorios' | 'contagens'>(lockedSub ?? 'todas');
+  const [insumosSubTab, setInsumosSubTab] = useState<'todas' | 'mp' | 'emb' | 'mat' | 'relatorios'>(
+    initialInsumosSubTab ?? lockedSub ?? 'todas'
+  );
   const [produtosSubTab, setProdutosSubTab] = useState<'todos' | 'relatorios' | 'contagens'>('todos');
 
   useEffect(() => {
+    if (initialInsumosSubTab) {
+      setInsumosSubTab(initialInsumosSubTab);
+      return;
+    }
     if (lockedSub) setInsumosSubTab(lockedSub);
-  }, [lockedSub]);
+  }, [lockedSub, initialInsumosSubTab]);
 
   const config = MODE_CONFIGS[mode];
   const ModeIcon = config.icon;
@@ -410,9 +419,11 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub }: Est
         </div>
         )}
 
-        {/* Navigation Tabs */}
-        {activeTab === 'insumos' && mode === 'insumos' ? (
+        {/* Navigation Tabs — catálogo / operação de estoque */}
+        {activeTab === 'insumos' ? (
           <div className="p-2 border-b border-zinc-100 space-y-1">
+            {mode === 'insumos' ? (
+              <>
             <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
               Categorias
             </div>
@@ -456,6 +467,26 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub }: Est
               <Boxes className="h-4 w-4 text-purple-450" />
               Materiais & Consumo
             </button>
+              </>
+            ) : (
+              <>
+            <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+              Catálogo
+            </div>
+            <button
+              onClick={() => setInsumosSubTab(lockedSub ?? 'todas')}
+              className={cn(
+                "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
+                (insumosSubTab === 'mp' || insumosSubTab === 'emb' || insumosSubTab === 'todas' || insumosSubTab === 'mat')
+                  ? "bg-zinc-100 text-zinc-900 font-bold"
+                  : "text-zinc-650 hover:bg-zinc-50"
+              )}
+            >
+              {mode === 'embalagens' ? <Boxes className="h-4 w-4" /> : <Database className="h-4 w-4" />}
+              {mode === 'embalagens' ? 'Lista de Embalagens' : 'Lista de Matéria-Prima'}
+            </button>
+              </>
+            )}
 
             <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-wider pt-2">
               Operação de Estoque
@@ -469,16 +500,6 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub }: Est
             >
               <FileText className="h-4 w-4 text-zinc-450" />
               Relatórios de Estoque
-            </button>
-            <button
-              onClick={() => setInsumosSubTab('contagens')}
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                insumosSubTab === 'contagens' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
-              )}
-            >
-              <Calendar className="h-4 w-4 text-zinc-450" />
-              Contagens Programadas
             </button>
           </div>
         ) : (
@@ -585,16 +606,6 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub }: Est
                     Esta funcionalidade está programada para uma futura atualização. Aqui você poderá consultar o histórico completo de movimentações físicas, giro de estoque médio mensal, projeção futura por categoria e curva ABC de insumos.
                   </p>
                 </div>
-              ) : activeTab === 'insumos' && insumosSubTab === 'contagens' ? (
-                <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-zinc-200 rounded-2xl shadow-sm space-y-4 max-w-2xl mx-auto mt-12 animate-in fade-in duration-300">
-                  <div className="bg-zinc-50 p-4 rounded-full text-zinc-650 border border-zinc-150">
-                    <Calendar className="h-10 w-10 text-zinc-500" />
-                  </div>
-                  <h3 className="text-xl font-bold text-zinc-900">Contagens Programadas (Insumos)</h3>
-                  <p className="text-sm text-zinc-500 leading-relaxed max-w-md">
-                    Esta funcionalidade está programada para uma futura atualização. Permitirá o agendamento de inventários periódicos (cíclicos), registro de divergências físico-contábil, e geração automática de acertos e relatórios de auditoria.
-                  </p>
-                </div>
               ) : activeTab === 'produtos' && produtosSubTab === 'relatorios' ? (
                 <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-zinc-200 rounded-2xl shadow-sm space-y-4 max-w-2xl mx-auto mt-12 animate-in fade-in duration-300">
                   <div className="bg-zinc-50 p-4 rounded-full text-zinc-650 border border-zinc-150">
@@ -606,15 +617,7 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub }: Est
                   </p>
                 </div>
               ) : activeTab === 'produtos' && produtosSubTab === 'contagens' ? (
-                <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-zinc-200 rounded-2xl shadow-sm space-y-4 max-w-2xl mx-auto mt-12 animate-in fade-in duration-300">
-                  <div className="bg-zinc-50 p-4 rounded-full text-zinc-650 border border-zinc-150">
-                    <Calendar className="h-10 w-10 text-zinc-500" />
-                  </div>
-                  <h3 className="text-xl font-bold text-zinc-900">Contagens Programadas (Produtos)</h3>
-                  <p className="text-sm text-zinc-500 leading-relaxed max-w-md">
-                    Esta funcionalidade está programada para uma futura atualização. Permitirá o planejamento e controle de inventários rotativos físicos do almoxarifado de produtos acabados.
-                  </p>
-                </div>
+                <ProdutoContagemTab active={true} />
               ) : (
                 <div className="space-y-6">
               {/* Controls bar */}
@@ -1011,7 +1014,7 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub }: Est
                   <div className="space-y-4">
                     <div className="flex items-center gap-1.5 text-xs text-zinc-500 font-medium">
                       <Truck className="h-3.5 w-3.5 text-zinc-400" />
-                      Pedidos de venda ativos (faltas) aguardando faturamento.
+                      Pedidos de venda abertos (PP/LB/EX/CF/AL) — faltas a faturar.
                     </div>
                     {(!productPendingOrders || !productPendingOrders.pending_sales_orders || productPendingOrders.pending_sales_orders.length === 0) ? (
                       <div className="text-center py-12 text-zinc-400">Nenhum pedido de venda pendente para este produto.</div>
@@ -1021,11 +1024,17 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub }: Est
                           const percent = so.n_qtde > 0 ? (so.n_qtde_fat / so.n_qtde) * 100 : 0;
                           return (
                             <div key={`${so.n_pedido}-${index}`} className="bg-white border border-zinc-150 p-4 rounded-xl shadow-sm space-y-3 hover:border-zinc-300 transition-colors">
-                              <div className="flex items-center justify-between">
+                              <div className="flex items-center justify-between gap-2">
                                 <span className="px-2 py-0.5 bg-blue-50 text-blue-600 border border-blue-200 text-[9px] font-bold uppercase rounded">
                                   Pedido #{so.n_pedido}
+                                  {so.n_codigo != null ? ` · Cli ${so.n_codigo}` : ''}
                                 </span>
-                                <span className="text-[10px] text-zinc-400 font-medium flex items-center gap-1">
+                                <span className="text-[10px] text-zinc-500 font-semibold">
+                                  {salesOrderStatusLabel(so.c_status)}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-[10px] text-zinc-400 font-medium">
+                                <span className="flex items-center gap-1">
                                   <Calendar size={10} />
                                   {formatDate(so.d_pedido)}
                                 </span>

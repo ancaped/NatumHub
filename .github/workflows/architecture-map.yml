@@ -1,0 +1,38 @@
+name: Architecture Map
+
+on:
+  pull_request:
+    paths:
+      - 'Backend/src/**'
+      - 'Frontend/src/modules/**'
+      - 'Backend/supabase/**'
+      - 'scripts/generate-architecture-map.mjs'
+      - 'ContextoIA/arquitetura/mapa-app.json'
+      - 'ContextoIA/arquitetura/mapa-app.html'
+      - 'ContextoIA/arquitetura/mapa-curated.json'
+      - 'ContextoIA/arquitetura/mapa-app.template.html'
+  push:
+    branches: [main]
+    paths:
+      - 'Backend/src/**'
+      - 'Frontend/src/modules/**'
+      - 'Backend/supabase/**'
+      - 'scripts/generate-architecture-map.mjs'
+      - 'ContextoIA/arquitetura/mapa-app.json'
+      - 'ContextoIA/arquitetura/mapa-curated.json'
+      - 'ContextoIA/arquitetura/mapa-app.template.html'
+
+jobs:
+  check-map:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Regenerate and check mapa-app.json
+        run: |
+          node scripts/generate-architecture-map.mjs
+          node scripts/generate-architecture-map.mjs --check
+          git diff --exit-code -- ContextoIA/arquitetura/mapa-app.json ContextoIA/arquitetura/mapa-app.html \
+            || (echo "Mapa desatualizado — rode npm run map:arch e commit os arquivos." && exit 1)

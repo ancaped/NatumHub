@@ -436,19 +436,49 @@ pub async fn receive_demand(
 
 // Equipamentos / Manutenções
 
+fn can_park(ctx: &AuthContext) -> bool {
+    is_supervisor(ctx)
+        || ctx.has_module(MODULE_ESTOQUE_EQUIPAMENTOS)
+        || ctx.has_module(MODULE_ESTOQUE_MANUTENCOES)
+        || ctx.has_module(MODULE_ESTOQUE_PECAS)
+}
+
+fn can_write_park(ctx: &AuthContext) -> bool {
+    is_supervisor(ctx)
+        || ctx.has_module(MODULE_ESTOQUE_EQUIPAMENTOS)
+        || ctx.has_module(MODULE_ESTOQUE_MANUTENCOES)
+}
+
 pub async fn list_equipments(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
 ) -> impl IntoResponse {
-    if !is_supervisor(&ctx)
-        && !ctx.has_module(MODULE_ESTOQUE_EQUIPAMENTOS)
-        && !ctx.has_module(MODULE_ESTOQUE_MANUTENCOES)
-        && !ctx.has_module(MODULE_ESTOQUE_ITENS)
-    {
+    if !can_park(&ctx) && !ctx.has_module(MODULE_ESTOQUE_ITENS) {
         return deny_module();
     }
     match store::list_equipments(state.db.pool()).await {
         Ok(items) => (StatusCode::OK, Json(json!({ "equipments": items }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn get_equipment(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if !can_park(&ctx) {
+        return deny_module();
+    }
+    match store::get_equipment(state.db.pool(), &id).await {
+        Ok(item) => (StatusCode::OK, Json(json!({ "equipment": item }))).into_response(),
+        Err(e) if e.contains("não encontrado") => {
+            (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": e })),
@@ -462,7 +492,7 @@ pub async fn create_equipment(
     Extension(ctx): Extension<AuthContext>,
     Json(body): Json<UpsertEquipmentRequest>,
 ) -> impl IntoResponse {
-    if !is_supervisor(&ctx) && !ctx.has_module(MODULE_ESTOQUE_EQUIPAMENTOS) {
+    if !can_write_park(&ctx) {
         return deny_module();
     }
     match store::upsert_equipment(state.db.pool(), None, &body).await {
@@ -477,7 +507,7 @@ pub async fn update_equipment(
     Path(id): Path<String>,
     Json(body): Json<UpsertEquipmentRequest>,
 ) -> impl IntoResponse {
-    if !is_supervisor(&ctx) && !ctx.has_module(MODULE_ESTOQUE_EQUIPAMENTOS) {
+    if !can_write_park(&ctx) {
         return deny_module();
     }
     match store::upsert_equipment(state.db.pool(), Some(&id), &body).await {
@@ -497,10 +527,7 @@ pub async fn list_maintenances(
     Extension(ctx): Extension<AuthContext>,
     Query(q): Query<MaintQuery>,
 ) -> impl IntoResponse {
-    if !is_supervisor(&ctx)
-        && !ctx.has_module(MODULE_ESTOQUE_MANUTENCOES)
-        && !ctx.has_module(MODULE_ESTOQUE_EQUIPAMENTOS)
-    {
+    if !can_park(&ctx) {
         return deny_module();
     }
     match store::list_maintenances(state.db.pool(), q.equipment_id.as_deref()).await {
@@ -518,7 +545,7 @@ pub async fn create_maintenance(
     Extension(ctx): Extension<AuthContext>,
     Json(body): Json<CreateMaintenanceRequest>,
 ) -> impl IntoResponse {
-    if !is_supervisor(&ctx) && !ctx.has_module(MODULE_ESTOQUE_MANUTENCOES) {
+    if !can_write_park(&ctx) {
         return deny_module();
     }
     match store::create_maintenance(state.db.pool(), Some(&ctx.operator_id), &body).await {
@@ -533,11 +560,93 @@ pub async fn update_maintenance(
     Path(id): Path<String>,
     Json(body): Json<UpdateMaintenanceRequest>,
 ) -> impl IntoResponse {
-    if !is_supervisor(&ctx) && !ctx.has_module(MODULE_ESTOQUE_MANUTENCOES) {
+    if !can_write_park(&ctx) {
         return deny_module();
     }
     match store::update_maintenance(state.db.pool(), &id, &body).await {
         Ok(item) => (StatusCode::OK, Json(json!({ "maintenance": item }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+pub async fn get_dashboard_stats(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+) -> impl IntoResponse {
+    if !has_any_ops(&ctx) {
+        return deny_module();
+    }
+    match store::get_dashboard_stats(state.db.pool()).await {
+        Ok(stats) => (StatusCode::OK, Json(stats)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn list_fotos(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path((entity_type, entity_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    if !has_any_ops(&ctx) {
+        return deny_module();
+    }
+    match store::list_fotos(state.db.pool(), &entity_type, &entity_id).await {
+        Ok(items) => (StatusCode::OK, Json(json!({ "fotos": items }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+pub async fn add_foto(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path((entity_type, entity_id)): Path<(String, String)>,
+    Json(body): Json<AddFotoRequest>,
+) -> impl IntoResponse {
+    if !has_any_ops(&ctx) {
+        return deny_module();
+    }
+    match store::add_foto(
+        state.db.pool(),
+        &entity_type,
+        &entity_id,
+        &body.photo_data,
+        body.notes.as_deref(),
+    )
+    .await
+    {
+        Ok(item) => (StatusCode::OK, Json(json!({ "foto": item }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+pub async fn delete_foto(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if !has_any_ops(&ctx) {
+        return deny_module();
+    }
+    match store::delete_foto(state.db.pool(), &id).await {
+        Ok(_) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+pub async fn get_item_consumption(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    if !has_any_ops(&ctx) {
+        return deny_module();
+    }
+    match store::get_item_consumption(state.db.pool(), &code).await {
+        Ok(c) => (StatusCode::OK, Json(c)).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
     }
 }

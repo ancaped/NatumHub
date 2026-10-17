@@ -7,6 +7,7 @@ Frontend/dist/
 Backend/target/
 Backend/target-migrate/
 Backend/gen/
+Backend/C:/
 
 # Database (legado local — não versionar)
 *.db
@@ -27,9 +28,6 @@ desktop.ini
 .idea/
 *.swp
 *.swo
-
-# Tauri dev artifacts
-Backend/WixTools/
 
 # Environment / secrets (nunca versionar)
 .env
@@ -52,10 +50,6 @@ Saves/_final_*.py
 Saves/_inv_*.py
 _backup_wip_*/
 
-# Tauri updater signing (privada nunca; pubkey local gerada)
-Backend/natum-hub.key
-Backend/natum-hub.key.pub
-Backend/updater.pubkey
+# Espelho opcional gerado pelo app (fonte = Postgres)
+Feedbacks/feedback_index.md
 
-# Runtime updater manifests (seeded on server)
-Saves/updater-manifests/
