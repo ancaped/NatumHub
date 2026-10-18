@@ -61,6 +61,7 @@ Rota HTTP           → natumhub-api
 | Gestão de Importações ERP | `concepts/modulo-gestao-importacoes-erp.md` |
 | Playbook de Feedbacks | `concepts/fluxo-feedbacks-playbook.md` |
 | Módulos Descontinuados | `decisions/modulos-descontinuados.md` |
+| Fusão Mapa & Feedbacks | `decisions/fusao-mapa-feedbacks.md` |
 | Null Safety no Frontend | `gotchas/frontend-null-safety.md` |
 
 ## Stack Atual
