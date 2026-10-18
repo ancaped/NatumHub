@@ -314,15 +314,15 @@ export default function OperadoresPanel({
                 }
               }}
               placeholder="Ex: João Silva"
-              className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all font-medium"
+              className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 transition-all font-medium"
             />
           </div>
           <div>
             <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Perfil Base</label>
             {form.role === 'supervisor' || form.role === 'admin' ? (
-              <div className="mt-1 w-full border border-violet-200 rounded-xl px-3 py-2 text-sm bg-violet-50 text-violet-900 font-bold flex items-center justify-between">
+              <div className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-100 text-zinc-900 font-bold flex items-center justify-between">
                 <span>Supervisor Master</span>
-                <Shield className="h-4 w-4 text-violet-600" />
+                <Shield className="h-4 w-4 text-zinc-700" />
               </div>
             ) : (
               <select
@@ -339,7 +339,7 @@ export default function OperadoresPanel({
                   }
                   onRoleChange(role);
                 }}
-                className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all font-medium cursor-pointer"
+                className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 transition-all font-medium cursor-pointer"
               >
                 <option value="estoque">Estoque (Almoxarifado & Insumos)</option>
                 <option value="producao">Produção & Lotes</option>
@@ -378,7 +378,7 @@ export default function OperadoresPanel({
                   ? (formKey === 'new' ? 'Mín. 8 caracteres' : 'Mín. 8 — vazio mantém')
                   : (formKey === 'new' ? 'Mín. 4 caracteres' : 'Deixe vazio para manter')
               }
-              className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all"
+              className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 transition-all"
             />
           </div>
           <div>
@@ -400,7 +400,7 @@ export default function OperadoresPanel({
                 }
               }}
               placeholder="Repita a senha"
-              className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all"
+              className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm bg-zinc-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 transition-all"
             />
           </div>
         </div>
@@ -417,7 +417,7 @@ export default function OperadoresPanel({
                   [formKey]: { ...p[formKey], active: e.target.checked },
                 }))
               }
-              className="rounded border-zinc-300 text-violet-600 focus:ring-violet-500 h-4 w-4"
+              className="rounded border-zinc-300 accent-zinc-900 text-zinc-900 focus:ring-1 focus:ring-zinc-900 h-4 w-4"
             />
             <span>Usuário ativo (pode fazer login no sistema)</span>
             {currentUser?.id === formKey && (
@@ -444,7 +444,7 @@ export default function OperadoresPanel({
                 value={moduleFilter}
                 onChange={(e) => setModuleFilter(e.target.value)}
                 placeholder="Filtrar módulos..."
-                className="pl-8 pr-3 py-1 text-xs border border-zinc-200 rounded-lg bg-zinc-50 focus:bg-white focus:outline-none focus:border-violet-500 w-full sm:w-44"
+                className="pl-8 pr-3 py-1 text-xs border border-zinc-200 rounded-lg bg-zinc-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 w-full sm:w-44"
               />
             </div>
           </div>
@@ -570,9 +570,9 @@ export default function OperadoresPanel({
 
   return (
     <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-150 pb-4 gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-100 pb-4 gap-3">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-violet-50 text-violet-600 rounded-xl">
+          <div className="p-2.5 bg-zinc-100 text-zinc-900 rounded-xl border border-zinc-200">
             <Users className="h-5 w-5" />
           </div>
           <div>
@@ -584,7 +584,7 @@ export default function OperadoresPanel({
         </div>
         <button
           onClick={() => setShowNewForm(!showNewForm)}
-          className="flex items-center justify-center gap-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-xs cursor-pointer active:scale-98"
+          className="flex items-center justify-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-2xs cursor-pointer active:scale-98"
         >
           <Plus className="h-3.5 w-3.5" />
           Novo Usuário
@@ -593,7 +593,7 @@ export default function OperadoresPanel({
 
       {loading ? (
         <div className="flex items-center justify-center py-10 text-zinc-400 gap-2">
-          <Loader2 className="h-5 w-5 animate-spin text-violet-600" />
+          <Loader2 className="h-5 w-5 animate-spin text-zinc-500" />
           <span className="text-sm font-medium">Carregando usuários do sistema...</span>
         </div>
       ) : loadError ? (
@@ -609,20 +609,20 @@ export default function OperadoresPanel({
       ) : (
         <div className="space-y-3">
           {showNewForm && (
-            <div className="border-2 border-violet-300 bg-violet-50/20 rounded-2xl p-5 space-y-4 shadow-sm animate-in fade-in duration-200">
-              <div className="flex items-center justify-between border-b border-violet-100 pb-3">
-                <p className="text-xs font-black text-violet-900 flex items-center gap-1.5 uppercase tracking-wider">
-                  <Shield className="h-4 w-4 text-violet-600" /> Cadastrar Novo Usuário
+            <div className="border border-zinc-300 bg-zinc-50/70 rounded-2xl p-5 space-y-4 shadow-sm animate-in fade-in duration-200">
+              <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
+                <p className="text-xs font-black text-zinc-900 flex items-center gap-1.5 uppercase tracking-wider">
+                  <Shield className="h-4 w-4 text-zinc-700" /> Cadastrar Novo Usuário
                 </p>
                 <button
                   onClick={() => setShowNewForm(false)}
-                  className="text-zinc-400 hover:text-zinc-600 p-1 rounded-lg hover:bg-zinc-100"
+                  className="text-zinc-400 hover:text-zinc-600 p-1 rounded-lg hover:bg-zinc-100 cursor-pointer"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
               {renderModuleTree(newForm, 'new', () => {})}
-              <div className="flex gap-2 justify-end pt-2 border-t border-violet-100">
+              <div className="flex gap-2 justify-end pt-2 border-t border-zinc-200">
                 <button
                   onClick={() => setShowNewForm(false)}
                   className="text-xs font-bold text-zinc-600 px-4 py-2 rounded-xl hover:bg-zinc-100 cursor-pointer transition-colors"
@@ -632,7 +632,7 @@ export default function OperadoresPanel({
                 <button
                   onClick={handleCreate}
                   disabled={saving}
-                  className="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold px-5 py-2 rounded-xl disabled:opacity-50 cursor-pointer shadow-xs transition-all active:scale-98"
+                  className="flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold px-5 py-2.5 rounded-xl disabled:opacity-50 cursor-pointer shadow-2xs transition-all active:scale-98"
                 >
                   {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                   Cadastrar Usuário
@@ -664,9 +664,7 @@ export default function OperadoresPanel({
                 >
                   <div className="flex items-center gap-3.5 min-w-0">
                     <div className={`h-9 w-9 rounded-xl flex items-center justify-center text-xs font-black uppercase shadow-2xs ${
-                      op.role === 'supervisor' || op.role === 'admin'
-                        ? 'bg-violet-600 text-white'
-                        : op.active
+                      op.active
                         ? 'bg-zinc-900 text-white'
                         : 'bg-zinc-300 text-zinc-600'
                     }`}>
@@ -678,12 +676,12 @@ export default function OperadoresPanel({
                           {op.displayName}
                         </p>
                         {isSelf && (
-                          <span className="text-[10px] font-bold bg-zinc-100 text-zinc-600 px-1.5 py-0.5 rounded-md">
+                          <span className="text-[10px] font-bold bg-zinc-100 text-zinc-600 px-1.5 py-0.5 rounded-md border border-zinc-200">
                             Você
                           </span>
                         )}
                         {op.role === 'supervisor' && (
-                          <span className="text-[10px] font-black bg-violet-100 text-violet-800 px-1.5 py-0.5 rounded-md">
+                          <span className="text-[10px] font-bold bg-zinc-100 text-zinc-800 px-1.5 py-0.5 rounded-md border border-zinc-200">
                             Supervisor
                           </span>
                         )}
@@ -714,9 +712,9 @@ export default function OperadoresPanel({
                 </button>
 
                 {isExpanded && form && (
-                  <div className="px-5 pb-5 border-t border-zinc-150 pt-4 space-y-4 bg-zinc-50/30">
+                  <div className="px-5 pb-5 border-t border-zinc-200 pt-4 space-y-4 bg-zinc-50/30">
                     {renderModuleTree(form, op.id, () => {})}
-                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-zinc-150 flex-wrap">
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-zinc-200 flex-wrap">
                       <button
                         type="button"
                         onClick={() => handleDelete(op)}

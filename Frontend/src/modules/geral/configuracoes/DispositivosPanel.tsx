@@ -77,13 +77,13 @@ export default function DispositivosPanel({ setMessage }: DispositivosPanelProps
 
   return (
     <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-6">
-      <div className="flex items-center justify-between border-b border-zinc-150 pb-4">
+      <div className="flex items-center justify-between border-b border-zinc-100 pb-4">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+          <div className="p-2.5 bg-zinc-100 text-zinc-900 rounded-xl border border-zinc-200">
             <Monitor className="h-5 w-5" />
           </div>
           <div>
-            <h3 className="font-black text-sm tracking-tight">Dispositivos / Instalações</h3>
+            <h3 className="font-black text-sm tracking-tight text-zinc-900">Dispositivos / Instalações</h3>
             <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
               Registro de PCs na rede
             </p>
@@ -91,13 +91,13 @@ export default function DispositivosPanel({ setMessage }: DispositivosPanelProps
         </div>
         <button
           onClick={load}
-          className="text-xs font-bold text-zinc-600 bg-zinc-100 hover:bg-zinc-200 px-3 py-2 rounded-xl flex items-center gap-1 cursor-pointer"
+          className="text-xs font-bold text-zinc-700 bg-zinc-100 hover:bg-zinc-200 px-3 py-2 rounded-xl flex items-center gap-1 cursor-pointer transition-colors"
         >
           <RefreshCw className="h-3.5 w-3.5" /> Atualizar
         </button>
       </div>
 
-      <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 text-xs text-amber-900 leading-relaxed">
+      <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-900 leading-relaxed">
         Cada instalação registra um <strong>deviceId</strong> único no primeiro login.
         Todos os PCs usam a mesma versão Estável.
       </div>
@@ -111,7 +111,7 @@ export default function DispositivosPanel({ setMessage }: DispositivosPanelProps
             type="password"
             value={supervisorPassword}
             onChange={(e) => setSupervisorPassword(e.target.value)}
-            className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm"
+            className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-900"
             placeholder="Sua senha"
           />
         </div>
@@ -121,7 +121,7 @@ export default function DispositivosPanel({ setMessage }: DispositivosPanelProps
             type="password"
             value={supervisorPasswordConfirm}
             onChange={(e) => setSupervisorPasswordConfirm(e.target.value)}
-            className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm"
+            className="mt-1 w-full border border-zinc-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-900"
             placeholder="Repita a senha"
           />
         </div>
@@ -129,7 +129,7 @@ export default function DispositivosPanel({ setMessage }: DispositivosPanelProps
 
       {loading ? (
         <div className="flex items-center justify-center py-8 text-zinc-400 gap-2">
-          <Loader2 className="h-5 w-5 animate-spin" />
+          <Loader2 className="h-5 w-5 animate-spin text-zinc-500" />
           <span className="text-sm">Carregando dispositivos...</span>
         </div>
       ) : devices.length === 0 ? (
@@ -144,13 +144,13 @@ export default function DispositivosPanel({ setMessage }: DispositivosPanelProps
             return (
               <div
                 key={d.deviceId}
-                className={`border rounded-xl p-4 space-y-3 ${isLocal ? 'border-violet-200 bg-violet-50/30' : 'border-zinc-200'}`}
+                className={`border rounded-xl p-4 space-y-3 ${isLocal ? 'border-zinc-400 bg-zinc-50/80 shadow-2xs' : 'border-zinc-200'}`}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-sm font-bold text-zinc-900">
                       {edit?.label || d.label || 'Sem rótulo'}
-                      {isLocal && <span className="text-violet-600 font-normal ml-2">(este PC)</span>}
+                      {isLocal && <span className="text-zinc-600 font-bold ml-2">(este PC)</span>}
                     </p>
                     <p className="text-[10px] text-zinc-400 font-mono break-all">{d.deviceId}</p>
                     {d.lastIp && (

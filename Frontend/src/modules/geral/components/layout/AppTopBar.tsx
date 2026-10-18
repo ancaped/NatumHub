@@ -595,20 +595,6 @@ export default function AppTopBar({
                       </button>
                     )}
 
-                    {isSupervisor(currentUser) && (
-                      <button
-                        onClick={() => {
-                          setDropdownOpen(false);
-                          fetchSqlConfig();
-                          setView('hub_supervisor');
-                        }}
-                        className="w-full flex items-center gap-2.5 px-3 py-3 min-h-11 rounded-lg text-sm font-semibold text-zinc-700 hover:bg-zinc-50 hover:text-zinc-950 transition-colors cursor-pointer text-left"
-                      >
-                        <Shield className="h-4 w-4 text-violet-500" />
-                        Painel do Supervisor
-                      </button>
-                    )}
-
                     {canAccessView(currentUser, 'hub_settings') && (
                       <button
                         onClick={() => {

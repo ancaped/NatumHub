@@ -226,13 +226,13 @@ export default function ConexaoServidorPanel({ setMessage }: ConexaoServidorPane
     <div className="space-y-6">
       {/* Card 1: Links de Acesso na Rede Local (nexus.local & mDNS) */}
       <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-5">
-        <div className="flex items-center justify-between border-b border-zinc-150 pb-4">
+        <div className="flex items-center justify-between border-b border-zinc-100 pb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+            <div className="p-2.5 bg-zinc-100 text-zinc-900 rounded-xl border border-zinc-200">
               <Globe className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-black text-sm tracking-tight">Acesso na Rede Local (Outros PCs)</h3>
+              <h3 className="font-black text-sm tracking-tight text-zinc-900">Acesso na Rede Local (Outros PCs)</h3>
               <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
                 Link dinâmico mDNS · Não depende de IP fixo
               </p>
@@ -255,15 +255,15 @@ export default function ConexaoServidorPanel({ setMessage }: ConexaoServidorPane
           <div className="p-4 rounded-xl bg-zinc-900 text-white border border-zinc-800 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-indigo-400" />
+                <Sparkles className="w-4 h-4 text-zinc-400" />
                 <span className="text-xs font-bold text-zinc-200">Link Dinâmico Oficial:</span>
               </div>
-              <span className="text-[10px] font-bold bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 px-2 py-0.5 rounded-full">
+              <span className="text-[10px] font-bold bg-zinc-800 text-zinc-200 border border-zinc-700 px-2 py-0.5 rounded-full">
                 nexus.local
               </span>
             </div>
 
-            <div className="flex items-center justify-between gap-3 bg-zinc-950 p-2.5 px-3.5 rounded-xl border border-zinc-800 font-mono text-sm text-indigo-300">
+            <div className="flex items-center justify-between gap-3 bg-zinc-950 p-2.5 px-3.5 rounded-xl border border-zinc-800 font-mono text-sm text-zinc-200">
               <span className="truncate">{primaryLink.url}</span>
               <div className="flex items-center gap-2 shrink-0">
                 <button
@@ -277,7 +277,7 @@ export default function ConexaoServidorPanel({ setMessage }: ConexaoServidorPane
                 <button
                   type="button"
                   onClick={() => downloadShortcutFile(primaryLink.url)}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded-lg text-xs font-sans font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                  className="bg-white hover:bg-zinc-100 text-zinc-900 px-2.5 py-1 rounded-lg text-xs font-sans font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
                   title="Baixar atalho para colocar na Área de Trabalho dos outros computadores"
                 >
                   <Download className="w-3.5 h-3.5" />
@@ -381,11 +381,11 @@ export default function ConexaoServidorPanel({ setMessage }: ConexaoServidorPane
       <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-5">
         <div className="flex items-center justify-between border-b border-zinc-100 pb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+            <div className="p-2.5 bg-zinc-100 text-zinc-900 rounded-xl border border-zinc-200">
               <Server className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-black text-sm tracking-tight">Infraestrutura ZimaOS Dual-Stack</h3>
+              <h3 className="font-black text-sm tracking-tight text-zinc-900">Infraestrutura ZimaOS Dual-Stack</h3>
               <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
                 Serviços de Produção e Desenvolvimento Isolados
               </p>
@@ -422,7 +422,7 @@ export default function ConexaoServidorPanel({ setMessage }: ConexaoServidorPane
           <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50 space-y-1">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">ai-memory</span>
-              <span className="h-2 w-2 rounded-full bg-violet-500" />
+              <span className="h-2 w-2 rounded-full bg-zinc-900" />
             </div>
             <p className="text-sm font-black text-zinc-900">Porta :49374</p>
             <p className="text-[10px] text-zinc-500">Memória vetorial & regras IA</p>

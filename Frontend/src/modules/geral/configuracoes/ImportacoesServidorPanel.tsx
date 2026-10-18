@@ -245,9 +245,9 @@ export default function ImportacoesServidorPanel({
     <div className="space-y-6">
       {/* Card 1: Status de Sincronização & Controles Rápidos */}
       <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-150 pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 pb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
+            <div className="p-2.5 bg-zinc-100 text-zinc-900 rounded-xl border border-zinc-200">
               <Database className="h-5 w-5" />
             </div>
             <div>
@@ -265,7 +265,7 @@ export default function ImportacoesServidorPanel({
               type="button"
               onClick={() => handleSyncSqlDatabase('incremental')}
               disabled={syncingSql || (syncLock?.running ?? false)}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+              className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-900 border border-zinc-200 rounded-xl text-xs font-bold transition-all shadow-2xs disabled:opacity-50 flex items-center gap-2 cursor-pointer"
               title="Importa apenas os registros alterados desde a última sincronização"
             >
               {syncingSql ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
@@ -276,7 +276,7 @@ export default function ImportacoesServidorPanel({
               type="button"
               onClick={() => handleSyncSqlDatabase('full')}
               disabled={syncingSql || (syncLock?.running ?? false)}
-              className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+              className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold transition-all shadow-2xs disabled:opacity-50 flex items-center gap-2 cursor-pointer"
               title="Reprocessa todo o período configurado na janela histórica"
             >
               {syncingSql ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
@@ -287,17 +287,17 @@ export default function ImportacoesServidorPanel({
 
         {/* Lock ativo em andamento */}
         {(syncingSql || syncLock?.running) && (
-          <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50/70 flex items-start justify-between gap-3 animate-in fade-in duration-200">
+          <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/70 flex items-start justify-between gap-3 animate-in fade-in duration-200">
             <div className="flex items-start gap-3">
-              <Loader2 className="h-5 w-5 text-indigo-600 animate-spin shrink-0 mt-0.5" />
+              <Loader2 className="h-5 w-5 text-amber-700 animate-spin shrink-0 mt-0.5" />
               <div className="space-y-1">
-                <p className="text-xs font-extrabold text-indigo-950">
+                <p className="text-xs font-extrabold text-amber-950">
                   Sincronização de dados em andamento
                   {typeof syncLock?.ageSeconds === 'number' && syncLock.ageSeconds > 0
                     ? ` (em execução há ${Math.floor(syncLock.ageSeconds / 60)}m ${syncLock.ageSeconds % 60}s)`
                     : ''}
                 </p>
-                <p className="text-[11px] text-indigo-800 leading-relaxed">
+                <p className="text-[11px] text-amber-800 leading-relaxed">
                   Os dados de estoque, produtos, faturamento e pedidos de compra estão sendo reconciliados com o SQL Server original.
                 </p>
               </div>
@@ -518,7 +518,7 @@ export default function ImportacoesServidorPanel({
                   </div>
                 </div>
 
-                <p className="text-[10px] text-indigo-700 font-medium bg-indigo-50/60 p-2 rounded-lg leading-snug">
+                <p className="text-[10px] text-zinc-700 font-medium bg-zinc-100 p-2 rounded-lg leading-snug border border-zinc-200">
                   🎯 <strong>Uso:</strong> {ent.purpose}
                 </p>
               </div>
@@ -529,7 +529,7 @@ export default function ImportacoesServidorPanel({
 
       {/* Card 3: Histórico de Importações Realizadas */}
       <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-4">
-        <div className="flex items-center justify-between border-b border-zinc-150 pb-3">
+        <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
           <div className="flex items-center gap-2">
             <Clock className="h-4 w-4 text-zinc-500" />
             <h3 className="font-black text-sm tracking-tight text-zinc-900">

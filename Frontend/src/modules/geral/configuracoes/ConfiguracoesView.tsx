@@ -14,8 +14,9 @@ import AuditoriaPanel from './AuditoriaPanel';
 import ReportLogoPanel from './ReportLogoPanel';
 import { apiFetch, apiJson, getSetting, setSetting } from '../lib/http';
 import { isSupervisor, type AuthUser } from '../lib/auth';
+import AppLayout, { type SidebarItem } from '../components/layout/AppLayout';
 
-type SupervisorTab = 'usuarios' | 'auditoria_produtos' | 'banco' | 'erp' | 'rede' | 'auditoria';
+type SettingsTab = 'usuarios' | 'erp' | 'banco' | 'auditoria_produtos' | 'rede' | 'auditoria' | 'logo';
 
 interface ConfiguracoesViewProps {
   currentUser: AuthUser | null;
@@ -71,9 +72,9 @@ export default function ConfiguracoesView({
   syncingSql,
   variant = 'general',
 }: ConfiguracoesViewProps) {
-  const supervisorMode = variant === 'supervisor';
-  const canEditInfra = supervisorMode && isSupervisor(currentUser);
-  const [supervisorTab, setSupervisorTab] = useState<SupervisorTab>('usuarios');
+  const supervisorMode = variant === 'supervisor' || isSupervisor(currentUser);
+  const canEditInfra = isSupervisor(currentUser);
+  const [currentTab, setCurrentTab] = useState<SettingsTab>(supervisorMode ? 'usuarios' : 'rede');
 
   const [erpSchedule, setErpSchedule] = useState<ErpSyncSchedule>({
     ativo: true,
@@ -535,393 +536,34 @@ export default function ConfiguracoesView({
     }));
   };
 
-  if (supervisorMode) {
-    const sidebarItems: Array<{
-      id: SupervisorTab;
-      label: string;
-      icon: React.ComponentType<{ className?: string }>;
-      description: string;
-    }> = [
-      {
-        id: 'usuarios',
-        label: 'Usuários & Permissões',
-        icon: Users,
-        description: 'Acessos, leitura e escrita',
-      },
-      {
-        id: 'auditoria_produtos',
-        label: 'Auditoria de Produtos',
-        icon: Boxes,
-        description: 'Conferência Hub × ERP ao vivo',
-      },
-      {
-        id: 'banco',
-        label: 'Banco de Dados',
-        icon: HardDrive,
-        description: 'PostgreSQL, disco e backups',
-      },
-      {
-        id: 'erp',
-        label: 'Importações & ERP',
-        icon: Database,
-        description: 'Servidor original, histórico e mapeamento',
-      },
-      {
-        id: 'rede',
-        label: 'Rede & Servidor',
-        icon: Globe,
-        description: 'IPs, portas e conexão',
-      },
-      {
-        id: 'auditoria',
-        label: 'Auditoria & Logs',
-        icon: FileText,
-        description: 'Histórico de eventos',
-      },
-    ];
-
-    return (
-      <div className="flex-1 flex overflow-hidden bg-zinc-50 font-sans text-zinc-900">
-        {/* Sidebar Lateral de Navegação */}
-        <aside className="w-64 border-r border-zinc-200 bg-white p-4 flex flex-col justify-between shrink-0 overflow-y-auto">
-          <div className="space-y-1.5">
-            <p className="text-[10px] font-black text-zinc-400 uppercase tracking-wider px-3 py-1.5">
-              Painel do Supervisor
-            </p>
-            {sidebarItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = supervisorTab === item.id;
-
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setSupervisorTab(item.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all cursor-pointer ${
-                    isActive
-                      ? 'bg-violet-600 text-white font-bold shadow-xs shadow-violet-600/20'
-                      : 'text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 font-medium'
-                  }`}
-                >
-                  <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-white' : 'text-zinc-400'}`} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs truncate leading-tight">{item.label}</p>
-                    <p className={`text-[10px] truncate ${isActive ? 'text-violet-200' : 'text-zinc-400'}`}>
-                      {item.description}
-                    </p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="p-3 bg-zinc-50 border border-zinc-200/70 rounded-xl mt-4">
-            <div className="flex items-center gap-2 text-zinc-600 text-xs font-bold mb-1">
-              <Activity className="h-3.5 w-3.5 text-violet-600" />
-              <span>Status Servidor</span>
-            </div>
-            <p className="text-[10px] text-zinc-400 leading-tight">
-              Instância Local na porta 3001
-            </p>
-          </div>
-        </aside>
-
-        {/* Área Principal de Conteúdo */}
-        <main className="flex-1 overflow-y-auto p-6 md:p-8 bg-zinc-50 space-y-6">
-          <div className="max-w-4xl mx-auto space-y-6">
-            {/* Mensagem Toast */}
-            {message && (
-              <div className={`p-3.5 rounded-xl border text-xs font-bold flex items-center justify-between shadow-xs ${
-                message.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'
-              }`}>
-                <span className="flex items-center gap-2">
-                  {message.type === 'success' ? <Check className="h-4 w-4 text-emerald-600" /> : <X className="h-4 w-4 text-rose-600" />}
-                  {message.text}
-                </span>
-              </div>
-            )}
-
-            {!canEditInfra && (
-              <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium">
-                Faça login como supervisor master para alterar configurações de infraestrutura e sincronização ERP.
-              </div>
-            )}
-
-            {/* Aba Usuários */}
-            {supervisorTab === 'usuarios' && (
-              <OperadoresPanel currentUser={currentUser} setMessage={setMessage} />
-            )}
-
-            {/* Aba Auditoria de Produtos & Estoque */}
-            {supervisorTab === 'auditoria_produtos' && canEditInfra && (
-              <div className="space-y-6">
-                <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-6">
-                  <div className="flex items-center gap-3 border-b border-zinc-150 pb-4">
-                    <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
-                      <Boxes className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-black text-sm tracking-tight">Auditoria de Estoque & Produtos (Hub vs ERP)</h3>
-                      <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
-                        Conferência de saldos físicos, reservas, produção e pedidos
-                      </p>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-zinc-600 leading-relaxed">
-                    Confere e alinha <strong>insumos + materiais + produtos</strong> (estoque, reserva, produção e pedidos do snapshot) contra a base viva do ERP. Divergências encontradas são corrigidas automaticamente.
-                  </p>
-
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <button
-                      type="button"
-                      onClick={() => void handleVerifyStock()}
-                      disabled={verifyingStock || syncingSql}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-sm"
-                    >
-                      {verifyingStock ? (
-                        <>
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>Verificando estoque completo...</span>
-                        </>
-                      ) : (
-                        <>
-                          <PackageCheck className="h-4 w-4" />
-                          <span>Verificar Estoque Completo (Hub × ERP)</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {stockVerifyProgress && (
-                    <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 text-xs text-indigo-950 space-y-2.5">
-                      <div className="flex items-center justify-between gap-2 font-bold">
-                        <span className="flex items-center gap-2">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          <span>Auditoria em andamento {stockVerifyProgress.phase ? `(${stockVerifyProgress.phase})` : ''}</span>
-                        </span>
-                        <span className="font-mono tabular-nums">
-                          {stockVerifyProgress.processed} / {stockVerifyProgress.total || '—'} · {stockVerifyProgress.repaired} corrigidos
-                        </span>
-                      </div>
-                      <div className="h-2.5 rounded-full bg-indigo-200 overflow-hidden">
-                        <div
-                          className="h-full bg-indigo-600 transition-all duration-300 rounded-full"
-                          style={{
-                            width: `${
-                              stockVerifyProgress.total > 0
-                                ? Math.min(100, (100 * stockVerifyProgress.processed) / stockVerifyProgress.total)
-                                : 5
-                            }%`,
-                          }}
-                        />
-                      </div>
-                      {stockVerifyProgress.currentCode && (
-                        <p className="text-[10px] font-mono text-indigo-700/80 truncate">
-                          Processando item: {stockVerifyProgress.currentCode}
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {stockVerifyResult && (
-                    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-700 space-y-2">
-                      <p className="font-bold text-zinc-900 text-sm">
-                        {stockVerifyResult.repaired === 0
-                          ? `✅ 0 divergências encontradas · ${stockVerifyResult.checked} itens 100% alinhados`
-                          : `✨ Auditoria concluída: ${stockVerifyResult.checked} conferidos · ${stockVerifyResult.repaired} corrigidos`}
-                        {stockVerifyResult.bySource && stockVerifyResult.repaired > 0 && (
-                          <span className="font-normal text-zinc-500 text-xs ml-1">
-                            (Insumos: {stockVerifyResult.bySource.insumos} · Materiais: {stockVerifyResult.bySource.materiais} · Produtos: {stockVerifyResult.bySource.produtos})
-                          </span>
-                        )}
-                      </p>
-                      {(stockVerifyResult.erpCacheDrift ?? 0) > 0 && (
-                        <p className="text-amber-700">
-                          {stockVerifyResult.erpCacheDrift} itens com a coluna nQtdeEstoque desatualizada no ERP (só informativo).
-                        </p>
-                      )}
-                      {stockVerifyResult.samples.length > 0 && (
-                        <div className="space-y-1 pt-2 border-t border-zinc-200">
-                          <p className="text-[10px] font-black uppercase text-zinc-400">Amostras de itens corrigidos:</p>
-                          <ul className="max-h-48 overflow-y-auto text-[11px] text-zinc-600 space-y-1 font-mono bg-white p-2 rounded-lg border border-zinc-200">
-                            {stockVerifyResult.samples.map((s) => (
-                              <li key={`${s.source || 'x'}-${s.code}`} className="flex justify-between py-0.5 border-b border-zinc-100 last:border-none">
-                                <span>{s.source ? `[${s.source}] ` : ''}{s.code}</span>
-                                <span className="text-zinc-500">
-                                  Hub: {s.hub.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} → ERP: <strong className="text-indigo-600">{s.erp.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}</strong>
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Auditoria individual ao vivo */}
-                  <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Search className="h-4 w-4 text-indigo-600" />
-                      <span className="text-xs font-bold text-zinc-800">
-                        Auditar item individual (ERP ao vivo)
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-zinc-500">
-                      Consulte qualquer código de insumo, material ou produto para comparar instantaneamente com o banco do ERP.
-                    </p>
-                    <div className="flex flex-wrap gap-2 items-center">
-                      <input
-                        type="text"
-                        value={auditCode}
-                        onChange={(e) => setAuditCode(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') void handleAuditStockCode();
-                        }}
-                        placeholder="Ex: 9.15.104 ou Cód. do produto"
-                        className="flex-1 min-w-[160px] px-3 py-2 rounded-xl border border-zinc-300 text-xs font-mono font-bold text-zinc-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void handleAuditStockCode()}
-                        disabled={auditingCode || refreshingCode || syncingSql}
-                        className="bg-zinc-900 text-white hover:bg-zinc-800 px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5 shadow-sm"
-                      >
-                        {auditingCode ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
-                        <span>Auditar</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleRefreshStockCode()}
-                        disabled={auditingCode || refreshingCode || syncingSql || !auditCode.trim()}
-                        className="bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
-                        title="Regrava o snapshot do Hub com o valor vivo do ERP"
-                      >
-                        {refreshingCode ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                        <span>Corrigir do ERP</span>
-                      </button>
-                    </div>
-
-                    {stockAuditResult && (
-                      <div className={`rounded-xl border p-4 text-xs space-y-2 ${
-                        stockAuditResult.match
-                          ? 'border-emerald-200 bg-emerald-50/70 text-emerald-900'
-                          : 'border-amber-200 bg-amber-50/70 text-amber-950'
-                      }`}>
-                        <div className="flex items-center justify-between">
-                          <p className="font-bold text-sm">
-                            {stockAuditResult.code}: {stockAuditResult.match ? '✅ Valores Alinhados' : '⚠️ Divergência Encontrada'}
-                          </p>
-                          {stockAuditResult.deltaStock != null && stockAuditResult.deltaStock !== 0 && (
-                            <span className="font-mono font-bold bg-amber-200 text-amber-900 px-2 py-0.5 rounded">
-                              Δ estoque: {(stockAuditResult.deltaStock).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                          <div className="bg-white/80 p-3 rounded-lg border border-zinc-200/60 font-mono text-[11px] space-y-1">
-                            <span className="font-sans font-bold uppercase tracking-wider text-[10px] text-zinc-500 block">Hub Local</span>
-                            {stockAuditResult.hub.error ? (
-                              <span className="text-rose-600">{stockAuditResult.hub.error}</span>
-                            ) : (
-                              <>
-                                <div>Estoque: <strong>{stockAuditResult.hub.stockQty?.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) ?? '—'}</strong></div>
-                                <div>Reserva: {stockAuditResult.hub.reservedQty?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}</div>
-                                <div>Produção: {stockAuditResult.hub.inProduction?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}</div>
-                                <div>Pedidos: {stockAuditResult.hub.inOrders?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}</div>
-                              </>
-                            )}
-                          </div>
-
-                          <div className="bg-white/80 p-3 rounded-lg border border-zinc-200/60 font-mono text-[11px] space-y-1">
-                            <span className="font-sans font-bold uppercase tracking-wider text-[10px] text-zinc-500 block">ERP SQL Server</span>
-                            {stockAuditResult.erp.error ? (
-                              <span className="text-rose-600">{stockAuditResult.erp.error}</span>
-                            ) : (
-                              <>
-                                <div>Estoque: <strong>{stockAuditResult.erp.stockQty?.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) ?? '—'}</strong></div>
-                                {stockAuditResult.erp.stockQtyRaw != null &&
-                                  stockAuditResult.erp.stockQty != null &&
-                                  Math.abs(stockAuditResult.erp.stockQtyRaw - stockAuditResult.erp.stockQty) > 0.01 && (
-                                    <div className="text-amber-700">
-                                      Coluna ERP (cache): {stockAuditResult.erp.stockQtyRaw.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
-                                    </div>
-                                  )}
-                                <div>Reserva: {stockAuditResult.erp.reservedQty?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}</div>
-                                <div>Produção: {stockAuditResult.erp.inProduction?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}</div>
-                                <div>Pedidos: {stockAuditResult.erp.inOrders?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}</div>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        {stockAuditResult.warnings && stockAuditResult.warnings.length > 0 && (
-                          <ul className="text-[11px] text-amber-800 space-y-1 pt-1">
-                            {stockAuditResult.warnings.map((w) => (
-                              <li key={w}>{w}</li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Aba Banco de Dados */}
-            {supervisorTab === 'banco' && canEditInfra && (
-              <>
-                <PostgresUsagePanel setMessage={setMessage} />
-                <PostgresBackupPanel setMessage={setMessage} />
-              </>
-            )}
-
-            {/* Aba Rede & Servidor */}
-            {supervisorTab === 'rede' && (
-              <ConexaoServidorPanel
-                isAdmin={!currentUser || isSupervisor(currentUser)}
-                message={message}
-                setMessage={setMessage}
-              />
-            )}
-
-            {/* Aba Auditoria do Sistema */}
-            {supervisorTab === 'auditoria' && canEditInfra && (
-              <AuditoriaPanel setMessage={setMessage} />
-            )}
-
-            {/* Aba Importações & ERP (Servidor Original) */}
-            {supervisorTab === 'erp' && canEditInfra && (
-              <ImportacoesServidorPanel
-                sqlHost={sqlHost}
-                setSqlHost={setSqlHost}
-                sqlPort={sqlPort}
-                setSqlPort={setSqlPort}
-                sqlUser={sqlUser}
-                setSqlUser={setSqlUser}
-                sqlPassword={sqlPassword}
-                setSqlPassword={setSqlPassword}
-                sqlDatabase={sqlDatabase}
-                setSqlDatabase={setSqlDatabase}
-                handleSaveSqlConfig={handleSaveSqlConfig}
-                savingSql={savingSql}
-                handleSyncSqlDatabase={handleSyncSqlDatabase}
-                syncingSql={syncingSql}
-                message={message}
-                setMessage={setMessage}
-              />
-            )}
-          </div>
-        </main>
-      </div>
-    );
-  }
+  const sidebarItems: SidebarItem[] = supervisorMode
+    ? [
+        { id: 'usuarios', label: 'Usuários & Permissões', icon: Users },
+        { id: 'erp', label: 'Importações ERP', icon: Database },
+        { id: 'banco', label: 'Banco de Dados', icon: HardDrive },
+        { id: 'auditoria_produtos', label: 'Auditoria de Estoque', icon: Boxes },
+        { id: 'rede', label: 'Rede & Servidor', icon: Globe },
+        { id: 'auditoria', label: 'Auditoria & Logs', icon: FileText },
+        { id: 'logo', label: 'Identidade & Logo', icon: Settings },
+      ]
+    : [
+        { id: 'rede', label: 'Rede & Servidor', icon: Globe },
+        { id: 'logo', label: 'Identidade & Logo', icon: Settings },
+      ];
 
   return (
-    <div className="flex-1 flex flex-col justify-between overflow-y-auto bg-zinc-50 font-sans text-zinc-900">
-      <main className="flex-1 p-8 max-w-4xl w-full mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+    <AppLayout
+      moduleTitle="Configurações Gerais"
+      moduleSubtitle="Gestão de operadores, importações ERP, banco de dados e parâmetros do sistema"
+      onBackToHub={() => setView('hub')}
+      sidebarItems={sidebarItems}
+      activeTab={currentTab}
+      onTabChange={(id) => setCurrentTab(id as SettingsTab)}
+    >
+      <div className="max-w-4xl mx-auto space-y-6">
+        {/* Mensagem Toast */}
         {message && (
-          <div className={`p-4 rounded-xl border text-sm font-bold flex items-center justify-between shadow-sm ${
+          <div className={`p-3.5 rounded-xl border text-xs font-bold flex items-center justify-between shadow-2xs ${
             message.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'
           }`}>
             <span className="flex items-center gap-2">
@@ -931,22 +573,283 @@ export default function ConfiguracoesView({
           </div>
         )}
 
-        <ConexaoServidorPanel
-          isAdmin={!currentUser || isSupervisor(currentUser)}
-          message={message}
-          setMessage={setMessage}
-        />
+        {!canEditInfra && supervisorMode && (
+          <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium">
+            Faça login como supervisor master para alterar configurações de infraestrutura e sincronização ERP.
+          </div>
+        )}
 
-        <ReportLogoPanel canUpload={isSupervisor(currentUser)} setMessage={setMessage} />
-
-        {isSupervisor(currentUser) && (
+        {/* Aba Usuários */}
+        {currentTab === 'usuarios' && (
           <OperadoresPanel currentUser={currentUser} setMessage={setMessage} />
         )}
-      </main>
 
-      <footer className="w-full text-center py-6 text-xs text-zinc-400 border-t border-zinc-200/50 bg-white/50">
-        &copy; {new Date().getFullYear()} Nátum Bio Cosméticos. Todos os direitos reservados.
-      </footer>
-    </div>
+        {/* Aba Importações & ERP (Servidor Original) */}
+        {currentTab === 'erp' && (
+          <ImportacoesServidorPanel
+            sqlHost={sqlHost}
+            setSqlHost={setSqlHost}
+            sqlPort={sqlPort}
+            setSqlPort={setSqlPort}
+            sqlUser={sqlUser}
+            setSqlUser={setSqlUser}
+            sqlPassword={sqlPassword}
+            setSqlPassword={setSqlPassword}
+            sqlDatabase={sqlDatabase}
+            setSqlDatabase={setSqlDatabase}
+            handleSaveSqlConfig={handleSaveSqlConfig}
+            savingSql={savingSql}
+            handleSyncSqlDatabase={handleSyncSqlDatabase}
+            syncingSql={syncingSql}
+            message={message}
+            setMessage={setMessage}
+          />
+        )}
+
+        {/* Aba Banco de Dados */}
+        {currentTab === 'banco' && canEditInfra && (
+          <>
+            <PostgresUsagePanel setMessage={setMessage} />
+            <PostgresBackupPanel setMessage={setMessage} />
+          </>
+        )}
+
+        {/* Aba Auditoria de Produtos & Estoque */}
+        {currentTab === 'auditoria_produtos' && canEditInfra && (
+          <div className="space-y-6">
+            <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-6">
+              <div className="flex items-center gap-3 border-b border-zinc-100 pb-4">
+                <div className="p-2.5 bg-zinc-100 text-zinc-900 rounded-xl border border-zinc-200">
+                  <Boxes className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm tracking-tight text-zinc-900">Auditoria de Estoque & Produtos (Hub vs ERP)</h3>
+                  <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
+                    Conferência de saldos físicos, reservas, produção e pedidos
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-zinc-600 leading-relaxed">
+                Confere e alinha <strong>insumos + materiais + produtos</strong> (estoque, reserva, produção e pedidos do snapshot) contra a base viva do ERP. Divergências encontradas são corrigidas automaticamente.
+              </p>
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  type="button"
+                  onClick={() => void handleVerifyStock()}
+                  disabled={verifyingStock || syncingSql}
+                  className="bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-2xs"
+                >
+                  {verifyingStock ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Verificando estoque completo...</span>
+                    </>
+                  ) : (
+                    <>
+                      <PackageCheck className="h-4 w-4" />
+                      <span>Verificar Estoque Completo (Hub × ERP)</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {stockVerifyProgress && (
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-900 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2 font-bold">
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" />
+                      <span>Auditoria em andamento {stockVerifyProgress.phase ? `(${stockVerifyProgress.phase})` : ''}</span>
+                    </span>
+                    <span className="font-mono tabular-nums">
+                      {stockVerifyProgress.processed} / {stockVerifyProgress.total || '—'} · {stockVerifyProgress.repaired} corrigidos
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-zinc-200 overflow-hidden">
+                    <div
+                      className="h-full bg-zinc-900 transition-all duration-300 rounded-full"
+                      style={{
+                        width: `${
+                          stockVerifyProgress.total > 0
+                            ? Math.min(100, (100 * stockVerifyProgress.processed) / stockVerifyProgress.total)
+                            : 5
+                        }%`,
+                      }}
+                    />
+                  </div>
+                  {stockVerifyProgress.currentCode && (
+                    <p className="text-[10px] font-mono text-zinc-500 truncate">
+                      Processando item: {stockVerifyProgress.currentCode}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {stockVerifyResult && (
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-700 space-y-2">
+                  <p className="font-bold text-zinc-900 text-sm">
+                    {stockVerifyResult.repaired === 0
+                      ? `✅ 0 divergências encontradas · ${stockVerifyResult.checked} itens 100% alinhados`
+                      : `✨ Auditoria concluída: ${stockVerifyResult.checked} conferidos · ${stockVerifyResult.repaired} corrigidos`}
+                    {stockVerifyResult.bySource && stockVerifyResult.repaired > 0 && (
+                      <span className="font-normal text-zinc-500 text-xs ml-1">
+                        (Insumos: {stockVerifyResult.bySource.insumos} · Materiais: {stockVerifyResult.bySource.materiais} · Produtos: {stockVerifyResult.bySource.produtos})
+                      </span>
+                    )}
+                  </p>
+                  {(stockVerifyResult.erpCacheDrift ?? 0) > 0 && (
+                    <p className="text-amber-700">
+                      {stockVerifyResult.erpCacheDrift} itens com a coluna nQtdeEstoque desatualizada no ERP (só informativo).
+                    </p>
+                  )}
+                  {stockVerifyResult.samples.length > 0 && (
+                    <div className="space-y-1 pt-2 border-t border-zinc-200">
+                      <p className="text-[10px] font-black uppercase text-zinc-400">Amostras de itens corrigidos:</p>
+                      <ul className="max-h-48 overflow-y-auto text-[11px] text-zinc-600 space-y-1 font-mono bg-white p-2 rounded-lg border border-zinc-200">
+                        {stockVerifyResult.samples.map((s) => (
+                          <li key={`${s.source || 'x'}-${s.code}`} className="flex justify-between py-0.5 border-b border-zinc-100 last:border-none">
+                            <span>{s.source ? `[${s.source}] ` : ''}{s.code}</span>
+                            <span className="text-zinc-500">
+                              Hub: {s.hub.toLocaleString('pt-BR', { maximumFractionDigits: 4 })} → ERP: <strong className="text-zinc-900">{s.erp.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}</strong>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Auditoria individual ao vivo */}
+              <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Search className="h-4 w-4 text-zinc-500" />
+                  <span className="text-xs font-bold text-zinc-800">
+                    Auditar item individual (ERP ao vivo)
+                  </span>
+                </div>
+                <p className="text-[11px] text-zinc-500">
+                  Consulte qualquer código de insumo, material ou produto para comparar instantaneamente com o banco do ERP.
+                </p>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <input
+                    type="text"
+                    value={auditCode}
+                    onChange={(e) => setAuditCode(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void handleAuditStockCode();
+                    }}
+                    placeholder="Ex: 9.15.104 ou Cód. do produto"
+                    className="flex-1 min-w-[160px] px-3 py-2 rounded-xl border border-zinc-200 text-xs font-mono font-bold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleAuditStockCode()}
+                    disabled={auditingCode || refreshingCode || syncingSql}
+                    className="bg-zinc-900 text-white hover:bg-zinc-800 px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                  >
+                    {auditingCode ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                    <span>Auditar</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleRefreshStockCode()}
+                    disabled={auditingCode || refreshingCode || syncingSql || !auditCode.trim()}
+                    className="bg-zinc-100 text-zinc-800 border border-zinc-200 hover:bg-zinc-200 px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                    title="Regrava o snapshot do Hub com o valor vivo do ERP"
+                  >
+                    {refreshingCode ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                    <span>Corrigir do ERP</span>
+                  </button>
+                </div>
+
+                {stockAuditResult && (
+                  <div className={`rounded-xl border p-4 text-xs space-y-2 ${
+                    stockAuditResult.match
+                      ? 'border-emerald-200 bg-emerald-50/70 text-emerald-900'
+                      : 'border-amber-200 bg-amber-50/70 text-amber-950'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <p className="font-bold text-sm">
+                        {stockAuditResult.code}: {stockAuditResult.match ? '✅ Valores Alinhados' : '⚠️ Divergência Encontrada'}
+                      </p>
+                      {stockAuditResult.deltaStock != null && stockAuditResult.deltaStock !== 0 && (
+                        <span className="font-mono font-bold bg-amber-200 text-amber-900 px-2 py-0.5 rounded">
+                          Δ estoque: {(stockAuditResult.deltaStock).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                      <div className="bg-white/80 p-3 rounded-lg border border-zinc-200/60 font-mono text-[11px] space-y-1">
+                        <span className="font-sans font-bold uppercase tracking-wider text-[10px] text-zinc-500 block">Hub Local</span>
+                        {stockAuditResult.hub.error ? (
+                          <span className="text-rose-600">{stockAuditResult.hub.error}</span>
+                        ) : (
+                          <>
+                            <div>Estoque: <strong>{stockAuditResult.hub.stockQty?.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) ?? '—'}</strong></div>
+                            <div>Reserva: {stockAuditResult.hub.reservedQty?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}</div>
+                            <div>Produção: {stockAuditResult.hub.inProduction?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}</div>
+                            <div>Pedidos: {stockAuditResult.hub.inOrders?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}</div>
+                          </>
+                        )}
+                      </div>
+
+                      <div className="bg-white/80 p-3 rounded-lg border border-zinc-200/60 font-mono text-[11px] space-y-1">
+                        <span className="font-sans font-bold uppercase tracking-wider text-[10px] text-zinc-500 block">ERP SQL Server</span>
+                        {stockAuditResult.erp.error ? (
+                          <span className="text-rose-600">{stockAuditResult.erp.error}</span>
+                        ) : (
+                          <>
+                            <div>Estoque: <strong>{stockAuditResult.erp.stockQty?.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) ?? '—'}</strong></div>
+                            {stockAuditResult.erp.stockQtyRaw != null &&
+                              stockAuditResult.erp.stockQty != null &&
+                              Math.abs(stockAuditResult.erp.stockQtyRaw - stockAuditResult.erp.stockQty) > 0.01 && (
+                                <div className="text-amber-700">
+                                  Coluna ERP (cache): {stockAuditResult.erp.stockQtyRaw.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
+                                </div>
+                              )}
+                            <div>Reserva: {stockAuditResult.erp.reservedQty?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}</div>
+                            <div>Produção: {stockAuditResult.erp.inProduction?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}</div>
+                            <div>Pedidos: {stockAuditResult.erp.inOrders?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}</div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {stockAuditResult.warnings && stockAuditResult.warnings.length > 0 && (
+                      <ul className="text-[11px] text-amber-800 space-y-1 pt-1">
+                        {stockAuditResult.warnings.map((w) => (
+                          <li key={w}>{w}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Aba Rede & Servidor */}
+        {currentTab === 'rede' && (
+          <ConexaoServidorPanel
+            isAdmin={canEditInfra}
+            message={message}
+            setMessage={setMessage}
+          />
+        )}
+
+        {/* Aba Auditoria do Sistema */}
+        {currentTab === 'auditoria' && canEditInfra && (
+          <AuditoriaPanel setMessage={setMessage} />
+        )}
+
+        {/* Aba Identidade Visual & Logo */}
+        {currentTab === 'logo' && (
+          <ReportLogoPanel canUpload={canEditInfra} setMessage={setMessage} />
+        )}
+      </div>
+    </AppLayout>
   );
 }
