@@ -29,7 +29,8 @@ export function writeLabelFeed(feed: LabelFeed) {
 export async function printLabelDirect(
   template: LabelTemplate,
   config: PrintConfig,
-  printer: HubPrinter
+  printer: HubPrinter,
+  dpiOverride?: number
 ): Promise<void> {
   const printerName = (printer.system_printer_name || '').trim();
   if (!printerName) {
@@ -43,7 +44,11 @@ export async function printLabelDirect(
     throw new Error('A sequência direta aceita até 80 etiquetas por vez.');
   }
 
-  const dpi = printer.dpi && printer.dpi >= 150 ? printer.dpi : 203;
+  const dpi = dpiOverride && dpiOverride >= 150
+    ? dpiOverride
+    : printer.dpi && printer.dpi >= 150
+      ? printer.dpi
+      : 300;
   const fill = (config.fillScale ?? readLabelFillScale()) / 100;
   const landscape = readLabelFeed() === 'portrait';
   const total = config.sequenceTotal || copies;

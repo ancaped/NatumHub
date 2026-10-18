@@ -107,12 +107,15 @@ impl Db {
             is_producao_programada: pg_opt_i32(row, 14),
             producao_programada_disparo: pg_opt_i64(row, 15),
             producao_programada_objetivo: pg_opt_i64(row, 16),
+            lancamento_gatilho: pg_opt_i64(row, 17),
+            lancamento_estoque_maximo: pg_opt_i64(row, 18),
+            familia_produto: row.get(19),
         }
     }
 
     pub async fn get_override(&self, codigo: &str) -> Result<Option<ProductOverride>, String> {
         let row = sqlx::query(
-            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo, is_producao_programada, producao_programada_disparo, producao_programada_objetivo
+            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo, is_producao_programada, producao_programada_disparo, producao_programada_objetivo, lancamento_gatilho, lancamento_estoque_maximo, familia_produto
              FROM overrides_produtos WHERE codigo = $1",
         )
         .bind(codigo)
@@ -125,7 +128,7 @@ impl Db {
 
     pub async fn get_all_overrides(&self) -> Result<Vec<ProductOverride>, String> {
         let rows = sqlx::query(
-            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo, is_producao_programada, producao_programada_disparo, producao_programada_objetivo
+            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo, is_producao_programada, producao_programada_disparo, producao_programada_objetivo, lancamento_gatilho, lancamento_estoque_maximo, familia_produto
              FROM overrides_produtos",
         )
         .fetch_all(&self.pool)
@@ -153,6 +156,9 @@ impl Db {
             && (ovr.is_producao_programada.is_none() || ovr.is_producao_programada == Some(0))
             && ovr.producao_programada_disparo.is_none()
             && ovr.producao_programada_objetivo.is_none()
+            && ovr.lancamento_gatilho.is_none()
+            && ovr.lancamento_estoque_maximo.is_none()
+            && ovr.familia_produto.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true)
         {
             sqlx::query("DELETE FROM overrides_produtos WHERE codigo = $1")
                 .bind(&ovr.codigo)
@@ -161,8 +167,8 @@ impl Db {
                 .map_err(|e| e.to_string())?;
         } else {
             sqlx::query(
-                "INSERT INTO overrides_produtos (codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo, is_producao_programada, producao_programada_disparo, producao_programada_objetivo)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                "INSERT INTO overrides_produtos (codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo, is_producao_programada, producao_programada_disparo, producao_programada_objetivo, lancamento_gatilho, lancamento_estoque_maximo, familia_produto)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, CASE WHEN $21 THEN to_char(CURRENT_DATE, 'YYYY-MM-DD') ELSE NULL END), $14, $15, $16, $17, $18, $19, NULLIF($20, ''))
                  ON CONFLICT(codigo) DO UPDATE SET
                     estoque_ideal_manual = EXCLUDED.estoque_ideal_manual,
                     pedidos_manual = EXCLUDED.pedidos_manual,
@@ -175,11 +181,18 @@ impl Db {
                     categoria_produto = COALESCE(EXCLUDED.categoria_produto, overrides_produtos.categoria_produto),
                     produzir_apenas_kit = EXCLUDED.produzir_apenas_kit,
                     lancamento_meta_meses = COALESCE(EXCLUDED.lancamento_meta_meses, overrides_produtos.lancamento_meta_meses),
-                    lancamento_data_inicio = COALESCE(EXCLUDED.lancamento_data_inicio, overrides_produtos.lancamento_data_inicio),
+                    lancamento_data_inicio = COALESCE(EXCLUDED.lancamento_data_inicio, overrides_produtos.lancamento_data_inicio, CASE WHEN $21 THEN to_char(CURRENT_DATE, 'YYYY-MM-DD') ELSE NULL END),
                     terceirizado_modo = COALESCE(EXCLUDED.terceirizado_modo, overrides_produtos.terceirizado_modo),
                     is_producao_programada = EXCLUDED.is_producao_programada,
                     producao_programada_disparo = EXCLUDED.producao_programada_disparo,
-                    producao_programada_objetivo = EXCLUDED.producao_programada_objetivo",
+                    producao_programada_objetivo = EXCLUDED.producao_programada_objetivo,
+                    lancamento_gatilho = COALESCE(EXCLUDED.lancamento_gatilho, overrides_produtos.lancamento_gatilho),
+                    lancamento_estoque_maximo = COALESCE(EXCLUDED.lancamento_estoque_maximo, overrides_produtos.lancamento_estoque_maximo),
+                    familia_produto = CASE
+                        WHEN $20 = '-' THEN NULL
+                        WHEN NULLIF($20, '') IS NULL THEN overrides_produtos.familia_produto
+                        ELSE $20
+                    END",
             )
             .bind(&ovr.codigo)
             .bind(ovr.estoque_ideal_manual)
@@ -198,6 +211,14 @@ impl Db {
             .bind(ovr.is_producao_programada)
             .bind(ovr.producao_programada_disparo)
             .bind(ovr.producao_programada_objetivo)
+            .bind(ovr.lancamento_gatilho)
+            .bind(ovr.lancamento_estoque_maximo)
+            .bind(ovr.familia_produto.clone().unwrap_or_default())
+            .bind(
+                ovr.is_lancamento_manual == Some(1)
+                    || ovr.lancamento_gatilho.filter(|n| *n > 0).is_some()
+                    || ovr.lancamento_estoque_maximo.filter(|n| *n > 0).is_some(),
+            )
             .execute(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -270,6 +291,19 @@ impl Db {
                         .execute(&mut *tx)
                         .await
                         .map_err(|e| e.to_string())?;
+                }
+                "sair_producao_fixa" => {
+                    sqlx::query(
+                        "UPDATE overrides_produtos
+                         SET is_lancamento_manual = 0,
+                             lancamento_gatilho = NULL,
+                             lancamento_estoque_maximo = NULL
+                         WHERE codigo = $1",
+                    )
+                    .bind(codigo)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 }
                 "set_obs" => {
                     let obs = req.value_str.as_ref().filter(|s| !s.trim().is_empty());
@@ -674,7 +708,8 @@ impl Db {
                     COALESCE(kc.quantidade, 1)::float8 as quantidade,
                     kc.fator_proporcao_qtd::float8,
                     kc.fator_proporcao_kits,
-                    COALESCE(NULLIF(TRIM(kc.origem), ''), 'manual') as origem
+                    COALESCE(NULLIF(TRIM(kc.origem), ''), 'manual') as origem,
+                    ea.estoque
              FROM kit_composicao kc
              LEFT JOIN produtos pk
                ON TRIM(REPLACE(kc.kit_codigo, '\"', '')) = TRIM(REPLACE(pk.codigo, '\"', ''))
@@ -682,6 +717,8 @@ impl Db {
                ON TRIM(REPLACE(kc.componente_codigo, '\"', '')) = TRIM(REPLACE(pc.codigo, '\"', ''))
              LEFT JOIN items i
                ON TRIM(REPLACE(kc.componente_codigo, '\"', '')) = TRIM(REPLACE(i.code, '\"', ''))
+             LEFT JOIN estoque_atual ea
+               ON TRIM(REPLACE(kc.componente_codigo, '\"', '')) = TRIM(REPLACE(ea.codigo, '\"', ''))
              ORDER BY COALESCE(pk.descricao, kc.kit_codigo), COALESCE(pc.descricao, i.description, kc.componente_codigo)",
         )
         .fetch_all(&self.pool)
@@ -699,6 +736,7 @@ impl Db {
                 fator_proporcao_qtd: pg_opt_f64(&row, 5),
                 fator_proporcao_kits: pg_opt_i32(&row, 6),
                 origem: row.get(7),
+                estoque_componente: pg_opt_i64(&row, 8),
             })
             .collect())
     }

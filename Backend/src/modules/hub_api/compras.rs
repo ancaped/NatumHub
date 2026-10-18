@@ -218,6 +218,69 @@ async fn update_item_details_handler(State(state): State<Arc<AppState>>, Json(bo
     }
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LinkSimilarBody {
+    group_id: Option<String>,
+    codes: Vec<String>,
+}
+
+async fn list_similar_groups_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match with_pool(&state, list_similar_groups_query).await {
+        Ok(v) => ok_json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn link_similar_group_handler(State(state): State<Arc<AppState>>, Json(body): Json<LinkSimilarBody>) -> impl IntoResponse {
+    match with_pool(&state, |pool| link_similar_group_query(pool, body.group_id.clone(), body.codes.clone())).await {
+        Ok(()) => ok_status().into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn unlink_similar_group_handler(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> impl IntoResponse {
+    match with_pool(&state, |pool| unlink_similar_group_query(pool, &id)).await {
+        Ok(()) => ok_status().into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn unlink_similar_item_handler(State(state): State<Arc<AppState>>, Path(code): Path<String>) -> impl IntoResponse {
+    match with_pool(&state, |pool| unlink_similar_item_from_group_query(pool, &code)).await {
+        Ok(()) => ok_status().into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetItemStockBody {
+    code: String,
+    stock: f64,
+}
+
+async fn list_stock_calibrations_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match with_pool(&state, list_stock_calibrations_query).await {
+        Ok(v) => ok_json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn set_item_real_stock_handler(State(state): State<Arc<AppState>>, Json(body): Json<SetItemStockBody>) -> impl IntoResponse {
+    match with_pool(&state, |pool| set_item_real_stock_query(pool, &body.code, body.stock)).await {
+        Ok(()) => ok_status().into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn list_similar_pairs_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match with_pool(&state, list_similar_pairs_query).await {
+        Ok(v) => ok_json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
 async fn get_similar_items_handler(State(state): State<Arc<AppState>>, Query(q): Query<CodeQuery>) -> impl IntoResponse {
     match with_pool(&state, |pool| get_similar_items_query(pool, &q.code)).await {
         Ok(v) => ok_json(v).into_response(),
@@ -620,6 +683,13 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/hub/compras/items", get(get_items_handler))
         .route("/api/hub/compras/items/details", post(update_item_details_handler))
         .route("/api/hub/compras/items/similar", get(get_similar_items_handler).post(add_similar_item_handler).delete(remove_similar_item_handler))
+        .route("/api/hub/compras/items/similar/pairs", get(list_similar_pairs_handler))
+        .route("/api/hub/compras/items/similar/groups", get(list_similar_groups_handler))
+        .route("/api/hub/compras/items/similar/groups/:id", delete(unlink_similar_group_handler))
+        .route("/api/hub/compras/items/similar/link", post(link_similar_group_handler))
+        .route("/api/hub/compras/items/similar/item/:code", delete(unlink_similar_item_handler))
+        .route("/api/hub/compras/items/stock-calibrations", get(list_stock_calibrations_handler))
+        .route("/api/hub/compras/items/stock", post(set_item_real_stock_handler))
         .route("/api/hub/compras/items/category", post(update_items_category_handler))
         .route("/api/hub/compras/items/observations", post(import_item_observations_handler))
         // Demands

@@ -162,7 +162,7 @@ fn sum_movements_for_period(
 const DEMANDS_SQL_ITEMS: &str = "
              SELECT 
                  i.code, i.description, i.unit, i.category_id, COALESCE(c.name, 'Sem Categoria') as category_name,
-                 COALESCE(s.stock_qty, 0) as stock_qty, COALESCE(s.reserved_qty, 0) as reserved_qty, 
+                 COALESCE(cal.stock, s.stock_qty, 0) as stock_qty, COALESCE(s.reserved_qty, 0) as reserved_qty, 
                  COALESCE(s.in_production, 0) as in_production,
                  COALESCE((
                      SELECT SUM(poi.n_qtde - poi.n_chegou)
@@ -186,6 +186,7 @@ const DEMANDS_SQL_ITEMS: &str = "
              LEFT JOIN consumption c2024 ON i.code = c2024.item_code AND c2024.year = 2024
              LEFT JOIN consumption c2025 ON i.code = c2025.item_code AND c2025.year = 2025
              LEFT JOIN consumption c2026 ON i.code = c2026.item_code AND c2026.year = 2026
+             LEFT JOIN item_stock_calibrations cal ON TRIM(cal.item_code) = TRIM(i.code)
              WHERE i.is_ignored = 0 
                AND (i.code NOT IN (SELECT codigo FROM produtos) AND (i.code LIKE '9.%' OR i.code LIKE '08.%'))
 ";
@@ -195,7 +196,7 @@ const DEMANDS_SQL_PRODUCTS: &str = "
                  p.codigo as code, p.descricao as description, 'UN' as unit, 
                  COALESCE(o.categoria_produto, CASE WHEN p.codigo LIKE '1.34.%' THEN 'cat_coloracao' WHEN p.codigo LIKE '1.30.%' THEN 'cat_apoio' ELSE '' END) as category_id,
                  CASE WHEN p.codigo LIKE '1.34.%' THEN 'Coloração' WHEN p.codigo LIKE '1.30.%' THEN 'Material de Apoio' ELSE 'Sem Categoria' END as category_name,
-                 COALESCE(e.estoque, 0) as stock_qty, 0 as reserved_qty, COALESCE(e.producao, 0) as in_production, 
+                 COALESCE(cal.stock, e.estoque, 0) as stock_qty, 0 as reserved_qty, COALESCE(e.producao, 0) as in_production, 
                  (
                      COALESCE((
                          SELECT SUM(poi.n_qtde - poi.n_chegou)
@@ -226,6 +227,7 @@ const DEMANDS_SQL_PRODUCTS: &str = "
              LEFT JOIN overrides_produtos o ON p.codigo = o.codigo
              LEFT JOIN estoque_atual e ON p.codigo = e.codigo
              LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
+             LEFT JOIN item_stock_calibrations cal ON TRIM(cal.item_code) = TRIM(p.codigo)
              WHERE (p.codigo LIKE '1.34.%' OR p.codigo LIKE '1.30.%' OR o.categoria_produto = 'cat_coloracao' OR o.categoria_produto = 'cat_apoio')
                AND COALESCE(cl.visivel, 1) <> 0
 ";
@@ -725,8 +727,9 @@ fn build_demand_result(
     };
     let daily_avg = overall_avg / 30.0;
 
-    // Estoque = nQtdeEstoque (tela ERP). Reserva (−R) = nqtdeReserva do ERP (espelho);
-    // lotes abertos só como fallback quando o ERP não informa reserva. Não descontar de novo.
+    // Estoque = recálculo de movimentos (igual à tela do ERP; já desconta reservas abertas).
+    // Reserva (−R) = reserva aberta recalculada, informativa. Lotes só se o recálculo vier zerado.
+    // Não descontar a reserva de novo.
     // pedidos (+P) = POs abertos (não nQtdePedidos do cadastro).
     // Prev. Futura = estoque + pedidos + manuais − sim_producao (Produzir Urgente / Abrir Ordem).
     let (manual_in, manual_out) = manual_pending
@@ -746,8 +749,7 @@ fn build_demand_result(
         0.0
     };
 
-    // Preferir espelho ERP (nqtdeReserva). Lotes só se ERP vier zerado — evita "falso erro"
-    // Hub×ERP quando a reserva do cadastro existe e a de lotes diverge.
+    // Preferir a reserva aberta recalculada. Lotes só se ela vier zerada.
     let reserved_qty_erp = Some(reserved_qty_imported);
     let reserved_display = if reserved_qty_imported.abs() > 1e-9 {
         reserved_qty_imported
@@ -849,6 +851,7 @@ fn build_demand_result(
         current_stock,
         reserved_qty: reserved_display,
         reserved_qty_erp,
+        reserved_qty_ordens: remaining_reserved,
         in_production,
         in_orders,
         sim_producao,
@@ -877,6 +880,17 @@ pub async fn get_demands_query(
     target_days: i32,
     override_period: Option<i32>,
 ) -> Result<Vec<DemandResult>, String> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS item_stock_calibrations (
+            item_code TEXT PRIMARY KEY,
+            stock DOUBLE PRECISION NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
+    )
+    .execute(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
     let mut custom_configs: Vec<TempConfig> = Vec::new();
     if let Ok(rows) = sqlx::query(
         "SELECT level, target_id, dias_start, dias_target, use_lead_time, safety_days, objetivo_tipo, objetivo_valor, periodo_media 

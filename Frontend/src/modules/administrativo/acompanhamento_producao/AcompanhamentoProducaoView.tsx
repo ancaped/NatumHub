@@ -81,6 +81,7 @@ export interface AcompanhamentoLote {
   quantity: number;       // Unidades
   quantityKg: number;     // Kg do lote completo
   date: string;
+  details?: string | null;
   erpStatus: string;
   erpStatusLabel: string;
   customStatus?: string | null;
@@ -121,6 +122,24 @@ export interface AcompanhamentoLote {
     updatedAt?: string | null;
   }> | null;
   etapas_status?: any | null;
+  planningOrdem?: number | null;
+  planning_ordem?: number | null;
+}
+
+export function getLotePlanningOrdem(lote: AcompanhamentoLote): number {
+  if (typeof lote.planningOrdem === 'number' && !isNaN(lote.planningOrdem)) {
+    return lote.planningOrdem;
+  }
+  if (typeof (lote as any).planning_ordem === 'number' && !isNaN((lote as any).planning_ordem)) {
+    return (lote as any).planning_ordem;
+  }
+  if (lote.details) {
+    const match = lote.details.match(/\|\s*Ordem:\s*(\d+)/i) || lote.details.match(/\|\s*Seq:\s*(\d+)/i);
+    if (match && match[1]) {
+      return parseInt(match[1], 10);
+    }
+  }
+  return 999999;
 }
 
 export interface LoteAdiadoRegistro {
@@ -288,6 +307,28 @@ export function inferCorProduto(description: string): { isColorido: boolean; cor
 }
 
 /**
+ * Extrai o peso/volume unitário do produto a partir da descrição (ex: "60 ML" -> 0.06 kg, "500 G" -> 0.5 kg, "1000 ML" / "1 L" -> 1.0 kg)
+ */
+export function parseProductUnitWeightKg(descricao?: string): number {
+  if (!descricao) return 1.0;
+  const desc = descricao.toUpperCase();
+  const m = desc.match(/(\d+(?:[.,]\d+)?)\s*(ML|L|GR|G|KG)\b/i);
+  if (!m) return 1.0;
+
+  const val = parseFloat(m[1].replace(',', '.'));
+  if (isNaN(val) || val <= 0) return 1.0;
+
+  const unit = m[2].toUpperCase();
+  if (unit === 'KG' || unit === 'L') {
+    return val;
+  }
+  if (unit === 'G' || unit === 'GR' || unit === 'ML') {
+    return val / 1000.0;
+  }
+  return 1.0;
+}
+
+/**
  * Comparador estrito de número de lote.
  * 1. Prioriza correspondência exata (com ou sem # e zeros à esquerda).
  * 2. Em caso de busca parcial, casa apenas pelo início (startsWith), nunca no meio do número,
@@ -378,10 +419,12 @@ export function deduplicateLotesByNumber<T extends { loteNumber?: string | null;
   items: T[]
 ): T[] {
   if (!items || items.length <= 1) return items || [];
+
   const map = new Map<string, T>();
   for (const item of items) {
     const rawNum = item.loteNumber;
     const rawCode = (item as any).productCode || (item as any).codigo || (item as any).item_code;
+
     const rawDesc = (item as any).productDescription || (item as any).descricao || '';
     const key = rawCode 
       ? `${(rawNum || '').trim().toLowerCase()}__${String(rawCode).trim().toLowerCase()}`
@@ -400,6 +443,36 @@ export function deduplicateLotesByNumber<T extends { loteNumber?: string | null;
       // DEDUPLICAÇÃO: mesmo lote e produto não deve ter quantidade somada (evita dobrar)
       (existing as any).quantity = Math.max(q1, q2);
       (existing as any).quantityKg = Math.max(kg1, kg2);
+    }
+  }
+  return Array.from(map.values());
+}
+
+/**
+ * Consolida múltiplos produtos de uma mesma batelada/lote em um único card unificado
+ * para Pesagem e Produção (Reatores / Caldeira), somando as quantidades de massa (kg) e unidades.
+ */
+export function consolidateLotesForBatch<T extends { loteNumber?: string | null; productCode?: string | null; quantity?: number; quantityKg?: number }>(
+  items: T[]
+): T[] {
+  if (!items || items.length <= 1) return items || [];
+  const map = new Map<string, T>();
+  for (const item of items) {
+    const rawNum = (item.loteNumber || '').trim().toLowerCase();
+    if (!rawNum) continue;
+    if (!map.has(rawNum)) {
+      map.set(rawNum, { 
+        ...item, 
+        lotes: [{ ...item }] 
+      } as any);
+    } else {
+      const existing = map.get(rawNum)!;
+      (existing as any).quantity = (Number(existing.quantity) || 0) + (Number(item.quantity) || 0);
+      (existing as any).quantityKg = (Number(existing.quantityKg) || 0) + (Number(item.quantityKg) || 0);
+      if (!(existing as any).lotes) {
+        (existing as any).lotes = [{ ...existing }];
+      }
+      (existing as any).lotes.push({ ...item });
     }
   }
   return Array.from(map.values());
@@ -837,6 +910,9 @@ export function isLoteConcluido(l: AcompanhamentoLote | null | undefined): boole
   const qtdParcial = Number(l.quantidadeEnvasadaParcial || (l as any).quantidade_envasada_parcial) || 0;
   if (qtdParcial > 0) return false;
 
+  // Se o lote é oriundo do Planejamento Semanal ativo, não pode ser fechado prematuramente por ERP status EA legado
+  if (l.details?.includes('Planejamento Semanal')) return false;
+
   // 4. Se o lote constar como EA no ERP, fecha automaticamente (exceto se for parcial)
   if (l.erpStatus === 'EA') return true;
 
@@ -986,20 +1062,13 @@ export function getLoteScheduleDateIso(
   lote: AcompanhamentoLote,
   etapa?: 'pesagem' | 'producao' | 'rotulagem' | 'envase' | 'ordens'
 ): string | null {
-  // 1. Data de Previsão explícita (definida no planejamento, reagendamento, adiantamento ou ao iniciar)
-  // Tem prioridade máxima absoluta porque reflete a data em que o lote está programado para ser trabalhado.
-  if (lote.dataPrevisao && lote.dataPrevisao.trim()) {
-    const iso = parseLoteDateToIso(lote.dataPrevisao);
-    if (iso) return iso;
-  }
-
-  // 2. Se for ordens e possui data de finalização, a data de conclusão tem prioridade para histórico
+  // 1. Se for ordens e possui data de finalização, a data de conclusão tem prioridade para histórico
   if (etapa === 'ordens' && lote.dataFinalizada) {
     const iso = parseLoteDateToIso(lote.dataFinalizada);
     if (iso) return iso;
   }
 
-  // 3. Fallbacks caso NÃO haja dataPrevisao: data gravada de execução da etapa
+  // 2. Data gravada de execução da etapa específica (prioridade máxima para permitir datas independentes por etapa)
   if (etapa === 'pesagem' && lote.dataPesagem) {
     const iso = parseLoteDateToIso(lote.dataPesagem);
     if (iso) return iso;
@@ -1017,13 +1086,25 @@ export function getLoteScheduleDateIso(
     if (iso) return iso;
   }
 
-  // Fallback: se for pesagem e não tiver dataPesagem nem dataPrevisao, mas tiver dataProducao
+  // 3. Fallback: se for pesagem e não tiver dataPesagem, mas tiver dataProducao
   if (etapa === 'pesagem' && lote.dataProducao) {
     const iso = parseLoteDateToIso(lote.dataProducao);
     if (iso) return iso;
   }
 
-  // 4. Data de abertura da OP / Lote no ERP
+  // 4. Data de Previsão explícita
+  if (lote.dataPrevisao && lote.dataPrevisao.trim()) {
+    const iso = parseLoteDateToIso(lote.dataPrevisao);
+    if (iso) return iso;
+  }
+
+  // 5. Se for lote do Planejamento Semanal com lote.date definido
+  if (lote.details?.includes('Planejamento Semanal') && lote.date) {
+    const iso = parseLoteDateToIso(lote.date);
+    if (iso) return iso;
+  }
+
+  // 6. Data de abertura da OP / Lote no ERP
   if (lote.date) {
     const iso = parseLoteDateToIso(lote.date);
     if (iso) return iso;
@@ -1747,22 +1828,42 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   const [addLoteModalSearch, setAddLoteModalSearch] = useState<string>('');
 
 
-  // Filtros do Quadro de Pesagem
+  // Filtros do Quadro de Pesagem (busca da grade ativa vs busca independente da fila)
   const [pesagemSearch, setPesagemSearch] = useState<string>('');
+  const [pesagemFilaSearch, setPesagemFilaSearch] = useState<string>('');
   const [pesagemStatusFilter, setPesagemStatusFilter] = useState<'TODOS' | 'AGUARDANDO' | 'EM_PESAGEM'>('TODOS');
 
-  // Filtros e Sub-quadros do Quadro de Produção
+  // Filtros e Sub-quadros do Quadro de Produção (busca de reatores ativos vs busca independente da fila)
   const [producaoSearch, setProducaoSearch] = useState<string>('');
+  const [producaoFilaSearch, setProducaoFilaSearch] = useState<string>('');
   const [producaoCategoryFilter, setProducaoCategoryFilter] = useState<string>('TODOS');
   const [producaoSubTab, setProducaoSubTab] = useState<'reatores' | 'caldeira' | 'todos'>('reatores');
   const [caldeiraSearch, setCaldeiraSearch] = useState<string>('');
 
-  // Quadro de Rotulagem
+  // Quadro de Rotulagem (busca das esteiras ativas vs busca independente da fila)
   const [programacaoRotulagem, setProgramacaoRotulagem] = useState<ProgramacaoRotulagemItem[]>([]);
   const [loadingRotulagem, setLoadingRotulagem] = useState<boolean>(false);
   const [rotulagemSearch, setRotulagemSearch] = useState<string>('');
+  const [rotulagemFilaSearch, setRotulagemFilaSearch] = useState<string>('');
   const [rotulagemStatusFilter, setRotulagemStatusFilter] = useState<'TODOS' | 'PROGRAMADO' | 'EM_ROTULAGEM' | 'CONCLUIDO'>('TODOS');
   const [rotulagemOnlyProblemas, setRotulagemOnlyProblemas] = useState<boolean>(false);
+
+  // Modal / Localizador Facilitado de Datas dos Lotes
+  const [showLocalizarDataModal, setShowLocalizarDataModal] = useState<boolean>(false);
+  const [localizarDataSearch, setLocalizarDataSearch] = useState<string>('');
+
+  // Estado de Drag & Drop para os quadros
+  const [dragCardInfo, setDragCardInfo] = useState<{
+    board: 'envase' | 'rotulagem' | 'pesagem' | 'producao';
+    source: string;
+    id?: number | string;
+    loteNumber: string;
+    productCode?: string;
+    index?: number;
+    linha?: 'Linha 1' | 'Linha 2' | 'Linha 3';
+    tipo?: 'MAQUINA' | 'MANUAL';
+  } | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
 
   // Filtros do Quadro de Ordens
   const [ordensSearch, setOrdensSearch] = useState<string>('');
@@ -1828,7 +1929,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     motivoEspera?: string | null,
     insumoFaltanteCodigo?: string | null,
     insumoFaltanteDescricao?: string | null,
-    updatedBy?: string
+    updatedBy?: string,
+    dataAgendada?: string | null
   ) => {
     const responsible = updatedBy || (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
     const nowIso = new Date().toISOString();
@@ -1860,7 +1962,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     setLotes(prev => prev.map(l => {
       if (l.loteNumber !== loteNumber) return l;
       const currentEtapas = l.etapasStatus || (l as any).etapas_status || {};
-      return {
+      const updatedLote = {
         ...l,
         etapasStatus: {
           ...currentEtapas,
@@ -1874,6 +1976,27 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           }
         }
       };
+
+      if (dataAgendada) {
+        const cleanDt = dataAgendada.trim();
+        const isoSchedule = cleanDt.includes('T') ? cleanDt : `${cleanDt}T08:00:00Z`;
+        if (etapa === 'pesagem') updatedLote.dataPesagem = isoSchedule;
+        else if (etapa === 'producao') updatedLote.dataProducao = isoSchedule;
+        else if (etapa === 'rotulagem') updatedLote.dataRotulagem = isoSchedule;
+        else if (etapa === 'envase') updatedLote.dataEnvase = isoSchedule;
+      }
+
+      // Se ativando, concluindo ou colocando na fila a etapa, remove de quadrosOcultos caso estivesse oculta
+      if (status === 'ativo' || status === 'concluido' || status === 'fila') {
+        const ocl = updatedLote.quadrosOcultos || (updatedLote as any).quadros_ocultos;
+        if (Array.isArray(ocl)) {
+          const nextOcl = ocl.filter(q => q.toLowerCase() !== etapa.toLowerCase());
+          updatedLote.quadrosOcultos = nextOcl;
+          (updatedLote as any).quadros_ocultos = nextOcl;
+        }
+      }
+
+      return updatedLote;
     }));
 
     // 3. Persistência no backend (Postgres via rota dedicada de etapa)
@@ -1887,6 +2010,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           insumoFaltanteCodigo: insumoFaltanteCodigo || null,
           insumoFaltanteDescricao: insumoFaltanteDescricao || null,
           updatedBy: responsible,
+          dataAgendada: dataAgendada || null,
         })
       });
     } catch (err) {
@@ -1980,28 +2104,13 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Carregar lotes da API (preservando lotes buscados remotamente que não constem na fatia inicial)
+  // Carregar lotes da API (sincronizando diretamente com a fonte única de verdade do servidor)
   const fetchLotes = useCallback(async () => {
     setLoading(true);
     try {
       const data = await apiJson<AcompanhamentoLote[]>('/api/administrativo/acompanhamento-producao');
-      setLotes(prev => {
-        const freshList = Array.isArray(data) ? data : [];
-        if (prev.length === 0) return freshList;
-
-        const getKey = (l: AcompanhamentoLote) => `${(l.loteNumber || '').trim().toLowerCase()}__${(l.productCode || '').trim().toLowerCase()}`;
-        const freshKeys = new Set(freshList.map(getKey));
-
-        // Preserva lotes já presentes no estado (ex: buscados remotamente ou com status operacional) que não vieram na listagem padrão
-        const preserved: AcompanhamentoLote[] = [];
-        for (const old of prev) {
-          const k = getKey(old);
-          if (!freshKeys.has(k)) {
-            preserved.push(old);
-          }
-        }
-        return preserved.length > 0 ? [...freshList, ...preserved] : freshList;
-      });
+      const freshList = Array.isArray(data) ? data : [];
+      setLotes(freshList);
     } catch (err) {
       console.error("Erro ao carregar lotes de acompanhamento:", err);
       showToast("Não foi possível carregar os lotes de produção.", "error");
@@ -2057,7 +2166,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
   // Monitorar inputs de busca para carregar do backend caso não esteja em memória
   useEffect(() => {
-    const activeQuery = pesagemSearch.trim() || producaoSearch.trim() || encaixeSearch.trim() || rotulagemSearch.trim() || ordensSearch.trim();
+    const activeQuery = pesagemSearch.trim() || producaoSearch.trim() || encaixeSearch.trim() || rotulagemSearch.trim() || ordensSearch.trim() || addLoteModalSearch.trim();
     if (!activeQuery) return;
     const { clean } = normalizeLoteSearch(activeQuery);
     if (!clean || clean.length < 3) return;
@@ -2066,7 +2175,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       performRemoteLookup(clean);
     }, 350);
     return () => clearTimeout(timer);
-  }, [pesagemSearch, producaoSearch, encaixeSearch, rotulagemSearch, ordensSearch, performRemoteLookup]);
+  }, [pesagemSearch, producaoSearch, encaixeSearch, rotulagemSearch, ordensSearch, addLoteModalSearch, performRemoteLookup]);
 
   // Carregar ordens de montagem de Kits
   const fetchKitOrders = useCallback(async () => {
@@ -2623,7 +2732,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         await fetchProgramacaoRotulagem('TODOS');
       }
 
-      // 3. Atualizar data_previsao no backend (lote_custom_status)
+      // 3. Atualizar data_previsao e data da etapa no backend (lote_custom_status)
       setLotes(prev => prev.map(l => (l.loteNumber || '').trim() === loteNumber.trim() ? { ...l, dataPrevisao: cleanDate } : l));
       await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(loteNumber)}/previsao`, {
         method: 'POST',
@@ -2632,6 +2741,22 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           updatedBy: responsibleName
         })
       });
+
+      if (etapa === 'producao') {
+        await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(loteNumber)}/timestamps`, {
+          method: 'POST',
+          body: JSON.stringify({
+            dataProducao: new Date(`${cleanDate}T08:00:00Z`).toISOString()
+          })
+        }).catch(() => {});
+      } else if (etapa === 'pesagem') {
+        await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(loteNumber)}/timestamps`, {
+          method: 'POST',
+          body: JSON.stringify({
+            dataPesagem: new Date(`${cleanDate}T08:00:00Z`).toISOString()
+          })
+        }).catch(() => {});
+      }
 
       // 4. Remover registro de adiamento do histórico reativo
       setLotesAdiadosHistorico(prev => {
@@ -2805,6 +2930,12 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
   useEffect(() => {
     const handleRefresh = () => {
+      setPesagemOrderOverrides([]);
+      setProducaoOrderOverrides([]);
+      try {
+        localStorage.removeItem('natum_pesagem_order_overrides');
+        localStorage.removeItem('natum_producao_order_overrides');
+      } catch {}
       fetchLotes();
     };
     window.addEventListener('natum:refresh-acompanhamento', handleRefresh);
@@ -2914,6 +3045,13 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       (!it.productCode || !lote.productCode || (it.productCode || '').trim() === (lote.productCode || '').trim())
     );
 
+    const finalKg = Number(lote.quantityKg) || 0;
+    let finalUn = Number(lote.quantity) || 0;
+    if (finalUn <= 0 && finalKg > 0) {
+      const uWeight = parseProductUnitWeightKg(lote.productDescription);
+      finalUn = Math.round(finalKg / (uWeight || 1));
+    }
+
     try {
       await apiJson('/api/administrativo/envase/programacao', {
         method: 'POST',
@@ -2924,8 +3062,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           loteNumber: lote.loteNumber,
           productCode: lote.productCode,
           productDescription: lote.productDescription,
-          quantity: lote.quantity || 0,
-          quantityKg: lote.quantityKg || 0,
+          quantity: finalUn,
+          quantityKg: finalKg,
           categoriaEnvase: catFinal,
           isColorido: isColFinal,
           cor: corFinal,
@@ -2959,8 +3097,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   // Reordenar item na linha (Subir ou Descer)
   const handleReorderEnvase = async (id: number, linha: string, direction: 'up' | 'down') => {
     const lineItems = programacaoEnvase
-      .filter(it => it.linha === linha)
-      .sort((a, b) => a.ordem - b.ordem);
+      .filter(it => it.linha === linha && (envaseShowAllDates || !it.dataProgramada || parseLoteDateToIso(it.dataProgramada) === envaseSelectedDate))
+      .sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
 
     const currentIndex = lineItems.findIndex(it => it.id === id);
     if (currentIndex === -1) return;
@@ -2968,24 +3106,25 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
     if (targetIndex < 0 || targetIndex >= lineItems.length) return;
 
-    const currentItem = lineItems[currentIndex];
-    const targetItem = lineItems[targetIndex];
+    const temp = lineItems[currentIndex];
+    lineItems[currentIndex] = lineItems[targetIndex];
+    lineItems[targetIndex] = temp;
 
-    const currentOrdem = currentItem.ordem;
-    const targetOrdem = targetItem.ordem === currentOrdem 
-      ? (direction === 'up' ? currentOrdem - 1 : currentOrdem + 1)
-      : targetItem.ordem;
+    lineItems.forEach((it, i) => {
+      it.ordem = i + 1;
+    });
 
-    const payloadItems = [
-      { id: currentItem.id, linha, ordem: targetOrdem },
-      { id: targetItem.id, linha, ordem: currentOrdem },
-    ];
-
-    setProgramacaoEnvase(prev => prev.map(it => {
-      if (it.id === currentItem.id) return { ...it, ordem: targetOrdem };
-      if (it.id === targetItem.id) return { ...it, ordem: currentOrdem };
-      return it;
+    const payloadItems = lineItems.map(it => ({
+      id: it.id,
+      linha: it.linha,
+      ordem: it.ordem,
     }));
+
+    const lineIds = new Set(lineItems.map(it => it.id));
+    setProgramacaoEnvase(prev => [
+      ...prev.filter(it => !lineIds.has(it.id)),
+      ...lineItems
+    ]);
 
     try {
       await apiJson('/api/administrativo/envase/programacao/reorder', {
@@ -2997,6 +3136,75 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       console.error("Erro ao reordenar envase:", e);
       showToast("Falha ao reordenar: " + (e?.message || e), "error");
       fetchProgramacaoEnvase(envaseSelectedDate);
+    }
+  };
+
+  const handleReorderEnvaseList = async (linha: 'Linha 1' | 'Linha 2' | 'Linha 3', fromIndex: number, toIndex: number) => {
+    const lineItems = [...programacaoEnvase
+      .filter(it => it.linha === linha && (envaseShowAllDates || !it.dataProgramada || parseLoteDateToIso(it.dataProgramada) === envaseSelectedDate))
+      .sort((a, b) => (a.ordem || 0) - (b.ordem || 0))];
+    if (fromIndex < 0 || fromIndex >= lineItems.length || toIndex < 0 || toIndex >= lineItems.length || fromIndex === toIndex) return;
+    const [moved] = lineItems.splice(fromIndex, 1);
+    lineItems.splice(toIndex, 0, moved);
+    lineItems.forEach((it, i) => {
+      it.ordem = i + 1;
+    });
+    const lineIds = new Set(lineItems.map(it => it.id));
+    setProgramacaoEnvase(prev => [
+      ...prev.filter(it => !lineIds.has(it.id)),
+      ...lineItems
+    ]);
+    const payloadItems = lineItems.map(it => ({
+      id: it.id,
+      linha: it.linha,
+      ordem: it.ordem,
+    }));
+    try {
+      await apiJson('/api/administrativo/envase/programacao/reorder', {
+        method: 'POST',
+        body: JSON.stringify({ items: payloadItems })
+      });
+      fetchProgramacaoEnvase(envaseSelectedDate);
+    } catch (e: any) {
+      console.error("Erro ao reordenar envase por drag:", e);
+      fetchProgramacaoEnvase(envaseSelectedDate);
+    }
+  };
+
+  const handleDropEnvaseColumn = async (e: React.DragEvent, targetLinha: 'Linha 1' | 'Linha 2' | 'Linha 3', targetIndex?: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverTarget(null);
+    const rawData = e.dataTransfer.getData('application/json');
+    if (!rawData) return;
+    try {
+      const data = JSON.parse(rawData);
+      if (data.board !== 'envase') return;
+      if (data.source === 'liberados') {
+        const targetLote = lotes.find(l => 
+          l.loteNumber === data.loteNumber && 
+          (!data.productCode || !l.productCode || l.productCode === data.productCode)
+        ) || baseLotesParaEncaixe.find(l => 
+          l.loteNumber === data.loteNumber && 
+          (!data.productCode || !l.productCode || l.productCode === data.productCode)
+        );
+        if (targetLote) {
+          await handleEncaixarLote(targetLote, targetLinha);
+        }
+      } else if (data.source === 'linha') {
+        if (data.linha !== targetLinha) {
+          const item = programacaoEnvase.find(it => it.id === data.id);
+          if (item) {
+            await handleMoveLinha(item, targetLinha);
+          }
+        } else if (data.index !== undefined && targetIndex !== undefined && data.index !== targetIndex) {
+          await handleReorderEnvaseList(targetLinha, data.index, targetIndex);
+        }
+      }
+    } catch (err) {
+      console.error('Erro no drop de envase:', err);
+    } finally {
+      setDragCardInfo(null);
     }
   };
 
@@ -3297,40 +3505,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     }
   };
 
-  // Remover item do Quadro de Envase
-  const handleRemoveEnvase = async (id: number, loteNumber: string) => {
-    setProgramacaoEnvase(prev => prev.filter(it => it.id !== id && it.loteNumber !== loteNumber));
-    try {
-      if (id && id > 0) {
-        await apiJson(`/api/administrativo/envase/programacao/${id}`, {
-          method: 'DELETE',
-        });
-      } else if (loteNumber) {
-        await apiJson(`/api/administrativo/envase/programacao/lote/${encodeURIComponent(loteNumber)}`, {
-          method: 'DELETE',
-        });
-      }
-      saveEtapaStatus(loteNumber, 'envase', 'fila');
-      showToast(`Lote #${loteNumber} removido da programação de envase.`);
-      fetchProgramacaoEnvase(envaseSelectedDate);
-    } catch (e: any) {
-      console.error("Erro ao remover item do quadro por id, tentando fallback por lote:", e);
-      if (loteNumber) {
-        try {
-          await apiJson(`/api/administrativo/envase/programacao/lote/${encodeURIComponent(loteNumber)}`, {
-            method: 'DELETE',
-          });
-          showToast(`Lote #${loteNumber} removido da programação de envase.`);
-          fetchProgramacaoEnvase(envaseSelectedDate);
-          return;
-        } catch (e2) {
-          console.error("Erro no fallback de exclusao por lote:", e2);
-        }
-      }
-      showToast("Falha ao remover item do quadro: " + (e?.message || e), "error");
-      fetchProgramacaoEnvase(envaseSelectedDate);
-    }
-  };
 
   // Isolamento Estrito de Terceirizados (Códigos SKU e Números de Lote cadastrados em solicitações)
   const terceirizadoProductCodes = useMemo(() => {
@@ -4204,13 +4378,33 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           if (!currentOcultos.some(q => q.toLowerCase() === quadro.toLowerCase())) {
             currentOcultos.push(quadro);
           }
-          return { ...l, quadrosOcultos: currentOcultos, quadros_ocultos: currentOcultos };
+          const nextLote = {
+            ...l,
+            quadrosOcultos: currentOcultos,
+            quadros_ocultos: currentOcultos
+          };
+          if (quadro === 'envase') {
+            if (nextLote.customStatus === 'Liberado para Envase') {
+              nextLote.customStatus = 'Produzido';
+            }
+            nextLote.dataLiberadoEnvase = undefined;
+          }
+          return nextLote;
         }
         return l;
       }));
 
-      // Se for do envase, limpar localmente de programacaoEnvase se constar
+      // Se for do envase, limpar localmente de programacaoEnvase e de inclusões manuais
       if (quadro === 'envase') {
+        setManualLiberadosEnvase(prev => {
+          const next = new Set(prev);
+          next.delete((loteNumber || '').trim().toLowerCase());
+          next.delete(loteNumber);
+          try {
+            localStorage.setItem('natum_manual_liberados_envase', JSON.stringify(Array.from(next)));
+          } catch {}
+          return next;
+        });
         setProgramacaoEnvase(prev => prev.filter(p => p.loteNumber !== loteNumber));
       }
 
@@ -4238,6 +4432,35 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       await fetchLotes();
     }
   }, [fetchLotes, fetchProgramacaoEnvase, fetchProgramacaoRotulagem]);
+
+  // Remover agendamento do Quadro de Envase (remove da linha/data específica mantendo outros agendamentos e o lote ativo)
+  const handleRemoveEnvase = useCallback(async (id: number, loteNumber: string) => {
+    // 1. Atualização otimista local: se tem ID > 0, remove APENAS aquele item agendado!
+    // Preserva se o mesmo lote tiver outro agendamento em outra linha ou data!
+    setProgramacaoEnvase(prev => {
+      if (id && id > 0) {
+        return prev.filter(it => it.id !== id);
+      }
+      return prev.filter(it => it.loteNumber !== loteNumber);
+    });
+
+    try {
+      if (id && id > 0) {
+        await apiJson(`/api/administrativo/envase/programacao/${id}`, {
+          method: 'DELETE',
+        }).catch(() => {});
+      } else if (loteNumber) {
+        await apiJson(`/api/administrativo/envase/programacao/lote/${encodeURIComponent(loteNumber)}`, {
+          method: 'DELETE',
+        }).catch(() => {});
+      }
+      showToast(`Agendamento do lote #${loteNumber} removido da linha de envase.`, 'info');
+      await fetchProgramacaoEnvase('TODOS');
+    } catch (e: any) {
+      console.error("Erro ao remover item do quadro de envase:", e);
+      showToast(`Erro ao remover item do envase: ${e?.message || e}`, 'error');
+    }
+  }, [fetchProgramacaoEnvase]);
 
   const handleRestaurarLoteNoQuadro = useCallback(async (loteNumber: string, quadro: string) => {
     try {
@@ -4307,6 +4530,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     if (!addLoteModalTarget) return;
     const target = addLoteModalTarget;
     const cleanNum = (lote.loteNumber || '').trim().toLowerCase();
+    const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
+    const targetDate = target === 'pesagem'
+      ? (pesagemSelectedDate || new Date().toISOString().split('T')[0])
+      : target === 'producao'
+        ? (producaoSelectedDate || new Date().toISOString().split('T')[0])
+        : target === 'rotulagem'
+          ? (rotulagemSelectedDate || new Date().toISOString().split('T')[0])
+          : (envaseSelectedDate || new Date().toISOString().split('T')[0]);
 
     try {
       if (target === 'envase') {
@@ -4344,6 +4575,24 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           return prev;
         });
 
+        if (target === 'pesagem') {
+          setPesagemConcluidosLotes(prev => {
+            const next = prev.filter(x => x !== lote.loteNumber);
+            try { localStorage.setItem('natum_pesagem_concluidos_lotes', JSON.stringify(next)); } catch {}
+            return next;
+          });
+          await saveEtapaStatus(lote.loteNumber, 'pesagem', 'fila', null, null, null, responsibleName, targetDate);
+        } else if (target === 'producao') {
+          setProducaoConcluidosLotes(prev => {
+            const next = prev.filter(x => x !== lote.loteNumber);
+            try { localStorage.setItem('natum_producao_concluidos_lotes', JSON.stringify(next)); } catch {}
+            return next;
+          });
+          await saveEtapaStatus(lote.loteNumber, 'producao', 'fila', null, null, null, responsibleName, targetDate);
+        } else if (target === 'rotulagem') {
+          await saveEtapaStatus(lote.loteNumber, 'rotulagem', 'fila', null, null, null, responsibleName, targetDate);
+        }
+
         // Se estava oculto nesse quadro, restaura
         await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(lote.loteNumber)}/restaurar-quadro`, {
           method: 'POST',
@@ -4360,7 +4609,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       console.error("Erro ao adicionar lote à fila:", e);
       showToast(`Erro ao adicionar lote: ${e?.message || e}`, 'error');
     }
-  }, [addLoteModalTarget, executeStatusUpdate, fetchLotes]);
+  }, [addLoteModalTarget, currentUser, pesagemSelectedDate, producaoSelectedDate, rotulagemSelectedDate, envaseSelectedDate, saveEtapaStatus, executeStatusUpdate, fetchLotes]);
 
   const handleMoverParaCaldeira = useCallback(async (loteNumber: string) => {
     setLotesComCaldeira(prev => {
@@ -4467,16 +4716,48 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     return Boolean(cod || desc || motivo || isEspera || isEnvaseEspera);
   };
 
-  // Renderiza produtos do lote com suporte completo a múltiplos produtos (ex: lotes com 2 produtos)
-  const renderLoteProductsInfo = (lote: AcompanhamentoLote | { loteNumber: string; productCode?: string; productDescription?: string; quantity?: number; quantityKg?: number }) => {
+  const renderLoteNumberBadge = (loteNum: string) => {
+    if (!loteNum) return null;
+    if (loteNum.startsWith('PLAN_')) {
+      return (
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 font-sans flex items-center gap-1 shadow-2xs" title="Ordem do Planejamento Semanal (PCP) aguardando vinculação de lote do ERP">
+          <span>📋 PCP</span>
+          <span className="text-amber-700 font-normal text-[9px]">(Sem Lote ERP)</span>
+        </span>
+      );
+    }
+    return <span>#{loteNum}</span>;
+  };
+
+  // Renderiza produtos do lote:
+  // - No Envase e na Rotulagem: cada card representa SEU PRÓPRIO SKU/item, repetindo o lote com seu próprio produto
+  // - Na Pesagem e na Produção: agrupa e consolida todos os produtos da batelada no mesmo card
+  const renderLoteProductsInfo = (
+    lote: AcompanhamentoLote | { loteNumber: string; productCode?: string; productDescription?: string; quantity?: number; quantityKg?: number },
+    options?: { isConsolidatedBatch?: boolean }
+  ) => {
     if (!lote || !lote.loteNumber) return null;
-    const prods = lotes.filter(l => (l.loteNumber || '').trim().toLowerCase() === (lote.loteNumber || '').trim().toLowerCase());
-    if (prods.length <= 1) {
+    const reatorMatch = (lote as any).details?.match(/Reator:\s*([^\s|]+)/i);
+    const reatorVal = reatorMatch ? reatorMatch[1] : null;
+
+    // Multi-produto consolidado apenas em Pesagem e Produção quando o lote foi consolidado com múltiplos itens
+    const isMultiBatch = Boolean(
+      (options?.isConsolidatedBatch ?? (currentTab === 'pesagem' || currentTab === 'producao' || currentTab === 'quadro_pesagem' || currentTab === 'quadro_producao')) &&
+      ((lote as any).lotes && (lote as any).lotes.length > 1)
+    );
+
+    if (!isMultiBatch) {
+      // No Envase e na Rotulagem, exibe o lote com o produto específico deste card
       return (
         <div>
-          <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-zinc-900">
-            <span>#{lote.loteNumber}</span>
-            {lote.productCode && <span className="text-zinc-400 font-normal">({lote.productCode})</span>}
+          <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-zinc-900 flex-wrap">
+            {renderLoteNumberBadge(lote.loteNumber)}
+            {reatorVal && (
+              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono">
+                {reatorVal}
+              </span>
+            )}
+            {lote.productCode && <span className="text-zinc-400 font-normal font-mono text-[11px]">({lote.productCode})</span>}
           </div>
           <p className="text-xs font-bold text-zinc-800 mt-0.5 line-clamp-2 leading-tight">
             {lote.productDescription}
@@ -4485,10 +4766,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       );
     }
 
+    const prods: AcompanhamentoLote[] = (lote as any).lotes || [];
     return (
       <div className="space-y-1">
-        <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-zinc-900">
-          <span>#{lote.loteNumber}</span>
+        <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-zinc-900 flex-wrap">
+          {renderLoteNumberBadge(lote.loteNumber)}
+          {reatorVal && (
+            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono">
+              {reatorVal}
+            </span>
+          )}
           <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 border border-purple-200 font-sans">
             {prods.length} Produtos
           </span>
@@ -4499,7 +4786,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               <span className="font-bold text-zinc-800 line-clamp-1">{p.productDescription}</span>
               <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
                 <span>{p.productCode}</span>
-                <span>{Number(p.quantity || 0).toLocaleString('pt-BR')} un</span>
+                <span><strong className="text-zinc-700">{Number(p.quantityKg || 0).toLocaleString('pt-BR')} kg</strong> (~{Number(p.quantity || 0).toLocaleString('pt-BR')} un)</span>
               </div>
             </div>
           ))}
@@ -4548,25 +4835,19 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       return dateA.localeCompare(dateB) > 0;
     };
 
-    // 1. Do histórico gravado localmente (gerado por ações diretas nos quadros)
-    const local = lotesAdiadosHistorico.find(reg => {
-      const orig = (reg.dataOriginal || '').split('T')[0].split(' ')[0];
-      const para = (reg.dataAdiadoPara || '').split('T')[0].split(' ')[0];
-      const regEtapa = (reg.etapa || reg.origem || '').toLowerCase();
-      const matchEtapa = !etapa || !regEtapa || regEtapa.includes(etapa.toLowerCase()) || etapa.toLowerCase().includes(regEtapa);
-      return reg.loteNumber === loteNumber && (para === cleanTarget || orig === cleanTarget) && isStrictlyAfter(para, orig) && matchEtapa;
-    });
-    if (local) {
-      const isDestino = (local.dataAdiadoPara || '').split('T')[0].split(' ')[0] === cleanTarget;
-      return { dataAdiadoPara: local.dataAdiadoPara, dataOriginal: local.dataOriginal, isDestino };
-    }
-
-    // 2. Do historico_reagendamentos vindo do banco de dados (lote_custom_status)
     const l = lotesByNumber.get(loteNumber);
     if (l) {
+      const scheduleIso = getLoteScheduleDateIso(l, etapa as any);
+      const schedClean = scheduleIso ? scheduleIso.split('T')[0].split(' ')[0] : '';
+      if (schedClean && schedClean.localeCompare(cleanTarget) <= 0) return null;
+    }
+
+    // 1. Do historico_reagendamentos vindo do banco de dados (lote_custom_status - FONTE DA VERDADE)
+    if (l) {
       const hist = l.historicoReagendamentos || (l as any).historico_reagendamentos;
-      if (Array.isArray(hist)) {
-        for (const h of hist) {
+      if (Array.isArray(hist) && hist.length > 0) {
+        for (let i = hist.length - 1; i >= 0; i--) {
+          const h = hist[i];
           const orig = (h.dataAnterior || h.dataOriginal || '').split('T')[0].split(' ')[0];
           const para = (h.novaData || h.dataAdiadoPara || '').split('T')[0].split(' ')[0];
           const hEtapa = (h.etapa || h.origem || '').toLowerCase();
@@ -4581,12 +4862,53 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           if ((para === cleanTarget || orig === cleanTarget) && para && orig && isStrictlyAfter(para, orig) && matchEtapa) {
             const motivo = (h.motivo || '').toLowerCase();
             const tipo = (h.tipo || '').toLowerCase();
-            if (tipo === 'antecipacao' || motivo.startsWith('antecipado')) {
+            if (tipo === 'antecipacao' || tipo === 'retorno' || motivo.startsWith('antecipado') || motivo.startsWith('retorno')) {
               continue;
             }
             const isDestino = para === cleanTarget;
             return { dataAdiadoPara: para, dataOriginal: orig, isDestino };
           }
+        }
+      }
+    }
+
+    // 2. Do histórico gravado localmente (gerado por ações diretas nos quadros)
+    const local = lotesAdiadosHistorico.find(reg => {
+      const orig = (reg.dataOriginal || '').split('T')[0].split(' ')[0];
+      const para = (reg.dataAdiadoPara || '').split('T')[0].split(' ')[0];
+      const regEtapa = (reg.etapa || reg.origem || '').toLowerCase();
+      const matchEtapa = !etapa || !regEtapa || regEtapa.includes(etapa.toLowerCase()) || etapa.toLowerCase().includes(regEtapa);
+      return reg.loteNumber === loteNumber && (para === cleanTarget || orig === cleanTarget) && isStrictlyAfter(para, orig) && matchEtapa;
+    });
+    if (local) {
+      // Validação: se o lote existe e o registro local discorda da data atual da etapa, descartar registro local obsoleto
+      if (l) {
+        const scheduleIso = getLoteScheduleDateIso(l, etapa as any);
+        const schedClean = scheduleIso ? scheduleIso.split('T')[0] : null;
+        const paraClean = (local.dataAdiadoPara || '').split('T')[0];
+        const origClean = (local.dataOriginal || '').split('T')[0];
+        if (schedClean && schedClean !== paraClean && schedClean !== origClean) {
+          // Stale local record, ignora
+        } else {
+          const isDestino = (local.dataAdiadoPara || '').split('T')[0].split(' ')[0] === cleanTarget;
+          return { dataAdiadoPara: local.dataAdiadoPara, dataOriginal: local.dataOriginal, isDestino };
+        }
+      } else {
+        const isDestino = (local.dataAdiadoPara || '').split('T')[0].split(' ')[0] === cleanTarget;
+        return { dataAdiadoPara: local.dataAdiadoPara, dataOriginal: local.dataOriginal, isDestino };
+      }
+    }
+
+    // 3. Fallback inteligente para etapa de produção: se a pesagem já foi concluída em data anterior à produção
+    if (l && etapa === 'producao') {
+      const pesagemConcluida = (l as any).etapasStatus?.pesagem?.status === 'concluido' || (l as any).etapas_status?.pesagem?.status === 'concluido';
+      const dtPesagem = (l.dataPesagem || (l as any).data_pesagem || '').split('T')[0].split(' ')[0];
+      const dtProducao = (l.dataProducao || (l as any).data_producao || '').split('T')[0].split(' ')[0];
+      if (pesagemConcluida && dtPesagem && dtProducao && isStrictlyAfter(dtProducao, dtPesagem)) {
+        if (cleanTarget === dtProducao) {
+          return { dataAdiadoPara: dtProducao, dataOriginal: dtPesagem, isDestino: true };
+        } else if (cleanTarget === dtPesagem) {
+          return { dataAdiadoPara: dtProducao, dataOriginal: dtPesagem, isDestino: false };
         }
       }
     }
@@ -5218,71 +5540,62 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     };
   }, [lotes, currentTab, isLoteTerceirizado]);
 
-  // Contagens para o Quadro de Pesagem
+  // Contagens para o Quadro de Pesagem (Unificado por Batelada)
   const totalPesagemAberto = useMemo(() => {
-    return lotes.filter(l => {
+    return consolidateLotesForBatch(lotes.filter(l => {
       if (isLoteTerceirizado(l)) return false;
       if (isLoteConcluido(l)) return false;
+      if (isLoteOcultoNoQuadro(l, 'pesagem')) return false;
       const eff = getEffectiveStatus(l);
-      return eff === 'Pesagem' || (!l.customStatus && l.erpStatus === 'PG');
-    }).length;
+      return eff === 'Pesagem' || (!l.customStatus && l.erpStatus === 'PG') || Boolean(l.details?.includes('Planejamento Semanal'));
+    })).length;
   }, [lotes, isLoteTerceirizado]);
 
-  // Contagens para o Quadro de Produção (Manipulação)
+  // Contagens para o Quadro de Produção (Manipulação - Unificado por Batelada)
   const totalProducaoAberto = useMemo(() => {
-    return lotes.filter(l => {
+    return consolidateLotesForBatch(lotes.filter(l => {
       if (isLoteTerceirizado(l)) return false;
       if (isLoteConcluido(l)) return false;
+      if (isLoteOcultoNoQuadro(l, 'producao')) return false;
       const eff = getEffectiveStatus(l);
-      return eff === 'Produção' || l.customStatus === 'Produção' || (!l.customStatus && l.erpStatus === 'PR') || isLoteParcial(l);
-    }).length;
+      return eff === 'Produção' || l.customStatus === 'Produção' || (!l.customStatus && l.erpStatus === 'PR') || isLoteParcial(l) || Boolean(l.details?.includes('Planejamento Semanal'));
+    })).length;
   }, [lotes, isLoteTerceirizado]);
 
-  // Contagens para o Quadro de Envase (Liberados e Prontos para Encaixar)
+  // Contagens para o Quadro de Envase (Liberados e Prontos para Encaixar + Em Linha)
   const totalEnvaseDisponivel = useMemo(() => {
-    return lotes.filter(l => {
-      if (isLoteTerceirizado(l)) {
-        const effStatus = getEffectiveStatus(l);
-        const isAptoTerc = effStatus === 'Liberado para Envase' || effStatus === 'Produzido' || effStatus === 'Envase' ||
-          l.customStatus === 'Liberado para Envase' || l.customStatus === 'Produzido' || l.customStatus === 'Envase' || isLoteParcial(l);
-        if (!isAptoTerc) return false;
-      }
+    const liberadosCount = lotes.filter(l => {
       if (isLoteConcluido(l)) return false;
       if (isLoteOcultoNoQuadro(l, 'envase')) return false;
 
-      // Se já está programado no quadro de envase (Linha 1, 2 ou 3), não conta como disponível para encaixe
+      // Se já está programado no quadro de envase (Linha 1, 2 ou 3), não conta nesta etapa
       const isAlreadyScheduled = programacaoEnvase.some(it => 
         (it.loteNumber || '').trim().toUpperCase() === (l.loteNumber || '').trim().toUpperCase() && 
         (!it.productCode || !l.productCode || (it.productCode || '').trim().toUpperCase() === (l.productCode || '').trim().toUpperCase())
       );
       if (isAlreadyScheduled) return false;
 
-      const eff = getEffectiveStatus(l);
-      const etapaProducao = getLoteEtapaStatus(l, 'producao');
-      const temProblema = hasLoteProblemaOuPausa(l, null, 'envase');
+      const esperaDetails = getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem);
+      if (esperaDetails.isEmEspera) return true;
 
-      // Lotes aptos/liberados para envase
-      const isLiberado = eff === 'Produzido' || eff === 'Liberado para Envase' || eff === 'Envase' ||
-        l.customStatus === 'Produzido' || l.customStatus === 'Liberado para Envase' || l.customStatus === 'Envase' ||
-        (!l.customStatus && (l.erpStatus === 'PR' || l.erpStatus === 'EN')) ||
-        etapaProducao.isConcluido ||
-        isLoteParcial(l);
+      const cleanNum = (l.loteNumber || '').trim().toLowerCase();
+      const cleanNumNoZero = cleanNum.replace(/^0+/, '');
+      const hasFqAnalysis = fiscoAnalysesByBatch.has(cleanNum) || (cleanNumNoZero ? fiscoAnalysesByBatch.has(cleanNumNoZero) : false) || Boolean(l.dataLiberadoEnvase);
+      const isManual = manualLiberadosEnvase.has(cleanNum) || manualLiberadosEnvase.has(l.loteNumber) || l.customStatus === 'Liberado para Envase';
+      const isPlanned = Boolean(l.details?.includes('Planejamento Semanal'));
 
-      // Pendências do fluxo de envase (lotes pausados no envase ou com falta de insumo no envase)
-      const isPendencia = temProblema && (
-        isLiberado ||
-        Boolean(l.dataLiberadoEnvase) ||
-        Boolean(l.dataEnvase) ||
-        l.category === 'Embalagem'
-      );
+      return hasFqAnalysis || isManual || isPlanned;
+    }).length;
 
-      if (!isLiberado && !isPendencia) return false;
-      if (eff === 'Pesagem' || eff === 'Em Pesagem') return false;
-      if (eff === 'Produção' && !isLoteParcial(l) && !l.dataLiberadoEnvase && !etapaProducao.isConcluido) return false;
-
+    const emLinhaCount = programacaoEnvase.filter(it => {
+      if (it.statusEnvase === 'CONCLUIDO') return false;
+      const realLote = lotes.find(l => (l.loteNumber || '').trim().toUpperCase() === (it.loteNumber || '').trim().toUpperCase());
+      if (realLote && (isLoteConcluido(realLote) || isLoteOcultoNoQuadro(realLote, 'envase'))) return false;
       return true;
     }).length;
-  }, [lotes, isLoteTerceirizado, programacaoEnvase]);
+
+    return liberadosCount + emLinhaCount;
+  }, [lotes, programacaoEnvase, fiscoAnalysesByBatch, manualLiberadosEnvase, programacaoRotulagem]);
 
   // Contagens para o Quadro de Rotulagem (Lotes entre Pesagem e Produção)
   const totalRotulagemDisponivel = useMemo(() => {
@@ -5294,11 +5607,13 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         if (!isAptoTerc) return false;
       }
       if (isLoteConcluido(l)) return false;
+      if (isLoteOcultoNoQuadro(l, 'rotulagem')) return false;
       if (isLoteParcial(l)) return true;
       const eff = getEffectiveStatus(l);
+      const isPlanned = Boolean(l.details?.includes('Planejamento Semanal'));
       return (
         (eff === 'Pesagem' || eff === 'Produção' || eff === 'Em Pesagem' || eff === 'Produzido' || eff === 'Liberado para Envase' || eff === 'Rotulagem' ||
-         l.erpStatus === 'PG' || l.erpStatus === 'PP' || l.erpStatus === 'PR') &&
+         l.erpStatus === 'PG' || l.erpStatus === 'PP' || l.erpStatus === 'PR' || isPlanned) &&
         l.erpStatus !== 'CA'
       );
     }).length;
@@ -5335,7 +5650,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         },
         {
           id: 'quadro_pesagem',
-          label: 'Fila de Pesagem',
+          label: 'Quadro de Pesagem',
           icon: Scale,
           badge: totalPesagemAberto > 0 ? totalPesagemAberto : undefined,
         },
@@ -5346,16 +5661,22 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           badge: totalProducaoAberto > 0 ? totalProducaoAberto : undefined,
         },
         {
-          id: 'quadro_envase',
-          label: 'Linhas de Envase',
-          icon: Layers,
-          badge: totalEnvaseDisponivel > 0 ? totalEnvaseDisponivel : undefined,
-        },
-        {
           id: 'quadro_rotulagem',
           label: 'Quadro de Rotulagem',
           icon: Tag,
           badge: totalRotulagemDisponivel > 0 ? totalRotulagemDisponivel : undefined,
+        },
+        {
+          id: 'quadro_envase',
+          label: 'Quadro de Envase',
+          icon: Layers,
+          badge: totalEnvaseDisponivel > 0 ? totalEnvaseDisponivel : undefined,
+        },
+        {
+          id: 'quadro_ordens',
+          label: 'Quadro de Ordens',
+          icon: CheckSquare,
+          badge: totalOrdensFinalizadasNaoLancadas > 0 ? totalOrdensFinalizadasNaoLancadas : undefined,
         },
         {
           id: 'kits',
@@ -5368,12 +5689,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           label: 'Terceirizados',
           icon: Building2,
           badge: totalTerceirizadosAberto > 0 ? totalTerceirizadosAberto : undefined,
-        },
-        {
-          id: 'quadro_ordens',
-          label: 'Quadro de Ordens',
-          icon: CheckSquare,
-          badge: totalOrdensFinalizadasNaoLancadas > 0 ? totalOrdensFinalizadasNaoLancadas : undefined,
         },
       ];
     }
@@ -6286,6 +6601,20 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               </button>
             </div>
 
+            {/* Botão de Localização Facilitada de Lote em Qualquer Data */}
+            <button
+              type="button"
+              onClick={() => {
+                setShowLocalizarDataModal(true);
+                setLocalizarDataSearch('');
+              }}
+              className="px-2.5 py-1.5 bg-zinc-900 hover:bg-black active:bg-zinc-800 text-white rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs shrink-0"
+              title="Pesquisar em qual data qualquer lote está agendado (Envase, Rotulagem, Produção, Pesagem)"
+            >
+              <Search className="h-3.5 w-3.5 text-amber-400" />
+              <span>Localizar Data do Lote</span>
+            </button>
+
             {onRefresh && (
               <button
                 type="button"
@@ -6472,10 +6801,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         // REGRA GERAL: Ordem concluída NUNCA aparece em filas ativas
         if (isLoteConcluido(l)) return false;
 
-        // Se há pesquisa ativa no quadro de envase, exibir diretamente qualquer lote aberto
-        if (isSearching) return true;
-
+        // Se o lote foi explicitamente ocultado/removido deste quadro operacional, NUNCA exibir
         if (isLoteOcultoNoQuadro(l, 'envase')) return false;
+
+        // Se há pesquisa ativa no quadro de envase, exibir diretamente qualquer lote aberto não oculto
+        if (isSearching) return true;
 
         // REGRA REQUISITADA: Se o lote JÁ ESTÁ programado no quadro de envase (Linha 1, 2 ou 3), NÃO exibir na coluna de Liberados para Envase
         const isAlreadyScheduled = programacaoEnvase.some(it => 
@@ -6509,10 +6839,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         const cleanNumNoZero = cleanNum.replace(/^0+/, '');
         const hasFqAnalysis = fiscoAnalysesByBatch.has(cleanNum) || (cleanNumNoZero ? fiscoAnalysesByBatch.has(cleanNumNoZero) : false) || Boolean(l.dataLiberadoEnvase);
         const isManual = manualLiberadosEnvase.has(cleanNum) || manualLiberadosEnvase.has(l.loteNumber) || l.customStatus === 'Liberado para Envase';
+        const isPlanned = Boolean(l.details?.includes('Planejamento Semanal'));
 
-        if (hasFqAnalysis || isManual) {
+        if (hasFqAnalysis || isManual || isPlanned) {
           if (encaixeStatusFilter === 'TODOS') return true;
-          return getEffectiveStatus(l) === encaixeStatusFilter;
+          return getEffectiveStatus(l) === encaixeStatusFilter || isPlanned;
         }
 
         return false;
@@ -6529,16 +6860,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   }, [baseLotesParaEncaixe, encaixeSearch]);
 
   const filteredEnvaseLinha1Items = useMemo(() => {
-    return deduplicateLotesByNumber(filterLotesBySearch(envaseLinha1Items, encaixeSearch));
-  }, [envaseLinha1Items, encaixeSearch]);
+    return deduplicateLotesByNumber(filterLotesBySearch(envaseLinha1Items, envaseSearch));
+  }, [envaseLinha1Items, envaseSearch]);
 
   const filteredEnvaseLinha2Items = useMemo(() => {
-    return deduplicateLotesByNumber(filterLotesBySearch(envaseLinha2Items, encaixeSearch));
-  }, [envaseLinha2Items, encaixeSearch]);
+    return deduplicateLotesByNumber(filterLotesBySearch(envaseLinha2Items, envaseSearch));
+  }, [envaseLinha2Items, envaseSearch]);
 
   const filteredEnvaseLinha3Items = useMemo(() => {
-    return deduplicateLotesByNumber(filterLotesBySearch(envaseLinha3Items, encaixeSearch));
-  }, [envaseLinha3Items, encaixeSearch]);
+    return deduplicateLotesByNumber(filterLotesBySearch(envaseLinha3Items, envaseSearch));
+  }, [envaseLinha3Items, envaseSearch]);
 
   // =========================================================================
   // PROCESSAMENTO DO RELATÓRIO DE ENVASE (FILTRAGEM, TOTAIS E EXPORTAÇÃO)
@@ -6898,38 +7229,52 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         // Não inclui lotes em espera na pesagem (isolado)
         if (etapaStatus.isEspera) return false;
 
+        const isPlanned = Boolean(l.details?.includes('Planejamento Semanal'));
         // Lotes ativamente na balança ou concluídos nesta data
         const isPesando = (
           etapaStatus.status === 'ativo' ||
           etapaStatus.isConcluido ||
           l.customStatus === 'Pesagem' ||
           pesagemOrderOverrides.includes(l.loteNumber) ||
-          pesagemConcluidosLotes.includes(l.loteNumber)
-        ) && etapaStatus.status !== 'fila' && etapaStatus.status !== 'pendente' && l.customStatus !== 'Fila Pesagem';
+          pesagemConcluidosLotes.includes(l.loteNumber) ||
+          isPlanned
+        ) && etapaStatus.status !== 'fila' && (etapaStatus.status !== 'pendente' || isPlanned || l.customStatus === 'Pesagem') && l.customStatus !== 'Fila Pesagem';
         if (!isPesando) return false;
         if (selectedInsumoFaltanteFilter !== 'TODOS') {
           if ((l.insumoFaltanteCodigo || (l as any).insumo_faltante_codigo) !== selectedInsumoFaltanteFilter) return false;
         }
         if (!pesagemShowAllDates && !pesagemSearch.trim()) {
           const scheduleDate = getLoteScheduleDateIso(l, 'pesagem');
-          if (scheduleDate !== pesagemSelectedDate) return false;
+          const adiadoInfo = getLoteAdiadoInfo(l.loteNumber, pesagemSelectedDate, 'pesagem');
+          const isAdiadoDestaData = Boolean(adiadoInfo && !adiadoInfo.isDestino);
+          if (scheduleDate !== pesagemSelectedDate && !isAdiadoDestaData) return false;
         }
         return true;
       });
-    return deduplicateLotesByNumber(raw);
-  }, [lotes, isLoteTerceirizado, selectedInsumoFaltanteFilter, pesagemOrderOverrides, pesagemConcluidosLotes, pesagemShowAllDates, pesagemSelectedDate, pesagemSearch]);
+    return consolidateLotesForBatch(deduplicateLotesByNumber(raw));
+  }, [lotes, isLoteTerceirizado, selectedInsumoFaltanteFilter, pesagemOrderOverrides, pesagemConcluidosLotes, pesagemShowAllDates, pesagemSelectedDate, pesagemSearch, getLoteAdiadoInfo]);
 
   // Lotes ordenados sequencialmente para o Quadro de Pesagem Ativa
   const sortedLotesPesando = useMemo(() => {
     const list = [...lotesPesando];
-    if (pesagemOrderOverrides.length === 0) return list;
+    if (pesagemOrderOverrides.length === 0) {
+      return list.sort((a, b) => {
+        const ordA = getLotePlanningOrdem(a);
+        const ordB = getLotePlanningOrdem(b);
+        if (ordA !== ordB) return ordA - ordB;
+        return a.loteNumber.localeCompare(b.loteNumber);
+      });
+    }
     return list.sort((a, b) => {
       const idxA = pesagemOrderOverrides.indexOf(a.loteNumber);
       const idxB = pesagemOrderOverrides.indexOf(b.loteNumber);
       if (idxA !== -1 && idxB !== -1) return idxA - idxB;
       if (idxA !== -1) return -1;
       if (idxB !== -1) return 1;
-      return 0;
+      const ordA = getLotePlanningOrdem(a);
+      const ordB = getLotePlanningOrdem(b);
+      if (ordA !== ordB) return ordA - ordB;
+      return a.loteNumber.localeCompare(b.loteNumber);
     });
   }, [lotesPesando, pesagemOrderOverrides]);
 
@@ -6976,24 +7321,31 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         // REGRA GERAL: Ordem concluída NUNCA aparece em filas ativas
         if (isLoteConcluido(l)) return false;
 
-        // Se há pesquisa ativa no quadro de pesagem, qualquer lote aberto (não concluído) pode aparecer no resultado
-        if (pesagemSearch.trim()) return true;
-
         if (isLoteTerceirizado(l)) return false;
         if (isLoteOcultoNoQuadro(l, 'pesagem')) return false;
 
-        // REGRA REQUISITADA: Se o lote já estiver no quadro de Pesagem Ativa (na balança), NÃO pode estar na fila
+        // REGRA DE PESAGEM: Se a pesagem já foi concluída, o lote NUNCA deve aparecer na Fila de Pesagem (exceto se adicionado manualmente)
+        const etapaStatus = getLoteEtapaStatus(l, 'pesagem');
+        const isConcluidoPesagem = etapaStatus.isConcluido || pesagemConcluidosLotes.includes(l.loteNumber);
+        const isManual = (manualFilasAdicionados.pesagem || []).includes(l.loteNumber);
+        if (isConcluidoPesagem && !isManual) return false;
+
+        // REQUISITO: Se o lote for do Planejamento Semanal / PCP, ele vai DIRETO para o Quadro de Pesagem, NÃO aparece na fila!
+        const isPlanned = Boolean(l.details?.includes('Planejamento Semanal'));
+        const esperaDetails = getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem);
+        const isFilaExplicit = etapaStatus.status === 'fila' || l.customStatus === 'Fila Pesagem';
+        const isOrdemParada = esperaDetails.isEmEspera || etapaStatus.isEspera || l.customStatus === 'Em Espera' || isFilaExplicit || !!l.motivoEspera;
+
+        // Se for planejado e NÃO for ordem parada/espera/fila e NÃO for manual, NÃO entra na fila!
+        if (isPlanned && !isOrdemParada && !isManual) {
+          return false;
+        }
+
+        // Se o lote já estiver no quadro de Pesagem Ativa (na balança), NÃO pode estar na fila
         const isNaBalanca = sortedLotesPesando.some(p => p.loteNumber === l.loteNumber);
         if (isNaBalanca) return false;
 
-        // REGRA REQUISITADA: Fila de pesagem deve ser limpa, deixando apenas as ordens paradas (em espera)
-        const esperaDetails = getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem);
-        const etapaStatus = getLoteEtapaStatus(l, 'pesagem');
-        const isOrdemParada = esperaDetails.isEmEspera || etapaStatus.isEspera || l.customStatus === 'Em Espera' || l.customStatus === 'Fila Pesagem' || !!l.motivoEspera;
-
-        // Se foi adicionado manualmente à fila pelo operador
-        const isManual = (manualFilasAdicionados.pesagem || []).includes(l.loteNumber);
-
+        // Fila de pesagem deve conter apenas ordens paradas (espera), em fila, ou adicionadas manualmente
         if (!isOrdemParada && !isManual) {
           return false;
         }
@@ -7003,16 +7355,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         }
         return true;
       });
-    return deduplicateLotesByNumber(raw);
-  }, [lotes, isLoteTerceirizado, selectedInsumoFaltanteFilter, sortedLotesPesando, pesagemSearch, manualFilasAdicionados, programacaoEnvase, programacaoRotulagem]);
+    return consolidateLotesForBatch(deduplicateLotesByNumber(raw));
+  }, [lotes, isLoteTerceirizado, selectedInsumoFaltanteFilter, sortedLotesPesando, manualFilasAdicionados, programacaoEnvase, programacaoRotulagem]);
 
   const lotesFilaPesagem = useMemo(() => {
-    let list = filterLotesBySearch(baseLotesFilaPesagem, pesagemSearch);
-    if (!pesagemSearch.trim() && pesagemFilaFilter === 'ESPERA') {
+    let list = filterLotesBySearch(baseLotesFilaPesagem, pesagemFilaSearch);
+    if (!pesagemFilaSearch.trim() && pesagemFilaFilter === 'ESPERA') {
       list = list.filter(l => getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem).isEmEspera);
     }
-    return deduplicateLotesByNumber(list);
-  }, [baseLotesFilaPesagem, pesagemSearch, pesagemFilaFilter, programacaoEnvase, programacaoRotulagem]);
+    return consolidateLotesForBatch(deduplicateLotesByNumber(list));
+  }, [baseLotesFilaPesagem, pesagemFilaSearch, pesagemFilaFilter, programacaoEnvase, programacaoRotulagem]);
 
   const lotesEsperaPesagemCount = useMemo(() => {
     return baseLotesFilaPesagem.filter(l => getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem).isEmEspera).length;
@@ -7036,9 +7388,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
         // Permite coexistência: se estiver em produção ou alocado nos reatores, ou concluído na data
         // ou aprovado / lote vinculado do planejamento semanal na data selecionada
+        const isPlanned = Boolean(l.details?.includes('Planejamento Semanal'));
         const isProd = (
           etapaStatus.status === 'ativo' ||
           etapaStatus.isConcluido ||
+          isPlanned ||
           producaoOrderOverrides.includes(l.loteNumber) ||
           producaoConcluidosLotes.includes(l.loteNumber) ||
           ((l.customStatus === 'Produção' || l.customStatus === 'Produzido' || l.customStatus === 'Pesagem' || (!l.customStatus && l.erpStatus === 'PR')) && etapaStatus.status !== 'fila')
@@ -7049,24 +7403,36 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         }
         if (!producaoShowAllDates && !producaoSearch.trim()) {
           const scheduleDate = getLoteScheduleDateIso(l, 'producao');
-          if (scheduleDate !== producaoSelectedDate) return false;
+          const adiadoInfo = getLoteAdiadoInfo(l.loteNumber, producaoSelectedDate, 'producao');
+          const isAdiadoDestaData = Boolean(adiadoInfo && !adiadoInfo.isDestino);
+          if (scheduleDate !== producaoSelectedDate && !isAdiadoDestaData) return false;
         }
         return true;
       });
-    return deduplicateLotesByNumber(raw);
-  }, [lotes, isLoteTerceirizado, selectedInsumoFaltanteFilter, producaoOrderOverrides, producaoConcluidosLotes, producaoShowAllDates, producaoSelectedDate, producaoSearch]);
+    return consolidateLotesForBatch(deduplicateLotesByNumber(raw));
+  }, [lotes, isLoteTerceirizado, selectedInsumoFaltanteFilter, producaoOrderOverrides, producaoConcluidosLotes, producaoShowAllDates, producaoSelectedDate, producaoSearch, getLoteAdiadoInfo]);
 
   // Lotes ordenados sequencialmente para o Quadro de Produção
   const sortedLotesEmFabricacao = useMemo(() => {
     const list = [...lotesProducao];
-    if (producaoOrderOverrides.length === 0) return list;
+    if (producaoOrderOverrides.length === 0) {
+      return list.sort((a, b) => {
+        const ordA = getLotePlanningOrdem(a);
+        const ordB = getLotePlanningOrdem(b);
+        if (ordA !== ordB) return ordA - ordB;
+        return a.loteNumber.localeCompare(b.loteNumber);
+      });
+    }
     return list.sort((a, b) => {
       const idxA = producaoOrderOverrides.indexOf(a.loteNumber);
       const idxB = producaoOrderOverrides.indexOf(b.loteNumber);
       if (idxA !== -1 && idxB !== -1) return idxA - idxB;
       if (idxA !== -1) return -1;
       if (idxB !== -1) return 1;
-      return 0;
+      const ordA = getLotePlanningOrdem(a);
+      const ordB = getLotePlanningOrdem(b);
+      if (ordA !== ordB) return ordA - ordB;
+      return a.loteNumber.localeCompare(b.loteNumber);
     });
   }, [lotesProducao, producaoOrderOverrides]);
 
@@ -7093,45 +7459,35 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         // REGRA GERAL: Se a ordem estiver concluída, NUNCA aparece em filas ativas
         if (isLoteConcluido(l)) return false;
 
-        // Se há pesquisa ativa no quadro de produção, qualquer lote aberto (não concluído) pode aparecer no resultado
-        if (producaoSearch.trim()) return true;
-
         if (isLoteTerceirizado(l)) return false;
         if (isLoteOcultoNoQuadro(l, 'producao')) return false;
 
-        // REGRA REQUISITADA: Se o lote já estiver no quadro de Produção (reatores ou caldeira), NÃO pode estar na fila
+        // REQUISITO: Se o lote for do Planejamento Semanal / PCP, ele vai DIRETO para o Quadro de Produção (reatores/caldeira), NÃO aparece na fila!
+        const isPlanned = Boolean(l.details?.includes('Planejamento Semanal'));
+        const esperaDetails = getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem);
+        const etapaStatus = getLoteEtapaStatus(l, 'producao');
+        const isFilaExplicit = etapaStatus.status === 'fila' || l.customStatus === 'Fila Produção';
+        const isOrdemParada = esperaDetails.isEmEspera || etapaStatus.isEspera || l.customStatus === 'Em Espera' || isFilaExplicit || !!l.motivoEspera;
+        const isManual = (manualFilasAdicionados.producao || []).includes(l.loteNumber);
+        const isParcial = isLoteParcial(l);
+
+        // Se for planejado e não for parada/espera/fila, parcial ou manual, NÃO entra na fila!
+        if (isPlanned && !isOrdemParada && !isManual && !isParcial) {
+          return false;
+        }
+
+        // Se o lote já estiver no quadro de Produção (reatores ou caldeira), NÃO pode estar na fila
         const isNaProducaoAtiva = lotesProducao.some(p => p.loteNumber === l.loteNumber);
         if (isNaProducaoAtiva) return false;
 
-        const esperaDetails = getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem);
-        // REGRA REQUISITADA: Lotes em espera NUNCA são filtrados por data! Continuam aparecendo todos os dias
-        if (esperaDetails.isEmEspera) {
-          if (selectedInsumoFaltanteFilter !== 'TODOS') {
-            if ((l.insumoFaltanteCodigo || (l as any).insumo_faltante_codigo) !== selectedInsumoFaltanteFilter) return false;
-          }
-          return true;
-        }
-
-        // REGRA GERAL: Se for ordem parcial, DEVE continuar aparecendo na produção!
-        if (isLoteParcial(l)) {
-          if (selectedInsumoFaltanteFilter !== 'TODOS') {
-            if ((l.insumoFaltanteCodigo || (l as any).insumo_faltante_codigo) !== selectedInsumoFaltanteFilter) return false;
-          }
-          return true;
-        }
-
-        // Se foi adicionado manualmente à fila de produção
-        const isManual = (manualFilasAdicionados.producao || []).includes(l.loteNumber);
-        if (isManual) return true;
-
-        // REGRA REQUISITADA: Pegar lotes abertos da semana, lotes antigos ignorar
-        if (!isLoteDaSemana(l, 'producao', producaoSelectedDate)) {
+        // Fila de produção deve conter apenas ordens paradas (espera), ordens parciais, ou adicionadas manualmente
+        if (!isOrdemParada && !isParcial && !isManual) {
           return false;
         }
 
         const eff = getEffectiveStatus(l);
         const isFila = (
-          !isNaProducaoAtiva || esperaDetails.isEmEspera
+          !isNaProducaoAtiva || isOrdemParada
         ) &&
           eff !== 'Liberado para Envase' &&
           eff !== 'Envase' &&
@@ -7146,16 +7502,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         }
         return true;
       });
-    return deduplicateLotesByNumber(raw);
-  }, [lotes, isLoteTerceirizado, selectedInsumoFaltanteFilter, lotesProducao, producaoSelectedDate, producaoSearch, manualFilasAdicionados, programacaoEnvase, programacaoRotulagem]);
+    return consolidateLotesForBatch(deduplicateLotesByNumber(raw));
+  }, [lotes, isLoteTerceirizado, selectedInsumoFaltanteFilter, lotesProducao, manualFilasAdicionados, programacaoEnvase, programacaoRotulagem]);
 
   const lotesFilaProducao = useMemo(() => {
-    let list = filterLotesBySearch(baseLotesFilaProducao, producaoSearch);
-    if (!producaoSearch.trim() && producaoFilaFilter === 'ESPERA') {
+    let list = filterLotesBySearch(baseLotesFilaProducao, producaoFilaSearch);
+    if (!producaoFilaSearch.trim() && producaoFilaFilter === 'ESPERA') {
       list = list.filter(l => getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem).isEmEspera);
     }
-    return deduplicateLotesByNumber(list);
-  }, [baseLotesFilaProducao, producaoSearch, producaoFilaFilter, programacaoEnvase, programacaoRotulagem]);
+    return consolidateLotesForBatch(deduplicateLotesByNumber(list));
+  }, [baseLotesFilaProducao, producaoFilaSearch, producaoFilaFilter, programacaoEnvase, programacaoRotulagem]);
 
   const lotesEsperaProducaoCount = useMemo(() => {
     return baseLotesFilaProducao.filter(l => getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem).isEmEspera).length;
@@ -7190,20 +7546,20 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
   // Filtragens por busca para manter todos os quadros e colunas reativos e sincronizados
   const filteredLotesPesando = useMemo(() => {
-    return deduplicateLotesByNumber(filterLotesBySearch(sortedLotesPesando, pesagemSearch));
+    return filterLotesBySearch(sortedLotesPesando, pesagemSearch);
   }, [sortedLotesPesando, pesagemSearch]);
 
   const filteredLotesEsperaPesagem = useMemo(() => {
-    return deduplicateLotesByNumber(filterLotesBySearch(lotesEsperaPesagem, pesagemSearch));
+    return filterLotesBySearch(lotesEsperaPesagem, pesagemSearch);
   }, [lotesEsperaPesagem, pesagemSearch]);
 
   const filteredLotesReatoresNormais = useMemo(() => {
-    return deduplicateLotesByNumber(filterLotesBySearch(lotesReatoresNormais, producaoSearch));
+    return filterLotesBySearch(lotesReatoresNormais, producaoSearch);
   }, [lotesReatoresNormais, producaoSearch]);
 
   const filteredLotesCaldeira = useMemo(() => {
     const q = producaoSearch.trim() || caldeiraSearch.trim();
-    return deduplicateLotesByNumber(filterLotesBySearch(lotesCaldeira, q));
+    return filterLotesBySearch(lotesCaldeira, q);
   }, [lotesCaldeira, producaoSearch, caldeiraSearch]);
 
   // Quadros ativos de esteiras de rotulagem
@@ -7247,20 +7603,23 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     return deduplicateLotesByNumber(filterLotesBySearch(rotulagemManualItems, rotulagemSearch));
   }, [rotulagemManualItems, rotulagemSearch]);
 
-  // Fila lateral de escolha para rotulagem: Lotes Disponíveis para Rotulagem
+  // Fila lateral de escolha para rotulagem: Lotes Disponíveis para Rotulagem (busca independente)
   const baseLotesParaRotulagem = useMemo(() => {
-    const isSearching = Boolean(rotulagemSearch.trim());
+    const isSearching = Boolean(rotulagemFilaSearch.trim());
     return lotes.filter(l => {
       // REGRA GERAL: Ordem concluída NUNCA aparece em filas ativas
       if (isLoteConcluido(l)) return false;
 
-      // Se há pesquisa ativa no quadro de rotulagem, exibir diretamente qualquer lote aberto
-      if (isSearching) return true;
-
       if (isLoteOcultoNoQuadro(l, 'rotulagem')) return false;
 
-      // REGRA REQUISITADA: Se o lote já estiver no quadro de rotulagem (Máquina ou Manual), NÃO pode estar na fila
-      const isAlreadyInRotulagemBoard = programacaoRotulagem.some(it => (it.loteNumber || '').trim().toUpperCase() === (l.loteNumber || '').trim().toUpperCase());
+      // Se há pesquisa ativa na fila de rotulagem, exibir diretamente qualquer lote aberto não oculto
+      if (isSearching) return true;
+
+      // REGRA REQUISITADA: Se este item específico do lote já estiver no quadro de rotulagem (Máquina ou Manual), NÃO pode estar na fila
+      const isAlreadyInRotulagemBoard = programacaoRotulagem.some(it => 
+        (it.loteNumber || '').trim().toUpperCase() === (l.loteNumber || '').trim().toUpperCase() &&
+        (!it.productCode || !l.productCode || (it.productCode || '').trim().toUpperCase() === (l.productCode || '').trim().toUpperCase())
+      );
       if (isAlreadyInRotulagemBoard) return false;
 
       const esperaDetails = getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem);
@@ -7279,18 +7638,19 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       // Se escopo foi selecionado manualmente como 'TODOS'
       if (rotulagemScopeFilter === 'TODOS') return true;
 
-      // REGRA REQUISITADA: Pegar lotes abertos da semana, lotes antigos ignorar
-      if (!isLoteDaSemana(l, 'rotulagem', rotulagemSelectedDate)) {
+      // REGRA REQUISITADA: Pegar lotes abertos da semana ou planejados para os próximos dias
+      const isPlanned = Boolean(l.details?.includes('Planejamento Semanal'));
+      if (!isPlanned && !isLoteDaSemana(l, 'rotulagem', rotulagemSelectedDate)) {
         return false;
       }
 
       return true;
     });
-  }, [lotes, rotulagemSearch, programacaoRotulagem, rotulagemOnlyProblemas, manualFilasAdicionados, rotulagemScopeFilter, rotulagemSelectedDate, programacaoEnvase]);
+  }, [lotes, rotulagemFilaSearch, programacaoRotulagem, rotulagemOnlyProblemas, manualFilasAdicionados, rotulagemScopeFilter, rotulagemSelectedDate, programacaoEnvase]);
 
   const lotesParaRotulagem = useMemo(() => {
-    return deduplicateLotesByNumber(filterLotesBySearch(baseLotesParaRotulagem, rotulagemSearch));
-  }, [baseLotesParaRotulagem, rotulagemSearch]);
+    return deduplicateLotesByNumber(filterLotesBySearch(baseLotesParaRotulagem, rotulagemFilaSearch));
+  }, [baseLotesParaRotulagem, rotulagemFilaSearch]);
 
   // Ordens Finalizadas pelo Chão de Fábrica e Sincronizadas no ERP
   const baseOrdensFinalizadas = useMemo(() => {
@@ -7398,6 +7758,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   }, [baseLotesParaRotulagem]);
 
   const handleEncaixarRotulagem = async (lote: AcompanhamentoLote, tipo: 'MAQUINA' | 'MANUAL') => {
+    const targetDate = rotulagemSelectedDate || new Date().toISOString().split('T')[0];
     const existing = programacaoRotulagem.find(it => 
       it.loteNumber === lote.loteNumber && 
       it.tipo === tipo &&
@@ -7407,13 +7768,20 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       showToast(`Lote #${lote.loteNumber} (${lote.productCode || ''}) já está na fila de Rotulagem ${tipo === 'MAQUINA' ? 'Máquina' : 'Manual'}!`, 'error');
       return;
     }
-    const currentList = programacaoRotulagem.filter(it => it.tipo === tipo);
-    const nextOrdem = currentList.length > 0 ? Math.max(...currentList.map(it => it.ordem)) + 1 : 1;
+    const currentList = programacaoRotulagem.filter(it => 
+      it.tipo === tipo && 
+      (it.dataProgramada ? parseLoteDateToIso(it.dataProgramada) === targetDate : true)
+    );
+    const nextOrdem = currentList.length > 0 ? Math.max(...currentList.map(it => it.ordem || 0)) + 1 : 1;
     const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || (typeof currentUser === 'string' ? currentUser : 'Operador');
-    const numQty = Number(lote.quantity);
-    const numKg = Number(lote.quantityKg);
+    const numKg = Number(lote.quantityKg) || 0;
+    let numQty = Number(lote.quantity) || 0;
+    if (numQty <= 0 && numKg > 0) {
+      const uWeight = parseProductUnitWeightKg(lote.productDescription);
+      numQty = Math.round(numKg / (uWeight || 1));
+    }
     const payload = {
-      dataProgramada: rotulagemSelectedDate || new Date().toISOString().split('T')[0],
+      dataProgramada: targetDate,
       tipo,
       ordem: nextOrdem,
       loteNumber: String(lote.loteNumber || '').trim(),
@@ -7430,7 +7798,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         body: JSON.stringify(payload)
       });
       setProgramacaoRotulagem(prev => [...prev.filter(it => it.id !== savedItem.id), savedItem]);
-      const targetDate = payload.dataProgramada;
       setLotes(prev => prev.map(l => l.loteNumber === lote.loteNumber ? { ...l, dataPrevisao: targetDate } : l));
       try {
         await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(lote.loteNumber)}/previsao`, {
@@ -7454,17 +7821,25 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   };
 
   const handleReorderRotulagem = async (id: number | string, tipo: 'MAQUINA' | 'MANUAL', direction: 'up' | 'down') => {
-    const list = programacaoRotulagem.filter(it => it.tipo === tipo).sort((a, b) => a.ordem - b.ordem);
+    const targetDate = rotulagemSelectedDate || new Date().toISOString().split('T')[0];
+    const list = programacaoRotulagem
+      .filter(it => it.tipo === tipo && (rotulagemShowAllDates || !it.dataProgramada || parseLoteDateToIso(it.dataProgramada) === targetDate))
+      .sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
     const idx = list.findIndex(it => it.id === id);
     if (idx === -1) return;
     const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
     if (targetIdx < 0 || targetIdx >= list.length) return;
 
-    const tempOrdem = list[idx].ordem;
-    list[idx].ordem = list[targetIdx].ordem;
-    list[targetIdx].ordem = tempOrdem;
+    const temp = list[idx];
+    list[idx] = list[targetIdx];
+    list[targetIdx] = temp;
 
-    const others = programacaoRotulagem.filter(it => it.tipo !== tipo);
+    list.forEach((item, index) => {
+      item.ordem = index + 1;
+    });
+
+    const listIds = new Set(list.map(it => it.id));
+    const others = programacaoRotulagem.filter(it => !listIds.has(it.id));
     setProgramacaoRotulagem([...others, ...list]);
 
     const reorderPayload = list.map(it => ({
@@ -7478,10 +7853,230 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         method: 'POST',
         body: JSON.stringify({ items: reorderPayload })
       });
+      fetchProgramacaoRotulagem('TODOS');
     } catch (e: any) {
       console.error("Erro ao reordenar rotulagem:", e);
       showToast("Erro ao reordenar: " + (e?.message || e), "error");
       fetchProgramacaoRotulagem('TODOS');
+    }
+  };
+
+  const handleMoveRotulagemTipo = async (item: ProgramacaoRotulagemItem, targetTipo: 'MAQUINA' | 'MANUAL') => {
+    if (item.tipo === targetTipo) return;
+    try {
+      await apiJson('/api/administrativo/rotulagem/programacao', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: item.id,
+          dataProgramada: item.dataProgramada,
+          tipo: targetTipo,
+          ordem: item.ordem,
+          loteNumber: item.loteNumber,
+          productCode: item.productCode,
+          productDescription: item.productDescription,
+          quantity: item.quantity,
+          quantityKg: item.quantityKg,
+          statusRotulagem: item.statusRotulagem,
+          observacoes: item.observacoes,
+          createdBy: item.createdBy,
+        })
+      });
+      showToast(`Lote #${item.loteNumber} transferido para Rotulagem ${targetTipo === 'MAQUINA' ? 'Máquina' : 'Manual'}!`);
+      fetchProgramacaoRotulagem('TODOS');
+    } catch (e: any) {
+      console.error("Erro ao transferir rotulagem:", e);
+      showToast("Falha ao transferir rotulagem: " + (e?.message || e), "error");
+    }
+  };
+
+  const handleReorderRotulagemList = async (tipo: 'MAQUINA' | 'MANUAL', fromIndex: number, toIndex: number) => {
+    const targetDate = rotulagemSelectedDate || new Date().toISOString().split('T')[0];
+    const list = [...programacaoRotulagem
+      .filter(it => it.tipo === tipo && (rotulagemShowAllDates || !it.dataProgramada || parseLoteDateToIso(it.dataProgramada) === targetDate))
+      .sort((a, b) => (a.ordem || 0) - (b.ordem || 0))];
+    if (fromIndex < 0 || fromIndex >= list.length || toIndex < 0 || toIndex >= list.length || fromIndex === toIndex) return;
+    const [moved] = list.splice(fromIndex, 1);
+    list.splice(toIndex, 0, moved);
+    list.forEach((it, i) => {
+      it.ordem = i + 1;
+    });
+    const listIds = new Set(list.map(it => it.id));
+    const others = programacaoRotulagem.filter(it => !listIds.has(it.id));
+    setProgramacaoRotulagem([...others, ...list]);
+    const reorderPayload = list.map(it => ({
+      id: Number(it.id),
+      tipo: it.tipo,
+      ordem: it.ordem,
+    }));
+    try {
+      await apiJson('/api/administrativo/rotulagem/programacao/reorder', {
+        method: 'POST',
+        body: JSON.stringify({ items: reorderPayload })
+      });
+      fetchProgramacaoRotulagem('TODOS');
+    } catch (e: any) {
+      console.error("Erro ao reordenar rotulagem:", e);
+      fetchProgramacaoRotulagem('TODOS');
+    }
+  };
+
+  const handleDropRotulagem = async (e: React.DragEvent, targetTipo: 'MAQUINA' | 'MANUAL', targetIndex?: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverTarget(null);
+    const rawData = e.dataTransfer.getData('application/json');
+    if (!rawData) return;
+    try {
+      const data = JSON.parse(rawData);
+      if (data.board !== 'rotulagem') return;
+      if (data.source === 'disponiveis') {
+        const targetLote = lotes.find(l => 
+          l.loteNumber === data.loteNumber && 
+          (!data.productCode || !l.productCode || l.productCode === data.productCode)
+        ) || baseLotesParaRotulagem.find(l => 
+          l.loteNumber === data.loteNumber && 
+          (!data.productCode || !l.productCode || l.productCode === data.productCode)
+        );
+        if (targetLote) {
+          await handleEncaixarRotulagem(targetLote, targetTipo);
+        }
+      } else if (data.source === 'coluna') {
+        if (data.tipo !== targetTipo) {
+          const item = programacaoRotulagem.find(it => it.id === data.id);
+          if (item) {
+            await handleMoveRotulagemTipo(item, targetTipo);
+          }
+        } else if (data.index !== undefined && targetIndex !== undefined && data.index !== targetIndex) {
+          await handleReorderRotulagemList(targetTipo, data.index, targetIndex);
+        }
+      }
+    } catch (err) {
+      console.error('Erro no drop de rotulagem:', err);
+    } finally {
+      setDragCardInfo(null);
+    }
+  };
+
+  const handleDropPesagem = async (e: React.DragEvent, targetLocation: 'ativa' | 'fila', targetIndex?: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverTarget(null);
+    const rawData = e.dataTransfer.getData('application/json');
+    if (!rawData) return;
+    try {
+      const data = JSON.parse(rawData);
+      if (data.board !== 'pesagem') return;
+      const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
+      if (data.source === 'fila' && targetLocation === 'ativa') {
+        const targetDate = pesagemSelectedDate || new Date().toISOString().split('T')[0];
+        setPesagemOrderOverrides(prev => {
+          if (prev.includes(data.loteNumber)) return prev;
+          const next = [...prev, data.loteNumber];
+          try { localStorage.setItem('natum_pesagem_order_overrides', JSON.stringify(next)); } catch {}
+          return next;
+        });
+        setPesagemConcluidosLotes(prev => {
+          const next = prev.filter(x => x !== data.loteNumber);
+          try { localStorage.setItem('natum_pesagem_concluidos_lotes', JSON.stringify(next)); } catch {}
+          return next;
+        });
+        await saveEtapaStatus(data.loteNumber, 'pesagem', 'ativo', null, null, null, responsibleName, targetDate);
+        await fetchLotes();
+        showToast(`Lote #${data.loteNumber} iniciado na Pesagem em ${formatDateOnly(targetDate)}!`);
+      } else if (data.source === 'ativa' && targetLocation === 'fila') {
+        setPesagemOrderOverrides(prev => {
+          const next = prev.filter(x => x !== data.loteNumber);
+          try { localStorage.setItem('natum_pesagem_order_overrides', JSON.stringify(next)); } catch {}
+          return next;
+        });
+        setPesagemConcluidosLotes(prev => {
+          const next = prev.filter(x => x !== data.loteNumber);
+          try { localStorage.setItem('natum_pesagem_concluidos_lotes', JSON.stringify(next)); } catch {}
+          return next;
+        });
+        await saveEtapaStatus(data.loteNumber, 'pesagem', 'fila', null, null, null, responsibleName);
+        showToast(`Lote #${data.loteNumber} retornado para a fila de Pesagem.`);
+      } else if (data.source === 'ativa' && targetLocation === 'ativa' && data.index !== undefined && targetIndex !== undefined && data.index !== targetIndex) {
+        const currentList = sortedLotesPesando.map(l => l.loteNumber);
+        if (data.index >= 0 && data.index < currentList.length && targetIndex >= 0 && targetIndex < currentList.length) {
+          const updated = [...currentList];
+          const [moved] = updated.splice(data.index, 1);
+          updated.splice(targetIndex, 0, moved);
+          setPesagemOrderOverrides(updated);
+          try {
+            localStorage.setItem('natum_pesagem_order_overrides', JSON.stringify(updated));
+          } catch {}
+        }
+      }
+    } catch (err) {
+      console.error('Erro no drop de pesagem:', err);
+    } finally {
+      setDragCardInfo(null);
+    }
+  };
+
+  const handleDropProducao = async (e: React.DragEvent, targetLocation: 'ativa' | 'fila' | 'caldeira', targetIndex?: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverTarget(null);
+    const rawData = e.dataTransfer.getData('application/json');
+    if (!rawData) return;
+    try {
+      const data = JSON.parse(rawData);
+      if (data.board !== 'producao') return;
+      const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
+
+      if (targetLocation === 'caldeira') {
+        if (data.source === 'fila') {
+          await saveEtapaStatus(data.loteNumber, 'producao', 'ativo', null, null, null, responsibleName);
+        }
+        if (!lotesComCaldeira.has(data.loteNumber)) {
+          await handleToggleCaldeiraLote(data.loteNumber);
+        }
+        showToast(`Lote #${data.loteNumber} alocado na Caldeira!`);
+        return;
+      }
+
+      if (data.source === 'caldeira' && targetLocation === 'ativa') {
+        if (lotesComCaldeira.has(data.loteNumber)) {
+          await handleToggleCaldeiraLote(data.loteNumber);
+        }
+        await saveEtapaStatus(data.loteNumber, 'producao', 'ativo', null, null, null, responsibleName);
+        showToast(`Lote #${data.loteNumber} retornado para os Reatores.`);
+        return;
+      }
+
+      if (data.source === 'caldeira' && targetLocation === 'fila') {
+        if (lotesComCaldeira.has(data.loteNumber)) {
+          await handleToggleCaldeiraLote(data.loteNumber);
+        }
+        await saveEtapaStatus(data.loteNumber, 'producao', 'fila', null, null, null, responsibleName);
+        showToast(`Lote #${data.loteNumber} retornado para a fila de Produção.`);
+        return;
+      }
+
+      if (data.source === 'fila' && targetLocation === 'ativa') {
+        await saveEtapaStatus(data.loteNumber, 'producao', 'ativo', null, null, null, responsibleName);
+        showToast(`Lote #${data.loteNumber} iniciado na Fabricação!`);
+      } else if (data.source === 'ativa' && targetLocation === 'fila') {
+        await saveEtapaStatus(data.loteNumber, 'producao', 'fila', null, null, null, responsibleName);
+        showToast(`Lote #${data.loteNumber} retornado para a fila de Produção.`);
+      } else if (data.source === 'ativa' && targetLocation === 'ativa' && data.index !== undefined && targetIndex !== undefined && data.index !== targetIndex) {
+        const currentList = filteredLotesReatoresNormais.map(l => l.loteNumber);
+        if (data.index >= 0 && data.index < currentList.length && targetIndex >= 0 && targetIndex < currentList.length) {
+          const updated = [...currentList];
+          const [moved] = updated.splice(data.index, 1);
+          updated.splice(targetIndex, 0, moved);
+          setProducaoOrderOverrides(updated);
+          try {
+            localStorage.setItem('natum_producao_order_overrides', JSON.stringify(updated));
+          } catch {}
+        }
+      }
+    } catch (err) {
+      console.error('Erro no drop de producao:', err);
+    } finally {
+      setDragCardInfo(null);
     }
   };
 
@@ -8430,7 +9025,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           {/* Lote */}
                           <td className="py-2.5 px-4 font-mono font-bold text-xs text-zinc-800 select-all whitespace-nowrap">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <span>#{lote.loteNumber}</span>
+                              {renderLoteNumberBadge(lote.loteNumber)}
                               {multiProductLoteNumbers.has(lote.loteNumber) && (
                                 <span
                                   className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200"
@@ -9164,7 +9759,23 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 </div>
               </div>
 
-              <div className="p-3 bg-zinc-50/50 min-h-[480px] max-h-[750px] overflow-y-auto space-y-2.5">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (dragOverTarget !== 'pesagem_ativa') setDragOverTarget('pesagem_ativa');
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    if (dragOverTarget === 'pesagem_ativa') setDragOverTarget(null);
+                  }
+                }}
+                onDrop={(e) => handleDropPesagem(e, 'ativa')}
+                className={cn(
+                  "p-3 bg-zinc-50/50 min-h-[480px] max-h-[750px] overflow-y-auto space-y-2.5 transition-all rounded-b-xl",
+                  dragOverTarget === 'pesagem_ativa' && "ring-2 ring-emerald-500 bg-emerald-50/40"
+                )}
+              >
                 {filteredLotesPesando.length === 0 ? (
                   <div className="py-20 text-center text-zinc-400 border border-dashed border-zinc-200 rounded-xl p-4 bg-white">
                     <Scale className="h-10 w-10 mx-auto mb-2 text-zinc-300" />
@@ -9186,15 +9797,43 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     ));
                     const isMulti = multiProductLoteNumbers.has(lote.loteNumber);
                     const adiadoInfo = getLoteAdiadoInfo(lote.loteNumber, pesagemSelectedDate, 'pesagem');
+                    const isAdiadoOriginal = Boolean(adiadoInfo && !adiadoInfo.isDestino);
                     const etapaPesagem = getLoteEtapaStatus(lote, 'pesagem');
                     const isPesagemConcluida = pesagemConcluidosLotes.includes(lote.loteNumber) || etapaPesagem.isConcluido;
 
                     return (
                       <div
                         key={`${lote.loteNumber}_${lote.productCode || idx}`}
+                        draggable
+                        onDragStart={(e) => {
+                          const payload = {
+                            board: 'pesagem',
+                            source: 'ativa',
+                            loteNumber: lote.loteNumber,
+                            productCode: lote.productCode,
+                            index: idx
+                          };
+                          e.dataTransfer.setData('application/json', JSON.stringify(payload));
+                          e.dataTransfer.effectAllowed = 'move';
+                          setDragCardInfo(payload as any);
+                        }}
+                        onDragEnd={() => { setDragCardInfo(null); setDragOverTarget(null); }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          e.dataTransfer.dropEffect = 'move';
+                          const targetKey = `pesagem_ativa_${idx}`;
+                          if (dragOverTarget !== targetKey) setDragOverTarget(targetKey);
+                        }}
+                        onDragLeave={(e) => {
+                          e.stopPropagation();
+                          if (dragOverTarget === `pesagem_ativa_${idx}`) setDragOverTarget(null);
+                        }}
+                        onDrop={(e) => handleDropPesagem(e, 'ativa', idx)}
                         className={cn(
-                          "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2",
-                          adiadoInfo
+                          "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
+                          dragOverTarget === `pesagem_ativa_${idx}` && "border-t-4 border-t-emerald-600 ring-2 ring-emerald-300",
+                          isAdiadoOriginal
                             ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
                             : isSearched
                               ? "border-emerald-500 ring-2 ring-emerald-300/80 bg-emerald-50/20"
@@ -9218,14 +9857,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 Pesando
                               </span>
                             )}
-                            {adiadoInfo && (
+                            {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
                                   className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
-                                  title={adiadoInfo.isDestino ? `Lote transferido de ${formatDateOnly(adiadoInfo.dataOriginal)} para esta data` : `Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                  title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
                                   <FastForward className="h-3 w-3 text-rose-600" />
-                                  {adiadoInfo.isDestino ? `Adiado de ${formatDateOnly(adiadoInfo.dataOriginal)}` : `Adiado p/ ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                  Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                 </span>
                                 <button
                                   type="button"
@@ -9285,6 +9924,50 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             >
                               <Eye className="h-3.5 w-3.5" />
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPesagemOrderOverrides(prev => {
+                                  const next = prev.filter(x => x !== lote.loteNumber);
+                                  try { localStorage.setItem('natum_pesagem_order_overrides', JSON.stringify(next)); } catch {}
+                                  return next;
+                                });
+                                setPesagemConcluidosLotes(prev => {
+                                  const next = prev.filter(x => x !== lote.loteNumber);
+                                  try { localStorage.setItem('natum_pesagem_concluidos_lotes', JSON.stringify(next)); } catch {}
+                                  return next;
+                                });
+                                const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
+                                saveEtapaStatus(lote.loteNumber, 'pesagem', 'fila', null, null, null, responsibleName);
+                                showToast(`Lote #${lote.loteNumber} retornado para a Fila de Pesagem.`);
+                              }}
+                              className="p-1 hover:bg-amber-50 rounded text-zinc-400 hover:text-amber-700 cursor-pointer"
+                              title="Retornar lote para a Fila de Pesagem"
+                            >
+                              <Undo2 className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                setPesagemOrderOverrides(prev => {
+                                  const next = prev.filter(x => x !== lote.loteNumber);
+                                  try { localStorage.setItem('natum_pesagem_order_overrides', JSON.stringify(next)); } catch {}
+                                  return next;
+                                });
+                                setPesagemConcluidosLotes(prev => {
+                                  const next = prev.filter(x => x !== lote.loteNumber);
+                                  try { localStorage.setItem('natum_pesagem_concluidos_lotes', JSON.stringify(next)); } catch {}
+                                  return next;
+                                });
+                                const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
+                                await saveEtapaStatus(lote.loteNumber, 'pesagem', 'fila', null, null, null, responsibleName);
+                                showToast(`Lote #${lote.loteNumber} retirado da balança e retornado para a fila.`);
+                              }}
+                              className="p-1 hover:bg-rose-50 rounded text-zinc-400 hover:text-rose-600 cursor-pointer transition-colors"
+                              title="Retirar da balança (retorna à fila)"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
                           </div>
                         </div>
 
@@ -9310,6 +9993,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             onClick={async () => {
                               const newConcluido = !isPesagemConcluida;
                               const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
+                              const targetDate = pesagemSelectedDate || (lote.dataPesagem ? parseLoteDateToIso(lote.dataPesagem) : null) || new Date().toISOString().split('T')[0];
                               setPesagemConcluidosLotes(prev => {
                                 const next = newConcluido
                                   ? Array.from(new Set([...prev, lote.loteNumber]))
@@ -9318,7 +10002,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 return next;
                               });
                               try {
-                                await saveEtapaStatus(lote.loteNumber, 'pesagem', newConcluido ? 'concluido' : 'ativo', null, null, null, responsibleName);
+                                await saveEtapaStatus(lote.loteNumber, 'pesagem', newConcluido ? 'concluido' : 'ativo', null, null, null, responsibleName, targetDate);
                               } catch (err) {
                                 console.error('Erro salvando etapa pesagem:', err);
                               }
@@ -9390,7 +10074,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     <span>Adicionar Lote</span>
                   </button>
                   <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-white/10 text-white">
-                    {lotesFilaPesagem.length}{pesagemSearch || pesagemFilaFilter === 'ESPERA' ? ` / ${baseLotesFilaPesagem.length}` : ''}
+                    {lotesFilaPesagem.length}{pesagemFilaSearch || pesagemFilaFilter === 'ESPERA' ? ` / ${baseLotesFilaPesagem.length}` : ''}
                   </span>
                   <span className="text-xs font-mono text-zinc-300">
                     {lotesFilaPesagem.reduce((s, l) => s + (Number(l.quantityKg) || 0), 0).toLocaleString('pt-BR')} kg
@@ -9404,21 +10088,21 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
                   <input
                     type="text"
-                    value={pesagemSearch}
-                    onChange={(e) => setPesagemSearch(e.target.value)}
+                    value={pesagemFilaSearch}
+                    onChange={(e) => setPesagemFilaSearch(e.target.value)}
                     onKeyDown={e => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
-                        performRemoteLookup(pesagemSearch);
+                        performRemoteLookup(pesagemFilaSearch);
                       }
                     }}
                     placeholder="Buscar lote por número, SKU ou produto..."
                     className="w-full bg-white border border-zinc-200 rounded-lg pl-8 pr-7 py-1 text-xs text-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900 placeholder:text-zinc-400"
                   />
-                  {pesagemSearch && (
+                  {pesagemFilaSearch && (
                     <button
                       type="button"
-                      onClick={() => setPesagemSearch('')}
+                      onClick={() => setPesagemFilaSearch('')}
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 cursor-pointer"
                     >
                       <X className="h-3.5 w-3.5" />
@@ -9477,12 +10161,28 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 </div>
               </div>
 
-              <div className="p-3 bg-zinc-50/50 min-h-[480px] max-h-[750px] overflow-y-auto space-y-2.5">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (dragOverTarget !== 'pesagem_fila') setDragOverTarget('pesagem_fila');
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    if (dragOverTarget === 'pesagem_fila') setDragOverTarget(null);
+                  }
+                }}
+                onDrop={(e) => handleDropPesagem(e, 'fila')}
+                className={cn(
+                  "p-3 bg-zinc-50/50 min-h-[480px] max-h-[750px] overflow-y-auto space-y-2.5 transition-all rounded-b-xl",
+                  dragOverTarget === 'pesagem_fila' && "ring-2 ring-amber-500 bg-amber-50/40"
+                )}
+              >
                 {lotesFilaPesagem.length === 0 ? (
                   <div className="py-16 text-center text-zinc-400 border border-dashed border-zinc-200 rounded-xl p-4 bg-white">
                     <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-emerald-400" />
                     <p className="text-xs font-bold text-zinc-700">
-                      {pesagemSearch ? `Nenhum lote na fila com a busca "${pesagemSearch}"` : 'Nenhum lote aguardando início de pesagem'}
+                      {pesagemFilaSearch ? `Nenhum lote na fila com a busca "${pesagemFilaSearch}"` : 'Nenhum lote aguardando início de pesagem'}
                     </p>
                     <p className="text-[11px] text-zinc-400 mt-1">Todos os lotes foram iniciados ou não há demandas de pesagem no momento.</p>
                   </div>
@@ -9491,20 +10191,35 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     const esperaDetails = getLoteEsperaDetails(lote, programacaoEnvase, programacaoRotulagem);
                     const etapaPesagem = getLoteEtapaStatus(lote, 'pesagem');
                     const isEspera = esperaDetails.isEmEspera;
-                    const isSearched = !!(pesagemSearch.trim() && (
-                      lote.loteNumber.toLowerCase().includes(pesagemSearch.trim().toLowerCase()) ||
-                      lote.productCode?.toLowerCase().includes(pesagemSearch.trim().toLowerCase()) ||
-                      lote.productDescription?.toLowerCase().includes(pesagemSearch.trim().toLowerCase())
+                    const isSearched = !!(pesagemFilaSearch.trim() && (
+                      lote.loteNumber.toLowerCase().includes(pesagemFilaSearch.trim().toLowerCase()) ||
+                      lote.productCode?.toLowerCase().includes(pesagemFilaSearch.trim().toLowerCase()) ||
+                      lote.productDescription?.toLowerCase().includes(pesagemFilaSearch.trim().toLowerCase())
                     ));
                     const isMulti = multiProductLoteNumbers.has(lote.loteNumber);
                     const adiadoInfo = getLoteAdiadoInfo(lote.loteNumber, pesagemSelectedDate, 'pesagem');
+                    const isAdiadoOriginal = Boolean(adiadoInfo && !adiadoInfo.isDestino);
 
                     return (
                       <div
                         key={`${lote.loteNumber}_${lote.productCode || idx}`}
+                        draggable
+                        onDragStart={(e) => {
+                          const payload = {
+                            board: 'pesagem',
+                            source: 'fila',
+                            loteNumber: lote.loteNumber,
+                            productCode: lote.productCode,
+                            index: idx
+                          };
+                          e.dataTransfer.setData('application/json', JSON.stringify(payload));
+                          e.dataTransfer.effectAllowed = 'move';
+                          setDragCardInfo(payload as any);
+                        }}
+                        onDragEnd={() => { setDragCardInfo(null); setDragOverTarget(null); }}
                         className={cn(
-                          "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2",
-                          adiadoInfo
+                          "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
+                          isAdiadoOriginal
                             ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
                             : isSearched
                               ? "border-amber-500 ring-2 ring-amber-300/80 bg-amber-50/20"
@@ -9515,8 +10230,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-1.5 font-mono text-xs font-extrabold text-zinc-900 flex-wrap">
-                            <span>#{lote.loteNumber}</span>
-                            <span className="text-[10px] text-zinc-400 font-normal">({lote.productCode})</span>
+                            {renderLoteNumberBadge(lote.loteNumber)}
+                            {!isMulti && lote.productCode && <span className="text-[10px] text-zinc-400 font-normal">({lote.productCode})</span>}
                             {isEspera ? (
                               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200 flex items-center gap-1 font-sans">
                                 <PauseCircle className="h-3 w-3 text-amber-600" />
@@ -9527,14 +10242,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 Fila
                               </span>
                             )}
-                            {adiadoInfo && (
+                            {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
                                   className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
-                                  title={adiadoInfo.isDestino ? `Lote transferido de ${formatDateOnly(adiadoInfo.dataOriginal)} para esta data` : `Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                  title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
                                   <FastForward className="h-3 w-3 text-rose-600" />
-                                  {adiadoInfo.isDestino ? `Adiado de ${formatDateOnly(adiadoInfo.dataOriginal)}` : `Adiado p/ ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                  Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                 </span>
                                 <button
                                   type="button"
@@ -9577,9 +10292,18 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleRemoverDaFila(lote.loteNumber, 'pesagem')}
+                              onClick={() => {
+                                const isManual = (manualFilasAdicionados.pesagem || []).includes(lote.loteNumber);
+                                if (isManual) {
+                                  handleRemoverDaFila(lote.loteNumber, 'pesagem');
+                                } else {
+                                  if (window.confirm(`Deseja realmente ocultar o lote #${lote.loteNumber} de todo o Quadro de Pesagem? (Ele continuará visível no Quadro de Ordens)`)) {
+                                    handleRemoverDaFila(lote.loteNumber, 'pesagem');
+                                  }
+                                }
+                              }}
                               className="p-1 hover:bg-rose-50 rounded text-zinc-400 hover:text-rose-600 cursor-pointer transition-colors"
-                              title="Remover da Fila de Pesagem"
+                              title="Remover/Ocultar da Fila de Pesagem"
                             >
                               <X className="h-3.5 w-3.5" />
                             </button>
@@ -9635,26 +10359,22 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                     try { localStorage.setItem('natum_pesagem_order_overrides', JSON.stringify(next)); } catch {}
                                     return next;
                                   });
+                                  setPesagemConcluidosLotes(prev => {
+                                    const next = prev.filter(x => x !== lote.loteNumber);
+                                    try { localStorage.setItem('natum_pesagem_concluidos_lotes', JSON.stringify(next)); } catch {}
+                                    return next;
+                                  });
                                   const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
                                   const targetDate = pesagemSelectedDate || new Date().toISOString().split('T')[0];
 
-                                  // Sincroniza a data do lote com a data da tela de pesagem selecionada
-                                  if (parseLoteDateToIso(lote.dataPrevisao || '') !== targetDate) {
-                                    setLotes(prev => prev.map(l => l.loteNumber === lote.loteNumber ? { ...l, dataPrevisao: targetDate } : l));
-                                    try {
-                                      await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(lote.loteNumber)}/previsao`, {
-                                        method: 'POST',
-                                        body: JSON.stringify({
-                                          dataPrevisao: targetDate,
-                                          updatedBy: responsibleName,
-                                        })
-                                      });
-                                    } catch (e) {
-                                      console.error('Erro ao sincronizar dataPrevisao ao iniciar pesagem:', e);
-                                    }
-                                  }
+                                  // Sincroniza a data de pesagem do lote com a data da tela de pesagem selecionada
+                                  setLotes(prev => prev.map(l => l.loteNumber === lote.loteNumber ? { 
+                                    ...l, 
+                                    dataPesagem: `${targetDate}T08:00:00Z`
+                                  } : l));
 
-                                  await saveEtapaStatus(lote.loteNumber, 'pesagem', 'ativo', null, null, null, responsibleName);
+                                  await saveEtapaStatus(lote.loteNumber, 'pesagem', 'ativo', null, null, null, responsibleName, targetDate);
+                                  await fetchLotes();
                                   showToast(`Lote #${lote.loteNumber} iniciado na pesagem em ${formatDateOnly(targetDate)}!`);
                                 }}
                                 className="flex-1 py-1.5 px-2.5 bg-zinc-900 hover:bg-black text-white rounded-lg text-xs font-bold transition-colors cursor-pointer text-center shadow-2xs flex items-center justify-center gap-1"
@@ -9743,7 +10463,20 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 </div>
               </div>
 
-              <div className="p-3 bg-zinc-50/50 min-h-[480px] max-h-[750px] overflow-y-auto space-y-2.5">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOverTarget('producao-reatores');
+                }}
+                onDragLeave={() => {
+                  if (dragOverTarget === 'producao-reatores') setDragOverTarget(null);
+                }}
+                onDrop={(e) => handleDropProducao(e, 'ativa')}
+                className={cn(
+                  "p-3 bg-zinc-50/50 min-h-[480px] max-h-[750px] overflow-y-auto space-y-2.5 transition-colors",
+                  dragOverTarget === 'producao-reatores' ? "bg-blue-50/60 ring-2 ring-blue-500 rounded-xl" : ""
+                )}
+              >
                 {filteredLotesReatoresNormais.length === 0 ? (
                   <div className="py-20 text-center text-zinc-400 border border-dashed border-zinc-200 rounded-xl p-4 bg-white">
                     <FlaskConical className="h-10 w-10 mx-auto mb-2 text-zinc-300" />
@@ -9766,15 +10499,34 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                     const isMulti = multiProductLoteNumbers.has(lote.loteNumber);
                     const adiadoInfo = getLoteAdiadoInfo(lote.loteNumber, producaoSelectedDate, 'producao');
+                    const isAdiadoOriginal = Boolean(adiadoInfo && !adiadoInfo.isDestino);
                     const etapaProducao = getLoteEtapaStatus(lote, 'producao');
                     const isProdConcluida = producaoConcluidosLotes.includes(lote.loteNumber) || etapaProducao.isConcluido;
 
                     return (
                       <div
                         key={`${lote.loteNumber}_${lote.productCode || idx}`}
+                        draggable
+                        onDragStart={(e) => {
+                          setDragCardInfo({ board: 'producao', id: lote.loteNumber, index: idx });
+                          e.dataTransfer.setData('application/json', JSON.stringify({
+                            board: 'producao',
+                            source: 'ativa',
+                            loteNumber: lote.loteNumber,
+                            index: idx
+                          }));
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                        onDrop={(e) => {
+                          e.stopPropagation();
+                          handleDropProducao(e, 'ativa', idx);
+                        }}
                         className={cn(
-                          "bg-white border rounded-xl p-3.5 shadow-2xs hover:shadow-xs transition-all space-y-2.5",
-                          adiadoInfo
+                          "bg-white border rounded-xl p-3.5 shadow-2xs hover:shadow-xs transition-all space-y-2.5 cursor-grab active:cursor-grabbing hover:border-blue-400",
+                          isAdiadoOriginal
                             ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
                             : isSearched
                               ? "border-blue-500 ring-2 ring-blue-300/80 bg-blue-50/20"
@@ -9798,14 +10550,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 Em Fabricação (Reator)
                               </span>
                             )}
-                            {adiadoInfo && (
+                            {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
                                   className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
-                                  title={adiadoInfo.isDestino ? `Lote transferido de ${formatDateOnly(adiadoInfo.dataOriginal)} para esta data` : `Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                  title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
                                   <FastForward className="h-3 w-3 text-rose-600" />
-                                  {adiadoInfo.isDestino ? `Adiado de ${formatDateOnly(adiadoInfo.dataOriginal)}` : `Adiado p/ ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                  Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                 </span>
                                 <button
                                   type="button"
@@ -9996,7 +10748,20 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 </div>
               </div>
 
-              <div className="p-3 bg-orange-50/20 min-h-[480px] max-h-[750px] overflow-y-auto space-y-2.5">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOverTarget('producao-caldeira');
+                }}
+                onDragLeave={() => {
+                  if (dragOverTarget === 'producao-caldeira') setDragOverTarget(null);
+                }}
+                onDrop={(e) => handleDropProducao(e, 'caldeira')}
+                className={cn(
+                  "p-3 bg-orange-50/20 min-h-[480px] max-h-[750px] overflow-y-auto space-y-2.5 transition-colors",
+                  dragOverTarget === 'producao-caldeira' ? "bg-orange-100/60 ring-2 ring-orange-500 rounded-xl" : ""
+                )}
+              >
                 {filteredLotesCaldeira.length === 0 ? (
                   <div className="py-20 text-center text-zinc-400 border border-dashed border-orange-200 rounded-xl p-4 bg-white shadow-2xs">
                     <Flame className="h-10 w-10 mx-auto mb-2 text-orange-400" />
@@ -10017,15 +10782,34 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                     const isMulti = multiProductLoteNumbers.has(lote.loteNumber);
                     const adiadoInfo = getLoteAdiadoInfo(lote.loteNumber, producaoSelectedDate, 'producao');
+                    const isAdiadoOriginal = Boolean(adiadoInfo && !adiadoInfo.isDestino);
                     const etapaProducao = getLoteEtapaStatus(lote, 'producao');
                     const isCaldeiraConcluida = producaoConcluidosLotes.includes(lote.loteNumber) || etapaProducao.isConcluido;
 
                     return (
                       <div
                         key={`${lote.loteNumber}_${lote.productCode || idx}`}
+                        draggable
+                        onDragStart={(e) => {
+                          setDragCardInfo({ board: 'producao', id: lote.loteNumber, index: idx });
+                          e.dataTransfer.setData('application/json', JSON.stringify({
+                            board: 'producao',
+                            source: 'caldeira',
+                            loteNumber: lote.loteNumber,
+                            index: idx
+                          }));
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                        onDrop={(e) => {
+                          e.stopPropagation();
+                          handleDropProducao(e, 'caldeira', idx);
+                        }}
                         className={cn(
-                          "bg-white border-2 rounded-xl p-3.5 shadow-2xs hover:shadow-xs transition-all space-y-2.5 ring-1",
-                          adiadoInfo
+                          "bg-white border-2 rounded-xl p-3.5 shadow-2xs hover:shadow-xs transition-all space-y-2.5 ring-1 cursor-grab active:cursor-grabbing hover:border-orange-400",
+                          isAdiadoOriginal
                             ? "border-rose-400 bg-rose-50/25 ring-rose-300"
                             : isSearched
                               ? "border-orange-500 ring-orange-300 bg-orange-50/20"
@@ -10055,7 +10839,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 Processo Térmico
                               </span>
                             )}
-                            {adiadoInfo && (
+                            {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
                                   className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
@@ -10205,7 +10989,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     <span>Adicionar Lote</span>
                   </button>
                   <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-white/10 text-white">
-                    {lotesFilaProducao.length}{producaoSearch || producaoFilaFilter === 'ESPERA' ? ` / ${baseLotesFilaProducao.length}` : ''}
+                    {lotesFilaProducao.length}{producaoFilaSearch || producaoFilaFilter === 'ESPERA' ? ` / ${baseLotesFilaProducao.length}` : ''}
                   </span>
                 </div>
               </div>
@@ -10216,21 +11000,21 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
                   <input
                     type="text"
-                    value={producaoSearch}
-                    onChange={(e) => setProducaoSearch(e.target.value)}
+                    value={producaoFilaSearch}
+                    onChange={(e) => setProducaoFilaSearch(e.target.value)}
                     onKeyDown={e => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
-                        performRemoteLookup(producaoSearch);
+                        performRemoteLookup(producaoFilaSearch);
                       }
                     }}
                     placeholder="Buscar lote por número, SKU ou produto..."
                     className="w-full bg-white border border-zinc-200 rounded-lg pl-8 pr-7 py-1 text-xs text-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900 placeholder:text-zinc-400"
                   />
-                  {producaoSearch && (
+                  {producaoFilaSearch && (
                     <button
                       type="button"
-                      onClick={() => setProducaoSearch('')}
+                      onClick={() => setProducaoFilaSearch('')}
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 cursor-pointer"
                     >
                       <X className="h-3.5 w-3.5" />
@@ -10289,15 +11073,28 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 </div>
               </div>
 
-              <div className="p-3 bg-zinc-50/50 min-h-[480px] max-h-[750px] overflow-y-auto space-y-2.5">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOverTarget('producao-fila');
+                }}
+                onDragLeave={() => {
+                  if (dragOverTarget === 'producao-fila') setDragOverTarget(null);
+                }}
+                onDrop={(e) => handleDropProducao(e, 'fila')}
+                className={cn(
+                  "p-3 bg-zinc-50/50 min-h-[480px] max-h-[750px] overflow-y-auto space-y-2.5 transition-colors",
+                  dragOverTarget === 'producao-fila' ? "bg-amber-50/60 ring-2 ring-amber-500 rounded-xl" : ""
+                )}
+              >
                 {lotesFilaProducao.length === 0 ? (
                   <div className="py-16 text-center text-zinc-400 border border-dashed border-zinc-200 rounded-xl p-4 bg-white">
                     <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-emerald-400" />
                     <p className="text-xs font-bold text-zinc-700">
                       {producaoFilaFilter === 'ESPERA'
                         ? 'Nenhum lote pausado / em espera na produção'
-                        : producaoSearch
-                          ? `Nenhum lote na fila com a busca "${producaoSearch}"`
+                        : producaoFilaSearch
+                          ? `Nenhum lote na fila com a busca "${producaoFilaSearch}"`
                           : 'Nenhum lote aguardando fabricação'}
                     </p>
                     <p className="text-[11px] text-zinc-400 mt-1">
@@ -10311,21 +11108,32 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     const esperaDetails = getLoteEsperaDetails(lote, programacaoEnvase, programacaoRotulagem);
                     const etapaProducao = getLoteEtapaStatus(lote, 'producao');
                     const isEspera = esperaDetails.isEmEspera;
-                    const isSearched = !!(producaoSearch.trim() && (
-                      lote.loteNumber.toLowerCase().includes(producaoSearch.trim().toLowerCase()) ||
-                      lote.productCode?.toLowerCase().includes(producaoSearch.trim().toLowerCase()) ||
-                      lote.productDescription?.toLowerCase().includes(producaoSearch.trim().toLowerCase())
+                    const isSearched = !!(producaoFilaSearch.trim() && (
+                      lote.loteNumber.toLowerCase().includes(producaoFilaSearch.trim().toLowerCase()) ||
+                      lote.productCode?.toLowerCase().includes(producaoFilaSearch.trim().toLowerCase()) ||
+                      lote.productDescription?.toLowerCase().includes(producaoFilaSearch.trim().toLowerCase())
                     ));
 
                     const isMulti = multiProductLoteNumbers.has(lote.loteNumber);
                     const adiadoInfo = getLoteAdiadoInfo(lote.loteNumber, producaoSelectedDate, 'producao');
+                    const isAdiadoOriginal = Boolean(adiadoInfo && !adiadoInfo.isDestino);
 
                     return (
                       <div
                         key={`${lote.loteNumber}_${lote.productCode || idx}`}
+                        draggable
+                        onDragStart={(e) => {
+                          setDragCardInfo({ board: 'producao', id: lote.loteNumber, index: idx });
+                          e.dataTransfer.setData('application/json', JSON.stringify({
+                            board: 'producao',
+                            source: 'fila',
+                            loteNumber: lote.loteNumber,
+                            index: idx
+                          }));
+                        }}
                         className={cn(
-                          "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2",
-                          adiadoInfo
+                          "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing hover:border-amber-400",
+                          isAdiadoOriginal
                             ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
                             : isSearched
                               ? "border-amber-500 ring-2 ring-amber-300/80 bg-amber-50/20"
@@ -10336,8 +11144,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-1.5 font-mono text-xs font-extrabold text-zinc-900 flex-wrap">
-                            <span>#{lote.loteNumber}</span>
-                            <span className="text-[10px] text-zinc-400 font-normal">({lote.productCode})</span>
+                            {renderLoteNumberBadge(lote.loteNumber)}
+                            {!isMulti && lote.productCode && <span className="text-[10px] text-zinc-400 font-normal">({lote.productCode})</span>}
                             {isEspera ? (
                               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200 flex items-center gap-1 font-sans">
                                 <PauseCircle className="h-3 w-3 text-amber-600" />
@@ -10348,14 +11156,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 Fila
                               </span>
                             )}
-                            {adiadoInfo && (
+                            {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
                                   className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
-                                  title={adiadoInfo.isDestino ? `Lote transferido de ${formatDateOnly(adiadoInfo.dataOriginal)} para esta data` : `Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                  title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
                                   <FastForward className="h-3 w-3 text-rose-600" />
-                                  {adiadoInfo.isDestino ? `Adiado de ${formatDateOnly(adiadoInfo.dataOriginal)}` : `Adiado p/ ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                  Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                 </span>
                                 <button
                                   type="button"
@@ -10597,6 +11405,67 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             )
           })}
 
+          {/* BARRA DE PESQUISA DAS ESTEIRAS DE ROTULAGEM E LOCALIZADOR DE DATA */}
+          <div className="bg-white border border-zinc-200 rounded-xl p-3 shadow-2xs space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                <input
+                  type="text"
+                  value={rotulagemSearch}
+                  onChange={e => setRotulagemSearch(e.target.value)}
+                  placeholder="Pesquisar lote por número, SKU ou produto nas Esteiras (Máquina e Manual)..."
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-lg pl-9 pr-8 py-1.5 text-xs text-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900 placeholder:text-zinc-400 font-medium"
+                />
+                {rotulagemSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setRotulagemSearch('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 cursor-pointer"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Dica / Alerta Inteligente de Data: Se o lote pesquisado estiver agendado em OUTRA data na Rotulagem */}
+            {(() => {
+              const q = rotulagemSearch.trim().toLowerCase();
+              if (!q || q.length < 2) return null;
+              
+              const otherDateMatch = programacaoRotulagem.find(it => {
+                const matchNum = it.loteNumber?.toLowerCase().includes(q);
+                const matchProd = it.productCode?.toLowerCase().includes(q) || it.productDescription?.toLowerCase().includes(q);
+                const isDifferentDate = it.dataProgramada && it.dataProgramada !== rotulagemSelectedDate;
+                return (matchNum || matchProd) && isDifferentDate;
+              });
+
+              if (!otherDateMatch) return null;
+
+              return (
+                <div className="flex items-center justify-between gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 animate-in fade-in">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-amber-600 shrink-0" />
+                    <span>
+                      Lote <strong>#{otherDateMatch.loteNumber}</strong> agendado na <strong>Rotulagem {otherDateMatch.tipo === 'MAQUINA' ? 'Máquina' : 'Manual'}</strong> para o dia <strong>{formatDateOnly(otherDateMatch.dataProgramada)}</strong>!
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRotulagemSelectedDate(otherDateMatch.dataProgramada);
+                      setRotulagemShowAllDates(false);
+                    }}
+                    className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-md text-[11px] shrink-0 transition-colors cursor-pointer shadow-2xs"
+                  >
+                    Ir para esta data
+                  </button>
+                </div>
+              );
+            })()}
+          </div>
+
           {/* GRID COM QUADROS VISUAIS À ESQUERDA E ESCOLHA DE LOTES À DIREITA */}
           <div className="grid grid-cols-12 gap-4 items-start">
             {/* QUADROS VISUAIS (ESQUERDA - COL-SPAN-8): MÁQUINA E MANUAL */}
@@ -10618,7 +11487,23 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   </div>
                 </div>
 
-                <div className="p-3 bg-zinc-50/50 min-h-[480px] max-h-[750px] overflow-y-auto space-y-2.5">
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (dragOverTarget !== 'rotulagem_MAQUINA') setDragOverTarget('rotulagem_MAQUINA');
+                  }}
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      if (dragOverTarget === 'rotulagem_MAQUINA') setDragOverTarget(null);
+                    }
+                  }}
+                  onDrop={(e) => handleDropRotulagem(e, 'MAQUINA')}
+                  className={cn(
+                    "p-3 bg-zinc-50/50 min-h-[480px] max-h-[750px] overflow-y-auto space-y-2.5 transition-all rounded-xl",
+                    dragOverTarget === 'rotulagem_MAQUINA' && "ring-2 ring-zinc-900 bg-zinc-100/70"
+                  )}
+                >
                   {filteredRotulagemMaquinaItems.length === 0 ? (
                     <div className="py-20 text-center text-zinc-400 border border-dashed border-zinc-200 rounded-xl p-4 bg-white">
                       <Tag className="h-8 w-8 mx-auto mb-2 text-zinc-300" />
@@ -10633,13 +11518,43 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       const isLast = idx === filteredRotulagemMaquinaItems.length - 1;
                       const isConcluido = item.statusRotulagem === 'CONCLUIDO';
                       const adiadoInfo = !isConcluido ? getLoteAdiadoInfo(item.loteNumber, rotulagemSelectedDate, 'rotulagem') : null;
+                      const isAdiadoOriginal = Boolean(adiadoInfo && !adiadoInfo.isDestino);
 
                       return (
                         <div
                           key={item.id}
+                          draggable
+                          onDragStart={(e) => {
+                            const payload = {
+                              board: 'rotulagem',
+                              source: 'coluna',
+                              tipo: 'MAQUINA',
+                              id: item.id,
+                              loteNumber: item.loteNumber,
+                              productCode: item.productCode,
+                              index: idx
+                            };
+                            e.dataTransfer.setData('application/json', JSON.stringify(payload));
+                            e.dataTransfer.effectAllowed = 'move';
+                            setDragCardInfo(payload as any);
+                          }}
+                          onDragEnd={() => { setDragCardInfo(null); setDragOverTarget(null); }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            e.dataTransfer.dropEffect = 'move';
+                            const targetKey = `rotulagem_MAQUINA_${idx}`;
+                            if (dragOverTarget !== targetKey) setDragOverTarget(targetKey);
+                          }}
+                          onDragLeave={(e) => {
+                            e.stopPropagation();
+                            if (dragOverTarget === `rotulagem_MAQUINA_${idx}`) setDragOverTarget(null);
+                          }}
+                          onDrop={(e) => handleDropRotulagem(e, 'MAQUINA', idx)}
                           className={cn(
-                            "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2",
-                            adiadoInfo
+                            "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
+                            dragOverTarget === `rotulagem_MAQUINA_${idx}` && "border-t-4 border-t-zinc-900 ring-2 ring-zinc-400",
+                            isAdiadoOriginal
                               ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
                               : item.statusRotulagem === 'EM_ROTULAGEM'
                                 ? "border-amber-400 ring-1 ring-amber-300 bg-amber-50/20"
@@ -10651,16 +11566,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           <div className="flex items-center justify-between gap-1 pb-1.5 border-b border-zinc-100">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="font-mono font-extrabold text-xs px-2 py-0.5 rounded-lg bg-zinc-900 text-white">
-                                {item.ordem}º
+                                {idx + 1}º
                               </span>
-                              {adiadoInfo && (
+                              {isAdiadoOriginal && (
                                 <div className="flex items-center gap-1 shrink-0">
                                   <span
                                     className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
-                                    title={adiadoInfo.isDestino ? `Lote transferido de ${formatDateOnly(adiadoInfo.dataOriginal)} para esta data` : `Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                    title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                   >
                                     <FastForward className="h-3 w-3 text-rose-600" />
-                                    {adiadoInfo.isDestino ? `Adiado de ${formatDateOnly(adiadoInfo.dataOriginal)}` : `Adiado p/ ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                    Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                   </span>
                                   <button
                                     type="button"
@@ -10795,7 +11710,23 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   </div>
                 </div>
 
-                <div className="p-3 bg-zinc-50/50 min-h-[480px] max-h-[750px] overflow-y-auto space-y-2.5">
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (dragOverTarget !== 'rotulagem_MANUAL') setDragOverTarget('rotulagem_MANUAL');
+                  }}
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      if (dragOverTarget === 'rotulagem_MANUAL') setDragOverTarget(null);
+                    }
+                  }}
+                  onDrop={(e) => handleDropRotulagem(e, 'MANUAL')}
+                  className={cn(
+                    "p-3 bg-zinc-50/50 min-h-[480px] max-h-[750px] overflow-y-auto space-y-2.5 transition-all rounded-xl",
+                    dragOverTarget === 'rotulagem_MANUAL' && "ring-2 ring-zinc-900 bg-zinc-100/70"
+                  )}
+                >
                   {filteredRotulagemManualItems.length === 0 ? (
                     <div className="py-20 text-center text-zinc-400 border border-dashed border-zinc-200 rounded-xl p-4 bg-white">
                       <Tag className="h-8 w-8 mx-auto mb-2 text-zinc-300" />
@@ -10810,13 +11741,43 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       const isLast = idx === filteredRotulagemManualItems.length - 1;
                       const isConcluido = item.statusRotulagem === 'CONCLUIDO';
                       const adiadoInfo = !isConcluido ? getLoteAdiadoInfo(item.loteNumber, rotulagemSelectedDate, 'rotulagem') : null;
+                      const isAdiadoOriginal = Boolean(adiadoInfo && !adiadoInfo.isDestino);
 
                       return (
                         <div
                           key={item.id}
+                          draggable
+                          onDragStart={(e) => {
+                            const payload = {
+                              board: 'rotulagem',
+                              source: 'coluna',
+                              tipo: 'MANUAL',
+                              id: item.id,
+                              loteNumber: item.loteNumber,
+                              productCode: item.productCode,
+                              index: idx
+                            };
+                            e.dataTransfer.setData('application/json', JSON.stringify(payload));
+                            e.dataTransfer.effectAllowed = 'move';
+                            setDragCardInfo(payload as any);
+                          }}
+                          onDragEnd={() => { setDragCardInfo(null); setDragOverTarget(null); }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            e.dataTransfer.dropEffect = 'move';
+                            const targetKey = `rotulagem_MANUAL_${idx}`;
+                            if (dragOverTarget !== targetKey) setDragOverTarget(targetKey);
+                          }}
+                          onDragLeave={(e) => {
+                            e.stopPropagation();
+                            if (dragOverTarget === `rotulagem_MANUAL_${idx}`) setDragOverTarget(null);
+                          }}
+                          onDrop={(e) => handleDropRotulagem(e, 'MANUAL', idx)}
                           className={cn(
-                            "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2",
-                            adiadoInfo
+                            "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
+                            dragOverTarget === `rotulagem_MANUAL_${idx}` && "border-t-4 border-t-zinc-900 ring-2 ring-zinc-400",
+                            isAdiadoOriginal
                               ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
                               : item.statusRotulagem === 'EM_ROTULAGEM'
                                 ? "border-amber-400 ring-1 ring-amber-300 bg-amber-50/20"
@@ -10828,16 +11789,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           <div className="flex items-center justify-between gap-1 pb-1.5 border-b border-zinc-100">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="font-mono font-extrabold text-xs px-2 py-0.5 rounded-lg bg-zinc-900 text-white">
-                                {item.ordem}º
+                                {idx + 1}º
                               </span>
-                              {adiadoInfo && (
+                              {isAdiadoOriginal && (
                                 <div className="flex items-center gap-1 shrink-0">
                                   <span
                                     className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
-                                    title={adiadoInfo.isDestino ? `Lote transferido de ${formatDateOnly(adiadoInfo.dataOriginal)} para esta data` : `Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                    title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                   >
                                     <FastForward className="h-3 w-3 text-rose-600" />
-                                    {adiadoInfo.isDestino ? `Adiado de ${formatDateOnly(adiadoInfo.dataOriginal)}` : `Adiado p/ ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                    Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                   </span>
                                   <button
                                     type="button"
@@ -10985,21 +11946,21 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
                   <input
                     type="text"
-                    value={rotulagemSearch}
-                    onChange={e => setRotulagemSearch(e.target.value)}
+                    value={rotulagemFilaSearch}
+                    onChange={e => setRotulagemFilaSearch(e.target.value)}
                     onKeyDown={e => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
-                        performRemoteLookup(rotulagemSearch);
+                        performRemoteLookup(rotulagemFilaSearch);
                       }
                     }}
                     placeholder="Buscar lote por número, SKU ou produto..."
                     className="w-full bg-white border border-zinc-200 rounded-lg pl-8 pr-7 py-1 text-xs text-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900 placeholder:text-zinc-400"
                   />
-                  {rotulagemSearch && (
+                  {rotulagemFilaSearch && (
                     <button
                       type="button"
-                      onClick={() => setRotulagemSearch('')}
+                      onClick={() => setRotulagemFilaSearch('')}
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 cursor-pointer"
                     >
                       <X className="h-3.5 w-3.5" />
@@ -11050,7 +12011,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-emerald-400" />
                     <p className="text-xs font-bold text-zinc-700">Nenhum lote disponível</p>
                     <p className="text-[11px] text-zinc-400 mt-1">
-                      {rotulagemSearch ? `Nenhum lote correspondente à busca "${rotulagemSearch}".` : "Não há lotes entre as etapas de Pesagem e Produção no momento."}
+                      {rotulagemFilaSearch ? `Nenhum lote correspondente à busca "${rotulagemFilaSearch}".` : "Não há lotes entre as etapas de Pesagem e Produção no momento."}
                     </p>
                   </div>
                 ) : (
@@ -11071,15 +12032,28 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     return (
                       <div
                         key={`${lote.loteNumber}_${lote.productCode || idx}`}
+                        draggable
+                        onDragStart={(e) => {
+                          const payload = {
+                            board: 'rotulagem',
+                            source: 'disponiveis',
+                            loteNumber: lote.loteNumber,
+                            productCode: lote.productCode
+                          };
+                          e.dataTransfer.setData('application/json', JSON.stringify(payload));
+                          e.dataTransfer.effectAllowed = 'move';
+                          setDragCardInfo(payload as any);
+                        }}
+                        onDragEnd={() => { setDragCardInfo(null); setDragOverTarget(null); }}
                         className={cn(
-                          "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2",
+                          "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
                           temProblema ? "border-amber-400 bg-amber-50/20 ring-1 ring-amber-300" :
                           (scheduledMaq || scheduledMan) ? "border-zinc-400 bg-zinc-50/50" : "border-zinc-200"
                         )}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-1.5 font-mono text-xs font-extrabold text-zinc-900 flex-wrap">
-                            <span>#{lote.loteNumber}</span>
+                            {renderLoteNumberBadge(lote.loteNumber)}
                             <span className="text-[10px] text-zinc-400 font-normal">({lote.productCode})</span>
                             {isMulti && (
                               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 font-sans" title="Ordem conjunta com múltiplos produtos">
@@ -11253,6 +12227,67 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             )
           })}
 
+          {/* BARRA DE PESQUISA DAS LINHAS DE ENVASE E LOCALIZADOR DE DATA */}
+          <div className="bg-white border border-zinc-200 rounded-xl p-3 shadow-2xs space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                <input
+                  type="text"
+                  value={envaseSearch}
+                  onChange={e => setEnvaseSearch(e.target.value)}
+                  placeholder="Pesquisar lote por número, SKU ou produto nas Linhas 1, 2 e 3 de Envase..."
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-lg pl-9 pr-8 py-1.5 text-xs text-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900 placeholder:text-zinc-400 font-medium"
+                />
+                {envaseSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setEnvaseSearch('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 cursor-pointer"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Dica / Alerta Inteligente de Data: Se o lote pesquisado estiver agendado em OUTRA data no Envase */}
+            {(() => {
+              const q = envaseSearch.trim().toLowerCase();
+              if (!q || q.length < 2) return null;
+              
+              const otherDateMatch = programacaoEnvase.find(it => {
+                const matchNum = it.loteNumber?.toLowerCase().includes(q);
+                const matchProd = it.productCode?.toLowerCase().includes(q) || it.productDescription?.toLowerCase().includes(q);
+                const isDifferentDate = it.dataProgramada && it.dataProgramada !== envaseSelectedDate;
+                return (matchNum || matchProd) && isDifferentDate;
+              });
+
+              if (!otherDateMatch) return null;
+
+              return (
+                <div className="flex items-center justify-between gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 animate-in fade-in">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-amber-600 shrink-0" />
+                    <span>
+                      Lote <strong>#{otherDateMatch.loteNumber}</strong> agendado na <strong>{otherDateMatch.linha}</strong> para o dia <strong>{formatDateOnly(otherDateMatch.dataProgramada)}</strong>!
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEnvaseSelectedDate(otherDateMatch.dataProgramada);
+                      setEnvaseShowAllDates(false);
+                    }}
+                    className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-md text-[11px] shrink-0 transition-colors cursor-pointer shadow-2xs"
+                  >
+                    Ir para esta data
+                  </button>
+                </div>
+              );
+            })()}
+          </div>
+
           {/* QUADRO COM 4 COLUNAS: LINHA 1 | LINHA 2 | LINHA 3 (ÓLEOS) | LIBERADOS PARA ENVASE */}
           <div className="grid grid-cols-12 gap-4 items-start">
             {/* COLUNA LINHA 1 */}
@@ -11269,7 +12304,23 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 </div>
               </div>
 
-              <div className="p-3 bg-zinc-50/50 min-h-[500px] max-h-[750px] overflow-y-auto space-y-2.5">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (dragOverTarget !== 'envase_Linha 1') setDragOverTarget('envase_Linha 1');
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    if (dragOverTarget === 'envase_Linha 1') setDragOverTarget(null);
+                  }
+                }}
+                onDrop={(e) => handleDropEnvaseColumn(e, 'Linha 1')}
+                className={cn(
+                  "p-3 bg-zinc-50/50 min-h-[500px] max-h-[750px] overflow-y-auto space-y-2.5 transition-all rounded-b-lg",
+                  dragOverTarget === 'envase_Linha 1' && "ring-2 ring-blue-600 bg-blue-50/50"
+                )}
+              >
                 {loadingEnvase ? (
                   <div className="py-16 text-center text-zinc-400">
                     <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 text-zinc-400" />
@@ -11289,13 +12340,43 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     const isLast = idx === filteredEnvaseLinha1Items.length - 1;
                     const isConcluido = item.statusEnvase === 'CONCLUIDO';
                     const adiadoInfo = !isConcluido ? getLoteAdiadoInfo(item.loteNumber, envaseSelectedDate, 'envase') : null;
+                    const isAdiadoOriginal = Boolean(adiadoInfo && !adiadoInfo.isDestino);
 
                     return (
                       <div
                         key={item.id}
+                        draggable
+                        onDragStart={(e) => {
+                          const payload = {
+                            board: 'envase',
+                            source: 'linha',
+                            linha: 'Linha 1',
+                            id: item.id,
+                            loteNumber: item.loteNumber,
+                            productCode: item.productCode,
+                            index: idx
+                          };
+                          e.dataTransfer.setData('application/json', JSON.stringify(payload));
+                          e.dataTransfer.effectAllowed = 'move';
+                          setDragCardInfo(payload as any);
+                        }}
+                        onDragEnd={() => { setDragCardInfo(null); setDragOverTarget(null); }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          e.dataTransfer.dropEffect = 'move';
+                          const targetKey = `envase_Linha 1_${idx}`;
+                          if (dragOverTarget !== targetKey) setDragOverTarget(targetKey);
+                        }}
+                        onDragLeave={(e) => {
+                          e.stopPropagation();
+                          if (dragOverTarget === `envase_Linha 1_${idx}`) setDragOverTarget(null);
+                        }}
+                        onDrop={(e) => handleDropEnvaseColumn(e, 'Linha 1', idx)}
                         className={cn(
-                          "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2",
-                          adiadoInfo
+                          "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
+                          dragOverTarget === `envase_Linha 1_${idx}` && "border-t-4 border-t-blue-600 ring-2 ring-blue-300",
+                          isAdiadoOriginal
                             ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
                             : item.statusEnvase === 'EM_ENVASE'
                               ? "border-purple-400 ring-1 ring-purple-300 bg-purple-50/20"
@@ -11309,16 +12390,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         <div className="flex items-center justify-between gap-1 pb-1.5 border-b border-zinc-100">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-mono font-extrabold text-xs px-2 py-0.5 rounded-lg bg-zinc-900 text-white">
-                              {item.ordem}º
+                              {idx + 1}º
                             </span>
-                            {adiadoInfo && (
+                            {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
                                   className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
-                                  title={adiadoInfo.isDestino ? `Lote transferido de ${formatDateOnly(adiadoInfo.dataOriginal)} para esta data` : `Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                  title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
                                   <FastForward className="h-3 w-3 text-rose-600" />
-                                  {adiadoInfo.isDestino ? `Adiado de ${formatDateOnly(adiadoInfo.dataOriginal)}` : `Adiado p/ ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                  Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                 </span>
                                 <button
                                   type="button"
@@ -11498,7 +12579,23 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 </div>
               </div>
 
-              <div className="p-3 bg-zinc-50/50 min-h-[500px] max-h-[750px] overflow-y-auto space-y-2.5">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (dragOverTarget !== 'envase_Linha 2') setDragOverTarget('envase_Linha 2');
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    if (dragOverTarget === 'envase_Linha 2') setDragOverTarget(null);
+                  }
+                }}
+                onDrop={(e) => handleDropEnvaseColumn(e, 'Linha 2')}
+                className={cn(
+                  "p-3 bg-zinc-50/50 min-h-[500px] max-h-[750px] overflow-y-auto space-y-2.5 transition-all rounded-b-lg",
+                  dragOverTarget === 'envase_Linha 2' && "ring-2 ring-indigo-600 bg-indigo-50/50"
+                )}
+              >
                 {loadingEnvase ? (
                   <div className="py-16 text-center text-zinc-400">
                     <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 text-zinc-400" />
@@ -11518,13 +12615,43 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     const isLast = idx === envaseLinha2Items.length - 1;
                     const isConcluido = item.statusEnvase === 'CONCLUIDO';
                     const adiadoInfo = !isConcluido ? getLoteAdiadoInfo(item.loteNumber, envaseSelectedDate, 'envase') : null;
+                    const isAdiadoOriginal = Boolean(adiadoInfo && !adiadoInfo.isDestino);
 
                     return (
                       <div
                         key={item.id}
+                        draggable
+                        onDragStart={(e) => {
+                          const payload = {
+                            board: 'envase',
+                            source: 'linha',
+                            linha: 'Linha 2',
+                            id: item.id,
+                            loteNumber: item.loteNumber,
+                            productCode: item.productCode,
+                            index: idx
+                          };
+                          e.dataTransfer.setData('application/json', JSON.stringify(payload));
+                          e.dataTransfer.effectAllowed = 'move';
+                          setDragCardInfo(payload as any);
+                        }}
+                        onDragEnd={() => { setDragCardInfo(null); setDragOverTarget(null); }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          e.dataTransfer.dropEffect = 'move';
+                          const targetKey = `envase_Linha 2_${idx}`;
+                          if (dragOverTarget !== targetKey) setDragOverTarget(targetKey);
+                        }}
+                        onDragLeave={(e) => {
+                          e.stopPropagation();
+                          if (dragOverTarget === `envase_Linha 2_${idx}`) setDragOverTarget(null);
+                        }}
+                        onDrop={(e) => handleDropEnvaseColumn(e, 'Linha 2', idx)}
                         className={cn(
-                          "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2",
-                          adiadoInfo
+                          "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
+                          dragOverTarget === `envase_Linha 2_${idx}` && "border-t-4 border-t-indigo-600 ring-2 ring-indigo-300",
+                          isAdiadoOriginal
                             ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
                             : item.statusEnvase === 'EM_ENVASE'
                               ? "border-purple-400 ring-1 ring-purple-300 bg-purple-50/20"
@@ -11538,16 +12665,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         <div className="flex items-center justify-between gap-1 pb-1.5 border-b border-zinc-100">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-mono font-extrabold text-xs px-2 py-0.5 rounded-lg bg-zinc-900 text-white">
-                              {item.ordem}º
+                              {idx + 1}º
                             </span>
-                            {adiadoInfo && (
+                            {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
                                   className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
-                                  title={adiadoInfo.isDestino ? `Lote transferido de ${formatDateOnly(adiadoInfo.dataOriginal)} para esta data` : `Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                  title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
                                   <FastForward className="h-3 w-3 text-rose-600" />
-                                  {adiadoInfo.isDestino ? `Adiado de ${formatDateOnly(adiadoInfo.dataOriginal)}` : `Adiado p/ ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                  Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                 </span>
                                 <button
                                   type="button"
@@ -11728,7 +12855,23 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 </div>
               </div>
 
-              <div className="p-3 bg-zinc-50/50 min-h-[500px] max-h-[750px] overflow-y-auto space-y-2.5">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (dragOverTarget !== 'envase_Linha 3') setDragOverTarget('envase_Linha 3');
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    if (dragOverTarget === 'envase_Linha 3') setDragOverTarget(null);
+                  }
+                }}
+                onDrop={(e) => handleDropEnvaseColumn(e, 'Linha 3')}
+                className={cn(
+                  "p-3 bg-zinc-50/50 min-h-[500px] max-h-[750px] overflow-y-auto space-y-2.5 transition-all rounded-b-lg",
+                  dragOverTarget === 'envase_Linha 3' && "ring-2 ring-amber-600 bg-amber-50/50"
+                )}
+              >
                 {loadingEnvase ? (
                   <div className="py-16 text-center text-zinc-400">
                     <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 text-zinc-400" />
@@ -11748,13 +12891,43 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     const isLast = idx === envaseLinha3Items.length - 1;
                     const isConcluido = item.statusEnvase === 'CONCLUIDO';
                     const adiadoInfo = !isConcluido ? getLoteAdiadoInfo(item.loteNumber, envaseSelectedDate, 'envase') : null;
+                    const isAdiadoOriginal = Boolean(adiadoInfo && !adiadoInfo.isDestino);
 
                     return (
                       <div
                         key={item.id}
+                        draggable
+                        onDragStart={(e) => {
+                          const payload = {
+                            board: 'envase',
+                            source: 'linha',
+                            linha: 'Linha 3',
+                            id: item.id,
+                            loteNumber: item.loteNumber,
+                            productCode: item.productCode,
+                            index: idx
+                          };
+                          e.dataTransfer.setData('application/json', JSON.stringify(payload));
+                          e.dataTransfer.effectAllowed = 'move';
+                          setDragCardInfo(payload as any);
+                        }}
+                        onDragEnd={() => { setDragCardInfo(null); setDragOverTarget(null); }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          e.dataTransfer.dropEffect = 'move';
+                          const targetKey = `envase_Linha 3_${idx}`;
+                          if (dragOverTarget !== targetKey) setDragOverTarget(targetKey);
+                        }}
+                        onDragLeave={(e) => {
+                          e.stopPropagation();
+                          if (dragOverTarget === `envase_Linha 3_${idx}`) setDragOverTarget(null);
+                        }}
+                        onDrop={(e) => handleDropEnvaseColumn(e, 'Linha 3', idx)}
                         className={cn(
-                          "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2",
-                          adiadoInfo
+                          "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
+                          dragOverTarget === `envase_Linha 3_${idx}` && "border-t-4 border-t-amber-600 ring-2 ring-amber-300",
+                          isAdiadoOriginal
                             ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
                             : item.statusEnvase === 'EM_ENVASE'
                               ? "border-purple-400 ring-1 ring-purple-300 bg-purple-50/20"
@@ -11768,16 +12941,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         <div className="flex items-center justify-between gap-1 pb-1.5 border-b border-zinc-100">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-mono font-extrabold text-xs px-2 py-0.5 rounded-lg bg-zinc-900 text-white">
-                              {item.ordem}º
+                              {idx + 1}º
                             </span>
-                            {adiadoInfo && (
+                            {isAdiadoOriginal && (
                               <div className="flex items-center gap-1 shrink-0">
                                 <span
                                   className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-mono flex items-center gap-1"
-                                  title={adiadoInfo.isDestino ? `Lote transferido de ${formatDateOnly(adiadoInfo.dataOriginal)} para esta data` : `Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                  title={`Lote originalmente previsto para esta data e transferido para ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
                                 >
                                   <FastForward className="h-3 w-3 text-rose-600" />
-                                  {adiadoInfo.isDestino ? `Adiado de ${formatDateOnly(adiadoInfo.dataOriginal)}` : `Adiado p/ ${formatDateOnly(adiadoInfo.dataAdiadoPara)}`}
+                                  Adiado p/ {formatDateOnly(adiadoInfo.dataAdiadoPara)}
                                 </span>
                                 <button
                                   type="button"
@@ -11948,18 +13121,12 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               <div className="bg-zinc-900 px-4 py-3 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Package className="h-4 w-4 text-emerald-400" />
-                  <span className="text-sm font-extrabold tracking-tight">Liberados para Envase</span>
+                  <div>
+                    <span className="text-sm font-extrabold tracking-tight">Lotes</span>
+                    <span className="block text-[10px] font-medium text-zinc-300">Aguardando encaixe no envase</span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleOpenAddLoteModal('envase')}
-                    className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500 hover:bg-emerald-400 text-zinc-950 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                    title="Adicionar lote manualmente aos Liberados para Envase"
-                  >
-                    <Plus className="h-3 w-3" />
-                    <span>Adicionar Lote</span>
-                  </button>
                   <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-white/10 text-white">
                     {lotesParaEncaixe.length}
                   </span>
@@ -12052,15 +13219,28 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     return (
                       <div
                         key={`${lote.loteNumber}_${lote.productCode || idx}`}
+                        draggable
+                        onDragStart={(e) => {
+                          const payload = {
+                            board: 'envase',
+                            source: 'liberados',
+                            loteNumber: lote.loteNumber,
+                            productCode: lote.productCode
+                          };
+                          e.dataTransfer.setData('application/json', JSON.stringify(payload));
+                          e.dataTransfer.effectAllowed = 'move';
+                          setDragCardInfo(payload as any);
+                        }}
+                        onDragEnd={() => { setDragCardInfo(null); setDragOverTarget(null); }}
                         className={cn(
-                          "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2",
+                          "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
                           temProblema ? "border-amber-400 bg-amber-50/20 ring-1 ring-amber-300" :
                           isScheduled ? "border-indigo-300 bg-indigo-50/20" : "border-zinc-200"
                         )}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-1.5 font-mono text-xs font-extrabold text-zinc-900 flex-wrap">
-                            <span>#{lote.loteNumber}</span>
+                            {renderLoteNumberBadge(lote.loteNumber)}
                             <span className="text-[10px] text-zinc-400 font-normal">({lote.productCode})</span>
                             {isMulti && (
                               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 font-sans" title="Ordem conjunta com múltiplos produtos">
@@ -12076,6 +13256,12 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-sans" title="Lote Terceirizado">
                                 🏭 Terceirizado
                               </span>
+                            )}
+                            {encaixeSearch.trim() && scheduledItem?.dataProgramada && parseLoteDateToIso(scheduledItem.dataProgramada) === envaseSelectedDate && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-600 border border-zinc-200 font-sans">Já programado para esta data</span>
+                            )}
+                            {encaixeSearch.trim() && scheduledItem?.dataProgramada && parseLoteDateToIso(scheduledItem.dataProgramada) !== envaseSelectedDate && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-sans">Agendado em {(() => { const iso = parseLoteDateToIso(scheduledItem.dataProgramada) || ''; const p = iso.split('-'); return p.length === 3 ? `${p[2]}/${p[1]}` : formatDateOnly(iso); })()}</span>
                             )}
                           </div>
                           <div className="flex items-center gap-1">
@@ -12141,6 +13327,20 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         {!getLoteEsperaDetails(lote, programacaoEnvase, programacaoRotulagem).isEmEspera && renderLoteProblemaBanner(lote, 'envase')}
 
                         <div className="pt-2 border-t border-zinc-100 space-y-1.5">
+                          {encaixeSearch.trim() && (() => {
+                            const iso = scheduledItem?.dataProgramada ? (parseLoteDateToIso(scheduledItem.dataProgramada) || '') : '';
+                            if (iso && iso === envaseSelectedDate) return null;
+                            const linha = scheduledItem?.linha === 'Linha 2' || scheduledItem?.linha === 'Linha 3' ? scheduledItem.linha : 'Linha 1';
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => handleEncaixarLote(lote, linha, undefined, undefined, undefined, envaseSelectedDate)}
+                                className="w-full py-1.5 text-[11px] font-bold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg cursor-pointer"
+                              >
+                                {iso ? 'Mover para Hoje' : '+ Adicionar para Hoje'}
+                              </button>
+                            );
+                          })()}
                           {isScheduled && scheduledItem ? (
                             <div className="space-y-1.5">
                               <div className="flex items-center justify-between">
@@ -13579,7 +14779,12 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                 const candidates = lotes
                   .filter(l => {
-                    if (isLoteConcluido(l)) return false;
+                    // Se o usuário está buscando explicitamente, só bloqueia se o chão de fábrica marcou como finalizada
+                    if (q) {
+                      if (l.customStatus === 'Ordem Finalizada' || l.customStatus === 'Finalizada') return false;
+                    } else {
+                      if (isLoteConcluido(l)) return false;
+                    }
                     const num = (l.loteNumber || '').trim().toUpperCase();
                     if (currentSet.has(num)) return false;
                     if (!q) return true;
@@ -13592,12 +14797,24 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                 if (candidates.length === 0) {
                   return (
-                    <div className="py-12 text-center text-zinc-400">
-                      <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-zinc-300" />
-                      <p className="text-xs font-bold text-zinc-600">Nenhum lote disponível encontrado</p>
-                      <p className="text-[11px] text-zinc-400 mt-0.5">
-                        {q ? `Nenhum lote em aberto corresponde a "${q}".` : 'Todos os lotes em aberto já estão alocados ou concluídos.'}
-                      </p>
+                    <div className="py-10 text-center text-zinc-400 space-y-3">
+                      <CheckCircle2 className="h-8 w-8 mx-auto text-zinc-300" />
+                      <div>
+                        <p className="text-xs font-bold text-zinc-600">Nenhum lote disponível encontrado na memória</p>
+                        <p className="text-[11px] text-zinc-400 mt-0.5">
+                          {q ? `Nenhum lote em aberto corresponde a "${q}".` : 'Todos os lotes em aberto já estão alocados ou concluídos.'}
+                        </p>
+                      </div>
+                      {q && (
+                        <button
+                          type="button"
+                          onClick={() => performRemoteLookup(addLoteModalSearch)}
+                          className="px-3.5 py-1.5 bg-zinc-900 hover:bg-black text-white text-xs font-bold rounded-xl transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-2xs"
+                        >
+                          <Search className="h-3.5 w-3.5" />
+                          <span>Buscar #{q} no ERP / Banco Completo</span>
+                        </button>
+                      )}
                     </div>
                   );
                 }
@@ -13654,6 +14871,356 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               <button
                 type="button"
                 onClick={() => setAddLoteModalTarget(null)}
+                className="px-4 py-1.5 text-xs font-bold text-zinc-700 hover:bg-zinc-200 rounded-lg transition-colors cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE PESQUISA FACILITADA: LOCALIZAR LOTE NAS DATAS E ETAPAS */}
+      {showLocalizarDataModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white border border-zinc-200 rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+            {/* Cabeçalho */}
+            <div className="bg-zinc-900 text-white px-5 py-4 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-white/10 text-amber-400">
+                  <Calendar className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm tracking-tight text-white flex items-center gap-2">
+                    <span>Localizador de Datas e Agendamentos</span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">
+                      Busca Rápida
+                    </span>
+                  </h3>
+                  <p className="text-xs text-zinc-400">
+                    Encontre em qual data qualquer lote está agendado no Envase, Rotulagem, Produção ou Pesagem.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLocalizarDataModal(false)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 cursor-pointer transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Input de Pesquisa */}
+            <div className="p-4 bg-zinc-50 border-b border-zinc-200 shrink-0 space-y-2">
+              <div className="relative">
+                <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                <input
+                  type="text"
+                  autoFocus
+                  value={localizarDataSearch}
+                  onChange={(e) => setLocalizarDataSearch(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      performRemoteLookup(localizarDataSearch);
+                    }
+                  }}
+                  placeholder="Digite o número do lote (ex: 15686, 15795) ou SKU do produto..."
+                  className="w-full bg-white border border-zinc-300 rounded-xl pl-9 pr-8 py-2 text-xs text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900 placeholder:text-zinc-400 font-medium"
+                />
+                {localizarDataSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setLocalizarDataSearch('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 cursor-pointer"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-zinc-500">
+                Digite ao menos 2 caracteres para pesquisar o histórico de agendamento em todas as etapas.
+              </p>
+            </div>
+
+            {/* Lista de Resultados */}
+            <div className="p-4 overflow-y-auto space-y-3 flex-1 min-h-[300px]">
+              {(() => {
+                const q = localizarDataSearch.trim().toLowerCase();
+                if (!q || q.length < 2) {
+                  return (
+                    <div className="py-16 text-center text-zinc-400">
+                      <Search className="h-10 w-10 mx-auto mb-2 text-zinc-300 stroke-1" />
+                      <p className="text-xs font-bold text-zinc-600">Pesquise por qualquer lote ou produto</p>
+                      <p className="text-[11px] text-zinc-400 mt-0.5">
+                        Exemplo: digite <span className="font-mono font-bold text-zinc-700">15686</span> ou <span className="font-mono font-bold text-zinc-700">15795</span> para ver suas datas.
+                      </p>
+                    </div>
+                  );
+                }
+
+                // Busca nos lotes gerais
+                const matchedLotes = lotes.filter(l => {
+                  const num = (l.loteNumber || '').toLowerCase();
+                  const code = (l.productCode || '').toLowerCase();
+                  const desc = (l.productDescription || '').toLowerCase();
+                  return num.includes(q) || code.includes(q) || desc.includes(q);
+                });
+
+                // Também verifica em programacaoEnvase caso o lote não esteja na lista principal
+                const envaseOnly = programacaoEnvase
+                  .filter(it => it.loteNumber?.toLowerCase().includes(q) || it.productCode?.toLowerCase().includes(q))
+                  .filter(it => !matchedLotes.some(m => m.loteNumber === it.loteNumber));
+
+                // Também verifica em programacaoRotulagem caso o lote não esteja na lista principal
+                const rotulagemOnly = programacaoRotulagem
+                  .filter(it => it.loteNumber?.toLowerCase().includes(q) || it.productCode?.toLowerCase().includes(q))
+                  .filter(it => !matchedLotes.some(m => m.loteNumber === it.loteNumber) && !envaseOnly.some(e => e.loteNumber === it.loteNumber));
+
+                const allLoteNumbers = Array.from(new Set([
+                  ...matchedLotes.map(l => l.loteNumber),
+                  ...envaseOnly.map(e => e.loteNumber),
+                  ...rotulagemOnly.map(r => r.loteNumber)
+                ])).slice(0, 20);
+
+                if (allLoteNumbers.length === 0) {
+                  return (
+                    <div className="py-12 text-center text-zinc-400 space-y-3">
+                      <CheckCircle2 className="h-8 w-8 mx-auto text-zinc-300" />
+                      <div>
+                        <p className="text-xs font-bold text-zinc-600">Nenhum agendamento encontrado para "{q}"</p>
+                        <p className="text-[11px] text-zinc-400 mt-0.5">
+                          O lote pode não estar nos quadros ativos ou pertencer a um período anterior.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => performRemoteLookup(localizarDataSearch)}
+                        className="px-3 py-1.5 bg-zinc-900 hover:bg-black text-white text-xs font-bold rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1.5 shadow-2xs"
+                      >
+                        <Search className="h-3.5 w-3.5" />
+                        <span>Buscar no banco completo do servidor</span>
+                      </button>
+                    </div>
+                  );
+                }
+
+                return allLoteNumbers.map(loteNum => {
+                  const lote = lotes.find(l => l.loteNumber === loteNum);
+                  const envaseItems = programacaoEnvase.filter(it => it.loteNumber === loteNum);
+                  const rotulagemItems = programacaoRotulagem.filter(it => it.loteNumber === loteNum);
+
+                  const prodDesc = lote?.productDescription || envaseItems[0]?.productDescription || rotulagemItems[0]?.productDescription || 'Sem descrição';
+                  const prodCode = lote?.productCode || envaseItems[0]?.productCode || rotulagemItems[0]?.productCode;
+                  const effStatus = lote ? getEffectiveStatus(lote) : 'Agendado';
+
+                  return (
+                    <div
+                      key={loteNum}
+                      className="p-3.5 bg-white border border-zinc-200 rounded-xl shadow-2xs hover:border-zinc-400 transition-all space-y-3"
+                    >
+                      {/* Topo do Card */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-sm font-extrabold text-zinc-900">
+                              #{loteNum}
+                            </span>
+                            {prodCode && (
+                              <span className="text-[11px] font-mono text-zinc-500">
+                                [{prodCode}]
+                              </span>
+                            )}
+                            <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-zinc-100 text-zinc-800 border border-zinc-200">
+                              {effStatus}
+                            </span>
+                          </div>
+                          <p className="text-xs font-bold text-zinc-800 mt-0.5">
+                            {prodDesc}
+                          </p>
+                        </div>
+                        {lote && (
+                          <div className="text-right font-mono text-[11px] text-zinc-500 shrink-0">
+                            <div>{Number(lote.quantityKg || 0).toLocaleString('pt-BR')} kg</div>
+                            <div>{Number(lote.quantity || 0).toLocaleString('pt-BR')} un</div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Raio-X das Etapas & Datas */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs pt-2 border-t border-zinc-100">
+                        {/* ENVASE */}
+                        <div className="p-2.5 rounded-lg bg-indigo-50/50 border border-indigo-100 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-indigo-950 flex items-center gap-1.5 text-[11px]">
+                              <Droplets className="h-3.5 w-3.5 text-indigo-600" />
+                              Envase
+                            </span>
+                          </div>
+                          {envaseItems.length > 0 ? (
+                            envaseItems.map(item => (
+                              <div key={item.id} className="flex items-center justify-between gap-2 pt-1 border-t border-indigo-100/60 first:border-0 first:pt-0">
+                                <div>
+                                  <div className="font-bold text-indigo-900 text-xs">
+                                    📅 {formatDateOnly(item.dataProgramada)}
+                                  </div>
+                                  <div className="text-[10px] text-indigo-700">
+                                    {item.linha} • {item.ordem}º da fila
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEnvaseSelectedDate(item.dataProgramada);
+                                    setEnvaseShowAllDates(false);
+                                    setCurrentTab('quadro_envase');
+                                    setShowLocalizarDataModal(false);
+                                  }}
+                                  className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                                >
+                                  Ver no Envase
+                                </button>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[11px] text-zinc-500">
+                                {lote?.customStatus === 'Liberado para Envase' ? '✅ Liberado (na fila)' : 'Não agendado no envase'}
+                              </span>
+                              {lote?.customStatus === 'Liberado para Envase' && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCurrentTab('quadro_envase');
+                                    setShowLocalizarDataModal(false);
+                                  }}
+                                  className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold cursor-pointer transition-colors"
+                                >
+                                  Ver na Fila
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* ROTULAGEM */}
+                        <div className="p-2.5 rounded-lg bg-emerald-50/50 border border-emerald-100 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-emerald-950 flex items-center gap-1.5 text-[11px]">
+                              <Tag className="h-3.5 w-3.5 text-emerald-600" />
+                              Rotulagem
+                            </span>
+                          </div>
+                          {rotulagemItems.length > 0 ? (
+                            rotulagemItems.map(item => (
+                              <div key={item.id} className="flex items-center justify-between gap-2 pt-1 border-t border-emerald-100/60 first:border-0 first:pt-0">
+                                <div>
+                                  <div className="font-bold text-emerald-900 text-xs">
+                                    📅 {formatDateOnly(item.dataProgramada)}
+                                  </div>
+                                  <div className="text-[10px] text-emerald-700">
+                                    {item.tipo === 'MAQUINA' ? 'Máquina' : 'Manual'} • {item.ordem}º da fila
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setRotulagemSelectedDate(item.dataProgramada);
+                                    setRotulagemShowAllDates(false);
+                                    setCurrentTab('quadro_rotulagem');
+                                    setShowLocalizarDataModal(false);
+                                  }}
+                                  className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                                >
+                                  Ver na Rotulagem
+                                </button>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[11px] text-zinc-500">
+                                Não agendado na rotulagem
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCurrentTab('quadro_rotulagem');
+                                  setShowLocalizarDataModal(false);
+                                }}
+                                className="px-2 py-1 bg-zinc-200 hover:bg-zinc-300 text-zinc-800 rounded text-[10px] font-bold cursor-pointer transition-colors"
+                              >
+                                Ver Rotulagem
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* PESAGEM */}
+                        <div className="p-2.5 rounded-lg bg-amber-50/50 border border-amber-100 space-y-1.5">
+                          <span className="font-bold text-amber-950 flex items-center gap-1.5 text-[11px]">
+                            <Scale className="h-3.5 w-3.5 text-amber-600" />
+                            Pesagem
+                          </span>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] text-zinc-700">
+                              {lote?.dataPesagem ? `Data: ${formatDateOnly(lote.dataPesagem)}` : 'Aguardando agendamento'}
+                            </span>
+                            {lote?.dataPesagem && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const dateIso = parseLoteDateToIso(lote.dataPesagem);
+                                  if (dateIso) setPesagemSelectedDate(dateIso);
+                                  setCurrentTab('quadro_pesagem');
+                                  setShowLocalizarDataModal(false);
+                                }}
+                                className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                              >
+                                Ir para Pesagem
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* PRODUÇÃO */}
+                        <div className="p-2.5 rounded-lg bg-blue-50/50 border border-blue-100 space-y-1.5">
+                          <span className="font-bold text-blue-950 flex items-center gap-1.5 text-[11px]">
+                            <Flame className="h-3.5 w-3.5 text-blue-600" />
+                            Produção / Reatores
+                          </span>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] text-zinc-700">
+                              {lote?.dataProducao ? `Data: ${formatDateOnly(lote.dataProducao)}` : 'Aguardando agendamento'}
+                            </span>
+                            {lote?.dataProducao && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const dateIso = parseLoteDateToIso(lote.dataProducao);
+                                  if (dateIso) setProducaoSelectedDate(dateIso);
+                                  setCurrentTab('quadro_producao');
+                                  setShowLocalizarDataModal(false);
+                                }}
+                                className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                              >
+                                Ir para Produção
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+
+            {/* Rodapé */}
+            <div className="p-3 bg-zinc-100 border-t border-zinc-200 flex items-center justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowLocalizarDataModal(false)}
                 className="px-4 py-1.5 text-xs font-bold text-zinc-700 hover:bg-zinc-200 rounded-lg transition-colors cursor-pointer"
               >
                 Fechar

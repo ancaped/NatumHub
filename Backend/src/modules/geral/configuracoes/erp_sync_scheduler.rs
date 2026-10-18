@@ -150,7 +150,7 @@ pub async fn start_erp_sync_scheduler(state: Arc<AppState>) {
 }
 
 /// Task em background: auto-auditoria periódica leve de estoque (Insumos + Materiais + Produtos).
-/// Executa a cada N minutos (padrão 15 min) e alinha o Hub com nQtdeEstoque da tela do ERP.
+/// Executa a cada N minutos (padrão 15 min) e alinha o Hub com o estoque recalculado do ERP.
 pub async fn start_stock_auto_audit_scheduler(state: Arc<AppState>) {
     // Aguarda 45s após o boot para dar tempo do servidor e outros serviços iniciarem
     tokio::time::sleep(Duration::from_secs(45)).await;

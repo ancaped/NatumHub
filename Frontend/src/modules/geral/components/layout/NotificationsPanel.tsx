@@ -86,7 +86,7 @@ export default function NotificationsPanel({ currentUser }: NotificationsPanelPr
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="relative flex items-center justify-center h-9 w-9 rounded-xl border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 transition-all cursor-pointer focus:outline-none shadow-sm"
+        className="relative flex items-center justify-center h-11 w-11 lg:h-9 lg:w-9 rounded-xl border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 transition-all cursor-pointer focus:outline-none shadow-sm"
         title="Notificações"
       >
         <Bell className="h-4 w-4 text-zinc-600" />
@@ -98,7 +98,7 @@ export default function NotificationsPanel({ currentUser }: NotificationsPanelPr
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white border border-zinc-200 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+        <div className="absolute right-0 mt-2 w-[min(20rem,calc(100vw-1rem))] sm:w-96 bg-white border border-zinc-200 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
           <div className="px-4 py-3 border-b border-zinc-100 flex items-center justify-between">
             <div>
               <p className="text-sm font-black text-zinc-900">Notificações</p>

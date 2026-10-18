@@ -179,7 +179,7 @@ export default function ProductSearchModal({
     switch (type) {
       case 'produto':
         return (
-          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200 flex items-center gap-1">
+          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-100 text-zinc-700 border border-zinc-200 flex items-center gap-1">
             <Package className="h-3 w-3" /> PRODUTO ACABADO
           </span>
         );
@@ -258,8 +258,8 @@ export default function ProductSearchModal({
               onClick={() => setActiveTab('produto')}
               className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
                 activeTab === 'produto'
-                  ? 'bg-purple-700 text-white'
-                  : 'bg-purple-50 text-purple-700 hover:bg-purple-100'
+                  ? 'bg-zinc-900 text-white'
+                  : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
               }`}
             >
               Produtos Acabados ({counts.produto})

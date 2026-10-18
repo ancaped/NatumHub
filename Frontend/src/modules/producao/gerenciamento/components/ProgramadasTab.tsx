@@ -5,6 +5,20 @@ import {
   CalendarClock, Zap, CheckCircle, Package, Layers, Info
 } from 'lucide-react';
 
+function DuracaoEstoque({ dias }: { dias: number }) {
+  const semConsumo = !Number.isFinite(dias) || dias >= 900;
+  const largura = semConsumo ? 100 : Math.max(6, Math.min(100, (dias / 90) * 100));
+  const cor = semConsumo ? 'bg-zinc-300' : dias < 30 ? 'bg-rose-500' : dias <= 60 ? 'bg-amber-500' : 'bg-emerald-600';
+  return (
+    <div className="min-w-[92px]">
+      <div className="h-2 rounded-full bg-zinc-100 overflow-hidden">
+        <div className={`h-full rounded-full ${cor}`} style={{ width: `${largura}%` }} />
+      </div>
+      <div className="text-[10px] text-zinc-500 mt-1">{semConsumo ? 'Sem consumo' : `${Math.round(dias)} dias`}</div>
+    </div>
+  );
+}
+
 interface ProgramadasTabProps {
   products: any[];
   configs: any[];
@@ -243,6 +257,9 @@ export function ProgramadasTab({
                       <SortIcon field="estoque_futuro_com_producao" activeField={sortField} activeDir={sortDir} />
                     </div>
                   </th>
+                  <th className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px]">
+                    Duração
+                  </th>
                   <th 
                     style={{ width: '12%', cursor: 'pointer' }}
                     onClick={() => toggleSort('producao_programada_disparo', sortField, setSortField, sortDir, setSortDir)}
@@ -357,6 +374,9 @@ export function ProgramadasTab({
                           {' | '}
                           <span>Ped: {p.pedidos_aberto}</span>
                         </div>
+                      </td>
+                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle">
+                        <DuracaoEstoque dias={Number(p.duracao_dias)} />
                       </td>
                       <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-right font-semibold text-zinc-700">
                         <div className="inline-flex items-center gap-1 bg-zinc-100 px-2 py-0.5 rounded text-zinc-800 font-mono font-bold">

@@ -5,10 +5,12 @@ import {
   Clock, ChevronDown, ChevronUp, Package, Truck, Boxes, Sparkles, Settings,
   ShieldCheck, ShieldAlert, Layers, Plus, ChevronLeft, ChevronRight, Filter,
   TrendingDown, CheckCircle, Info, Flame, Snowflake, AlertCircle, ArrowUpDown, Tag,
-  FileSpreadsheet, Download, GripVertical, AlertOctagon
+  FileSpreadsheet, Download, GripVertical, AlertOctagon, SlidersHorizontal, FlaskConical
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { apiFetch } from '../../../geral/lib/http';
+import { printHtmlViaIframe } from '../../../geral/lib/printCleanup';
+import { loadNatumLogoDataUrl } from '../../../geral/lib/logoUtils';
 import { getHoliday, getBrazilHolidaysForYear, HolidayInfo } from '../../../geral/lib/brazilHolidays';
 
 export interface InsumoConsumoItem {
@@ -196,6 +198,87 @@ export function parseProductUnitWeightKg(descricao?: string): number {
     return val / 1000.0;
   }
   return 1.0;
+}
+
+export interface CellBatchGroup {
+  key: string;
+  items: PlanejamentoItem[];
+  primaryItem: PlanejamentoItem;
+  totalKg: number;
+  totalUnits: number;
+  isMulti: boolean;
+  loteErp?: string;
+  isAprovado: boolean;
+  isLoteCriado: boolean;
+  isQuente: boolean;
+}
+
+export function groupCellItems(cellItems: PlanejamentoItem[]): CellBatchGroup[] {
+  const groups: Map<string, PlanejamentoItem[]> = new Map();
+
+  for (const item of cellItems) {
+    let key = '';
+    const cleanLote = (item.lote_erp || '').trim();
+    if (cleanLote && !cleanLote.toUpperCase().startsWith('PLAN_') && !cleanLote.toUpperCase().startsWith('PL-')) {
+      key = `LOTE_${cleanLote}`;
+    } else {
+      const mBatch = item.observacoes?.match(/\[batch:([^\]]+)\]/);
+      if (mBatch) {
+        key = `BATCH_${mBatch[1]}`;
+      } else if (item.observacoes?.includes('Batelada conjunta')) {
+        const parts = item.id.split('_');
+        if (parts.length >= 2 && !isNaN(Number(parts[parts.length - 2]))) {
+          key = `BATCH_${parts[parts.length - 2]}`;
+        } else {
+          key = `CONJUNTA_${item.reator_id}_${item.data_planejada}`;
+        }
+      } else {
+        key = `ITEM_${item.id}`;
+      }
+    }
+
+    if (!groups.has(key)) {
+      groups.set(key, []);
+    }
+    groups.get(key)!.push(item);
+  }
+
+  return Array.from(groups.entries()).map(([key, items]) => {
+    const primaryItem = items[0];
+    const totalKg = Number(items.reduce((acc, it) => acc + (Number(it.quantidade_planejada) || 0), 0).toFixed(1));
+    const totalUnits = items.reduce((acc, it) => {
+      const uW = parseProductUnitWeightKg(it.descricao);
+      return acc + Math.round((Number(it.quantidade_planejada) || 0) / (uW || 1));
+    }, 0);
+    const isMulti = items.length > 1;
+    const loteErp = items.find(it => it.lote_erp && it.lote_erp.trim())?.lote_erp?.trim();
+    const isAprovado = items.every(it => 
+      it.ordem_status === 'aprovado' || (it.fisico_confirmado_massa && it.fisico_confirmado_embalagem && it.fisico_confirmado_rotulo)
+    );
+    const isLoteCriado = items.some(it => it.ordem_status === 'lote_criado' || Boolean(it.lote_erp));
+    const isQuente = items.some(it => 
+      it.processo_termico === 'resistencia' || 
+      it.processo_termico === 'agua_caldeira' || 
+      it.processo_termico === 'caldeira' ||
+      it.processo_termico === 'quente' ||
+      it.reator_id === 'R_40' || 
+      it.recipiente_detalhe === 'Reator 40kg' || 
+      (it.observacoes || '').includes('Caldeira')
+    );
+
+    return {
+      key,
+      items,
+      primaryItem,
+      totalKg,
+      totalUnits,
+      isMulti,
+      loteErp,
+      isAprovado,
+      isLoteCriado,
+      isQuente
+    };
+  });
 }
 
 export function getShortReatorName(id: string, recipDetail?: string, reatoresList?: ReatorConfig[]): string {
@@ -447,15 +530,20 @@ export function PlanejamentoSemanalTab({
 
   // Modais de Ação
   const [scheduleModalItem, setScheduleModalItem] = useState<{
-    product: any;
+    product?: any | null;
     targetDate?: string;
     targetReator?: string;
   } | null>(null);
+  const [scheduleSearch, setScheduleSearch] = useState<string>('');
+  const [scheduleSelectedProducts, setScheduleSelectedProducts] = useState<any[]>([]);
+  const [scheduleItemMasses, setScheduleItemMasses] = useState<Record<string, number>>({});
   const [scheduleQty, setScheduleQty] = useState<number>(100);
   const [scheduleReator, setScheduleReator] = useState<string>('R_100');
   const [scheduleDate, setScheduleDate] = useState<string>('');
   const [scheduleEnvaseLine, setScheduleEnvaseLine] = useState<string>('L1');
   const [scheduleRecipienteDetalhe, setScheduleRecipienteDetalhe] = useState<string>('Reator');
+  const [sameFormulaProducts, setSameFormulaProducts] = useState<any[]>([]);
+  const [loadingSameFormula, setLoadingSameFormula] = useState<boolean>(false);
 
   // Modal de Lote ERP / Despacho
   const [dispatchModalItem, setDispatchModalItem] = useState<PlanejamentoItem | null>(null);
@@ -465,19 +553,50 @@ export function PlanejamentoSemanalTab({
   // Modal para Vincular / Editar Lote ERP diretamente no Card
   const [linkLoteModalItem, setLinkLoteModalItem] = useState<{
     item: PlanejamentoItem;
+    batchItems?: PlanejamentoItem[];
     lote: string;
     loadingUltimoLote?: boolean;
     ultimoLote?: string | null;
     dataUltimoLote?: string | null;
+    quantidadeKgLote?: number | null;
+    autoQty?: number | null;
     sugestaoProximo?: string | null;
     origemUltimoLote?: string | null;
   } | null>(null);
 
   // Modal para Editar Quantidade Planejada (kg) diretamente no Card
-  const [editQtyModalItem, setEditQtyModalItem] = useState<{ item: PlanejamentoItem; newQty: number } | null>(null);
+  const [editQtyModalItem, setEditQtyModalItem] = useState<{ 
+    item: PlanejamentoItem; 
+    newQty: number;
+    batchItems?: PlanejamentoItem[];
+    batchMasses?: Record<string, number>;
+  } | null>(null);
+
+  // Modal de Configurações da Batelada (Parâmetros Técnicos)
+  const [technicalModalItem, setTechnicalModalItem] = useState<{
+    item: PlanejamentoItem;
+    batchItems?: PlanejamentoItem[];
+    processoTermico: string;
+    origemFormulacao: 'completa' | 'base';
+    baseCodigo: string;
+    baseNome: string;
+    reatorId: string;
+    recipienteDetalhe: string;
+    dataPlanejada: string;
+    quantidadeKg: number;
+    linhaEnvase: string;
+    loteErp: string;
+    observacoes: string;
+    loadingUltimoLote?: boolean;
+    ultimoLote?: string | null;
+    dataUltimoLote?: string | null;
+    quantidadeKgLote?: number | null;
+    sugestaoProximo?: string | null;
+  } | null>(null);
 
   // Drag and Drop State (Arrastar cards no quadro ou do banco de demandas)
   const [draggedItem, setDraggedItem] = useState<PlanejamentoItem | null>(null);
+  const [draggedBatch, setDraggedBatch] = useState<PlanejamentoItem[] | null>(null);
   const [draggedDrawerProduct, setDraggedDrawerProduct] = useState<any | null>(null);
   const [dragOverCell, setDragOverCell] = useState<{ reatorId: string; dateStr: string } | null>(null);
 
@@ -813,6 +932,9 @@ export function PlanejamentoSemanalTab({
         localStorage.setItem(`plan_semanal_${currentWeekKey}`, JSON.stringify(next));
         return next;
       });
+    } finally {
+      window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
+      onScheduleChanged?.();
     }
   };
 
@@ -829,6 +951,8 @@ export function PlanejamentoSemanalTab({
       localStorage.setItem(`plan_semanal_${currentWeekKey}`, JSON.stringify(next));
       return next;
     });
+    window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
+    onScheduleChanged?.();
   };
 
   // LIMPAR TODA A SEMANA (NOVO BOTÃO SOLICITADO POR EDSON)
@@ -887,14 +1011,46 @@ export function PlanejamentoSemanalTab({
     }
   };
 
+  // Carregar produtos com a EXATA mesma formulação química quando o 1º produto da batelada é selecionado
+  useEffect(() => {
+    const mainCode = scheduleSelectedProducts[0]?.codigo;
+    if (!mainCode) {
+      setSameFormulaProducts([]);
+      return;
+    }
+    let active = true;
+    setLoadingSameFormula(true);
+    apiFetch(`/producao/produtos-mesma-formulacao/${encodeURIComponent(mainCode)}`)
+      .then(async (res) => {
+        if (res.ok) {
+          const data = await res.json();
+          if (active) setSameFormulaProducts(Array.isArray(data) ? data : []);
+        } else {
+          if (active) setSameFormulaProducts([]);
+        }
+      })
+      .catch(() => {
+        if (active) setSameFormulaProducts([]);
+      })
+      .finally(() => {
+        if (active) setLoadingSameFormula(false);
+      });
+    return () => { active = false; };
+  }, [scheduleSelectedProducts[0]?.codigo]);
+
   // Abertura do Modal de Lote ERP com busca automática do último lote
-  const handleOpenLinkLoteModal = async (item: PlanejamentoItem) => {
+  const handleOpenLinkLoteModal = async (item: PlanejamentoItem, batchItems?: PlanejamentoItem[]) => {
+    const rawLote = item.lote_erp || '';
+    const isProvisional = rawLote.toUpperCase().startsWith('PLAN_') || rawLote.toUpperCase().startsWith('PL-');
     setLinkLoteModalItem({
       item,
-      lote: item.lote_erp || '',
+      batchItems,
+      lote: isProvisional ? '' : rawLote,
       loadingUltimoLote: true,
       ultimoLote: null,
       dataUltimoLote: null,
+      quantidadeKgLote: null,
+      autoQty: null,
       sugestaoProximo: null,
       origemUltimoLote: null,
     });
@@ -903,15 +1059,17 @@ export function PlanejamentoSemanalTab({
       const res = await apiFetch(`/producao/ultimo-lote?code=${encodeURIComponent(item.codigo_produto)}`);
       if (res.ok) {
         const data = await res.json();
+        const ultLoteStr = (data.ultimo_lote || '').toString().trim();
+        const isUltProvisional = !ultLoteStr || ultLoteStr.toUpperCase().startsWith('PLAN_') || ultLoteStr.toUpperCase().startsWith('PL-');
         setLinkLoteModalItem(prev => {
           if (!prev || prev.item.id !== item.id) return prev;
           return {
             ...prev,
             loadingUltimoLote: false,
-            ultimoLote: data.ultimo_lote,
-            dataUltimoLote: data.data_ultimo_lote,
-            sugestaoProximo: data.sugestao_proximo,
-            origemUltimoLote: data.origem,
+            ultimoLote: isUltProvisional ? null : ultLoteStr,
+            dataUltimoLote: isUltProvisional ? null : data.data_ultimo_lote,
+            quantidadeKgLote: isUltProvisional ? null : data.quantidade_kg,
+            origemUltimoLote: isUltProvisional ? null : data.origem,
           };
         });
       } else {
@@ -923,21 +1081,32 @@ export function PlanejamentoSemanalTab({
     }
   };
 
-  // Vincular / Atualizar Lote ERP diretamente no Card
+  // Vincular / Atualizar Lote ERP diretamente no Card (aplica para todos os itens da batelada)
   const handleConfirmLinkLote = async () => {
     if (!linkLoteModalItem) return;
-    const { item, lote } = linkLoteModalItem;
+    const { item, batchItems, lote, autoQty } = linkLoteModalItem;
     const cleanLote = lote.trim();
 
-    const updated: PlanejamentoItem = {
-      ...item,
-      lote_erp: cleanLote || undefined,
-      ordem_status: cleanLote ? 'aprovado' : item.ordem_status,
-    };
+    const targets = batchItems && batchItems.length > 1 ? batchItems : [item];
+    const updatedTargets: PlanejamentoItem[] = [];
 
-    setPlannedItems(prev => prev.map(p => p.id === item.id ? updated : p));
+    for (const it of targets) {
+      const itQty = (autoQty && autoQty > 0 && targets.length === 1) ? autoQty : it.quantidade_planejada;
+      const updated: PlanejamentoItem = {
+        ...it,
+        lote_erp: cleanLote || undefined,
+        quantidade_planejada: itQty,
+        ordem_status: cleanLote ? 'aprovado' : it.ordem_status,
+      };
+      updatedTargets.push(updated);
+      await handleSaveItem(updated);
+    }
+
+    setPlannedItems(prev => prev.map(p => {
+      const match = updatedTargets.find(u => u.id === p.id);
+      return match || p;
+    }));
     setLinkLoteModalItem(null);
-    await handleSaveItem(updated);
     window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
     onScheduleChanged?.();
   };
@@ -945,72 +1114,349 @@ export function PlanejamentoSemanalTab({
   // Editar Quantidade a ser Produzida (Massa em kg)
   const handleConfirmEditQty = async () => {
     if (!editQtyModalItem) return;
-    const { item, newQty } = editQtyModalItem;
+    const { item, newQty, batchItems, batchMasses } = editQtyModalItem;
     if (isNaN(newQty) || newQty <= 0) {
       alert("Informe uma quantidade válida em kg (maior que zero).");
       return;
     }
 
-    const updated: PlanejamentoItem = {
-      ...item,
-      quantidade_planejada: newQty,
-    };
+    if (batchItems && batchItems.length > 1) {
+      const updatedList: PlanejamentoItem[] = [];
+      for (const it of batchItems) {
+        const itemQty = batchMasses?.[it.id] !== undefined ? batchMasses[it.id] : it.quantidade_planejada;
+        const uW = parseProductUnitWeightKg(it.descricao);
+        const estUn = Math.round(itemQty / (uW || 1));
+        const updated: PlanejamentoItem = {
+          ...it,
+          quantidade_planejada: itemQty,
+          observacoes: it.observacoes?.replace(/\|\s*[0-9.,]+\s*kg\s*\|\s*~[0-9.,]+\s*un/i, `| ${itemQty} kg | ~${estUn.toLocaleString('pt-BR')} un`),
+        };
+        updatedList.push(updated);
+        await handleSaveItem(updated);
+      }
+      const updatedMap = new Map(updatedList.map(u => [u.id, u]));
+      setPlannedItems(prev => prev.map(p => updatedMap.get(p.id) || p));
+    } else {
+      const updated: PlanejamentoItem = {
+        ...item,
+        quantidade_planejada: newQty,
+      };
+      setPlannedItems(prev => prev.map(p => p.id === item.id ? updated : p));
+      await handleSaveItem(updated);
+    }
 
-    setPlannedItems(prev => prev.map(p => p.id === item.id ? updated : p));
     setEditQtyModalItem(null);
-    await handleSaveItem(updated);
     window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
     onScheduleChanged?.();
   };
 
-  // Abrir Modal de Agendamento com Dimensionamento e Processo Quente/Frio
-  const handleOpenScheduleModal = (product: any, targetDate?: string, targetReator?: string) => {
+  // Abertura rápida do modal para ajustar massas individuais de múltiplos itens da batelada
+  const handleOpenBatchMassEditModal = (batchItems: PlanejamentoItem[]) => {
+    const masses: Record<string, number> = {};
+    batchItems.forEach(it => {
+      masses[it.id] = it.quantidade_planejada;
+    });
+    const sumKg = Number(batchItems.reduce((s, it) => s + (Number(it.quantidade_planejada) || 0), 0).toFixed(1));
+    setEditQtyModalItem({
+      item: batchItems[0],
+      newQty: sumKg,
+      batchItems,
+      batchMasses: masses,
+    });
+  };
+
+  // Excluir batelada (remove todos os itens componentes)
+  const handleDeleteBatch = async (batchItems: PlanejamentoItem[]) => {
+    const msg = batchItems.length > 1
+      ? `Deseja remover esta batelada conjunta com ${batchItems.length} itens do planejamento?`
+      : `Deseja remover este item do planejamento?`;
+    if (!window.confirm(msg)) return;
+
+    const itemIds = new Set(batchItems.map(i => i.id));
+    setPlannedItems(prev => {
+      const next = prev.filter(i => !itemIds.has(i.id));
+      localStorage.setItem(`plan_semanal_${currentWeekKey}`, JSON.stringify(next));
+      return next;
+    });
+
+    for (const it of batchItems) {
+      try {
+        await apiFetch(`/producao/planejamento/${it.id}`, { method: 'DELETE' });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
+    onScheduleChanged?.();
+  };
+
+  // Alternar aprovação de todos os itens da batelada
+  const handleToggleBatchAprovacao = async (batchItems: PlanejamentoItem[]) => {
+    const allApproved = batchItems.every(i => 
+      i.ordem_status === 'aprovado' || (i.fisico_confirmado_massa && i.fisico_confirmado_embalagem && i.fisico_confirmado_rotulo)
+    );
+    const nextStatus = allApproved ? 'planejado' : 'aprovado';
+    const nextConfirmado = !allApproved;
+
+    const updatedItems: PlanejamentoItem[] = [];
+    for (const it of batchItems) {
+      const updated: PlanejamentoItem = {
+        ...it,
+        ordem_status: nextStatus,
+        fisico_confirmado_massa: nextConfirmado,
+        fisico_confirmado_embalagem: nextConfirmado,
+        fisico_confirmado_rotulo: nextConfirmado,
+      };
+      updatedItems.push(updated);
+      await handleSaveItem(updated);
+    }
+
+    setPlannedItems(prev => {
+      const map = new Map(updatedItems.map(u => [u.id, u]));
+      return prev.map(p => map.get(p.id) || p);
+    });
+    window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
+    onScheduleChanged?.();
+  };
+
+  // Abrir Modal de Configurações da Batelada (Parâmetros)
+  const handleOpenTechnicalModal = async (item: PlanejamentoItem, batchItems?: PlanejamentoItem[]) => {
+    const isUsingBase = Boolean(
+      item.base_codigo ||
+      (item.codigo_produto || '').includes('.36.') ||
+      (item.descricao || '').toUpperCase().startsWith('BASE ') ||
+      (item.descricao || '').toUpperCase().startsWith('PRE BASE ')
+    );
+
+    const linkedProd = products.find(p => p.codigo === item.codigo_produto);
+    const suggestedBaseCode = item.base_codigo || linkedProd?.base || '';
+    const suggestedBaseNome = item.base_nome || linkedProd?.base || '';
+
+    const totalBatchKg = batchItems && batchItems.length > 1
+      ? Number(batchItems.reduce((acc, it) => acc + (Number(it.quantidade_planejada) || 0), 0).toFixed(1))
+      : item.quantidade_planejada;
+
+    setTechnicalModalItem({
+      item,
+      batchItems,
+      processoTermico: item.processo_termico || 'frio',
+      origemFormulacao: isUsingBase ? 'base' : 'completa',
+      baseCodigo: suggestedBaseCode,
+      baseNome: suggestedBaseNome,
+      reatorId: item.reator_id,
+      recipienteDetalhe: item.recipiente_detalhe || 'Reator',
+      dataPlanejada: item.data_planejada,
+      quantidadeKg: totalBatchKg,
+      linhaEnvase: item.linha_envase || 'L1',
+      loteErp: item.lote_erp || '',
+      observacoes: item.observacoes || '',
+      loadingUltimoLote: true,
+      ultimoLote: null,
+      dataUltimoLote: null,
+      quantidadeKgLote: null,
+      sugestaoProximo: null,
+    });
+
+    try {
+      const res = await apiFetch(`/producao/ultimo-lote?code=${encodeURIComponent(item.codigo_produto)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setTechnicalModalItem(prev => {
+          if (!prev || prev.item.id !== item.id) return prev;
+          return {
+            ...prev,
+            loadingUltimoLote: false,
+            ultimoLote: data.ultimo_lote,
+            dataUltimoLote: data.data_ultimo_lote,
+            quantidadeKgLote: data.quantidade_kg,
+          };
+        });
+      } else {
+        setTechnicalModalItem(prev => prev ? { ...prev, loadingUltimoLote: false } : null);
+      }
+    } catch {
+      setTechnicalModalItem(prev => prev ? { ...prev, loadingUltimoLote: false } : null);
+    }
+  };
+
+  const handleSaveTechnicalModal = async () => {
+    if (!technicalModalItem) return;
+    const {
+      item,
+      batchItems,
+      processoTermico,
+      origemFormulacao,
+      baseCodigo,
+      baseNome,
+      reatorId,
+      recipienteDetalhe,
+      dataPlanejada,
+      quantidadeKg,
+      linhaEnvase,
+      loteErp,
+      observacoes,
+    } = technicalModalItem;
+
+    if (isNaN(quantidadeKg) || quantidadeKg <= 0) {
+      alert("Informe uma quantidade válida em kg (maior que zero).");
+      return;
+    }
+
+    const cleanLote = loteErp.trim();
+    const targets = batchItems && batchItems.length > 1 ? batchItems : [item];
+    const updatedTargets: PlanejamentoItem[] = [];
+
+    for (const it of targets) {
+      const itQty = targets.length === 1 ? quantidadeKg : it.quantidade_planejada;
+      const updated: PlanejamentoItem = {
+        ...it,
+        processo_termico: processoTermico,
+        base_codigo: origemFormulacao === 'base' ? (baseCodigo.trim() || undefined) : undefined,
+        base_nome: origemFormulacao === 'base' ? (baseNome.trim() || undefined) : undefined,
+        reator_id: reatorId,
+        recipiente_detalhe: reatorId === 'BOMBONAS' ? recipienteDetalhe : (reatorId === 'R_40' ? 'Reator 40kg' : 'Reator'),
+        data_planejada: dataPlanejada,
+        quantidade_planejada: itQty,
+        linha_envase: linhaEnvase,
+        lote_erp: cleanLote || undefined,
+        observacoes: targets.length === 1 ? (observacoes.trim() || undefined) : it.observacoes,
+        ordem_status: cleanLote ? 'aprovado' : it.ordem_status,
+      };
+      updatedTargets.push(updated);
+      await handleSaveItem(updated);
+    }
+
+    const targetMap = new Map(updatedTargets.map(u => [u.id, u]));
+    setPlannedItems(prev => prev.map(p => targetMap.get(p.id) || p));
+    setTechnicalModalItem(null);
+    window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
+    onScheduleChanged?.();
+  };
+
+  // Adicionar e remover produtos da mesma ordem de produção (até 4 produtos por lote)
+  const handleAddProductToSchedule = (prod: any) => {
+    if (scheduleSelectedProducts.length >= 4) {
+      alert("Você pode adicionar no máximo 4 produtos por ordem de produção.");
+      return;
+    }
+    if (scheduleSelectedProducts.some(p => p.codigo === prod.codigo)) {
+      return;
+    }
+    if (scheduleSelectedProducts.length > 0) {
+      const isSameFormula = sameFormulaProducts.some(sf => sf.codigo === prod.codigo);
+      if (!isSameFormula) {
+        alert("Apenas produtos com a exata mesma formulação química (mesmas matérias-primas e proporções) podem ser agendados juntos na mesma batelada.");
+        return;
+      }
+    }
+    const nextProds = [...scheduleSelectedProducts, prod];
+    setScheduleSelectedProducts(nextProds);
+
+    // Sugerir divisão equitativa inicial do volume total
+    const currentTotal = scheduleQty > 0 ? scheduleQty : 100;
+    const share = Number((currentTotal / nextProds.length).toFixed(1));
+    const nextMasses: Record<string, number> = {};
+    nextProds.forEach(p => {
+      nextMasses[p.codigo] = share;
+    });
+    setScheduleItemMasses(nextMasses);
+    const sumTotal = Object.values(nextMasses).reduce((a, b) => a + (Number(b) || 0), 0);
+    setScheduleQty(Number(sumTotal.toFixed(1)));
+  };
+
+  const handleRemoveProductFromSchedule = (codigo: string) => {
+    const nextProds = scheduleSelectedProducts.filter(p => p.codigo !== codigo);
+    setScheduleSelectedProducts(nextProds);
+    const nextMasses = { ...scheduleItemMasses };
+    delete nextMasses[codigo];
+    setScheduleItemMasses(nextMasses);
+    const sumTotal = Object.values(nextMasses).reduce((a, b) => a + (Number(b) || 0), 0);
+    setScheduleQty(nextProds.length > 0 ? Number(sumTotal.toFixed(1)) : 100);
+  };
+
+  const handleChangeItemMass = (codigo: string, mass: number) => {
+    const nextMasses = { ...scheduleItemMasses, [codigo]: mass };
+    setScheduleItemMasses(nextMasses);
+    const sumTotal = scheduleSelectedProducts.reduce((acc, p) => {
+      const val = p.codigo === codigo ? mass : (nextMasses[p.codigo] ?? 0);
+      return acc + val;
+    }, 0);
+    setScheduleQty(Number(sumTotal.toFixed(1)));
+  };
+
+  const handleChangeTotalMass = (newTotal: number) => {
+    setScheduleQty(newTotal);
+    if (scheduleSelectedProducts.length > 0) {
+      const share = Number((newTotal / scheduleSelectedProducts.length).toFixed(1));
+      const nextMasses: Record<string, number> = {};
+      scheduleSelectedProducts.forEach(p => {
+        nextMasses[p.codigo] = share;
+      });
+      setScheduleItemMasses(nextMasses);
+    }
+  };
+
+  // Abrir Modal de Agendamento com Dimensionamento e Pesquisa / Multilote (até 4 itens)
+  const handleOpenScheduleModal = (product: any | null, targetDate?: string, targetReator?: string) => {
     setScheduleModalItem({ product, targetDate, targetReator });
-    
-    const procInfo = getProductProcessType(product);
-    // Quantidade sugerida em MASSA (kg) baseada no peso/volume unitário
-    const suggestedMassKg = procInfo.reqQtyKg <= 50 ? 50 : Math.round(procInfo.reqQtyKg);
-    setScheduleQty(suggestedMassKg);
+    setScheduleSearch('');
 
-    // Encontra reator compatível com o processo e tamanho
-    let matchingReator = reatores.find(r => r.id === targetReator);
-    if (!matchingReator) {
-      if (procInfo.recipienteSugerido) {
-        matchingReator = reatores.find(r => r.id === procInfo.recipienteSugerido && r.ativo);
-      }
+    if (product) {
+      setScheduleSelectedProducts([product]);
+      const procInfo = getProductProcessType(product);
+      // Quantidade sugerida em MASSA (kg) baseada no peso/volume unitário
+      const suggestedMassKg = procInfo.reqQtyKg <= 50 ? 50 : Math.round(procInfo.reqQtyKg);
+      setScheduleQty(suggestedMassKg);
+      setScheduleItemMasses({ [product.codigo]: suggestedMassKg });
+
+      // Encontra reator compatível com o processo e tamanho
+      let matchingReator = reatores.find(r => r.id === targetReator);
       if (!matchingReator) {
-        matchingReator = reatores.find(r => {
-          if (!r.ativo) return false;
-          if ((r.id === 'R_1000_SHAMPOO' || r.id === 'R_1000') && !procInfo.isShampoo) return false;
-          return r.capacidade_kg >= suggestedMassKg * 0.7 && r.capacidade_kg <= Math.max(suggestedMassKg * 2.2, 100);
-        }) || reatores[0];
+        if (procInfo.recipienteSugerido) {
+          matchingReator = reatores.find(r => r.id === procInfo.recipienteSugerido && r.ativo);
+        }
+        if (!matchingReator) {
+          matchingReator = reatores.find(r => {
+            if (!r.ativo) return false;
+            if ((r.id === 'R_1000_SHAMPOO' || r.id === 'R_1000') && !procInfo.isShampoo) return false;
+            return r.capacidade_kg >= suggestedMassKg * 0.7 && r.capacidade_kg <= Math.max(suggestedMassKg * 2.2, 100);
+          }) || reatores[0];
+        }
       }
-    }
-    
-    const reatorId = matchingReator ? matchingReator.id : (suggestedMassKg <= 200 ? 'BOMBONAS' : 'R_500');
-    setScheduleReator(reatorId);
-    setScheduleDate(targetDate || weekDays[0].dateStr);
+      
+      const reatorId = matchingReator ? matchingReator.id : (suggestedMassKg <= 200 ? 'BOMBONAS' : 'R_500');
+      setScheduleReator(reatorId);
+      setScheduleDate(targetDate || weekDays[0]?.dateStr || '');
 
-    if (reatorId === 'BOMBONAS') {
-      if (suggestedMassKg <= 60) setScheduleRecipienteDetalhe('Bombona 50kg');
-      else if (suggestedMassKg <= 120) setScheduleRecipienteDetalhe('Bombona 100kg');
-      else setScheduleRecipienteDetalhe('Bombona 200kg');
+      if (reatorId === 'BOMBONAS') {
+        if (suggestedMassKg <= 60) setScheduleRecipienteDetalhe('Bombona 50kg');
+        else if (suggestedMassKg <= 120) setScheduleRecipienteDetalhe('Bombona 100kg');
+        else setScheduleRecipienteDetalhe('Bombona 200kg');
+      } else {
+        setScheduleRecipienteDetalhe('Reator');
+      }
+      
+      // Linha de envase sugerida
+      const desc = (product.descricao || '').toUpperCase();
+      if (desc.includes('MASC') || desc.includes('POTE')) {
+        setScheduleEnvaseLine('L2');
+      } else if (desc.includes('POMADA') || desc.includes('OLEO') || desc.includes('SERUM')) {
+        setScheduleEnvaseLine('L3');
+      } else {
+        setScheduleEnvaseLine('L1');
+      }
     } else {
-      setScheduleRecipienteDetalhe('Reator');
-    }
-    
-    // Linha de envase sugerida
-    const desc = (product.descricao || '').toUpperCase();
-    if (desc.includes('MASC') || desc.includes('POTE')) {
-      setScheduleEnvaseLine('L2');
-    } else if (desc.includes('POMADA') || desc.includes('OLEO') || desc.includes('SERUM')) {
-      setScheduleEnvaseLine('L3');
-    } else {
+      setScheduleSelectedProducts([]);
+      setScheduleItemMasses({});
+      setScheduleQty(100);
+      setScheduleReator(targetReator || 'R_100');
+      setScheduleDate(targetDate || weekDays[0]?.dateStr || '');
+      setScheduleRecipienteDetalhe(targetReator === 'BOMBONAS' ? 'Bombona 100kg' : 'Reator');
       setScheduleEnvaseLine('L1');
     }
   };
 
-  // Reordenar bateladas no dia (sequenciamento de cores/envase)
+  // Reordenar ordens no dia (sequenciamento de cores/envase)
   const handleMoveOrder = async (item: PlanejamentoItem, direction: 'up' | 'down') => {
     const dayItems = plannedItems
       .filter(i => i.data_planejada === item.data_planejada)
@@ -1032,12 +1478,17 @@ export function PlanejamentoSemanalTab({
     await handleSaveItem(updatedTarget);
   };
 
-  // Confirmar Agendamento Manual
+  // Confirmar Agendamento Manual (suporta até 4 itens com massa individual personalizável)
   const handleConfirmSchedule = async () => {
-    if (!scheduleModalItem || !scheduleModalItem.product) return;
-    const { product } = scheduleModalItem;
-    const procInfo = getProductProcessType(product);
-    const colorInfo = getProductColorInfo(product);
+    if (scheduleSelectedProducts.length === 0) {
+      alert("Por favor, selecione ao menos 1 produto para agendar na ordem de produção.");
+      return;
+    }
+
+    if (isNaN(scheduleQty) || scheduleQty <= 0) {
+      alert("Informe uma massa total válida em kg (maior que zero).");
+      return;
+    }
 
     // TRAVA 1: Reator 100kg (Resistência) -> Máximo 1 produção por dia
     if (scheduleReator === 'R_100') {
@@ -1048,47 +1499,59 @@ export function PlanejamentoSemanalTab({
       }
     }
 
-    // TRAVA 2: Reator 1000kg Shampoo -> Exclusivo para Shampoos
-    if (scheduleReator === 'R_1000_SHAMPOO' || scheduleReator === 'R_1000') {
-      if (!procInfo.isShampoo) {
-        alert("⚠️ O Reator 1000kg (Shampoo) é exclusivo para Shampoos! Para outros produtos de grande volume, utilize o Reator 1000kg (Produção Mista) ou 500kg.");
-        return;
-      }
+    const numItems = scheduleSelectedProducts.length;
+    const sameDayItems = plannedItems.filter(i => i.data_planejada === scheduleDate);
+    const batchTimestamp = Date.now();
+    const batchId = numItems > 1 ? `BATCH_${batchTimestamp}` : '';
+
+    for (let i = 0; i < numItems; i++) {
+      const prod = scheduleSelectedProducts[i];
+      const procInfo = getProductProcessType(prod);
+      const colorInfo = getProductColorInfo(prod);
+      const nextSeq = (sameDayItems.length + 1 + i) * 10;
+      const itemId = `PLAN_${currentWeekKey}_${scheduleReator}_${scheduleDate}_${prod.codigo}_${batchTimestamp}_${i}`;
+
+      const massPerItem = scheduleItemMasses[prod.codigo] !== undefined && scheduleItemMasses[prod.codigo] > 0
+        ? Number(scheduleItemMasses[prod.codigo].toFixed(1))
+        : Number((scheduleQty / numItems).toFixed(1));
+
+      const estUnits = Math.round(massPerItem / (procInfo.unitWeightKg || 1));
+      const batchObs = numItems > 1 
+        ? `Batelada conjunta (${i + 1}/${numItems}) [batch:${batchId}] | ${massPerItem} kg | ~${estUnits.toLocaleString('pt-BR')} un`
+        : (procInfo.isQuente 
+            ? (scheduleReator === 'BOMBONAS' ? '🔥 Água Quente Caldeira (Bombona)' : (scheduleReator === 'R_100' ? '⚡ Resistência (100kg)' : (scheduleReator === 'R_40' ? '🔥 Reator 40kg (Quente)' : '🔥 Requer Caldeira'))) 
+            : '❄️ Processo a Frio') + ` | ~${estUnits.toLocaleString('pt-BR')} un`;
+
+      const newItem: PlanejamentoItem = {
+        id: itemId,
+        week_key: currentWeekKey,
+        data_planejada: scheduleDate,
+        reator_id: scheduleReator,
+        codigo_produto: prod.codigo,
+        descricao: prod.descricao,
+        quantidade_planejada: massPerItem,
+        unidade: 'kg',
+        base_codigo: prod.base || null,
+        base_nome: prod.base || null,
+        linha_envase: scheduleEnvaseLine,
+        observacoes: batchObs,
+        ordem_status: 'planejado',
+        fisico_confirmado_massa: false,
+        fisico_confirmado_embalagem: false,
+        fisico_confirmado_rotulo: false,
+        recipiente_detalhe: scheduleReator === 'BOMBONAS' ? scheduleRecipienteDetalhe : (scheduleReator === 'R_40' ? 'Reator 40kg' : 'Reator'),
+        cor_tag: colorInfo.tag,
+        ordem_sequencia: nextSeq,
+        processo_termico: procInfo.isQuente ? (scheduleReator === 'BOMBONAS' ? 'agua_caldeira' : (scheduleReator === 'R_100' ? 'resistencia' : (scheduleReator === 'R_40' ? 'quente' : 'caldeira'))) : 'frio',
+      };
+
+      await handleSaveItem(newItem);
     }
 
-    // Calcula ordem de sequência no dia
-    const sameDayItems = plannedItems.filter(i => i.data_planejada === scheduleDate);
-    const nextSeq = sameDayItems.length + 1;
-
-    const itemId = `PLAN_${currentWeekKey}_${scheduleReator}_${scheduleDate}_${product.codigo}_${Date.now()}`;
-
-    const newItem: PlanejamentoItem = {
-      id: itemId,
-      week_key: currentWeekKey,
-      data_planejada: scheduleDate,
-      reator_id: scheduleReator,
-      codigo_produto: product.codigo,
-      descricao: product.descricao,
-      quantidade_planejada: scheduleQty,
-      unidade: 'kg',
-      base_codigo: product.base || null,
-      base_nome: product.base || null,
-      linha_envase: scheduleEnvaseLine,
-      observacoes: (procInfo.isQuente 
-        ? (scheduleReator === 'BOMBONAS' ? '🔥 Água Quente Caldeira (Bombona)' : (scheduleReator === 'R_100' ? '⚡ Resistência (100kg)' : (scheduleReator === 'R_40' ? '🔥 Reator 40kg (Quente)' : '🔥 Requer Caldeira'))) 
-        : '❄️ Processo a Frio') + ` | ~${Math.round(scheduleQty / (procInfo.unitWeightKg || 1)).toLocaleString('pt-BR')} un`,
-      ordem_status: 'planejado',
-      fisico_confirmado_massa: false,
-      fisico_confirmado_embalagem: false,
-      fisico_confirmado_rotulo: false,
-      recipiente_detalhe: scheduleReator === 'BOMBONAS' ? scheduleRecipienteDetalhe : (scheduleReator === 'R_40' ? 'Reator 40kg' : 'Reator'),
-      cor_tag: colorInfo.tag,
-      ordem_sequencia: nextSeq,
-      processo_termico: procInfo.isQuente ? (scheduleReator === 'BOMBONAS' ? 'agua_caldeira' : (scheduleReator === 'R_100' ? 'resistencia' : (scheduleReator === 'R_40' ? 'quente' : 'caldeira'))) : 'frio',
-    };
-
-    await handleSaveItem(newItem);
     setScheduleModalItem(null);
+    setScheduleSelectedProducts([]);
+    setScheduleItemMasses({});
+    setScheduleSearch('');
     window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
     onScheduleChanged?.();
   };
@@ -1210,6 +1673,17 @@ export function PlanejamentoSemanalTab({
 
           // Identificar se é Embalagem ou Matéria-Prima
           const isEmbalagem = 
+            ing.category_id === 'cat_emb' ||
+            (ing.unit && ing.unit.toUpperCase() === 'UN') ||
+            ingCode.startsWith('9.') ||
+            ingCode.startsWith('2.') ||
+            ingCode.startsWith('3.') ||
+            descUpper.startsWith('PT ') ||
+            descUpper.startsWith('FR ') ||
+            descUpper.startsWith('TP ') ||
+            descUpper.startsWith('CX ') ||
+            descUpper.startsWith('ROT ') ||
+            descUpper.startsWith('ETIQ ') ||
             descUpper.includes('FRASCO') ||
             descUpper.includes('TAMPA') ||
             descUpper.includes('ROTULO') ||
@@ -1228,12 +1702,10 @@ export function PlanejamentoSemanalTab({
             descUpper.includes('PALLET') ||
             descUpper.includes('DISPENSER') ||
             descUpper.includes('PUMP') ||
-            descUpper.includes('BORRIFADOR') ||
-            ingCode.startsWith('2.') ||
-            ingCode.startsWith('3.');
+            descUpper.includes('BORRIFADOR');
 
           const category: 'materia_prima' | 'embalagem' = isEmbalagem ? 'embalagem' : 'materia_prima';
-          const unit = isEmbalagem ? 'UN' : 'KG';
+          const unit = ing.unit ? ing.unit.toUpperCase() : (isEmbalagem ? 'UN' : 'KG');
           const reqQty = Number(ing.total_required || 0);
 
           const existing = aggregatedMap.get(ingCode);
@@ -1352,17 +1824,13 @@ export function PlanejamentoSemanalTab({
   // ==========================================
 
   // 1. IMPRESSÃO DA PROGRAMAÇÃO SEMANAL DE PRODUÇÃO (A4 COMPACTO E DIRETO)
-  const handlePrintWeeklyPlan = () => {
+  const handlePrintWeeklyPlan = async () => {
     if (plannedItems.length === 0) {
       alert("Nenhuma batelada agendada nesta semana para imprimir.");
       return;
     }
 
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert("Não foi possível abrir a janela de impressão. Verifique se o bloqueador de popups do navegador está ativo.");
-      return;
-    }
+    const logoUrl = await loadNatumLogoDataUrl();
 
     // Unidades totais estimadas
     let totalEstimatedUnits = 0;
@@ -1373,8 +1841,6 @@ export function PlanejamentoSemanalTab({
         totalEstimatedUnits += Math.round(item.quantidade_planejada / (uWeight || 1));
       }
     }
-
-    const formatPrintReatorName = (id: string, recipDetail?: string) => getShortReatorName(id, recipDetail, reatores);
 
     // Gera detalhamento dia a dia
     const daysHtml = weekDays.map(day => {
@@ -1396,12 +1862,11 @@ export function PlanejamentoSemanalTab({
         const isBase = item.codigo_produto.includes('.36.') || (item.descricao || '').toUpperCase().startsWith('BASE ');
         const uWeight = parseProductUnitWeightKg(item.descricao);
         const yieldText = isBase ? 'Granel' : `${Math.round(item.quantidade_planejada / (uWeight || 1)).toLocaleString('pt-BR')} un`;
-        const reatorNome = formatPrintReatorName(item.reator_id, item.recipiente_detalhe);
+        const rawLote = item.lote_erp ? String(item.lote_erp).trim() : '';
+        const loteErpDisplay = (rawLote && rawLote !== '-' && rawLote !== '—') ? rawLote : '';
 
         return `
           <tr>
-            <td style="text-align: center; font-weight: bold; font-family: monospace; border: 1px solid #cbd5e1; padding: 3px;">#${item.ordem_sequencia || 1}</td>
-            <td style="font-weight: 600; border: 1px solid #cbd5e1; padding: 3px; white-space: nowrap;">${reatorNome}</td>
             <td style="font-family: monospace; font-weight: bold; border: 1px solid #cbd5e1; padding: 3px; white-space: nowrap;">${item.codigo_produto}</td>
             <td style="border: 1px solid #cbd5e1; padding: 3px;">
               <strong>${item.descricao || item.codigo_produto}</strong>
@@ -1410,7 +1875,7 @@ export function PlanejamentoSemanalTab({
             <td style="text-align: right; font-weight: bold; border: 1px solid #cbd5e1; padding: 3px; white-space: nowrap;">${Number(item.quantidade_planejada || 0).toLocaleString('pt-BR')} kg</td>
             <td style="text-align: right; font-weight: 600; color: #1e3a8a; border: 1px solid #cbd5e1; padding: 3px; white-space: nowrap;">${yieldText}</td>
             <td style="text-align: center; font-family: monospace; font-size: 8.5px; border: 1px solid #cbd5e1; padding: 3px; white-space: nowrap;">
-              ${item.lote_erp || '—'}
+              ${loteErpDisplay}
             </td>
             <td style="text-align: center; border: 1px solid #cbd5e1; padding: 3px; font-size: 10px;">
               [&nbsp;&nbsp;&nbsp;&nbsp;]
@@ -1438,14 +1903,12 @@ export function PlanejamentoSemanalTab({
             <table style="width: 100%; border-collapse: collapse; font-size: 8.5px;">
               <thead>
                 <tr style="background: #f8fafc; color: #475569; font-size: 7.5px; text-transform: uppercase;">
-                  <th style="width: 25px; padding: 2px 3px; border: 1px solid #cbd5e1; text-align: center;">Seq</th>
-                  <th style="width: 120px; padding: 2px 3px; border: 1px solid #cbd5e1; text-align: left;">Reator</th>
-                  <th style="width: 60px; padding: 2px 3px; border: 1px solid #cbd5e1; text-align: left;">Código</th>
+                  <th style="width: 75px; padding: 2px 3px; border: 1px solid #cbd5e1; text-align: left;">Código</th>
                   <th style="padding: 2px 3px; border: 1px solid #cbd5e1; text-align: left;">Produto / Semi-Acabado</th>
-                  <th style="width: 60px; padding: 2px 3px; border: 1px solid #cbd5e1; text-align: right;">Massa</th>
-                  <th style="width: 70px; padding: 2px 3px; border: 1px solid #cbd5e1; text-align: right;">Rendimento</th>
-                  <th style="width: 65px; padding: 2px 3px; border: 1px solid #cbd5e1; text-align: center;">Lote ERP</th>
-                  <th style="width: 40px; padding: 2px 3px; border: 1px solid #cbd5e1; text-align: center;">Visto</th>
+                  <th style="width: 70px; padding: 2px 3px; border: 1px solid #cbd5e1; text-align: right;">Massa</th>
+                  <th style="width: 80px; padding: 2px 3px; border: 1px solid #cbd5e1; text-align: right;">Rendimento</th>
+                  <th style="width: 80px; padding: 2px 3px; border: 1px solid #cbd5e1; text-align: center;">Lote ERP</th>
+                  <th style="width: 45px; padding: 2px 3px; border: 1px solid #cbd5e1; text-align: center;">Visto</th>
                 </tr>
               </thead>
               <tbody>
@@ -1476,13 +1939,15 @@ export function PlanejamentoSemanalTab({
             margin: 0;
             padding: 4px;
             background: #ffffff;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
           }
           .header-box {
             display: flex;
             justify-content: space-between;
-            align-items: flex-end;
+            align-items: center;
             border-bottom: 2px solid #0f172a;
-            padding-bottom: 4px;
+            padding-bottom: 6px;
             margin-bottom: 6px;
           }
           .header-box h1 {
@@ -1495,18 +1960,24 @@ export function PlanejamentoSemanalTab({
           .header-box .sub {
             font-size: 9.5px;
             color: #475569;
-            margin-top: 1px;
+            margin-top: 2px;
             font-weight: 600;
+          }
+          .header-logo {
+            max-height: 46px;
+            max-width: 140px;
+            object-fit: contain;
           }
           .summary-bar {
             background: #f1f5f9;
             border: 1px solid #cbd5e1;
             border-radius: 3px;
-            padding: 3px 6px;
+            padding: 4px 8px;
             margin-bottom: 8px;
             font-size: 8.5px;
             display: flex;
-            justify-content: space-between;
+            justify-content: flex-start;
+            gap: 28px;
             align-items: center;
           }
           .signature-section {
@@ -1532,13 +2003,16 @@ export function PlanejamentoSemanalTab({
       </head>
       <body>
         <div class="header-box">
-          <div>
-            <h1>NATUM COSMÉTICOS · PROGRAMAÇÃO SEMANAL DE PRODUÇÃO</h1>
-            <div class="sub">
-              PCP & Fabricação · <strong>Semana ${currentWeekKey}</strong> (${weekDays[0].label} ${weekDays[0].dateStr.split('-').slice(1).reverse().join('/')} a ${weekDays[4].label} ${weekDays[4].dateStr.split('-').slice(1).reverse().join('/')})
+          <div style="display: flex; align-items: center; gap: 14px;">
+            ${logoUrl ? `<img src="${logoUrl}" alt="Logo" class="header-logo" />` : ''}
+            <div>
+              <h1>NATUM COSMÉTICOS · PROGRAMAÇÃO SEMANAL DE PRODUÇÃO</h1>
+              <div class="sub">
+                PCP & Fabricação · <strong>Semana ${currentWeekKey}</strong> (${weekDays[0].label} ${weekDays[0].dateStr.split('-').slice(1).reverse().join('/')} a ${weekDays[4].label} ${weekDays[4].dateStr.split('-').slice(1).reverse().join('/')})
+              </div>
             </div>
           </div>
-          <div style="text-align: right; font-size: 8px; color: #64748b;">
+          <div style="text-align: right; font-size: 8px; color: #64748b; white-space: nowrap;">
             Emissão: ${new Date().toLocaleString('pt-BR')}
           </div>
         </div>
@@ -1547,8 +2021,6 @@ export function PlanejamentoSemanalTab({
           <span><strong>Volume Total:</strong> ${weekStats.totalKg.toLocaleString('pt-BR')} kg</span>
           <span><strong>Bateladas:</strong> ${weekStats.totalBatches} lotes</span>
           <span><strong>Rendimento Previsto:</strong> ~${totalEstimatedUnits.toLocaleString('pt-BR')} un</span>
-          <span><strong>Carga Envase:</strong> L1: ${weekStats.envaseDayLoad.L1.toLocaleString('pt-BR')} kg · L2: ${weekStats.envaseDayLoad.L2.toLocaleString('pt-BR')} kg · L3: ${weekStats.envaseDayLoad.L3.toLocaleString('pt-BR')} kg</span>
-          <span><strong>Caldeira / Quente:</strong> ${weekStats.caldeiraItems} lotes</span>
         </div>
 
         ${daysHtml}
@@ -1563,35 +2035,21 @@ export function PlanejamentoSemanalTab({
             Data: ____/____/________
           </div>
         </div>
-
-        <script>
-          window.onload = function() {
-            setTimeout(function() {
-              window.print();
-            }, 300);
-          };
-        </script>
       </body>
       </html>
     `;
 
-    printWindow.document.open();
-    printWindow.document.write(html);
-    printWindow.document.close();
+    printHtmlViaIframe(html);
   };
 
   // 2. IMPRESSÃO DO RELATÓRIO CONSOLIDADO DE MATÉRIAS-PRIMAS E EMBALAGENS (A4 RETRATO)
-  const handlePrintMaterialsReport = () => {
+  const handlePrintMaterialsReport = async () => {
     if (materialsList.length === 0) {
       alert("Nenhum dado de materiais carregado para impressão.");
       return;
     }
 
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert("Não foi possível abrir a janela de impressão. Verifique se o bloqueador de popups do navegador está ativo.");
-      return;
-    }
+    const logoUrl = await loadNatumLogoDataUrl();
 
     const mpItems = materialsList.filter(m => m.category === 'materia_prima');
     const embItems = materialsList.filter(m => m.category === 'embalagem');
@@ -1761,10 +2219,13 @@ export function PlanejamentoSemanalTab({
       </head>
       <body>
         <div class="header-box">
-          <div class="title-area">
-            <h1>NATUM COSMÉTICOS · CONSUMO DE MATÉRIAS-PRIMAS E EMBALAGENS</h1>
-            <div class="sub">
-              Explosão Consolidada de Fórmulas · <strong>Semana ${currentWeekKey}</strong> (${weekDays[0].label} a ${weekDays[4].label})
+          <div style="display: flex; align-items: center; gap: 14px;">
+            ${logoUrl ? `<img src="${logoUrl}" alt="Logo" style="max-height: 46px; max-width: 140px; object-fit: contain;" />` : ''}
+            <div class="title-area">
+              <h1>NATUM COSMÉTICOS · CONSUMO DE MATÉRIAS-PRIMAS E EMBALAGENS</h1>
+              <div class="sub">
+                Explosão Consolidada de Fórmulas · <strong>Semana ${currentWeekKey}</strong> (${weekDays[0].label} a ${weekDays[4].label})
+              </div>
             </div>
           </div>
           <div style="text-align: right; font-size: 8.5px; color: #475569;">
@@ -1862,20 +2323,11 @@ export function PlanejamentoSemanalTab({
           </div>
         </div>
 
-        <script>
-          window.onload = function() {
-            setTimeout(function() {
-              window.print();
-            }, 300);
-          };
-        </script>
       </body>
       </html>
     `;
 
-    printWindow.document.open();
-    printWindow.document.write(html);
-    printWindow.document.close();
+    printHtmlViaIframe(html);
   };
   // HEURÍSTICA APRIMORADA: QUENTE / FRIO / CALDEIRA / SHAMPOOS / BOMBONAS / SEQUENCIAMENTO DE CORES
   const handleRunHeuristic = () => {
@@ -2269,8 +2721,81 @@ export function PlanejamentoSemanalTab({
       setPlannedItems(heuristicProposal);
       localStorage.setItem(`plan_semanal_${currentWeekKey}`, JSON.stringify(heuristicProposal));
       setHeuristicModalOpen(false);
+    } finally {
+      window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
+      onScheduleChanged?.();
     }
   };
+
+  // Agrupar itens de uma célula em bateladas consolidadas (mesmo lote_erp ou batchId compartilhado)
+  const groupCellItems = useCallback((items: PlanejamentoItem[]) => {
+    const groups: {
+      key: string;
+      items: PlanejamentoItem[];
+      primaryItem: PlanejamentoItem;
+      isMulti: boolean;
+      totalKg: number;
+      isQuente: boolean;
+      isAprovado: boolean;
+      loteErp?: string;
+    }[] = [];
+
+    const processed = new Set<string>();
+
+    for (const item of items) {
+      if (processed.has(item.id)) continue;
+
+      const batchMatch = item.observacoes?.match(/\[batch:([^\]]+)\]/i);
+      const batchId = batchMatch ? batchMatch[1].trim() : null;
+      const loteErp = item.lote_erp?.trim();
+
+      const siblings = items.filter(other => {
+        if (other.id === item.id) return true;
+        if (batchId) {
+          const otherBatch = other.observacoes?.match(/\[batch:([^\]]+)\]/i);
+          if (otherBatch && otherBatch[1].trim() === batchId) return true;
+        }
+        if (loteErp && other.lote_erp?.trim() === loteErp) {
+          return true;
+        }
+        const tsMatch = item.id.match(/_(\d{10,14})_\d+$/);
+        const otherTsMatch = other.id.match(/_(\d{10,14})_\d+$/);
+        if (tsMatch && otherTsMatch && tsMatch[1] === otherTsMatch[1]) {
+          return true;
+        }
+        return false;
+      });
+
+      siblings.forEach(s => processed.add(s.id));
+
+      const totalKg = Number(siblings.reduce((sum, s) => sum + (Number(s.quantidade_planejada) || 0), 0).toFixed(1));
+      const isQuente = siblings.some(s => 
+        s.processo_termico === 'resistencia' || 
+        s.processo_termico === 'agua_caldeira' || 
+        s.processo_termico === 'caldeira' ||
+        s.processo_termico === 'quente' ||
+        s.reator_id === 'R_40' || 
+        s.recipiente_detalhe === 'Reator 40kg' || 
+        (s.observacoes || '').includes('Caldeira')
+      );
+      const isAprovado = siblings.every(s => 
+        s.ordem_status === 'aprovado' || (s.fisico_confirmado_massa && s.fisico_confirmado_embalagem && s.fisico_confirmado_rotulo)
+      );
+
+      groups.push({
+        key: batchId || (loteErp ? `LOTE_${loteErp}` : item.id),
+        items: siblings,
+        primaryItem: siblings[0],
+        isMulti: siblings.length > 1,
+        totalKg,
+        isQuente,
+        isAprovado,
+        loteErp: siblings.find(s => s.lote_erp)?.lote_erp,
+      });
+    }
+
+    return groups;
+  }, []);
 
   return (
     <div className="flex flex-col gap-4 w-full">
@@ -2316,24 +2841,20 @@ export function PlanejamentoSemanalTab({
         </div>
 
         {/* Métricas Compactas da Semana */}
-        <div className="flex items-center gap-3 text-xs">
+        <div className="flex items-center gap-2 text-xs">
           <div className="px-2.5 py-1 bg-zinc-50 border border-zinc-200 rounded-md flex items-center gap-1.5">
-            <Boxes size={14} className="text-zinc-500" />
-            <span className="text-zinc-500">Bateladas:</span>
+            <span className="text-zinc-500">Ordens:</span>
             <strong className="text-zinc-900 font-bold">{weekStats.totalBatches}</strong>
           </div>
           <div className="px-2.5 py-1 bg-zinc-50 border border-zinc-200 rounded-md flex items-center gap-1.5">
-            <ScaleIcon size={14} className="text-zinc-500" />
             <span className="text-zinc-500">Massa:</span>
             <strong className="text-zinc-900 font-bold">{weekStats.totalKg.toLocaleString('pt-BR')} kg</strong>
           </div>
           <div className="px-2.5 py-1 bg-zinc-50 border border-zinc-200 rounded-md flex items-center gap-1.5">
-            <Flame size={14} className="text-orange-500" />
             <span className="text-zinc-500">Caldeira:</span>
-            <strong className="text-orange-700 font-bold">{weekStats.caldeiraItems} lotes</strong>
+            <strong className="text-zinc-800 font-bold">{weekStats.caldeiraItems}</strong>
           </div>
           <div className="px-2.5 py-1 bg-zinc-50 border border-zinc-200 rounded-md flex items-center gap-1.5">
-            <Layers size={14} className="text-zinc-500" />
             <span className="text-zinc-500">Ocupação:</span>
             <strong className={`font-bold ${weekStats.occupancyRate > 90 ? 'text-amber-600' : 'text-emerald-600'}`}>
               {weekStats.occupancyRate}%
@@ -2343,7 +2864,7 @@ export function PlanejamentoSemanalTab({
 
         {/* Botões de Ação Principal */}
         <div className="flex items-center gap-2">
-          {/* BOTÃO LIMPAR SEMANA SOLICITADO POR EDSON */}
+          {/* BOTÃO LIMPAR SEMANA */}
           <button
             onClick={handleClearWeek}
             disabled={plannedItems.length === 0}
@@ -2352,25 +2873,16 @@ export function PlanejamentoSemanalTab({
                 ? 'bg-red-50 hover:bg-red-100 text-red-700 border-red-200 cursor-pointer' 
                 : 'bg-zinc-50 text-zinc-400 border-zinc-200 cursor-not-allowed'
             }`}
-            title="Limpar todas as bateladas agendadas para esta semana"
+            title="Limpar todas as ordens de produção agendadas para esta semana"
           >
             <Trash2 size={14} />
             <span>Limpar Semana</span>
           </button>
 
           <button
-            onClick={() => setReatoresModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-750 text-xs font-semibold rounded-lg border border-zinc-200 transition-colors"
-          >
-            <Settings size={14} />
-            <span>Reatores</span>
-          </button>
-
-
-          <button
             onClick={handlePrintWeeklyPlan}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-900 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors cursor-pointer"
-            title="Imprimir Programação Semanal de Produção em formato A4 Paisagem (com reatores, bateladas e sequenciamento de cores)"
+            title="Imprimir Programação Semanal de Produção em formato A4"
           >
             <Printer size={14} className="text-zinc-200" />
             <span>Imprimir Programação</span>
@@ -2383,15 +2895,6 @@ export function PlanejamentoSemanalTab({
           >
             <Boxes size={14} className="text-blue-600" />
             <span>Consumo MP & Embalagens</span>
-          </button>
-
-          <button
-            onClick={handleRunHeuristic}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-all cursor-pointer"
-            title="Gerar sugestão inteligente respeitando reatores, processos Quente/Frio e limites de lote"
-          >
-            <Sparkles size={14} className="text-yellow-300" />
-            <span>Otimizar Semana</span>
           </button>
 
           <button
@@ -2528,7 +3031,58 @@ export function PlanejamentoSemanalTab({
                             setDragOverCell(null);
                             if (isHoliday) return;
 
-                            // 1. Arrastando card de batelada existente
+                            // 1. Arrastando card de batelada existente (conjunta ou individual)
+                            if (draggedBatch && draggedBatch.length > 0) {
+                              const isSameLocation = draggedBatch.every(i => i.reator_id === reator.id && i.data_planejada === day.dateStr);
+                              if (isSameLocation) {
+                                setDraggedBatch(null);
+                                setDraggedItem(null);
+                                return;
+                              }
+
+                              const targetReator = reatores.find(r => r.id === reator.id);
+                              const updatedList: PlanejamentoItem[] = [];
+
+                              for (let idx = 0; idx < draggedBatch.length; idx++) {
+                                const it = draggedBatch[idx];
+                                let newQty = it.quantidade_planejada;
+                                let newRecipiente = it.recipiente_detalhe;
+
+                                if (reator.id === 'BOMBONAS') {
+                                  if (!newRecipiente || newRecipiente === 'Reator') {
+                                    newRecipiente = newQty <= 50 ? 'Bombona 50kg' : (newQty <= 100 ? 'Bombona 100kg' : 'Bombona 200kg');
+                                  }
+                                } else {
+                                  newRecipiente = 'Reator';
+                                  if (draggedBatch.length === 1 && targetReator && targetReator.capacidade_kg > 0 && newQty < 40 && targetReator.capacidade_kg >= 100) {
+                                    newQty = targetReator.capacidade_kg;
+                                  }
+                                }
+
+                                const updated: PlanejamentoItem = {
+                                  ...it,
+                                  reator_id: reator.id,
+                                  data_planejada: day.dateStr,
+                                  quantidade_planejada: newQty,
+                                  recipiente_detalhe: newRecipiente,
+                                  ordem_sequencia: cellItems.length + 1 + idx
+                                };
+                                updatedList.push(updated);
+                                await handleSaveItem(updated);
+                              }
+
+                              const updatedIds = new Set(updatedList.map(u => u.id));
+                              setPlannedItems(prev => {
+                                const next = prev.filter(i => !updatedIds.has(i.id)).concat(updatedList);
+                                localStorage.setItem(`plan_semanal_${currentWeekKey}`, JSON.stringify(next));
+                                return next;
+                              });
+
+                              setDraggedBatch(null);
+                              setDraggedItem(null);
+                              return;
+                            }
+
                             if (draggedItem) {
                               if (draggedItem.reator_id === reator.id && draggedItem.data_planejada === day.dateStr) {
                                 setDraggedItem(null);
@@ -2593,61 +3147,75 @@ export function PlanejamentoSemanalTab({
                             </div>
                           ) : (
                             <div className="flex flex-col gap-2 min-h-[110px]">
-                              {cellItems.map(item => {
-                                const itemColor = getProductColorInfo({ descricao: item.descricao, base: item.base_codigo });
-
+                              {groupCellItems(cellItems).map(batch => {
                                 return (
                                   <div
-                                    key={item.id}
+                                    key={batch.key}
                                     draggable={true}
                                     onDragStart={(e) => {
-                                      e.dataTransfer.setData('text/plain', item.id);
+                                      e.dataTransfer.setData('text/plain', batch.primaryItem.id);
                                       e.dataTransfer.effectAllowed = 'move';
-                                      setDraggedItem(item);
+                                      setDraggedBatch(batch.items);
+                                      setDraggedItem(batch.primaryItem);
                                     }}
                                     onDragEnd={() => {
+                                      setDraggedBatch(null);
                                       setDraggedItem(null);
                                       setDragOverCell(null);
                                     }}
                                     className={`p-2 rounded-lg border transition-all text-xs flex flex-col gap-1.5 shadow-xs cursor-grab active:cursor-grabbing select-none ${
-                                      draggedItem?.id === item.id ? 'opacity-30 border-dashed border-blue-400 scale-95' : ''
+                                      (draggedBatch?.some(b => b.id === batch.primaryItem.id) || draggedItem?.id === batch.primaryItem.id) ? 'opacity-30 border-dashed border-blue-400 scale-95' : ''
                                     } ${
-                                      item.ordem_status === 'lote_criado'
+                                      batch.isAprovado
                                         ? 'bg-emerald-50/70 border-emerald-300'
-                                        : 'bg-white border-zinc-200 hover:border-blue-400 hover:shadow-sm'
+                                        : batch.isMulti
+                                          ? 'bg-purple-50/40 border-purple-200 hover:border-purple-400 hover:shadow-sm'
+                                          : 'bg-white border-zinc-200 hover:border-blue-400 hover:shadow-sm'
                                     }`}
                                     title="Arraste para mover para outro dia ou reator"
                                   >
-                                    {/* 1. Header: Sequência, Cor, Título e Ações */}
+                                    {/* 1. Header: Ícone Térmico Discreto, Nome do Produto / Badge Batelada, Botões de Parâmetros e Lixeira */}
                                     <div className="flex items-start justify-between gap-1">
                                       <div className="flex items-center gap-1.5 min-w-0">
-                                        <GripVertical size={11} className="text-zinc-400 shrink-0 opacity-60 hover:opacity-100" />
-                                        <span className="shrink-0 px-1.5 py-0.5 bg-zinc-800 text-white font-mono text-[9px] font-bold rounded" title="Ordem no dia">
-                                          #{item.ordem_sequencia || 1}
-                                        </span>
-                                        <span className="font-bold text-zinc-900 text-xs leading-tight line-clamp-2" title={item.descricao}>
-                                          {item.descricao || item.codigo_produto}
-                                        </span>
+                                        {/* Ícone Minimalista de Quente ou Frio */}
+                                        {batch.isQuente ? (
+                                          <Flame size={12} className="text-orange-500 shrink-0" title="Processo Quente" />
+                                        ) : (
+                                          <Snowflake size={12} className="text-sky-400 shrink-0" title="Processo Frio" />
+                                        )}
+                                        {batch.isMulti ? (
+                                          <div 
+                                            onClick={() => handleOpenTechnicalModal(batch.primaryItem, batch.items)}
+                                            className="cursor-pointer flex items-center gap-1"
+                                            title="Batelada Conjunta - Clique para configurar parâmetros"
+                                          >
+                                            <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 text-[10px] font-extrabold uppercase tracking-wide">
+                                              Batelada ({batch.items.length} itens)
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <span 
+                                            onClick={() => handleOpenTechnicalModal(batch.primaryItem)}
+                                            className="font-bold text-zinc-900 text-xs leading-tight line-clamp-2 cursor-pointer hover:text-blue-600 transition-colors" 
+                                            title="Clique para configurar parâmetros (Processo, Reator, Lote)"
+                                          >
+                                            {batch.primaryItem.descricao || batch.primaryItem.codigo_produto}
+                                          </span>
+                                        )}
                                       </div>
 
                                       <div className="flex items-center gap-0.5 shrink-0 ml-1">
                                         <button
-                                          onClick={() => handleMoveOrder(item, 'up')}
-                                          className="p-0.5 hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700 rounded cursor-pointer"
-                                          title="Subir ordem"
+                                          type="button"
+                                          onClick={() => handleOpenTechnicalModal(batch.primaryItem, batch.items)}
+                                          className="p-1 hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700 rounded cursor-pointer transition-colors"
+                                          title="Configurar Parâmetros"
                                         >
-                                          <ChevronUp size={12} />
+                                          <Settings size={12} />
                                         </button>
                                         <button
-                                          onClick={() => handleMoveOrder(item, 'down')}
-                                          className="p-0.5 hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700 rounded cursor-pointer"
-                                          title="Descer ordem"
-                                        >
-                                          <ChevronDown size={12} />
-                                        </button>
-                                        <button
-                                          onClick={() => handleDeleteItem(item.id)}
-                                          className="p-0.5 hover:bg-red-50 text-zinc-400 hover:text-red-500 rounded cursor-pointer ml-0.5"
+                                          onClick={() => handleDeleteBatch(batch.items)}
+                                          className="p-1 hover:bg-red-50 text-zinc-400 hover:text-red-500 rounded cursor-pointer ml-0.5"
                                           title="Remover do Planejamento"
                                         >
                                           <Trash2 size={12} />
@@ -2655,107 +3223,94 @@ export function PlanejamentoSemanalTab({
                                       </div>
                                     </div>
 
-                                    {/* 2. Métricas Técnicas: Quantidade (Editável), Rendimento e Processo Térmico */}
+                                    {/* 2. Se for multi-produto, lista os itens com código, descrição e kg individual */}
+                                    {batch.isMulti && (
+                                      <div className="space-y-1 pl-1.5 border-l-2 border-purple-300 my-0.5">
+                                        {batch.items.map((it) => {
+                                          const uW = parseProductUnitWeightKg(it.descricao);
+                                          const estUn = Math.round(it.quantidade_planejada / (uW || 1));
+                                          return (
+                                            <div key={it.id} className="text-[11px] leading-tight">
+                                              <div className="font-bold text-zinc-800 line-clamp-1" title={it.descricao}>
+                                                {it.descricao || it.codigo_produto}
+                                              </div>
+                                              <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
+                                                <span>{it.codigo_produto}</span>
+                                                <span><strong className="text-zinc-700">{it.quantidade_planejada} kg</strong> (~{estUn.toLocaleString('pt-BR')} un)</span>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+
+                                    {/* 3. Métricas: Massa Total (kg) e Rendimento Previsto */}
                                     {(() => {
-                                      const uWeight = parseProductUnitWeightKg(item.descricao);
-                                      const yieldUnits = Math.round(item.quantidade_planejada / (uWeight || 1));
-                                      const linkedProd = products.find(p => p.codigo === item.codigo_produto);
-                                      const pedAberto = linkedProd?.pedidos_aberto || 0;
-                                      const isBase = (item.codigo_produto || '').includes('.36.') || 
-                                        (item.descricao || '').toUpperCase().startsWith('BASE ') || 
-                                        (item.descricao || '').toUpperCase().startsWith('PRE BASE ') ||
-                                        item.codigo_produto === '8.11.002' ||
-                                        item.codigo_produto === '8.12.002' ||
-                                        item.codigo_produto === '8.13.001';
-
-                                      const isQuente = item.processo_termico === 'resistencia' || 
-                                        item.processo_termico === 'agua_caldeira' || 
-                                        item.reator_id === 'R_40' || 
-                                        item.recipiente_detalhe === 'Reator 40kg' || 
-                                        (item.observacoes || '').includes('Caldeira');
-
-                                      const thermalLabel = item.processo_termico === 'resistencia' ? '⚡ Resistência' :
-                                        item.processo_termico === 'agua_caldeira' ? '🔥 Água Caldeira' :
-                                        (item.reator_id === 'R_40' || item.recipiente_detalhe === 'Reator 40kg') ? '🔥 40kg' :
-                                        (item.observacoes || '').includes('Caldeira') ? '🔥 Caldeira' : '❄️ Frio';
-
-                                      const isAprovado = item.ordem_status === 'aprovado' || (item.fisico_confirmado_massa && item.fisico_confirmado_embalagem && item.fisico_confirmado_rotulo);
+                                      const isBase = (batch.primaryItem.codigo_produto || '').includes('.36.') || 
+                                        (batch.primaryItem.descricao || '').toUpperCase().startsWith('BASE ') || 
+                                        (batch.primaryItem.descricao || '').toUpperCase().startsWith('PRE BASE ') ||
+                                        batch.primaryItem.codigo_produto === '8.11.002' ||
+                                        batch.primaryItem.codigo_produto === '8.12.002' ||
+                                        batch.primaryItem.codigo_produto === '8.13.001';
 
                                       return (
                                         <>
-                                          <div className="flex items-center justify-between text-[11px] bg-zinc-50 px-2 py-1 rounded border border-zinc-100">
-                                            <div className="flex items-center gap-1.5 font-semibold text-zinc-800">
-                                              <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  setEditQtyModalItem({ item, newQty: item.quantidade_planejada });
-                                                }}
-                                                className="flex items-center gap-1 hover:text-blue-700 hover:bg-blue-50 px-1 py-0.5 rounded cursor-pointer transition-colors"
-                                                title="Clique para editar a quantidade (kg) a produzir"
-                                              >
-                                                <span>{item.quantidade_planejada} kg</span>
-                                                <Edit3 size={10} className="text-zinc-400 hover:text-blue-600" />
-                                              </button>
-                                              <span className="text-zinc-300">•</span>
-                                              <span className="text-zinc-500 font-normal">{isBase ? 'Base Granel' : `~${yieldUnits.toLocaleString('pt-BR')} un`}</span>
-                                            </div>
-
-                                            <div className="flex items-center gap-1">
-                                              {isBase && (
-                                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">
-                                                  🧪 Base
-                                                </span>
-                                              )}
-                                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                                                isQuente ? 'bg-orange-100 text-orange-900 border border-orange-200' : 'bg-blue-100 text-blue-900 border border-blue-200'
-                                              }`}>
-                                                {thermalLabel}
-                                              </span>
-                                              {item.recipiente_detalhe && item.recipiente_detalhe !== 'Reator' && (
-                                                <span className="text-[9px] font-bold px-1.5 py-0.5 bg-amber-50 text-amber-900 border border-amber-200 rounded" title={item.recipiente_detalhe}>
-                                                  🛢️ {item.recipiente_detalhe.replace('Bombona ', '')}
-                                                </span>
-                                              )}
-                                            </div>
+                                          <div className="flex items-center justify-between text-[11px] bg-zinc-50 px-2 py-1 rounded border border-zinc-150">
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (batch.isMulti) {
+                                                  handleOpenBatchMassEditModal(batch.items);
+                                                } else {
+                                                  setEditQtyModalItem({ item: batch.primaryItem, newQty: batch.primaryItem.quantidade_planejada });
+                                                }
+                                              }}
+                                              className="flex items-center gap-1 font-bold text-zinc-800 hover:text-blue-700 hover:bg-blue-50 px-1 py-0.5 rounded cursor-pointer transition-colors"
+                                              title="Clique para editar a massa (kg)"
+                                            >
+                                              <span className="font-extrabold text-indigo-900">{batch.totalKg} kg</span>
+                                              <Edit3 size={10} className="text-zinc-400 hover:text-blue-600" />
+                                            </button>
+                                            <span className="text-zinc-500 font-medium text-[11px]">
+                                              {batch.isMulti 
+                                                ? `${batch.items.length} produtos` 
+                                                : (isBase 
+                                                    ? 'Base Granel' 
+                                                    : (() => {
+                                                        const uW = parseProductUnitWeightKg(batch.primaryItem.descricao);
+                                                        const yieldUnits = Math.round(batch.primaryItem.quantidade_planejada / (uW || 1));
+                                                        return `~${yieldUnits.toLocaleString('pt-BR')} un`;
+                                                      })()
+                                                  )}
+                                            </span>
                                           </div>
 
-                                          {/* 3. Rodapé: Pedidos da Carteira, Base, Lote ERP (Interativo) e Botão Único de Aprovação */}
+                                          {/* 4. Rodapé: Lote ERP e Botão de Aprovação (Apenas Ícone) */}
                                           <div className="flex items-center justify-between text-[10px] pt-0.5">
                                             <div className="flex items-center gap-1.5 overflow-hidden">
-                                              {pedAberto > 0 && (
-                                                <span className="px-1.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[9px] rounded shrink-0" title="Pedidos em carteira">
-                                                  📦 {pedAberto.toLocaleString('pt-BR')}
-                                                </span>
-                                              )}
-                                              {item.base_codigo && (
-                                                <span className="text-[9px] text-zinc-500 truncate max-w-[80px]" title={`Base: ${item.base_codigo}`}>
-                                                  Base: <strong className="text-zinc-700">{item.base_codigo}</strong>
-                                                </span>
-                                              )}
-                                              {/* Vincular / Visualizar Lote ERP */}
-                                              {item.lote_erp ? (
+                                              {batch.loteErp ? (
                                                 <button
                                                   type="button"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
-                                                    handleOpenLinkLoteModal(item);
+                                                    handleOpenLinkLoteModal(batch.primaryItem, batch.items);
                                                   }}
                                                   className="font-mono text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 font-bold text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1 cursor-pointer transition-colors shrink-0"
-                                                  title="Lote ERP vinculado. Clique para editar."
+                                                  title="Lote ERP compartilhado vinculado. Clique para editar."
                                                 >
                                                   <Tag size={9} className="text-emerald-600" />
-                                                  <span>#{item.lote_erp}</span>
+                                                  <span>#{batch.loteErp}</span>
                                                 </button>
                                               ) : (
                                                 <button
                                                   type="button"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
-                                                    handleOpenLinkLoteModal(item);
+                                                    handleOpenLinkLoteModal(batch.primaryItem, batch.items);
                                                   }}
                                                   className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 font-semibold text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1 cursor-pointer transition-colors shrink-0"
-                                                  title="Vincular Lote ERP a esta batelada"
+                                                  title="Vincular Lote ERP compartilhado"
                                                 >
                                                   <Tag size={9} className="text-blue-500" />
                                                   <span>+ Lote</span>
@@ -2763,28 +3318,29 @@ export function PlanejamentoSemanalTab({
                                               )}
                                             </div>
 
-                                            {/* Botão Único de Ícone de Aprovação (substitui M/E/R e envia diretamente aos quadros) */}
-                                            <div className="flex items-center gap-1 shrink-0">
-                                              <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  handleToggleAprovacao(item);
-                                                }}
-                                                className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-all shadow-xs ${
-                                                  isAprovado 
-                                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white' 
-                                                    : 'bg-zinc-100 hover:bg-emerald-50 text-zinc-600 hover:text-emerald-700 border border-zinc-200'
-                                                }`}
-                                                title={isAprovado 
-                                                  ? "Batelada Aprovada: Enviada aos Quadros de Pesagem e Produção (Clique para revogar)" 
-                                                  : "Clique para Aprovar a Batelada e disponibilizar nos Quadros operacionais"
+                                            {/* Botão de Aprovação: APENAS O ÍCONE (Sem texto) */}
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (batch.isMulti) {
+                                                  handleToggleBatchAprovacao(batch.items);
+                                                } else {
+                                                  handleToggleAprovacao(batch.primaryItem);
                                                 }
-                                              >
-                                                <CheckCircle2 size={12} className={isAprovado ? "text-white" : "text-zinc-400"} />
-                                                <span>{isAprovado ? 'Aprovado' : 'Aprovar'}</span>
-                                              </button>
-                                            </div>
+                                              }}
+                                              className={`p-1 rounded cursor-pointer transition-all shadow-xs ${
+                                                batch.isAprovado 
+                                                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white' 
+                                                  : 'bg-zinc-100 hover:bg-emerald-50 text-zinc-400 hover:text-emerald-600 border border-zinc-200'
+                                              }`}
+                                              title={batch.isAprovado 
+                                                ? "Batelada Aprovada (Clique para desaprovar)" 
+                                                : "Aprovar Batelada"
+                                              }
+                                            >
+                                              <CheckCircle2 size={13} className={batch.isAprovado ? "text-white" : "text-zinc-400 hover:text-emerald-600"} />
+                                            </button>
                                           </div>
                                         </>
                                       );
@@ -2797,11 +3353,7 @@ export function PlanejamentoSemanalTab({
                               {cellItems.length === 0 && (
                                 <button
                                   onClick={() => {
-                                    if (demandCandidates.length > 0) {
-                                      handleOpenScheduleModal(demandCandidates[0], day.dateStr, reator.id);
-                                    } else {
-                                      alert("Nenhum produto pendente no Banco de Demandas.");
-                                    }
+                                    handleOpenScheduleModal(null, day.dateStr, reator.id);
                                   }}
                                   className="w-full py-6 flex flex-col items-center justify-center gap-1 border border-dashed border-zinc-200 hover:border-blue-400 rounded-lg text-zinc-400 hover:text-blue-600 hover:bg-blue-50/30 transition-all cursor-pointer"
                                 >
@@ -2818,28 +3370,6 @@ export function PlanejamentoSemanalTab({
                 ))}
               </tbody>
             </table>
-          </div>
-
-          {/* RODAPÉ DO QUADRO: CARGA DAS LINHAS DE ENVASE */}
-          <div className="p-3 bg-zinc-50 border-t border-zinc-200 flex flex-wrap items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2 text-zinc-650">
-              <Package size={15} className="text-purple-600" />
-              <strong className="text-zinc-800">Carga Estimada nas 3 Linhas de Envase:</strong>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-                <span>Linha 1 (Frascos): <strong>{weekStats.envaseDayLoad.L1.toLocaleString('pt-BR')} kg</strong></span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-                <span>Linha 2 (Potes): <strong>{weekStats.envaseDayLoad.L2.toLocaleString('pt-BR')} kg</strong></span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                <span>Linha 3 (Especiais): <strong>{weekStats.envaseDayLoad.L3.toLocaleString('pt-BR')} kg</strong></span>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -3236,181 +3766,359 @@ export function PlanejamentoSemanalTab({
       )}
 
       {/* MODAL: AGENDAR PRODUTO NO REATOR / DIA */}
-      {scheduleModalItem && scheduleModalItem.product && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5 flex flex-col gap-4 border border-zinc-200">
+      {scheduleModalItem && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-5 flex flex-col gap-4 border border-zinc-200 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
               <div className="flex items-center gap-2">
                 <CalendarClock size={18} className="text-blue-600" />
                 <h3 className="font-bold text-zinc-900 text-sm">Agendar Batelada no Quadro</h3>
               </div>
               <button 
-                onClick={() => setScheduleModalItem(null)}
+                onClick={() => {
+                  setScheduleModalItem(null);
+                  setScheduleSelectedProducts([]);
+                  setScheduleSearch('');
+                }}
                 className="text-zinc-400 hover:text-zinc-600 p-1 rounded-md cursor-pointer"
               >
                 <X size={16} />
               </button>
             </div>
 
-            {(() => {
-              const procModal = getProductProcessType(scheduleModalItem.product);
-              const uWeightKg = procModal.unitWeightKg;
-              const pedAbertoModal = scheduleModalItem.product.pedidos_aberto || 0;
-              const recUnitsModal = scheduleModalItem.product.producao_recomendada || 0;
-              const estimatedUnitsYield = Math.round(scheduleQty / (uWeightKg || 1));
-              const volFormatted = uWeightKg >= 1 ? `${uWeightKg} kg` : `${Math.round(uWeightKg * 1000)} mL/g`;
+            {/* Barra de Pesquisa de Produtos */}
+            <div className="space-y-1.5">
+              <label className="font-semibold text-zinc-700 text-xs block">
+                {scheduleSelectedProducts.length === 0
+                  ? 'Buscar e Selecionar Produto Principal:'
+                  : 'Adicionar Produto na Mesma Ordem (Exata Mesma Formulação Química):'}
+              </label>
+              <div className="relative">
+                <div className="flex items-center gap-2 border border-zinc-300 rounded-lg px-2.5 py-1.5 bg-white focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
+                  <Search size={14} className="text-zinc-400 shrink-0" />
+                  <input
+                    type="text"
+                    placeholder={scheduleSelectedProducts.length === 0
+                      ? "Digite nome ou código (ex: Creme, Shampoo, 8.11...)"
+                      : "Buscar produto da mesma fórmula..."}
+                    value={scheduleSearch}
+                    onChange={(e) => setScheduleSearch(e.target.value)}
+                    className="w-full text-xs bg-transparent focus:outline-none font-medium text-zinc-800"
+                    autoFocus={scheduleSelectedProducts.length === 0}
+                  />
+                  {scheduleSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setScheduleSearch('')}
+                      className="text-zinc-400 hover:text-zinc-600 p-0.5 cursor-pointer"
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Dropdown de Resultados da Pesquisa */}
+                {scheduleSearch.trim().length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-xl border border-zinc-200 max-h-56 overflow-y-auto z-50 divide-y divide-zinc-100">
+                    {(() => {
+                      const term = scheduleSearch.toLowerCase();
+                      const sourcePool = scheduleSelectedProducts.length > 0
+                        ? products.filter(p => sameFormulaProducts.some(sf => sf.codigo === p.codigo))
+                        : products;
+                      const results = sourcePool.filter(p => 
+                        (p.descricao || '').toLowerCase().includes(term) ||
+                        (p.codigo || '').toLowerCase().includes(term)
+                      ).slice(0, 10);
+
+                      if (results.length === 0) {
+                        return (
+                          <div className="p-3 text-center text-xs text-zinc-500">
+                            {scheduleSelectedProducts.length > 0
+                              ? `Nenhum produto com a exata mesma formulação encontrado para "${scheduleSearch}".`
+                              : `Nenhum produto encontrado para "${scheduleSearch}".`}
+                          </div>
+                        );
+                      }
+
+                      return results.map(p => {
+                        const isAlreadySelected = scheduleSelectedProducts.some(x => x.codigo === p.codigo);
+                        const isLimitReached = scheduleSelectedProducts.length >= 4;
+
+                        return (
+                          <div
+                            key={p.codigo}
+                            className="p-2.5 hover:bg-zinc-50 flex items-center justify-between gap-2 text-xs"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="font-semibold text-zinc-900 truncate">{p.descricao}</div>
+                              <div className="flex items-center gap-2 text-[10px] text-zinc-500 mt-0.5">
+                                <span className="font-mono">{p.codigo}</span>
+                                {p.base && <span>• Base: <strong>{p.base}</strong></span>}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={isAlreadySelected || isLimitReached}
+                              onClick={() => {
+                                handleAddProductToSchedule(p);
+                                setScheduleSearch('');
+                              }}
+                              className={`px-2.5 py-1 rounded text-[11px] font-semibold shrink-0 cursor-pointer transition-colors ${
+                                isAlreadySelected
+                                  ? 'bg-zinc-100 text-zinc-400 border border-zinc-200 cursor-not-allowed'
+                                  : isLimitReached
+                                  ? 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
+                                  : 'bg-blue-600 hover:bg-blue-700 text-white shadow-2xs'
+                              }`}
+                            >
+                              {isAlreadySelected ? 'Já incluído' : '+ Adicionar'}
+                            </button>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Sugestões Rápidas: Exata Mesma Formulação Química */}
+            {scheduleSelectedProducts.length > 0 && scheduleSelectedProducts.length < 4 && (() => {
+              const availableCandidates = sameFormulaProducts.filter(sf => 
+                !scheduleSelectedProducts.some(sel => sel.codigo === sf.codigo)
+              );
+
+              if (availableCandidates.length === 0) {
+                return (
+                  <div className="p-2.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs text-zinc-500 flex items-center gap-1.5">
+                    <Sparkles size={13} className="text-zinc-400 shrink-0" />
+                    <span>
+                      {loadingSameFormula 
+                        ? 'Verificando formulações químicas compatíveis...' 
+                        : 'Não há outros produtos com a exata mesma formulação química (mesmas matérias-primas e proporções) para agendar em conjunto.'}
+                    </span>
+                  </div>
+                );
+              }
 
               return (
-                <>
-                  <div className="p-3 bg-zinc-50 rounded-lg border border-zinc-200 text-xs flex flex-col gap-2">
-                    <div className="flex items-start justify-between gap-1">
-                      <div>
-                        <strong className="text-zinc-900 text-sm block leading-tight">{scheduleModalItem.product.descricao}</strong>
-                        <div className="flex items-center gap-2 text-zinc-500 text-[11px] mt-0.5">
-                          <span>REF: <strong className="font-mono">{scheduleModalItem.product.codigo}</strong></span>
-                          {scheduleModalItem.product.base && (
-                            <span>Base: <strong>{scheduleModalItem.product.base}</strong></span>
-                          )}
-                        </div>
-                      </div>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
-                        procModal.isQuente 
-                          ? 'bg-orange-100 text-orange-900 border border-orange-200' 
-                          : 'bg-blue-100 text-blue-900 border border-blue-200'
-                      }`}>
-                        {procModal.label}
-                      </span>
-                    </div>
-
-                    {/* Resumo de Engenharia e Demanda */}
-                    <div className="grid grid-cols-3 gap-2 bg-white p-2 rounded-md border border-zinc-200/80 text-[10px]">
-                      <div>
-                        <span className="text-zinc-500 block">Volume Unit.:</span>
-                        <strong className="text-zinc-800 text-xs">{volFormatted}</strong>
-                      </div>
-                      <div>
-                        <span className="text-zinc-500 block">📦 Em Pedido:</span>
-                        <strong className={`text-xs ${pedAbertoModal > 0 ? 'text-amber-800 font-bold' : 'text-zinc-700'}`}>
-                          {pedAbertoModal.toLocaleString('pt-BR')} un
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-zinc-500 block">Qtd. Recom.:</span>
-                        <strong className="text-blue-700 text-xs">
-                          {recUnitsModal.toLocaleString('pt-BR')} un
-                          <span className="text-[9px] font-normal text-zinc-500 block">(~{procModal.reqQtyKg} kg)</span>
-                        </strong>
-                      </div>
-                    </div>
+                <div className="p-2.5 bg-blue-50/70 border border-blue-200/80 rounded-lg space-y-1.5 text-xs">
+                  <div className="flex items-center gap-1.5 font-bold text-blue-900 text-[11px]">
+                    <Sparkles size={13} className="text-blue-600" />
+                    <span>Exata Mesma Formulação Química ({availableCandidates.length} disponíveis):</span>
                   </div>
-
-                  <div className="flex flex-col gap-3 text-xs">
-                    <div>
-                      <label className="font-semibold text-zinc-700 block mb-1">Dia da Semana:</label>
-                      <select
-                        value={scheduleDate}
-                        onChange={(e) => setScheduleDate(e.target.value)}
-                        className="w-full p-2 bg-white border border-zinc-200 rounded-lg text-xs"
-                      >
-                        {weekDays.map(d => (
-                          <option key={d.dateStr} value={d.dateStr} disabled={!!d.holiday}>
-                            {d.label} ({d.dateStr.split('-').slice(1).reverse().join('/')}) {d.holiday ? `— Feriado: ${d.holiday.name}` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="font-semibold text-zinc-700 block mb-1">Equipamento / Reator de Produção:</label>
-                      <select
-                        value={scheduleReator}
-                        onChange={(e) => {
-                          const rId = e.target.value;
-                          setScheduleReator(rId);
-                          const r = reatores.find(x => x.id === rId);
-                          if (r) {
-                            if (rId === 'BOMBONAS') {
-                              setScheduleRecipienteDetalhe('Bombona 50kg');
-                              setScheduleQty(50);
-                            } else {
-                              setScheduleRecipienteDetalhe('Reator');
-                              setScheduleQty(r.capacidade_kg);
-                            }
-                          }
-                        }}
-                        className="w-full p-2 bg-white border border-zinc-200 rounded-lg text-xs"
-                      >
-                        {reatores.filter(r => r.ativo).map(r => (
-                          <option key={r.id} value={r.id}>
-                            {r.nome} ({r.id === 'BOMBONAS' ? '50/100/200 kg' : `${r.capacidade_kg} kg`})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {scheduleReator === 'BOMBONAS' && (
-                      <div>
-                        <label className="font-semibold text-zinc-700 block mb-1">Recipiente da Bombona:</label>
-                        <select
-                          value={scheduleRecipienteDetalhe}
-                          onChange={(e) => {
-                            setScheduleRecipienteDetalhe(e.target.value);
-                            if (e.target.value === 'Bombona 50kg') setScheduleQty(50);
-                            else if (e.target.value === 'Bombona 100kg') setScheduleQty(100);
-                            else if (e.target.value === 'Bombona 200kg') setScheduleQty(200);
-                          }}
-                          className="w-full p-2 bg-white border border-zinc-200 rounded-lg text-xs font-semibold text-zinc-800"
+                  <div className="flex flex-wrap gap-1.5">
+                    {availableCandidates.slice(0, 6).map(cand => {
+                      const fullProd = products.find(p => p.codigo === cand.codigo) || cand;
+                      return (
+                        <button
+                          key={cand.codigo}
+                          type="button"
+                          onClick={() => handleAddProductToSchedule(fullProd)}
+                          className="text-[11px] px-2 py-1 bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 rounded-md font-semibold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                          title="Adicionar à batelada conjunta"
                         >
-                          <option value="Bombona 50kg">🛢️ Bombona 50 kg (Mistura rápida a frio)</option>
-                          <option value="Bombona 100kg">🛢️ Bombona 100 kg (Mistura / Água Quente da Caldeira)</option>
-                          <option value="Bombona 200kg">🛢️ Bombona 200 kg (Bases / Água Quente da Caldeira)</option>
-                        </select>
-                      </div>
-                    )}
-
-                    <div>
-                      <label className="font-semibold text-zinc-700 block mb-1">Massa da Batelada (kg):</label>
-                      <input
-                        type="number"
-                        value={scheduleQty}
-                        onChange={(e) => setScheduleQty(Number(e.target.value))}
-                        className="w-full p-2 bg-white border border-zinc-200 rounded-lg text-xs font-bold"
-                      />
-                      <div className="mt-1.5 text-[11px] text-zinc-600 flex items-center justify-between">
-                        <div>
-                          <span>Rendimento estimado: </span>
-                          <strong className="text-emerald-700 font-bold text-xs">
-                            ~{estimatedUnitsYield.toLocaleString('pt-BR')} un
-                          </strong>
-                        </div>
-                        {pedAbertoModal > 0 && (
-                          <div>
-                            {estimatedUnitsYield >= pedAbertoModal ? (
-                              <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded text-[10px] font-medium">✅ Cobre os pedidos em aberto ({pedAbertoModal} un)</span>
-                            ) : (
-                              <span className="text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded text-[10px] font-medium">⚠️ Abaixo dos pedidos ({pedAbertoModal} un)</span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                          <Plus size={12} className="text-blue-600" />
+                          <span className="truncate max-w-[200px]">{cand.descricao} ({cand.codigo})</span>
+                        </button>
+                      );
+                    })}
                   </div>
-                </>
+                </div>
               );
             })()}
 
+            {/* Lista dos Produtos Selecionados na Ordem de Produção */}
+            {scheduleSelectedProducts.length > 0 ? (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-bold text-zinc-800">
+                  <span>Itens na Ordem de Produção ({scheduleSelectedProducts.length}/4):</span>
+                  <span className="text-[11px] text-zinc-500 font-normal">
+                    {scheduleSelectedProducts.length > 1 ? 'Ajuste os kg individuais de cada um abaixo' : '100% da ordem'}
+                  </span>
+                </div>
+                <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                  {scheduleSelectedProducts.map((p) => {
+                    const uWeight = parseProductUnitWeightKg(p.descricao);
+                    const currentItemKg = scheduleItemMasses[p.codigo] !== undefined 
+                      ? scheduleItemMasses[p.codigo] 
+                      : Number((scheduleQty / scheduleSelectedProducts.length).toFixed(1));
+                    const itemYield = Math.round(currentItemKg / (uWeight || 1));
+                    const pct = scheduleQty > 0 ? Math.round((currentItemKg / scheduleQty) * 100) : 0;
+                    const procP = getProductProcessType(p);
+
+                    return (
+                      <div
+                        key={p.codigo}
+                        className="p-2.5 bg-zinc-50 border border-zinc-200 rounded-lg flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-zinc-900 truncate" title={p.descricao}>{p.descricao}</div>
+                          <div className="flex items-center gap-2 text-[10px] text-zinc-500 mt-0.5">
+                            <span className="font-mono font-medium">{p.codigo}</span>
+                            {p.base && <span>• Base: <strong>{p.base}</strong></span>}
+                            <span>• {pct}% da ordem</span>
+                            <span className="text-[9px] text-zinc-400">({procP.label})</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex flex-col items-end">
+                            <div className="flex items-center gap-1">
+                              <label className="text-[10px] text-zinc-500 font-medium">Qtd:</label>
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={currentItemKg}
+                                onChange={(e) => handleChangeItemMass(p.codigo, Math.max(0, parseFloat(e.target.value) || 0))}
+                                className="w-20 px-2 py-1 text-right font-bold text-xs bg-white border border-zinc-300 rounded-md focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                              />
+                              <span className="text-xs font-semibold text-zinc-700">kg</span>
+                            </div>
+                            <span className="text-[10px] text-blue-700 font-bold mt-0.5">
+                              ~{itemYield.toLocaleString('pt-BR')} un
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveProductFromSchedule(p.codigo)}
+                            className="p-1 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer transition-colors"
+                            title="Remover produto da ordem"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-zinc-50 border border-dashed border-zinc-200 rounded-lg text-center text-xs text-zinc-500">
+                🔍 Digite no campo acima para pesquisar e selecionar o(s) produto(s) da ordem de produção.
+              </div>
+            )}
+
+            {/* Parâmetros do Agendamento */}
+            <div className="flex flex-col gap-3 text-xs pt-1 border-t border-zinc-150">
+              <div>
+                <label className="font-semibold text-zinc-700 block mb-1">Dia da Semana:</label>
+                <select
+                  value={scheduleDate}
+                  onChange={(e) => setScheduleDate(e.target.value)}
+                  className="w-full p-2 bg-white border border-zinc-200 rounded-lg text-xs"
+                >
+                  {weekDays.map(d => (
+                    <option key={d.dateStr} value={d.dateStr} disabled={!!d.holiday}>
+                      {d.label} ({d.dateStr.split('-').slice(1).reverse().join('/')}) {d.holiday ? `— Feriado: ${d.holiday.name}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="font-semibold text-zinc-700 block mb-1">Equipamento / Reator de Produção:</label>
+                <select
+                  value={scheduleReator}
+                  onChange={(e) => {
+                    const rId = e.target.value;
+                    setScheduleReator(rId);
+                    const r = reatores.find(x => x.id === rId);
+                    if (r) {
+                      if (rId === 'BOMBONAS') {
+                        setScheduleRecipienteDetalhe('Bombona 50kg');
+                        handleChangeTotalMass(50);
+                      } else {
+                        setScheduleRecipienteDetalhe('Reator');
+                        handleChangeTotalMass(r.capacidade_kg);
+                      }
+                    }
+                  }}
+                  className="w-full p-2 bg-white border border-zinc-200 rounded-lg text-xs"
+                >
+                  {reatores.filter(r => r.ativo).map(r => (
+                    <option key={r.id} value={r.id}>
+                      {r.nome} ({r.id === 'BOMBONAS' ? '50/100/200 kg' : `${r.capacidade_kg} kg`})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {scheduleReator === 'BOMBONAS' && (
+                <div>
+                  <label className="font-semibold text-zinc-700 block mb-1">Recipiente da Bombona:</label>
+                  <select
+                    value={scheduleRecipienteDetalhe}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setScheduleRecipienteDetalhe(val);
+                      if (val === 'Bombona 50kg') handleChangeTotalMass(50);
+                      else if (val === 'Bombona 100kg') handleChangeTotalMass(100);
+                      else if (val === 'Bombona 200kg') handleChangeTotalMass(200);
+                    }}
+                    className="w-full p-2 bg-white border border-zinc-200 rounded-lg text-xs font-semibold text-zinc-800"
+                  >
+                    <option value="Bombona 50kg">🛢️ Bombona 50 kg (Mistura rápida a frio)</option>
+                    <option value="Bombona 100kg">🛢️ Bombona 100 kg (Mistura / Água Quente da Caldeira)</option>
+                    <option value="Bombona 200kg">🛢️ Bombona 200 kg (Bases / Água Quente da Caldeira)</option>
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-semibold text-zinc-700">Massa Total da Ordem (kg):</label>
+                  {scheduleSelectedProducts.length > 1 && (
+                    <span className="text-[10px] text-zinc-500">
+                      (Soma automática dos {scheduleSelectedProducts.length} itens)
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="number"
+                  value={scheduleQty}
+                  onChange={(e) => handleChangeTotalMass(Number(e.target.value))}
+                  className="w-full p-2 bg-white border border-zinc-200 rounded-lg text-xs font-bold"
+                />
+                {scheduleSelectedProducts.length > 1 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px] text-zinc-600">
+                    {scheduleSelectedProducts.map(p => {
+                      const m = scheduleItemMasses[p.codigo] ?? (scheduleQty / scheduleSelectedProducts.length);
+                      return (
+                        <span key={p.codigo} className="px-2 py-0.5 bg-zinc-100 rounded text-zinc-700 border border-zinc-200">
+                          {p.codigo}: <strong className="text-blue-700">{Number(m).toFixed(1)} kg</strong>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="flex justify-end gap-2 pt-3 border-t border-zinc-200">
               <button
-                onClick={() => setScheduleModalItem(null)}
+                type="button"
+                onClick={() => {
+                  setScheduleModalItem(null);
+                  setScheduleSelectedProducts([]);
+                  setScheduleSearch('');
+                }}
                 className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
               >
                 Cancelar
               </button>
               <button
+                type="button"
+                disabled={scheduleSelectedProducts.length === 0}
                 onClick={handleConfirmSchedule}
-                className="px-4 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs cursor-pointer"
+                className={`px-4 py-1.5 text-xs font-semibold rounded-lg shadow-xs cursor-pointer ${
+                  scheduleSelectedProducts.length === 0
+                    ? 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                }`}
               >
-                Confirmar Agendamento
+                Confirmar Agendamento ({scheduleSelectedProducts.length})
               </button>
             </div>
           </div>
@@ -3523,30 +4231,38 @@ export function PlanejamentoSemanalTab({
                     #{linkLoteModalItem.ultimoLote}
                   </span>
                 </div>
-                {linkLoteModalItem.dataUltimoLote && (
-                  <div className="text-[10px] text-zinc-500 flex items-center justify-between">
-                    <span>Data: {linkLoteModalItem.dataUltimoLote.split('T')[0].split(' ')[0].split('-').reverse().join('/')}</span>
-                    <span className="text-blue-600 font-semibold">{linkLoteModalItem.origemUltimoLote || 'ERP'}</span>
-                  </div>
-                )}
+                <div className="flex items-center justify-between text-[10px] text-zinc-500">
+                  {linkLoteModalItem.dataUltimoLote && (
+                    <span>Data no ERP: <strong>{linkLoteModalItem.dataUltimoLote.split('T')[0].split(' ')[0].split('-').reverse().join('/')}</strong></span>
+                  )}
+                  {linkLoteModalItem.quantidadeKgLote && (
+                    <span className="text-emerald-700 font-bold">Massa no ERP: {linkLoteModalItem.quantidadeKgLote} kg</span>
+                  )}
+                </div>
                 <div className="flex items-center gap-1.5 pt-1.5 border-t border-blue-200/60">
                   <button
                     type="button"
-                    onClick={() => setLinkLoteModalItem({ ...linkLoteModalItem, lote: linkLoteModalItem.ultimoLote! })}
-                    className="px-2.5 py-1 bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 rounded text-[11px] font-semibold cursor-pointer transition-colors shadow-2xs"
+                    onClick={() => {
+                      const autoMassa = linkLoteModalItem.quantidadeKgLote && linkLoteModalItem.quantidadeKgLote > 0
+                        ? linkLoteModalItem.quantidadeKgLote
+                        : null;
+                      setLinkLoteModalItem({ 
+                        ...linkLoteModalItem, 
+                        lote: linkLoteModalItem.ultimoLote!,
+                        autoQty: autoMassa,
+                      });
+                    }}
+                    className="w-full py-1 bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 rounded text-xs font-semibold cursor-pointer transition-colors shadow-2xs text-center"
                   >
-                    Usar #{linkLoteModalItem.ultimoLote}
+                    Usar Lote #{linkLoteModalItem.ultimoLote}
                   </button>
-                  {linkLoteModalItem.sugestaoProximo && (
-                    <button
-                      type="button"
-                      onClick={() => setLinkLoteModalItem({ ...linkLoteModalItem, lote: linkLoteModalItem.sugestaoProximo! })}
-                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[11px] font-bold cursor-pointer transition-colors shadow-2xs"
-                    >
-                      Sugerir Próximo: #{linkLoteModalItem.sugestaoProximo}
-                    </button>
-                  )}
                 </div>
+                {linkLoteModalItem.autoQty && (
+                  <div className="p-1.5 bg-emerald-50 border border-emerald-200 rounded text-[11px] text-emerald-800 flex items-center gap-1">
+                    <Check size={12} className="text-emerald-600 shrink-0" />
+                    <span>Massa ajustada para <strong>{linkLoteModalItem.autoQty} kg</strong> ao salvar o lote.</span>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="p-2 bg-zinc-50 border border-zinc-200 rounded-lg text-[11px] text-zinc-500">
@@ -3612,14 +4328,62 @@ export function PlanejamentoSemanalTab({
             </div>
 
             <div className="p-3 bg-zinc-50 rounded-lg border border-zinc-200 text-xs">
-              <strong className="text-zinc-900 block">{editQtyModalItem.item.descricao || editQtyModalItem.item.codigo_produto}</strong>
+              <strong className="text-zinc-900 block">
+                {editQtyModalItem.batchItems && editQtyModalItem.batchItems.length > 1
+                  ? `Batelada Conjunta (${editQtyModalItem.batchItems.length} produtos)`
+                  : (editQtyModalItem.item.descricao || editQtyModalItem.item.codigo_produto)}
+              </strong>
               <div className="flex items-center justify-between text-zinc-500 mt-1">
                 <span>Data: <strong>{editQtyModalItem.item.data_planejada}</strong></span>
                 <span>Equipamento: <strong>{getShortReatorName(editQtyModalItem.item.reator_id, editQtyModalItem.item.recipiente_detalhe, reatores)}</strong></span>
               </div>
             </div>
 
-            {(() => {
+            {editQtyModalItem.batchItems && editQtyModalItem.batchItems.length > 1 ? (
+              <div className="space-y-3">
+                <div className="text-xs font-semibold text-zinc-700">Massas Individuais por Produto:</div>
+                <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                  {editQtyModalItem.batchItems.map(it => {
+                    const currentVal = editQtyModalItem.batchMasses?.[it.id] ?? it.quantidade_planejada;
+                    const uW = parseProductUnitWeightKg(it.descricao);
+                    const estUn = Math.round(currentVal / (uW || 1));
+                    return (
+                      <div key={it.id} className="p-2.5 bg-zinc-50 rounded-lg border border-zinc-200 text-xs">
+                        <div className="font-bold text-zinc-900 truncate mb-1" title={it.descricao}>
+                          {it.descricao || it.codigo_produto}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min={1}
+                            value={currentVal || ''}
+                            onChange={(e) => {
+                              const val = Number(e.target.value) || 0;
+                              const nextMasses = { ...(editQtyModalItem.batchMasses || {}), [it.id]: val };
+                              const nextTotal = Object.values(nextMasses).reduce((a, b) => a + (Number(b) || 0), 0);
+                              setEditQtyModalItem({
+                                ...editQtyModalItem,
+                                batchMasses: nextMasses,
+                                newQty: Number(nextTotal.toFixed(1))
+                              });
+                            }}
+                            className="w-24 p-1.5 text-xs font-bold border border-zinc-300 rounded bg-white text-zinc-900 focus:ring-2 focus:ring-blue-500"
+                          />
+                          <span className="text-zinc-500 font-mono text-[11px]">kg</span>
+                          <span className="text-zinc-500 font-medium text-[11px] ml-auto">
+                            ~{estUn.toLocaleString('pt-BR')} un
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="p-2.5 bg-purple-50 border border-purple-200 rounded-lg flex items-center justify-between text-xs">
+                  <span className="font-bold text-purple-900">Massa Total da Batelada:</span>
+                  <span className="font-mono font-extrabold text-sm text-purple-950">{editQtyModalItem.newQty} kg</span>
+                </div>
+              </div>
+            ) : (() => {
               const uW = parseProductUnitWeightKg(editQtyModalItem.item.descricao);
               const isB = (editQtyModalItem.item.codigo_produto || '').includes('.36.') || (editQtyModalItem.item.descricao || '').toUpperCase().startsWith('BASE ');
               const projectedUnits = Math.round(editQtyModalItem.newQty / (uW || 1));
@@ -3664,6 +4428,421 @@ export function PlanejamentoSemanalTab({
                 className="px-4 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs cursor-pointer"
               >
                 Salvar Quantidade
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CONFIGURAÇÕES DA BATELADA (PARÂMETROS TÉCNICOS, PROCESSO, EQUIPAMENTO) */}
+      {technicalModalItem && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-5 flex flex-col gap-4 border border-zinc-200 max-h-[90vh] overflow-y-auto">
+            {/* Cabeçalho */}
+            <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal size={18} className="text-blue-600" />
+                <div>
+                  <h3 className="font-bold text-zinc-900 text-sm">Configurações da Batelada</h3>
+                  <span className="text-[11px] text-zinc-500 font-mono">{technicalModalItem.item.codigo_produto}</span>
+                </div>
+              </div>
+              <button 
+                onClick={() => setTechnicalModalItem(null)}
+                className="text-zinc-400 hover:text-zinc-600 p-1 rounded-md cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Identificação do Produto */}
+            <div className="p-2.5 bg-zinc-50 rounded-lg border border-zinc-200 text-xs">
+              <strong className="text-zinc-900 block text-xs leading-snug">
+                {technicalModalItem.item.descricao || technicalModalItem.item.codigo_produto}
+              </strong>
+            </div>
+
+            {/* 1. Processo Térmico & Aquecimento */}
+            <div className="space-y-1.5">
+              <label className="font-bold text-zinc-800 text-xs flex items-center gap-1.5">
+                <span>Processo Térmico & Aquecimento:</span>
+              </label>
+              
+              {/* Escolha Principal: Frio vs Quente */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setTechnicalModalItem({ 
+                    ...technicalModalItem, 
+                    processoTermico: 'frio',
+                    recipienteDetalhe: technicalModalItem.reatorId === 'BOMBONAS' ? 'Bombona 50kg' : 'Reator'
+                  })}
+                  className={`p-2.5 rounded-lg border text-left flex items-center gap-2 transition-all cursor-pointer ${
+                    technicalModalItem.processoTermico === 'frio'
+                      ? 'bg-blue-50 border-blue-400 text-blue-900 ring-2 ring-blue-200 font-bold'
+                      : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
+                  }`}
+                >
+                  <Snowflake size={16} className="text-blue-500 shrink-0" />
+                  <div>
+                    <div className="font-bold">❄️ A Frio (Mistura)</div>
+                    <div className="text-[10px] text-zinc-500 font-normal">Homogeneização direta</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (technicalModalItem.processoTermico === 'frio') {
+                      setTechnicalModalItem({ 
+                        ...technicalModalItem, 
+                        processoTermico: 'caldeira' 
+                      });
+                    }
+                  }}
+                  className={`p-2.5 rounded-lg border text-left flex items-center gap-2 transition-all cursor-pointer ${
+                    technicalModalItem.processoTermico !== 'frio'
+                      ? 'bg-orange-50 border-orange-400 text-orange-900 ring-2 ring-orange-200 font-bold'
+                      : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
+                  }`}
+                >
+                  <Flame size={16} className="text-orange-500 shrink-0" />
+                  <div>
+                    <div className="font-bold">🔥 A Quente</div>
+                    <div className="text-[10px] text-zinc-500 font-normal">Aquecimento / Emulsão</div>
+                  </div>
+                </button>
+              </div>
+
+              {/* Sub-processos térmicos com parametrização automática de equipamento */}
+              {technicalModalItem.processoTermico !== 'frio' && (
+                <div className="p-2.5 bg-orange-50/50 border border-orange-200 rounded-lg space-y-1.5 mt-2">
+                  <span className="text-[11px] font-bold text-orange-950 block">Selecione o Tipo de Processo Quente:</span>
+                  <div className="grid grid-cols-2 gap-1.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setTechnicalModalItem({
+                        ...technicalModalItem,
+                        processoTermico: 'agua_caldeira',
+                        reatorId: 'BOMBONAS',
+                        recipienteDetalhe: 'Bombona 100kg',
+                        quantidadeKg: technicalModalItem.quantidadeKg > 200 ? 100 : technicalModalItem.quantidadeKg,
+                      })}
+                      className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
+                        technicalModalItem.processoTermico === 'agua_caldeira' || technicalModalItem.reatorId === 'BOMBONAS'
+                          ? 'bg-amber-100 border-amber-400 text-amber-950 font-bold ring-1 ring-amber-300'
+                          : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">🛢️ Bombona (Água Caldeira)</div>
+                      <div className="text-[10px] text-zinc-500 font-normal">Usa água aquecida da caldeira</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setTechnicalModalItem({
+                        ...technicalModalItem,
+                        processoTermico: 'resistencia',
+                        reatorId: 'R_100',
+                        recipienteDetalhe: 'Reator',
+                        quantidadeKg: 100,
+                      })}
+                      className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
+                        technicalModalItem.processoTermico === 'resistencia' || technicalModalItem.reatorId === 'R_100'
+                          ? 'bg-purple-100 border-purple-400 text-purple-950 font-bold ring-1 ring-purple-300'
+                          : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">⚡ Tanque Resistência (R-100)</div>
+                      <div className="text-[10px] text-zinc-500 font-normal">R-100 aquecimento elétrico</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setTechnicalModalItem({
+                        ...technicalModalItem,
+                        processoTermico: 'quente',
+                        reatorId: 'R_40',
+                        recipienteDetalhe: 'Reator 40kg',
+                        quantidadeKg: 40,
+                      })}
+                      className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
+                        technicalModalItem.reatorId === 'R_40'
+                          ? 'bg-orange-100 border-orange-400 text-orange-950 font-bold ring-1 ring-orange-300'
+                          : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">🍳 Panela 40kg (R-40)</div>
+                      <div className="text-[10px] text-zinc-500 font-normal">Produção piloto / pequena</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const defaultReator = reatores.find(r => r.ativo && r.id !== 'BOMBONAS' && r.id !== 'R_40' && r.id !== 'R_100')?.id || 'R_500';
+                        setTechnicalModalItem({
+                          ...technicalModalItem,
+                          processoTermico: 'caldeira',
+                          reatorId: (technicalModalItem.reatorId === 'BOMBONAS' || technicalModalItem.reatorId === 'R_40' || technicalModalItem.reatorId === 'R_100') ? defaultReator : technicalModalItem.reatorId,
+                          recipienteDetalhe: 'Reator',
+                        });
+                      }}
+                      className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
+                        technicalModalItem.processoTermico === 'caldeira' && technicalModalItem.reatorId !== 'BOMBONAS' && technicalModalItem.reatorId !== 'R_40' && technicalModalItem.reatorId !== 'R_100'
+                          ? 'bg-red-100 border-red-400 text-red-950 font-bold ring-1 ring-red-300'
+                          : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">🏭 Reator Caldeira (Vapor)</div>
+                      <div className="text-[10px] text-zinc-500 font-normal">Reatores industriais a vapor</div>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 2. Origem da Formulação / Uso de Base */}
+            <div className="space-y-1.5 pt-1 border-t border-zinc-150">
+              <label className="font-bold text-zinc-800 text-xs">Origem da Formulação:</label>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setTechnicalModalItem({ ...technicalModalItem, origemFormulacao: 'completa' })}
+                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+                    technicalModalItem.origemFormulacao === 'completa'
+                      ? 'bg-emerald-50 border-emerald-400 text-emerald-900 ring-2 ring-emerald-200 font-bold'
+                      : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
+                  }`}
+                >
+                  <div className="font-bold">🧪 Produção Completa</div>
+                  <div className="text-[10px] text-zinc-500 font-normal">Fabricação do zero (Granel)</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTechnicalModalItem({ ...technicalModalItem, origemFormulacao: 'base' })}
+                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+                    technicalModalItem.origemFormulacao === 'base'
+                      ? 'bg-amber-50 border-amber-400 text-amber-900 ring-2 ring-amber-200 font-bold'
+                      : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
+                  }`}
+                >
+                  <div className="font-bold">🧫 Usar Base Pronta</div>
+                  <div className="text-[10px] text-zinc-500 font-normal">Diluição / Aditivação de base</div>
+                </button>
+              </div>
+
+              {technicalModalItem.origemFormulacao === 'base' && (
+                <div className="p-2.5 bg-amber-50/60 border border-amber-200 rounded-lg text-xs space-y-1.5 mt-1">
+                  <label className="font-semibold text-amber-950 text-[11px] block">Código / Descrição da Base:</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: BASE MASCARA, 8.11.002..."
+                    value={technicalModalItem.baseCodigo}
+                    onChange={(e) => setTechnicalModalItem({ 
+                      ...technicalModalItem, 
+                      baseCodigo: e.target.value,
+                      baseNome: e.target.value 
+                    })}
+                    className="w-full p-2 bg-white border border-amber-300 rounded text-xs font-semibold text-zinc-900"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* 3. Equipamento & Recipiente */}
+            <div className="grid grid-cols-2 gap-3 pt-1 border-t border-zinc-150 text-xs">
+              <div>
+                <label className="font-bold text-zinc-800 block mb-1">Equipamento / Reator:</label>
+                <select
+                  value={technicalModalItem.reatorId}
+                  onChange={(e) => {
+                    const rId = e.target.value;
+                    const r = reatores.find(x => x.id === rId);
+                    let recip = technicalModalItem.recipienteDetalhe;
+                    if (rId === 'BOMBONAS') recip = 'Bombona 50kg';
+                    else if (rId === 'R_40') recip = 'Reator 40kg';
+                    else recip = 'Reator';
+                    setTechnicalModalItem({
+                      ...technicalModalItem,
+                      reatorId: rId,
+                      recipienteDetalhe: recip,
+                      quantidadeKg: r ? (rId === 'BOMBONAS' ? 50 : r.capacidade_kg) : technicalModalItem.quantidadeKg,
+                    });
+                  }}
+                  className="w-full p-2 bg-white border border-zinc-300 rounded-lg text-xs font-medium"
+                >
+                  {reatores.filter(r => r.ativo).map(r => (
+                    <option key={r.id} value={r.id}>
+                      {r.nome} ({r.id === 'BOMBONAS' ? '50/100/200 kg' : `${r.capacidade_kg} kg`})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="font-bold text-zinc-800 block mb-1">Recipiente:</label>
+                {technicalModalItem.reatorId === 'BOMBONAS' ? (
+                  <select
+                    value={technicalModalItem.recipienteDetalhe}
+                    onChange={(e) => {
+                      const det = e.target.value;
+                      let q = technicalModalItem.quantidadeKg;
+                      if (det === 'Bombona 50kg') q = 50;
+                      else if (det === 'Bombona 100kg') q = 100;
+                      else if (det === 'Bombona 200kg') q = 200;
+                      setTechnicalModalItem({
+                        ...technicalModalItem,
+                        recipienteDetalhe: det,
+                        quantidadeKg: q
+                      });
+                    }}
+                    className="w-full p-2 bg-white border border-zinc-300 rounded-lg text-xs font-semibold text-amber-900"
+                  >
+                    <option value="Bombona 50kg">🛢️ Bombona 50 kg</option>
+                    <option value="Bombona 100kg">🛢️ Bombona 100 kg</option>
+                    <option value="Bombona 200kg">🛢️ Bombona 200 kg</option>
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    disabled
+                    value={technicalModalItem.reatorId === 'R_40' ? 'Reator 40kg' : 'Reator'}
+                    className="w-full p-2 bg-zinc-100 border border-zinc-200 rounded-lg text-xs text-zinc-600 font-medium"
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* 4. Planejamento: Dia, Massa (kg), Quantidade Esperada (~un) */}
+            <div className="grid grid-cols-3 gap-2 pt-1 border-t border-zinc-150 text-xs">
+              <div>
+                <label className="font-bold text-zinc-800 block mb-1">Dia da Semana:</label>
+                <select
+                  value={technicalModalItem.dataPlanejada}
+                  onChange={(e) => setTechnicalModalItem({ ...technicalModalItem, dataPlanejada: e.target.value })}
+                  className="w-full p-2 bg-white border border-zinc-300 rounded-lg text-xs font-medium"
+                >
+                  {weekDays.map(d => (
+                    <option key={d.dateStr} value={d.dateStr} disabled={!!d.holiday}>
+                      {d.label} ({d.dateStr.split('-').slice(1).reverse().join('/')}) {d.holiday ? `— Feriado: ${d.holiday.name}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="font-bold text-zinc-800 block mb-1">Massa (kg):</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={technicalModalItem.quantidadeKg || ''}
+                  onChange={(e) => setTechnicalModalItem({ ...technicalModalItem, quantidadeKg: Number(e.target.value) })}
+                  className="w-full p-2 bg-white border border-zinc-300 rounded-lg text-xs font-bold text-zinc-900"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-zinc-800 block mb-1">Qtd. Esperada (~un):</label>
+                {(() => {
+                  const uW = parseProductUnitWeightKg(technicalModalItem.item.descricao);
+                  const expectedUnits = Math.round((technicalModalItem.quantidadeKg || 0) / (uW || 1));
+                  return (
+                    <div className="p-2 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-bold text-blue-700 flex items-center justify-between">
+                      <span>~{expectedUnits.toLocaleString('pt-BR')} un</span>
+                      <span className="text-[10px] text-zinc-400 font-normal">
+                        ({uW >= 1 ? `${uW} kg` : `${Math.round(uW * 1000)} g`})
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* 5. Lote ERP com Data e Autoajuste de Massa */}
+            <div className="pt-1 border-t border-zinc-150 text-xs space-y-1.5">
+              <label className="font-bold text-zinc-800 block">Lote ERP Oficial:</label>
+              {technicalModalItem.loadingUltimoLote ? (
+                <div className="flex items-center gap-2 p-2 bg-blue-50/60 border border-blue-150 rounded-lg text-[11px] text-blue-700">
+                  <RefreshCw size={12} className="animate-spin text-blue-600 shrink-0" />
+                  <span>Consultando histórico de lotes no ERP...</span>
+                </div>
+              ) : technicalModalItem.ultimoLote ? (
+                <div className="p-2 bg-blue-50/80 border border-blue-200 rounded-lg text-[11px] space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-zinc-600">
+                      Último Lote: <strong className="text-blue-900 font-mono font-bold">#{technicalModalItem.ultimoLote}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const autoMassa = technicalModalItem.quantidadeKgLote && technicalModalItem.quantidadeKgLote > 0
+                          ? technicalModalItem.quantidadeKgLote
+                          : technicalModalItem.quantidadeKg;
+                        setTechnicalModalItem({
+                          ...technicalModalItem,
+                          loteErp: technicalModalItem.ultimoLote!,
+                          quantidadeKg: autoMassa,
+                        });
+                      }}
+                      className="px-2.5 py-0.5 bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 rounded text-[11px] font-semibold cursor-pointer shadow-2xs"
+                    >
+                      Usar #{technicalModalItem.ultimoLote}
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-zinc-500">
+                    {technicalModalItem.dataUltimoLote && (
+                      <span>Data no ERP: <strong>{technicalModalItem.dataUltimoLote.split('T')[0].split(' ')[0].split('-').reverse().join('/')}</strong></span>
+                    )}
+                    {technicalModalItem.quantidadeKgLote && (
+                      <span className="text-emerald-700 font-bold">Massa no ERP: {technicalModalItem.quantidadeKgLote} kg</span>
+                    )}
+                  </div>
+                  {technicalModalItem.quantidadeKgLote && technicalModalItem.loteErp === technicalModalItem.ultimoLote && (
+                    <div className="text-[10px] text-emerald-700 font-medium pt-0.5">
+                      ✓ Quantidade da batelada ajustada para {technicalModalItem.quantidadeKgLote} kg conforme registrado no ERP.
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
+              <input
+                type="text"
+                placeholder="Digite ou selecione o Lote ERP..."
+                value={technicalModalItem.loteErp}
+                onChange={(e) => setTechnicalModalItem({ ...technicalModalItem, loteErp: e.target.value })}
+                className="w-full p-2 font-mono text-xs font-bold bg-white border border-zinc-300 rounded-lg text-zinc-900"
+              />
+            </div>
+
+            {/* 6. Observações Técnicas / Instruções */}
+            <div className="pt-1 border-t border-zinc-150 text-xs">
+              <label className="font-bold text-zinc-800 block mb-1">Observações Técnicas / Instruções:</label>
+              <textarea
+                rows={2}
+                placeholder="Instruções manuais para pesagem ou produção (se houver)..."
+                value={technicalModalItem.observacoes}
+                onChange={(e) => setTechnicalModalItem({ ...technicalModalItem, observacoes: e.target.value })}
+                className="w-full p-2 bg-white border border-zinc-300 rounded-lg text-xs resize-none"
+              />
+            </div>
+
+            {/* Rodapé com Botões */}
+            <div className="flex justify-end gap-2 pt-2 border-t border-zinc-200">
+              <button
+                type="button"
+                onClick={() => setTechnicalModalItem(null)}
+                className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveTechnicalModal}
+                className="px-4 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                <Check size={14} />
+                <span>Salvar Configurações</span>
               </button>
             </div>
           </div>
@@ -3787,20 +4966,17 @@ export function PlanejamentoSemanalTab({
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-5xl w-full flex flex-col max-h-[90vh] border border-zinc-200 overflow-hidden">
             {/* Header */}
-            <div className="p-4 border-b border-zinc-200 flex items-center justify-between bg-zinc-50/80">
+            <div className="p-4 border-b border-zinc-200 flex items-center justify-between bg-zinc-50">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-blue-100 text-blue-800 rounded-lg">
-                  <Boxes size={22} />
-                </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-zinc-900 text-sm">Consumo Semanal de Insumos & Embalagens</h3>
-                    <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 font-mono text-[10px] font-bold rounded">
+                    <h3 className="font-semibold text-zinc-900 text-sm">Consumo Semanal de Insumos & Embalagens</h3>
+                    <span className="px-2 py-0.5 bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono text-[10px] font-semibold rounded">
                       {currentWeekKey}
                     </span>
                   </div>
                   <p className="text-[11px] text-zinc-500 mt-0.5">
-                    Explosão de materiais necessária para produzir as {plannedItems.length} bateladas agendadas ({weekStats.totalKg.toLocaleString('pt-BR')} kg).
+                    Necessidade de materiais para as {plannedItems.length} ordens de produção programadas ({weekStats.totalKg.toLocaleString('pt-BR')} kg).
                   </p>
                 </div>
               </div>
@@ -3817,16 +4993,6 @@ export function PlanejamentoSemanalTab({
                 </button>
 
                 <button
-                  onClick={handleExportMaterialsExcel}
-                  disabled={loadingMaterialsReport || materialsList.length === 0}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer transition-colors"
-                  title="Baixar planilha Excel com abas de Matérias-Primas e Embalagens"
-                >
-                  <FileSpreadsheet size={14} />
-                  <span>Exportar Excel (.xlsx)</span>
-                </button>
-
-                <button
                   onClick={handleOpenMaterialsReport}
                   disabled={loadingMaterialsReport}
                   className="p-1.5 hover:bg-zinc-100 text-zinc-600 rounded-lg border border-zinc-200 cursor-pointer transition-colors"
@@ -3837,14 +5003,14 @@ export function PlanejamentoSemanalTab({
 
                 <button 
                   onClick={() => setMaterialsReportOpen(false)}
-                  className="text-zinc-400 hover:text-zinc-600 p-1.5 rounded-lg cursor-pointer"
+                  className="text-zinc-400 hover:text-zinc-600 p-1.5 rounded-lg cursor-pointer transition-colors"
                 >
                   <X size={18} />
                 </button>
               </div>
             </div>
 
-            {/* KPIs Consolidados */}
+            {/* Resumo Métrico */}
             {(() => {
               const mpItems = materialsList.filter(m => m.category === 'materia_prima');
               const embItems = materialsList.filter(m => m.category === 'embalagem');
@@ -3853,36 +5019,36 @@ export function PlanejamentoSemanalTab({
               const totalMissing = missingMp.length + missingEmb.length;
 
               return (
-                <div className="grid grid-cols-4 gap-2.5 p-3.5 bg-zinc-50/50 border-b border-zinc-200 text-xs">
+                <div className="grid grid-cols-4 gap-2.5 p-3 bg-zinc-50/50 border-b border-zinc-200 text-xs">
                   <div className="p-2.5 bg-white border border-zinc-200 rounded-lg">
                     <span className="text-zinc-500 text-[11px] block">Matérias-Primas</span>
-                    <strong className="text-zinc-900 text-base font-bold block">{mpItems.length} insumos</strong>
-                    <span className={`text-[10px] font-semibold mt-0.5 block ${missingMp.length > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                      {missingMp.length > 0 ? `🚨 ${missingMp.length} com ruptura de estoque` : '✅ Todas com estoque'}
+                    <strong className="text-zinc-900 text-sm font-bold block">{mpItems.length} itens</strong>
+                    <span className={`text-[10px] font-medium mt-0.5 block ${missingMp.length > 0 ? 'text-rose-600 font-semibold' : 'text-zinc-500'}`}>
+                      {missingMp.length > 0 ? `${missingMp.length} com déficit` : 'Estoque regular'}
                     </span>
                   </div>
 
                   <div className="p-2.5 bg-white border border-zinc-200 rounded-lg">
-                    <span className="text-zinc-500 text-[11px] block">Embalagens (Frascos/Tampas)</span>
-                    <strong className="text-zinc-900 text-base font-bold block">{embItems.length} itens</strong>
-                    <span className={`text-[10px] font-semibold mt-0.5 block ${missingEmb.length > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                      {missingEmb.length > 0 ? `🚨 ${missingEmb.length} com ruptura de estoque` : '✅ Todas com estoque'}
+                    <span className="text-zinc-500 text-[11px] block">Embalagens</span>
+                    <strong className="text-zinc-900 text-sm font-bold block">{embItems.length} itens</strong>
+                    <span className={`text-[10px] font-medium mt-0.5 block ${missingEmb.length > 0 ? 'text-rose-600 font-semibold' : 'text-zinc-500'}`}>
+                      {missingEmb.length > 0 ? `${missingEmb.length} com déficit` : 'Estoque regular'}
                     </span>
                   </div>
 
                   <div className="p-2.5 bg-white border border-zinc-200 rounded-lg">
-                    <span className="text-zinc-500 text-[11px] block">Massa Total Programada</span>
-                    <strong className="text-zinc-900 text-base font-bold block">{weekStats.totalKg.toLocaleString('pt-BR')} kg</strong>
-                    <span className="text-[10px] text-zinc-500 mt-0.5 block">em {plannedItems.length} bateladas</span>
+                    <span className="text-zinc-500 text-[11px] block">Massa Programada</span>
+                    <strong className="text-zinc-900 text-sm font-bold block">{weekStats.totalKg.toLocaleString('pt-BR')} kg</strong>
+                    <span className="text-[10px] text-zinc-500 mt-0.5 block">em {plannedItems.length} ordens de produção</span>
                   </div>
 
                   <div className="p-2.5 bg-white border border-zinc-200 rounded-lg">
-                    <span className="text-zinc-500 text-[11px] block">Status Geral de Suprimentos</span>
-                    <strong className={`text-base font-bold block ${totalMissing > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                      {totalMissing > 0 ? `${totalMissing} Faltas no Galpão` : '100% Suprido'}
+                    <span className="text-zinc-500 text-[11px] block">Status Geral</span>
+                    <strong className={`text-sm font-bold block ${totalMissing > 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                      {totalMissing > 0 ? `${totalMissing} itens com déficit` : '100% Suprido'}
                     </strong>
                     <span className="text-[10px] text-zinc-500 mt-0.5 block">
-                      {totalMissing > 0 ? 'Requer compras imediatas' : 'Liberado para pesagem'}
+                      {totalMissing > 0 ? 'Requer pedidos de compra' : 'Liberado para pesagem'}
                     </span>
                   </div>
                 </div>
@@ -3900,7 +5066,7 @@ export function PlanejamentoSemanalTab({
                   <div className="flex items-center gap-1.5 text-xs">
                     <button
                       onClick={() => setMaterialsFilterTab('ALL')}
-                      className={`px-3 py-1 rounded-lg font-semibold cursor-pointer transition-colors ${
+                      className={`px-3 py-1 rounded-md font-medium cursor-pointer transition-colors ${
                         materialsFilterTab === 'ALL' ? 'bg-zinc-800 text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
                       }`}
                     >
@@ -3908,40 +5074,40 @@ export function PlanejamentoSemanalTab({
                     </button>
                     <button
                       onClick={() => setMaterialsFilterTab('FALTAS')}
-                      className={`px-3 py-1 rounded-lg font-semibold cursor-pointer transition-colors ${
-                        materialsFilterTab === 'FALTAS' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-700 hover:bg-red-100'
+                      className={`px-3 py-1 rounded-md font-medium cursor-pointer transition-colors ${
+                        materialsFilterTab === 'FALTAS' ? 'bg-zinc-800 text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
                       }`}
                     >
-                      🚨 Ruptura / Faltas ({missingCount})
+                      Com Déficit ({missingCount})
                     </button>
                     <button
                       onClick={() => setMaterialsFilterTab('MP')}
-                      className={`px-3 py-1 rounded-lg font-semibold cursor-pointer transition-colors ${
-                        materialsFilterTab === 'MP' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                      className={`px-3 py-1 rounded-md font-medium cursor-pointer transition-colors ${
+                        materialsFilterTab === 'MP' ? 'bg-zinc-800 text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
                       }`}
                     >
-                      🧪 Matérias-Primas ({mpCount})
+                      Matérias-Primas ({mpCount})
                     </button>
                     <button
                       onClick={() => setMaterialsFilterTab('EMB')}
-                      className={`px-3 py-1 rounded-lg font-semibold cursor-pointer transition-colors ${
-                        materialsFilterTab === 'EMB' ? 'bg-purple-600 text-white' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'
+                      className={`px-3 py-1 rounded-md font-medium cursor-pointer transition-colors ${
+                        materialsFilterTab === 'EMB' ? 'bg-zinc-800 text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
                       }`}
                     >
-                      📦 Embalagens ({embCount})
+                      Embalagens ({embCount})
                     </button>
                   </div>
                 );
               })()}
 
-              <div className="relative w-72">
+              <div className="relative w-64">
                 <Search size={14} className="absolute left-2.5 top-2.5 text-zinc-400" />
                 <input
                   type="text"
                   placeholder="Filtrar por código ou descrição..."
                   value={materialsSearch}
                   onChange={(e) => setMaterialsSearch(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                  className="w-full pl-8 pr-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-zinc-400"
                 />
               </div>
             </div>
@@ -3950,12 +5116,12 @@ export function PlanejamentoSemanalTab({
             <div className="flex-1 overflow-y-auto">
               {loadingMaterialsReport ? (
                 <div className="py-20 flex flex-col items-center justify-center gap-2 text-zinc-500">
-                  <RefreshCw size={24} className="animate-spin text-blue-600" />
-                  <span className="text-xs font-semibold">Explodindo fórmulas e consultando estoques do galpão...</span>
+                  <RefreshCw size={24} className="animate-spin text-zinc-600" />
+                  <span className="text-xs font-medium">Calculando insumos e consultando estoques...</span>
                 </div>
               ) : materialsList.length === 0 ? (
                 <div className="py-20 text-center text-zinc-400 text-xs">
-                  Nenhuma matéria-prima ou embalagem encontrada para os itens agendados nesta semana.
+                  Nenhum insumo ou embalagem encontrado para as ordens agendadas.
                 </div>
               ) : (() => {
                 const filtered = materialsList.filter(item => {
@@ -3981,7 +5147,7 @@ export function PlanejamentoSemanalTab({
 
                 return (
                   <table className="w-full border-collapse text-left text-xs">
-                    <thead className="sticky top-0 bg-zinc-100/90 backdrop-blur-xs border-b border-zinc-200 z-10 text-[11px] font-bold text-zinc-700">
+                    <thead className="sticky top-0 bg-zinc-100/95 backdrop-blur-xs border-b border-zinc-200 z-10 text-[11px] font-bold text-zinc-700">
                       <tr>
                         <th className="p-2.5">CÓDIGO</th>
                         <th className="p-2.5">DESCRIÇÃO DO MATERIAL</th>
@@ -4008,8 +5174,8 @@ export function PlanejamentoSemanalTab({
                           : `${Math.round(mat.projectedBalance).toLocaleString('pt-BR')} ${mat.unit}`;
 
                         return (
-                          <tr key={mat.code} className={`hover:bg-zinc-50 transition-colors ${mat.isMissing ? 'bg-red-50/20' : ''}`}>
-                            <td className="p-2.5 font-mono text-[11px] font-bold text-zinc-900 whitespace-nowrap">
+                          <tr key={mat.code} className={`hover:bg-zinc-50 transition-colors ${mat.isMissing ? 'bg-rose-50/20' : ''}`}>
+                            <td className="p-2.5 font-mono text-[11px] font-semibold text-zinc-900 whitespace-nowrap">
                               {mat.code}
                             </td>
                             <td className="p-2.5">
@@ -4018,10 +5184,8 @@ export function PlanejamentoSemanalTab({
                               </span>
                             </td>
                             <td className="p-2.5 text-center whitespace-nowrap">
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                isMp ? 'bg-blue-100 text-blue-900' : 'bg-purple-100 text-purple-900'
-                              }`}>
-                                {isMp ? '🧪 MP' : '📦 EMB'}
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-zinc-100 text-zinc-700 border border-zinc-200">
+                                {isMp ? 'MP' : 'EMB'}
                               </span>
                             </td>
                             <td className="p-2.5 text-right font-bold text-zinc-900 whitespace-nowrap">
@@ -4031,18 +5195,18 @@ export function PlanejamentoSemanalTab({
                               {stockFormatted}
                             </td>
                             <td className={`p-2.5 text-right font-bold whitespace-nowrap ${
-                              mat.isMissing ? 'text-red-600' : 'text-emerald-700'
+                              mat.isMissing ? 'text-rose-600' : 'text-emerald-700'
                             }`}>
                               {mat.projectedBalance >= 0 ? `+${balanceFormatted}` : balanceFormatted}
                             </td>
                             <td className="p-2.5 text-center whitespace-nowrap">
                               {mat.isMissing ? (
-                                <span className="px-2 py-0.5 bg-red-100 text-red-800 border border-red-200 rounded font-bold text-[10px]">
-                                  🚨 Ruptura ({isMp ? `${Math.round(mat.missingQty * 10) / 10} kg` : `${Math.round(mat.missingQty)} un`})
+                                <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded font-medium text-[10px]">
+                                  Déficit ({isMp ? `${Math.round(mat.missingQty * 10) / 10} kg` : `${Math.round(mat.missingQty)} un`})
                                 </span>
                               ) : (
-                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded font-bold text-[10px]">
-                                  ✅ Suficiente
+                                <span className="px-2 py-0.5 bg-zinc-100 text-zinc-700 border border-zinc-200 rounded font-medium text-[10px]">
+                                  Suficiente
                                 </span>
                               )}
                             </td>
@@ -4050,8 +5214,8 @@ export function PlanejamentoSemanalTab({
                               {mat.purchaseOrders && mat.purchaseOrders.length > 0 ? (
                                 <div className="flex flex-col gap-0.5">
                                   {mat.purchaseOrders.slice(0, 2).map((po, idx) => (
-                                    <span key={idx} className="text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded text-[10px] font-semibold border border-amber-200">
-                                      🚚 OC #{po.n_pedido}: {po.n_pendente || po.n_qtde} {mat.unit} {po.d_previsao ? `(${po.d_previsao})` : ''}
+                                    <span key={idx} className="text-zinc-700 bg-zinc-100 px-1.5 py-0.5 rounded text-[10px] font-medium border border-zinc-200">
+                                      OC #{po.n_pedido}: {po.n_pendente || po.n_qtde} {mat.unit} {po.d_previsao ? `(${po.d_previsao})` : ''}
                                     </span>
                                   ))}
                                 </div>

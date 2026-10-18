@@ -23,6 +23,7 @@ WORKDIR /app
 COPY Backend/Cargo.toml Backend/Cargo.lock ./Backend/
 # Copia código-fonte necessário para o build
 COPY Backend ./Backend
+COPY erp-import ./erp-import
 
 WORKDIR /app/Backend
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

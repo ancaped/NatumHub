@@ -385,7 +385,7 @@ export default function ToolbarElements({
           <button
             type="button"
             onClick={onOpenSystemVariablesModal}
-            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition-all cursor-pointer shadow-xs active:scale-98"
+            className="w-full flex items-center justify-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white font-bold px-3 py-2 rounded-xl text-xs cursor-pointer"
           >
             <Sparkles className="h-3.5 w-3.5" />
             <span>Biblioteca de Dados</span>
@@ -414,7 +414,7 @@ export default function ToolbarElements({
       <div className="p-3 space-y-4">
         {/* System Dynamic Data Blocks */}
         <div>
-          <span className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider block mb-2 px-1 flex items-center gap-1">
+          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-2 px-1 flex items-center gap-1">
             <Sparkles className="h-3 w-3" /> Dados Dinâmicos do Sistema
           </span>
           <div className="space-y-1.5">
@@ -444,10 +444,10 @@ export default function ToolbarElements({
                   },
                 ]);
               }}
-              className="w-full flex items-center justify-between p-2 rounded-lg border border-indigo-100 bg-indigo-50/40 hover:bg-indigo-100/60 text-xs text-zinc-800 transition-colors cursor-pointer"
+              className="w-full flex items-center justify-between p-2 rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-xs text-zinc-800 transition-colors cursor-pointer"
             >
               <span className="font-semibold text-[11px]">🏷️ Cód + Nome do Produto</span>
-              <span className="text-[9px] bg-indigo-100 text-indigo-800 px-1 py-0.5 rounded font-mono">2 lin.</span>
+              <span className="text-[9px] bg-zinc-200 text-zinc-700 px-1 py-0.5 rounded font-mono">2 lin.</span>
             </button>
 
             <button
@@ -486,10 +486,10 @@ export default function ToolbarElements({
                   },
                 ]);
               }}
-              className="w-full flex items-center justify-between p-2 rounded-lg border border-indigo-100 bg-indigo-50/40 hover:bg-indigo-100/60 text-xs text-zinc-800 transition-colors cursor-pointer"
+              className="w-full flex items-center justify-between p-2 rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-xs text-zinc-800 transition-colors cursor-pointer"
             >
               <span className="font-semibold text-[11px]">📅 Lote + Fab + Validade</span>
-              <span className="text-[9px] bg-indigo-100 text-indigo-800 px-1 py-0.5 rounded font-mono">3 lin.</span>
+              <span className="text-[9px] bg-zinc-200 text-zinc-700 px-1 py-0.5 rounded font-mono">3 lin.</span>
             </button>
 
             <button

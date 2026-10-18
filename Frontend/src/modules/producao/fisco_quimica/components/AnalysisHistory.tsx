@@ -27,7 +27,7 @@ import {
   Video,
 } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
-import { checkAnalysisCompliance, printFiscoReports, printFiscoSummaryReport, printCorrectiveOrder, formatViscosity, calculateFillingTargets } from '../lib/fiscoUtils';
+import { checkAnalysisCompliance, printFiscoReports, printFiscoSummaryReport, printCorrectiveOrder, formatViscosity, calculateFillingTargets, isAnalysisInCorrection } from '../lib/fiscoUtils';
 import Modal from '../../../geral/components/ui/Modal';
 
 const MONTH_NAMES_PT = [
@@ -562,6 +562,7 @@ export function AnalysisHistory({
                   const isSelected = selectedIds.has(a.id);
                   const pat = patternMap.get(normalizeCode(a.productCode)) || null;
                   const compliance = checkAnalysisCompliance(a, pat);
+                  const isEmCorrecaoItem = compliance.overallStatus === 'EM_CORRECAO';
                   const agent = a.correctiveAgentId ? agentMap.get(a.correctiveAgentId) : null;
                   const synced = isSyncedToErp(a);
 
@@ -703,7 +704,7 @@ export function AnalysisHistory({
 
                       {/* Conformidade */}
                       <td className="px-4 py-3.5 text-center whitespace-nowrap">
-                        {a.status === 'EM_CORRECAO' ? (
+                        {isEmCorrecaoItem ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 shadow-xs">
                             <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse" />
                             Em Correção
@@ -731,18 +732,18 @@ export function AnalysisHistory({
                               onClick={() => onEditAnalysis(a)}
                               className={cn(
                                 "flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs",
-                                a.status === 'EM_CORRECAO'
+                                isEmCorrecaoItem
                                   ? "bg-amber-400 hover:bg-amber-500 text-amber-950 font-black"
                                   : "bg-zinc-100 hover:bg-zinc-200 text-zinc-800 hover:text-zinc-950"
                               )}
                               title="Editar medições e dados do laudo"
                             >
                               <Pencil className="w-3.5 h-3.5" />
-                              <span>{a.status === 'EM_CORRECAO' ? 'Concluir / Editar' : 'Editar'}</span>
+                              <span>{isEmCorrecaoItem ? 'Concluir / Editar' : 'Editar'}</span>
                             </button>
                           )}
 
-                          {a.status === 'EM_CORRECAO' && (
+                          {isEmCorrecaoItem && (
                             <button
                               type="button"
                               onClick={() => printCorrectiveOrder(a, pat, agent, config ? { template: config } as any : null)}

@@ -719,6 +719,8 @@ tr:hover td {
 
 .duration-bar-fill.critico { background-color: hsl(var(--danger-hsl)); }
 .duration-bar-fill.ordem { background-color: hsl(var(--warning-hsl)); }
+.duration-bar-fill.montar { background-color: #c2410c; }
+.duration-bar-fill.aguardando { background-color: #1d4ed8; }
 .duration-bar-fill.saudavel { background-color: hsl(var(--success-hsl)); }
 .duration-bar-fill.abundante { background-color: hsl(var(--info-hsl)); }
 .duration-bar-fill.descontinuado { background-color: hsl(var(--text-secondary-hsl)); }

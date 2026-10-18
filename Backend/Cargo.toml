@@ -17,8 +17,13 @@ name = "discover_laudos_erp"
 path = "src/bin/discover_laudos_erp.rs"
 
 [[bin]]
-name = "regen_feedback_md"
-path = "src/bin/regen_feedback_md.rs"
+name = "discover_recebimento_erp"
+path = "src/bin/discover_recebimento_erp.rs"
+
+[[bin]]
+name = "run_import_recebimento_mp"
+path = "src/bin/run_import_recebimento_mp.rs"
+
 
 
 

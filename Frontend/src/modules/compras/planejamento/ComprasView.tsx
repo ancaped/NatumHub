@@ -10,6 +10,7 @@ import { PrintListTab } from './components/PrintListTab';
 import { ListasAcompanhamentoTab } from './components/ListasAcompanhamentoTab';
 import { SolicitationTab } from './components/SolicitationTab';
 import { SimulationTab } from './components/SimulationTab';
+import { ItensSemelhantesTab } from './components/ItensSemelhantesTab';
 import { Package, Users, BarChart3, Settings, Database, Boxes, ArrowLeft, Palette, Tag, Layers, Printer, ClipboardList, EyeOff, Calculator, ClipboardCheck } from 'lucide-react';
 import { cn } from '../../geral/lib/utils';
 import { api } from '../../geral/lib/api';
@@ -78,6 +79,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
       case 'materia_prima':
         items = [
           { id: 'materia_prima', label: 'Matéria-Prima', icon: Boxes },
+          { id: 'itens_semelhantes', label: 'Itens Semelhantes', icon: Layers },
           ...getSubcategoryNavItems('cat_mp'),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
@@ -224,6 +226,12 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         {navItems.some(i => i.id === 'solicitation') && (
           <div className={activeTab !== 'solicitation' ? 'hidden' : ''}>
             <SolicitationTab active={activeTab === 'solicitation'} />
+          </div>
+        )}
+
+        {navItems.some(i => i.id === 'itens_semelhantes') && (
+          <div className={activeTab !== 'itens_semelhantes' ? 'hidden' : ''}>
+            <ItensSemelhantesTab active={activeTab === 'itens_semelhantes'} />
           </div>
         )}
 

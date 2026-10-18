@@ -3,8 +3,8 @@ import {
   AlertTriangle, CheckCircle2, X, RefreshCw, Database, Check, Play,
   ArrowUpDown, ArrowUp, ArrowDown, LayoutDashboard, Table, Layers, History,
   Settings, ArrowLeft, ClipboardList, User, TrendingUp, BarChart3,
-  Scale, Package, FileText, EyeOff, HelpCircle, Info, Search, ClipboardCheck, Calendar,
-  CalendarClock
+  Scale, Package, FileText, EyeOff, HelpCircle, Info, Search, ClipboardCheck, Calendar, Boxes,
+  CalendarClock, Target
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import AppLayout from '../../geral/components/layout/AppLayout';
@@ -15,7 +15,9 @@ import { salesOrderStatusLabel } from '../../geral/lib/salesOrderStatus';
 // Import subcomponents
 import { InventoryTab } from './components/InventoryTab';
 import { ProgramadasTab } from './components/ProgramadasTab';
+import { ProducoesFixasTab } from './components/ProducoesFixasTab';
 import { KitsTab } from './components/KitsTab';
+import { MontagemKitsPainel } from './components/MontagemKitsPainel';
 import { BasesTab } from './components/BasesTab';
 import ItemRegistry from '../../compras/planejamento/components/ItemRegistry';
 import { HistoryTab } from './components/HistoryTab';
@@ -134,6 +136,11 @@ export default function ProducaoView({
   const [overrideObs, setOverrideObs] = useState('');
   const [overrideApenasKit, setOverrideApenasKit] = useState(0);
   const [overrideIsProgramada, setOverrideIsProgramada] = useState(0);
+  const [overrideLancamentoGatilho, setOverrideLancamentoGatilho] = useState('');
+  const [overrideDataFixo, setOverrideDataFixo] = useState('');
+  const [overrideFamilia, setOverrideFamilia] = useState('');
+  const [overrideLancamentoMaximo, setOverrideLancamentoMaximo] = useState('');
+  const [lancamentosTick, setLancamentosTick] = useState(0);
   const [overrideProgramadaDisparo, setOverrideProgramadaDisparo] = useState('');
   const [overrideProgramadaObjetivo, setOverrideProgramadaObjetivo] = useState('');
   const [showHidden, setShowHidden] = useState(false);
@@ -1250,6 +1257,10 @@ export default function ProducaoView({
     setOverrideIsProgramada(prod.is_producao_programada === 1 ? 1 : 0);
     setOverrideProgramadaDisparo(prod.producao_programada_disparo !== null && prod.producao_programada_disparo !== undefined ? prod.producao_programada_disparo.toString() : '');
     setOverrideProgramadaObjetivo(prod.producao_programada_objetivo !== null && prod.producao_programada_objetivo !== undefined ? prod.producao_programada_objetivo.toString() : '');
+    setOverrideLancamentoGatilho(prod.lancamento_gatilho != null ? String(prod.lancamento_gatilho) : '');
+    setOverrideLancamentoMaximo(prod.lancamento_estoque_maximo != null ? String(prod.lancamento_estoque_maximo) : '');
+    setOverrideDataFixo(prod.lancamento_data_inicio ? String(prod.lancamento_data_inicio).slice(0, 10) : '');
+    setOverrideFamilia(prod.familia_produto || '');
   };
 
   const handleSaveOverrides = async () => {
@@ -1272,6 +1283,10 @@ export default function ProducaoView({
       is_producao_programada: isProg ? 1 : 0,
       producao_programada_disparo: isProg && overrideProgramadaDisparo.trim() !== '' ? parseInt(overrideProgramadaDisparo, 10) || 0 : null,
       producao_programada_objetivo: isProg && overrideProgramadaObjetivo.trim() !== '' ? parseInt(overrideProgramadaObjetivo, 10) || 0 : null,
+      lancamento_gatilho: overrideLancamentoGatilho.trim() === '' ? null : parseInt(overrideLancamentoGatilho, 10) || 0,
+      lancamento_estoque_maximo: overrideLancamentoMaximo.trim() === '' ? null : parseInt(overrideLancamentoMaximo, 10) || 0,
+      lancamento_data_inicio: overrideDataFixo.trim() === '' ? null : overrideDataFixo.trim(),
+      familia_produto: overrideFamilia.trim() === '' ? '-' : overrideFamilia.trim(),
     };
 
     try {
@@ -1289,6 +1304,7 @@ export default function ProducaoView({
           "success"
         );
         setEditingProduct(null);
+        setLancamentosTick((n) => n + 1);
         fetchProducts();
         fetchProgramadas();
       } else {
@@ -1397,7 +1413,9 @@ export default function ProducaoView({
   const gerenciamentoSidebarItems = [
     { id: 'inventory', label: 'Gerenciamento de Produção', icon: Table },
     { id: 'kits', label: 'Gerenciamento de Kits', icon: Layers },
+    { id: 'montagem_kits', label: 'Montagem de Kits', icon: Boxes },
     { id: 'programadas', label: 'Produções Programadas', icon: CalendarClock },
+    { id: 'lancamentos', label: 'Produções Fixas', icon: Target },
     { id: 'history', label: 'Histórico', icon: History },
     { id: 'ignored_items', label: 'Produtos Suspensos', icon: EyeOff },
   ];
@@ -1414,6 +1432,8 @@ export default function ProducaoView({
       setCurrentView('inventory');
       setSelectedStatus('ALL');
       setPage(1);
+    } else if (tabId === 'lancamentos') {
+      setCurrentView('lancamentos');
     } else if (tabId === 'programadas') {
       setCurrentView('programadas');
       setProgramadasActiveTab('ALL');
@@ -1436,6 +1456,8 @@ export default function ProducaoView({
       setCurrentView('erros');
       setSelectedLoteStatus('ERR_ANY_ERROR');
       fetchLotes();
+    } else if (tabId === 'montagem_kits') {
+      setCurrentView('montagem_kits');
     } else if (tabId === 'kits') {
       setCurrentView('kits');
       setKitsActiveTab('ALL');
@@ -1523,6 +1545,17 @@ export default function ProducaoView({
             />
           )}
 
+          {currentView === 'lancamentos' && (
+            <ProducoesFixasTab
+              tabOptions={tabOptions}
+              reloadToken={lancamentosTick}
+              onEditOverrides={openEditModal}
+              onShowDetails={fetchProductDetails}
+              productionApprovalList={productionApprovalList}
+              onToggleApprovalList={handleToggleApprovalList}
+            />
+          )}
+
           {/* VIEW: PRODUÇÕES PROGRAMADAS */}
           {currentView === 'programadas' && (
             <ProgramadasTab
@@ -1595,6 +1628,13 @@ export default function ProducaoView({
             />
           )}
 
+          {currentView === 'montagem_kits' && (
+            <MontagemKitsPainel
+              tabOptions={tabOptions}
+              onOpenComposition={handleOpenKitComposition}
+            />
+          )}
+
           {/* VIEW: KITS MANAGEMENT */}
           {currentView === 'kits' && (
             <KitsTab
@@ -1638,6 +1678,8 @@ export default function ProducaoView({
               onToggleApprovalList={handleToggleApprovalList}
               onOpenComposition={handleOpenKitComposition}
               onToggleApenasKit={handleToggleComponentApenasKit}
+              onShowDetails={fetchProductDetails}
+              diasComerciais={diasComerciais}
             />
           )}
 
@@ -1877,16 +1919,36 @@ export default function ProducaoView({
               </div>
 
               <div className="form-group" style={{ marginTop: '0.75rem' }}>
-                <label>Status de Vendas (Lançamento)</label>
+                <label>Etiqueta de lançamento</label>
                 <select 
                   className="form-control text-zinc-900"
                   value={overrideLaunch}
                   onChange={(e) => setOverrideLaunch(e.target.value)}
                 >
-                  <option value="AUTO">Automático (Baseado no faturamento 2025)</option>
-                  <option value="LAUNCH">Lançamento (Forçar sem histórico / desvio zero)</option>
-                  <option value="REGULAR">Produto de Linha Regular (Forçar cálculo padrão)</option>
+                  <option value="AUTO">Automático (Baseado no faturamento)</option>
+                  <option value="LAUNCH">Lançamento</option>
+                  <option value="REGULAR">Linha regular</option>
                 </select>
+                <p className="text-[11px] text-zinc-500 mt-1">A etiqueta só identifica o item. O regime de produção fixa é o gatilho e o estoque máximo.</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Gatilho fixo</label>
+                  <input type="number" className="form-control text-zinc-900 mt-1" placeholder="Estoque mínimo" value={overrideLancamentoGatilho} onChange={(e) => setOverrideLancamentoGatilho(e.target.value)} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Estoque máximo</label>
+                  <input type="number" className="form-control text-zinc-900 mt-1" placeholder="Teto de produção" value={overrideLancamentoMaximo} onChange={(e) => setOverrideLancamentoMaximo(e.target.value)} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Em estoque fixo desde</label>
+                  <input type="date" className="form-control text-zinc-900 mt-1" value={overrideDataFixo} onChange={(e) => setOverrideDataFixo(e.target.value)} />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label>Família</label>
+                  <input className="form-control text-zinc-900 mt-1" placeholder="Cachos, Mandioca, Cronograma…" value={overrideFamilia} onChange={(e) => setOverrideFamilia(e.target.value)} />
+                </div>
               </div>
 
               <div className="form-group" style={{ marginTop: '0.75rem' }}>

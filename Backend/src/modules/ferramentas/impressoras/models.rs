@@ -93,3 +93,35 @@ pub struct CreatePrintJobRequest {
     pub payload_data: String,
     pub copies: Option<i32>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkComputerInfo {
+    pub ip: String,
+    pub hostname: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteDiscoveredPrinter {
+    pub name: String,
+    pub share_name: String,
+    pub unc_path: String,
+    pub driver_name: Option<String>,
+    pub port_name: Option<String>,
+    pub is_thermal: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RemoteScanRequest {
+    pub target: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConnectRemotePrinterRequest {
+    pub unc_path: String,
+    pub display_name: Option<String>,
+    pub location: Option<String>,
+    pub printer_type: Option<String>,
+    pub default_width_mm: Option<f64>,
+    pub default_height_mm: Option<f64>,
+}
+

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../geral/lib/api';
 import { DemandResult } from '../../../geral/lib/types';
-import { Trash2, Printer, Search, Plus, FileText, RefreshCw, X, Package, Settings, Layers, Tag, CheckCircle2, ClipboardList, Check } from 'lucide-react';
+import { Trash2, Printer, Search, Plus, FileText, RefreshCw, X, Package, Settings, Layers, Tag, CheckCircle2, ClipboardList, Check, Pencil } from 'lucide-react';
 import { cn } from '../../../geral/lib/utils';
 import { getAuthUser } from '../../../geral/lib/auth';
 
@@ -26,6 +26,11 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [categories, setCategories] = useState<any[]>([]);
+  const [stockOverrides, setStockOverrides] = useState<Record<string, number>>({});
+  const [calibrated, setCalibrated] = useState<Set<string>>(new Set());
+  const [editingStock, setEditingStock] = useState<string | null>(null);
+  const [stockDraft, setStockDraft] = useState('');
+  const [stockError, setStockError] = useState<string | null>(null);
   const [manualQtys, setManualQtys] = useState<Record<string, number>>(() => {
     const stored = localStorage.getItem('natum_hub_print_list_manual_qtys');
     if (stored) {
@@ -225,6 +230,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
     api.getCategories().then(setCategories).catch(console.error);
     if (active) {
       loadDemands();
+      api.getStockCalibrations().then((codes) => setCalibrated(new Set(codes))).catch(() => {});
     }
   }, [active, mode]);
 
@@ -279,8 +285,41 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
       );
     }
     
-    return result;
-  }, [demands, printList, search, mode, categories]);
+    return result.map((d) => {
+      const next = stockOverrides[d.itemCode];
+      if (next == null) return d;
+      const delta = next - (d.currentStock || 0);
+      return { ...d, currentStock: next, futureStockForecast: (d.futureStockForecast || 0) + delta };
+    });
+  }, [demands, printList, search, mode, categories, stockOverrides]);
+
+  const commitStock = async (code: string) => {
+    if (editingStock !== code) return;
+    const n = Number(String(stockDraft).replace(',', '.'));
+    if (!Number.isFinite(n) || n < 0) {
+      setStockError('Informe um estoque válido.');
+      return;
+    }
+    setEditingStock(null);
+    setStockError(null);
+    setStockOverrides((prev) => ({ ...prev, [code]: n }));
+    try {
+      await api.setItemRealStock(code, n);
+      setCalibrated((prev) => new Set(prev).add(code));
+      setDemands((prev) => prev.map((d) => {
+        if (d.itemCode !== code) return d;
+        const delta = n - (d.currentStock || 0);
+        return { ...d, currentStock: n, futureStockForecast: (d.futureStockForecast || 0) + delta };
+      }));
+    } catch (e) {
+      setStockOverrides((prev) => {
+        const next = { ...prev };
+        delete next[code];
+        return next;
+      });
+      setStockError(e instanceof Error ? e.message : 'Não foi possível salvar o estoque.');
+    }
+  };
 
   // Items available to add manually (not already in list)
   const availableItemsToAdd = useMemo(() => {
@@ -960,6 +999,8 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
             </div>
           </div>
 
+          {stockError && <p className="text-xs font-bold text-rose-700 px-1">{stockError}</p>}
+
           {/* Table Container */}
           <div className="flex-1 overflow-auto min-h-0">
             {loading ? (
@@ -1003,7 +1044,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
                     const currentDuration = daily > 0 ? Math.round(futureStock / daily) : 9999;
 
                     return (
-                      <tr key={d.itemCode} className="hover:bg-zinc-50/70 transition-colors">
+                      <tr key={d.itemCode} className="group hover:bg-zinc-50/70 transition-colors">
                         {columnOrder.map(colKey => {
                           if (!columns[colKey]) return null;
 
@@ -1037,9 +1078,38 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
                             );
                           }
                           if (colKey === 'currentStock') {
+                            const editing = editingStock === d.itemCode;
                             return (
                               <td key={colKey} className="py-2.5 px-3 text-right font-mono font-semibold text-zinc-800">
-                                {d.currentStock.toLocaleString('pt-BR')} <span className="text-[10px] text-zinc-400 font-sans">{d.unit}</span>
+                                {editing ? (
+                                  <input
+                                    autoFocus
+                                    type="number"
+                                    min={0}
+                                    className="w-24 px-2 py-1 text-xs font-mono font-bold border border-zinc-900 rounded-lg bg-white shadow-sm text-right"
+                                    value={stockDraft}
+                                    onChange={(e) => setStockDraft(e.target.value)}
+                                    onBlur={() => void commitStock(d.itemCode)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') void commitStock(d.itemCode);
+                                      if (e.key === 'Escape') setEditingStock(null);
+                                    }}
+                                  />
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1 cursor-pointer bg-transparent border-none p-0 font-mono font-semibold text-zinc-800"
+                                    title={calibrated.has(d.itemCode) ? 'Estoque calibrado manualmente' : 'Ajustar estoque real'}
+                                    onClick={() => {
+                                      setEditingStock(d.itemCode);
+                                      setStockDraft(String(d.currentStock ?? 0));
+                                    }}
+                                  >
+                                    {calibrated.has(d.itemCode) && <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-600" />}
+                                    {d.currentStock.toLocaleString('pt-BR')} <span className="text-[10px] text-zinc-400 font-sans">{d.unit}</span>
+                                    <Pencil className="h-3 w-3 text-zinc-400 opacity-0 group-hover:opacity-100" />
+                                  </button>
+                                )}
                               </td>
                             );
                           }

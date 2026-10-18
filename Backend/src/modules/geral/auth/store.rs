@@ -178,7 +178,10 @@ async fn migrate_overrides_programadas_schema(pool: &PgPool) -> Result<(), Strin
         "ALTER TABLE overrides_produtos
          ADD COLUMN IF NOT EXISTS is_producao_programada INTEGER DEFAULT 0,
          ADD COLUMN IF NOT EXISTS producao_programada_disparo BIGINT,
-         ADD COLUMN IF NOT EXISTS producao_programada_objetivo BIGINT",
+         ADD COLUMN IF NOT EXISTS producao_programada_objetivo BIGINT,
+         ADD COLUMN IF NOT EXISTS lancamento_gatilho BIGINT,
+         ADD COLUMN IF NOT EXISTS lancamento_estoque_maximo BIGINT,
+         ADD COLUMN IF NOT EXISTS familia_produto TEXT",
     )
     .execute(pool)
     .await;
@@ -1313,6 +1316,9 @@ pub fn requires_supervisor(path: &str, method: &str) -> bool {
     if path.starts_with("/api/auth/devices/manage") {
         return matches!(method, "GET" | "PUT");
     }
+    if path == "/api/settings/report-logo" {
+        return matches!(method, "POST" | "PUT" | "DELETE");
+    }
     if !matches!(method, "POST" | "PUT" | "DELETE" | "PATCH") {
         return false;
     }
@@ -1335,6 +1341,12 @@ pub fn requires_supervisor(path: &str, method: &str) -> bool {
 pub fn requires_module(path: &str, method: &str) -> Option<&'static str> {
     if !matches!(method, "POST" | "PUT" | "DELETE" | "PATCH") {
         return None;
+    }
+    if path.starts_with("/api/qualidade/recebimento-mp") {
+        return Some(super::modules_registry::MODULE_QUALIDADE_RECEBIMENTO_MP);
+    }
+    if path.starts_with("/api/qualidade/avarias") {
+        return Some(super::modules_registry::MODULE_QUALIDADE_AVARIAS);
     }
     if path.starts_with("/api/hub/microbio") {
         return Some(super::modules_registry::MODULE_MICROBIOLOGIA);
@@ -1399,7 +1411,8 @@ pub fn has_write_access(ctx: &AuthContext, path: &str, method: &str) -> bool {
         return ctx.can_edit_module(super::modules_registry::MODULE_CONTROLE_QUALIDADE)
             || ctx.can_edit_module(super::modules_registry::MODULE_QUALIDADE_POPS)
             || ctx.can_edit_module(super::modules_registry::MODULE_QUALIDADE_DEVOLUCOES)
-            || ctx.can_edit_module(super::modules_registry::MODULE_QUALIDADE_DOCUMENTACAO);
+            || ctx.can_edit_module(super::modules_registry::MODULE_QUALIDADE_DOCUMENTACAO)
+            || ctx.can_edit_module(super::modules_registry::MODULE_QUALIDADE_RECEBIMENTO_MP);
     }
     if path.starts_with("/api/vendas") {
         return ctx.can_edit_module(super::modules_registry::MODULE_VENDAS);

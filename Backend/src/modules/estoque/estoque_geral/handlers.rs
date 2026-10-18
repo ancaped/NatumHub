@@ -213,3 +213,49 @@ pub async fn get_product_count_history(
 
     (StatusCode::OK, Json(history)).into_response()
 }
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CompraPendente {
+    code: String,
+    pendente: f64,
+}
+
+/// Pedido de compra ainda não recebido (entra no estoque). Vale para insumo e produto.
+pub async fn compras_pendentes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let pool = state.db.pool();
+    let rows = match sqlx::query(
+        r#"
+        SELECT TRIM(poi.c_referencia) AS code,
+               SUM(poi.n_qtde - poi.n_chegou)::float8 AS pendente
+        FROM purchase_order_items poi
+        JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
+        WHERE po.c_status <> 'T'
+          AND poi.n_qtde > poi.n_chegou
+          AND TRIM(COALESCE(poi.c_referencia, '')) <> ''
+        GROUP BY TRIM(poi.c_referencia)
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    let lista: Vec<CompraPendente> = rows
+        .iter()
+        .map(|row| CompraPendente {
+            code: row.get(0),
+            pendente: row.get::<f64, _>(1).max(0.0),
+        })
+        .collect();
+
+    (StatusCode::OK, Json(lista)).into_response()
+}

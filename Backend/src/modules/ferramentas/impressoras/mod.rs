@@ -22,6 +22,18 @@ pub fn router() -> Router<Arc<AppState>> {
             get(handlers::scan_system_printers_handler),
         )
         .route(
+            "/api/ferramentas/impressoras/network-computers",
+            get(handlers::list_network_computers_handler),
+        )
+        .route(
+            "/api/ferramentas/impressoras/remote-scan",
+            post(handlers::scan_remote_printers_handler),
+        )
+        .route(
+            "/api/ferramentas/impressoras/connect-remote",
+            post(handlers::connect_remote_printer_handler),
+        )
+        .route(
             "/api/ferramentas/impressoras/jobs",
             get(handlers::list_print_jobs_handler).post(handlers::create_print_job_handler),
         )

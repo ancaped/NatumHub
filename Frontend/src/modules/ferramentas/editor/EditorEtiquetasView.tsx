@@ -12,17 +12,16 @@ import {
   ZoomOut,
   Grid,
   Magnet,
-  ArrowLeft,
   Check,
   Loader2,
   FilePlus2,
-  Palette,
-  Sparkles,
-  Layers,
+  PenLine,
+  LayoutTemplate,
   Database,
   Eye,
   EyeOff,
 } from 'lucide-react';
+import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
 import type { LabelElement, LabelTemplate } from '../etiquetas/lib/types';
 import { DEFAULT_LABEL_TEMPLATES } from '../etiquetas/lib/defaultTemplates';
 import LabelCanvas from '../etiquetas/components/LabelCanvas';
@@ -468,7 +467,9 @@ export default function EditorEtiquetasView({
     const pLot = selectedPreviewLot?.lote || '15527';
     const pEan = selectedPreviewProduct?.codigo_barras || '7898553231964';
     const pDun = selectedPreviewProduct?.codigo_barras_caixa || `1${pEan.slice(0, 12)}`;
-    const pBoxQty = `${selectedPreviewProduct?.quantidade_caixa || 12} un.`;
+    const pBoxQty = selectedPreviewProduct?.quantidade_caixa
+      ? `${selectedPreviewProduct.quantidade_caixa} un.`
+      : '';
     const pFab = selectedPreviewLot?.data_producao || new Date().toLocaleDateString('pt-BR');
     const dVal = new Date();
     dVal.setFullYear(dVal.getFullYear() + 2);
@@ -566,51 +567,42 @@ export default function EditorEtiquetasView({
     }
   };
 
+  const editorNav: SidebarItem[] = [
+    { id: 'desenho', label: 'Desenho', icon: PenLine },
+    { id: 'modelos', label: 'Modelos', icon: LayoutTemplate },
+  ];
+
   return (
-    <div className="flex-1 flex flex-col h-full bg-zinc-100 overflow-hidden font-sans select-none">
-      {/* Top Header */}
-      <header className="bg-white border-b border-zinc-200 px-6 py-3 flex items-center justify-between gap-4 shrink-0 shadow-xs">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-zinc-900 text-white rounded-2xl shadow-xs">
-            <Palette className="h-5 w-5" />
-          </div>
-
-          <div>
-            <h1 className="text-lg font-black text-zinc-900 tracking-tight flex items-center gap-2">
-              <span>Editor de Etiquetas</span>
-              <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-purple-50 text-purple-800 font-bold border border-purple-200">
-                Estúdio Visual
-              </span>
-            </h1>
-            <p className="text-xs text-zinc-500">
-              Criação, desenho e integração com dados reais em 100x50mm
-            </p>
-          </div>
-        </div>
-
-        {/* Live Preview Toggle & Actions */}
-        <div className="flex items-center gap-2.5">
-          {/* Preview with Real Data Toggle */}
+    <AppLayout
+      studio
+      moduleTitle="Editor"
+      onBackToHub={onBackToHub || (() => {})}
+      sidebarItems={editorNav}
+      activeTab="desenho"
+      onTabChange={(id) => {
+        if (id === 'modelos') setIsTemplatesModalOpen(true);
+      }}
+      headerActions={
+        <>
           <div className="flex items-center gap-1.5 bg-zinc-100 p-1 rounded-xl border border-zinc-200">
             <button
               type="button"
               onClick={() => setPreviewMode(!previewMode)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 previewMode
-                  ? 'bg-emerald-600 text-white shadow-xs'
+                  ? 'bg-zinc-900 text-white'
                   : 'text-zinc-700 hover:text-zinc-900 hover:bg-white'
               }`}
-              title="Alternar entre visualização de tags {var} e dados reais da fábrica"
+              title="Troca as tags {var} pelos dados do lote"
             >
               {previewMode ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-              <span>{previewMode ? 'Prévia Real Ativa' : 'Ver com Dados Reais'}</span>
+              <span>{previewMode ? 'Prévia do lote' : 'Ver com dados do lote'}</span>
             </button>
-
             {previewMode && (
               <select
                 value={selectedPreviewLot?.id || ''}
                 onChange={(e) => {
-                  const match = productionLots.find((l) => l.id === e.target.value);
+                  const match = productionLots.find((l) => String(l.id) === e.target.value);
                   if (match) setSelectedPreviewLot(match);
                 }}
                 className="text-[11px] font-bold font-mono bg-white border border-zinc-300 rounded-md px-2 py-1 focus:outline-none"
@@ -623,17 +615,14 @@ export default function EditorEtiquetasView({
               </select>
             )}
           </div>
-
           <button
             type="button"
             onClick={() => setIsSystemVariablesModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-2xs"
-            title="Abrir Biblioteca de Dados do Sistema e Criar Variáveis"
+            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-200 rounded-xl text-xs font-bold cursor-pointer"
           >
             <Database className="h-3.5 w-3.5" />
-            <span>Biblioteca de Dados</span>
+            <span>Dados</span>
           </button>
-
           <button
             type="button"
             onClick={() => {
@@ -641,32 +630,38 @@ export default function EditorEtiquetasView({
               setSaveAsCategory(template.category || 'custom');
               setIsSaveAsModalOpen(true);
             }}
-            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-300 rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-200 rounded-xl text-xs font-bold cursor-pointer"
           >
             <FilePlus2 className="h-3.5 w-3.5" />
-            <span>Salvar Como</span>
+            <span>Salvar como</span>
           </button>
-
+          <button
+            type="button"
+            onClick={() => setIsPrintModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-200 rounded-xl text-xs font-bold cursor-pointer"
+          >
+            <Printer className="h-3.5 w-3.5" />
+            <span>Imprimir</span>
+          </button>
           <button
             type="button"
             onClick={() => setIsSystemPrintModalOpen(true)}
-            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-xl text-xs transition-colors cursor-pointer shadow-xs active:scale-98"
+            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-zinc-100 text-zinc-800 border border-zinc-200 rounded-xl text-xs font-bold cursor-pointer"
           >
-            <Sparkles className="h-4 w-4" />
-            <span>Imprimir com Auto-Fill</span>
+            <span>Imprimir com lote</span>
           </button>
-
           <button
             type="button"
             onClick={handleSaveCurrent}
             disabled={saving}
-            className="flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 text-white font-bold px-4 py-2 rounded-xl text-xs transition-colors cursor-pointer shadow-xs active:scale-98 disabled:opacity-50"
+            className="flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 text-white font-bold px-4 py-2 rounded-xl text-xs cursor-pointer disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
             <span>Salvar</span>
           </button>
-        </div>
-      </header>
+        </>
+      }
+    >
 
       {/* Status Bar */}
       {statusMessage && (
@@ -923,6 +918,6 @@ export default function EditorEtiquetasView({
           </div>
         </div>
       )}
-    </div>
+    </AppLayout>
   );
 }

@@ -142,6 +142,7 @@ pub struct FiscoErpLoteItem {
     pub fabricated_by: String,
     pub authorized_by: String,
     pub unidades: f64,
+    pub qtde_cx: i32,
     pub d_pesado: Option<String>,
     pub d_envase: Option<String>,
     pub ph_erp: Option<f64>,
@@ -336,7 +337,8 @@ async fn get_erp_lotes_handler(
             fqa.viscosity_measured::float8,
             fqa.density_measured::float8,
             fqa.fraction_weight::float8,
-            fqa.has_adjustment
+            fqa.has_adjustment,
+            COALESCE(p.qtde_cx, 0) AS qtde_cx
         FROM erp_lotes_laudos el
         LEFT JOIN produtos p ON el.product_code = p.codigo
         LEFT JOIN fisco_quimica_analyses fqa ON fqa.batch = el.lote
@@ -438,6 +440,7 @@ async fn get_erp_lotes_handler(
             density_measured: row.get(25),
             fraction_weight: row.get(26),
             has_adjustment: has_adj_int.map(|v| v == 1),
+            qtde_cx: row.get(28),
         });
     }
 
@@ -722,6 +725,38 @@ async fn push_to_erp_handler(
         .into_response()
 }
 
+fn parse_ph_adjustment(notes: &str) -> Option<(String, f64)> {
+    let start = notes.find("[Ajuste de pH: ")?;
+    let rest = &notes[start + 15..];
+    let end = rest.find(']')?;
+    let body = &rest[..end];
+    let mut name = String::new();
+    let mut total = 0.0;
+    for part in body.split('|') {
+        let part = part.trim();
+        let lower = part.to_lowercase();
+        if lower.starts_with("total:") {
+            let num = lower
+                .trim_start_matches("total:")
+                .trim()
+                .trim_end_matches("kg")
+                .trim()
+                .replace(',', ".");
+            total = num.parse().unwrap_or(0.0);
+        } else if name.is_empty()
+            && !lower.starts_with("dose")
+            && !lower.starts_with("ph ")
+            && !lower.starts_with("ph:")
+        {
+            name = part.to_string();
+        }
+    }
+    if name.is_empty() || total <= 0.0 {
+        return None;
+    }
+    Some((name, total))
+}
+
 async fn get_corrective_batches_handler(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
@@ -797,16 +832,16 @@ async fn get_corrective_batches_handler(
             }
         }
 
+        let mut extra_ph: Option<(String, f64)> = None;
         if let Some(ref n) = notes {
-            if n.contains("[Ajuste de pH:") {
-                if let Some(start) = n.find("[Ajuste de pH: ") {
-                    let rest = &n[start + 15..];
-                    if let Some(end) = rest.find('|') {
-                        let extracted_name = rest[..end].trim();
-                        if !extracted_name.is_empty() {
-                            agent_name = extracted_name.to_string();
-                        }
+            if let Some((ph_name, ph_kg)) = parse_ph_adjustment(n) {
+                if agent_name == "Agente Corretivo" || agent_name == ph_name || total_kg <= 0.0 {
+                    agent_name = ph_name;
+                    if total_kg <= 0.0 {
+                        total_kg = ph_kg;
                     }
+                } else if ph_kg > 0.0 {
+                    extra_ph = Some((ph_name, ph_kg));
                 }
             }
         }
@@ -826,6 +861,20 @@ async fn get_corrective_batches_handler(
         ];
         let month_label = month_names.get((month_num as usize).saturating_sub(1)).unwrap_or(&"Mês");
         let label = format!("{} / {} — Semana {}", month_label, iso_year, iso_week);
+
+        let ph_item = extra_ph.as_ref().map(|(ph_name, ph_kg)| CorrectiveBatchItem {
+            analysis_id: id.clone(),
+            batch: batch.clone(),
+            product_code: prod_code.clone(),
+            product_name: prod_name.clone(),
+            analysis_date: date_str.clone(),
+            agent_name: ph_name.clone(),
+            agent_category: "PH".to_string(),
+            trial_qty_g_per_l: None,
+            batch_size_kg: batch_size,
+            total_agent_kg: *ph_kg,
+            notes: notes.clone(),
+        });
 
         let item = CorrectiveBatchItem {
             analysis_id: id,
@@ -861,6 +910,13 @@ async fn get_corrective_batches_handler(
         summary.total_agents_kg += total_kg;
         *summary.agent_totals.entry(agent_name).or_insert(0.0) += total_kg;
         summary.items.push(item);
+        if let Some(ph) = ph_item {
+            let ph_name = ph.agent_name.clone();
+            let ph_kg = ph.total_agent_kg;
+            summary.total_agents_kg += ph_kg;
+            *summary.agent_totals.entry(ph_name).or_insert(0.0) += ph_kg;
+            summary.items.push(ph);
+        }
     }
 
     let result: Vec<CorrectiveWeekSummary> = groups.into_values().rev().collect();

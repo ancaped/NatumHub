@@ -5,14 +5,16 @@ import { readLabelFillScale, writeLabelFillScale } from '../lib/printService';
 /** Ajuste compartilhado por todas as impressões de etiqueta do Nexus. */
 export default function LabelFillControl({
   onChange,
+  initialPercent,
 }: {
   onChange?: (next: { percent: number; feed: LabelFeed }) => void;
+  initialPercent?: number;
 }) {
-  const [percent, setPercent] = useState(100);
+  const [percent, setPercent] = useState(initialPercent ?? 100);
   const [feed, setFeed] = useState<LabelFeed>('landscape');
 
   useEffect(() => {
-    const storedPercent = readLabelFillScale();
+    const storedPercent = initialPercent ?? readLabelFillScale();
     const storedFeed = readLabelFeed();
     setPercent(storedPercent);
     setFeed(storedFeed);

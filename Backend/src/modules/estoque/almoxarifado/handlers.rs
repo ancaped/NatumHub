@@ -4,6 +4,7 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
+use chrono::{Datelike, Utc};
 use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
@@ -44,7 +45,7 @@ fn has_any_ops(ctx: &AuthContext) -> bool {
 
 fn module_for_section(section: &str) -> Option<&'static str> {
     match section {
-        "almoxarifado" => Some(MODULE_ESTOQUE_ALMOX),
+        "almoxarifado" | "escritorio" | "limpeza" | "outros" => Some(MODULE_ESTOQUE_ALMOX),
         "supermercado" => Some(MODULE_ESTOQUE_SUPERMERCADO),
         "pecas" => Some(MODULE_ESTOQUE_PECAS),
         _ => None,
@@ -372,7 +373,7 @@ pub async fn create_demand(
     Extension(ctx): Extension<AuthContext>,
     Json(body): Json<CreateDemandRequest>,
 ) -> impl IntoResponse {
-    if !require_compras_almox(&ctx) {
+    if !require_compras_almox(&ctx) && !has_any_ops(&ctx) {
         return deny_module();
     }
     match store::create_demand(state.db.pool(), Some(&ctx.operator_id), &body).await {
@@ -385,7 +386,7 @@ pub async fn create_demand_from_min(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
 ) -> impl IntoResponse {
-    if !require_compras_almox(&ctx) {
+    if !require_compras_almox(&ctx) && !has_any_ops(&ctx) {
         return deny_module();
     }
     match store::create_demands_from_replenishment(state.db.pool(), Some(&ctx.operator_id)).await {
@@ -410,11 +411,111 @@ pub async fn update_demand_status(
     Path(id): Path<String>,
     Json(body): Json<UpdateDemandStatusRequest>,
 ) -> impl IntoResponse {
-    if !require_compras_almox(&ctx) {
+    if !require_compras_almox(&ctx) && !has_any_ops(&ctx) {
         return deny_module();
     }
     match store::update_demand_status(state.db.pool(), &id, &body.status).await {
         Ok(d) => (StatusCode::OK, Json(json!({ "demand": d }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+pub async fn update_demand(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateDemandRequest>,
+) -> impl IntoResponse {
+    if !require_compras_almox(&ctx) && !has_any_ops(&ctx) {
+        return deny_module();
+    }
+    match store::update_demand(state.db.pool(), &id, &body).await {
+        Ok(d) => (StatusCode::OK, Json(json!({ "demand": d }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryQuery {
+    pub item_code: Option<String>,
+    pub q: Option<String>,
+}
+
+pub async fn get_item_purchase_history(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(params): Query<HistoryQuery>,
+) -> impl IntoResponse {
+    if !has_any_ops(&ctx) {
+        return deny_module();
+    }
+    match store::get_item_purchase_history(state.db.pool(), params.item_code.as_deref(), params.q.as_deref()).await {
+        Ok(history) => (StatusCode::OK, Json(json!({ "history": history }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+pub async fn latest_stock_count(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+) -> impl IntoResponse {
+    if !has_any_ops(&ctx) {
+        return deny_module();
+    }
+    match store::latest_stock_count(state.db.pool()).await {
+        Ok(status) => (StatusCode::OK, Json(status)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+pub async fn apply_stock_count(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Json(body): Json<StockCountRequest>,
+) -> impl IntoResponse {
+    if !can_write_stock(&ctx) {
+        return deny_module();
+    }
+    match store::apply_stock_count(state.db.pool(), Some(&ctx.operator_id), &body).await {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+pub async fn mark_purchased(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<String>,
+    Json(body): Json<MarkPurchasedRequest>,
+) -> impl IntoResponse {
+    if !require_compras_almox(&ctx) {
+        return deny_module();
+    }
+    match store::mark_purchased(state.db.pool(), &id, Some(&ctx.operator_id), &body).await {
+        Ok(d) => (StatusCode::OK, Json(json!({ "demand": d }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+pub async fn get_demand_receipt(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if !require_compras_almox(&ctx) {
+        return deny_module();
+    }
+    match store::demand_receipt(state.db.pool(), &id).await {
+        Ok((name, data, receipts_json)) => (
+            StatusCode::OK,
+            Json(json!({
+                "receiptName": name,
+                "receiptData": data,
+                "receiptsJson": receipts_json
+            })),
+        )
+            .into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
     }
 }
@@ -650,3 +751,128 @@ pub async fn get_item_consumption(
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
     }
 }
+
+pub async fn list_familias(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+) -> impl IntoResponse {
+    if !has_any_ops(&ctx) {
+        return deny_module();
+    }
+    match store::list_familias(state.db.pool()).await {
+        Ok(items) => (StatusCode::OK, Json(json!({ "familias": items }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+pub async fn upsert_familia(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Json(body): Json<AlmoxFamilia>,
+) -> impl IntoResponse {
+    if !can_write_stock(&ctx) {
+        return deny_module();
+    }
+    match store::upsert_familia(state.db.pool(), &body).await {
+        Ok(f) => (StatusCode::OK, Json(json!({ "familia": f }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+pub async fn delete_familia(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if !can_write_stock(&ctx) {
+        return deny_module();
+    }
+    match store::delete_familia(state.db.pool(), &id).await {
+        Ok(_) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+pub async fn delete_item(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    if !can_write_stock(&ctx) {
+        return deny_module();
+    }
+    match store::delete_item(state.db.pool(), &code).await {
+        Ok(_) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdatePrintSequenceRequest {
+    #[serde(alias = "lastSequence", alias = "sequence")]
+    pub last_sequence: i64,
+}
+
+pub async fn get_print_sequence(
+    State(state): State<Arc<AppState>>,
+    Extension(_ctx): Extension<AuthContext>,
+) -> impl IntoResponse {
+    match store::get_print_sequence(state.db.pool()).await {
+        Ok(seq) => (StatusCode::OK, Json(json!({ "lastSequence": seq, "nextSequence": seq + 1 }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+pub async fn update_print_sequence(
+    State(state): State<Arc<AppState>>,
+    Extension(_ctx): Extension<AuthContext>,
+    Json(body): Json<UpdatePrintSequenceRequest>,
+) -> impl IntoResponse {
+    match store::set_print_sequence(state.db.pool(), body.last_sequence).await {
+        Ok(_) => (StatusCode::OK, Json(json!({ "success": true, "lastSequence": body.last_sequence }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisterPrintedSlipsRequest {
+    pub start_seq: i64,
+    pub count: i64,
+    #[serde(default)]
+    pub year: Option<i32>,
+}
+
+pub async fn register_printed_slips(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Json(body): Json<RegisterPrintedSlipsRequest>,
+) -> impl IntoResponse {
+    if !require_compras_almox(&ctx) {
+        return deny_module();
+    }
+    let year = body.year.unwrap_or_else(|| Utc::now().year());
+    match store::register_printed_slips(
+        state.db.pool(),
+        body.start_seq,
+        body.count,
+        year,
+        Some(&ctx.operator_id),
+    )
+    .await
+    {
+        Ok(demands) => (
+            StatusCode::OK,
+            Json(json!({
+                "success": true,
+                "demands": demands,
+                "nextSequence": body.start_seq + body.count,
+                "lastSequence": body.start_seq + body.count - 1
+            })),
+        )
+            .into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+

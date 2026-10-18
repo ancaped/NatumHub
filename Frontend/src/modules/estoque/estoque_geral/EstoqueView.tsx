@@ -3,15 +3,15 @@ import { salesOrderStatusLabel } from '../../geral/lib/salesOrderStatus';
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../geral/lib/api';
 import { 
-  ArrowLeft, Search, Database, Layers, Boxes, Calendar, FileText, 
+  ArrowLeft, Search, Database, Layers, Boxes, Calculator, 
   RefreshCw, CheckCircle2, AlertTriangle, ArrowUpRight, ArrowDownRight, 
   Info, Shield, Package, ShoppingCart, User, HelpCircle, FileSpreadsheet, Lock,
   Truck, Receipt, Clock, X, Link, Palette, Tag
 } from 'lucide-react';
 import { cn } from '../../geral/lib/utils';
-import { useGlobalNavActive } from '../../geral/components/layout/NavShellContext';
 import { StockMovement, FormulationLine, DbDumpResult } from '../../geral/lib/types';
-import { ProdutoContagemTab } from './components/ProdutoContagemTab';
+import AppLayout from '../../geral/components/layout/AppLayout';
+import { ListaContagem, type CatalogoContagem } from './components/ListaContagem';
 
 type EstoqueMode = 'materia_prima' | 'embalagens' | 'coloracao' | 'apoio' | 'insumos' | 'produtos';
 type DataKind = 'insumos' | 'produtos';
@@ -61,6 +61,7 @@ interface DemandResultWithIgnored {
   categoryName: string;
   currentStock: number;
   reservedQty: number;
+  reservedQtyOrdens?: number;
   inProduction: number;
   inOrders: number;
   overallAvg: number;
@@ -139,24 +140,23 @@ const MODE_CONFIGS: Record<EstoqueMode, { title: string; subtitle: string; icon:
     pageName: 'Módulo de Estoque > Insumos',
   },
   produtos: {
-    title: 'Produtos',
-    subtitle: 'Formulações, estoque atual, previsões de demanda, ordens recomendadas e histórico de lotes.',
+    title: 'Produtos acabados',
+    subtitle: 'Consulta de saldo, produção e pedidos em aberto.',
     icon: Package,
     pageName: 'Módulo de Estoque > Produtos',
   },
 };
 
 export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initialInsumosSubTab }: EstoqueViewProps) {
-  const globalNav = useGlobalNavActive();
   const activeTab = activeTabForMode(mode);
   const lockedSub = lockedInsumosSubTab(mode);
-  const [insumosSubTab, setInsumosSubTab] = useState<'todas' | 'mp' | 'emb' | 'mat' | 'relatorios'>(
-    initialInsumosSubTab ?? lockedSub ?? 'todas'
+  const [insumosSubTab, setInsumosSubTab] = useState<'todas' | 'mp' | 'emb' | 'mat'>(
+    initialInsumosSubTab && initialInsumosSubTab !== 'relatorios' ? initialInsumosSubTab : lockedSub ?? 'todas'
   );
-  const [produtosSubTab, setProdutosSubTab] = useState<'todos' | 'relatorios' | 'contagens'>('todos');
+  const [painel, setPainel] = useState<'consulta' | 'contagem'>('consulta');
 
   useEffect(() => {
-    if (initialInsumosSubTab) {
+    if (initialInsumosSubTab && initialInsumosSubTab !== 'relatorios') {
       setInsumosSubTab(initialInsumosSubTab);
       return;
     }
@@ -164,11 +164,11 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initi
   }, [lockedSub, initialInsumosSubTab]);
 
   const config = MODE_CONFIGS[mode];
-  const ModeIcon = config.icon;
   
   // Data States
   const [demands, setDemands] = useState<DemandResultWithIgnored[]>([]);
   const [products, setProducts] = useState<ProductCalculationResult[]>([]);
+  const [comprasPendentes, setComprasPendentes] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
@@ -229,10 +229,19 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initi
         const params = new URLSearchParams({ limit: '5000' });
         if (mode === 'coloracao') params.set('categoria', 'cat_coloracao');
         if (mode === 'apoio') params.set('categoria', 'cat_apoio');
-        const res = await apiFetch(`/products?${params.toString()}`);
+        const [res, comprasRes] = await Promise.all([
+          apiFetch(`/products?${params.toString()}`),
+          apiFetch('/estoque/compras-pendentes'),
+        ]);
         if (res.ok) {
           const data = await res.json();
           setProducts(data.items || []);
+        }
+        if (comprasRes.ok) {
+          const rows: { code: string; pendente: number }[] = await comprasRes.json();
+          const mapa: Record<string, number> = {};
+          for (const row of rows) mapa[row.code.trim()] = Number(row.pendente) || 0;
+          setComprasPendentes(mapa);
         }
       } else {
         const categoryId =
@@ -402,314 +411,181 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initi
     return tabs;
   }, [selectedItem]);
 
+  const catalogoContagem = useMemo((): CatalogoContagem[] => {
+    if (activeTab === 'produtos') {
+      return products.map((p) => ({
+        code: p.codigo,
+        description: p.descricao,
+        unit: 'UN',
+        saldo: Number(p.estoque) || 0,
+        reservado: Number(p.pedidos_aberto) || 0,
+        emPedido: comprasPendentes[p.codigo.trim()] || 0,
+      }));
+    }
+    const sub = lockedSub ?? insumosSubTab;
+    let list = demands;
+    if (sub === 'mp') list = list.filter((d) => d.itemCode.startsWith('9.15.'));
+    else if (sub === 'emb') list = list.filter((d) => d.itemCode.startsWith('9.') && !d.itemCode.startsWith('9.15.'));
+    else if (sub === 'mat') list = list.filter((d) => d.itemCode.startsWith('08.'));
+    return list.map((d) => ({
+      code: d.itemCode,
+      description: d.description,
+      unit: d.unit || 'UN',
+      saldo: Number(d.currentStock) || 0,
+      reservado: Number(d.reservedQtyOrdens) || 0,
+      emPedido: Number(d.inOrders) || 0,
+    }));
+  }, [activeTab, products, demands, lockedSub, insumosSubTab, comprasPendentes]);
+
+  const sidebarItems = mode === 'insumos'
+    ? [
+        { id: 'todas', label: 'Todas', icon: Layers },
+        { id: 'mp', label: 'Matéria-prima', icon: Database },
+        { id: 'emb', label: 'Embalagens', icon: Boxes },
+        { id: 'mat', label: 'Materiais', icon: Tag },
+        { id: 'contagem', label: 'Contagem', icon: Calculator },
+      ]
+    : [
+        { id: 'consulta', label: 'Consulta', icon: config.icon },
+        { id: 'contagem', label: 'Contagem', icon: Calculator },
+      ];
+
   return (
-    <div className="flex flex-1 h-full bg-zinc-50 font-sans text-zinc-900 overflow-hidden w-full">
-      {/* Sidebar */}
-      <div className="w-64 bg-white border-r border-zinc-200 flex flex-col shrink-0">
+    <AppLayout
+      moduleTitle={config.title}
+      onBackToHub={onBackToHub}
+      sidebarItems={sidebarItems}
+      activeTab={painel === 'consulta' ? (mode === 'insumos' ? (lockedSub ?? insumosSubTab) : 'consulta') : painel}
+      onTabChange={(id) => {
+        if (id === 'contagem') {
+          setPainel('contagem');
+          return;
+        }
+        setPainel('consulta');
+        if (id === 'todas' || id === 'mp' || id === 'emb' || id === 'mat') setInsumosSubTab(id);
+      }}
+      headerActions={
+        <button
+          type="button"
+          onClick={() => void loadData(false)}
+          className="inline-flex items-center gap-2 text-xs font-bold px-3 py-1.5 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 cursor-pointer"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+          Atualizar
+        </button>
+      }
+    >
+      {painel === 'contagem' ? (
+        <ListaContagem
+          escopo={mode}
+          catalogo={catalogoContagem}
+          tipo={activeTab === 'produtos' ? 'produto' : 'insumo'}
+          onSaldosAtualizados={() => void loadData(true)}
+        />
+      ) : (
 
-        {!globalNav && (
-        <div className="p-3 border-b border-zinc-100">
-          <button
-            onClick={onBackToHub}
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 transition-all cursor-pointer border border-zinc-200"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Voltar ao Estoque Hub
-          </button>
-        </div>
-        )}
-
-        {/* Navigation Tabs — catálogo / operação de estoque */}
-        {activeTab === 'insumos' ? (
-          <div className="p-2 border-b border-zinc-100 space-y-1">
-            {mode === 'insumos' ? (
-              <>
-            <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-              Categorias
-            </div>
-            <button
-              onClick={() => setInsumosSubTab('todas')}
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                insumosSubTab === 'todas' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
-              )}
-            >
-              <Layers className="h-4 w-4" />
-              Visão Geral (Todas)
-            </button>
-            <button
-              onClick={() => setInsumosSubTab('mp')}
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                insumosSubTab === 'mp' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
-              )}
-            >
-              <Database className="h-4 w-4" />
-              Matéria-Prima
-            </button>
-            <button
-              onClick={() => setInsumosSubTab('emb')}
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                insumosSubTab === 'emb' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
-              )}
-            >
-              <Boxes className="h-4 w-4" />
-              Embalagens
-            </button>
-            <button
-              onClick={() => setInsumosSubTab('mat')}
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                insumosSubTab === 'mat' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
-              )}
-            >
-              <Boxes className="h-4 w-4 text-purple-450" />
-              Materiais & Consumo
-            </button>
-              </>
-            ) : (
-              <>
-            <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-              Catálogo
-            </div>
-            <button
-              onClick={() => setInsumosSubTab(lockedSub ?? 'todas')}
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                (insumosSubTab === 'mp' || insumosSubTab === 'emb' || insumosSubTab === 'todas' || insumosSubTab === 'mat')
-                  ? "bg-zinc-100 text-zinc-900 font-bold"
-                  : "text-zinc-650 hover:bg-zinc-50"
-              )}
-            >
-              {mode === 'embalagens' ? <Boxes className="h-4 w-4" /> : <Database className="h-4 w-4" />}
-              {mode === 'embalagens' ? 'Lista de Embalagens' : 'Lista de Matéria-Prima'}
-            </button>
-              </>
-            )}
-
-            <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-wider pt-2">
-              Operação de Estoque
-            </div>
-            <button
-              onClick={() => setInsumosSubTab('relatorios')}
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                insumosSubTab === 'relatorios' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
-              )}
-            >
-              <FileText className="h-4 w-4 text-zinc-450" />
-              Relatórios de Estoque
-            </button>
-          </div>
-        ) : (
-          <div className="p-2 border-b border-zinc-100 space-y-1">
-            <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-              Catálogo
-            </div>
-            <button
-              onClick={() => setProdutosSubTab('todos')}
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                produtosSubTab === 'todos' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
-              )}
-            >
-              <Package className="h-4 w-4" />
-              Todos os Produtos
-            </button>
-
-            <div className="px-3 py-1.5 text-[10px] font-bold text-zinc-400 uppercase tracking-wider pt-2">
-              Operação de Estoque
-            </div>
-            <button
-              onClick={() => setProdutosSubTab('relatorios')}
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                produtosSubTab === 'relatorios' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
-              )}
-            >
-              <FileText className="h-4 w-4 text-zinc-450" />
-              Relatórios de Estoque
-            </button>
-            <button
-              onClick={() => setProdutosSubTab('contagens')}
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer",
-                produtosSubTab === 'contagens' ? "bg-zinc-100 text-zinc-900 font-bold" : "text-zinc-650 hover:bg-zinc-50"
-              )}
-            >
-              <Calendar className="h-4 w-4 text-zinc-450" />
-              Contagens Programadas
-            </button>
-          </div>
-        )}
-
-        {/* Module Description and Stats in sidebar */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          <div className="bg-zinc-50 rounded-xl p-4 space-y-3 border border-zinc-100">
-            <h3 className="text-xs font-bold text-zinc-700 uppercase tracking-wider">{config.title}</h3>
-            <p className="text-xs text-zinc-500 leading-relaxed">{config.subtitle}</p>
-          </div>
-          
-          <div className="space-y-2">
-              <div className="flex justify-between items-center px-1">
-                <span className="text-[10px] text-zinc-400 font-bold uppercase">Total Itens</span>
-                <span className="text-sm font-extrabold text-zinc-900">
-                  {activeTab === 'produtos' ? filteredProducts.length : filteredDemands.length}
-                </span>
-              </div>
-              {activeTab === 'produtos' ? (
-                <>
-                  <div className="flex justify-between items-center px-1">
-                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Críticos</span>
-                    <span className="text-sm font-extrabold text-red-600">
-                      {filteredProducts.filter(p => p.status === 'critico').length}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center px-1">
-                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Requer Ordem</span>
-                    <span className="text-sm font-extrabold text-amber-600">
-                      {filteredProducts.filter(p => p.status === 'ordem').length}
-                    </span>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="flex justify-between items-center px-1">
-                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Críticos</span>
-                    <span className="text-sm font-extrabold text-red-600">
-                      {filteredDemands.filter(d => d.urgency === 'critical').length}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center px-1">
-                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Atenção</span>
-                    <span className="text-sm font-extrabold text-amber-600">
-                      {filteredDemands.filter(d => d.urgency === 'warning').length}
-                    </span>
-                  </div>
-                </>
-              )}
-            </div>
-        </div>
-      </div>
-
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col overflow-hidden relative">
-            <main className="flex-1 overflow-y-auto p-6 flex flex-col">
-              {activeTab === 'insumos' && insumosSubTab === 'relatorios' ? (
-                <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-zinc-200 rounded-2xl shadow-sm space-y-4 max-w-2xl mx-auto mt-12 animate-in fade-in duration-300">
-                  <div className="bg-zinc-50 p-4 rounded-full text-zinc-650 border border-zinc-150">
-                    <FileText className="h-10 w-10 text-zinc-500" />
-                  </div>
-                  <h3 className="text-xl font-bold text-zinc-900">Relatórios de Estoque (Insumos)</h3>
-                  <p className="text-sm text-zinc-500 leading-relaxed max-w-md">
-                    Esta funcionalidade está programada para uma futura atualização. Aqui você poderá consultar o histórico completo de movimentações físicas, giro de estoque médio mensal, projeção futura por categoria e curva ABC de insumos.
-                  </p>
-                </div>
-              ) : activeTab === 'produtos' && produtosSubTab === 'relatorios' ? (
-                <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white border border-zinc-200 rounded-2xl shadow-sm space-y-4 max-w-2xl mx-auto mt-12 animate-in fade-in duration-300">
-                  <div className="bg-zinc-50 p-4 rounded-full text-zinc-650 border border-zinc-150">
-                    <FileText className="h-10 w-10 text-zinc-500" />
-                  </div>
-                  <h3 className="text-xl font-bold text-zinc-900">Relatórios de Estoque (Produtos)</h3>
-                  <p className="text-sm text-zinc-500 leading-relaxed max-w-md">
-                    Esta funcionalidade está programada para uma futura atualização. Permitirá a análise de lucratividade estimada, cobertura de estoque físico, histórico anual YoY (Year-over-Year), e relatórios gerenciais consolidados.
-                  </p>
-                </div>
-              ) : activeTab === 'produtos' && produtosSubTab === 'contagens' ? (
-                <ProdutoContagemTab active={true} />
-              ) : (
-                <div className="space-y-6">
-              {/* Controls bar */}
-              <div className="flex items-center justify-between gap-4">
-                <div className="relative flex-1 max-w-md">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-zinc-100 flex flex-wrap items-center gap-3">
+                <div className="relative flex-1 min-w-[16rem] max-w-md">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                   <input
                     type="text"
-                    placeholder="Buscar por código ou descrição..."
+                    placeholder="Buscar por código ou descrição"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 transition-all text-sm shadow-sm"
+                    className="w-full pl-9 pr-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:bg-white focus:border-zinc-900 text-sm"
                   />
                 </div>
-                <div className="text-xs font-semibold text-zinc-500 bg-zinc-100 px-3 py-1.5 rounded-lg">
-                  {activeTab === 'produtos' ? `${filteredProducts.length} itens` : `${filteredDemands.length} itens`}
-                </div>
+                <p className="ml-auto text-xs text-zinc-500">
+                  <b className="text-zinc-900">{activeTab === 'produtos' ? filteredProducts.length : filteredDemands.length}</b>
+                  {' '}itens
+                  {' · '}
+                  <b className="text-rose-700">
+                    {activeTab === 'produtos'
+                      ? filteredProducts.filter((p) => p.estoque < 0).length
+                      : filteredDemands.filter((d) => d.currentStock < 0).length}
+                  </b>
+                  {' '}com saldo negativo
+                </p>
               </div>
-
-              {/* Table / List */}
-              <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden">
-                <div className="overflow-x-auto">
+              <div className="overflow-x-auto">
                   {loading ? (
-                    <div className="p-12 text-center text-zinc-400 font-semibold flex items-center justify-center gap-3">
-                      <RefreshCw className="h-5 w-5 animate-spin text-zinc-500" />
-                      Carregando dados de estoque...
+                    <div className="px-6 py-16 text-center text-sm text-zinc-500 flex items-center justify-center gap-3">
+                      <RefreshCw className="h-4 w-4 animate-spin text-zinc-400" />
+                      Carregando estoque
                     </div>
                   ) : activeTab === 'produtos' ? (
                     filteredProducts.length === 0 ? (
-                      <div className="p-12 text-center text-zinc-400">Nenhum produto encontrado.</div>
+                      <div className="px-6 py-16 text-center text-sm text-zinc-500">Nenhum produto encontrado.</div>
                     ) : (
                       <table className="w-full text-left text-sm whitespace-nowrap">
-                        <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-semibold">
+                        <thead className="bg-zinc-50 border-b border-zinc-200 text-[11px] font-bold uppercase tracking-wide text-zinc-500 sticky top-0">
                           <tr>
-                            <th className="px-6 py-4">Código</th>
-                            <th className="px-6 py-4">Descrição</th>
-                            <th className="px-6 py-4 text-right">Estoque Físico</th>
-                            <th className="px-6 py-4 text-right">Em Produção</th>
-                            <th className="px-6 py-4 text-right">Pedidos em Aberto</th>
-                            <th className="px-6 py-4 text-center">Status de Estoque</th>
+                            <th className="px-4 py-3">Item</th>
+                            <th className="px-4 py-3 text-right">Saldo</th>
+                            <th className="px-4 py-3 text-right">Em produção</th>
+                            <th className="px-4 py-3 text-right">Pedido de venda</th>
+                            <th className="px-4 py-3 text-right">Pedido de compra</th>
+                            <th className="px-4 py-3 text-right">Disponível</th>
+                            <th className="px-4 py-3 text-right">Situação</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100">
-                          {filteredProducts.map((p) => (
+                          {filteredProducts.map((p) => {
+                            const pedidoVenda = Number(p.pedidos_aberto) || 0;
+                            const pedidoCompra = comprasPendentes[p.codigo.trim()] || 0;
+                            const disponivel = p.estoque - pedidoVenda;
+                            return (
                             <tr
                               key={p.codigo}
                               onClick={() => handleOpenDrawer(p.codigo, p.descricao, 'UN', 'produto', p.estoque)}
-                              className="hover:bg-zinc-50/50 transition-colors cursor-pointer"
+                              className="hover:bg-zinc-50 cursor-pointer"
                             >
-                              <td className="px-6 py-4 font-mono text-xs text-zinc-500">{p.codigo}</td>
-                              <td className="px-6 py-4 font-bold text-zinc-800">{p.descricao}</td>
-                              <td className="px-6 py-4 text-right font-semibold text-zinc-900">{p.estoque.toLocaleString('pt-BR')} UN</td>
-                              <td className="px-6 py-4 text-right text-zinc-500">{p.producao > 0 ? `+${p.producao.toLocaleString('pt-BR')}` : '-'}</td>
-                              <td className="px-6 py-4 text-right text-zinc-500">{p.pedidos_aberto > 0 ? `-${p.pedidos_aberto.toLocaleString('pt-BR')}` : '-'}</td>
-                              <td className="px-6 py-4 text-center">
+                              <td className="px-4 py-3 max-w-[28rem]">
+                                <p className="font-medium text-zinc-900 truncate">{p.descricao}</p>
+                                <p className="font-mono text-[11px] text-zinc-400">{p.codigo}</p>
+                              </td>
+                              <td className={cn('px-4 py-3 text-right font-mono text-xs tabular-nums font-semibold', p.estoque < 0 ? 'text-rose-700' : 'text-zinc-900')}>{p.estoque.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} <span className="font-sans text-zinc-400">UN</span></td>
+                              <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-zinc-500">{p.producao > 0 ? p.producao.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : '—'}</td>
+                              <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-zinc-500">{pedidoVenda > 0 ? pedidoVenda.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : '—'}</td>
+                              <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-zinc-500">{pedidoCompra > 0 ? pedidoCompra.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : '—'}</td>
+                              <td className={cn('px-4 py-3 text-right font-mono text-xs tabular-nums font-semibold', disponivel < 0 ? 'text-rose-700' : 'text-zinc-900')}>{disponivel.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}</td>
+                              <td className="px-4 py-3 text-right">
                                 <span className={cn(
-                                  "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide",
-                                  p.status === 'critico' && "bg-red-50 text-red-700 border border-red-200",
-                                  p.status === 'ordem' && "bg-amber-50 text-amber-700 border border-amber-200",
-                                  p.status === 'saudavel' && "bg-emerald-50 text-emerald-700 border border-emerald-200",
-                                  p.status === 'abundante' && "bg-blue-50 text-blue-700 border border-blue-200",
-                                  p.status === 'descontinuado' && "bg-zinc-100 text-zinc-750 border border-zinc-200",
-                                  p.status === 'bases' && "bg-indigo-50 text-indigo-700 border border-indigo-200"
+                                  'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border',
+                                  p.status === 'critico' && 'bg-rose-50 text-rose-700 border-rose-200',
+                                  p.status === 'ordem' && 'bg-amber-50 text-amber-700 border-amber-200',
+                                  p.status === 'saudavel' && 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                                  p.status === 'abundante' && 'bg-blue-50 text-blue-700 border-blue-200',
+                                  (p.status === 'descontinuado' || p.status === 'bases' || !['critico', 'ordem', 'saudavel', 'abundante'].includes(p.status)) && 'bg-zinc-50 text-zinc-600 border-zinc-200',
                                 )}>
                                   {p.status_label}
                                 </span>
                               </td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     )
                   ) : (
                     filteredDemands.length === 0 ? (
-                      <div className="p-12 text-center text-zinc-400">Nenhum item encontrado.</div>
+                      <div className="px-6 py-16 text-center text-sm text-zinc-500">Nenhum item encontrado.</div>
                     ) : (
                       <table className="w-full text-left text-sm whitespace-nowrap">
-                        <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-semibold">
+                        <thead className="bg-zinc-50 border-b border-zinc-200 text-[11px] font-bold uppercase tracking-wide text-zinc-500 sticky top-0">
                           <tr>
-                            <th className="px-6 py-4">Código</th>
-                            <th className="px-6 py-4">Descrição</th>
-                            <th className="px-6 py-4 text-right">Estoque Físico</th>
-                            <th className="px-6 py-4 text-right">Reservado</th>
-                            <th className="px-6 py-4 text-right">Pedidos Solicitados</th>
-                            <th className="px-6 py-4 text-right">Consumo Médio</th>
-                            <th className="px-6 py-4 text-center">Situação</th>
+                            <th className="px-4 py-3">Item</th>
+                            <th className="px-4 py-3 text-right">Saldo</th>
+                            <th className="px-4 py-3 text-right">Reserva de produção</th>
+                            <th className="px-4 py-3 text-right">Pedido de compra</th>
+                            <th className="px-4 py-3 text-right">Situação</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100">
                           {filteredDemands.map((d) => (
-                            <tr 
-                              key={d.itemCode} 
+                            <tr
+                              key={d.itemCode}
                               onClick={() => handleOpenDrawer(
                                 d.itemCode,
                                 d.description,
@@ -717,26 +593,27 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initi
                                 d.itemCode.startsWith('08.') ? 'material' : 'insumo',
                                 d.currentStock
                               )}
-                              className="hover:bg-zinc-50/50 transition-colors cursor-pointer"
+                              className="hover:bg-zinc-50 cursor-pointer"
                             >
-                              <td className="px-6 py-4 font-mono text-xs text-zinc-500">{d.itemCode}</td>
-                              <td className="px-6 py-4 font-bold text-zinc-800">{d.description}</td>
-                              <td className="px-6 py-4 text-right font-semibold text-zinc-900">{d.currentStock.toLocaleString('pt-BR')} {d.unit}</td>
-                              <td className="px-6 py-4 text-right text-zinc-500">{d.reservedQty > 0 ? `-${d.reservedQty.toLocaleString('pt-BR')}` : '-'}</td>
-                              <td className="px-6 py-4 text-right text-zinc-500">{d.inOrders > 0 ? `+${d.inOrders.toLocaleString('pt-BR')}` : '-'}</td>
-                              <td className="px-6 py-4 text-right font-medium text-zinc-650">
-                                {d.overallAvg > 0 ? `${d.overallAvg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}/mês` : '-'}
+                              <td className="px-4 py-3 max-w-[32rem]">
+                                <p className="font-medium text-zinc-900 truncate">{d.description}</p>
+                                <p className="font-mono text-[11px] text-zinc-400">{d.itemCode}</p>
                               </td>
-                              <td className="px-6 py-4 text-center">
+                              <td className={cn('px-4 py-3 text-right font-mono text-xs tabular-nums font-semibold', d.currentStock < 0 ? 'text-rose-700' : 'text-zinc-900')}>
+                                {d.currentStock.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} <span className="font-sans text-zinc-400">{d.unit}</span>
+                              </td>
+                              <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-zinc-500">{(d.reservedQtyOrdens ?? 0) > 0 ? (d.reservedQtyOrdens ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : '—'}</td>
+                              <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-zinc-500">{d.inOrders > 0 ? d.inOrders.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : '—'}</td>
+                              <td className="px-4 py-3 text-right">
                                 <span className={cn(
-                                  "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide",
-                                  d.urgency === 'critical' && "bg-red-50 text-red-700 border border-red-200",
-                                  d.urgency === 'warning' && "bg-amber-50 text-amber-700 border border-amber-200",
-                                  d.urgency === 'ok' && "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                  'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border',
+                                  d.urgency === 'critical' && 'bg-rose-50 text-rose-700 border-rose-200',
+                                  d.urgency === 'warning' && 'bg-amber-50 text-amber-700 border-amber-200',
+                                  d.urgency === 'ok' && 'bg-emerald-50 text-emerald-700 border-emerald-200',
                                 )}>
                                   {d.urgency === 'critical' && 'Crítico'}
                                   {d.urgency === 'warning' && 'Atenção'}
-                                  {d.urgency === 'ok' && 'OK'}
+                                  {d.urgency === 'ok' && 'Ok'}
                                 </span>
                               </td>
                             </tr>
@@ -745,12 +622,9 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initi
                       </table>
                     )
                   )}
-                </div>
               </div>
             </div>
-          )}
-        </main>
-      </div>
+      )}
 
       {/* Side Detail Drawer (Movimentações, Fórmula, Notas, Pedidos, Lotes) */}
       {selectedItem && (
@@ -1377,6 +1251,6 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initi
           </div>
         </div>
       )}
-    </div>
+    </AppLayout>
   );
 }

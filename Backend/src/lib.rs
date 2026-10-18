@@ -141,6 +141,10 @@ pub struct FiscoQuimicaAnalysis {
     pub color_result: Option<String>,
     pub odor_ok: Option<bool>,
     pub odor_result: Option<String>,
+    pub viscometer_model: Option<String>,
+    pub viscometer_spindle: Option<String>,
+    pub viscometer_rpm: Option<f64>,
+    pub viscometer_seconds: Option<i32>,
 }
 
 // === STATE ===

@@ -3,7 +3,8 @@ use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 use super::models::{
-    CreatePrintJobRequest, CreatePrinterRequest, HubPrintJob, HubPrinter, SystemPrinterInfo,
+    ConnectRemotePrinterRequest, CreatePrintJobRequest, CreatePrinterRequest, HubPrintJob,
+    HubPrinter, NetworkComputerInfo, RemoteDiscoveredPrinter, SystemPrinterInfo,
     UpdatePrinterRequest,
 };
 
@@ -318,7 +319,7 @@ pub fn scan_system_printers() -> Vec<SystemPrinterInfo> {
                                     port_name: val.get("PortName").and_then(|v| v.as_str()).map(|s| s.to_string()),
                                     is_default: val.get("IsDefault").and_then(|v| v.as_bool()).unwrap_or(false),
                                     is_network: val.get("IsNetwork").and_then(|v| v.as_bool()).unwrap_or(false),
-                                    status: "online".to_string(),
+                                    status: printer_scan_status(val.get("PrinterStatus")),
                                 })
                             })
                             .collect();
@@ -330,7 +331,7 @@ pub fn scan_system_printers() -> Vec<SystemPrinterInfo> {
                                 port_name: val.get("PortName").and_then(|v| v.as_str()).map(|s| s.to_string()),
                                 is_default: val.get("IsDefault").and_then(|v| v.as_bool()).unwrap_or(false),
                                 is_network: val.get("IsNetwork").and_then(|v| v.as_bool()).unwrap_or(false),
-                                status: "online".to_string(),
+                                status: printer_scan_status(val.get("PrinterStatus")),
                             }];
                         }
                     }
@@ -339,33 +340,227 @@ pub fn scan_system_printers() -> Vec<SystemPrinterInfo> {
         }
     }
 
-    // Fallback if PowerShell not available or non-windows:
-    vec![
-        SystemPrinterInfo {
-            name: "Zebra ZD220 / ZD230 (ZPL)".to_string(),
-            driver_name: Some("ZDesigner ZD220-203dpi ZPL".to_string()),
-            port_name: Some("USB001".to_string()),
-            is_default: false,
-            is_network: false,
-            status: "online".to_string(),
-        },
-        SystemPrinterInfo {
-            name: "Elgin L42 Pro / L42PRO".to_string(),
-            driver_name: Some("Elgin L42PRO".to_string()),
-            port_name: Some("USB002".to_string()),
-            is_default: false,
-            is_network: false,
-            status: "online".to_string(),
-        },
-        SystemPrinterInfo {
-            name: "Argox OS-214 Plus (PPLA/PPLB)".to_string(),
-            driver_name: Some("Argox OS-214 Plus series PPLB".to_string()),
-            port_name: Some("USB003".to_string()),
-            is_default: false,
-            is_network: false,
-            status: "online".to_string(),
-        },
-    ]
+    Vec::new()
+}
+
+fn printer_scan_status(value: Option<&serde_json::Value>) -> String {
+    match value.and_then(|v| v.as_i64()) {
+        Some(6) | Some(7) => "offline".to_string(),
+        _ => "online".to_string(),
+    }
+}
+
+/// List active computers on the local network
+pub fn list_network_computers() -> Vec<NetworkComputerInfo> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+
+        let ps_cmd = r#"
+            $neighbors = Get-NetNeighbor -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -match '^192\.168\.' -and $_.State -ne 'Permanent' -and $_.IPAddress -notmatch '\.255$' } | Select-Object -Unique -ExpandProperty IPAddress
+            $list = @()
+            foreach ($ip in $neighbors) {
+                $hostName = $null
+                try {
+                    $entry = [System.Net.Dns]::GetHostEntry($ip)
+                    if ($entry -and $entry.HostName) { $hostName = $entry.HostName.Split('.')[0] }
+                } catch {}
+                $list += [PSCustomObject]@{
+                    ip = $ip
+                    hostname = $hostName
+                }
+            }
+            $list | ConvertTo-Json -Compress
+        "#;
+
+        if let Ok(output) = Command::new("powershell")
+            .args(["-NoProfile", "-Command", ps_cmd])
+            .output()
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    if let Ok(list) = serde_json::from_str::<Vec<NetworkComputerInfo>>(trimmed) {
+                        return list;
+                    } else if let Ok(val) = serde_json::from_str::<NetworkComputerInfo>(trimmed) {
+                        return vec![val];
+                    }
+                }
+            }
+        }
+    }
+
+    Vec::new()
+}
+
+/// Scan a remote computer for shared printers
+pub fn scan_remote_printers(target: &str) -> Result<Vec<RemoteDiscoveredPrinter>, String> {
+    let target = target.trim().trim_start_matches('\\');
+    if target.is_empty() || target.len() > 100 || target.chars().any(|c| c.is_control() || c == '"' || c == '\'') {
+        return Err("Endereço de computador ou IP inválido.".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+
+        let ps_cmd = format!(
+            r#"
+            $target = '{target}'
+            $printers = @()
+            try {{
+                $shares = Get-WmiObject -Class Win32_Share -ComputerName $target -Filter "Type = 1" -ErrorAction Stop
+                foreach ($s in $shares) {{
+                    $isThermal = ($s.Name -match 'Zebra|Elgin|Thermal|Argox|GC420|ZD220|TL24|Label|Etiqueta')
+                    $printers += [PSCustomObject]@{{
+                        name = $s.Name
+                        share_name = $s.Name
+                        unc_path = ('\\' + $target + '\' + $s.Name)
+                        driver_name = $null
+                        port_name = $null
+                        is_thermal = $isThermal
+                    }}
+                }}
+            }} catch {{
+                try {{
+                    $netView = net view ("\\" + $target) 2>&1
+                    foreach ($line in $netView) {{
+                        if ($line -match 'Impress|Print') {{
+                            $parts = ($line -split '\s\s+') | Where-Object {{ $_.Trim() -ne '' }}
+                            if ($parts.Count -ge 1) {{
+                                $shareName = $parts[0].Trim()
+                                $isThermal = ($shareName -match 'Zebra|Elgin|Thermal|Argox|GC420|ZD220|TL24|Label|Etiqueta')
+                                $printers += [PSCustomObject]@{{
+                                    name = $shareName
+                                    share_name = $shareName
+                                    unc_path = ('\\' + $target + '\' + $shareName)
+                                    driver_name = $null
+                                    port_name = $null
+                                    is_thermal = $isThermal
+                                }}
+                            }}
+                        }}
+                    }}
+                }} catch {{}}
+            }}
+            $printers | ConvertTo-Json -Compress
+            "#
+        );
+
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_cmd])
+            .output()
+            .map_err(|e| format!("Falha ao executar consulta no PowerShell: {e}"))?;
+
+        if !output.status.success() {
+            let err_text = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("Erro ao consultar {target}: {err_text}"));
+        }
+
+        let text = String::from_utf8_lossy(&output.stdout);
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        if let Ok(list) = serde_json::from_str::<Vec<RemoteDiscoveredPrinter>>(trimmed) {
+            return Ok(list);
+        } else if let Ok(val) = serde_json::from_str::<RemoteDiscoveredPrinter>(trimmed) {
+            return Ok(vec![val]);
+        }
+
+        Ok(Vec::new())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = target;
+        Err("A consulta de impressoras de rede só é suportada no servidor Windows.".to_string())
+    }
+}
+
+/// Connect and map a remote shared printer on the Windows server, then save to DB
+pub async fn connect_and_map_remote_printer(
+    pool: &PgPool,
+    req: ConnectRemotePrinterRequest,
+) -> Result<HubPrinter, String> {
+    let unc = req.unc_path.trim().to_string();
+    if !unc.starts_with(r"\\") {
+        return Err("O caminho da impressora deve começar com \\\\ (Ex: \\\\PC-EXPEDICAO\\Zebra)".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+
+        let ps_cmd = format!(
+            r#"
+            $unc = '{unc}'
+            try {{
+                Add-Printer -ConnectionName $unc -ErrorAction Stop
+                Write-Output 'OK'
+            }} catch {{
+                try {{
+                    $net = New-Object -ComObject WScript.Network
+                    $net.AddWindowsPrinterConnection($unc)
+                    Write-Output 'OK'
+                }} catch {{
+                    throw $_.Exception.Message
+                }}
+            }}
+            "#
+        );
+
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_cmd])
+            .output()
+            .map_err(|e| format!("Erro ao disparar conexão com a impressora: {e}"))?;
+
+        if !output.status.success() {
+            let err_text = String::from_utf8_lossy(&output.stderr);
+            if err_text.contains("0x0000011b") {
+                return Err(
+                    "Erro 0x0000011b: O computador remoto precisa executar o script 'preparar_compartilhamento_impressoras.bat' para liberar a trava do PrintNightmare.".to_string()
+                );
+            }
+        }
+    }
+
+    // Now save to hub_printers DB
+    let share_clean = unc.trim_start_matches(r"\\").replace('\\', " - ");
+    let name = req.display_name.unwrap_or_else(|| format!("Impressora ({share_clean})"));
+    let p_type = req.printer_type.unwrap_or_else(|| {
+        let low = unc.to_lowercase();
+        if low.contains("zebra") || low.contains("elgin") || low.contains("gc420") || low.contains("zd220") || low.contains("label") || low.contains("etiqueta") {
+            "thermal_label".to_string()
+        } else {
+            "laser_a4".to_string()
+        }
+    });
+
+    let width = req.default_width_mm.unwrap_or(100.0);
+    let height = req.default_height_mm.unwrap_or(50.0);
+
+    let create_req = CreatePrinterRequest {
+        name,
+        system_printer_name: Some(unc.clone()),
+        printer_type: Some(p_type),
+        connection_type: Some("server_shared".to_string()),
+        ip_address: None,
+        default_width_mm: Some(width),
+        default_height_mm: Some(height),
+        default_orientation: Some("landscape".to_string()),
+        dpi: Some(203),
+        location: req.location,
+        is_default: Some(false),
+        raw_protocol: Some("spooler_native".to_string()),
+        notes: Some(format!("Impressora USB compartilhada conectada via rede ({unc})")),
+    };
+
+    create_printer(pool, create_req)
+        .await
+        .map_err(|e| format!("Impressora conectada no Windows, mas erro ao salvar no banco: {e}"))
 }
 
 pub async fn list_print_jobs(pool: &PgPool, limit: i64) -> Result<Vec<HubPrintJob>, sqlx::Error> {

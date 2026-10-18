@@ -45,7 +45,8 @@ interface FiscoQuimicaViewProps {
 }
 
 export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps) {
-  const [activeTab, setActiveTab] = useState<'new' | 'calendar' | 'history' | 'erp_lotes' | 'correctives' | 'patterns' | 'agents' | 'settings'>('new');
+  const [activeTab, setActiveTab] = useState<'new' | 'calendar' | 'history' | 'erp_lotes' | 'correctives' | 'patterns' | 'settings'>('new');
+  const [correctiveSection, setCorrectiveSection] = useState<'baixas' | 'catalogo'>('baixas');
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [selectedLoteForNew, setSelectedLoteForNew] = useState<{ productCode?: string; batch?: string } | null>(null);
@@ -94,9 +95,8 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
       calendar: 'Calendário de Produção',
       history: 'Histórico de Laudos',
       erp_lotes: 'Lotes e Laudos ERP',
-      correctives: 'Baixas de Corretivos',
+      correctives: 'Corretivos',
       patterns: 'Padrões por Produto',
-      agents: 'Agentes Corretivos',
       settings: 'Configurações'
     };
     (window as any).__current_page__ = tabLabels[activeTab] || activeTab;
@@ -313,9 +313,8 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
     { id: 'calendar', label: 'Calendário', icon: CalendarIcon },
     { id: 'history', label: 'Histórico de Laudos', icon: Activity },
     { id: 'erp_lotes', label: 'Lotes e Laudos ERP', icon: Database },
-    { id: 'correctives', label: 'Baixas de Corretivos', icon: SlidersHorizontal },
+    { id: 'correctives', label: 'Corretivos', icon: SlidersHorizontal },
     { id: 'patterns', label: 'Padrões por Produto', icon: Layers },
-    { id: 'agents', label: 'Agentes Corretivos', icon: SlidersHorizontal },
     { id: 'settings', label: 'Configurações', icon: Settings },
   ];
 
@@ -357,6 +356,7 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
                 fetchData();
                 setActiveTab('history');
               }}
+              onAgentsChanged={fetchData}
               onOpenAddPattern={handleOpenAddPatternQuick}
             />
           </motion.div>
@@ -410,11 +410,36 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
         )}
 
         {activeTab === 'correctives' && (
-          <motion.div key="correctives" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
-            <CorrectiveBatchesTab
-              agents={agents}
-              onRefreshHistory={fetchData}
-            />
+          <motion.div key="correctives" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="space-y-4">
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setCorrectiveSection('baixas')}
+                className={`min-h-11 px-4 rounded-xl text-sm font-bold border ${correctiveSection === 'baixas' ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-800 border-zinc-200'}`}
+              >
+                Baixas
+              </button>
+              <button
+                type="button"
+                onClick={() => setCorrectiveSection('catalogo')}
+                className={`min-h-11 px-4 rounded-xl text-sm font-bold border ${correctiveSection === 'catalogo' ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-800 border-zinc-200'}`}
+              >
+                Catálogo
+              </button>
+            </div>
+            {correctiveSection === 'baixas' ? (
+              <CorrectiveBatchesTab
+                agents={agents}
+                onRefreshHistory={fetchData}
+              />
+            ) : (
+              <AgentsTab
+                agents={agents}
+                items={items}
+                analyses={analyses}
+                onRefresh={fetchData}
+              />
+            )}
           </motion.div>
         )}
 
@@ -424,17 +449,6 @@ export default function FiscoQuimicaView({ onBackToHub }: FiscoQuimicaViewProps)
               products={products}
               patterns={patterns}
               agents={agents}
-              onRefresh={fetchData}
-            />
-          </motion.div>
-        )}
-
-        {activeTab === 'agents' && (
-          <motion.div key="agents" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
-            <AgentsTab
-              agents={agents}
-              items={items}
-              analyses={analyses}
               onRefresh={fetchData}
             />
           </motion.div>

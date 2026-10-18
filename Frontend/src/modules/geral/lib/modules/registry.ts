@@ -38,6 +38,7 @@ export const MODULE_KEYS = {
   ADMIN_ACOMPANHAMENTO_PRODUCAO: 'admin_acompanhamento_producao',
   PLANEJAMENTO_PRODUCAO: 'planejamento_producao',
   PRODUCAO: 'producao',
+  PRODUCAO_ROTINA: 'producao_rotina',
   PRODUCAO_BASES: 'producao_bases',
   PRODUCAO_LOTES: 'producao_lotes',
   PRODUCAO_PROC: 'producao_proc',
@@ -66,6 +67,7 @@ export const MODULE_KEYS = {
   QUALIDADE_RECEBIMENTO_MP: 'qualidade_recebimento_mp',
   QUALIDADE_DOCUMENTACAO: 'qualidade_documentacao',
   QUALIDADE_DEVOLUCOES: 'qualidade_devolucoes',
+  QUALIDADE_AVARIAS: 'qualidade_avarias',
   ADMINISTRATIVO: 'administrativo',
   /** @deprecated alias — use EXPEDICAO_ECOMMERCE */
   EXPEDICAO: 'expedicao',
@@ -114,13 +116,10 @@ export function moduleRegistry(): ModuleGroup[] {
       label: 'Almoxarifado',
       hubView: 'almoxarifado_hub',
       children: [
-        { key: MODULE_KEYS.ESTOQUE_ITENS, label: 'Itens' },
-        { key: MODULE_KEYS.ESTOQUE_ALMOX, label: 'Almoxarifado' },
-        { key: MODULE_KEYS.ESTOQUE_SUPERMERCADO, label: 'Supermercado' },
-        { key: MODULE_KEYS.ESTOQUE_PECAS, label: 'Peças de Reposição' },
+        { key: MODULE_KEYS.ESTOQUE_ALMOX, label: 'Estoque' },
         { key: MODULE_KEYS.ESTOQUE_EQUIPAMENTOS, label: 'Equipamentos' },
         { key: MODULE_KEYS.ESTOQUE_MANUTENCOES, label: 'Manutenções' },
-        { key: MODULE_KEYS.ESTOQUE_MOVIMENTACOES, label: 'Movimentações' },
+        { key: MODULE_KEYS.COMPRAS_ALMOX, label: 'Compras' },
       ],
     },
     {
@@ -130,6 +129,7 @@ export function moduleRegistry(): ModuleGroup[] {
       children: [
         { key: MODULE_KEYS.PLANEJAMENTO_PRODUCAO, label: 'Planejamento de Produção' },
         { key: MODULE_KEYS.PRODUCAO, label: 'Gerenciamento' },
+        { key: MODULE_KEYS.PRODUCAO_ROTINA, label: 'Rotina de Produção' },
         { key: MODULE_KEYS.PRODUCAO_PROC, label: 'PROC (Processos)' },
         { key: MODULE_KEYS.MONTAGEM_KITS, label: 'Kits' },
         { key: MODULE_KEYS.MICROBIOLOGIA, label: 'Microbiologia' },
@@ -166,6 +166,7 @@ export function moduleRegistry(): ModuleGroup[] {
       children: [
         { key: MODULE_KEYS.CONTROLE_QUALIDADE, label: 'Controle de Qualidade' },
         { key: MODULE_KEYS.QUALIDADE_DEVOLUCOES, label: 'Devoluções' },
+        { key: MODULE_KEYS.QUALIDADE_AVARIAS, label: 'Avarias' },
         { key: MODULE_KEYS.QUALIDADE_POPS, label: 'POPs' },
         { key: MODULE_KEYS.QUALIDADE_TREINAMENTOS, label: 'Treinamentos' },
         { key: MODULE_KEYS.QUALIDADE_TEMPERATURA, label: 'Temperatura' },
@@ -182,7 +183,6 @@ export function moduleRegistry(): ModuleGroup[] {
         { key: MODULE_KEYS.ADMIN_LINHA_PRODUTOS, label: 'Linha de Produtos' },
         { key: MODULE_KEYS.ADMIN_RELATORIOS, label: 'Relatórios' },
         { key: MODULE_KEYS.ADMIN_FUNCIONARIOS, label: 'Funcionários' },
-        { key: MODULE_KEYS.ADMIN_ACOMPANHAMENTO_PRODUCAO, label: 'Acompanhamento de Produção' },
       ],
     },
     {
@@ -236,12 +236,16 @@ export function defaultModulesForRole(role: string): string[] {
         MODULE_KEYS.ESTOQUE_EQUIPAMENTOS,
         MODULE_KEYS.ESTOQUE_MANUTENCOES,
         MODULE_KEYS.ESTOQUE_MOVIMENTACOES,
+        MODULE_KEYS.COMPRAS_ALMOX,
         MODULE_KEYS.ESTOQUE_PRODUTOS,
       ];
     case 'producao':
     case 'produção':
       return [
         MODULE_KEYS.PRODUCAO,
+        MODULE_KEYS.PRODUCAO_ROTINA,
+        MODULE_KEYS.PLANEJAMENTO_PRODUCAO,
+        MODULE_KEYS.ADMIN_ACOMPANHAMENTO_PRODUCAO,
         MODULE_KEYS.PRODUCAO_LOTES,
         MODULE_KEYS.MONTAGEM_KITS,
       ];
@@ -272,6 +276,7 @@ export function defaultModulesForRole(role: string): string[] {
       return [
         MODULE_KEYS.CONTROLE_QUALIDADE,
         MODULE_KEYS.QUALIDADE_DEVOLUCOES,
+        MODULE_KEYS.QUALIDADE_AVARIAS,
         MODULE_KEYS.QUALIDADE_POPS,
         MODULE_KEYS.QUALIDADE_TREINAMENTOS,
         MODULE_KEYS.QUALIDADE_TEMPERATURA,

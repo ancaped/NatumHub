@@ -58,6 +58,15 @@ pub struct ProductOverride {
     pub is_producao_programada: Option<i32>,
     pub producao_programada_disparo: Option<i64>,
     pub producao_programada_objetivo: Option<i64>,
+    /// Estoque mínimo que dispara produção de um lançamento.
+    #[serde(default)]
+    pub lancamento_gatilho: Option<i64>,
+    /// Teto de estoque do lançamento. A sugestão completa até esse valor.
+    #[serde(default)]
+    pub lancamento_estoque_maximo: Option<i64>,
+    /// Família dentro da linha (Cachos, Mandioca, Cronograma…).
+    #[serde(default)]
+    pub familia_produto: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -96,12 +105,18 @@ pub struct ProductCalculationResult {
     pub is_producao_programada: Option<i32>,
     pub producao_programada_disparo: Option<i64>,
     pub producao_programada_objetivo: Option<i64>,
+    #[serde(default)]
+    pub lancamento_gatilho: Option<i64>,
+    #[serde(default)]
+    pub lancamento_estoque_maximo: Option<i64>,
+    #[serde(default)]
+    pub familia_produto: Option<String>,
 
     // Sales Statistics
     pub media_vendas: f64,          // Mean of sales
     pub desvio_padrao: f64,         // Standard deviation of sales
     pub demanda_ajustada: f64,      // Media + Z * StdDev
-    pub is_lancamento: bool,        // True if no historical sales in faturamento
+    pub is_lancamento: bool,        // True só com etiqueta manual (is_lancamento_manual = 1)
 
     // Config thresholds
     pub estoque_ideal_meses: f64,
@@ -149,6 +164,8 @@ pub struct QueryParams {
     pub include_programadas: Option<bool>,
     pub include_kits: Option<bool>,
     pub include_bases: Option<bool>,
+    /// Só itens em regime de produção fixa (marca manual, gatilho ou teto).
+    pub fixas_only: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -259,6 +276,9 @@ pub struct KitComponentDetail {
     /// `produto` | `item` (embalagem/insumo ERP)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fonte: Option<String>,
+    /// 1 = produzido só para kit; 0 = também vendido avulso.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub produzir_apenas_kit: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -370,6 +390,8 @@ pub struct KitComposicaoRow {
     /// `erp` (Passo P) ou `manual` (CRUD/Excel).
     #[serde(default = "default_kit_origem")]
     pub origem: String,
+    #[serde(default)]
+    pub estoque_componente: Option<i64>,
 }
 
 fn default_kit_origem() -> String {

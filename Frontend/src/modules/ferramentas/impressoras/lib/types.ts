@@ -91,3 +91,27 @@ export interface CreatePrintJobPayload {
   payload_data: string;
   copies?: number;
 }
+
+export interface NetworkComputerInfo {
+  ip: string;
+  hostname?: string | null;
+}
+
+export interface RemoteDiscoveredPrinter {
+  name: string;
+  share_name: string;
+  unc_path: string;
+  driver_name?: string | null;
+  port_name?: string | null;
+  is_thermal: boolean;
+}
+
+export interface ConnectRemotePrinterPayload {
+  unc_path: string;
+  display_name?: string;
+  location?: string;
+  printer_type?: PrinterType;
+  default_width_mm?: number;
+  default_height_mm?: number;
+}
+

@@ -324,6 +324,125 @@ export function formatViscosity(val: number | null | undefined, pattern?: FiscoQ
   return Math.round(num).toLocaleString('en-US');
 }
 
+/** Texto do método de viscosidade para o laudo. Laudos antigos, sem spindle, continuam como viscosimetria. */
+export function formatViscometerMethod(analysis: {
+  viscometerModel?: string | null;
+  viscometerSpindle?: string | null;
+  viscometerRpm?: number | null;
+  viscometerSeconds?: number | null;
+}): string {
+  if (!analysis.viscometerSpindle && !(analysis.viscometerRpm && analysis.viscometerRpm > 0)) {
+    return 'VISCOSIMETRIA';
+  }
+  const parts: string[] = [];
+  if (analysis.viscometerModel) parts.push(analysis.viscometerModel);
+  if (analysis.viscometerSpindle) parts.push(`Spindle ${analysis.viscometerSpindle}`);
+  if (analysis.viscometerRpm != null && analysis.viscometerRpm > 0) {
+    parts.push(`${analysis.viscometerRpm.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} rpm`);
+  }
+  if (analysis.viscometerSeconds && analysis.viscometerSeconds > 0) {
+    const seconds = analysis.viscometerSeconds;
+    parts.push(seconds % 60 === 0 && seconds >= 60 ? `${seconds / 60} min` : `${seconds} s`);
+  }
+  return parts.join(' · ');
+}
+
+/** Parâmetros da medição, no mesmo formato do bloco de envase. Laudo antigo, sem spindle, não ganha o bloco. */
+export function viscosityParameterParts(analysis: {
+  viscometerModel?: string | null;
+  viscometerSpindle?: string | null;
+  viscometerRpm?: number | null;
+  viscometerSeconds?: number | null;
+}): { label: string; value: string }[] {
+  if (!analysis.viscometerSpindle && !(analysis.viscometerRpm && analysis.viscometerRpm > 0)) return [];
+  const parts: { label: string; value: string }[] = [];
+  if (analysis.viscometerModel) parts.push({ label: 'Modelo', value: analysis.viscometerModel });
+  if (analysis.viscometerSpindle) parts.push({ label: 'Spindle', value: analysis.viscometerSpindle });
+  if (analysis.viscometerRpm != null && analysis.viscometerRpm > 0) {
+    parts.push({ label: 'Rotação', value: `${analysis.viscometerRpm.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} rpm` });
+  }
+  if (analysis.viscometerSeconds && analysis.viscometerSeconds > 0) {
+    const seconds = analysis.viscometerSeconds;
+    parts.push({ label: 'Tempo', value: seconds % 60 === 0 && seconds >= 60 ? `${seconds / 60} min` : `${seconds} s` });
+  }
+  return parts;
+}
+
+const VISC_DOSE_NOTE = /\[Correção de viscosidade:\s*([^\]]+)\]/i;
+
+/** Tira a marca interna da correção para as observações do laudo não repetirem o ensaio. */
+export function laudoNotes(notes?: string | null): string {
+  return String(notes || '').replace(VISC_DOSE_NOTE, '').replace(/\s{2,}/g, ' ').trim();
+}
+
+/** Mesma linha do bloco de ajuste. Laudo antigo, sem a marca nova, continua com o texto do ensaio de 1 L. */
+export function laudoAdjustmentParts(
+  analysis: {
+    notes?: string | null;
+    initialViscosity?: number | null;
+    trialAgentQty?: number | null;
+    trialViscosity?: number | null;
+    totalAgentRequired?: number | null;
+    correctiveAgentId?: string | null;
+  },
+  agentLabel: string,
+  pattern?: FiscoQuimicaPattern | null
+): { label: string; value: string }[] {
+  const match = String(analysis.notes || '').match(VISC_DOSE_NOTE);
+  if (!match) {
+    const legacyTotal = analysis.totalAgentRequired
+      ? `${(analysis.totalAgentRequired / 1000).toFixed(3)} kg`
+      : 'Conforme Ensaio';
+    return [
+      { label: 'Agente Corretivo', value: agentLabel },
+      { label: 'Visc. Inicial', value: `${formatViscosity(analysis.initialViscosity, pattern)} cps` },
+      { label: 'Dose Teste em 1L', value: `${(analysis.trialAgentQty || 0).toFixed(2)} g` },
+      { label: 'Visc. no Teste', value: `${formatViscosity(analysis.trialViscosity, pattern)} cps` },
+      { label: 'Dose Total Adicionada ao Lote', value: legacyTotal },
+    ];
+  }
+
+  let antes = '';
+  let alvo = '';
+  const doses: string[] = [];
+  for (const part of match[1].split(';')) {
+    const text = part.trim();
+    const antesMatch = text.match(/^antes\s+([\d.,]+)/i);
+    const alvoMatch = text.match(/^alvo\s+([\d.,]+)/i);
+    const doseMatch = text.match(/^dose\s+([\d.,]+)\s*g\/L(?:\s*→\s*([\d.,]+))?/i);
+    if (antesMatch) antes = `${formatViscosity(parseFloat(antesMatch[1].replace(',', '.')), pattern)} cps`;
+    else if (alvoMatch) alvo = `${formatViscosity(parseFloat(alvoMatch[1].replace(',', '.')), pattern)} cps`;
+    else if (doseMatch) {
+      const grams = doseMatch[1].replace('.', ',');
+      const visc = doseMatch[2] ? parseFloat(doseMatch[2].replace(',', '.')) : 0;
+      doses.push(visc > 0 ? `${grams} g/L → ${formatViscosity(visc, pattern)} cps` : `${grams} g/L`);
+    }
+  }
+
+  const total = analysis.totalAgentRequired != null && analysis.totalAgentRequired > 0
+    ? `${analysis.totalAgentRequired.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} kg`
+    : 'Conforme Ensaio';
+  const parts: { label: string; value: string }[] = [
+    { label: 'Agente Corretivo', value: agentLabel },
+  ];
+  if (antes && antes !== '- cps') parts.push({ label: 'Visc. Inicial', value: antes });
+  else if (analysis.initialViscosity) parts.push({ label: 'Visc. Inicial', value: `${formatViscosity(analysis.initialViscosity, pattern)} cps` });
+  if (alvo && alvo !== '- cps') parts.push({ label: 'Alvo', value: alvo });
+  if (doses.length > 0) parts.push({ label: 'Doses', value: doses.join('; ') });
+  parts.push({ label: 'Total no lote', value: total });
+  return parts;
+}
+
+/**
+ * Verifica se a análise está com status pendente de correção na bancada
+ */
+export function isAnalysisInCorrection(analysis?: { status?: string | null; notes?: string | null } | null): boolean {
+  if (!analysis) return false;
+  return analysis.status === 'EM_CORRECAO' || 
+    (analysis.notes || '').includes('[STATUS: EM CORREÇÃO]') ||
+    (analysis.notes || '').includes('[EM CORREÇÃO]');
+}
+
 /**
  * Validação de conformidade físico-química em relação aos padrões e aspecto
  */
@@ -342,9 +461,7 @@ export function checkAnalysisCompliance(
   },
   pattern: FiscoQuimicaPattern | null
 ) {
-  const isEmCorrecao = analysis.status === 'EM_CORRECAO' || 
-    (analysis.notes || '').includes('[STATUS: EM CORREÇÃO]') ||
-    (analysis.notes || '').includes('[EM CORREÇÃO]');
+  const isEmCorrecao = isAnalysisInCorrection(analysis);
 
   const aspectOk = analysis.aspectOk !== undefined && analysis.aspectOk !== null ? analysis.aspectOk : !(analysis.notes || '').includes('[Aspecto Não Conforme');
   const colorOk = analysis.colorOk !== undefined && analysis.colorOk !== null ? analysis.colorOk : !(analysis.notes || '').includes('[Cor Não Conforme');
@@ -398,14 +515,14 @@ export function checkAnalysisCompliance(
   const densMax = pattern.densityTarget + pattern.densityTolerance;
   const densityOk = analysis.densityMeasured <= 0 || (analysis.densityMeasured >= densMin && analysis.densityMeasured <= densMax);
 
-  const allOk = phOk && viscOk && densityOk && organoOk;
-
+  // Faixas antigas de pH, viscosidade e densidade ficam só como referência.
+  // Aprovar o laudo não depende delas — a viscosidade muda com o método.
   let overallStatus: 'CONFORME' | 'AJUSTADO' | 'FORA_PADRAO' | 'EM_CORRECAO' = 'CONFORME';
   let statusLabel = 'Conforme';
 
-  if (!allOk) {
+  if (!organoOk) {
     overallStatus = 'FORA_PADRAO';
-    statusLabel = 'Fora de Especificação';
+    statusLabel = 'Aspecto ou cor fora';
   } else if (analysis.hasAdjustment) {
     overallStatus = 'AJUSTADO';
     statusLabel = 'Conforme (Ajustado)';
@@ -419,7 +536,7 @@ export function checkAnalysisCompliance(
     aspectOk,
     colorOk,
     odorOk,
-    isCompliant: allOk,
+    isCompliant: organoOk,
     densMin,
     densMax,
     overallStatus,
@@ -462,6 +579,10 @@ export function renderFiscoReportHtml(
   const colorOk = !isColorFail;
   const odorOk = !isOdorFail && !isLegacyColorOdorFail;
 
+  const inCorrection = isAnalysisInCorrection(analysis);
+  const released = !inCorrection && analysis.status !== 'FORA_PADRAO';
+  const viscMethod = 'VISCOSIMETRIA';
+  const viscParameterParts = viscosityParameterParts(analysis);
   const compliance = checkAnalysisCompliance({
     phMeasured: analysis.phMeasured,
     viscosityMeasured: analysis.viscosityMeasured,
@@ -471,6 +592,10 @@ export function renderFiscoReportHtml(
     colorOk,
     odorOk
   }, pattern);
+  const legacySheet = viscParameterParts.length === 0;
+  const phApproved = legacySheet ? compliance.phOk : (released || compliance.phOk);
+  const viscApproved = legacySheet ? compliance.viscOk : (released || compliance.viscOk);
+  const densityApproved = legacySheet ? compliance.densityOk : (released || compliance.densityOk);
 
   // Formatação de data
   const rawDate = analysis.analysisDate || '';
@@ -560,22 +685,19 @@ export function renderFiscoReportHtml(
       </div>
 
       <!-- Tabela de Ensaios Físico-Químicos -->
-      <table style="width: 100%; border-collapse: collapse; border: 1px solid #000000; font-size: 8pt; margin-bottom: 8px;">
+      <table style="width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #000000; font-size: 8pt; margin-bottom: 8px;">
         <thead>
           <tr style="background: #f4f4f5;">
-            <th style="border: 1px solid #000000; padding: 4px 5px; font-weight: bold; text-align: left; text-transform: uppercase; width: 26%;">
+            <th style="border: 1px solid #000000; padding: 4px 5px; font-weight: bold; text-align: left; text-transform: uppercase; width: 34%;">
               ENSAIO
             </th>
-            <th style="border: 1px solid #000000; padding: 4px 5px; font-weight: bold; text-align: left; text-transform: uppercase; width: 28%;">
-              ESPECIFICAÇÃO
-            </th>
-            <th style="border: 1px solid #000000; padding: 4px 5px; font-weight: bold; text-align: center; text-transform: uppercase; width: 18%;">
+            <th style="border: 1px solid #000000; padding: 4px 5px; font-weight: bold; text-align: center; text-transform: uppercase; width: 26%;">
               RESULTADO OBTIDO
             </th>
-            <th style="border: 1px solid #000000; padding: 4px 5px; font-weight: bold; text-align: center; text-transform: uppercase; width: 16%;">
+            <th style="border: 1px solid #000000; padding: 4px 5px; font-weight: bold; text-align: center; text-transform: uppercase; width: 24%;">
               MÉTODO
             </th>
-            <th style="border: 1px solid #000000; padding: 4px 5px; font-weight: bold; text-align: center; text-transform: uppercase; width: 12%;">
+            <th style="border: 1px solid #000000; padding: 4px 5px; font-weight: bold; text-align: center; text-transform: uppercase; width: 16%;">
               AVALIAÇÃO
             </th>
           </tr>
@@ -583,7 +705,6 @@ export function renderFiscoReportHtml(
         <tbody>
           <tr>
             <td style="border: 1px solid #000000; padding: 4px 6px; font-weight: bold;">ASPECTO</td>
-            <td style="border: 1px solid #000000; padding: 4px 6px;">${escapeHtml(aspectSpec)}</td>
             <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center; font-weight: bold;">
               ${escapeHtml(displayedAspect)}
             </td>
@@ -594,7 +715,6 @@ export function renderFiscoReportHtml(
           </tr>
           <tr>
             <td style="border: 1px solid #000000; padding: 4px 6px; font-weight: bold;">COR</td>
-            <td style="border: 1px solid #000000; padding: 4px 6px;">${escapeHtml(colorSpec)}</td>
             <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center; font-weight: bold;">
               ${escapeHtml(displayedColor)}
             </td>
@@ -604,51 +724,56 @@ export function renderFiscoReportHtml(
             </td>
           </tr>
           <tr>
-            <td style="border: 1px solid #000000; padding: 4px 6px; font-weight: bold;">ODOR</td>
-            <td style="border: 1px solid #000000; padding: 4px 6px;">${escapeHtml(odorSpec)}</td>
-            <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center; font-weight: bold;">
+            <td style="border: 1px solid #000000; padding: 4px 6px; font-weight: bold; border-top: 1px solid #000000;">ODOR</td>
+            <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center; font-weight: bold; border-top: 1px solid #000000;">
               ${escapeHtml(displayedOdor)}
             </td>
-            <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center;">ORGANOLÉPTICO</td>
-            <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center; font-weight: bold; color: ${odorOk ? '#047857' : '#b91c1c'};">
+            <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center; border-top: 1px solid #000000;">ORGANOLÉPTICO</td>
+            <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center; font-weight: bold; border-top: 1px solid #000000; color: ${odorOk ? '#047857' : '#b91c1c'};">
               ${odorOk ? 'APROVADO' : 'REPROVADO'}
             </td>
           </tr>
           <tr>
             <td style="border: 1px solid #000000; padding: 4px 6px; font-weight: bold;">POTENCIAL HIDROGENIÔNICO (pH a 25°C)</td>
-            <td style="border: 1px solid #000000; padding: 4px 6px;">${phSpec}</td>
             <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center; font-weight: bold; font-size: 8.5pt;">
               ${analysis.phMeasured.toFixed(2)}
             </td>
             <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center;">POTENCIOMETRIA</td>
-            <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center; font-weight: bold; color: ${compliance.phOk ? '#047857' : '#b91c1c'};">
-              ${compliance.phOk ? 'APROVADO' : 'REPROVADO'}
+            <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center; font-weight: bold; color: ${phApproved ? '#047857' : '#b91c1c'};">
+              ${phApproved ? 'APROVADO' : 'REPROVADO'}
             </td>
           </tr>
           <tr>
             <td style="border: 1px solid #000000; padding: 4px 6px; font-weight: bold;">VISCOSIDADE DINÂMICA (25°C)</td>
-            <td style="border: 1px solid #000000; padding: 4px 6px;">${viscSpec}</td>
             <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center; font-weight: bold; font-size: 8.5pt;">
               ${formatViscosity(analysis.viscosityMeasured, pattern)} cps
             </td>
-            <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center;">VISCOSIMETRIA</td>
-            <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center; font-weight: bold; color: ${compliance.viscOk ? '#047857' : '#b91c1c'};">
-              ${compliance.viscOk ? 'APROVADO' : 'REPROVADO'}
+            <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center;">${escapeHtml(viscMethod)}</td>
+            <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center; font-weight: bold; color: ${viscApproved ? '#047857' : '#b91c1c'};">
+              ${viscApproved ? 'APROVADO' : 'REPROVADO'}
             </td>
           </tr>
           <tr>
             <td style="border: 1px solid #000000; padding: 4px 6px; font-weight: bold;">DENSIDADE RELATIVA (20°C)</td>
-            <td style="border: 1px solid #000000; padding: 4px 6px;">${densSpec}</td>
             <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center; font-weight: bold; font-size: 8.5pt;">
               ${analysis.densityMeasured.toFixed(3)} g/mL
             </td>
             <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center;">GRAVIMETRIA (BALANÇA DE PRECISÃO)</td>
-            <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center; font-weight: bold; color: ${compliance.densityOk ? '#047857' : '#b91c1c'};">
-              ${compliance.densityOk ? 'APROVADO' : 'REPROVADO'}
+            <td style="border: 1px solid #000000; padding: 4px 6px; text-align: center; font-weight: bold; color: ${densityApproved ? '#047857' : '#b91c1c'};">
+              ${densityApproved ? 'APROVADO' : 'REPROVADO'}
             </td>
           </tr>
         </tbody>
       </table>
+
+      ${viscParameterParts.length > 0 ? `
+        <div style="border: 1px solid #000000; padding: 5px 8px; margin-bottom: 6px; font-size: 8pt; background: #fafafa;">
+          <div style="font-weight: bold; text-transform: uppercase; margin-bottom: 3px;">PARÂMETROS DE VISCOSIDADE:</div>
+          <div style="font-size: 7.5pt;">
+            ${viscParameterParts.map((part) => `${escapeHtml(part.label)}: <strong>${escapeHtml(part.value)}</strong>`).join(' | ')}
+          </div>
+        </div>
+      ` : ''}
 
       <!-- Bloco de Calibração / Meta de Envase -->
       <div style="border: 1px solid #000000; padding: 5px 8px; margin-bottom: 6px; font-size: 8pt; background: #fafafa;">
@@ -664,11 +789,7 @@ export function renderFiscoReportHtml(
         <div style="border: 1px solid #000000; padding: 5px 8px; margin-bottom: 6px; font-size: 7.5pt; background: #fffbeb;">
           <strong style="text-transform: uppercase; color: #92400e;">REGISTRO DE AJUSTE CORRETIVO NO LOTE:</strong>
           <div style="margin-top: 2px;">
-            Agente Corretivo: <strong>${escapeHtml(agent?.name || analysis.correctiveAgentId || 'Corretivo')}</strong> |
-            Visc. Inicial: <strong>${formatViscosity(analysis.initialViscosity, pattern)} cps</strong> |
-            Dose Teste em 1L: <strong>${(analysis.trialAgentQty || 0).toFixed(2)} g</strong> |
-            Visc. no Teste: <strong>${formatViscosity(analysis.trialViscosity, pattern)} cps</strong> |
-            Dose Total Adicionada ao Lote: <strong>${analysis.totalAgentRequired ? `${(analysis.totalAgentRequired / 1000).toFixed(3)} kg` : 'Conforme Ensaio'}</strong>
+            ${laudoAdjustmentParts(analysis, agent?.name || analysis.correctiveAgentId || 'Corretivo', pattern).map((part) => `${escapeHtml(part.label)}: <strong>${escapeHtml(part.value)}</strong>`).join(' | ')}
           </div>
         </div>
       ` : ''}
@@ -681,16 +802,18 @@ export function renderFiscoReportHtml(
         <p style="font-weight: bold; text-transform: uppercase; font-size: 8pt; margin: 0; line-height: 1.3;">
           ${compliance.overallStatus === 'FORA_PADRAO'
             ? 'AMOSTRA NÃO CONFORME COM OS PARÂMETROS ANALISADOS. LOTE RETIDO PARA REAVALIAÇÃO.'
-            : (analysis.hasAdjustment
-                ? 'AMOSTRA CONFORME COM AS ESPECIFICAÇÕES TÉCNICAS DO CONTROLE DE QUALIDADE APÓS AJUSTE CORRETIVO REALIZADO E APROVADO.'
-                : 'AMOSTRA CONFORME COM AS ESPECIFICAÇÕES TÉCNICAS ESTABELECIDAS PELO CONTROLE DE QUALIDADE PARA OS ENSAIOS DESCRITOS.')}
+            : (compliance.overallStatus === 'EM_CORRECAO'
+                ? 'AMOSTRA EM PROCESSO DE CORREÇÃO / AJUSTE DE BANCADA. AGUARDANDO NOVA AMOSTRAGEM.'
+                : (analysis.hasAdjustment
+                    ? 'AMOSTRA CONFORME COM AS ESPECIFICAÇÕES TÉCNICAS DO CONTROLE DE QUALIDADE APÓS AJUSTE CORRETIVO REALIZADO E APROVADO.'
+                    : 'AMOSTRA CONFORME COM AS ESPECIFICAÇÕES TÉCNICAS ESTABELECIDAS PELO CONTROLE DE QUALIDADE PARA OS ENSAIOS DESCRITOS.'))}
         </p>
       </div>
 
       <!-- Observações adicionais -->
-      ${analysis.notes ? `
+      ${laudoNotes(analysis.notes) ? `
         <div style="font-size: 7.5pt; font-style: italic; margin-bottom: 8px;">
-          <strong>OBSERVAÇÕES:</strong> ${escapeHtml(analysis.notes)}
+          <strong>OBSERVAÇÕES:</strong> ${escapeHtml(laudoNotes(analysis.notes))}
         </div>
       ` : ''}
 
@@ -825,6 +948,14 @@ export function printFiscoReports(
       page-break-after: always;
       break-after: page;
     }
+    .report-page table {
+      border-collapse: separate !important;
+      border-spacing: 0 !important;
+    }
+    .report-page th,
+    .report-page td {
+      border: 1px solid #000000 !important;
+    }
   </style>
 </head>
 <body>
@@ -877,7 +1008,9 @@ export function printFiscoSummaryReport(
       : a.analysisDate;
 
     let statusBadge = '<span style="color:#065f46; font-weight:bold; font-size:7pt; background:#d1fae5; padding:1px 4px; border-radius:3px;">CONFORME</span>';
-    if (a.hasAdjustment) {
+    if (comp.overallStatus === 'EM_CORRECAO') {
+      statusBadge = '<span style="color:#b45309; font-weight:bold; font-size:7pt; background:#fef3c7; padding:1px 4px; border-radius:3px;">EM CORREÇÃO</span>';
+    } else if (a.hasAdjustment) {
       statusBadge = '<span style="color:#92400e; font-weight:bold; font-size:7pt; background:#fef3c7; padding:1px 4px; border-radius:3px;">AJUSTADO</span>';
     } else if (comp.overallStatus === 'FORA_PADRAO') {
       statusBadge = '<span style="color:#991b1b; font-weight:bold; font-size:7pt; background:#fee2e2; padding:1px 4px; border-radius:3px;">FORA PADRÃO</span>';

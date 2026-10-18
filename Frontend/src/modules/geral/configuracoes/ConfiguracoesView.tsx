@@ -10,6 +10,7 @@ import OperadoresPanel from './OperadoresPanel';
 import PostgresUsagePanel from './PostgresUsagePanel';
 import PostgresBackupPanel from './PostgresBackupPanel';
 import AuditoriaPanel from './AuditoriaPanel';
+import ReportLogoPanel from './ReportLogoPanel';
 import { apiFetch, apiJson, getSetting, setSetting } from '../lib/http';
 import { isSupervisor, type AuthUser } from '../lib/auth';
 
@@ -106,6 +107,7 @@ export default function ConfiguracoesView({
     repaired: number;
     samples: { code: string; hub: number; erp: number; source?: string }[];
     bySource?: { insumos: number; materiais: number; produtos: number };
+    erpCacheDrift?: number;
   } | null>(null);
   const [auditCode, setAuditCode] = useState('9.15.104');
   const [auditingCode, setAuditingCode] = useState(false);
@@ -130,6 +132,7 @@ export default function ConfiguracoesView({
     erp: {
       source?: string | null;
       stockQty?: number;
+      stockQtyRaw?: number;
       stockQtyA?: number;
       reservedQty?: number;
       inProduction?: number;
@@ -277,6 +280,7 @@ export default function ConfiguracoesView({
         repaired?: number;
         samples?: { code: string; hub: number; erp: number; source?: string }[];
         bySource?: { insumos: number; materiais: number; produtos: number };
+        erpCacheDrift?: number;
       } | null = null;
 
       while (true) {
@@ -325,6 +329,7 @@ export default function ConfiguracoesView({
         repaired: donePayload.repaired ?? 0,
         samples: Array.isArray(donePayload.samples) ? donePayload.samples : [],
         bySource: donePayload.bySource,
+        erpCacheDrift: donePayload.erpCacheDrift,
       });
       setStockVerifyProgress(null);
       const bs = donePayload.bySource;
@@ -334,7 +339,7 @@ export default function ConfiguracoesView({
         text:
           (donePayload.repaired ?? 0) > 0
             ? `Estoque: ${donePayload.checked} conferidos, ${donePayload.repaired} divergências corrigidas${bySrc}. Recarregue Compras.`
-            : `0 divergências de estoque: ${donePayload.checked} itens batem com a tela do ERP (nQtdeEstoqueA líquido em insumos / nQtdeEstoque em produtos).`,
+            : `0 divergências de estoque: ${donePayload.checked} itens batem com o estoque recalculado do ERP.`,
         type: 'success',
       });
     } catch (e: unknown) {
@@ -377,6 +382,7 @@ export default function ConfiguracoesView({
         erp: {
           source?: string | null;
           stockQty?: number;
+          stockQtyRaw?: number;
           stockQtyA?: number;
           reservedQty?: number;
           inProduction?: number;
@@ -399,8 +405,8 @@ export default function ConfiguracoesView({
       });
       setMessage({
         text: data.match
-          ? `${code}: Hub bate com a tela do ERP (nQtdeEstoque + R/P/Ped).`
-          : `${code}: divergência Hub × ERP — use Corrigir do ERP se a tela estiver certa.`,
+          ? `${code}: Hub bate com o estoque recalculado do ERP.`
+          : `${code}: divergência Hub × ERP — use Corrigir do ERP se o recálculo estiver certo.`,
         type: data.match ? 'success' : 'error',
       });
     } catch (e: unknown) {
@@ -728,6 +734,11 @@ export default function ConfiguracoesView({
                           </span>
                         )}
                       </p>
+                      {(stockVerifyResult.erpCacheDrift ?? 0) > 0 && (
+                        <p className="text-amber-700">
+                          {stockVerifyResult.erpCacheDrift} itens com a coluna nQtdeEstoque desatualizada no ERP (só informativo).
+                        </p>
+                      )}
                       {stockVerifyResult.samples.length > 0 && (
                         <div className="space-y-1 pt-2 border-t border-zinc-200">
                           <p className="text-[10px] font-black uppercase text-zinc-400">Amostras de itens corrigidos:</p>
@@ -828,6 +839,13 @@ export default function ConfiguracoesView({
                             ) : (
                               <>
                                 <div>Estoque: <strong>{stockAuditResult.erp.stockQty?.toLocaleString('pt-BR', { maximumFractionDigits: 4 }) ?? '—'}</strong></div>
+                                {stockAuditResult.erp.stockQtyRaw != null &&
+                                  stockAuditResult.erp.stockQty != null &&
+                                  Math.abs(stockAuditResult.erp.stockQtyRaw - stockAuditResult.erp.stockQty) > 0.01 && (
+                                    <div className="text-amber-700">
+                                      Coluna ERP (cache): {stockAuditResult.erp.stockQtyRaw.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
+                                    </div>
+                                  )}
                                 <div>Reserva: {stockAuditResult.erp.reservedQty?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}</div>
                                 <div>Produção: {stockAuditResult.erp.inProduction?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}</div>
                                 <div>Pedidos: {stockAuditResult.erp.inOrders?.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) ?? '—'}</div>
@@ -835,6 +853,13 @@ export default function ConfiguracoesView({
                             )}
                           </div>
                         </div>
+                        {stockAuditResult.warnings && stockAuditResult.warnings.length > 0 && (
+                          <ul className="text-[11px] text-amber-800 space-y-1 pt-1">
+                            {stockAuditResult.warnings.map((w) => (
+                              <li key={w}>{w}</li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1141,7 +1166,7 @@ export default function ConfiguracoesView({
                         </span>
                       </div>
                       <p className="text-[11px] text-zinc-500 leading-relaxed">
-                        Verificação periódica ultrarrápida (~1s) que re-lê o estoque de tela (<code className="font-mono text-zinc-700">nQtdeEstoque</code>) de Insumos, Materiais e Produtos no ERP e corrige o Hub automaticamente.
+                        Verificação periódica que recalcula o estoque de insumos a partir dos movimentos do ERP, lê <code className="font-mono text-zinc-700">nQtdeEstoque</code> de materiais e produtos, e corrige o Hub automaticamente.
                       </p>
                       <div>
                         <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
@@ -1203,6 +1228,8 @@ export default function ConfiguracoesView({
           message={message}
           setMessage={setMessage}
         />
+
+        <ReportLogoPanel canUpload={isSupervisor(currentUser)} setMessage={setMessage} />
 
         {isSupervisor(currentUser) && (
           <OperadoresPanel currentUser={currentUser} setMessage={setMessage} />

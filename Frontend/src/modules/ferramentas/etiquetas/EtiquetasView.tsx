@@ -159,7 +159,6 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
   return (
     <AppLayout
       moduleTitle="Etiquetas"
-      moduleSubtitle="Impressão Térmica e Lotes"
       onBackToHub={onBackToHub}
       sidebarItems={sidebarItems}
       activeTab={activeTab}
@@ -208,21 +207,17 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
         {/* TAB: HISTORY */}
         {activeTab === 'history' && (
           <div className="space-y-4">
-            <div className="bg-white p-5 rounded-2xl border border-zinc-200/80 shadow-xs flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-zinc-900">Histórico de Impressões</h3>
-                <p className="text-xs text-zinc-500">Registro auditável de todas as impressões de etiquetas térmicas</p>
-              </div>
+            <div className="flex justify-end">
               <button
                 type="button"
                 onClick={loadPrintHistory}
-                className="px-3.5 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                className="px-3.5 py-2 bg-white border border-zinc-200 hover:bg-zinc-100 text-zinc-800 text-xs font-bold rounded-xl cursor-pointer"
               >
-                Atualizar Histórico
+                Atualizar
               </button>
             </div>
 
-            <div className="bg-white rounded-2xl border border-zinc-200/80 shadow-xs overflow-hidden">
+            <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-zinc-200 bg-zinc-50/80 text-zinc-600 font-bold uppercase text-[10px] tracking-wider">
@@ -258,7 +253,7 @@ export default function EtiquetasView({ onBackToHub, onNavigateToEditor }: Etiqu
                           {new Date(item.printed_at).toLocaleString('pt-BR')}
                         </td>
                         <td className="p-3.5 font-bold text-zinc-900">{item.template_name}</td>
-                        <td className="p-3.5 font-mono text-blue-600 font-bold">
+                        <td className="p-3.5 font-mono text-zinc-800 font-bold">
                           {item.product_code || '-'}
                         </td>
                         <td className="p-3.5 font-medium text-zinc-800 max-w-xs truncate">

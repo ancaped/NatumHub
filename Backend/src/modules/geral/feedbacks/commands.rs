@@ -57,13 +57,14 @@ pub async fn get_feedbacks_admin_query(pool: PgPool) -> Result<Vec<Feedback>, St
          FROM feedbacks
          ORDER BY
          CASE status
-           WHEN 'in_progress' THEN 0
-           WHEN 'queued' THEN 1
-           WHEN 'awaiting_review' THEN 2
-           WHEN 'pending' THEN 3
-           WHEN 'wont_fix' THEN 4
-           WHEN 'resolved' THEN 5
-           ELSE 6
+           WHEN 'pending' THEN 0
+           WHEN 'in_progress' THEN 1
+           WHEN 'queued' THEN 2
+           WHEN 'planned' THEN 3
+           WHEN 'awaiting_review' THEN 4
+           WHEN 'wont_fix' THEN 5
+           WHEN 'resolved' THEN 6
+           ELSE 7
          END,
          priority ASC,
          "createdAt" DESC"#;
@@ -102,6 +103,7 @@ pub async fn sync_feedback_md(pool: PgPool) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let mut queue: Vec<(i32, String)> = Vec::new();
+    let mut planned: Vec<(i32, String)> = Vec::new();
     let mut pending: Vec<(i32, String)> = Vec::new();
     let mut review: Vec<(i32, String)> = Vec::new();
     let mut wont_fix: Vec<(i32, String)> = Vec::new();
@@ -171,12 +173,14 @@ pub async fn sync_feedback_md(pool: PgPool) -> Result<(), String> {
             "wont_fix" => wont_fix.push((priority, row_line)),
             "pending" => pending.push((priority, row_line)),
             "awaiting_review" => review.push((priority, row_line)),
+            "planned" => planned.push((priority, row_line)),
             "queued" | "in_progress" => queue.push((priority, row_line)),
             _ => pending.push((priority, row_line)),
         }
     }
 
     queue.sort_by_key(|(p, _)| *p);
+    planned.sort_by_key(|(p, _)| *p);
     pending.sort_by_key(|(p, _)| *p);
     review.sort_by_key(|(p, _)| *p);
     wont_fix.sort_by_key(|(p, _)| *p);
@@ -188,7 +192,22 @@ pub async fn sync_feedback_md(pool: PgPool) -> Result<(), String> {
         "> Espelho opcional do PostgreSQL. **Playbook da IA:** `Feedbacks/feedback.md`. Fonte de verdade = banco.\n\n",
     );
 
-    md.push_str("## 📋 Fila (agentes IA)\n\n");
+    md.push_str("## 🟡 1. Triagem (pending)\n\n");
+    if pending.is_empty() {
+        md.push_str("_Nenhum item em triagem._\n\n");
+    } else {
+        md.push_str(
+            "| Prio | ID | Solicitante | Data/Hora | Tipo | Página | Status | Descrição | Notas admin |\n",
+        );
+        md.push_str("| ---: | --- | --- | --- | --- | --- | --- | --- | --- |\n");
+        for (_, line) in pending {
+            md.push_str(&line);
+            md.push('\n');
+        }
+        md.push('\n');
+    }
+
+    md.push_str("## 📋 2. Fila (queued / in_progress)\n\n");
     md.push_str("Status `queued` ou `in_progress`, ordenados por prioridade.\n\n");
     if queue.is_empty() {
         md.push_str("_Fila vazia._\n\n");
@@ -204,22 +223,23 @@ pub async fn sync_feedback_md(pool: PgPool) -> Result<(), String> {
         md.push('\n');
     }
 
-    md.push_str("## 🟡 Triagem\n\n");
-    if pending.is_empty() {
-        md.push_str("_Nenhum item em triagem._\n\n");
+    md.push_str("## 📐 3. Planejados (planned)\n\n");
+    md.push_str("Status `planned`. Planos arquiteturais detalhados em `feedback_plan.md`.\n\n");
+    if planned.is_empty() {
+        md.push_str("_Nenhum item planejado no momento._\n\n");
     } else {
         md.push_str(
             "| Prio | ID | Solicitante | Data/Hora | Tipo | Página | Status | Descrição | Notas admin |\n",
         );
         md.push_str("| ---: | --- | --- | --- | --- | --- | --- | --- | --- |\n");
-        for (_, line) in pending {
+        for (_, line) in planned {
             md.push_str(&line);
             md.push('\n');
         }
         md.push('\n');
     }
 
-    md.push_str("## 🔵 Em aberto (conferência supervisor)\n\n");
+    md.push_str("## 🔵 4. Em aberto (awaiting_review)\n\n");
     if review.is_empty() {
         md.push_str("_Nenhum aguardando conferência._\n\n");
     } else {
@@ -350,7 +370,7 @@ pub async fn update_feedback_admin_query(
         .map_err(|e| e.to_string())?;
 
     if let Some(status) = &update.status {
-        let moving_to_queue = status == "queued" || status == "in_progress";
+        let moving_to_queue = status == "queued" || status == "in_progress" || status == "planned";
         if current_status == "awaiting_review" && moving_to_queue {
             let notes = get_feedback_notes_query(pool.clone(), id).await?;
             if notes.is_empty() {
@@ -361,7 +381,7 @@ pub async fn update_feedback_admin_query(
         }
         let moving_to_review = status == "awaiting_review";
         if moving_to_review
-            && (current_status == "queued" || current_status == "in_progress")
+            && (current_status == "queued" || current_status == "in_progress" || current_status == "planned")
         {
             let notes = get_feedback_notes_query(pool.clone(), id).await?;
             if notes.is_empty() {

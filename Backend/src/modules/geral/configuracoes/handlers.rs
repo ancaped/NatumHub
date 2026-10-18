@@ -1,7 +1,8 @@
 use axum::{
-    extract::{State, Path},
-    http::StatusCode,
-    response::IntoResponse,
+    body::Body,
+    extract::{Multipart, Path, State},
+    http::{header, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use std::sync::Arc;
@@ -135,4 +136,151 @@ pub async fn save_erp_sync_schedule_handler(
         )
             .into_response(),
     }
+}
+
+const REPORT_LOGO_KEY: &str = "report_logo_rel_path";
+const POPS_LOGO_KEY: &str = "pops_logo_rel_path";
+
+fn logo_mime(rel: &str) -> &'static str {
+    if rel.ends_with(".svg") {
+        "image/svg+xml"
+    } else if rel.ends_with(".png") {
+        "image/png"
+    } else if rel.ends_with(".webp") {
+        "image/webp"
+    } else if rel.ends_with(".gif") {
+        "image/gif"
+    } else {
+        "image/jpeg"
+    }
+}
+
+async fn logo_rel(state: &AppState) -> Result<Option<String>, String> {
+    if let Some(rel) = state.db.get_setting(REPORT_LOGO_KEY).await.map_err(|e| e.to_string())? {
+        if !rel.trim().is_empty() {
+            return Ok(Some(rel));
+        }
+    }
+    if let Some(rel) = state.db.get_setting(POPS_LOGO_KEY).await.map_err(|e| e.to_string())? {
+        if !rel.trim().is_empty() {
+            return Ok(Some(rel));
+        }
+    }
+    Ok(None)
+}
+
+pub async fn get_report_logo(State(state): State<Arc<AppState>>) -> Response {
+    let rel = match logo_rel(&state).await {
+        Ok(Some(rel)) => rel,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "Logo não configurada" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e })),
+            )
+                .into_response();
+        }
+    };
+    let abs = crate::core::app_config::saves_dir().join(&rel);
+    match std::fs::read(&abs) {
+        Ok(bytes) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, logo_mime(&rel))
+            .header(header::CACHE_CONTROL, "no-store")
+            .body(Body::from(bytes))
+            .unwrap_or_else(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "Falha ao ler a logo" })),
+                )
+                    .into_response()
+            }),
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Arquivo da logo não encontrado" })),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn upload_report_logo(
+    State(state): State<Arc<AppState>>,
+    mut multipart: Multipart,
+) -> Response {
+    let mut filename = String::from("logo.png");
+    let mut bytes: Option<Vec<u8>> = None;
+    while let Ok(Some(field)) = multipart.next_field().await {
+        if field.name().unwrap_or("") == "file" {
+            if let Some(fname) = field.file_name() {
+                filename = fname.to_string();
+            }
+            match field.bytes().await {
+                Ok(data) => bytes = Some(data.to_vec()),
+                Err(e) => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({ "error": e.to_string() })),
+                    )
+                        .into_response();
+                }
+            }
+        }
+    }
+    let Some(data) = bytes.filter(|b| !b.is_empty()) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Arquivo não enviado" })),
+        )
+            .into_response();
+    };
+    if data.len() > 2 * 1024 * 1024 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "A logo deve ter no máximo 2 MB" })),
+        )
+            .into_response();
+    }
+    let ext = std::path::Path::new(&filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("png")
+        .to_lowercase();
+    let allowed = ["png", "jpg", "jpeg", "webp", "gif", "svg"];
+    if !allowed.contains(&ext.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Envie uma imagem png, jpg, webp, gif ou svg" })),
+        )
+            .into_response();
+    }
+    let rel = format!("branding/logo.{ext}");
+    let dir = crate::core::app_config::saves_dir().join("branding");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response();
+    }
+    if let Err(e) = std::fs::write(crate::core::app_config::saves_dir().join(&rel), &data) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response();
+    }
+    if let Err(e) = state.db.save_setting(REPORT_LOGO_KEY, &rel).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response();
+    }
+    (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
 }

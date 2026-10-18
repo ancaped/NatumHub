@@ -1,48 +1,33 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
-  ArrowDownToLine,
-  ArrowUpFromLine,
-  FileText,
-  Loader2,
-  Save,
-  X,
+  ArrowRight,
+  Boxes,
   Camera,
+  Check,
+  CheckCircle2,
+  ChevronRight,
+  ClipboardCheck,
+  Edit2,
+  Image as ImageIcon,
+  Layers,
+  Loader2,
+  Minus,
+  Package,
+  Plus,
+  RefreshCw,
+  Save,
+  ShoppingCart,
+  Tag,
   Trash2,
-  LineChart,
+  TrendingDown,
+  TrendingUp,
+  Warehouse,
+  X,
 } from 'lucide-react';
 import { apiJson } from '../../../geral/lib/http';
-import type { AlmoxMovement, AlmoxOpsItem } from '../types';
+import type { AlmoxFamilia, AlmoxMovement, AlmoxOpsItem } from '../types';
 import { SECTION_LABELS } from '../types';
-
-type DrawerTab = 'visao' | 'movimentos' | 'consumo' | 'fotos' | 'config';
-
-const SECTOR_SUGGESTIONS = [
-  'Produção',
-  'Embalagem',
-  'Expedição',
-  'Qualidade',
-  'Manutenção',
-  'Administrativo',
-  'Laboratório',
-];
-
-interface NfHeader {
-  invoiceNumber: string;
-  invoiceDate?: string | null;
-  supplierName?: string | null;
-  totalValue?: number;
-  itemsCount?: number;
-}
-
-interface NfItem {
-  itemCode: string;
-  description?: string;
-  unit?: string;
-  quantity: number;
-  unitPrice?: number;
-  totalValue?: number;
-}
 
 export interface ItemConfigPayload {
   active: boolean;
@@ -56,6 +41,10 @@ export interface ItemConfigPayload {
   lifespanDays?: number | null;
   nextExchangeAt?: string | null;
   expiresAt?: string | null;
+  defaultPackQty?: number | null;
+  defaultPackName?: string | null;
+  photoData?: string | null;
+  photoDate?: string | null;
 }
 
 export interface MovementPayload {
@@ -76,972 +65,947 @@ export interface MovementPayload {
 interface Props {
   item: AlmoxOpsItem;
   movements: AlmoxMovement[];
+  familias?: AlmoxFamilia[];
   onClose: () => void;
   onSaveConfig: (payload: ItemConfigPayload) => Promise<void>;
-  onSubmitMovement: (payload: MovementPayload) => Promise<void>;
+  onSubmitMovement?: (payload: MovementPayload) => Promise<void>;
+  onDeleteItem?: (code: string) => Promise<void>;
+  onCountSaved?: () => Promise<void>;
+  onRequestBuy?: (item: AlmoxOpsItem) => Promise<void>;
+  onMoveCategory?: (code: string, newSection: string) => Promise<void>;
   busy?: boolean;
 }
 
-function exchangeBadge(status?: string | null) {
-  if (!status || status === 'none') return null;
-  if (status === 'ok') {
-    return (
-      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border bg-emerald-50 text-emerald-700 border-emerald-200">
-        Troca ok
-      </span>
-    );
+type DrawerTab = 'visao' | 'contar' | 'historico' | 'fotos' | 'config';
+
+function formatPhotoAge(photoDate?: string | null): { text: string; isOld: boolean; fullDate: string } {
+  if (!photoDate) return { text: 'Sem data', isOld: false, fullDate: '—' };
+  try {
+    const d = new Date(photoDate);
+    if (isNaN(d.getTime())) return { text: photoDate, isOld: false, fullDate: photoDate };
+
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    const fullDate = d.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    let text = '';
+    if (diffDays <= 0) {
+      text = 'Registrada hoje';
+    } else if (diffDays === 1) {
+      text = 'Registrada ontem';
+    } else if (diffDays < 30) {
+      text = `Registrada há ${diffDays} dias`;
+    } else if (diffDays < 365) {
+      const meses = Math.floor(diffDays / 30);
+      text = meses === 1 ? 'Registrada há 1 mês' : `Registrada há ${meses} meses`;
+    } else {
+      const anos = Math.floor(diffDays / 365);
+      text = anos === 1 ? 'Registrada há 1 ano' : `Registrada há ${anos} anos`;
+    }
+
+    const isOld = diffDays >= 180;
+    return { text, isOld, fullDate };
+  } catch {
+    return { text: photoDate, isOld: false, fullDate: photoDate };
   }
-  if (status === 'due_soon') {
-    return (
-      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border bg-amber-50 text-amber-700 border-amber-200">
-        Troca próxima
-      </span>
-    );
-  }
-  if (status === 'overdue') {
-    return (
-      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border bg-red-50 text-red-600 border-red-200">
-        Troca vencida
-      </span>
-    );
-  }
-  return null;
 }
 
-function money(n: number) {
-  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+async function compressImageFile(file: File, maxDim = 800, quality = 0.75): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(e.target?.result as string);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function dataBr(iso?: string | null) {
+  if (!iso) return '—';
+  const clean = iso.slice(0, 10);
+  const [y, m, d] = clean.split('-');
+  if (!y || !m || !d) return clean;
+  return `${d}/${m}/${y}`;
 }
 
 export default function ItemDrawer({
   item,
   movements,
+  familias = [],
   onClose,
   onSaveConfig,
-  onSubmitMovement,
+  onDeleteItem,
+  onCountSaved,
+  onRequestBuy,
+  onMoveCategory,
   busy = false,
 }: Props) {
-  const isSupermercado = item.section === 'supermercado';
-  const isErp = item.source !== 'local';
-
   const [tab, setTab] = useState<DrawerTab>('visao');
-  const [packUnit, setPackUnit] = useState<'g' | 'kg'>('kg');
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [localSuccess, setLocalSuccess] = useState<string | null>(null);
+  const [savingAction, setSavingAction] = useState(false);
 
-  // Consumption States
-  const [consumption, setConsumption] = useState<{
-    consumptionYoy: { year: number; quantity: number }[];
-    monthlyConsumption: { month: string; quantity: number }[];
-  } | null>(null);
-  const [consumptionLoading, setConsumptionLoading] = useState(false);
-
-  // Photos States
-  const [fotos, setFotos] = useState<{ id: string; photoData: string; notes?: string | null; createdAt: string }[]>([]);
-  const [fotosLoading, setFotosLoading] = useState(false);
-  const [newFotoNotes, setNewFotoNotes] = useState('');
-
-  const [active, setActive] = useState(item.active);
+  // Edit config states
   const [description, setDescription] = useState(item.description || '');
   const [unit, setUnit] = useState(item.unit || 'UN');
+  const [section, setSection] = useState(item.section || 'supermercado');
   const [minQty, setMinQty] = useState(String(item.minQty ?? 0));
   const [idealQty, setIdealQty] = useState(String(item.idealQty ?? 0));
   const [location, setLocation] = useState(item.location || '');
   const [notes, setNotes] = useState(item.notes || '');
-  const [lifespanDays, setLifespanDays] = useState(
-    item.lifespanDays != null ? String(item.lifespanDays) : ''
+  const [defaultPackQty, setDefaultPackQty] = useState(
+    item.defaultPackQty != null ? String(item.defaultPackQty) : ''
   );
-  const [nextExchangeAt, setNextExchangeAt] = useState(
-    item.nextExchangeAt ? item.nextExchangeAt.slice(0, 10) : ''
+  const [defaultPackName, setDefaultPackName] = useState(item.defaultPackName || '');
+  const [photoData, setPhotoData] = useState<string | null>(item.photoData || null);
+  const [photoDate, setPhotoDate] = useState<string | null>(item.photoDate || null);
+
+  // Quick spot count states
+  const initialPackFactor = item.lastPackQty || item.defaultPackQty || 12;
+  const initialPackName = item.lastPackName || item.defaultPackName || 'Fardo';
+  const [countMode, setCountMode] = useState<'pack' | 'direct'>(
+    item.defaultPackQty && item.defaultPackQty > 1 ? 'pack' : 'direct'
   );
-  const [expiresAt, setExpiresAt] = useState(
-    item.expiresAt ? item.expiresAt.slice(0, 10) : ''
-  );
+  const [packFactor, setPackFactor] = useState(initialPackFactor);
+  const [packName, setPackName] = useState(initialPackName);
+  const [packCount, setPackCount] = useState(0);
+  const [looseCount, setLooseCount] = useState(item.qtyOnHand);
+  const [directCountInput, setDirectCountInput] = useState(String(item.qtyOnHand));
 
-  const [mvType, setMvType] = useState<'entrada' | 'saida'>('entrada');
-  const [mvQty, setMvQty] = useState('');
-  const [mvCost, setMvCost] = useState('');
-  const [mvReason, setMvReason] = useState('');
-  const [mvDoc, setMvDoc] = useState('');
-  const [mvVariant, setMvVariant] = useState('');
-  const [mvPackLabel, setMvPackLabel] = useState('');
-  const [mvPackCount, setMvPackCount] = useState('');
-  const [mvContentPerPack, setMvContentPerPack] = useState('');
-  const [mvTotalPaid, setMvTotalPaid] = useState('');
-  const [mvSector, setMvSector] = useState('');
-  const [nfSearch, setNfSearch] = useState('');
-  const [nfLoading, setNfLoading] = useState(false);
-  const [nfResults, setNfResults] = useState<NfHeader[]>([]);
-  const [nfHint, setNfHint] = useState<string | null>(null);
-  const [localError, setLocalError] = useState<string | null>(null);
+  // Gallery fotos states
+  const [fotos, setFotos] = useState<{ id: string; photoData: string; notes?: string | null; createdAt: string }[]>([]);
+  const [fotosLoading, setFotosLoading] = useState(false);
+  const [newFotoNotes, setNewFotoNotes] = useState('');
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
-  const showPackEntrada = isSupermercado && mvType === 'entrada';
-  const showNfEntrada =
-    mvType === 'entrada' &&
-    (item.section === 'almoxarifado' || item.section === 'pecas');
-  const showSectorSaida =
-    mvType === 'saida' &&
-    (item.section === 'almoxarifado' || item.section === 'pecas');
-  const contentUnitLabel =
-    item.unit?.toUpperCase() === 'KG' || item.unit?.toUpperCase() === 'KG'
-      ? 'kg'
-      : item.unit || 'UN';
-
-  const packPreview = useMemo(() => {
-    if (!showPackEntrada) return null;
-    const pc = Number(mvPackCount);
-    let cpp = Number(mvContentPerPack);
-    const total = Number(mvTotalPaid);
-    if (packUnit === 'g') {
-      cpp = cpp / 1000.0;
-    }
-    const qty = pc > 0 && cpp > 0 ? pc * cpp : 0;
-    const unitCost = qty > 0 && total > 0 ? total / qty : null;
-    return { qty, unitCost };
-  }, [showPackEntrada, mvPackCount, mvContentPerPack, mvTotalPaid, packUnit]);
+  // Delete confirmation
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
-    setActive(item.active);
     setDescription(item.description || '');
     setUnit(item.unit || 'UN');
+    setSection(item.section || 'supermercado');
     setMinQty(String(item.minQty ?? 0));
     setIdealQty(String(item.idealQty ?? 0));
     setLocation(item.location || '');
     setNotes(item.notes || '');
-    setLifespanDays(item.lifespanDays != null ? String(item.lifespanDays) : '');
-    setNextExchangeAt(item.nextExchangeAt ? item.nextExchangeAt.slice(0, 10) : '');
-    setExpiresAt(item.expiresAt ? item.expiresAt.slice(0, 10) : '');
+    setDefaultPackQty(item.defaultPackQty != null ? String(item.defaultPackQty) : '');
+    setDefaultPackName(item.defaultPackName || '');
+    setPhotoData(item.photoData || null);
+    setPhotoDate(item.photoDate || null);
+
+    const pFact = item.lastPackQty || item.defaultPackQty || 12;
+    const pName = item.lastPackName || item.defaultPackName || 'Fardo';
+    setPackFactor(pFact);
+    setPackName(pName);
+    setPackCount(0);
+    setLooseCount(item.qtyOnHand);
+    setDirectCountInput(String(item.qtyOnHand));
+    setCountMode(item.defaultPackQty && item.defaultPackQty > 1 ? 'pack' : 'direct');
+
     setTab('visao');
     setLocalError(null);
-    setMvType('entrada');
-    setMvQty('');
-    setMvCost('');
-    setMvReason('');
-    setMvDoc('');
-    setMvVariant('');
-    setMvPackLabel('');
-    setMvPackCount('');
-    setMvContentPerPack('');
-    setMvTotalPaid('');
-    setMvSector('');
-    setNfSearch('');
-    setNfResults([]);
-    setNfHint(null);
-    setPackUnit('kg');
-    setConsumption(null);
-    setConsumptionLoading(false);
-    setFotos([]);
-    setFotosLoading(false);
-    setNewFotoNotes('');
+    setLocalSuccess(null);
+    setConfirmDelete(false);
   }, [item]);
 
-  // Load consumption when tab is active
-  useEffect(() => {
-    if (tab === 'consumo' && item.code && !consumption && !consumptionLoading) {
-      setConsumptionLoading(true);
-      apiJson<{
-        consumptionYoy: { year: number; quantity: number }[];
-        monthlyConsumption: { month: string; quantity: number }[];
-      }>(`/almox/items/${encodeURIComponent(item.code)}/consumption`)
-        .then((res) => {
-          setConsumption(res);
-        })
-        .catch((e) => {
-          console.error("Erro ao carregar consumo:", e);
-        })
-        .finally(() => {
-          setConsumptionLoading(false);
-        });
-    }
-  }, [tab, item.code, consumption, consumptionLoading]);
-
-  // Load photos when tab is active
+  // Load photos when on photos tab
   useEffect(() => {
     if (tab === 'fotos' && item.code && fotos.length === 0 && !fotosLoading) {
       setFotosLoading(true);
       apiJson<{ fotos: any[] }>(`/almox/fotos/item/${encodeURIComponent(item.code)}`)
         .then((res) => {
-          setFotos(res.fotos ?? []);
+          setFotos(res.fotos || []);
         })
-        .catch((e) => {
-          console.error("Erro ao carregar fotos:", e);
-        })
-        .finally(() => {
-          setFotosLoading(false);
-        });
+        .catch(() => {})
+        .finally(() => setFotosLoading(false));
     }
   }, [tab, item.code, fotos.length, fotosLoading]);
 
-  const handleAddFoto = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const base64 = e.target?.result as string;
-      if (!base64) return;
-      setLocalError(null);
-      try {
-        const res = await apiJson<{ foto: any }>(`/almox/fotos/item/${encodeURIComponent(item.code)}`, {
-          method: 'POST',
-          body: JSON.stringify({
-            photoData: base64,
-            notes: newFotoNotes.trim() || null,
-          }),
-        });
-        setFotos((prev) => [res.foto, ...prev]);
-        setNewFotoNotes('');
-      } catch (err: unknown) {
-        setLocalError(err instanceof Error ? err.message : 'Erro ao salvar foto');
-      }
-    };
-    reader.readAsDataURL(file);
-  };
+  // Calculated count total
+  const calculatedCountQty = useMemo(() => {
+    if (countMode === 'direct') {
+      const v = parseFloat(directCountInput.replace(',', '.'));
+      return isNaN(v) ? 0 : Math.max(0, v);
+    }
+    const factor = Math.max(1, Number(packFactor) || 1);
+    const p = Math.max(0, Number(packCount) || 0);
+    const l = Math.max(0, Number(looseCount) || 0);
+    return p * factor + l;
+  }, [countMode, directCountInput, packFactor, packCount, looseCount]);
 
-  const handleDeleteFoto = async (id: string) => {
+  const countDiff = calculatedCountQty - item.qtyOnHand;
+  const photoAge = formatPhotoAge(photoDate);
+
+  // Handle saving spot count for this single item
+  const handleSaveSpotCount = async () => {
+    setSavingAction(true);
     setLocalError(null);
+    setLocalSuccess(null);
     try {
-      await apiJson(`/almox/fotos/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
+      const countedAt = new Date().toISOString().slice(0, 10);
+      await apiJson('/almox/counts', {
+        method: 'POST',
+        body: JSON.stringify({
+          countedAt,
+          lines: [
+            {
+              itemCode: item.code,
+              countedQty: calculatedCountQty,
+              packQty: countMode === 'pack' ? packFactor : null,
+              packName: countMode === 'pack' ? packName : null,
+            },
+          ],
+        }),
       });
-      setFotos((prev) => prev.filter((f) => f.id !== id));
-    } catch (err: unknown) {
-      setLocalError(err instanceof Error ? err.message : 'Erro ao excluir foto');
-    }
-  };
 
-  const applyNf = async (invoiceNumber: string) => {
-    setNfLoading(true);
-    setNfHint(null);
-    setLocalError(null);
-    try {
-      const detail = await apiJson<{ items?: NfItem[] }>(
-        `/compras/notas/${encodeURIComponent(invoiceNumber)}`
+      setLocalSuccess(
+        countDiff < 0
+          ? `Contagem salva! Consumo de ${Math.abs(countDiff).toLocaleString('pt-BR')} ${item.unit} apurado com sucesso.`
+          : countDiff > 0
+          ? `Contagem salva! Saldo ajustado com entrada de ${countDiff.toLocaleString('pt-BR')} ${item.unit}.`
+          : 'Contagem salva! Saldo conferido e confirmado como estável.'
       );
-      const items = detail.items ?? [];
-      const match =
-        items.find((it) => it.itemCode === item.code) ||
-        items.find(
-          (it) =>
-            it.itemCode?.toLowerCase() === item.code.toLowerCase() ||
-            (it.description || '').toLowerCase().includes((item.description || '').toLowerCase())
-        );
-      if (!match) {
-        setNfHint(
-          `NF ${invoiceNumber} carregada, mas o item ${item.code} não está nela. Informe qty/custo manualmente.`
-        );
-        setMvDoc(invoiceNumber);
-        setNfResults([]);
-        return;
-      }
-      setMvDoc(invoiceNumber);
-      setMvQty(String(match.quantity || ''));
-      if (match.unitPrice != null) setMvCost(String(match.unitPrice));
-      setNfHint(
-        `Pré-preenchido da NF ${invoiceNumber}: ${match.quantity} ${match.unit || item.unit}` +
-          (match.unitPrice != null ? ` · R$ ${match.unitPrice}` : '')
-      );
-      setNfResults([]);
-    } catch (e: unknown) {
-      setLocalError(e instanceof Error ? e.message : 'Erro ao carregar NF');
-    } finally {
-      setNfLoading(false);
-    }
-  };
 
-  const searchNf = async () => {
-    const term = nfSearch.trim();
-    if (!term) return;
-    setNfLoading(true);
-    setNfHint(null);
-    setLocalError(null);
-    try {
-      const list = await apiJson<NfHeader[]>(
-        `/compras/notas?search=${encodeURIComponent(term)}`
-      );
-      const arr = Array.isArray(list) ? list : [];
-      setNfResults(arr.slice(0, 8));
-      if (arr.length === 0) {
-        setNfHint('Nenhuma NF encontrada. Entrada manual permanece disponível.');
-      } else if (arr.length === 1) {
-        await applyNf(arr[0].invoiceNumber);
+      if (onCountSaved) {
+        await onCountSaved();
       }
     } catch (e: unknown) {
-      setLocalError(e instanceof Error ? e.message : 'Erro ao buscar NF');
+      setLocalError(e instanceof Error ? e.message : 'Erro ao registrar contagem do item.');
     } finally {
-      setNfLoading(false);
+      setSavingAction(false);
     }
   };
 
-  const saveConfig = async () => {
+  // Handle quick move category
+  const handleQuickMoveCategory = async (newSec: string) => {
+    if (!newSec || newSec === item.section) return;
+    setSavingAction(true);
     setLocalError(null);
+    setLocalSuccess(null);
+    try {
+      if (onMoveCategory) {
+        await onMoveCategory(item.code, newSec);
+      } else {
+        await onSaveConfig({
+          active: item.active,
+          minQty: item.minQty,
+          idealQty: item.idealQty,
+          location: item.location || null,
+          notes: item.notes || null,
+          section: newSec,
+        });
+      }
+      setSection(newSec);
+      setLocalSuccess(`Item movido com sucesso para a categoria '${SECTION_LABELS[newSec] || newSec}'.`);
+    } catch (e: unknown) {
+      setLocalError(e instanceof Error ? e.message : 'Erro ao mover categoria do item.');
+    } finally {
+      setSavingAction(false);
+    }
+  };
+
+  // Handle save full config
+  const handleSaveFullConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingAction(true);
+    setLocalError(null);
+    setLocalSuccess(null);
     try {
       await onSaveConfig({
-        active,
-        minQty: Number(minQty) || 0,
-        idealQty: Number(idealQty) || 0,
-        location: location || null,
-        notes: notes || null,
-        section: item.section,
+        active: item.active,
         description: description.trim() || undefined,
         unit: unit.trim() || undefined,
-        lifespanDays: lifespanDays ? Number(lifespanDays) : null,
-        nextExchangeAt: nextExchangeAt || null,
-        expiresAt: expiresAt || null,
+        section: section.trim() || undefined,
+        minQty: Number(minQty) || 0,
+        idealQty: Number(idealQty) || 0,
+        location: location.trim() || null,
+        notes: notes.trim() || null,
+        defaultPackQty: defaultPackQty ? Number(defaultPackQty) : null,
+        defaultPackName: defaultPackName.trim() || null,
+        photoData: photoData || null,
+        photoDate: photoDate || null,
       });
+      setLocalSuccess('Dados do item atualizados com sucesso!');
     } catch (e: unknown) {
-      setLocalError(e instanceof Error ? e.message : 'Erro ao salvar');
+      setLocalError(e instanceof Error ? e.message : 'Erro ao salvar alterações.');
+    } finally {
+      setSavingAction(false);
     }
   };
 
-  const submitMv = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Handle delete item
+  const handleDeleteItem = async () => {
+    if (!onDeleteItem) return;
+    setSavingAction(true);
     setLocalError(null);
-
-    if (showPackEntrada) {
-      const packCount = Number(mvPackCount);
-      let contentPerPack = Number(mvContentPerPack);
-      const totalPaid = Number(mvTotalPaid);
-      if (packUnit === 'g') {
-        contentPerPack = contentPerPack / 1000.0;
-      }
-      const quantity = packCount > 0 && contentPerPack > 0 ? packCount * contentPerPack : 0;
-      if (quantity <= 0) {
-        setLocalError('Informe qtd. de embalagens e conteúdo por embalagem.');
-        return;
-      }
-      if (!totalPaid || totalPaid <= 0) {
-        setLocalError('Informe o total pago.');
-        return;
-      }
-      try {
-        await onSubmitMovement({
-          itemCode: item.code,
-          movementType: 'entrada',
-          quantity,
-          packCount,
-          contentPerPack,
-          totalPaid,
-          variantLabel: mvVariant.trim() || null,
-          packLabel: mvPackLabel.trim() || null,
-          documentRef: mvDoc.trim() || null,
-          reason: mvReason.trim() || null,
-        });
-        setMvQty('');
-        setMvCost('');
-        setMvReason('');
-        setMvDoc('');
-        setMvVariant('');
-        setMvPackLabel('');
-        setMvPackCount('');
-        setMvContentPerPack('');
-        setMvTotalPaid('');
-        setMvSector('');
-        setTab('movimentos');
-      } catch (err: unknown) {
-        setLocalError(err instanceof Error ? err.message : 'Erro no movimento');
-      }
-      return;
-    }
-
-    const quantity = Number(mvQty);
-    if (!quantity || quantity <= 0) {
-      setLocalError('Informe uma quantidade válida.');
-      return;
-    }
     try {
-      await onSubmitMovement({
-        itemCode: item.code,
-        movementType: mvType,
-        quantity,
-        unitCost: mvCost ? Number(mvCost) : null,
-        reason: mvReason || null,
-        documentRef: mvDoc || null,
-        sector: showSectorSaida ? mvSector.trim() || null : null,
-      });
-      setMvQty('');
-      setMvCost('');
-      setMvReason('');
-      setMvDoc('');
-      setMvSector('');
-      setTab('movimentos');
-    } catch (err: unknown) {
-      setLocalError(err instanceof Error ? err.message : 'Erro no movimento');
+      await onDeleteItem(item.code);
+      onClose();
+    } catch (e: unknown) {
+      setLocalError(e instanceof Error ? e.message : 'Não foi possível excluir o item.');
+      setSavingAction(false);
     }
   };
 
-  const tabs: { id: DrawerTab; label: string }[] = [
-    { id: 'visao', label: 'Visão geral' },
-    { id: 'movimentos', label: 'Movimentos' },
-    { id: 'consumo', label: 'Consumo' },
-    { id: 'fotos', label: 'Fotos' },
-    { id: 'config', label: 'Config' },
-  ];
+  // Handle uploading main photo
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSavingAction(true);
+    setLocalError(null);
+    try {
+      const base64 = await compressImageFile(file, 800, 0.75);
+      const newDate = new Date().toISOString();
+      await onSaveConfig({
+        active: item.active,
+        minQty: item.minQty,
+        idealQty: item.idealQty,
+        location: item.location || null,
+        notes: item.notes || null,
+        photoData: base64,
+        photoDate: newDate,
+      });
+      setPhotoData(base64);
+      setPhotoDate(newDate);
+      setLocalSuccess('Foto do item atualizada com a data de hoje!');
+    } catch (err: unknown) {
+      setLocalError(err instanceof Error ? err.message : 'Erro ao salvar foto.');
+    } finally {
+      setSavingAction(false);
+    }
+  };
 
-  const itemMovements = movements.filter((m) => m.itemCode === item.code);
+  // Add photo to secondary gallery
+  const handleAddGalleryPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSavingAction(true);
+    setLocalError(null);
+    try {
+      const base64 = await compressImageFile(file, 800, 0.75);
+      const res = await apiJson<{ foto: any }>(`/almox/fotos/item/${encodeURIComponent(item.code)}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          photoData: base64,
+          notes: newFotoNotes.trim() || null,
+        }),
+      });
+      setFotos((prev) => [res.foto, ...prev]);
+      setNewFotoNotes('');
+      setLocalSuccess('Nova foto adicionada ao histórico!');
+    } catch (err: unknown) {
+      setLocalError(err instanceof Error ? err.message : 'Erro ao adicionar foto ao histórico.');
+    } finally {
+      setSavingAction(false);
+    }
+  };
+
+  // Delete photo from secondary gallery
+  const handleDeleteGalleryPhoto = async (id: string) => {
+    setSavingAction(true);
+    setLocalError(null);
+    try {
+      await apiJson(`/almox/fotos/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      setFotos((prev) => prev.filter((f) => f.id !== id));
+    } catch (err: unknown) {
+      setLocalError(err instanceof Error ? err.message : 'Erro ao excluir foto.');
+    } finally {
+      setSavingAction(false);
+    }
+  };
+
+  // Item movements that represent past counts
+  const countMovements = useMemo(() => {
+    return movements
+      .filter((m) => m.itemCode === item.code)
+      .slice(0, 50);
+  }, [movements, item.code]);
+
+  // Family label helper
+  const currentFamilyLabel = SECTION_LABELS[section] || familias.find((f) => f.id === section)?.label || section;
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-end">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex justify-end">
       <div className="absolute inset-0 cursor-pointer" onClick={onClose} />
-      <div className="relative w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-350 z-10">
-        <div className="px-6 py-5 border-b border-zinc-200 bg-zinc-50/50 flex justify-between items-start shrink-0">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 mb-1">
-              <span className="px-2 py-0.5 bg-zinc-900 text-white rounded text-[9px] font-bold uppercase tracking-wider">
-                {SECTION_LABELS[item.section] || item.section}
-              </span>
-              {item.belowMin && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border bg-amber-50 text-amber-700 border-amber-200">
-                  <AlertTriangle className="h-3 w-3" />
-                  Abaixo do mín.
-                </span>
+      <div className="relative w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300 z-10">
+        {/* Header Hero */}
+        <div className="px-6 py-5 border-b border-zinc-200 bg-zinc-50/70 flex justify-between items-start shrink-0">
+          <div className="flex items-start gap-4 min-w-0">
+            {/* Main Photo Thumbnail with Freshness Badge */}
+            <div className="relative group shrink-0">
+              {photoData ? (
+                <div
+                  className="w-16 h-16 rounded-2xl border border-zinc-200 overflow-hidden bg-zinc-100 shrink-0 cursor-pointer shadow-xs relative"
+                  onClick={() => photoInputRef.current?.click()}
+                  title="Clique para trocar a foto"
+                >
+                  <img src={photoData} alt={description} className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <Camera className="w-5 h-5 text-white" />
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => photoInputRef.current?.click()}
+                  className="w-16 h-16 rounded-2xl border border-dashed border-zinc-300 bg-white flex flex-col items-center justify-center shrink-0 text-zinc-400 hover:text-zinc-700 hover:border-zinc-500 transition-all cursor-pointer shadow-xs"
+                  title="Adicionar foto do item"
+                >
+                  <Camera className="w-5 h-5 text-zinc-500" />
+                  <span className="text-[9px] font-bold mt-0.5 text-zinc-600">+ Foto</span>
+                </button>
               )}
-              {exchangeBadge(item.exchangeStatus)}
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                onChange={(e) => void handlePhotoUpload(e)}
+                className="hidden"
+              />
             </div>
-            <h3 className="font-bold text-zinc-900 text-lg truncate">{item.description}</h3>
-            <p className="text-xs text-zinc-500 font-mono mt-0.5">
-              {item.code} · {item.unit} · {item.source === 'local' ? 'Local' : 'ERP'}
-            </p>
+
+            <div className="min-w-0 space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-2.5 py-0.5 bg-zinc-900 text-white rounded-lg text-[10px] font-black uppercase tracking-wider">
+                  {currentFamilyLabel}
+                </span>
+
+                {item.belowMin ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border bg-amber-50 text-amber-700 border-amber-200">
+                    <AlertTriangle className="h-3 w-3" />
+                    Abaixo do Mínimo
+                  </span>
+                ) : item.qtyOnHand <= 0 ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border bg-rose-50 text-rose-700 border-rose-200">
+                    Zerado
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border bg-emerald-50 text-emerald-700 border-emerald-200">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Estoque OK
+                  </span>
+                )}
+              </div>
+
+              <h3 className="font-extrabold text-zinc-900 text-lg sm:text-xl leading-tight truncate">
+                {description}
+              </h3>
+
+              <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500 font-mono">
+                <span>{item.code}</span>
+                <span>·</span>
+                <span>{unit}</span>
+                {photoData && (
+                  <>
+                    <span>·</span>
+                    <span className={`font-sans font-medium text-[11px] ${photoAge.isOld ? 'text-amber-600 font-bold' : 'text-zinc-500'}`}>
+                      📷 {photoAge.text}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
+
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 hover:bg-zinc-150 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer"
+            className="p-2 hover:bg-zinc-200/60 rounded-xl text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="px-6 border-b border-zinc-100 flex gap-1 shrink-0">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={`px-3 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
-                tab === t.id
-                  ? 'border-zinc-900 text-zinc-900'
-                  : 'border-transparent text-zinc-400 hover:text-zinc-700'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+        {/* Tab Navigation */}
+        <div className="px-6 border-b border-zinc-200 flex gap-2 shrink-0 bg-white overflow-x-auto scrollbar-none">
+          <button
+            type="button"
+            onClick={() => setTab('visao')}
+            className={`px-3 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+              tab === 'visao' ? 'border-zinc-900 text-zinc-900' : 'border-transparent text-zinc-400 hover:text-zinc-700'
+            }`}
+          >
+            Visão Geral
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('contar')}
+            className={`px-3 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+              tab === 'contar' ? 'border-zinc-900 text-zinc-900' : 'border-transparent text-zinc-400 hover:text-zinc-700'
+            }`}
+          >
+            <ClipboardCheck className="h-3.5 w-3.5 text-zinc-700" />
+            Contar Item
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('historico')}
+            className={`px-3 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+              tab === 'historico' ? 'border-zinc-900 text-zinc-900' : 'border-transparent text-zinc-400 hover:text-zinc-700'
+            }`}
+          >
+            Histórico & Consumo
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('fotos')}
+            className={`px-3 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+              tab === 'fotos' ? 'border-zinc-900 text-zinc-900' : 'border-transparent text-zinc-400 hover:text-zinc-700'
+            }`}
+          >
+            Fotos
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('config')}
+            className={`px-3 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+              tab === 'config' ? 'border-zinc-900 text-zinc-900' : 'border-transparent text-zinc-400 hover:text-zinc-700'
+            }`}
+          >
+            Editar & Ações
+          </button>
         </div>
 
+        {/* Global Feedback Banners */}
         {localError && (
-          <div className="mx-6 mt-3 rounded-xl border border-red-200 bg-red-50 text-red-600 text-sm px-4 py-2">
-            {localError}
+          <div className="mx-6 mt-4 p-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-xs font-bold flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span>{localError}</span>
+          </div>
+        )}
+        {localSuccess && (
+          <div className="mx-6 mt-4 p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 text-xs font-bold flex items-center gap-2">
+            <Check className="h-4 w-4 shrink-0" />
+            <span>{localSuccess}</span>
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        {/* Tab Body */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
           {tab === 'visao' && (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <div className="bg-zinc-50 border border-zinc-100 rounded-2xl p-4">
-                  <p className="text-[10px] font-bold uppercase text-zinc-400">Saldo</p>
-                  <p className="text-xl font-extrabold text-zinc-900 mt-1">
-                    {item.qtyOnHand.toLocaleString('pt-BR')} {item.unit}
-                  </p>
-                </div>
-                <div className="bg-zinc-50 border border-zinc-100 rounded-2xl p-4">
-                  <p className="text-[10px] font-bold uppercase text-zinc-400">Mínimo</p>
-                  <p className="text-xl font-extrabold text-zinc-900 mt-1">
-                    {item.minQty.toLocaleString('pt-BR')}
-                  </p>
-                </div>
-                <div className="bg-zinc-50 border border-zinc-100 rounded-2xl p-4">
-                  <p className="text-[10px] font-bold uppercase text-zinc-400">Ideal</p>
-                  <p className="text-xl font-extrabold text-zinc-900 mt-1">
-                    {item.idealQty.toLocaleString('pt-BR')}
-                  </p>
-                </div>
-                <div className="bg-zinc-50 border border-zinc-100 rounded-2xl p-4">
-                  <p className="text-[10px] font-bold uppercase text-zinc-400">Custo médio</p>
-                  <p className="text-sm font-bold text-zinc-900 mt-1">
-                    {money(item.avgUnitCost)}
-                  </p>
-                </div>
-                <div className="bg-zinc-50 border border-zinc-100 rounded-2xl p-4">
-                  <p className="text-[10px] font-bold uppercase text-zinc-400">Localização</p>
-                  <p className="text-sm font-semibold text-zinc-800 mt-1">
-                    {item.location || '—'}
-                  </p>
-                </div>
-                {item.erpQty != null && (
-                  <div className="bg-zinc-50 border border-zinc-100 rounded-2xl p-4">
-                    <p className="text-[10px] font-bold uppercase text-zinc-400">Saldo ERP</p>
-                    <p className="text-sm font-bold text-zinc-900 mt-1">
-                      {item.erpQty.toLocaleString('pt-BR')}
-                    </p>
+              {/* Primary Metrics Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Saldo em Estoque</span>
+                  <div className="flex items-baseline gap-1 mt-1">
+                    <span className={`text-2xl font-black ${item.qtyOnHand <= 0 ? 'text-rose-600' : 'text-zinc-900'}`}>
+                      {item.qtyOnHand.toLocaleString('pt-BR')}
+                    </span>
+                    <span className="text-xs font-semibold text-zinc-500">{unit}</span>
                   </div>
-                )}
+                </div>
+
+                <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Mínimo de Segurança</span>
+                  <div className="flex items-baseline gap-1 mt-1">
+                    <span className="text-2xl font-black text-zinc-800">{item.minQty.toLocaleString('pt-BR')}</span>
+                    <span className="text-xs font-semibold text-zinc-400">{unit}</span>
+                  </div>
+                </div>
+
+                <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Meta Ideal</span>
+                  <div className="flex items-baseline gap-1 mt-1">
+                    <span className="text-2xl font-black text-zinc-800">{item.idealQty.toLocaleString('pt-BR')}</span>
+                    <span className="text-xs font-semibold text-zinc-400">{unit}</span>
+                  </div>
+                </div>
+
+                <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Embalagem de Contagem</span>
+                  <p className="text-sm font-bold text-zinc-900 mt-1 truncate">
+                    {item.defaultPackQty && item.defaultPackQty > 1
+                      ? `${item.defaultPackName || 'Embalagem'} c/ ${item.defaultPackQty} ${unit}`
+                      : 'Contagem direta (solto)'}
+                  </p>
+                </div>
+
+                <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Localização / Gaveta</span>
+                  <p className="text-sm font-semibold text-zinc-800 mt-1 truncate">{location || 'Não definida'}</p>
+                </div>
+
+                <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Categoria / Família</span>
+                  <p className="text-sm font-bold text-zinc-900 mt-1 truncate">{currentFamilyLabel}</p>
+                </div>
               </div>
 
+              {/* Stock Health Progress Bar */}
               {(() => {
-                const percent = item.idealQty > 0 ? Math.min(100, Math.max(0, (item.qtyOnHand / item.idealQty) * 100)) : 0;
+                const percent =
+                  item.idealQty > 0 ? Math.min(100, Math.max(0, (item.qtyOnHand / item.idealQty) * 100)) : 0;
                 const isBelowMin = item.minQty > 0 && item.qtyOnHand < item.minQty;
-                const barColor = isBelowMin ? 'bg-red-500' : percent < 75 ? 'bg-amber-500' : 'bg-emerald-500';
+                const barColor = isBelowMin ? 'bg-rose-500' : percent < 75 ? 'bg-amber-500' : 'bg-emerald-500';
                 return (
-                  <div className="bg-zinc-50 border border-zinc-150 rounded-2xl p-5 space-y-3">
-                    <div className="flex items-center justify-between text-xs font-bold text-zinc-500">
-                      <span className="uppercase tracking-wider">Saúde do Estoque</span>
-                      <span>{percent.toFixed(0)}% do Ideal</span>
+                  <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4 sm:p-5 space-y-3">
+                    <div className="flex items-center justify-between text-xs font-bold text-zinc-600">
+                      <span className="uppercase tracking-wider">Capacidade & Saúde do Estoque</span>
+                      <span>{percent.toFixed(0)}% da meta ideal</span>
                     </div>
-                    <div className="w-full h-3 bg-zinc-250 rounded-full overflow-hidden">
-                      <div className={`h-full ${barColor} transition-all duration-500`} style={{ width: `${percent}%` }}></div>
+                    <div className="w-full h-3 bg-zinc-200 rounded-full overflow-hidden">
+                      <div className={`h-full ${barColor} transition-all duration-500`} style={{ width: `${percent}%` }} />
                     </div>
-                    <div className="flex justify-between items-center text-[10px] text-zinc-400 font-bold uppercase tracking-wider pt-1">
-                      <span>Crítico ({item.minQty.toLocaleString('pt-BR')} {item.unit})</span>
-                      <span>Ideal ({item.idealQty.toLocaleString('pt-BR')} {item.unit})</span>
+                    <div className="flex justify-between items-center text-[10px] text-zinc-400 font-bold uppercase tracking-wider pt-0.5">
+                      <span>Mínimo ({item.minQty.toLocaleString('pt-BR')} {unit})</span>
+                      <span>Meta Ideal ({item.idealQty.toLocaleString('pt-BR')} {unit})</span>
                     </div>
                   </div>
                 );
               })()}
 
-              {item.notes && (
-                <div className="rounded-2xl border border-zinc-100 bg-amber-50/40 px-4 py-3">
-                  <p className="text-[10px] font-bold uppercase text-zinc-400 mb-1">Notas</p>
-                  <p className="text-sm text-zinc-700 whitespace-pre-wrap">{item.notes}</p>
+              {/* Quick Actions Panel */}
+              <div className="bg-white border border-zinc-200 rounded-2xl p-4 space-y-3 shadow-xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
+                  Ações Rápidas no Item
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setTab('contar')}
+                    className="inline-flex items-center justify-center gap-2 p-3 rounded-xl bg-zinc-900 text-white font-bold text-xs hover:bg-zinc-800 transition-all cursor-pointer shadow-xs"
+                  >
+                    <ClipboardCheck className="h-4 w-4" />
+                    Contar Este Item
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onRequestBuy) void onRequestBuy(item);
+                    }}
+                    disabled={busy || savingAction}
+                    className="inline-flex items-center justify-center gap-2 p-3 rounded-xl border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-800 font-bold text-xs transition-all cursor-pointer"
+                  >
+                    <ShoppingCart className="h-4 w-4 text-zinc-600" />
+                    Solicitar Compra
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setTab('config')}
+                    className="inline-flex items-center justify-center gap-2 p-3 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 font-bold text-xs transition-all cursor-pointer"
+                  >
+                    <Edit2 className="h-4 w-4 text-zinc-500" />
+                    Editar Cadastro
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Category Move Dropdown */}
+              <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <p className="text-xs font-bold text-zinc-900">Mover para Outra Categoria</p>
+                  <p className="text-[11px] text-zinc-500">Troque a família deste item sem precisar recadastrá-lo.</p>
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <select
+                    value={section}
+                    onChange={(e) => void handleQuickMoveCategory(e.target.value)}
+                    disabled={savingAction}
+                    className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-bold text-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-10"
+                  >
+                    {familias.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {notes && (
+                <div className="rounded-2xl border border-zinc-200 bg-amber-50/40 p-4 space-y-1">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800">Observações & Anotações</p>
+                  <p className="text-xs text-zinc-700 whitespace-pre-wrap">{notes}</p>
                 </div>
               )}
-
-              <form onSubmit={submitMv} className="rounded-2xl border border-zinc-200 p-4 space-y-3">
-                <h4 className="text-sm font-bold text-zinc-900">Entrada / Saída rápida</h4>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setMvType('entrada')}
-                    className={`flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border cursor-pointer ${
-                      mvType === 'entrada'
-                        ? 'bg-emerald-600 text-white border-emerald-600'
-                        : 'bg-white text-zinc-600 border-zinc-200'
-                    }`}
-                  >
-                    <ArrowDownToLine className="h-3.5 w-3.5" />
-                    Entrada
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMvType('saida')}
-                    className={`flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border cursor-pointer ${
-                      mvType === 'saida'
-                        ? 'bg-red-600 text-white border-red-600'
-                        : 'bg-white text-zinc-600 border-zinc-200'
-                    }`}
-                  >
-                    <ArrowUpFromLine className="h-3.5 w-3.5" />
-                    Saída
-                  </button>
-                </div>
-
-                {showNfEntrada && (
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 space-y-2">
-                    <div className="flex items-center gap-2 text-[10px] font-bold uppercase text-zinc-500">
-                      <FileText className="h-3.5 w-3.5" />
-                      Entrada por NF (importada)
-                    </div>
-                    <div className="flex gap-2">
-                      <input
-                        value={nfSearch}
-                        onChange={(e) => setNfSearch(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            void searchNf();
-                          }
-                        }}
-                        placeholder="Nº da NF ou fornecedor"
-                        className="flex-1 rounded-xl border border-zinc-200 px-3 py-2 text-sm bg-white"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void searchNf()}
-                        disabled={nfLoading || !nfSearch.trim()}
-                        className="px-3 py-2 rounded-xl bg-zinc-900 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
-                      >
-                        {nfLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Buscar'}
-                      </button>
-                    </div>
-                    {nfHint && <p className="text-[11px] text-zinc-600">{nfHint}</p>}
-                    {nfResults.length > 1 && (
-                      <ul className="space-y-1 max-h-28 overflow-y-auto">
-                        {nfResults.map((nf) => (
-                          <li key={nf.invoiceNumber}>
-                            <button
-                              type="button"
-                              onClick={() => void applyNf(nf.invoiceNumber)}
-                              className="w-full text-left text-xs px-2 py-1.5 rounded-lg hover:bg-white border border-transparent hover:border-zinc-200 cursor-pointer"
-                            >
-                              <span className="font-mono font-bold">{nf.invoiceNumber}</span>
-                              {nf.supplierName ? ` · ${nf.supplierName}` : ''}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                )}
-
-                {showPackEntrada ? (
-                  <>
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="space-y-1">
-                        <span className="text-[10px] font-bold uppercase text-zinc-400">
-                          Marca / variante
-                        </span>
-                        <input
-                          value={mvVariant}
-                          onChange={(e) => setMvVariant(e.target.value)}
-                          placeholder="Ex: Ypê"
-                          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                        />
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[10px] font-bold uppercase text-zinc-400">
-                          Embalagem
-                        </span>
-                        <input
-                          value={mvPackLabel}
-                          onChange={(e) => setMvPackLabel(e.target.value)}
-                          placeholder="Ex: fardo 6×500ml"
-                          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                        />
-                      </label>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="space-y-1">
-                        <span className="text-[10px] font-bold uppercase text-zinc-400">
-                          Qtd. embalagens
-                        </span>
-                        <input
-                          value={mvPackCount}
-                          onChange={(e) => setMvPackCount(e.target.value)}
-                          type="number"
-                          min="0"
-                          step="any"
-                          required
-                          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                        />
-                      </label>
-                      <div className="space-y-1">
-                        <div className="flex justify-between items-center">
-                          <span className="text-[10px] font-bold uppercase text-zinc-400">
-                            Conteúdo / emb. ({packUnit})
-                          </span>
-                          {contentUnitLabel === 'kg' && (
-                            <div className="flex gap-1 bg-zinc-100 rounded-lg p-0.5 border border-zinc-200">
-                              <button
-                                type="button"
-                                onClick={() => setPackUnit('g')}
-                                className={`px-1.5 py-0.5 text-[9px] font-bold rounded-md transition-all cursor-pointer ${
-                                  packUnit === 'g'
-                                    ? 'bg-white text-zinc-900 shadow-sm shadow-zinc-200'
-                                    : 'text-zinc-400 hover:text-zinc-650'
-                                }`}
-                              >
-                                g
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setPackUnit('kg')}
-                                className={`px-1.5 py-0.5 text-[9px] font-bold rounded-md transition-all cursor-pointer ${
-                                  packUnit === 'kg'
-                                    ? 'bg-white text-zinc-900 shadow-sm shadow-zinc-200'
-                                    : 'text-zinc-400 hover:text-zinc-650'
-                                }`}
-                              >
-                                kg
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                        <input
-                          value={mvContentPerPack}
-                          onChange={(e) => setMvContentPerPack(e.target.value)}
-                          type="number"
-                          min="0"
-                          step="any"
-                          required
-                          placeholder={
-                            packUnit === 'kg' ? 'Ex: 5 (kg)' : 'Ex: 500 (g)'
-                          }
-                          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="space-y-1">
-                        <span className="text-[10px] font-bold uppercase text-zinc-400">
-                          Total pago (R$)
-                        </span>
-                        <input
-                          value={mvTotalPaid}
-                          onChange={(e) => setMvTotalPaid(e.target.value)}
-                          type="number"
-                          min="0"
-                          step="any"
-                          required
-                          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                        />
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[10px] font-bold uppercase text-zinc-400">
-                          Documento
-                        </span>
-                        <input
-                          value={mvDoc}
-                          onChange={(e) => setMvDoc(e.target.value)}
-                          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                        />
-                      </label>
-                    </div>
-                    {packPreview && packPreview.qty > 0 && (
-                      <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2 text-xs text-zinc-700">
-                        <span className="font-bold text-zinc-900">
-                          Entrada: {packPreview.qty.toLocaleString('pt-BR')} {contentUnitLabel}
-                        </span>
-                        {packPreview.unitCost != null && (
-                          <>
-                            {' '}
-                            · {money(packPreview.unitCost)}/{contentUnitLabel}
-                          </>
-                        )}
-                      </div>
-                    )}
-                    <label className="block space-y-1">
-                      <span className="text-[10px] font-bold uppercase text-zinc-400">
-                        Motivo (opc.)
-                      </span>
-                      <input
-                        value={mvReason}
-                        onChange={(e) => setMvReason(e.target.value)}
-                        className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                      />
-                    </label>
-                  </>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="space-y-1">
-                        <span className="text-[10px] font-bold uppercase text-zinc-400">Qtd</span>
-                        <input
-                          value={mvQty}
-                          onChange={(e) => setMvQty(e.target.value)}
-                          type="number"
-                          min="0"
-                          step="any"
-                          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                          required
-                        />
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[10px] font-bold uppercase text-zinc-400">
-                          Custo unit. (opc.)
-                        </span>
-                        <input
-                          value={mvCost}
-                          onChange={(e) => setMvCost(e.target.value)}
-                          type="number"
-                          min="0"
-                          step="any"
-                          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                        />
-                      </label>
-                    </div>
-                    <label className="block space-y-1">
-                      <span className="text-[10px] font-bold uppercase text-zinc-400">Motivo</span>
-                      <input
-                        value={mvReason}
-                        onChange={(e) => setMvReason(e.target.value)}
-                        className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                      />
-                    </label>
-                    <label className="block space-y-1">
-                      <span className="text-[10px] font-bold uppercase text-zinc-400">
-                        Documento
-                      </span>
-                      <input
-                        value={mvDoc}
-                        onChange={(e) => setMvDoc(e.target.value)}
-                        className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                      />
-                    </label>
-                    {showSectorSaida && (
-                      <label className="block space-y-1">
-                        <span className="text-[10px] font-bold uppercase text-zinc-400">
-                          Setor destino
-                        </span>
-                        <input
-                          list="almox-sector-suggestions"
-                          value={mvSector}
-                          onChange={(e) => setMvSector(e.target.value)}
-                          placeholder="Ex: Produção"
-                          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                        />
-                        <datalist id="almox-sector-suggestions">
-                          {SECTOR_SUGGESTIONS.map((s) => (
-                            <option key={s} value={s} />
-                          ))}
-                        </datalist>
-                      </label>
-                    )}
-                  </>
-                )}
-                <button
-                  type="submit"
-                  disabled={busy}
-                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
-                >
-                  {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                  Lançar movimento
-                </button>
-              </form>
             </>
           )}
 
-          {tab === 'movimentos' && (
-            <div className="space-y-3">
-              {itemMovements.length === 0 ? (
-                <p className="text-sm text-zinc-400 text-center py-10">
-                  Nenhum movimento para este item.
+          {tab === 'contar' && (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 space-y-1">
+                <div className="flex items-center gap-2">
+                  <ClipboardCheck className="h-4 w-4 text-zinc-800" />
+                  <h4 className="font-bold text-sm text-zinc-900">Contagem Física Pontual</h4>
+                </div>
+                <p className="text-xs text-zinc-600 leading-relaxed">
+                  Conte as unidades físicas deste item. O sistema calcula automaticamente o consumo/saída decorrido desde
+                  a última apuração e atualiza o saldo real no almoxarifado.
                 </p>
-              ) : (
-                itemMovements.map((m) => {
-                  const isEntrada = m.movementType === 'entrada';
-                  const hasExtras =
-                    isEntrada &&
-                    (m.variantLabel || m.packLabel || m.totalPaid != null || m.unitCost != null);
-                  return (
-                    <div
-                      key={m.id}
-                      className="rounded-2xl border border-zinc-150 bg-white p-4 space-y-2"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-bold text-zinc-900 capitalize">
-                            {m.movementType} · {m.quantity.toLocaleString('pt-BR')} {item.unit}
-                          </p>
-                          <p className="text-xs text-zinc-500 mt-0.5">
-                            {new Date(m.occurredAt).toLocaleString('pt-BR')}
-                            {m.sector ? ` · Setor: ${m.sector}` : ''}
-                            {m.reason ? ` · ${m.reason}` : ''}
-                          </p>
-                        </div>
-                        {m.documentRef && (
-                          <span className="text-[10px] font-mono text-zinc-400 shrink-0">
-                            {m.documentRef}
-                          </span>
-                        )}
-                      </div>
-                      {hasExtras && (
-                        <div className="grid grid-cols-2 gap-2 text-[11px] text-zinc-600 pt-1 border-t border-zinc-100">
-                          {m.variantLabel && (
-                            <p>
-                              <span className="font-bold text-zinc-400 uppercase tracking-wide">
-                                Marca
-                              </span>
-                              <br />
-                              {m.variantLabel}
-                            </p>
-                          )}
-                          {m.packLabel && (
-                            <p>
-                              <span className="font-bold text-zinc-400 uppercase tracking-wide">
-                                Embalagem
-                              </span>
-                              <br />
-                              {m.packLabel}
-                              {m.packCount != null
-                                ? ` · ${m.packCount.toLocaleString('pt-BR')}×`
-                                : ''}
-                              {m.contentPerPack != null
-                                ? `${m.contentPerPack.toLocaleString('pt-BR')}`
-                                : ''}
-                            </p>
-                          )}
-                          {m.totalPaid != null && (
-                            <p>
-                              <span className="font-bold text-zinc-400 uppercase tracking-wide">
-                                Total pago
-                              </span>
-                              <br />
-                              {money(m.totalPaid)}
-                            </p>
-                          )}
-                          {m.unitCost != null && (
-                            <p>
-                              <span className="font-bold text-zinc-400 uppercase tracking-wide">
-                                Custo unit.
-                              </span>
-                              <br />
-                              {money(m.unitCost)}
-                            </p>
-                          )}
-                        </div>
-                      )}
+              </div>
+
+              {/* Mode Toggle */}
+              <div className="flex items-center justify-between bg-zinc-100 p-1.5 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setCountMode('pack')}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    countMode === 'pack' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
+                  }`}
+                >
+                  Embalagem Fechada + Solto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCountMode('direct')}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    countMode === 'direct' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
+                  }`}
+                >
+                  Modo Direto (Unidades)
+                </button>
+              </div>
+
+              {/* Counting Steppers / Inputs */}
+              {countMode === 'pack' ? (
+                <div className="bg-white border border-zinc-200 rounded-2xl p-5 space-y-4 shadow-xs">
+                  {/* Pack Factor Customizer */}
+                  <div className="flex items-center justify-between text-xs pb-3 border-b border-zinc-100">
+                    <span className="font-bold text-zinc-700">Embalagem Configurada:</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={packName}
+                        onChange={(e) => setPackName(e.target.value)}
+                        placeholder="Fardo / Caixa"
+                        className="w-24 px-2 py-1 text-xs border border-zinc-200 rounded-lg text-right font-bold"
+                      />
+                      <span className="text-zinc-400">c/</span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={packFactor}
+                        onChange={(e) => setPackFactor(Math.max(1, Number(e.target.value) || 1))}
+                        className="w-14 px-2 py-1 text-xs border border-zinc-200 rounded-lg text-center font-bold"
+                      />
+                      <span className="text-zinc-500 font-semibold">{unit}</span>
                     </div>
-                  );
-                })
+                  </div>
+
+                  {/* Pack Counter */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-bold text-sm text-zinc-900">{packName}s Fechados</p>
+                      <p className="text-[11px] text-zinc-400">
+                        {packCount} {packName}(s) × {packFactor} = {packCount * packFactor} {unit}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPackCount((c) => Math.max(0, c - 1))}
+                        className="w-10 h-10 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 flex items-center justify-center font-bold cursor-pointer"
+                      >
+                        <Minus className="h-4 w-4" />
+                      </button>
+                      <input
+                        type="number"
+                        min="0"
+                        value={packCount}
+                        onChange={(e) => setPackCount(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-16 h-10 text-center font-black text-base border border-zinc-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setPackCount((c) => c + 1)}
+                        className="w-10 h-10 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white flex items-center justify-center font-bold cursor-pointer"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Loose Units Counter */}
+                  <div className="flex items-center justify-between pt-2 border-t border-zinc-100">
+                    <div>
+                      <p className="font-bold text-sm text-zinc-900">Unidades Soltas / Fracionadas</p>
+                      <p className="text-[11px] text-zinc-400">Itens fora da embalagem fechada</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setLooseCount((c) => Math.max(0, c - 1))}
+                        className="w-10 h-10 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 flex items-center justify-center font-bold cursor-pointer"
+                      >
+                        <Minus className="h-4 w-4" />
+                      </button>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={looseCount}
+                        onChange={(e) => setLooseCount(Math.max(0, parseFloat(e.target.value) || 0))}
+                        className="w-16 h-10 text-center font-black text-base border border-zinc-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setLooseCount((c) => c + 1)}
+                        className="w-10 h-10 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white flex items-center justify-center font-bold cursor-pointer"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-white border border-zinc-200 rounded-2xl p-5 space-y-3 shadow-xs">
+                  <label className="block space-y-1">
+                    <span className="text-xs font-bold text-zinc-700">Quantidade Total Contada ({unit}):</span>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={directCountInput}
+                      onChange={(e) => setDirectCountInput(e.target.value)}
+                      placeholder="0"
+                      className="w-full text-xl font-black text-zinc-900 border border-zinc-200 rounded-xl p-3 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                    />
+                  </label>
+                </div>
               )}
+
+              {/* Dynamic Comparison & Consumption Calculation */}
+              <div
+                className={`rounded-2xl border p-4.5 space-y-2 ${
+                  countDiff < 0
+                    ? 'border-amber-200 bg-amber-50/70 text-amber-950'
+                    : countDiff > 0
+                    ? 'border-blue-200 bg-blue-50/70 text-blue-950'
+                    : 'border-zinc-200 bg-zinc-50 text-zinc-800'
+                }`}
+              >
+                <div className="flex items-center justify-between text-xs font-bold">
+                  <span>Saldo Anterior: {item.qtyOnHand} {unit}</span>
+                  <span>Nova Contagem: {calculatedCountQty} {unit}</span>
+                </div>
+
+                <div className="pt-2 border-t border-zinc-200/60 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider block opacity-70">
+                      Apuração de Saída / Consumo
+                    </span>
+                    <p className="font-extrabold text-sm sm:text-base mt-0.5">
+                      {countDiff < 0 ? (
+                        <span className="text-amber-800 flex items-center gap-1.5">
+                          <TrendingDown className="h-4 w-4" />
+                          Saída de {Math.abs(countDiff).toLocaleString('pt-BR')} {unit} apurada
+                        </span>
+                      ) : countDiff > 0 ? (
+                        <span className="text-blue-800 flex items-center gap-1.5">
+                          <TrendingUp className="h-4 w-4" />
+                          Ajuste / Entrada de {countDiff.toLocaleString('pt-BR')} {unit}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-600 flex items-center gap-1.5">
+                          <Check className="h-4 w-4" />
+                          Saldo estável (nenhuma saída registrada)
+                        </span>
+                      )}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveSpotCount()}
+                    disabled={savingAction}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs cursor-pointer shadow-xs disabled:opacity-50"
+                  >
+                    {savingAction ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    Salvar Contagem
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
-          {tab === 'consumo' && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 text-zinc-900 border-b border-zinc-100 pb-2">
-                <LineChart className="h-4 w-4 text-zinc-400" />
-                <h4 className="text-sm font-bold">Histórico de Consumo</h4>
+          {tab === 'historico' && (
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 space-y-1">
+                <h4 className="font-bold text-sm text-zinc-900">Histórico de Contagens & Apurações</h4>
+                <p className="text-xs text-zinc-500">
+                  Registros de saídas e reposições computadas através das contagens periódicas.
+                </p>
               </div>
-              
-              {consumptionLoading ? (
-                <div className="flex items-center justify-center py-10 text-zinc-400 text-xs">
-                  <Loader2 className="h-5 w-5 animate-spin mr-2" /> Carregando histórico...
-                </div>
-              ) : !consumption || (consumption.consumptionYoy.length === 0 && consumption.monthlyConsumption.length === 0) ? (
-                <p className="text-center py-10 text-xs text-zinc-400">Nenhum consumo registrado para este item.</p>
-              ) : (
-                <div className="space-y-6">
-                  {consumption.consumptionYoy.length > 0 && (
-                    <div className="bg-zinc-50 border border-zinc-150 rounded-2xl p-4">
-                      <h5 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3">Consumo Anual (YoY)</h5>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        {consumption.consumptionYoy.map((y) => (
-                          <div key={y.year} className="bg-white border border-zinc-100 rounded-xl p-3 shadow-sm">
-                            <span className="text-[10px] font-bold text-zinc-400">{y.year}</span>
-                            <p className="text-base font-extrabold text-zinc-950 mt-0.5">
-                              {y.quantity.toLocaleString('pt-BR')} {item.unit}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
 
-                  {consumption.monthlyConsumption.length > 0 && (
-                    <div className="bg-zinc-50 border border-zinc-150 rounded-2xl p-4">
-                      <h5 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3">Consumo Mensal (Últimos 24 meses)</h5>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                          <thead>
-                            <tr className="border-b border-zinc-200 text-[10px] uppercase font-bold text-zinc-400">
-                              <th className="py-2">Mês/Ano</th>
-                              <th className="py-2 text-right">Consumido ({item.unit})</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-zinc-100 text-xs font-semibold text-zinc-700">
-                            {consumption.monthlyConsumption.map((m) => {
-                              const [yr, mth] = m.month.split('-');
-                              const formattedMonth = mth && yr ? `${mth}/${yr}` : m.month;
-                              return (
-                                <tr key={m.month} className="hover:bg-zinc-100/50">
-                                  <td className="py-2 font-mono">{formattedMonth}</td>
-                                  <td className="py-2 text-right font-bold text-zinc-950">
-                                    {m.quantity.toLocaleString('pt-BR')}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+              {countMovements.length === 0 ? (
+                <div className="py-12 text-center text-zinc-400 text-xs border border-zinc-200 rounded-2xl bg-zinc-50/50">
+                  Nenhuma contagem ou movimentação recente registrada para este item.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {countMovements.map((m) => {
+                    const isSaida = m.movementType === 'saida';
+                    return (
+                      <div
+                        key={m.id}
+                        className="bg-white border border-zinc-200 rounded-xl p-3 flex items-center justify-between text-xs shadow-xs"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase border ${
+                                isSaida
+                                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              }`}
+                            >
+                              {isSaida ? 'Consumo Apurado' : 'Entrada'}
+                            </span>
+                            <span className="font-bold text-zinc-800">{m.reason || 'Contagem semanal'}</span>
+                          </div>
+                          <p className="text-[11px] text-zinc-400 font-mono">{dataBr(m.occurredAt)}</p>
+                        </div>
+
+                        <div className="text-right">
+                          <span
+                            className={`font-black text-sm ${
+                              isSaida ? 'text-amber-700' : 'text-emerald-700'
+                            }`}
+                          >
+                            {isSaida ? '-' : '+'}
+                            {m.quantity.toLocaleString('pt-BR')} {unit}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1049,251 +1013,252 @@ export default function ItemDrawer({
 
           {tab === 'fotos' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
-                <div className="flex items-center gap-2 text-zinc-900">
-                  <Camera className="h-4 w-4 text-zinc-400" />
-                  <h4 className="text-sm font-bold font-sans">Fotos & Referências</h4>
+              <div className="flex items-center justify-between bg-zinc-50 p-4 rounded-2xl border border-zinc-200">
+                <div className="space-y-0.5">
+                  <h4 className="font-bold text-sm text-zinc-900">Galeria de Fotos do Item</h4>
+                  <p className="text-xs text-zinc-500">
+                    Histórico visual com data do registro para conferência de estado e rótulo.
+                  </p>
                 </div>
-                <span className="text-[10px] bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded-full font-bold">
-                  {fotos.length} {fotos.length === 1 ? 'foto' : 'fotos'}
-                </span>
-              </div>
-
-              <div className="bg-zinc-50 border border-dashed border-zinc-250 rounded-2xl p-4 flex flex-col items-center justify-center space-y-3">
-                <input
-                  type="text"
-                  placeholder="Nota ou legenda para a foto (opcional)"
-                  value={newFotoNotes}
-                  onChange={(e) => setNewFotoNotes(e.target.value)}
-                  className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-700 shadow-sm focus:border-zinc-400 focus:outline-none"
-                />
-                
-                <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-900 text-white text-xs font-bold shadow-md cursor-pointer hover:bg-zinc-800 transition-all">
-                  <Camera className="h-4 w-4" />
-                  Adicionar foto
+                <div>
                   <input
                     type="file"
                     accept="image/*"
+                    onChange={(e) => void handleAddGalleryPhoto(e)}
                     className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleAddFoto(file);
-                      e.target.value = '';
-                    }}
+                    id="drawer-gallery-photo-input"
                   />
-                </label>
+                  <label
+                    htmlFor="drawer-gallery-photo-input"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-900 text-white font-bold text-xs hover:bg-zinc-800 cursor-pointer shadow-xs"
+                  >
+                    <Camera className="h-3.5 w-3.5" />
+                    + Adicionar Foto
+                  </label>
+                </div>
               </div>
 
               {fotosLoading ? (
-                <div className="flex items-center justify-center py-10 text-zinc-400 text-xs">
-                  <Loader2 className="h-5 w-5 animate-spin mr-2" /> Carregando fotos...
+                <div className="py-12 flex justify-center text-zinc-400">
+                  <Loader2 className="h-6 w-6 animate-spin" />
                 </div>
               ) : fotos.length === 0 ? (
-                <p className="text-center py-10 text-xs text-zinc-400">Nenhuma foto adicionada.</p>
+                <div className="py-12 text-center text-zinc-400 text-xs border border-zinc-200 rounded-2xl bg-zinc-50/50">
+                  Nenhuma foto secundária registrada. Use o botão acima ou a foto principal no topo.
+                </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {fotos.map((f) => (
-                    <div key={f.id} className="relative rounded-2xl border border-zinc-150 overflow-hidden bg-zinc-50 shadow-sm flex flex-col group">
-                      <div className="relative aspect-video w-full overflow-hidden bg-zinc-900 flex items-center justify-center">
-                        <img
-                          src={f.photoData}
-                          alt={f.notes || "Foto do item"}
-                          className="w-full h-full object-cover group-hover:scale-102 transition-all duration-300"
-                        />
-                      </div>
-                      <div className="p-3 flex-1 flex flex-col justify-between space-y-2">
-                        {f.notes ? (
-                          <p className="text-xs text-zinc-700 font-medium">{f.notes}</p>
-                        ) : (
-                          <p className="text-[10px] text-zinc-400 italic">Sem legenda</p>
-                        )}
-                        <div className="flex justify-between items-center text-[10px] text-zinc-400 font-bold border-t border-zinc-100 pt-2 shrink-0">
-                          <span>{f.createdAt ? f.createdAt.slice(0, 10).split('-').reverse().join('/') : ''}</span>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteFoto(f.id)}
-                            className="text-red-550 hover:text-red-750 flex items-center gap-1 cursor-pointer transition-colors"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Excluir
-                          </button>
+                <div className="grid grid-cols-2 gap-3">
+                  {fotos.map((f) => {
+                    const fAge = formatPhotoAge(f.createdAt);
+                    return (
+                      <div key={f.id} className="relative rounded-2xl border border-zinc-200 overflow-hidden bg-zinc-100 group shadow-xs">
+                        <img src={f.photoData} alt="Item" className="w-full h-36 object-cover" />
+                        <div className="p-2.5 bg-white space-y-1">
+                          <p className="text-[10px] font-bold text-zinc-700">📷 {fAge.text}</p>
+                          <p className="text-[9px] text-zinc-400 font-mono">{fAge.fullDate}</p>
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteGalleryPhoto(f.id)}
+                          className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 text-white hover:bg-rose-600 transition-colors cursor-pointer"
+                          title="Excluir foto"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
           )}
 
           {tab === 'config' && (
-            <div className="space-y-3">
-              {(isErp || item.erpDescription) && (
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 space-y-3">
-                  <p className="text-[10px] font-bold uppercase text-zinc-400">ERP</p>
-                  <div className="grid grid-cols-1 gap-3">
-                    <label className="space-y-1">
-                      <span className="text-[10px] font-bold uppercase text-zinc-400">
-                        Código (imutável)
+            <form onSubmit={(e) => void handleSaveFullConfig(e)} className="space-y-4">
+              <div className="space-y-3">
+                <label className="block space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                    Descrição do Item *
+                  </span>
+                  <input
+                    required
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-11 font-medium"
+                  />
+                </label>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                      Família / Categoria
+                    </span>
+                    <select
+                      value={section}
+                      onChange={(e) => setSection(e.target.value)}
+                      className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-11 font-medium"
+                    >
+                      {familias.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                      Unidade de Medida
+                    </span>
+                    <input
+                      required
+                      value={unit}
+                      onChange={(e) => setUnit(e.target.value)}
+                      placeholder="UN, CX, KG, L, PCT, ROLO"
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-11 font-mono font-medium"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                      Estoque Mínimo
+                    </span>
+                    <input
+                      type="number"
+                      step="any"
+                      value={minQty}
+                      onChange={(e) => setMinQty(e.target.value)}
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-11 font-medium"
+                    />
+                  </label>
+
+                  <label className="block space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                      Estoque Ideal
+                    </span>
+                    <input
+                      type="number"
+                      step="any"
+                      value={idealQty}
+                      onChange={(e) => setIdealQty(e.target.value)}
+                      className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-11 font-medium"
+                    />
+                  </label>
+                </div>
+
+                <label className="block space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                    Localização Física / Armário
+                  </span>
+                  <input
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="Ex: Prateleira B2, Gaveta 4"
+                    className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-11 font-medium"
+                  />
+                </label>
+
+                {/* Default Pack Configuration */}
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 space-y-3">
+                  <p className="text-xs font-bold text-zinc-800">Padrão de Embalagem para Contagem</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block space-y-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                        Nome do Fardo / Caixa
                       </span>
                       <input
-                        value={item.code}
-                        readOnly
-                        className="w-full rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-2 text-sm font-mono text-zinc-600"
+                        value={defaultPackName}
+                        onChange={(e) => setDefaultPackName(e.target.value)}
+                        placeholder="Ex: Fardo, Pacote, Caixa"
+                        className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-11 font-medium"
                       />
                     </label>
-                    <label className="space-y-1">
-                      <span className="text-[10px] font-bold uppercase text-zinc-400">
-                        Descrição ERP
+
+                    <label className="block space-y-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                        Unidades por Embalagem
                       </span>
                       <input
-                        value={item.erpDescription || '—'}
-                        readOnly
-                        className="w-full rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-2 text-sm text-zinc-600"
+                        type="number"
+                        min="1"
+                        value={defaultPackQty}
+                        onChange={(e) => setDefaultPackQty(e.target.value)}
+                        placeholder="Ex: 12"
+                        className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-11 font-medium"
                       />
                     </label>
                   </div>
                 </div>
-              )}
 
-              {!isErp && (
                 <label className="block space-y-1">
-                  <span className="text-[10px] font-bold uppercase text-zinc-400">
-                    Código (imutável)
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                    Anotações / Especificações
                   </span>
-                  <input
-                    value={item.code}
-                    readOnly
-                    className="w-full rounded-xl border border-zinc-200 bg-zinc-100 px-3 py-2 text-sm font-mono text-zinc-600"
+                  <textarea
+                    rows={2}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Observações úteis..."
+                    className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 font-medium"
                   />
                 </label>
-              )}
 
-              <label className="block space-y-1">
-                <span className="text-[10px] font-bold uppercase text-zinc-400">
-                  Descrição Hub
-                </span>
-                <input
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-[10px] font-bold uppercase text-zinc-400">Unidade</span>
-                <input
-                  value={unit}
-                  onChange={(e) => setUnit(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                />
-              </label>
-
-              <label className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
-                <input
-                  type="checkbox"
-                  checked={active}
-                  onChange={(e) => setActive(e.target.checked)}
-                  className="rounded border-zinc-300"
-                />
-                Item ativo
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="space-y-1">
-                  <span className="text-[10px] font-bold uppercase text-zinc-400">Mínimo</span>
-                  <input
-                    value={minQty}
-                    onChange={(e) => setMinQty(e.target.value)}
-                    type="number"
-                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className="text-[10px] font-bold uppercase text-zinc-400">Ideal</span>
-                  <input
-                    value={idealQty}
-                    onChange={(e) => setIdealQty(e.target.value)}
-                    type="number"
-                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                  />
-                </label>
-              </div>
-              <label className="block space-y-1">
-                <span className="text-[10px] font-bold uppercase text-zinc-400">Localização</span>
-                <input
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-[10px] font-bold uppercase text-zinc-400">Notas</span>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={3}
-                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                />
-              </label>
-              {item.section === 'pecas' && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-zinc-100">
-                  <label className="space-y-1">
-                    <span className="text-[10px] font-bold uppercase text-zinc-400">
-                      Vida útil (dias)
-                    </span>
-                    <input
-                      value={lifespanDays}
-                      onChange={(e) => setLifespanDays(e.target.value)}
-                      type="number"
-                      className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-[10px] font-bold uppercase text-zinc-400">
-                      Próx. troca
-                    </span>
-                    <input
-                      value={nextExchangeAt}
-                      onChange={(e) => setNextExchangeAt(e.target.value)}
-                      type="date"
-                      className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-[10px] font-bold uppercase text-zinc-400">Validade</span>
-                    <input
-                      value={expiresAt}
-                      onChange={(e) => setExpiresAt(e.target.value)}
-                      type="date"
-                      className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                    />
-                  </label>
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="submit"
+                    disabled={savingAction}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs cursor-pointer shadow-xs disabled:opacity-50"
+                  >
+                    {savingAction ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    Salvar Alterações
+                  </button>
                 </div>
-              )}
-              <button
-                type="button"
-                disabled={busy}
-                onClick={saveConfig}
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
-              >
-                {busy ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Save className="h-3.5 w-3.5" />
-                )}
-                Salvar configuração
-              </button>
-            </div>
-          )}
-        </div>
+              </div>
 
-        <div className="px-6 py-4 border-t border-zinc-200 bg-zinc-50/50 flex justify-end shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer transition-all"
-          >
-            Fechar
-          </button>
+              {/* Danger Zone: Delete Item */}
+              <div className="mt-8 rounded-2xl border border-rose-200 bg-rose-50/50 p-4.5 space-y-3">
+                <div className="space-y-0.5">
+                  <h4 className="font-bold text-sm text-rose-900 flex items-center gap-1.5">
+                    <Trash2 className="h-4 w-4 text-rose-600" />
+                    Excluir Este Item
+                  </h4>
+                  <p className="text-xs text-rose-700 leading-relaxed">
+                    Esta ação removerá o item do almoxarifado e seu histórico de contagens. Não poderá ser desfeito.
+                  </p>
+                </div>
+
+                {confirmDelete ? (
+                  <div className="flex items-center gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteItem()}
+                      disabled={savingAction}
+                      className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs cursor-pointer shadow-xs disabled:opacity-50"
+                    >
+                      {savingAction ? 'Excluindo...' : 'Sim, confirmar e excluir agora'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDelete(false)}
+                      className="px-3 py-2 rounded-xl border border-zinc-300 bg-white text-zinc-700 font-bold text-xs cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(true)}
+                    className="px-4 py-2 rounded-xl border border-rose-300 bg-white hover:bg-rose-50 text-rose-700 font-bold text-xs cursor-pointer transition-colors"
+                  >
+                    Excluir Item do Almoxarifado
+                  </button>
+                )}
+              </div>
+            </form>
+          )}
         </div>
       </div>
     </div>

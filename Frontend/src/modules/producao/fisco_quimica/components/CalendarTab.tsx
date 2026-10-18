@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo, useEffect, useCallback } from 'react';
+﻿import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   FiscoQuimicaAnalysis,
   FiscoQuimicaPattern,
@@ -23,6 +23,7 @@ import {
   Info,
   Clock,
   FileText,
+  Tag,
 } from 'lucide-react';
 import {
   getHoliday,
@@ -31,8 +32,11 @@ import {
   HolidayInfo
 } from '../../../geral/lib/brazilHolidays';
 import { cn } from '../../../geral/lib/utils';
-import { checkAnalysisCompliance, printFiscoReports, formatViscosity, calculateFillingTargets } from '../lib/fiscoUtils';
+import { checkAnalysisCompliance, printFiscoReports } from '../lib/fiscoUtils';
+import { buildFiscoLoteLabel, describeFiscoLoteLabel, type FiscoLoteBulk } from '../lib/fiscoLoteLabel';
 import { isProcForaDoRotulo } from '../../proc/ProcView';
+import PrintModal from '../../../ferramentas/etiquetas/components/PrintModal';
+import type { LabelTemplate } from '../../../ferramentas/etiquetas/lib/types';
 
 interface CalendarTabProps {
   analyses: FiscoQuimicaAnalysis[];
@@ -80,6 +84,13 @@ export function CalendarTab({
   const [loteSearch, setLoteSearch] = useState<string>('');
   const [procMapByCode, setProcMapByCode] = useState<Record<string, ProcItem>>({});
   const [procMapByDesc, setProcMapByDesc] = useState<Record<string, ProcItem>>({});
+  const [labelOpen, setLabelOpen] = useState(false);
+  const [labelBusy, setLabelBusy] = useState(false);
+  const [labelTemplates, setLabelTemplates] = useState<LabelTemplate[]>([]);
+  const [labelHistory, setLabelHistory] = useState<{ product_code?: string; product_name?: string; lot_number?: string }>();
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkById, setBulkById] = useState<Record<string, FiscoLoteBulk | null>>({});
+  const loteCache = useRef(new Map<string, FiscoLoteBulk | null>());
 
   useEffect(() => {
     api.getProcMap().then((res) => {
@@ -310,9 +321,107 @@ export function CalendarTab({
       .reduce((sum, d) => sum + d.count, 0);
   }, [calendarDays]);
 
+  const dayKey = selectedDayInfo
+    ? `${selectedDayInfo.dateIso}|${selectedDayInfo.analyses.map((item) => item.id).join(',')}`
+    : '';
+
+  useEffect(() => {
+    const ids = selectedDayInfo?.analyses.map((item) => item.id) ?? [];
+    setSelectedIds(new Set(ids));
+  }, [dayKey]);
+
+  const selectedAnalyses = selectedDayInfo?.analyses.filter((item) => selectedIds.has(item.id)) ?? [];
+  const allDaySelected = !!selectedDayInfo && selectedDayInfo.count > 0 && selectedAnalyses.length === selectedDayInfo.count;
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const handlePrintDay = () => {
-    if (!selectedDayInfo || selectedDayInfo.count === 0) return;
-    printFiscoReports(selectedDayInfo.analyses, patterns, products, agents, config);
+    if (selectedAnalyses.length === 0) return;
+    printFiscoReports(selectedAnalyses, patterns, products, agents, config);
+  };
+
+  const loadLoteBulk = useCallback(async (analysis: FiscoQuimicaAnalysis): Promise<FiscoLoteBulk | null> => {
+    const batch = String(analysis.batch || '').trim();
+    const code = normalizeCode(analysis.productCode);
+    const key = `${batch}|${code}`;
+    if (!batch) return null;
+    if (loteCache.current.has(key)) return loteCache.current.get(key) ?? null;
+    try {
+      const res = await api.getFiscoErpLotes({ search: batch, limit: 20 });
+      const hit = (res.items || []).find((item) =>
+        String(item.lote).trim() === batch && (!code || normalizeCode(item.product_code) === code)
+      ) || (res.items || []).find((item) => String(item.lote).trim() === batch);
+      const info = hit
+        ? {
+          qtyKg: Number(hit.qty_kg) || 0,
+          unidades: Number(hit.unidades) || 0,
+          qtdeCx: Number(hit.qtde_cx) || 0,
+          date: hit.date_erp || '',
+        }
+        : null;
+      loteCache.current.set(key, info);
+      return info;
+    } catch (err) {
+      console.error('Erro ao buscar volume do lote para a etiqueta:', err);
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    const list = selectedDayInfo?.analyses ?? [];
+    if (list.length === 0) {
+      setBulkById({});
+      return;
+    }
+    let cancel = false;
+    (async () => {
+      const bulks = await Promise.all(list.map((item) => loadLoteBulk(item)));
+      if (cancel) return;
+      const next: Record<string, FiscoLoteBulk | null> = {};
+      list.forEach((item, index) => {
+        next[item.id] = bulks[index];
+      });
+      setBulkById(next);
+    })().catch((err) => console.error('Erro ao buscar o volume do lote:', err));
+    return () => {
+      cancel = true;
+    };
+  }, [dayKey, loadLoteBulk, selectedDayInfo]);
+
+  const openLoteLabels = async (list: FiscoQuimicaAnalysis[]) => {
+    if (list.length === 0 || labelBusy) return;
+    setLabelBusy(true);
+    try {
+      const bulks = await Promise.all(list.map((item) => loadLoteBulk(item)));
+      const templates = list.map((item, index) => {
+        const pat = patternMap.get(normalizeCode(item.productCode)) || null;
+        return buildFiscoLoteLabel({
+          analysis: item,
+          pattern: pat,
+          procItem: getProcForAnalysis(item),
+          approved: checkAnalysisCompliance(item, pat).isCompliant,
+          bulk: bulks[index],
+        });
+      });
+      setLabelTemplates(templates);
+      const first = list[0];
+      setLabelHistory(list.length === 1
+        ? { product_code: first.productCode, product_name: first.productName, lot_number: first.batch }
+        : { product_name: `Laudos ${selectedDateIso}`, lot_number: selectedDateIso });
+      setLabelOpen(true);
+    } catch (err) {
+      console.error(err);
+      alert('Não foi possível montar a etiqueta.');
+    } finally {
+      setLabelBusy(false);
+    }
   };
 
   return (
@@ -555,8 +664,20 @@ export function CalendarTab({
               </div>
             )}
 
-            {/* Lista de laudos do dia */}
-            <div className="space-y-2.5 max-h-[480px] overflow-y-auto pr-1">
+            {selectedDayInfo && selectedDayInfo.count > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (allDaySelected) setSelectedIds(new Set());
+                  else setSelectedIds(new Set(selectedDayInfo.analyses.map((item) => item.id)));
+                }}
+                className="text-[11px] font-bold text-zinc-600 hover:text-zinc-950 cursor-pointer"
+              >
+                {allDaySelected ? 'Limpar seleção' : `Selecionar todos (${selectedDayInfo.count})`}
+              </button>
+            )}
+
+            <div className="space-y-2.5 max-h-[520px] overflow-y-auto pr-1">
               {!selectedDayInfo || selectedDayInfo.count === 0 ? (
                 <div className="py-12 text-center text-zinc-400 space-y-1">
                   <CalendarIcon className="w-8 h-8 mx-auto text-zinc-300 stroke-1" />
@@ -565,105 +686,116 @@ export function CalendarTab({
               ) : (
                 selectedDayInfo.analyses.map((a) => {
                   const pat = patternMap.get(normalizeCode(a.productCode)) || null;
-                  const compliance = checkAnalysisCompliance(a, pat);
                   const procItem = getProcForAnalysis(a);
                   const precisaAnotarProc = procItem && isProcForaDoRotulo(procItem);
-
+                  const fields = describeFiscoLoteLabel({
+                    analysis: a,
+                    pattern: pat,
+                    procItem,
+                    approved: checkAnalysisCompliance(a, pat).isCompliant,
+                    bulk: bulkById[a.id],
+                  });
+                  const marked = selectedIds.has(a.id);
                   return (
-                    <div
+                    <button
                       key={a.id}
-                      className="p-3.5 bg-white border border-zinc-200 hover:border-zinc-300 rounded-xl shadow-xs space-y-2 transition-all"
+                      type="button"
+                      onClick={() => toggleSelected(a.id)}
+                      className={cn(
+                        'w-full text-left p-3.5 bg-white border rounded-xl shadow-xs space-y-2 transition-all cursor-pointer',
+                        marked ? 'border-zinc-900 ring-2 ring-zinc-900' : 'border-zinc-200 hover:border-zinc-300'
+                      )}
                     >
-                      {/* Topo do Card: Lote e Status */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-black text-sm text-zinc-950">
-                            Lote {a.batch}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className={cn(
+                              'h-4 w-4 rounded border flex items-center justify-center shrink-0',
+                              marked ? 'bg-zinc-900 border-zinc-900 text-white' : 'bg-white border-zinc-300'
+                            )}
+                          >
+                            {marked ? <CheckCircle2 className="h-3 w-3" /> : null}
                           </span>
-                          <span className="text-[10px] text-zinc-400 font-mono">
-                            ({a.productCode})
+                          <span className="font-mono font-black text-sm text-zinc-950 truncate">
+                            Lote {fields.batch}
                           </span>
                         </div>
-
-                        {compliance.isCompliant ? (
-                          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-full font-bold text-[9px]">
-                            {a.hasAdjustment ? 'Conforme (Ajustado)' : 'Conforme'}
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 bg-rose-50 text-rose-900 border border-rose-200 rounded-full font-bold text-[9px]">
-                            Fora Padrão
-                          </span>
-                        )}
+                        <span className={cn(
+                          'px-2 py-0.5 rounded-full font-bold text-[9px] border shrink-0',
+                          fields.approved
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            : 'bg-rose-50 text-rose-900 border-rose-200'
+                        )}>
+                          {fields.status}
+                        </span>
                       </div>
 
-                      {/* Nome do Produto e Badge PROC (Somente se não constar no rótulo gráfico) */}
-                      <div className="space-y-1">
-                        <div className="text-xs text-zinc-800 font-bold truncate" title={a.productName}>
-                          {a.productName}
+                      <div className="text-xs text-zinc-800 font-bold text-center leading-snug" title={fields.name}>
+                        {fields.name}
+                      </div>
+                      {fields.volume && (
+                        <div className="text-[11px] text-zinc-600 text-center">{fields.volume}</div>
+                      )}
+
+                      <div className="text-center text-[11px] text-zinc-700 bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-2 space-y-0.5">
+                        <div>Data: <strong>{fields.date || '—'}</strong></div>
+                        <div className="font-mono">Cód. {fields.code || '—'}</div>
+                        {fields.proc && <div className="font-mono font-bold">{fields.proc}</div>}
+                        {fields.envase && <div>{fields.envase}</div>}
+                      </div>
+
+                      {precisaAnotarProc && (
+                        <div className="text-[10px] font-bold text-amber-950 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 flex items-center justify-center gap-1">
+                          <FileText className="w-3 h-3 shrink-0" />
+                          PROC: {procItem.proc} (anotar no lote)
                         </div>
-                        {precisaAnotarProc && (
-                          <div className="flex items-center gap-1">
-                            <span
-                              className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-950 border border-amber-300 rounded font-mono font-bold text-[9px]"
-                              title="PROC não consta no rótulo gráfico — anotar manualmente no lote"
-                            >
-                              <FileText className="w-2.5 h-2.5 text-amber-700 shrink-0" />
-                              PROC: {procItem.proc} (Anotar)
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Métricas: pH, Viscosidade, Densidade */}
-                      <div className="grid grid-cols-3 gap-2 text-[10px] font-mono bg-zinc-50 p-2 rounded-lg text-zinc-700">
-                        <div>pH: <strong>{a.phMeasured > 0 ? a.phMeasured.toFixed(2) : '—'}</strong></div>
-                        <div>Visc: <strong>{formatViscosity(a.viscosityMeasured, pat)}</strong></div>
-                        <div>Dens: <strong>{a.densityMeasured > 0 ? a.densityMeasured.toFixed(3) : '—'}</strong></div>
-                      </div>
-
-                      {/* Rodapé: Envase e Botão de Imprimir Laudo com 1 clique */}
-                      <div className="flex items-center justify-between pt-1 text-[11px] text-zinc-500">
-                        {(() => {
-                          const filling = calculateFillingTargets(pat, a.densityMeasured, a.productName);
-                          const envaseDisplay = a.envaseTargetWeight > 0
-                            ? `${a.envaseTargetWeight} ${a.envaseTargetUnit || 'g'}`
-                            : (filling.weight.value > 0 ? `${filling.weight.value} ${filling.weight.unit}` : '—');
-                          return (
-                            <span>Envase: <strong>{envaseDisplay}</strong></span>
-                          );
-                        })()}
-
-                        <button
-                          type="button"
-                          onClick={() => printFiscoReports(a, patterns, products, agents, config)}
-                          className="flex items-center gap-1 text-zinc-700 hover:text-zinc-950 font-bold text-xs cursor-pointer hover:bg-zinc-100 px-2 py-0.5 rounded-lg transition-colors"
-                          title="Imprimir Laudo Físico-Químico"
-                        >
-                          <Printer className="w-3.5 h-3.5" /> Laudo
-                        </button>
-                      </div>
-                    </div>
+                      )}
+                    </button>
                   );
                 })
               )}
             </div>
           </div>
 
-          {/* Botão de imprimir todos os laudos do dia */}
           {selectedDayInfo && selectedDayInfo.count > 0 && (
-            <button
-              type="button"
-              onClick={handlePrintDay}
-              className="w-full flex items-center justify-center gap-2 bg-zinc-950 hover:bg-zinc-800 text-white py-3 rounded-xl text-xs font-bold transition-all shadow cursor-pointer"
-            >
-              <Printer className="w-4 h-4" />
-              Imprimir Laudos do Dia ({selectedDayInfo.count})
-            </button>
+            <div className="space-y-2">
+              <button
+                type="button"
+                disabled={selectedAnalyses.length === 0}
+                onClick={handlePrintDay}
+                className="w-full flex items-center justify-center gap-2 bg-zinc-950 hover:bg-zinc-800 text-white py-3 rounded-xl text-xs font-bold transition-all shadow cursor-pointer disabled:opacity-40"
+              >
+                <Printer className="w-4 h-4" />
+                Imprimir laudos ({selectedAnalyses.length})
+              </button>
+              <button
+                type="button"
+                disabled={labelBusy || selectedAnalyses.length === 0}
+                onClick={() => void openLoteLabels(selectedAnalyses)}
+                className="w-full flex items-center justify-center gap-2 bg-white border border-zinc-200 text-zinc-800 hover:bg-zinc-100 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
+              >
+                <Tag className="w-4 h-4" />
+                Imprimir etiquetas ({selectedAnalyses.length})
+              </button>
+            </div>
           )}
 
         </div>
 
       </div>
+
+      {labelOpen && labelTemplates[0] && (
+        <PrintModal
+          template={labelTemplates[0]}
+          batchTemplates={labelTemplates.length > 1 ? labelTemplates : undefined}
+          printDpi={300}
+          initialFillPercent={96}
+          isOpen
+          initialCopies={1}
+          onClose={() => setLabelOpen(false)}
+          history={labelHistory}
+        />
+      )}
 
     </div>
   );

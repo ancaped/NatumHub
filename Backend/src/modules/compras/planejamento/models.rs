@@ -70,6 +70,30 @@ pub struct Item {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct SimilarPair {
+    pub code_a: String,
+    pub code_b: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SimilarGroupMember {
+    pub code: String,
+    pub description: String,
+    pub unit: String,
+    pub stock: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SimilarGroup {
+    pub group_id: String,
+    pub members: Vec<SimilarGroupMember>,
+    pub stock_total: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct StockSnapshot {
     pub item_code: String,
     pub stock_qty: f64,
@@ -161,6 +185,9 @@ pub struct DemandResult {
     /// Reserva espelhada do ERP (stock_snapshots) — tooltip na lista Compras.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reserved_qty_erp: Option<f64>,
+    /// Soma do insumo nas ordens de produção abertas. Não é o nqtdeReserva do ERP.
+    #[serde(default)]
+    pub reserved_qty_ordens: f64,
     pub in_production: f64,
     pub in_orders: f64,
     /// Consumo de insumos se produzir produtos em Produzir Urgente / Abrir Ordem.

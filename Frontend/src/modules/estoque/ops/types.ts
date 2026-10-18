@@ -29,6 +29,20 @@ export interface AlmoxOpsItem {
   expiresAt?: string | null;
   nextExchangeAt?: string | null;
   exchangeStatus?: string | null;
+  defaultPackQty?: number | null;
+  defaultPackName?: string | null;
+  lastPackQty?: number | null;
+  lastPackName?: string | null;
+  photoData?: string | null;
+  photoDate?: string | null;
+}
+
+export interface AlmoxFamilia {
+  id: string;
+  label: string;
+  icon?: string | null;
+  color?: string | null;
+  sortOrder?: number;
 }
 
 export interface AlmoxMovement {
@@ -94,6 +108,11 @@ export interface Equipment {
   model?: string | null;
   manufactureYear?: number | null;
   serialNumber?: string | null;
+  equipType?: string | null;
+  location?: string | null;
+  supplier?: string | null;
+  acquiredAt?: string | null;
+  purchaseValue?: number | null;
   maintenanceIntervalDays?: number | null;
   lastMaintenanceAt?: string | null;
   nextMaintenanceAt?: string | null;
@@ -116,7 +135,7 @@ export interface MaintenancePart {
 
 export interface Maintenance {
   id: string;
-  equipmentId: string;
+  equipmentId?: string | null;
   equipmentCode?: string | null;
   equipmentName?: string | null;
   kind: string;
@@ -131,6 +150,9 @@ export interface Maintenance {
   occurredAt: string;
   scheduledAt?: string | null;
   completedAt?: string | null;
+  recurrenceDays?: number | null;
+  avulsaTipo?: string | null;
+  storeName?: string | null;
   parts?: MaintenancePart[];
 }
 
@@ -163,4 +185,71 @@ export const SECTION_LABELS: Record<string, string> = {
 export function sectionForMode(mode: EstoqueOpsMode): string | undefined {
   if (mode === 'almoxarifado' || mode === 'supermercado' || mode === 'pecas') return mode;
   return undefined;
+}
+
+export interface DemandQuote {
+  id: string;
+  supplier: string;
+  unitPrice?: number | null;
+  totalPrice?: number | null;
+  leadTime?: string | null;
+  notes?: string | null;
+  contact?: string | null;
+  selected?: boolean;
+  url?: string | null;
+  printData?: string | null;
+  printName?: string | null;
+}
+
+export interface DemandItem {
+  id?: string;
+  itemCode?: string | null;
+  itemDescription?: string | null;
+  description?: string | null;
+  qtyRequested: number;
+  qtyReceived?: number;
+  unitCost?: number | null;
+  notes?: string | null;
+}
+
+export interface Demand {
+  id: string;
+  status: string;
+  title?: string | null;
+  notes?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+  storeName?: string | null;
+  purchasedAt?: string | null;
+  receiptName?: string | null;
+  receiptsJson?: string | null;
+  hasReceipt?: boolean;
+  origin?: string | null;
+  qty?: number | null;
+  requestedBy?: string | null;
+  quotedValue?: number | null;
+  purchaseValue?: number | null;
+  trackingCode?: string | null;
+  equipmentId?: string | null;
+  equipmentName?: string | null;
+  sector?: string | null;
+  urgency?: string | null;
+  quotesJson?: string | null;
+  quotes?: DemandQuote[];
+  items: DemandItem[];
+}
+
+export interface ItemPurchaseHistory {
+  demandId: string;
+  trackingCode?: string | null;
+  title?: string | null;
+  itemCode?: string | null;
+  storeName?: string | null;
+  purchasedAt?: string | null;
+  purchaseValue?: number | null;
+  quotedValue?: number | null;
+  unitCost?: number | null;
+  qty?: number | null;
+  quotesJson?: string | null;
+  createdAt: string;
 }

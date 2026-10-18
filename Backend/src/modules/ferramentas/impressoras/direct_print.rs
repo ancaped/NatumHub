@@ -36,53 +36,96 @@ if ($fill -lt 0.85 -or $fill -gt 1.2) { $fill = [single]1 }
 $files = @(Get-ChildItem -LiteralPath $dir -Filter '*.png' | Sort-Object Name)
 if ($files.Count -eq 0) { throw 'Nenhuma imagem de etiqueta.' }
 
+function Read-LabelBytes([string]$path) {
+  for ($try = 1; $try -le 8; $try++) {
+    $stream = $null
+    try {
+      $stream = New-Object System.IO.FileStream(
+        $path,
+        [System.IO.FileMode]::Open,
+        [System.IO.FileAccess]::Read,
+        [System.IO.FileShare]::ReadWrite
+      )
+      $buffer = New-Object byte[] $stream.Length
+      [void]$stream.Read($buffer, 0, $buffer.Length)
+      return $buffer
+    } catch {
+      if ($try -ge 8) { throw }
+      Start-Sleep -Milliseconds (150 * $try)
+    } finally {
+      if ($stream) { $stream.Dispose() }
+    }
+  }
+}
+
+function New-LabelDocument {
+  $doc = New-Object System.Drawing.Printing.PrintDocument
+  $doc.PrinterSettings.PrinterName = $printer
+  if (-not $doc.PrinterSettings.IsValid) {
+    $doc.Dispose()
+    throw "Impressora nao encontrada no Windows: $printer"
+  }
+  $doc.PrintController = New-Object System.Drawing.Printing.StandardPrintController
+  $doc.PrinterSettings.Copies = 1
+  $wHi = [int][Math]::Round(($widthMm / 25.4) * 100)
+  $hHi = [int][Math]::Round(($heightMm / 25.4) * 100)
+  $paper = New-Object System.Drawing.Printing.PaperSize('NexusEtiqueta', $wHi, $hHi)
+  $margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
+  $doc.DefaultPageSettings.PaperSize = $paper
+  $doc.DefaultPageSettings.Margins = $margins
+  $doc.DefaultPageSettings.Landscape = [bool]$landscape
+  $doc.PrinterSettings.DefaultPageSettings.PaperSize = $paper
+  $doc.PrinterSettings.DefaultPageSettings.Margins = $margins
+  $doc.PrinterSettings.DefaultPageSettings.Landscape = [bool]$landscape
+  $doc.OriginAtMargins = $false
+  $doc.add_PrintPage({
+    param($sender, $e)
+    $e.Graphics.PageUnit = [System.Drawing.GraphicsUnit]::Millimeter
+    $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
+    $drawW = $global:NexusPrintW * $global:NexusPrintFill
+    $drawH = $global:NexusPrintH * $global:NexusPrintFill
+    $ox = ($global:NexusPrintW - $drawW) / 2.0
+    $oy = ($global:NexusPrintH - $drawH) / 2.0
+    $rect = New-Object System.Drawing.RectangleF([single]$ox, [single]$oy, [single]$drawW, [single]$drawH)
+    $e.Graphics.DrawImage($global:NexusPrintImg, $rect)
+    $e.HasMorePages = $false
+  })
+  return $doc
+}
+
 function Invoke-LabelPrint([string]$path) {
-  $bytes = [System.IO.File]::ReadAllBytes($path)
+  $bytes = Read-LabelBytes $path
   $ms = New-Object System.IO.MemoryStream(,$bytes)
   $loaded = [System.Drawing.Image]::FromStream($ms)
   $img = New-Object System.Drawing.Bitmap($loaded)
   $loaded.Dispose()
   $ms.Dispose()
+  $global:NexusPrintImg = $img
+  $global:NexusPrintW = $widthMm
+  $global:NexusPrintH = $heightMm
+  $global:NexusPrintFill = $fill
   try {
-    $doc = New-Object System.Drawing.Printing.PrintDocument
-    $doc.PrinterSettings.PrinterName = $printer
-    if (-not $doc.PrinterSettings.IsValid) {
-      throw "Impressora nao encontrada no Windows: $printer"
-    }
-    $doc.PrintController = New-Object System.Drawing.Printing.StandardPrintController
-    $wHi = [int][Math]::Round(($widthMm / 25.4) * 100)
-    $hHi = [int][Math]::Round(($heightMm / 25.4) * 100)
-    $paper = New-Object System.Drawing.Printing.PaperSize('NexusEtiqueta', $wHi, $hHi)
-    $margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
-    $doc.DefaultPageSettings.PaperSize = $paper
-    $doc.DefaultPageSettings.Margins = $margins
-    $doc.DefaultPageSettings.Landscape = [bool]$landscape
-    $doc.PrinterSettings.DefaultPageSettings.PaperSize = $paper
-    $doc.PrinterSettings.DefaultPageSettings.Margins = $margins
-    $doc.PrinterSettings.DefaultPageSettings.Landscape = [bool]$landscape
-    $doc.OriginAtMargins = $false
-    $global:NexusPrintImg = $img
-    $global:NexusPrintW = $widthMm
-    $global:NexusPrintH = $heightMm
-    $global:NexusPrintFill = $fill
-
-    $doc.add_PrintPage({
-      param($sender, $e)
-      $e.Graphics.PageUnit = [System.Drawing.GraphicsUnit]::Millimeter
-      $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
-      $drawW = $global:NexusPrintW * $global:NexusPrintFill
-      $drawH = $global:NexusPrintH * $global:NexusPrintFill
-      $ox = ($global:NexusPrintW - $drawW) / 2.0
-      $oy = ($global:NexusPrintH - $drawH) / 2.0
-      $rect = New-Object System.Drawing.RectangleF([single]$ox, [single]$oy, [single]$drawW, [single]$drawH)
-      $e.Graphics.DrawImage($global:NexusPrintImg, $rect)
-      $e.HasMorePages = $false
-    })
-
     for ($i = 0; $i -lt $copies; $i++) {
-      $doc.Print()
+      $printed = $false
+      for ($try = 1; $try -le 6 -and -not $printed; $try++) {
+        $doc = New-LabelDocument
+        try {
+          $doc.Print()
+          $printed = $true
+        } catch {
+          $msg = [string]$_.Exception.Message
+          $busy = $msg -match 'acesso o arquivo|being used by another process|utilizado por outro processo'
+          if (-not $busy -or $try -ge 6) {
+            if ($busy) { throw 'A impressora ainda está com a etiqueta anterior aberta. Aguarde alguns segundos e tente de novo.' }
+            throw
+          }
+          Start-Sleep -Milliseconds (300 * $try)
+        } finally {
+          $doc.Dispose()
+        }
+      }
+      if ($i -lt ($copies - 1)) { Start-Sleep -Milliseconds 250 }
     }
-    $doc.Dispose()
   } finally {
     $img.Dispose()
   }
@@ -144,6 +187,7 @@ fn print_labels_windows(req: DirectPrintRequest) -> Result<(), String> {
             .write_all(&[0xEF, 0xBB, 0xBF])
             .and_then(|_| script.write_all(SCRIPT.as_bytes()))
             .map_err(|e| format!("Não foi possível gravar o script: {e}"))?;
+        drop(script);
 
         run_print_script(&script_path, &dir, printer, req.width_mm, req.height_mm, copies, req.landscape, fill)
     })();

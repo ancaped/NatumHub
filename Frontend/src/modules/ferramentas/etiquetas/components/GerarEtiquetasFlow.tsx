@@ -63,7 +63,7 @@ export function GerarEtiquetasFlow({ templates, onPrintSuccess }: GerarEtiquetas
     d.setFullYear(d.getFullYear() + 2);
     return d.toLocaleDateString('pt-BR');
   });
-  const [boxQuantity, setBoxQuantity] = useState(12);
+  const [boxQuantity, setBoxQuantity] = useState(0);
 
   // Print Volumes & Sequence
   const [enableSequence, setEnableSequence] = useState(true);
@@ -143,12 +143,13 @@ export function GerarEtiquetasFlow({ templates, onPrintSuccess }: GerarEtiquetas
       } catch (_) {}
     }
 
-    // Auto-calculate boxes
-    const qtyPerBox = 12;
+    const prod = catalogProducts.find((item) => item.codigo === lot.codigo);
+    const qtyPerBox = prod?.quantidade_caixa || 0;
     setBoxQuantity(qtyPerBox);
-    const calculatedBoxes = Math.max(1, Math.ceil(lot.quantidade / qtyPerBox));
+    const calculatedBoxes = qtyPerBox > 0 ? Math.max(1, Math.round(lot.quantidade / qtyPerBox)) : 1;
     setSequenceStart(1);
     setSequenceTotal(calculatedBoxes);
+    setEnableSequence(qtyPerBox > 0);
   };
 
   // Handle select product
@@ -161,7 +162,7 @@ export function GerarEtiquetasFlow({ templates, onPrintSuccess }: GerarEtiquetas
     setBarcodeEan(ean);
     setBarcodeDun(prod.codigo_barras_caixa || (ean.length === 13 ? `1${ean.slice(0, 12)}` : ean));
 
-    const qty = prod.quantidade_caixa || 12;
+    const qty = prod.quantidade_caixa || 0;
     setBoxQuantity(qty);
   };
 
@@ -338,7 +339,8 @@ export function GerarEtiquetasFlow({ templates, onPrintSuccess }: GerarEtiquetas
                 ) : (
                   filteredLots.map((lot) => {
                     const isSelected = selectedLot?.id === lot.id;
-                    const calculatedBoxes = Math.ceil(lot.quantidade / 12);
+                    const perBox = catalogProducts.find((item) => item.codigo === lot.codigo)?.quantidade_caixa || 0;
+                    const calculatedBoxes = perBox > 0 ? Math.max(1, Math.round(lot.quantidade / perBox)) : 0;
 
                     return (
                       <button
@@ -347,13 +349,13 @@ export function GerarEtiquetasFlow({ templates, onPrintSuccess }: GerarEtiquetas
                         onClick={() => handleSelectLot(lot)}
                         className={`w-full p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
                           isSelected
-                            ? 'bg-blue-50/80 border-blue-500 ring-2 ring-blue-500/20'
-                            : 'bg-white border-zinc-200/80 hover:border-zinc-300 hover:bg-zinc-50/70'
+                            ? 'bg-zinc-50 border-zinc-900 ring-2 ring-zinc-900/10'
+                            : 'bg-white border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50'
                         }`}
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
-                            <span className="font-mono text-xs font-black text-blue-700 bg-blue-100 px-1.5 py-0.2 rounded">
+                            <span className="font-mono text-xs font-black text-zinc-900 bg-zinc-100 px-1.5 py-0.2 rounded">
                               LOTE: {lot.lote}
                             </span>
                             <span className="font-mono text-[11px] text-zinc-500 font-bold">
@@ -363,12 +365,12 @@ export function GerarEtiquetasFlow({ templates, onPrintSuccess }: GerarEtiquetas
                           <h4 className="text-xs font-bold text-zinc-900 truncate mt-1">{lot.descricao}</h4>
                           <div className="flex items-center gap-3 text-[11px] text-zinc-500 font-mono mt-1">
                             <span>Produção: <strong>{lot.quantidade} un.</strong></span>
-                            <span>📦 <strong>~{calculatedBoxes} caixas</strong></span>
+                            {calculatedBoxes > 0 && <span><strong>~{calculatedBoxes} caixas</strong></span>}
                             {lot.data_producao && <span>Data: {lot.data_producao}</span>}
                           </div>
                         </div>
 
-                        {isSelected && <CheckCircle2 className="h-5 w-5 text-blue-600 shrink-0" />}
+                        {isSelected && <CheckCircle2 className="h-5 w-5 text-zinc-900 shrink-0" />}
                       </button>
                     );
                   })

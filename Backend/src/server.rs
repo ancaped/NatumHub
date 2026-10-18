@@ -230,6 +230,10 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
             get(handlers::get_insumos_status),
         )
         .route(
+            "/api/producao/produtos-mesma-formulacao/:code",
+            get(handlers::get_produtos_mesma_formulacao),
+        )
+        .route(
             "/api/producao/reatores",
             get(handlers::list_reatores).put(handlers::save_reatores),
         )

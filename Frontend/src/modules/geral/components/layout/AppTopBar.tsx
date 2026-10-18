@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Settings, LogOut, UserCog, ClipboardList, Shield, ArrowLeft, Network, Loader2, RefreshCw, RotateCcw, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { ChevronDown, Settings, LogOut, UserCog, ClipboardList, Shield, ArrowLeft, Network, Loader2, RefreshCw, RotateCcw, CheckCircle2, AlertTriangle, Menu, X } from 'lucide-react';
 import { cn, APP_VERSION } from '../../lib/utils';
 import { canAccessView } from '../../lib/modules/permissions';
 import { isSupervisor, canSeeFeedbacks } from '../../lib/auth';
@@ -80,6 +80,11 @@ export default function AppTopBar({
   showModules = true,
 }: AppTopBarProps) {
   const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [mobileExpanded, setMobileExpanded] = useState<string | null>(null);
+  const [finePointer, setFinePointer] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches
+  );
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
@@ -182,6 +187,22 @@ export default function AppTopBar({
     };
   }, [restartCountdown]);
 
+  useEffect(() => {
+    const mq = window.matchMedia('(hover: hover) and (pointer: fine)');
+    const onChange = () => setFinePointer(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [mobileNavOpen]);
+
   const clearCloseTimer = useCallback(() => {
     if (closeTimerRef.current !== null) {
       window.clearTimeout(closeTimerRef.current);
@@ -205,11 +226,13 @@ export default function AppTopBar({
       if (submodules.length === 0) return;
 
       const rect = trigger.getBoundingClientRect();
+      const menuWidth = 260;
+      const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - menuWidth - 8));
       setOpenGroup(group.key);
       setMenuAnchor({
         groupKey: group.key,
         top: rect.bottom + 4,
-        left: rect.left,
+        left,
         submodules,
       });
     },
@@ -241,6 +264,7 @@ export default function AppTopBar({
 
   useEffect(() => {
     closeModuleMenu();
+    setMobileNavOpen(false);
   }, [view, closeModuleMenu]);
 
   useEffect(() => {
@@ -250,9 +274,11 @@ export default function AppTopBar({
       const trigger = triggerRefs.current.get(menuAnchor.groupKey);
       if (!trigger) return;
       const rect = trigger.getBoundingClientRect();
+      const menuWidth = 260;
+      const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - menuWidth - 8));
       setMenuAnchor((prev) =>
         prev
-          ? { ...prev, top: rect.bottom + 4, left: rect.left }
+          ? { ...prev, top: rect.bottom + 4, left }
           : null
       );
     };
@@ -350,10 +376,14 @@ export default function AppTopBar({
         key={group.key}
         className="relative shrink-0"
         onMouseEnter={() => {
+          if (!finePointer) return;
           const trigger = triggerRefs.current.get(group.key);
           if (trigger) openModuleMenu(group, trigger);
         }}
-        onMouseLeave={scheduleCloseModuleMenu}
+        onMouseLeave={() => {
+          if (!finePointer) return;
+          scheduleCloseModuleMenu();
+        }}
       >
         <button
           ref={(el) => {
@@ -393,8 +423,12 @@ export default function AppTopBar({
         ref={menuRef}
         className="fixed z-[9999]"
         style={{ top: menuAnchor.top, left: menuAnchor.left }}
-        onMouseEnter={clearCloseTimer}
-        onMouseLeave={scheduleCloseModuleMenu}
+        onMouseEnter={() => {
+          if (finePointer) clearCloseTimer();
+        }}
+        onMouseLeave={() => {
+          if (finePointer) scheduleCloseModuleMenu();
+        }}
       >
         <div className="bg-white border border-zinc-200 rounded-xl shadow-xl p-2 min-w-[220px] animate-in fade-in slide-in-from-top-1 duration-150">
           <div className="grid grid-cols-1 gap-0.5">
@@ -407,7 +441,7 @@ export default function AppTopBar({
                   type="button"
                   onClick={() => navigateTo(sub.view)}
                   className={cn(
-                    'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-left cursor-pointer transition-colors',
+                    'w-full flex items-center gap-2.5 px-3 py-3 lg:py-2 min-h-11 lg:min-h-0 rounded-lg text-sm lg:text-xs font-semibold text-left cursor-pointer transition-colors',
                     subActive
                       ? 'bg-zinc-900 text-white'
                       : 'text-zinc-700 hover:bg-zinc-50'
@@ -430,7 +464,7 @@ export default function AppTopBar({
     <>
       <header
         ref={barRef}
-        className="no-print h-14 w-full bg-white border-b border-zinc-200 px-4 sm:px-6 flex items-center gap-4 shadow-sm shrink-0 z-40 relative select-none overflow-visible"
+        className="no-print h-14 w-full bg-white border-b border-zinc-200 px-2 sm:px-4 lg:px-6 flex items-center gap-2 lg:gap-4 shadow-sm shrink-0 z-40 relative select-none"
       >
         <button
           type="button"
@@ -442,12 +476,31 @@ export default function AppTopBar({
         </button>
 
         {showModules ? (
-          <nav
-            className="flex items-center gap-1 flex-1 min-w-0 overflow-visible"
-            aria-label="Módulos"
-          >
-            {groups.map(renderModuleButton)}
-          </nav>
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setDropdownOpen(false);
+                closeModuleMenu();
+                setMobileExpanded(activeGroup?.key ?? null);
+                setMobileNavOpen(true);
+              }}
+              className="lg:hidden inline-flex items-center gap-1.5 h-11 px-3 rounded-xl border border-zinc-200 bg-white text-xs font-bold text-zinc-800 shrink-0"
+              aria-label="Abrir módulos"
+            >
+              <Menu className="h-4 w-4" />
+              Módulos
+            </button>
+            <span className="lg:hidden flex-1 min-w-0 truncate text-xs font-semibold text-zinc-600">
+              {view === 'hub' ? 'Início' : getModuleTitle(view)}
+            </span>
+            <nav
+              className="hidden lg:flex items-center gap-1 flex-1 min-w-0 overflow-x-auto touch-pan-x"
+              aria-label="Módulos"
+            >
+              {groups.map(renderModuleButton)}
+            </nav>
+          </>
         ) : (
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <button
@@ -469,7 +522,7 @@ export default function AppTopBar({
           <span className="text-xs text-zinc-400 font-mono hidden sm:inline">v{APP_VERSION}</span>
 
           {canQuickSync && (
-            <div className="relative">
+            <div className="relative hidden sm:block">
               <button
                 type="button"
                 onClick={() => void handleQuickErpSync()}
@@ -492,7 +545,7 @@ export default function AppTopBar({
             <button
               type="button"
               onClick={() => setRestartModalOpen(true)}
-              className="p-2 rounded-xl border border-zinc-200 bg-white text-zinc-650 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 transition-colors cursor-pointer"
+              className="hidden sm:inline-flex p-2 rounded-xl border border-zinc-200 bg-white text-zinc-650 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 transition-colors cursor-pointer"
               title="Reiniciar Servidor Nexus (Apenas Supervisor)"
               aria-label="Reiniciar Servidor"
             >
@@ -506,7 +559,7 @@ export default function AppTopBar({
             <div className="relative" ref={profileRef}>
               <button
                 onClick={() => setDropdownOpen(!dropdownOpen)}
-                className="flex items-center gap-2 p-1 rounded-xl border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 transition-all cursor-pointer focus:outline-none shadow-sm"
+                className="flex items-center justify-center gap-2 min-h-11 min-w-11 p-1 rounded-xl border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 transition-all cursor-pointer focus:outline-none shadow-sm"
               >
                 {currentUser.photoURL ? (
                   <img
@@ -525,7 +578,7 @@ export default function AppTopBar({
               </button>
 
               {dropdownOpen && (
-                <div className="absolute right-0 mt-2 w-56 bg-white border border-zinc-200 rounded-2xl shadow-xl z-50 py-2 animate-in fade-in slide-in-from-top-2 duration-150">
+                <div className="absolute right-0 mt-2 w-[min(16rem,calc(100vw-1rem))] bg-white border border-zinc-200 rounded-2xl shadow-xl z-50 py-2 animate-in fade-in slide-in-from-top-2 duration-150">
                   <div className="px-4 py-2.5 border-b border-zinc-100 flex items-center gap-3">
                     {currentUser.photoURL ? (
                       <img
@@ -552,7 +605,7 @@ export default function AppTopBar({
                     <button
                       type="button"
                       onClick={() => void openProfileModal()}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left"
+                      className="w-full flex items-center gap-2.5 px-3 py-3 min-h-11 rounded-lg text-sm font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left"
                     >
                       <UserCog className="h-4 w-4 text-zinc-400" />
                       Dados do Perfil
@@ -564,7 +617,7 @@ export default function AppTopBar({
                           setDropdownOpen(false);
                           setView('hub_feedbacks');
                         }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left"
+                        className="w-full flex items-center gap-2.5 px-3 py-3 min-h-11 rounded-lg text-sm font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left"
                       >
                         <ClipboardList className="h-4 w-4 text-zinc-400" />
                         Gestão de Feedbacks
@@ -577,7 +630,7 @@ export default function AppTopBar({
                           setDropdownOpen(false);
                           setView('mapa_arquitetura');
                         }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left"
+                        className="w-full flex items-center gap-2.5 px-3 py-3 min-h-11 rounded-lg text-sm font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left"
                       >
                         <Network className="h-4 w-4 text-zinc-400" />
                         Mapa operacional
@@ -591,7 +644,7 @@ export default function AppTopBar({
                           fetchSqlConfig();
                           setView('hub_supervisor');
                         }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-violet-700 hover:bg-violet-50 transition-colors cursor-pointer text-left"
+                        className="w-full flex items-center gap-2.5 px-3 py-3 min-h-11 rounded-lg text-sm font-semibold text-violet-700 hover:bg-violet-50 transition-colors cursor-pointer text-left"
                       >
                         <Shield className="h-4 w-4 text-violet-500" />
                         Painel Supervisor
@@ -604,7 +657,7 @@ export default function AppTopBar({
                           setDropdownOpen(false);
                           setRestartModalOpen(true);
                         }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer text-left"
+                        className="w-full flex items-center gap-2.5 px-3 py-3 min-h-11 rounded-lg text-sm font-semibold text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer text-left"
                       >
                         <RotateCcw className="h-4 w-4 text-rose-500" />
                         Reiniciar Servidor
@@ -618,7 +671,7 @@ export default function AppTopBar({
                           fetchSqlConfig();
                           setView('hub_settings');
                         }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left"
+                        className="w-full flex items-center gap-2.5 px-3 py-3 min-h-11 rounded-lg text-sm font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left"
                       >
                         <Settings className="h-4 w-4 text-zinc-400" />
                         Configurações Gerais
@@ -632,7 +685,7 @@ export default function AppTopBar({
                         setDropdownOpen(false);
                         onLogout();
                       }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer text-left"
+                      className="w-full flex items-center gap-2.5 px-3 py-3 min-h-11 rounded-lg text-sm font-semibold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer text-left"
                     >
                       <LogOut className="h-4 w-4" />
                       Sair / Desconectar
@@ -646,6 +699,96 @@ export default function AppTopBar({
       </header>
 
       {moduleMenuPortal}
+
+      {mobileNavOpen &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div className="lg:hidden fixed inset-0 z-[10000]">
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/40"
+              aria-label="Fechar módulos"
+              onClick={() => setMobileNavOpen(false)}
+            />
+            <div className="absolute inset-y-0 left-0 flex w-[min(100%,22rem)] flex-col bg-white shadow-xl pt-[env(safe-area-inset-top)]">
+              <div className="flex items-center justify-between h-14 px-4 border-b border-zinc-200 shrink-0">
+                <span className="text-sm font-bold text-zinc-900">Módulos</span>
+                <button
+                  type="button"
+                  onClick={() => setMobileNavOpen(false)}
+                  className="h-11 w-11 inline-flex items-center justify-center rounded-xl border border-zinc-200 text-zinc-700"
+                  aria-label="Fechar"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <nav className="flex-1 overflow-y-auto p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] space-y-1" aria-label="Módulos">
+                {groups.map((group) => {
+                  const subs = sortSubmodulesByUsage(getAccessibleSubmodules(group, currentUser), usage);
+                  const expanded = mobileExpanded === group.key;
+                  const groupActive = activeGroup?.key === group.key;
+
+                  if (group.directView) {
+                    return (
+                      <button
+                        key={group.key}
+                        type="button"
+                        onClick={() => navigateTo(group.directView!)}
+                        className={cn(
+                          'w-full min-h-11 px-3 rounded-xl text-left text-sm font-bold border',
+                          groupActive
+                            ? 'bg-zinc-900 text-white border-zinc-900'
+                            : 'bg-white text-zinc-800 border-zinc-200'
+                        )}
+                      >
+                        {group.label}
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <div key={group.key} className="rounded-xl border border-zinc-200 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setMobileExpanded(expanded ? null : group.key)}
+                        className={cn(
+                          'w-full min-h-11 px-3 flex items-center justify-between gap-2 text-sm font-bold',
+                          groupActive ? 'bg-zinc-900 text-white' : 'bg-white text-zinc-800'
+                        )}
+                      >
+                        {group.label}
+                        <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', expanded && 'rotate-180')} />
+                      </button>
+                      {expanded && (
+                        <div className="border-t border-zinc-100 bg-zinc-50 p-1.5 space-y-0.5">
+                          {subs.map((sub) => {
+                            const Icon = sub.icon;
+                            const subActive = view === sub.view;
+                            return (
+                              <button
+                                key={sub.view}
+                                type="button"
+                                onClick={() => navigateTo(sub.view)}
+                                className={cn(
+                                  'w-full min-h-11 flex items-center gap-2.5 px-3 rounded-lg text-sm font-semibold text-left',
+                                  subActive ? 'bg-zinc-900 text-white' : 'text-zinc-700 active:bg-white'
+                                )}
+                              >
+                                <Icon className={cn('h-4 w-4 shrink-0', subActive ? 'text-white' : 'text-zinc-400')} />
+                                <span className="truncate">{sub.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </nav>
+            </div>
+          </div>,
+          document.body
+        )}
 
       {profileModalOpen && (
         <Modal isOpen={true} title="Dados do Perfil" onClose={() => setProfileModalOpen(false)}>

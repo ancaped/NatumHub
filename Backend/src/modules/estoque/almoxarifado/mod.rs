@@ -16,7 +16,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/almox/items/search", get(handlers::search_catalog))
         .route("/api/almox/items/link", post(handlers::link_erp_item))
         .route("/api/almox/items/local", post(handlers::create_local_item))
-        .route("/api/almox/items/:code", get(handlers::get_item))
+        .route("/api/almox/items/:code", get(handlers::get_item).delete(handlers::delete_item))
         .route(
             "/api/almox/items/:code/config",
             put(handlers::upsert_item_config),
@@ -42,13 +42,35 @@ pub fn router() -> Router<Arc<AppState>> {
             delete(handlers::delete_foto),
         )
         .route(
+            "/api/almox/familias",
+            get(handlers::list_familias).post(handlers::upsert_familia),
+        )
+        .route(
+            "/api/almox/familias/:id",
+            delete(handlers::delete_familia),
+        )
+        .route(
             "/api/almox/movements",
             get(handlers::list_movements).post(handlers::create_movement),
         )
+        .route("/api/almox/counts/latest", get(handlers::latest_stock_count))
+        .route("/api/almox/counts", post(handlers::apply_stock_count))
         .route("/api/almox/replenishment", get(handlers::list_replenishment))
         .route(
             "/api/almox/demands",
             get(handlers::list_demands).post(handlers::create_demand),
+        )
+        .route(
+            "/api/almox/print-sequence",
+            get(handlers::get_print_sequence).post(handlers::update_print_sequence),
+        )
+        .route(
+            "/api/almox/print-slips",
+            post(handlers::register_printed_slips),
+        )
+        .route(
+            "/api/almox/demands/history",
+            get(handlers::get_item_purchase_history),
         )
         .route(
             "/api/almox/demands/from-min",
@@ -58,9 +80,18 @@ pub fn router() -> Router<Arc<AppState>> {
             "/api/almox/demands/:id/status",
             put(handlers::update_demand_status),
         )
+        .route("/api/almox/demands/:id", put(handlers::update_demand))
         .route(
             "/api/almox/demands/:id/receive",
             post(handlers::receive_demand),
+        )
+        .route(
+            "/api/almox/demands/:id/purchase",
+            post(handlers::mark_purchased),
+        )
+        .route(
+            "/api/almox/demands/:id/receipt",
+            get(handlers::get_demand_receipt),
         )
         .route(
             "/api/almox/equipments",

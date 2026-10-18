@@ -135,28 +135,103 @@ pub async fn list_acompanhamento(
     pool: &PgPool,
     params: &AcompanhamentoQueryParams,
 ) -> Result<Vec<AcompanhamentoLoteItem>, String> {
-    let sql = String::from(
+    let has_search = params.search.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false);
+    let search_open = if has_search { "TRUE" } else { "FALSE" };
+
+    let search_union = if has_search {
+        r#"
+            UNION ALL
+            SELECT 
+                sm.document_number,
+                NULL::text AS planning_id,
+                sm.item_code,
+                sm.quantity,
+                sm.date,
+                NULL::text AS data_planejada,
+                sm.details,
+                'Produção' AS default_category,
+                NULL::text AS planning_descricao,
+                NULL::int4 AS planning_ordem
+            FROM stock_movements sm
+            WHERE sm.item_type = 'produto' AND sm.movement_type = 'entrada'
+              AND NOT EXISTS (
+                  SELECT 1 FROM producao_planejamento_semanal pp3
+                  WHERE (pp3.lote_erp IS NOT NULL AND TRIM(pp3.lote_erp) = sm.document_number)
+                     OR pp3.id = sm.document_number
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM lote_custom_status c3
+                  WHERE c3.lote_number = sm.document_number
+              )
+            UNION ALL
+            SELECT
+                ell.lote,
+                NULL::text AS planning_id,
+                ell.product_code,
+                COALESCE(ell.quantidade_kg, 0)::float8,
+                SUBSTRING(COALESCE(ell.data_lote, '') FROM 1 FOR 10),
+                NULL::text AS data_planejada,
+                'Laudo ERP',
+                'Produção' AS default_category,
+                p_ell.descricao AS planning_descricao,
+                NULL::int4 AS planning_ordem
+            FROM erp_lotes_laudos ell
+            LEFT JOIN produtos p_ell ON ell.product_code = p_ell.codigo
+            WHERE NOT EXISTS (
+                  SELECT 1 FROM lote_custom_status c4
+                  WHERE c4.lote_number = ell.lote
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM producao_planejamento_semanal pp4
+                  WHERE (pp4.lote_erp IS NOT NULL AND TRIM(pp4.lote_erp) = ell.lote)
+                     OR pp4.id = ell.lote
+              )
+        "#
+    } else {
+        ""
+    };
+
+    let sql = format!(
         r#"
         SELECT 
             m.document_number AS lote_number,
             m.item_code,
-            COALESCE(p.descricao, m.item_code) AS descricao,
+            COALESCE(p.descricao, m.planning_descricao, m.item_code) AS descricao,
             m.quantity AS kg,
             m.date,
             m.details,
-            COALESCE(c.custom_status, 'Pesagem') AS custom_status,
-            c.category,
+            m.planning_ordem,
+            CASE 
+                WHEN m.planning_id IS NOT NULL AND (c.custom_status IS NULL OR c.custom_status IN ('Aberto', 'Pendente', 'Produzido', 'Finalizada', 'Ordem Finalizada')) THEN 'Pesagem'
+                ELSE COALESCE(c.custom_status, 'Pesagem')
+            END AS custom_status,
+            CASE 
+                WHEN m.default_category = 'Caldeira' THEN 'Caldeira'
+                ELSE COALESCE(c.category, m.default_category, 'Produção')
+            END AS category,
             c.updated_by,
             to_char(c.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at,
             c.notes,
-            COALESCE(to_char(c.data_pesagem, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), m.date || 'T08:00:00Z') AS data_pesagem,
-            COALESCE(to_char(c.data_producao, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), m.date || 'T08:00:00Z') AS data_producao,
-            to_char(c.data_liberado_envase, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS data_liberado_envase,
-            to_char(c.data_envase, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS data_envase,
-            to_char(c.data_rotulagem, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS data_rotulagem,
-            to_char(c.data_finalizada, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS data_finalizada,
-            to_char(c.data_em_espera, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS data_em_espera,
-            COALESCE(to_char(c.data_previsao, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), m.date || 'T08:00:00Z') AS data_previsao,
+            COALESCE(
+                to_char(c.data_pesagem AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                m.data_planejada || 'T08:00:00Z',
+                m.date || 'T08:00:00Z'
+            ) AS data_pesagem,
+            COALESCE(
+                to_char(c.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                m.data_planejada || 'T08:00:00Z',
+                m.date || 'T08:00:00Z'
+            ) AS data_producao,
+            to_char(c.data_liberado_envase AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS data_liberado_envase,
+            to_char(c.data_envase AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS data_envase,
+            to_char(c.data_rotulagem AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS data_rotulagem,
+            to_char(c.data_finalizada AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS data_finalizada,
+            to_char(c.data_em_espera AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS data_em_espera,
+            COALESCE(
+                to_char(c.data_previsao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                m.data_planejada || 'T08:00:00Z',
+                m.date || 'T08:00:00Z'
+            ) AS data_previsao,
             c.motivo_espera,
             c.ficha_ordem,
             c.quantidade_envasada_parcial::float8 AS quantidade_envasada_parcial,
@@ -173,39 +248,125 @@ pub async fn list_acompanhamento(
             ) AS is_terceirizado
         FROM (
             SELECT 
-                sm.document_number,
-                sm.item_code,
-                sm.quantity,
-                sm.date,
-                sm.details
-            FROM stock_movements sm
-            WHERE sm.item_type = 'produto' AND sm.movement_type = 'entrada'
+                COALESCE(NULLIF(TRIM(pp.lote_erp), ''), pp.id) AS document_number,
+                pp.id AS planning_id,
+                COALESCE(sm.item_code, pp.codigo_produto) AS item_code,
+                COALESCE(sm.quantity, pp.quantidade_planejada::float8) AS quantity,
+                COALESCE(
+                    to_char(pp.data_planejada, 'YYYY-MM-DD'),
+                    SUBSTRING(sm.date FROM 1 FOR 10),
+                    SUBSTRING(ell.data_lote FROM 1 FOR 10),
+                    to_char(pp.created_at, 'YYYY-MM-DD')
+                ) AS date,
+                to_char(pp.data_planejada, 'YYYY-MM-DD') AS data_planejada,
+                COALESCE(
+                    sm.details || ' | Planejamento Semanal | Reator: ' || COALESCE(pp.reator_id, '') || ' | Processo: ' || COALESCE(pp.processo_termico, ''),
+                    'Status: PG | ' || 
+                    CASE 
+                        WHEN pp.observacoes ~* '~[0-9.,]+\s*un' THEN 
+                            'Unidades: ' || REPLACE(REPLACE(substring(pp.observacoes from '~([0-9.,]+)\s*un'), '.', ''), ',', '.') || ' | '
+                        ELSE 
+                            'Unidades: ' || ROUND(COALESCE(sm.quantity, pp.quantidade_planejada::float8) / NULLIF(
+                                CASE 
+                                     WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(5000\s*ML|5\s*L\b)' THEN 5.0
+                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(1000\s*ML|1\s*L\b|1\s*KG\b)' THEN 1.0
+                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(900\s*ML|900\s*G\b)' THEN 0.9
+                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(500\s*ML|500\s*G\b)' THEN 0.5
+                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(300\s*ML|300\s*G\b)' THEN 0.3
+                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(250\s*ML|250\s*G\b)' THEN 0.25
+                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(200\s*ML|200\s*G\b)' THEN 0.2
+                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(150\s*ML|150\s*G\b)' THEN 0.15
+                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(100\s*ML|100\s*G\b)' THEN 0.1
+                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(90\s*ML|90\s*G\b)' THEN 0.09
+                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(60\s*ML|60\s*G\b)' THEN 0.06
+                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(50\s*ML|50\s*G\b)' THEN 0.05
+                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(30\s*ML|30\s*G\b)' THEN 0.03
+                                    ELSE 1.0
+                                END, 0
+                            ))::text || ' | '
+                    END ||
+                    'Planejamento Semanal | Reator: ' || COALESCE(pp.reator_id, '') || ' | Processo: ' || COALESCE(pp.processo_termico, '') || ' | Ordem: ' || COALESCE(pp.ordem_sequencia, 1)::text
+                ) AS details,
+                CASE 
+                    WHEN pp.processo_termico IN ('caldeira', 'agua_caldeira', 'quente') OR pp.reator_id ILIKE '%caldeira%' THEN 'Caldeira'
+                    ELSE 'Produção'
+                END AS default_category,
+                COALESCE(sm.item_descricao, pp.descricao) AS planning_descricao,
+                COALESCE(pp.ordem_sequencia, 1)::int4 AS planning_ordem
+            FROM producao_planejamento_semanal pp
+            LEFT JOIN produtos p_calc ON pp.codigo_produto = p_calc.codigo
+            LEFT JOIN erp_lotes_laudos ell ON (pp.lote_erp IS NOT NULL AND TRIM(pp.lote_erp) != '' AND ell.lote = TRIM(pp.lote_erp) AND (ell.product_code = pp.codigo_produto OR ell.product_code IS NULL))
+            LEFT JOIN (
+                SELECT sm2.document_number, sm2.item_code, sm2.quantity, sm2.date, sm2.details, p2.descricao AS item_descricao
+                FROM stock_movements sm2
+                LEFT JOIN produtos p2 ON sm2.item_code = p2.codigo
+                WHERE sm2.item_type = 'produto' AND sm2.movement_type = 'entrada'
+            ) sm ON (pp.lote_erp IS NOT NULL AND TRIM(pp.lote_erp) != '' AND sm.document_number = TRIM(pp.lote_erp) AND (sm.item_code = pp.codigo_produto OR sm.item_code IS NULL))
+            WHERE (pp.ordem_status IS NULL OR pp.ordem_status != 'cancelado')
 
             UNION ALL
 
             SELECT 
-                COALESCE(NULLIF(TRIM(pp.lote_erp), ''), 'PL-' || SUBSTRING(pp.id FROM 1 FOR 8)) AS document_number,
-                pp.codigo_produto AS item_code,
-                pp.quantidade_planejada::float8 AS quantity,
-                to_char(pp.data_planejada, 'YYYY-MM-DD') AS date,
-                'Planejamento Semanal' AS details
-            FROM producao_planejamento_semanal pp
-            WHERE (pp.ordem_status = 'aprovado' OR (pp.lote_erp IS NOT NULL AND TRIM(pp.lote_erp) != ''))
+                c.lote_number AS document_number,
+                NULL::text AS planning_id,
+                COALESCE(sm.item_code, ell.product_code, '') AS item_code,
+                COALESCE(sm.quantity, ell.quantidade_kg, 0)::float8 AS quantity,
+                COALESCE(SUBSTRING(sm.date FROM 1 FOR 10), SUBSTRING(ell.data_lote FROM 1 FOR 10), to_char(c.updated_at, 'YYYY-MM-DD')) AS date,
+                NULL::text AS data_planejada,
+                COALESCE(sm.details, 'Status: PG') AS details,
+                COALESCE(c.category, 'Produção') AS default_category,
+                COALESCE(sm.item_descricao, p_ell.descricao) AS planning_descricao,
+                NULL::int4 AS planning_ordem
+            FROM lote_custom_status c
+            LEFT JOIN (
+                SELECT sm2.document_number, sm2.item_code, sm2.quantity, sm2.date, sm2.details, p2.descricao AS item_descricao
+                FROM stock_movements sm2
+                LEFT JOIN produtos p2 ON sm2.item_code = p2.codigo
+                WHERE sm2.item_type = 'produto' AND sm2.movement_type = 'entrada'
+            ) sm ON (sm.document_number = c.lote_number)
+            LEFT JOIN erp_lotes_laudos ell ON (ell.lote = c.lote_number)
+            LEFT JOIN produtos p_ell ON (ell.product_code = p_ell.codigo)
+            WHERE c.custom_status NOT IN ('Finalizada', 'Ordem Finalizada')
               AND (
-                  pp.lote_erp IS NULL 
-                  OR TRIM(pp.lote_erp) = ''
-                  OR NOT EXISTS (
-                      SELECT 1 FROM stock_movements sm2
-                      WHERE sm2.item_type = 'produto' AND sm2.movement_type = 'entrada'
-                        AND sm2.document_number = TRIM(pp.lote_erp)
-                  )
+                {}
+                OR (
+                -- 1. Lotes pausados / em espera (permanecem ativos nas filas)
+                (c.motivo_espera IS NOT NULL AND TRIM(c.motivo_espera) != '')
+                OR c.custom_status IN ('Em Espera', 'Pausado', 'Ordem Parcial')
+                OR (c.etapas_status IS NOT NULL AND (c.etapas_status::text ILIKE '%"isEspera":true%' OR c.etapas_status::text ILIKE '%"isEspera": true%'))
+
+                -- 2. Lotes liberados para envase ou com etapa em andamento/programada
+                OR (c.data_liberado_envase IS NOT NULL)
+                OR (c.custom_status = 'Liberado para Envase')
+                OR (c.custom_status IN ('Produzido', 'Envase', 'Rotulagem', 'Pesagem', 'Produção'))
+                OR EXISTS (SELECT 1 FROM programacao_envase pe WHERE pe.lote_number = c.lote_number)
+                OR EXISTS (SELECT 1 FROM programacao_rotulagem pr WHERE pr.lote_number = c.lote_number)
+
+                -- 3. Lotes adicionados manualmente para hoje ou no futuro
+                OR (c.adicionado_manualmente_em IS NOT NULL AND c.adicionado_manualmente_em >= CURRENT_DATE)
+                )
               )
+              AND NOT EXISTS (
+                  SELECT 1 FROM producao_planejamento_semanal pp2
+                  WHERE (pp2.lote_erp IS NOT NULL AND TRIM(pp2.lote_erp) = c.lote_number)
+                     OR pp2.id = c.lote_number
+              )
+            {}
         ) m
         LEFT JOIN produtos p ON m.item_code = p.codigo
-        LEFT JOIN lote_custom_status c ON m.document_number = c.lote_number
+        LEFT JOIN LATERAL (
+            SELECT c.*
+            FROM lote_custom_status c
+            WHERE c.lote_number = m.document_number
+               OR (m.planning_id IS NOT NULL AND c.lote_number = m.planning_id)
+            ORDER BY (CASE WHEN c.lote_number = m.document_number THEN 0 ELSE 1 END) ASC
+            LIMIT 1
+        ) c ON TRUE
         LEFT JOIN overrides_produtos ovr ON m.item_code = ovr.codigo
         WHERE 1=1
-        "#
+        "#,
+        search_open,
+        search_union
     );
 
     let mut qb = sqlx::QueryBuilder::new(sql);
@@ -233,7 +394,7 @@ pub async fn list_acompanhamento(
 
     if let Some(ref cat) = params.categoria {
         if !cat.trim().is_empty() && cat != "ALL" {
-            qb.push(" AND c.category = ");
+            qb.push(" AND (CASE WHEN m.default_category = 'Caldeira' THEN 'Caldeira' ELSE COALESCE(c.category, m.default_category, 'Produção') END) = ");
             qb.push_bind(cat.trim().to_string());
         }
     }
@@ -312,10 +473,15 @@ pub async fn list_acompanhamento(
         let historico_reagendamentos: Option<serde_json::Value> = row.try_get::<Option<serde_json::Value>, _>("historico_reagendamentos").ok().flatten();
         let quadros_ocultos: Option<serde_json::Value> = row.try_get::<Option<serde_json::Value>, _>("quadros_ocultos").ok().flatten();
         let etapas_status: Option<serde_json::Value> = row.try_get::<Option<serde_json::Value>, _>("etapas_status").ok().flatten();
+        let planning_ordem: Option<i32> = row.try_get::<Option<i32>, _>("planning_ordem").ok().flatten();
 
         // Extrai Unidades de details (se presente)
-        let mut unidades: f64 = kg;
-        let mut erp_code = "EA".to_string();
+        let mut unidades: Option<f64> = None;
+        let mut erp_code = if details.contains("Planejamento Semanal") || custom_status.as_deref() == Some("Pesagem") {
+            "PG".to_string()
+        } else {
+            "EA".to_string()
+        };
 
         for part in details.split('|') {
             let part = part.trim();
@@ -324,10 +490,14 @@ pub async fn list_acompanhamento(
             } else if part.starts_with("Unidades:") {
                 if let Ok(u) = part.trim_start_matches("Unidades:").trim().parse::<f64>() {
                     if u > 0.0 {
-                        unidades = u;
+                        unidades = Some(u);
                     }
                 }
             }
+        }
+
+        if details.contains("Planejamento Semanal") && erp_code == "EA" {
+            erp_code = "PG".to_string();
         }
 
         let erp_label = match erp_code.as_str() {
@@ -341,13 +511,26 @@ pub async fn list_acompanhamento(
             _ => erp_code.clone(),
         };
 
+        let final_unidades = match unidades {
+            Some(u) => u,
+            None => {
+                let unit_w = parse_product_unit_weight_kg(&product_description);
+                if unit_w > 0.0 && kg > 0.0 {
+                    (kg / unit_w).round()
+                } else {
+                    kg
+                }
+            }
+        };
+
         items.push(AcompanhamentoLoteItem {
             lote_number,
             product_code,
             product_description,
-            quantity: unidades,
+            quantity: final_unidades,
             quantity_kg: kg,
             date,
+            details: Some(details),
             erp_status: erp_code,
             erp_status_label: erp_label,
             custom_status,
@@ -373,6 +556,7 @@ pub async fn list_acompanhamento(
             historico_reagendamentos,
             quadros_ocultos,
             etapas_status,
+            planning_ordem,
         });
     }
 
@@ -613,6 +797,17 @@ pub async fn save_lote_etapa_status(
         etapa.clone(): etapa_obj
     });
 
+    let dt_agendada_str: Option<String> = payload.data_agendada.as_deref().and_then(|d| {
+        let clean = d.trim();
+        if clean.is_empty() {
+            None
+        } else if clean.len() == 10 {
+            Some(format!("{} 08:00:00-03", clean))
+        } else {
+            Some(clean.to_string())
+        }
+    });
+
     sqlx::query(
         r#"
         INSERT INTO lote_custom_status (
@@ -620,19 +815,60 @@ pub async fn save_lote_etapa_status(
             data_pesagem, data_producao, data_rotulagem, data_envase
         ) VALUES (
             $1, 'Pendente', $2, $3, NOW(),
-            CASE WHEN $4 = 'pesagem' AND ($5 = 'concluido' OR $5 = 'Concluído') THEN NOW() ELSE NULL END,
-            CASE WHEN $4 = 'producao' AND ($5 = 'concluido' OR $5 = 'Concluído') THEN NOW() ELSE NULL END,
-            CASE WHEN $4 = 'rotulagem' AND ($5 = 'concluido' OR $5 = 'Concluído') THEN NOW() ELSE NULL END,
-            CASE WHEN $4 = 'envase' AND ($5 = 'concluido' OR $5 = 'Concluído') THEN NOW() ELSE NULL END
+            CASE 
+                WHEN $4 = 'pesagem' AND $6::text IS NOT NULL THEN ($6 || '')::timestamptz
+                WHEN $4 = 'pesagem' AND ($5 = 'concluido' OR $5 = 'Concluído') THEN NOW() 
+                ELSE NULL 
+            END,
+            CASE 
+                WHEN $4 = 'producao' AND $6::text IS NOT NULL THEN ($6 || '')::timestamptz
+                WHEN $4 = 'producao' AND ($5 = 'concluido' OR $5 = 'Concluído') THEN NOW() 
+                ELSE NULL 
+            END,
+            CASE 
+                WHEN $4 = 'rotulagem' AND $6::text IS NOT NULL THEN ($6 || '')::timestamptz
+                WHEN $4 = 'rotulagem' AND ($5 = 'concluido' OR $5 = 'Concluído') THEN NOW() 
+                ELSE NULL 
+            END,
+            CASE 
+                WHEN $4 = 'envase' AND $6::text IS NOT NULL THEN ($6 || '')::timestamptz
+                WHEN $4 = 'envase' AND ($5 = 'concluido' OR $5 = 'Concluído') THEN NOW() 
+                ELSE NULL 
+            END
         )
         ON CONFLICT (lote_number) DO UPDATE SET
             etapas_status = COALESCE(lote_custom_status.etapas_status, '{}'::jsonb) || $2,
             updated_by = EXCLUDED.updated_by,
             updated_at = NOW(),
-            data_pesagem = CASE WHEN $4 = 'pesagem' AND ($5 = 'concluido' OR $5 = 'Concluído') THEN COALESCE(lote_custom_status.data_pesagem, NOW()) ELSE lote_custom_status.data_pesagem END,
-            data_producao = CASE WHEN $4 = 'producao' AND ($5 = 'concluido' OR $5 = 'Concluído') THEN COALESCE(lote_custom_status.data_producao, NOW()) ELSE lote_custom_status.data_producao END,
-            data_rotulagem = CASE WHEN $4 = 'rotulagem' AND ($5 = 'concluido' OR $5 = 'Concluído') THEN COALESCE(lote_custom_status.data_rotulagem, NOW()) ELSE lote_custom_status.data_rotulagem END,
-            data_envase = CASE WHEN $4 = 'envase' AND ($5 = 'concluido' OR $5 = 'Concluído') THEN COALESCE(lote_custom_status.data_envase, NOW()) ELSE lote_custom_status.data_envase END
+            data_pesagem = CASE 
+                WHEN $4 = 'pesagem' AND $6::text IS NOT NULL THEN ($6 || '')::timestamptz
+                WHEN $4 = 'pesagem' AND ($5 = 'concluido' OR $5 = 'Concluído') THEN COALESCE(lote_custom_status.data_pesagem, NOW()) 
+                ELSE lote_custom_status.data_pesagem 
+            END,
+            data_producao = CASE 
+                WHEN $4 = 'producao' AND $6::text IS NOT NULL THEN ($6 || '')::timestamptz
+                WHEN $4 = 'producao' AND ($5 = 'concluido' OR $5 = 'Concluído') THEN COALESCE(lote_custom_status.data_producao, NOW()) 
+                ELSE lote_custom_status.data_producao 
+            END,
+            data_rotulagem = CASE 
+                WHEN $4 = 'rotulagem' AND $6::text IS NOT NULL THEN ($6 || '')::timestamptz
+                WHEN $4 = 'rotulagem' AND ($5 = 'concluido' OR $5 = 'Concluído') THEN COALESCE(lote_custom_status.data_rotulagem, NOW()) 
+                ELSE lote_custom_status.data_rotulagem 
+            END,
+            data_envase = CASE 
+                WHEN $4 = 'envase' AND $6::text IS NOT NULL THEN ($6 || '')::timestamptz
+                WHEN $4 = 'envase' AND ($5 = 'concluido' OR $5 = 'Concluído') THEN COALESCE(lote_custom_status.data_envase, NOW()) 
+                ELSE lote_custom_status.data_envase 
+            END,
+            quadros_ocultos = CASE
+                WHEN ($5 = 'ativo' OR $5 = 'concluido' OR $5 = 'Concluído' OR $5 = 'fila') AND lote_custom_status.quadros_ocultos IS NOT NULL
+                THEN (
+                    SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+                    FROM jsonb_array_elements_text(lote_custom_status.quadros_ocultos) AS elem
+                    WHERE elem <> $4
+                )
+                ELSE lote_custom_status.quadros_ocultos
+            END
         "#
     )
     .bind(lote_number)
@@ -640,6 +876,7 @@ pub async fn save_lote_etapa_status(
     .bind(&updated_by)
     .bind(&etapa)
     .bind(&status)
+    .bind(&dt_agendada_str)
     .execute(pool)
     .await
     .map_err(|e| format!("Erro ao salvar status da etapa: {e}"))?;
@@ -2008,6 +2245,18 @@ pub async fn ocultar_quadro_lote(
                 WHEN NOT (lote_custom_status.quadros_ocultos @> $2) THEN lote_custom_status.quadros_ocultos || $2
                 ELSE lote_custom_status.quadros_ocultos
             END,
+            custom_status = CASE 
+                WHEN $4 = 'envase' AND lote_custom_status.custom_status = 'Liberado para Envase' THEN 'Produzido'
+                ELSE lote_custom_status.custom_status
+            END,
+            data_liberado_envase = CASE 
+                WHEN $4 = 'envase' THEN NULL 
+                ELSE lote_custom_status.data_liberado_envase 
+            END,
+            adicionado_manualmente_em = CASE
+                WHEN $4 IN ('pesagem', 'producao', 'envase', 'rotulagem') THEN NULL
+                ELSE lote_custom_status.adicionado_manualmente_em
+            END,
             updated_by = COALESCE($3, lote_custom_status.updated_by),
             updated_at = NOW()
         "#
@@ -2015,9 +2264,31 @@ pub async fn ocultar_quadro_lote(
     .bind(lote_number)
     .bind(&quadro_json)
     .bind(updated_by)
+    .bind(&q_norm)
     .execute(pool)
     .await
     .map_err(|e| format!("Erro ao ocultar lote do quadro: {e}"))?;
+
+    // Also sync quadros_ocultos to linked planning ID if lote_number is ERP lote or planning ID
+    let _ = sqlx::query(
+        r#"
+        UPDATE lote_custom_status
+        SET quadros_ocultos = CASE
+                WHEN quadros_ocultos IS NULL OR jsonb_typeof(quadros_ocultos) != 'array' THEN $2
+                WHEN NOT (quadros_ocultos @> $2) THEN quadros_ocultos || $2
+                ELSE quadros_ocultos
+            END
+        WHERE lote_number IN (
+            SELECT pp.id FROM producao_planejamento_semanal pp WHERE pp.lote_erp = $1
+            UNION
+            SELECT pp.lote_erp FROM producao_planejamento_semanal pp WHERE pp.id = $1 AND pp.lote_erp IS NOT NULL
+        )
+        "#
+    )
+    .bind(lote_number)
+    .bind(&quadro_json)
+    .execute(pool)
+    .await;
 
     if q_norm == "envase" {
         let _ = delete_programacao_envase_by_lote(pool, lote_number).await;
@@ -2033,18 +2304,28 @@ pub async fn restaurar_quadro_lote(
     updated_by: Option<&str>,
 ) -> Result<(), String> {
     let q_norm = quadro.trim().to_lowercase();
+    let initial_status = match q_norm.as_str() {
+        "pesagem" => "Pesagem",
+        "producao" => "Produção",
+        "envase" => "Liberado para Envase",
+        "rotulagem" => "Rotulagem",
+        _ => "Pesagem",
+    };
 
     if q_norm == "todos" || q_norm == "all" {
         sqlx::query(
             r#"
-            UPDATE lote_custom_status
-            SET quadros_ocultos = '[]'::jsonb,
-                updated_by = COALESCE($2, updated_by),
+            INSERT INTO lote_custom_status (lote_number, custom_status, quadros_ocultos, adicionado_manualmente_em, updated_by, updated_at)
+            VALUES ($1, $2, '[]'::jsonb, CURRENT_DATE, $3, NOW())
+            ON CONFLICT (lote_number) DO UPDATE SET
+                quadros_ocultos = '[]'::jsonb,
+                adicionado_manualmente_em = CURRENT_DATE,
+                updated_by = COALESCE($3, lote_custom_status.updated_by),
                 updated_at = NOW()
-            WHERE lote_number = $1
             "#
         )
         .bind(lote_number)
+        .bind(initial_status)
         .bind(updated_by)
         .execute(pool)
         .await
@@ -2052,24 +2333,27 @@ pub async fn restaurar_quadro_lote(
     } else {
         sqlx::query(
             r#"
-            UPDATE lote_custom_status
-            SET quadros_ocultos = CASE
-                    WHEN quadros_ocultos IS NOT NULL AND jsonb_typeof(quadros_ocultos) = 'array' 
+            INSERT INTO lote_custom_status (lote_number, custom_status, quadros_ocultos, adicionado_manualmente_em, updated_by, updated_at)
+            VALUES ($1, $2, '[]'::jsonb, CURRENT_DATE, $3, NOW())
+            ON CONFLICT (lote_number) DO UPDATE SET
+                adicionado_manualmente_em = CURRENT_DATE,
+                quadros_ocultos = CASE
+                    WHEN lote_custom_status.quadros_ocultos IS NOT NULL AND jsonb_typeof(lote_custom_status.quadros_ocultos) = 'array' 
                     THEN (
                         SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
-                        FROM jsonb_array_elements_text(quadros_ocultos) AS elem
-                        WHERE elem != $2
+                        FROM jsonb_array_elements_text(lote_custom_status.quadros_ocultos) AS elem
+                        WHERE elem != $4
                     )
                     ELSE '[]'::jsonb
                 END,
-                updated_by = COALESCE($3, updated_by),
+                updated_by = COALESCE($3, lote_custom_status.updated_by),
                 updated_at = NOW()
-            WHERE lote_number = $1
             "#
         )
         .bind(lote_number)
-        .bind(&q_norm)
+        .bind(initial_status)
         .bind(updated_by)
+        .bind(&q_norm)
         .execute(pool)
         .await
         .map_err(|e| format!("Erro ao restaurar quadro do lote: {e}"))?;
@@ -2352,5 +2636,49 @@ pub async fn reorder_programacao_rotulagem(
     Ok(())
 }
 
-
-
+pub fn parse_product_unit_weight_kg(descricao: &str) -> f64 {
+    let desc = descricao.to_uppercase();
+    if desc.contains("5000ML") || desc.contains("5000 ML") || desc.contains("5L") || desc.contains("5 L") {
+        return 5.0;
+    }
+    if desc.contains("1000ML") || desc.contains("1000 ML") || desc.contains("1000G") || desc.contains("1000 G") || desc.contains("1KG") || desc.contains("1 KG") || desc.contains("1L") || desc.contains("1 L") {
+        return 1.0;
+    }
+    if desc.contains("900ML") || desc.contains("900 ML") || desc.contains("900G") || desc.contains("900 G") {
+        return 0.9;
+    }
+    if desc.contains("500ML") || desc.contains("500 ML") || desc.contains("500G") || desc.contains("500 G") || desc.contains("500 GR") {
+        return 0.5;
+    }
+    if desc.contains("300ML") || desc.contains("300 ML") || desc.contains("300G") || desc.contains("300 G") || desc.contains("300 GR") {
+        return 0.3;
+    }
+    if desc.contains("250ML") || desc.contains("250 ML") || desc.contains("250G") || desc.contains("250 G") || desc.contains("250 GR") {
+        return 0.25;
+    }
+    if desc.contains("200ML") || desc.contains("200 ML") || desc.contains("200G") || desc.contains("200 G") || desc.contains("200 GR") {
+        return 0.2;
+    }
+    if desc.contains("150ML") || desc.contains("150 ML") || desc.contains("150G") || desc.contains("150 G") || desc.contains("150 GR") {
+        return 0.15;
+    }
+    if desc.contains("120ML") || desc.contains("120 ML") || desc.contains("120G") || desc.contains("120 G") || desc.contains("120 GR") {
+        return 0.12;
+    }
+    if desc.contains("100ML") || desc.contains("100 ML") || desc.contains("100G") || desc.contains("100 G") || desc.contains("100 GR") {
+        return 0.1;
+    }
+    if desc.contains("90ML") || desc.contains("90 ML") || desc.contains("90G") || desc.contains("90 G") || desc.contains("90 GR") {
+        return 0.09;
+    }
+    if desc.contains("60ML") || desc.contains("60 ML") || desc.contains("60G") || desc.contains("60 G") || desc.contains("60 GR") {
+        return 0.06;
+    }
+    if desc.contains("50ML") || desc.contains("50 ML") || desc.contains("50G") || desc.contains("50 G") || desc.contains("50 GR") {
+        return 0.05;
+    }
+    if desc.contains("30ML") || desc.contains("30 ML") || desc.contains("30G") || desc.contains("30 G") || desc.contains("30 GR") {
+        return 0.03;
+    }
+    1.0
+}

@@ -313,7 +313,12 @@ function drawElement(
       }
 
       if (p.multiline || text.includes('\n')) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, y, w, h);
+        ctx.clip();
         drawWrappedText(ctx, text, x, y, w, h, lineHeight, align);
+        ctx.restore();
       } else {
         const textX = align === 'center' ? x + w / 2 : align === 'right' ? x + w : x;
         ctx.fillText(text, textX, y + h / 2, w);

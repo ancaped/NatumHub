@@ -43,13 +43,303 @@ import {
   calculateViscosityAdjustment,
   calculatePhAdjustment,
   checkAnalysisCompliance,
+  isAnalysisInCorrection,
   printFiscoReports,
   printCorrectiveOrder,
   ViscosityAdditionStep,
   OrganolepticEvaluation,
   parseInputNumber,
-  formatViscosity
+  formatViscosity,
+  formatViscometerMethod
 } from '../lib/fiscoUtils';
+
+const ASPECT_OPTIONS = ['Creme denso', 'Creme', 'Gel', 'Líquido viscoso', 'Líquido', 'Fluido', 'Pasta'];
+const COLOR_OPTIONS = ['Branco', 'Branco perolado', 'Amarelo', 'Bege', 'Rosa', 'Incolor', 'Característica'];
+const ODOR_OPTIONS = ['Característico'];
+const SPINDLES = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6'];
+const RPM_OPTIONS = [0.3, 0.6, 1.5, 3, 6, 12, 30];
+const TIME_OPTIONS = [30, 60, 120];
+const VISCOSITY_PRESETS = [
+  { id: 'mascara', label: 'Máscara', spindle: 'L4', rpm: 0.3, seconds: 60 },
+  { id: 'creme', label: 'Creme', spindle: 'L4', rpm: 1.5, seconds: 60 },
+  { id: 'shampoo', label: 'Shampoo', spindle: 'L3', rpm: 12, seconds: 30 },
+  { id: 'gel', label: 'Gel', spindle: 'L4', rpm: 6, seconds: 60 },
+  { id: 'fluido', label: 'Fluido', spindle: 'L2', rpm: 30, seconds: 30 },
+];
+
+function suggestViscosityPreset(name: string): string {
+  const n = name.toLowerCase();
+  if (/m[aá]scara|cronograma|reconstru/.test(n)) return 'mascara';
+  if (/shampoo|condicionador/.test(n)) return 'shampoo';
+  if (/\bgel\b/.test(n)) return 'gel';
+  if (/fluido|lo[cç][aã]o|[oó]leo|s[eé]rum/.test(n)) return 'fluido';
+  if (/creme/.test(n)) return 'creme';
+  return '';
+}
+
+function formatHold(seconds: number): string {
+  if (seconds >= 60 && seconds % 60 === 0) {
+    const minutes = seconds / 60;
+    return minutes === 1 ? '1 min' : `${minutes} min`;
+  }
+  return `${seconds} s`;
+}
+
+function formatClock(seconds: number): string {
+  const safe = Math.max(0, seconds);
+  const minutes = Math.floor(safe / 60);
+  const rest = safe % 60;
+  return `${minutes}:${String(rest).padStart(2, '0')}`;
+}
+
+function formatRpm(rpm: number): string {
+  return rpm.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+}
+
+function matchingPreset(spindle: string, rpm: number, seconds: number): string {
+  return VISCOSITY_PRESETS.find((item) => item.spindle === spindle && item.rpm === rpm && item.seconds === seconds)?.id || '';
+}
+
+const ASPECT_METHODS: Record<string, { spindle: string; rpm: number; seconds: number }> = {
+  'creme denso': { spindle: 'L4', rpm: 0.3, seconds: 60 },
+  'mascara': { spindle: 'L4', rpm: 0.3, seconds: 60 },
+  'máscara': { spindle: 'L4', rpm: 0.3, seconds: 60 },
+  'creme': { spindle: 'L4', rpm: 1.5, seconds: 60 },
+  'gel': { spindle: 'L4', rpm: 6, seconds: 60 },
+  'líquido viscoso': { spindle: 'L3', rpm: 12, seconds: 30 },
+  'liquido viscoso': { spindle: 'L3', rpm: 12, seconds: 30 },
+  'shampoo': { spindle: 'L3', rpm: 12, seconds: 30 },
+  'líquido': { spindle: 'L2', rpm: 30, seconds: 30 },
+  'liquido': { spindle: 'L2', rpm: 30, seconds: 30 },
+  'fluido': { spindle: 'L2', rpm: 30, seconds: 30 },
+  'pasta': { spindle: 'L4', rpm: 0.3, seconds: 60 },
+};
+
+const ASPECT_METHOD_KEY = 'fq_aspect_methods';
+
+function methodForAspect(name: string): { spindle: string; rpm: number; seconds: number } | null {
+  const key = name.trim().toLowerCase();
+  if (!key) return null;
+  try {
+    const stored = JSON.parse(localStorage.getItem(ASPECT_METHOD_KEY) || '{}') as Record<string, { spindle: string; rpm: number; seconds: number }>;
+    if (stored[key]?.spindle) return stored[key];
+  } catch { /* ignore */ }
+  return ASPECT_METHODS[key] || null;
+}
+
+function rememberAspectMethod(name: string, spindle: string, rpm: number, seconds: number) {
+  const key = name.trim().toLowerCase();
+  if (!key || !spindle) return;
+  try {
+    const stored = JSON.parse(localStorage.getItem(ASPECT_METHOD_KEY) || '{}') as Record<string, { spindle: string; rpm: number; seconds: number }>;
+    stored[key] = { spindle, rpm, seconds };
+    localStorage.setItem(ASPECT_METHOD_KEY, JSON.stringify(stored));
+  } catch { /* ignore */ }
+}
+
+function shortDate(raw?: string | null): string {
+  const clean = String(raw || '').split('T')[0].split(' ')[0];
+  const parts = clean.split('-');
+  if (parts.length === 3 && parts[0].length === 4) return `${parts[2]}/${parts[1]}`;
+  return clean;
+}
+
+type OptionCatalog = {
+  models: string[];
+  aspects: string[];
+  colors: string[];
+  odors: string[];
+  spindles: string[];
+  rpms: string[];
+  times: string[];
+};
+
+const CATALOG_KEY = 'fq_option_catalog';
+
+function mergeList(...groups: Array<Array<string | null | undefined> | undefined>): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    for (const item of group || []) {
+      const clean = String(item || '').trim();
+      if (!clean || clean.toUpperCase() === 'CONFORME') continue;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(clean);
+    }
+  }
+  return out;
+}
+
+function loadCatalog(): OptionCatalog {
+  const remembered = (() => {
+    try { return localStorage.getItem('fq_visc_model') || ''; } catch { return ''; }
+  })();
+  const base: OptionCatalog = {
+    models: remembered ? [remembered] : [],
+    aspects: [...ASPECT_OPTIONS],
+    colors: [...COLOR_OPTIONS],
+    odors: [...ODOR_OPTIONS],
+    spindles: [...SPINDLES],
+    rpms: RPM_OPTIONS.map((rpm) => String(rpm)),
+    times: TIME_OPTIONS.map((seconds) => String(seconds)),
+  };
+  try {
+    const raw = localStorage.getItem(CATALOG_KEY);
+    if (!raw) return base;
+    const parsed = JSON.parse(raw) as Partial<OptionCatalog>;
+    return {
+      models: mergeList(base.models, parsed.models),
+      aspects: mergeList(base.aspects, parsed.aspects),
+      colors: mergeList(base.colors, parsed.colors),
+      odors: mergeList(base.odors, parsed.odors),
+      spindles: mergeList(base.spindles, parsed.spindles),
+      rpms: mergeList(base.rpms, parsed.rpms),
+      times: mergeList(base.times, parsed.times),
+    };
+  } catch {
+    return base;
+  }
+}
+
+function CatalogSelect({
+  label,
+  value,
+  options,
+  onChange,
+  onCreate,
+  placeholder,
+  inputMode,
+  hint,
+}: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+  onCreate: (raw: string) => void;
+  placeholder: string;
+  inputMode: 'text' | 'decimal' | 'numeric';
+  hint?: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  const commit = () => {
+    const raw = draft.trim();
+    if (!raw) return;
+    onCreate(raw);
+    setDraft('');
+    setOpen(false);
+  };
+
+  return (
+    <div className="space-y-1">
+      <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">{label}</span>
+      <div className="flex gap-2">
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="min-w-0 flex-1 min-h-11 rounded-xl border border-zinc-300 bg-white px-3 text-base font-bold text-zinc-900"
+        >
+          <option value="">Selecionar</option>
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          className="min-h-11 min-w-11 shrink-0 rounded-xl bg-zinc-900 text-white text-lg font-bold"
+          aria-label={`Adicionar ${label}`}
+        >
+          +
+        </button>
+      </div>
+      {open && (
+        <div className="flex gap-2">
+          <input
+            autoFocus
+            inputMode={inputMode}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commit();
+              }
+            }}
+            placeholder={placeholder}
+            className="min-w-0 flex-1 min-h-11 rounded-xl border border-zinc-300 bg-white px-3 text-base text-zinc-900"
+          />
+          <button type="button" onClick={commit} className="min-h-11 rounded-xl border border-zinc-200 bg-white px-3 text-sm font-bold text-zinc-800">
+            Ok
+          </button>
+        </div>
+      )}
+      {hint}
+    </div>
+  );
+}
+
+const VISC_DOSE_NOTE = /\[Correção de viscosidade: ([^\]]+)\]/;
+
+function formatPlainNumber(value: number): string {
+  const rounded = Math.round(value * 1000) / 1000;
+  return String(rounded).replace('.', ',');
+}
+
+function parseViscDoseNote(notes: string): { before: string; target: string; steps: ViscosityAdditionStep[] } | null {
+  const match = notes.match(VISC_DOSE_NOTE);
+  if (!match) return null;
+  let before = '';
+  let target = '';
+  const steps: ViscosityAdditionStep[] = [];
+  for (const part of match[1].split(';')) {
+    const text = part.trim();
+    const antes = text.match(/^antes\s+([\d.,]+)/i);
+    const alvo = text.match(/^alvo\s+([\d.,]+)/i);
+    const dose = text.match(/^dose\s+([\d.,]+)\s*g\/L(?:\s*→\s*([\d.,]+))?/i);
+    if (antes) before = antes[1].replace(',', '.');
+    else if (alvo) target = alvo[1].replace(',', '.');
+    else if (dose) {
+      const grams = parseFloat(dose[1].replace(',', '.'));
+      const visc = dose[2] ? parseFloat(dose[2].replace(',', '.')) : 0;
+      steps.push({
+        id: String(steps.length + 1),
+        stepNumber: steps.length + 1,
+        addedGrams: Number.isFinite(grams) ? grams : 0,
+        cumulativeGrams: 0,
+        measuredViscosity: visc > 0 ? visc : null,
+        notes: '',
+      });
+    }
+  }
+  let cumulative = 0;
+  for (const step of steps) {
+    cumulative += step.addedGrams;
+    step.cumulativeGrams = Number(cumulative.toFixed(3));
+  }
+  if (!before && !target && steps.length === 0) return null;
+  return { before, target, steps };
+}
+
+function buildViscDoseNote(before: string, target: string, steps: ViscosityAdditionStep[]): string {
+  const parts: string[] = [];
+  const beforeNum = parseFloat(before.replace(',', '.'));
+  const targetNum = parseFloat(target.replace(',', '.'));
+  if (beforeNum > 0) parts.push(`antes ${formatPlainNumber(beforeNum)} cps`);
+  if (targetNum > 0) parts.push(`alvo ${formatPlainNumber(targetNum)} cps`);
+  for (const step of steps) {
+    if (!(step.addedGrams > 0)) continue;
+    const visc = Number(step.measuredViscosity);
+    parts.push(visc > 0
+      ? `dose ${formatPlainNumber(step.addedGrams)} g/L → ${formatPlainNumber(visc)} cps`
+      : `dose ${formatPlainNumber(step.addedGrams)} g/L`);
+  }
+  if (parts.length === 0) return '';
+  return `[Correção de viscosidade: ${parts.join('; ')}]`;
+}
 
 interface AnalysisCreationFlowProps {
   products: Product[];
@@ -60,6 +350,7 @@ interface AnalysisCreationFlowProps {
   setTechnicianName: (val: string) => void;
   config?: FiscoTemplateConfig;
   onSaved: () => void;
+  onAgentsChanged?: () => void;
   onOpenAddPattern: (productCode: string, productName: string) => void;
   initialBatch?: string;
   initialProductCode?: string;
@@ -76,12 +367,15 @@ export function AnalysisCreationFlow({
   setTechnicianName,
   config,
   onSaved,
+  onAgentsChanged,
   onOpenAddPattern,
   initialBatch,
   initialProductCode,
   editingAnalysis,
   onCancelEdit,
 }: AnalysisCreationFlowProps) {
+  const isEditingInCorrecao = isAnalysisInCorrection(editingAnalysis);
+
   // Lote / Identificação
   const [formBatch, setFormBatch] = useState(initialBatch || '');
   const [formBatchLoading, setFormBatchLoading] = useState(false);
@@ -128,6 +422,7 @@ export function AnalysisCreationFlow({
           if (d.hasAdjustment !== undefined) setHasAdjustment(d.hasAdjustment);
           if (d.adjAgentId) setAdjAgentId(d.adjAgentId);
           if (d.adjInitialVisc) setAdjInitialVisc(d.adjInitialVisc);
+          if (d.viscTarget) setViscTarget(d.viscTarget);
           if (d.additionSteps && d.additionSteps.length > 0) setAdditionSteps(d.additionSteps);
           if (d.adjFinalQty) setAdjFinalQty(d.adjFinalQty);
           if (d.adjBatchSize) setAdjBatchSize(d.adjBatchSize);
@@ -158,7 +453,7 @@ export function AnalysisCreationFlow({
       if (editingAnalysis.fabricatedBy) setFormFabricatedBy(editingAnalysis.fabricatedBy);
       if (editingAnalysis.authorizedBy) setFormAuthorizedBy(editingAnalysis.authorizedBy);
       
-      if (editingAnalysis.status !== 'EM_CORRECAO') {
+      if (!isEditingInCorrecao) {
         if (editingAnalysis.phMeasured > 0) setFormPh(editingAnalysis.phMeasured.toString());
         if (editingAnalysis.viscosityMeasured > 0) setFormViscosity(editingAnalysis.viscosityMeasured.toString());
         if (editingAnalysis.fractionWeight > 0) {
@@ -177,7 +472,22 @@ export function AnalysisCreationFlow({
 
       if (editingAnalysis.mediaUrl) setFormMediaUrl(editingAnalysis.mediaUrl);
       else setFormMediaUrl('');
-      if (editingAnalysis.notes) setFormNotes(editingAnalysis.notes);
+      if (editingAnalysis.notes) {
+        const rawNotes = editingAnalysis.notes;
+        const parsedDoses = parseViscDoseNote(rawNotes);
+        const cleanedNotes = rawNotes
+          .replace(/\[STATUS:\s*EM CORREÇÃO\]/gi, '')
+          .replace(/\[EM CORREÇÃO\]/gi, '')
+          .replace(VISC_DOSE_NOTE, '')
+          .replace(/\s{2,}/g, ' ')
+          .trim();
+        setFormNotes(cleanedNotes);
+        if (parsedDoses) {
+          if (parsedDoses.before) setAdjInitialVisc(parsedDoses.before);
+          if (parsedDoses.target) setViscTarget(parsedDoses.target);
+          if (parsedDoses.steps.length > 0) setAdditionSteps(parsedDoses.steps);
+        }
+      }
 
       if (editingAnalysis.aspectOk !== undefined && editingAnalysis.aspectOk !== null) setAspectOk(editingAnalysis.aspectOk);
       if (editingAnalysis.aspectResult) setAspectDesc(editingAnalysis.aspectResult);
@@ -185,11 +495,16 @@ export function AnalysisCreationFlow({
       if (editingAnalysis.colorResult) setColorDesc(editingAnalysis.colorResult);
       if (editingAnalysis.odorOk !== undefined && editingAnalysis.odorOk !== null) setOdorOk(editingAnalysis.odorOk);
       if (editingAnalysis.odorResult) setOdorDesc(editingAnalysis.odorResult);
+      if (editingAnalysis.viscometerModel) setViscModel(editingAnalysis.viscometerModel);
+      if (editingAnalysis.viscometerSpindle) setViscSpindle(editingAnalysis.viscometerSpindle);
+      if (editingAnalysis.viscometerRpm) setViscRpm(editingAnalysis.viscometerRpm);
+      if (editingAnalysis.viscometerSeconds) setViscSeconds(editingAnalysis.viscometerSeconds);
+      if (editingAnalysis.viscometerSpindle) setViscPresetTouched(true);
 
       setHasAdjustment(Boolean(editingAnalysis.hasAdjustment));
       if (editingAnalysis.correctiveAgentId) setAdjAgentId(editingAnalysis.correctiveAgentId);
       if (editingAnalysis.initialViscosity) setAdjInitialVisc(editingAnalysis.initialViscosity.toString());
-      if (editingAnalysis.trialAgentQty) {
+      if (editingAnalysis.trialAgentQty && !parseViscDoseNote(editingAnalysis.notes || '')?.steps.length) {
         setAdditionSteps([
           {
             id: '1',
@@ -218,6 +533,7 @@ export function AnalysisCreationFlow({
   const [zoomMedia, setZoomMedia] = useState<{ url: string; title: string; isVideo?: boolean } | null>(null);
   const [zoomPatternImage, setZoomPatternImage] = useState<{ url: string; title: string } | null>(null);
   const mediaInputRef = React.useRef<HTMLInputElement>(null);
+  const galleryInputRef = React.useRef<HTMLInputElement>(null);
 
   // Avaliações Organolépticas (Aspecto / Cor / Odor)
   const [aspectOk, setAspectOk] = useState(true);
@@ -225,7 +541,53 @@ export function AnalysisCreationFlow({
   const [colorOk, setColorOk] = useState(true);
   const [colorDesc, setColorDesc] = useState('');
   const [odorOk, setOdorOk] = useState(true);
-  const [odorDesc, setOdorDesc] = useState('');
+  const [odorDesc, setOdorDesc] = useState('Característico');
+  const [viscPreset, setViscPreset] = useState('');
+  const [viscPresetTouched, setViscPresetTouched] = useState(false);
+  const [viscModel, setViscModel] = useState(() => {
+    try { return localStorage.getItem('fq_visc_model') || ''; } catch { return ''; }
+  });
+  const [viscSpindle, setViscSpindle] = useState('L4');
+  const [viscRpm, setViscRpm] = useState(0.3);
+  const [viscSeconds, setViscSeconds] = useState(60);
+  const [timerLeft, setTimerLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (timerLeft == null || timerLeft <= 0) return;
+    const id = window.setTimeout(() => setTimerLeft((current) => (current == null ? current : current - 1)), 1000);
+    return () => window.clearTimeout(id);
+  }, [timerLeft]);
+
+  useEffect(() => {
+    if (timerLeft !== 0) return;
+    try { navigator.vibrate?.(120); } catch { /* ignore */ }
+  }, [timerLeft]);
+  const [catalog, setCatalog] = useState<OptionCatalog>(loadCatalog);
+
+  const saveCatalog = (next: OptionCatalog) => {
+    setCatalog(next);
+    try { localStorage.setItem(CATALOG_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+  };
+
+  const addCatalogItem = (key: keyof OptionCatalog, value: string) => {
+    const clean = value.trim();
+    if (!clean) return;
+    saveCatalog({ ...catalog, [key]: mergeList(catalog[key], [clean]) });
+  };
+
+  useEffect(() => {
+    const model = viscModel.trim();
+    if (!model) return;
+    try { localStorage.setItem('fq_visc_model', model); } catch { /* ignore */ }
+    if (!catalog.models.some((item) => item.toLowerCase() === model.toLowerCase())) {
+      saveCatalog({ ...catalog, models: mergeList(catalog.models, [model]) });
+    }
+  }, [viscModel]);
+
+  useEffect(() => {
+    if (viscModel.trim() || catalog.models.length !== 1) return;
+    setViscModel(catalog.models[0]);
+  }, [catalog.models, viscModel]);
 
   // Ajuste de Viscosidade com Histórico de Adições
   const [hasAdjustment, setHasAdjustment] = useState(false);
@@ -234,8 +596,10 @@ export function AnalysisCreationFlow({
   
   // Etapas de ensaio de viscosidade em amostra de bancada de 1L
   const [additionSteps, setAdditionSteps] = useState<ViscosityAdditionStep[]>([
-    { id: '1', stepNumber: 1, addedGrams: 1, cumulativeGrams: 1, measuredViscosity: null, notes: '' }
+    { id: '1', stepNumber: 1, addedGrams: 0, cumulativeGrams: 0, measuredViscosity: null, notes: '' }
   ]);
+  const [viscTarget, setViscTarget] = useState('');
+  const [stepDraft, setStepDraft] = useState<Record<string, { dose?: string; visc?: string }>>({});
   const [adjFinalQty, setAdjFinalQty] = useState<string>('');
   const [adjBatchSize, setAdjBatchSize] = useState<string>('');
 
@@ -324,6 +688,7 @@ export function AnalysisCreationFlow({
       hasAdjustment,
       adjAgentId,
       adjInitialVisc,
+      viscTarget,
       additionSteps,
       adjFinalQty,
       adjBatchSize,
@@ -362,6 +727,7 @@ export function AnalysisCreationFlow({
     hasAdjustment,
     adjAgentId,
     adjInitialVisc,
+    viscTarget,
     additionSteps,
     adjFinalQty,
     adjBatchSize,
@@ -398,7 +764,7 @@ export function AnalysisCreationFlow({
     setColorOk(true);
     setColorDesc('');
     setOdorOk(true);
-    setOdorDesc('');
+    setOdorDesc('Característico');
     setHasAdjustment(false);
     setHasPhAdjustment(false);
     setAdditionSteps([
@@ -409,13 +775,42 @@ export function AnalysisCreationFlow({
   const normalizeCode = (code: string) => code.replace(/\./g, '').trim().toLowerCase();
 
   // Filtragem de agentes por categoria
+  const [extraAgents, setExtraAgents] = useState<FiscoQuimicaAgent[]>([]);
+  const allAgents = useMemo(() => {
+    const map = new Map<string, FiscoQuimicaAgent>();
+    for (const agent of [...agents, ...extraAgents]) map.set(agent.id, agent);
+    return [...map.values()];
+  }, [agents, extraAgents]);
+
   const viscosityAgents = useMemo(() => {
-    return agents.filter((a) => (a.category || 'VISCOSIDADE').toUpperCase() !== 'PH');
-  }, [agents]);
+    return allAgents.filter((a) => (a.category || 'VISCOSIDADE').toUpperCase() !== 'PH');
+  }, [allAgents]);
 
   const phAgents = useMemo(() => {
-    return agents.filter((a) => (a.category || '').toUpperCase() === 'PH' || (a.category || '').toUpperCase() === 'OUTROS');
-  }, [agents]);
+    return allAgents.filter((a) => (a.category || '').toUpperCase() === 'PH' || (a.category || '').toUpperCase() === 'OUTROS');
+  }, [allAgents]);
+
+  const addCorrectiveAgent = async (category: 'VISCOSIDADE' | 'PH', raw: string, select: (id: string) => void) => {
+    const name = raw.trim();
+    if (!name) return;
+    lockAutofill();
+    const pool = category === 'PH' ? phAgents : viscosityAgents;
+    const existing = pool.find((agent) => agent.name.trim().toLowerCase() === name.toLowerCase());
+    if (existing) {
+      select(existing.id);
+      return;
+    }
+    const created: FiscoQuimicaAgent = { id: randomId(), name, category };
+    setExtraAgents((prev) => [...prev, created]);
+    select(created.id);
+    try {
+      await api.saveFiscoQuimicaAgent(created);
+      onAgentsChanged?.();
+    } catch (err) {
+      console.error(err);
+      alert('Não foi possível cadastrar o agente.');
+    }
+  };
 
   // Busca do lote do ERP
   const handleBatchChange = async (val: string) => {
@@ -529,14 +924,115 @@ export function AnalysisCreationFlow({
     return patterns.find((p) => normalizeCode(p.productCode) === norm) || null;
   }, [formProductCode, patterns, formLoteProducts]);
 
-  // Sincronizar descrição padrão organoléptica com o padrão ativo
+  const lastSameProduct = useMemo(() => {
+    const code = normalizeCode(formProductCode);
+    if (!code || code === '__all__') return null;
+    const list = (analyses || []).filter((item) => {
+      if (!item || item.id === editingAnalysis?.id) return false;
+      if (normalizeCode(item.productCode) !== code) return false;
+      if (formBatch.trim() && String(item.batch).trim() === formBatch.trim()) return false;
+      return true;
+    });
+    list.sort((a, b) => String(b.analysisDate || '').localeCompare(String(a.analysisDate || '')));
+    return list[0] || null;
+  }, [analyses, formProductCode, formBatch, editingAnalysis?.id]);
+
+  const autofillLock = React.useRef('');
+  const lockAutofill = () => {
+    autofillLock.current = normalizeCode(formProductCode);
+  };
+
   useEffect(() => {
-    if (activePattern) {
-      if (activePattern.aspect && !aspectDesc) setAspectDesc(activePattern.aspect);
-      if (activePattern.color && !colorDesc) setColorDesc(activePattern.color);
-      if (activePattern.odor && !odorDesc) setOdorDesc(activePattern.odor);
+    if (editingAnalysis) return;
+    const code = normalizeCode(formProductCode);
+    if (!code || code === '__all__') return;
+    if (autofillLock.current === code) return;
+
+    const history = (analyses || []).filter((item) => {
+      if (!item || item.id === editingAnalysis?.id) return false;
+      if (normalizeCode(item.productCode) !== code) return false;
+      if (formBatch.trim() && String(item.batch).trim() === formBatch.trim()) return false;
+      return true;
+    }).sort((a, b) => String(b.analysisDate || '').localeCompare(String(a.analysisDate || '')));
+
+    const usable = (value?: string | null) => {
+      const text = String(value || '').trim();
+      if (!text || text.toUpperCase() === 'CONFORME') return '';
+      return text;
+    };
+    const aspect = history.map((item) => usable(item.aspectResult)).find(Boolean);
+    const color = history.map((item) => usable(item.colorResult)).find(Boolean);
+    const odor = history.map((item) => usable(item.odorResult)).find(Boolean);
+    const model = history.map((item) => String(item.viscometerModel || '').trim()).find(Boolean);
+    const method = history.find((item) => item.viscometerSpindle || (item.viscometerRpm && item.viscometerRpm > 0));
+    const newest = history[0];
+
+    if (aspect) setAspectDesc(aspect);
+    if (color) setColorDesc(color);
+    if (odor) setOdorDesc(odor);
+    if (model) setViscModel(model);
+    const lastThickener = history.find((item) => {
+      const id = item.correctiveAgentId || '';
+      if (!id) return false;
+      const agent = agents.find((entry) => entry.id === id);
+      return !!agent && (agent.category || 'VISCOSIDADE').toUpperCase() !== 'PH';
+    });
+    if (lastThickener?.correctiveAgentId) setAdjAgentId(lastThickener.correctiveAgentId);
+    const lastPh = history.find((item) => (item.notes || '').includes('[Ajuste de pH:'));
+    const phName = lastPh?.notes?.match(/\[Ajuste de pH:\s*([^|\]]+)/)?.[1]?.trim().toLowerCase();
+    if (phName) {
+      const phAgent = agents.find((entry) => entry.name.trim().toLowerCase() === phName);
+      if (phAgent) setAdjPhAgentId(phAgent.id);
     }
-  }, [activePattern]);
+    if (newest && newest.viscosityMeasured > 0) setViscTarget(String(Math.round(newest.viscosityMeasured)));
+
+    if (method) {
+      const spindle = method.viscometerSpindle || viscSpindle;
+      const rpm = method.viscometerRpm && method.viscometerRpm > 0 ? method.viscometerRpm : viscRpm;
+      const seconds = method.viscometerSeconds && method.viscometerSeconds > 0 ? method.viscometerSeconds : viscSeconds;
+      if (method.viscometerSpindle) setViscSpindle(method.viscometerSpindle);
+      if (method.viscometerRpm && method.viscometerRpm > 0) setViscRpm(method.viscometerRpm);
+      if (method.viscometerSeconds && method.viscometerSeconds > 0) setViscSeconds(method.viscometerSeconds);
+      setViscPreset(matchingPreset(spindle, rpm, seconds));
+      setViscPresetTouched(true);
+      return;
+    }
+
+    const linked = methodForAspect(aspect || '');
+    if (linked) {
+      setViscSpindle(linked.spindle);
+      setViscRpm(linked.rpm);
+      setViscSeconds(linked.seconds);
+      setViscPreset(matchingPreset(linked.spindle, linked.rpm, linked.seconds));
+      setViscPresetTouched(true);
+      return;
+    }
+
+    const preset = VISCOSITY_PRESETS.find((item) => item.id === suggestViscosityPreset(formProductName));
+    if (!preset || viscPresetTouched) return;
+    setViscPreset(preset.id);
+    setViscSpindle(preset.spindle);
+    setViscRpm(preset.rpm);
+    setViscSeconds(preset.seconds);
+  }, [formProductCode, formBatch, formProductName, analyses, agents, editingAnalysis, viscPresetTouched]);
+
+  const usedAnalyses = analyses || [];
+  const aspectChoices = mergeList(catalog.aspects, usedAnalyses.map((item) => item.aspectResult), [aspectDesc]);
+  const colorChoices = mergeList(catalog.colors, usedAnalyses.map((item) => item.colorResult), [colorDesc]);
+  const odorChoices = mergeList(catalog.odors, usedAnalyses.map((item) => item.odorResult), [odorDesc]);
+  const modelChoices = mergeList(catalog.models, usedAnalyses.map((item) => item.viscometerModel), [viscModel]);
+  const spindleChoices = mergeList(catalog.spindles, usedAnalyses.map((item) => item.viscometerSpindle), [viscSpindle])
+    .sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
+  const rpmChoices = mergeList(
+    catalog.rpms,
+    usedAnalyses.map((item) => (item.viscometerRpm && item.viscometerRpm > 0 ? String(item.viscometerRpm) : '')),
+    [viscRpm > 0 ? String(viscRpm) : '']
+  ).sort((a, b) => parseFloat(a) - parseFloat(b));
+  const timeChoices = mergeList(
+    catalog.times,
+    usedAnalyses.map((item) => (item.viscometerSeconds && item.viscometerSeconds > 0 ? String(item.viscometerSeconds) : '')),
+    [viscSeconds > 0 ? String(viscSeconds) : '']
+  ).sort((a, b) => parseFloat(a) - parseFloat(b));
 
   // Cálculos em tempo real
   const calculatedDensity = useMemo(() => {
@@ -578,8 +1074,8 @@ export function AnalysisCreationFlow({
       {
         id: randomId(),
         stepNumber: nextNum,
-        addedGrams: 0.5,
-        cumulativeGrams: lastCum + 0.5,
+        addedGrams: 0,
+        cumulativeGrams: lastCum,
         measuredViscosity: null,
         notes: ''
       }
@@ -587,7 +1083,10 @@ export function AnalysisCreationFlow({
   };
 
   const handleRemoveStep = (index: number) => {
-    if (additionSteps.length <= 1) return;
+    if (additionSteps.length <= 1) {
+      setAdditionSteps([{ id: randomId(), stepNumber: 1, addedGrams: 0, cumulativeGrams: 0, measuredViscosity: null, notes: '' }]);
+      return;
+    }
     const next = additionSteps.filter((_, i) => i !== index).map((s, i) => ({ ...s, stepNumber: i + 1 }));
     setAdditionSteps(next);
   };
@@ -750,7 +1249,9 @@ export function AnalysisCreationFlow({
     const fracClean = formFractionWeight.toString().trim();
     const densClean = formDensityDirect.toString().trim();
 
-    if (!isEmCorrecao && (phClean === '' || viscClean === '' || (fracClean === '' && densClean === ''))) {
+    const lastDoseVisc = [...additionSteps].reverse().find((step) => Number(step.measuredViscosity) > 0);
+    const doseSum = additionSteps.reduce((sum, step) => sum + (Number(step.addedGrams) || 0), 0);
+    if (!isEmCorrecao && (phClean === '' || (viscClean === '' && !lastDoseVisc) || (fracClean === '' && densClean === ''))) {
       alert('Preencha os valores medidos de pH, Viscosidade e Densidade para finalizar o laudo.');
       return;
     }
@@ -758,7 +1259,9 @@ export function AnalysisCreationFlow({
     const pattern = patterns.find(p => (p.productCode || '').replace(/\./g, '').toLowerCase() === formProductCode.replace(/\./g, '').toLowerCase()) || null;
 
     const phNum = phClean !== '' ? parseInputNumber(phClean, false) : (pattern ? (pattern.phMin + pattern.phMax) / 2 : 6.0);
-    const viscNum = viscClean !== '' ? parseInputNumber(viscClean, true) : (hasAdjustment && adjInitialVisc ? parseInputNumber(adjInitialVisc, true) : (pattern ? (pattern.viscosityMin + pattern.viscosityMax) / 2 : 10000));
+    const viscNum = lastDoseVisc && Number(lastDoseVisc.measuredViscosity) > 0
+      ? Number(lastDoseVisc.measuredViscosity)
+      : (viscClean !== '' ? parseInputNumber(viscClean, true) : (hasAdjustment && adjInitialVisc ? parseInputNumber(adjInitialVisc, true) : (pattern ? (pattern.viscosityMin + pattern.viscosityMax) / 2 : 10000)));
     const fracNum = fracClean !== '' 
       ? parseInputNumber(fracClean, false) 
       : (densClean !== '' ? Number((parseInputNumber(densClean, false) * DENSITY_CUP_VOLUME).toFixed(3)) : 51.645);
@@ -769,23 +1272,35 @@ export function AnalysisCreationFlow({
     }
 
     const adjInitialViscNum = hasAdjustment && adjInitialVisc ? parseInputNumber(adjInitialVisc, true) : null;
-    const lastStep = additionSteps[additionSteps.length - 1];
-    const adjTrialQtyNum = hasAdjustment && lastStep ? lastStep.cumulativeGrams : null;
-    const adjTrialViscNum = hasAdjustment && lastStep && lastStep.measuredViscosity ? parseInputNumber(lastStep.measuredViscosity, true) : null;
-    const adjFinalQtyNum = hasAdjustment && adjFinalQty ? parseInputNumber(adjFinalQty, false) : null;
-    const adjBatchSizeNum = hasAdjustment && adjBatchSize ? parseInputNumber(adjBatchSize, false) : null;
+    const adjTrialQtyNum = hasAdjustment && doseSum > 0 ? Number(doseSum.toFixed(3)) : null;
+    const adjTrialViscNum = hasAdjustment && lastDoseVisc ? Number(lastDoseVisc.measuredViscosity) : null;
+    const adjFinalQtyNum = hasAdjustment && doseSum > 0
+      ? Number(doseSum.toFixed(3))
+      : (hasAdjustment && adjFinalQty ? parseInputNumber(adjFinalQty, false) : null);
+    const adjBatchSizeNum = adjBatchSize ? parseInputNumber(adjBatchSize, false) : null;
 
     // Enriquecer notas com dados de correção de pH e aspectos se houver
-    let fullNotes = formNotes.trim();
+    let fullNotes = formNotes
+      .replace(/\[STATUS:\s*EM CORREÇÃO\]/gi, '')
+      .replace(/\[EM CORREÇÃO\]/gi, '')
+      .trim();
     if (isEmCorrecao) {
       const corrTag = '[STATUS: EM CORREÇÃO]';
-      if (!fullNotes.includes(corrTag)) {
-        fullNotes = fullNotes ? `${corrTag} ${fullNotes}` : corrTag;
-      }
+      fullNotes = fullNotes ? `${corrTag} ${fullNotes}` : corrTag;
     }
-    if (hasPhAdjustment) {
-      const phAgName = agents.find((a) => a.id === adjPhAgentId)?.name || adjPhAgentId || 'Corretivo pH';
-      const phNote = `[Ajuste de pH: ${phAgName} | Dose: ${adjPhFinalQty || adjPhTrialQty} g/L | pH Final: ${adjPhTrialResult || formPh}]`;
+    const phDoseNum = hasPhAdjustment && adjPhFinalQty ? parseInputNumber(adjPhFinalQty, false) : null;
+    const phBatchNum = adjBatchSize
+      ? parseInputNumber(adjBatchSize, false)
+      : (adjPhBatchSize ? parseInputNumber(adjPhBatchSize, false) : null);
+    const phOn = hasPhAdjustment && !!adjPhAgentId && phDoseNum != null && !isNaN(phDoseNum) && phDoseNum > 0;
+    const doseNote = hasAdjustment ? buildViscDoseNote(adjInitialVisc, viscTarget, additionSteps) : '';
+    if (doseNote) {
+      fullNotes = fullNotes ? `${fullNotes} ${doseNote}` : doseNote;
+    }
+    if (phOn && phBatchNum && phBatchNum > 0) {
+      const phTotal = Number(((phDoseNum * phBatchNum) / 1000).toFixed(3));
+      const phAgName = agents.find((a) => a.id === adjPhAgentId)?.name || adjPhAgentId;
+      const phNote = `[Ajuste de pH: ${phAgName} | Dose: ${adjPhFinalQty} g/L | Total: ${phTotal.toFixed(3)} kg]`;
       fullNotes = fullNotes ? `${fullNotes} ${phNote}` : phNote;
     }
     if (!aspectOk && aspectDesc.trim()) {
@@ -817,10 +1332,13 @@ export function AnalysisCreationFlow({
 
     try {
       for (const t of targets) {
-        const batchSizeVal = analyzeAll && t.qty > 0 ? t.qty : adjBatchSizeNum || null;
+        const batchSizeVal = analyzeAll && t.qty > 0 ? t.qty : adjBatchSizeNum || phBatchNum || null;
         let totalAgentReq: number | null = null;
-        if (hasAdjustment && adjFinalQtyNum && batchSizeVal && batchSizeVal > 0) {
-          totalAgentReq = Number(((adjFinalQtyNum * Math.max(0, batchSizeVal - 1)) / 1000).toFixed(3));
+        const viscOn = hasAdjustment && !!adjAgentId && adjFinalQtyNum != null && !isNaN(adjFinalQtyNum) && adjFinalQtyNum > 0;
+        if (viscOn && adjFinalQtyNum && batchSizeVal && batchSizeVal > 0) {
+          totalAgentReq = Number(((adjFinalQtyNum * batchSizeVal) / 1000).toFixed(3));
+        } else if (phOn && phDoseNum && batchSizeVal && batchSizeVal > 0) {
+          totalAgentReq = Number(((phDoseNum * batchSizeVal) / 1000).toFixed(3));
         }
 
         const payload: FiscoQuimicaAnalysis = {
@@ -836,12 +1354,12 @@ export function AnalysisCreationFlow({
           fractionWeight: fracNum,
           envaseTargetWeight: fillingTargets.weight.value,
           envaseTargetUnit: fillingTargets.weight.unit,
-          hasAdjustment: hasAdjustment || hasPhAdjustment,
-          correctiveAgentId: hasAdjustment ? (adjAgentId || null) : (hasPhAdjustment ? adjPhAgentId || null : null),
+          hasAdjustment: viscOn || phOn,
+          correctiveAgentId: viscOn ? (adjAgentId || null) : (phOn ? adjPhAgentId || null : null),
           initialViscosity: hasAdjustment ? adjInitialViscNum : null,
           trialAgentQty: hasAdjustment ? adjTrialQtyNum : null,
           trialViscosity: hasAdjustment ? adjTrialViscNum : null,
-          agentQtyPerLiter: hasAdjustment ? adjFinalQtyNum : (hasPhAdjustment && adjPhFinalQty ? parseFloat(adjPhFinalQty.replace(',', '.')) : null),
+          agentQtyPerLiter: viscOn ? adjFinalQtyNum : (phOn ? phDoseNum : null),
           batchSize: batchSizeVal,
           totalAgentRequired: totalAgentReq,
           notes: fullNotes || null,
@@ -850,12 +1368,16 @@ export function AnalysisCreationFlow({
           syncedToErp: false,
           status: isEmCorrecao ? 'EM_CORRECAO' : 'CONFORME',
           mediaUrl: formMediaUrl.trim() || undefined,
-          aspectOk,
-          aspectResult: aspectDesc.trim() || (pattern?.aspect || 'CONFORME'),
-          colorOk,
-          colorResult: colorDesc.trim() || (pattern?.color || 'CONFORME'),
-          odorOk,
-          odorResult: odorDesc.trim() || (pattern?.odor || 'CARACTERÍSTICO'),
+          aspectOk: true,
+          aspectResult: aspectDesc.trim() || 'CONFORME',
+          colorOk: true,
+          colorResult: colorDesc.trim() || 'CONFORME',
+          odorOk: true,
+          odorResult: odorDesc.trim() || 'Característico',
+          viscometerModel: viscModel.trim() || null,
+          viscometerSpindle: viscSpindle || null,
+          viscometerRpm: viscRpm > 0 ? viscRpm : null,
+          viscometerSeconds: viscSeconds > 0 ? viscSeconds : null,
         };
 
         await api.saveFiscoQuimicaAnalysis(payload);
@@ -899,7 +1421,7 @@ export function AnalysisCreationFlow({
       setColorOk(true);
       setColorDesc('');
       setOdorOk(true);
-      setOdorDesc('');
+      setOdorDesc('Característico');
       setHasAdjustment(false);
       setHasPhAdjustment(false);
       setAdjAgentId('');
@@ -936,11 +1458,11 @@ export function AnalysisCreationFlow({
             </div>
             <div>
               <h4 className="text-xs font-black text-amber-950 uppercase tracking-wide">
-                {editingAnalysis.status === 'EM_CORRECAO' ? 'Concluindo Análise de Lote em Correção' : 'Editando Registro de Laudo'}
+                {isEditingInCorrecao ? 'Concluindo Análise de Lote em Correção' : 'Editando Registro de Laudo'}
               </h4>
               <p className="text-[11px] text-amber-800">
                 Lote <strong>{editingAnalysis.batch}</strong> · Produto <strong>{editingAnalysis.productCode}</strong>.
-                {editingAnalysis.status === 'EM_CORRECAO' ? ' Insira as medições finais da nova amostra e clique em "Salvar" para aprovar o laudo.' : ''}
+                {isEditingInCorrecao ? ' Insira as medições finais da nova amostra e clique em "Salvar" para aprovar o laudo.' : ''}
               </p>
             </div>
           </div>
@@ -1025,7 +1547,7 @@ export function AnalysisCreationFlow({
                 placeholder="Ex: 10452"
                 value={formBatch}
                 onChange={(e) => handleBatchChange(e.target.value)}
-                className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-sm font-bold text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-base font-bold text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-11"
               />
               {formBatchLoading && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -1065,7 +1587,7 @@ export function AnalysisCreationFlow({
               <select
                 value={formProductCode}
                 onChange={(e) => handleLoteProductSelect(e.target.value)}
-                className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-sm font-medium text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-base font-medium text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-11"
               >
                 <option value="__ALL__">Lote completo ({formLoteProducts.length} apresentações)</option>
                 {formLoteProducts.map((p) => (
@@ -1092,7 +1614,7 @@ export function AnalysisCreationFlow({
                 required
                 value={formDate}
                 onChange={(e) => setFormDate(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 border border-zinc-300 rounded-xl text-sm text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                className="w-full pl-9 pr-3 py-2 border border-zinc-300 rounded-xl text-base text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-11"
               />
             </div>
           </div>
@@ -1107,7 +1629,7 @@ export function AnalysisCreationFlow({
               placeholder="Ex: RODRIGO DE SOUSA PADILHA"
               value={formFabricatedBy}
               onChange={(e) => setFormFabricatedBy(e.target.value)}
-              className="w-full px-3 py-2 border border-zinc-300 rounded-xl text-sm font-medium text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
+              className="w-full px-3 py-2 border border-zinc-300 rounded-xl text-base font-medium text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-11"
             />
           </div>
 
@@ -1121,7 +1643,7 @@ export function AnalysisCreationFlow({
               placeholder="Ex: RAFAEL MARINHO DE MELO"
               value={formAuthorizedBy}
               onChange={(e) => setFormAuthorizedBy(e.target.value)}
-              className="w-full px-3 py-2 border border-zinc-300 rounded-xl text-sm font-medium text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
+              className="w-full px-3 py-2 border border-zinc-300 rounded-xl text-base font-medium text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-11"
             />
           </div>
 
@@ -1138,69 +1660,24 @@ export function AnalysisCreationFlow({
                 placeholder="Nome do analista"
                 value={technicianName}
                 onChange={(e) => setTechnicianName(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 border border-zinc-300 rounded-xl text-sm font-medium text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                className="w-full pl-9 pr-3 py-2 border border-zinc-300 rounded-xl text-base font-medium text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-11"
               />
             </div>
           </div>
         </div>
       </div>
 
-      {/* Guia Visual e Padrão de Referência do Produto */}
-      {activePattern && (
-        <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-4 sm:p-5 shadow-xs">
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3.5">
-              {activePattern.imageUrl ? (
-                <button
-                  type="button"
-                  onClick={() => setZoomPatternImage({ url: activePattern.imageUrl!, title: formProductName || activePattern.productCode })}
-                  className="w-14 h-14 rounded-2xl overflow-hidden border-2 border-emerald-300 shadow-sm shrink-0 hover:opacity-85 transition-opacity cursor-pointer group relative"
-                  title="Clique para ampliar foto de referência"
-                >
-                  <img src={activePattern.imageUrl} alt="Padrão" className="w-full h-full object-cover" />
-                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                    <Eye className="w-4 h-4 text-white" />
-                  </div>
-                </button>
-              ) : (
-                <div className="w-14 h-14 rounded-2xl bg-white border border-emerald-200 flex items-center justify-center shrink-0 text-emerald-600 shadow-xs">
-                  <Sparkles className="w-6 h-6" />
-                </div>
-              )}
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider bg-emerald-100 px-2 py-0.5 rounded-md">
-                    Especificação Padrão do Produto
-                  </span>
-                  <span className="text-xs font-mono font-bold text-emerald-900">{activePattern.productCode}</span>
-                </div>
-                <h4 className="text-sm font-bold text-emerald-950 mt-0.5">
-                  {formProductName || products.find(p => p.code === activePattern.productCode)?.name || 'Padrão Cadastrado'}
-                </h4>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 w-full md:w-auto">
-              <div className="bg-white/80 border border-emerald-200/70 rounded-xl px-3 py-1.5 text-center">
-                <span className="text-[9px] font-bold text-zinc-500 uppercase block">pH Padrão</span>
-                <strong className="text-xs font-mono text-zinc-900">{activePattern.phMin.toFixed(2)} – {activePattern.phMax.toFixed(2)}</strong>
-              </div>
-              <div className="bg-white/80 border border-emerald-200/70 rounded-xl px-3 py-1.5 text-center">
-                <span className="text-[9px] font-bold text-zinc-500 uppercase block">Viscosidade</span>
-                <strong className="text-xs font-mono text-zinc-900">{formatViscosity(activePattern.viscosityMin, activePattern)} – {formatViscosity(activePattern.viscosityMax, activePattern)} cps</strong>
-              </div>
-              <div className="bg-white/80 border border-emerald-200/70 rounded-xl px-3 py-1.5 text-center">
-                <span className="text-[9px] font-bold text-zinc-500 uppercase block">Densidade Alvo</span>
-                <strong className="text-xs font-mono text-zinc-900">{activePattern.densityTarget.toFixed(3)} ± {activePattern.densityTolerance.toFixed(3)}</strong>
-              </div>
-              <div className="bg-white/80 border border-emerald-200/70 rounded-xl px-3 py-1.5 text-center">
-                <span className="text-[9px] font-bold text-zinc-500 uppercase block">Aspecto / Odor</span>
-                <strong className="text-[11px] text-zinc-900 truncate block max-w-[120px]" title={`${activePattern.aspect || 'Líquido'} · ${activePattern.color || 'Padrão'}`}>
-                  {activePattern.aspect || 'Conforme'}
-                </strong>
-              </div>
-            </div>
-          </div>
+      {lastSameProduct && (
+        <div className="bg-white border border-zinc-200 rounded-2xl px-4 py-3 text-sm text-zinc-600">
+          Último lote deste produto: <strong className="text-zinc-900 font-mono">#{lastSameProduct.batch}</strong>
+          <span className="text-zinc-400"> · {shortDate(lastSameProduct.analysisDate)}</span>
+          <span className="block mt-1 font-mono text-zinc-800">
+            pH {lastSameProduct.phMeasured > 0 ? lastSameProduct.phMeasured.toFixed(2) : '—'}
+            {' · '}
+            Visc {lastSameProduct.viscosityMeasured > 0 ? formatViscosity(lastSameProduct.viscosityMeasured) : '—'}
+            {' · '}
+            Dens {lastSameProduct.densityMeasured > 0 ? lastSameProduct.densityMeasured.toFixed(3) : '—'}
+          </span>
         </div>
       )}
 
@@ -1217,126 +1694,81 @@ export function AnalysisCreationFlow({
           )}
         </div>
 
-        {/* Avaliação Organoléptica (Aspecto, Cor e Odor) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 bg-zinc-50/70 border border-zinc-200 rounded-2xl">
-          {/* Aspecto */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Aspecto Visual</span>
-              <button
-                type="button"
-                onClick={() => setAspectOk(!aspectOk)}
-                className={cn(
-                  "px-2 py-0.5 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer border",
-                  aspectOk
-                    ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                    : "bg-rose-100 text-rose-800 border-rose-300"
-                )}
-              >
-                {aspectOk ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
-                {aspectOk ? 'Conforme' : 'Não Conforme'}
-              </button>
-            </div>
-            <input
-              type="text"
-              value={aspectDesc}
-              onChange={(e) => setAspectDesc(e.target.value)}
-              placeholder={activePattern?.aspect || "Ex: Creme Homogêneo, Líquido Viscoso..."}
-              className="w-full border border-zinc-300 rounded-xl px-3 py-1.5 text-xs text-zinc-900 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900"
-            />
-            {activePattern?.aspect && (
-              <span className="text-[9px] text-zinc-400 block truncate">
-                Padrão: <strong>{activePattern.aspect}</strong>
-              </span>
-            )}
-          </div>
-
-          {/* Cor */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Cor</span>
-              <button
-                type="button"
-                onClick={() => setColorOk(!colorOk)}
-                className={cn(
-                  "px-2 py-0.5 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer border",
-                  colorOk
-                    ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                    : "bg-rose-100 text-rose-800 border-rose-300"
-                )}
-              >
-                {colorOk ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
-                {colorOk ? 'Conforme' : 'Não Conforme'}
-              </button>
-            </div>
-            <input
-              type="text"
-              value={colorDesc}
-              onChange={(e) => setColorDesc(e.target.value)}
-              placeholder={activePattern?.color || "Ex: Branco perolado, Amarelo claro..."}
-              className="w-full border border-zinc-300 rounded-xl px-3 py-1.5 text-xs text-zinc-900 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900"
-            />
-            {activePattern?.color && (
-              <span className="text-[9px] text-zinc-400 block truncate">
-                Padrão: <strong>{activePattern.color}</strong>
-              </span>
-            )}
-          </div>
-
-          {/* Odor */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Odor</span>
-              <button
-                type="button"
-                onClick={() => setOdorOk(!odorOk)}
-                className={cn(
-                  "px-2 py-0.5 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer border",
-                  odorOk
-                    ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                    : "bg-rose-100 text-rose-800 border-rose-300"
-                )}
-              >
-                {odorOk ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
-                {odorOk ? 'Característico' : 'Não Conforme'}
-              </button>
-            </div>
-            <input
-              type="text"
-              value={odorDesc}
-              onChange={(e) => setOdorDesc(e.target.value)}
-              placeholder={activePattern?.odor || "Ex: Característico, Suave floral..."}
-              className="w-full border border-zinc-300 rounded-xl px-3 py-1.5 text-xs text-zinc-900 bg-white focus:outline-none focus:ring-1 focus:ring-zinc-900"
-            />
-            {activePattern?.odor && (
-              <span className="text-[9px] text-zinc-400 block truncate">
-                Padrão: <strong>{activePattern.odor}</strong>
-              </span>
-            )}
-          </div>
+        <div className="space-y-3">
+          <CatalogSelect
+            label="Aspecto"
+            value={aspectDesc.toUpperCase() === 'CONFORME' ? '' : aspectDesc}
+            options={aspectChoices.map((option) => ({ value: option, label: option }))}
+            onChange={(value) => {
+              lockAutofill();
+              setAspectDesc(value);
+              const linked = methodForAspect(value);
+              if (!linked) return;
+              setViscSpindle(linked.spindle);
+              setViscRpm(linked.rpm);
+              setViscSeconds(linked.seconds);
+              setViscPreset(matchingPreset(linked.spindle, linked.rpm, linked.seconds));
+              setViscPresetTouched(true);
+            }}
+            onCreate={(raw) => {
+              lockAutofill();
+              const name = raw.trim();
+              addCatalogItem('aspects', name);
+              setAspectDesc(name);
+              const linked = methodForAspect(name);
+              if (!linked) return;
+              setViscSpindle(linked.spindle);
+              setViscRpm(linked.rpm);
+              setViscSeconds(linked.seconds);
+              setViscPreset(matchingPreset(linked.spindle, linked.rpm, linked.seconds));
+              setViscPresetTouched(true);
+            }}
+            placeholder="Novo aspecto"
+            inputMode="text"
+            hint={lastSameProduct?.aspectResult ? (
+              <p className="text-[11px] text-zinc-500">Último lote {lastSameProduct.batch}: {lastSameProduct.aspectResult}</p>
+            ) : null}
+          />
+          <CatalogSelect
+            label="Cor"
+            value={colorDesc.toUpperCase() === 'CONFORME' ? '' : colorDesc}
+            options={colorChoices.map((option) => ({ value: option, label: option }))}
+            onChange={(value) => { lockAutofill(); setColorDesc(value); }}
+            onCreate={(raw) => {
+              lockAutofill();
+              addCatalogItem('colors', raw);
+              setColorDesc(raw.trim());
+            }}
+            placeholder="Nova cor"
+            inputMode="text"
+            hint={lastSameProduct?.colorResult ? (
+              <p className="text-[11px] text-zinc-500">Último lote {lastSameProduct.batch}: {lastSameProduct.colorResult}</p>
+            ) : null}
+          />
+          <CatalogSelect
+            label="Odor"
+            value={odorDesc.toUpperCase() === 'CONFORME' ? '' : odorDesc}
+            options={odorChoices.map((option) => ({ value: option, label: option }))}
+            onChange={(value) => { lockAutofill(); setOdorDesc(value); }}
+            onCreate={(raw) => {
+              lockAutofill();
+              addCatalogItem('odors', raw);
+              setOdorDesc(raw.trim());
+            }}
+            placeholder="Novo odor"
+            inputMode="text"
+            hint={lastSameProduct?.odorResult ? (
+              <p className="text-[11px] text-zinc-500">Último lote {lastSameProduct.batch}: {lastSameProduct.odorResult}</p>
+            ) : null}
+          />
         </div>
 
         {/* Cards de pH, Viscosidade e Densidade */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {/* Card pH */}
-          <div className={cn(
-            "p-3.5 rounded-2xl border transition-all flex flex-col justify-between space-y-2.5",
-            formPh !== '' && activePattern
-              ? (compliance.phOk ? "bg-emerald-50/40 border-emerald-200" : "bg-rose-50/40 border-rose-200")
-              : "bg-zinc-50/50 border-zinc-200"
-          )}>
+          <div className="p-3.5 rounded-2xl border border-zinc-200 bg-zinc-50/50 flex flex-col justify-between space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">pH (25°C)</span>
-              {activePattern && formPh !== '' && (
-                <span className={cn(
-                  "text-[9px] px-2 py-0.5 rounded-full font-black tracking-wide border",
-                  compliance.phOk
-                    ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                    : "bg-rose-100 text-rose-800 border-rose-300"
-                )}>
-                  {compliance.phOk ? 'DENTRO' : 'FORA'}
-                </span>
-              )}
             </div>
 
             <div className="flex items-baseline gap-2">
@@ -1351,34 +1783,37 @@ export function AnalysisCreationFlow({
               />
             </div>
 
-            <div className="text-[10px] text-zinc-500">
-              {activePattern ? (
-                <>Alvo: <strong className="text-zinc-800">{activePattern.phMin.toFixed(2)} – {activePattern.phMax.toFixed(2)}</strong></>
-              ) : (
-                <span className="text-zinc-400 italic">Padrão não definido</span>
-              )}
+            <div className="text-[11px] text-zinc-500">
+              {lastSameProduct && lastSameProduct.phMeasured > 0
+                ? <>Último lote {lastSameProduct.batch}: <strong className="text-zinc-800">{lastSameProduct.phMeasured.toFixed(2)}</strong></>
+                : <span className="text-zinc-400">Sem lote anterior</span>}
             </div>
           </div>
 
           {/* Card Viscosidade */}
-          <div className={cn(
-            "p-3.5 rounded-2xl border transition-all flex flex-col justify-between space-y-2.5",
-            formViscosity !== '' && activePattern
-              ? (compliance.viscOk ? "bg-emerald-50/40 border-emerald-200" : "bg-rose-50/40 border-rose-200")
-              : "bg-zinc-50/50 border-zinc-200"
-          )}>
-            <div className="flex items-center justify-between">
+          <div className="p-3.5 rounded-2xl border border-zinc-200 bg-zinc-50/50 flex flex-col justify-between space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
               <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Viscosidade (cps)</span>
-              {activePattern && formViscosity !== '' && (
-                <span className={cn(
-                  "text-[9px] px-2 py-0.5 rounded-full font-black tracking-wide border",
-                  compliance.viscOk
-                    ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                    : "bg-rose-100 text-rose-800 border-rose-300"
-                )}>
-                  {compliance.viscOk ? 'DENTRO' : 'FORA'}
-                </span>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  if (timerLeft != null && timerLeft > 0) {
+                    setTimerLeft(null);
+                    return;
+                  }
+                  setTimerLeft(viscSeconds > 0 ? viscSeconds : 60);
+                }}
+                className={cn(
+                  'shrink-0 min-h-8 px-2.5 rounded-lg text-xs font-bold border',
+                  timerLeft === 0
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : timerLeft != null
+                      ? 'bg-zinc-900 text-white border-zinc-900 font-mono'
+                      : 'bg-white text-zinc-700 border-zinc-200'
+                )}
+              >
+                {timerLeft == null ? `Iniciar ${formatHold(viscSeconds > 0 ? viscSeconds : 60)}` : timerLeft <= 0 ? 'Ler agora' : formatClock(timerLeft)}
+              </button>
             </div>
 
             <div className="flex items-baseline gap-2">
@@ -1392,34 +1827,17 @@ export function AnalysisCreationFlow({
               />
             </div>
 
-            <div className="text-[10px] text-zinc-500 truncate">
-              {activePattern ? (
-                <>Alvo: <strong className="text-zinc-800">{formatViscosity(activePattern.viscosityMin, activePattern)} – {formatViscosity(activePattern.viscosityMax, activePattern)}</strong></>
-              ) : (
-                <span className="text-zinc-400 italic">Padrão não definido</span>
-              )}
+            <div className="text-[11px] text-zinc-500">
+              {lastSameProduct && lastSameProduct.viscosityMeasured > 0
+                ? <>Último lote {lastSameProduct.batch}: <strong className="text-zinc-800">{formatViscosity(lastSameProduct.viscosityMeasured)}</strong>{lastSameProduct.viscometerSpindle ? ` · ${formatViscometerMethod(lastSameProduct)}` : ''}</>
+                : <span className="text-zinc-400">Sem lote anterior</span>}
             </div>
           </div>
 
           {/* Card Densidade */}
-          <div className={cn(
-            "p-3.5 rounded-2xl border transition-all flex flex-col justify-between space-y-2.5",
-            calculatedDensity > 0 && activePattern
-              ? (compliance.densityOk ? "bg-emerald-50/40 border-emerald-200" : "bg-rose-50/40 border-rose-200")
-              : "bg-zinc-50/50 border-zinc-200"
-          )}>
+          <div className="p-3.5 rounded-2xl border border-zinc-200 bg-zinc-50/50 flex flex-col justify-between space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Densidade (g/mL)</span>
-              {activePattern && calculatedDensity > 0 && (
-                <span className={cn(
-                  "text-[9px] px-2 py-0.5 rounded-full font-black tracking-wide border",
-                  compliance.densityOk
-                    ? "bg-emerald-100 text-emerald-800 border-emerald-300"
-                    : "bg-rose-100 text-rose-800 border-rose-300"
-                )}>
-                  {compliance.densityOk ? 'DENTRO' : 'FORA'}
-                </span>
-              )}
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -1434,7 +1852,7 @@ export function AnalysisCreationFlow({
                   value={formFractionWeight}
                   onChange={(e) => handleFractionWeightChange(e.target.value)}
                   onBlur={handleFractionWeightBlur}
-                  className="w-full text-sm sm:text-base font-black border border-zinc-300 rounded-xl px-2.5 py-1.5 text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 h-10"
+                  className="w-full text-base font-black border border-zinc-300 rounded-xl px-2.5 py-1.5 text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-11"
                 />
               </div>
 
@@ -1449,17 +1867,17 @@ export function AnalysisCreationFlow({
                   value={formDensityDirect}
                   onChange={(e) => handleDensityDirectChange(e.target.value)}
                   onBlur={handleDensityDirectBlur}
-                  className="w-full text-sm sm:text-base font-black border border-zinc-300 rounded-xl px-2.5 py-1.5 text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 h-10"
+                  className="w-full text-base font-black border border-zinc-300 rounded-xl px-2.5 py-1.5 text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-11"
                 />
               </div>
             </div>
 
             <div className="text-[10px] text-zinc-500 truncate flex items-center justify-between">
-              <span>{activePattern ? (
-                <>Alvo: <strong className="text-zinc-800">{activePattern.densityTarget.toFixed(3)} ± {activePattern.densityTolerance.toFixed(3)}</strong></>
-              ) : (
-                <span className="text-zinc-400 italic">Padrão não definido</span>
-              )}</span>
+              <span>
+                {lastSameProduct && lastSameProduct.densityMeasured > 0
+                  ? <>Último lote {lastSameProduct.batch}: <strong className="text-zinc-800">{lastSameProduct.densityMeasured.toFixed(3)}</strong></>
+                  : <span className="text-zinc-400">Sem lote anterior</span>}
+              </span>
               {calculatedDensity > 0 && (
                 <span className="text-[10px] font-mono font-bold text-zinc-700">
                   = {calculatedDensity.toFixed(3)} g/mL
@@ -1467,6 +1885,103 @@ export function AnalysisCreationFlow({
               )}
             </div>
           </div>
+        </div>
+
+        <div className="space-y-3 rounded-2xl border border-zinc-200 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Como mediu a viscosidade</span>
+            <span className="text-xs font-bold text-zinc-800">
+              {aspectDesc ? `${aspectDesc} · ` : ''}{viscSpindle} · {formatRpm(viscRpm)} rpm · {formatHold(viscSeconds)}
+            </span>
+          </div>
+          <CatalogSelect
+            label="Modelo"
+            value={viscModel}
+            options={modelChoices.map((option) => ({ value: option, label: option }))}
+            onChange={(value) => { lockAutofill(); setViscModel(value); }}
+            onCreate={(raw) => {
+              lockAutofill();
+              addCatalogItem('models', raw.trim());
+              setViscModel(raw.trim());
+            }}
+            placeholder="Novo modelo"
+            inputMode="text"
+          />
+          <CatalogSelect
+            label="Spindle"
+            value={viscSpindle}
+            options={spindleChoices.map((option) => ({ value: option, label: option }))}
+            onChange={(value) => {
+              lockAutofill();
+              setViscSpindle(value);
+              setViscPresetTouched(true);
+              setViscPreset(matchingPreset(value, viscRpm, viscSeconds));
+              if (aspectDesc.trim()) rememberAspectMethod(aspectDesc, value, viscRpm, viscSeconds);
+            }}
+            onCreate={(raw) => {
+              lockAutofill();
+              const spindle = raw.trim().toUpperCase();
+              addCatalogItem('spindles', spindle);
+              setViscSpindle(spindle);
+              setViscPresetTouched(true);
+              setViscPreset(matchingPreset(spindle, viscRpm, viscSeconds));
+              if (aspectDesc.trim()) rememberAspectMethod(aspectDesc, spindle, viscRpm, viscSeconds);
+            }}
+            placeholder="Novo spindle"
+            inputMode="text"
+          />
+          <CatalogSelect
+            label="RPM"
+            value={viscRpm > 0 ? String(viscRpm) : ''}
+            options={rpmChoices.map((option) => ({ value: option, label: formatRpm(parseFloat(option)) }))}
+            onChange={(value) => {
+              const rpm = parseFloat(value);
+              if (!rpm) return;
+              lockAutofill();
+              setViscRpm(rpm);
+              setViscPresetTouched(true);
+              setViscPreset(matchingPreset(viscSpindle, rpm, viscSeconds));
+              if (aspectDesc.trim()) rememberAspectMethod(aspectDesc, viscSpindle, rpm, viscSeconds);
+            }}
+            onCreate={(raw) => {
+              const rpm = parseFloat(raw.replace(',', '.'));
+              if (!Number.isFinite(rpm) || rpm <= 0) return;
+              lockAutofill();
+              addCatalogItem('rpms', String(rpm));
+              setViscRpm(rpm);
+              setViscPresetTouched(true);
+              setViscPreset(matchingPreset(viscSpindle, rpm, viscSeconds));
+              if (aspectDesc.trim()) rememberAspectMethod(aspectDesc, viscSpindle, rpm, viscSeconds);
+            }}
+            placeholder="Novo RPM"
+            inputMode="decimal"
+          />
+          <CatalogSelect
+            label="Tempo"
+            value={viscSeconds > 0 ? String(viscSeconds) : ''}
+            options={timeChoices.map((option) => ({ value: option, label: formatHold(parseFloat(option)) }))}
+            onChange={(value) => {
+              const seconds = parseInt(value, 10);
+              if (!seconds) return;
+              lockAutofill();
+              setViscSeconds(seconds);
+              setViscPresetTouched(true);
+              setViscPreset(matchingPreset(viscSpindle, viscRpm, seconds));
+              if (aspectDesc.trim()) rememberAspectMethod(aspectDesc, viscSpindle, viscRpm, seconds);
+            }}
+            onCreate={(raw) => {
+              const seconds = parseInt(raw.replace(',', '.'), 10);
+              if (!Number.isFinite(seconds) || seconds <= 0) return;
+              lockAutofill();
+              addCatalogItem('times', String(seconds));
+              setViscSeconds(seconds);
+              setViscPresetTouched(true);
+              setViscPreset(matchingPreset(viscSpindle, viscRpm, seconds));
+              if (aspectDesc.trim()) rememberAspectMethod(aspectDesc, viscSpindle, viscRpm, seconds);
+            }}
+            placeholder="Segundos"
+            inputMode="numeric"
+          />
         </div>
 
         {/* Banner de Metas de Envase por Densidade */}
@@ -1501,367 +2016,218 @@ export function AnalysisCreationFlow({
         )}
       </div>
 
-      {/* 3. Ajustes e Correções de Bancada (Viscosidade e pH) */}
-      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-zinc-200 shadow-sm space-y-4">
-        
-        {/* Toggle Correção de Viscosidade */}
-        <div className="space-y-3">
-          <label className="flex items-center gap-3 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={hasAdjustment}
-              onChange={(e) => setHasAdjustment(e.target.checked)}
-              className="w-4 h-4 text-zinc-950 focus:ring-zinc-950 accent-zinc-950 rounded cursor-pointer"
-            />
-            <div>
-              <strong className="text-sm font-bold text-zinc-900 block">Correção de Viscosidade (Ensaio em Amostra de 1L)</strong>
-              <span className="text-xs text-zinc-500 font-medium">
-                Adicione doses graduais na alíquota e calcule o total de espessante/sal necessário para o lote.
-              </span>
+      {/* 3. Correção — dose e total do lote */}
+      <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-sm space-y-4">
+        <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block">
+          3. Correção
+        </span>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const next = !hasAdjustment;
+              setHasAdjustment(next);
+              if (next && !adjInitialVisc.trim() && formViscosity.trim()) setAdjInitialVisc(formViscosity.trim());
+            }}
+            className={cn('min-h-12 rounded-xl text-sm font-bold border', hasAdjustment ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-800 border-zinc-200')}
+          >
+            Viscosidade
+          </button>
+          <button
+            type="button"
+            onClick={() => setHasPhAdjustment(!hasPhAdjustment)}
+            className={cn('min-h-12 rounded-xl text-sm font-bold border', hasPhAdjustment ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-800 border-zinc-200')}
+          >
+            pH
+          </button>
+        </div>
+
+        {(hasAdjustment || hasPhAdjustment) && (
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase">Tamanho do lote (L ou kg)</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={adjBatchSize}
+                onChange={(e) => {
+                  const value = e.target.value.replace(',', '.');
+                  setAdjBatchSize(value);
+                  setAdjPhBatchSize(value);
+                }}
+                placeholder="Ex: 80"
+                className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-base font-bold text-zinc-900 bg-white min-h-12 focus:outline-none focus:ring-2 focus:ring-zinc-900"
+              />
             </div>
-          </label>
 
-          {hasAdjustment && (
-            <div className="p-4 sm:p-5 rounded-2xl border border-amber-200 bg-amber-50/40 text-left space-y-4 animate-in fade-in duration-200">
-              
-              {/* Linha superior */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">
-                    Agente Corretivo *
-                  </label>
-                  <select
-                    value={adjAgentId}
-                    onChange={(e) => setAdjAgentId(e.target.value)}
-                    required={hasAdjustment}
-                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs bg-white text-zinc-900 font-bold focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                  >
-                    <option value="">Selecione o agente...</option>
-                    {viscosityAgents.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name} ({a.id})
-                      </option>
-                    ))}
-                  </select>
+            {hasAdjustment && (
+              <div className="space-y-3 rounded-2xl border border-zinc-200 p-3">
+                <CatalogSelect
+                  label="Espessante"
+                  value={adjAgentId}
+                  options={viscosityAgents.map((agent) => ({ value: agent.id, label: agent.name }))}
+                  onChange={(value) => { lockAutofill(); setAdjAgentId(value); }}
+                  onCreate={(raw) => { void addCorrectiveAgent('VISCOSIDADE', raw, setAdjAgentId); }}
+                  placeholder="Novo espessante"
+                  inputMode="text"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase">Antes (cps)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={adjInitialVisc}
+                      onChange={(e) => setAdjInitialVisc(e.target.value.replace(',', '.'))}
+                      placeholder="Inicial"
+                      className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-base font-bold text-zinc-900 bg-white min-h-12 focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase">Alvo (cps)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={viscTarget}
+                      onChange={(e) => setViscTarget(e.target.value.replace(',', '.'))}
+                      placeholder="Padrão"
+                      className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-base font-bold text-zinc-900 bg-white min-h-12 focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                    />
+                  </div>
                 </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">
-                    Viscosidade Inicial (cps) *
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    required={hasAdjustment}
-                    placeholder="Ex: 6000"
-                    value={adjInitialVisc}
-                    onChange={(e) => setAdjInitialVisc(e.target.value.replace(',', '.'))}
-                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs bg-white text-zinc-900 font-bold focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">
-                    Tamanho do Lote (L ou kg) *
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    required={hasAdjustment}
-                    placeholder="Ex: 1000"
-                    value={adjBatchSize}
-                    onChange={(e) => setAdjBatchSize(e.target.value.replace(',', '.'))}
-                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs bg-white text-zinc-900 font-bold focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                  />
-                </div>
-              </div>
-
-              {/* Etapas de ensaio em 1L */}
-              <div className="space-y-2 border-t border-amber-200/70 pt-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-amber-950 uppercase tracking-wider block">
-                    Etapas de Adição na Amostra de 1L:
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleAddStep}
-                    className="flex items-center gap-1 px-2.5 py-1 bg-amber-200 hover:bg-amber-300 text-amber-900 rounded-lg text-xs font-bold transition-colors cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Adicionar Etapa
-                  </button>
-                </div>
-
                 <div className="space-y-2">
-                  {additionSteps.map((step, idx) => (
-                    <div
-                      key={step.id}
-                      className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center bg-white p-2.5 rounded-xl border border-amber-200"
-                    >
-                      <div className="sm:col-span-1 text-center font-bold text-xs text-amber-900">
-                        #{step.stepNumber}
-                      </div>
-
-                      <div className="sm:col-span-3">
-                        <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider block">Dose Nesta Etapa (g)</span>
+                  {additionSteps.map((step, index) => (
+                    <div key={step.id} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
+                      <div className="space-y-1">
+                        {index === 0 && <label className="text-[10px] font-bold text-zinc-500 uppercase">Dose g/L</label>}
                         <input
                           type="text"
                           inputMode="decimal"
-                          placeholder="Ex: 0.5"
-                          value={step.addedGrams}
-                          onChange={(e) => handleStepChange(idx, 'addedGrams', e.target.value.replace(',', '.'))}
-                          className="w-full border border-zinc-300 rounded-lg px-2 py-1 text-xs font-bold text-zinc-900 bg-white"
+                          value={stepDraft[step.id]?.dose ?? (step.addedGrams ? String(step.addedGrams) : '')}
+                          onChange={(e) => {
+                            const raw = e.target.value.replace(',', '.');
+                            setStepDraft((prev) => ({ ...prev, [step.id]: { ...prev[step.id], dose: raw } }));
+                            const num = parseFloat(raw);
+                            handleStepChange(index, 'addedGrams', Number.isFinite(num) ? num : 0);
+                          }}
+                          placeholder="g/L"
+                          className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-base font-bold text-zinc-900 bg-white min-h-12 focus:outline-none focus:ring-2 focus:ring-zinc-900"
                         />
                       </div>
-
-                      <div className="sm:col-span-3">
-                        <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider block">Total na Amostra</span>
-                        <div className="text-xs font-bold text-zinc-700 bg-zinc-50 border border-zinc-200 px-2 py-1 rounded-lg">
-                          {step.cumulativeGrams} g / L
-                        </div>
-                      </div>
-
-                      <div className="sm:col-span-4">
-                        <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider block">Viscosidade Medida (cps)</span>
+                      <div className="space-y-1">
+                        {index === 0 && <label className="text-[10px] font-bold text-zinc-500 uppercase">Viscosidade</label>}
                         <input
                           type="text"
-                          inputMode="numeric"
-                          placeholder="Medição final"
-                          value={step.measuredViscosity || ''}
-                          onChange={(e) => handleStepChange(idx, 'measuredViscosity', e.target.value.replace(',', '.'))}
-                          className="w-full border border-zinc-300 rounded-lg px-2 py-1 text-xs font-bold text-zinc-900 bg-white"
+                          inputMode="decimal"
+                          value={stepDraft[step.id]?.visc ?? (step.measuredViscosity ? String(step.measuredViscosity) : '')}
+                          onChange={(e) => {
+                            const raw = e.target.value.replace(',', '.');
+                            setStepDraft((prev) => ({ ...prev, [step.id]: { ...prev[step.id], visc: raw } }));
+                            const num = raw.trim() === '' ? null : parseFloat(raw);
+                            handleStepChange(index, 'measuredViscosity', Number.isFinite(Number(num)) ? num : null);
+                            const laterHas = additionSteps.slice(index + 1).some((item) => Number(item.measuredViscosity) > 0);
+                            if (!laterHas && num && num > 0) setFormViscosity(String(num));
+                          }}
+                          placeholder="cps"
+                          className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-base font-bold text-zinc-900 bg-white min-h-12 focus:outline-none focus:ring-2 focus:ring-zinc-900"
                         />
                       </div>
-
-                      <div className="sm:col-span-1 text-center">
-                        {additionSteps.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveStep(idx)}
-                            className="p-1 text-zinc-400 hover:text-rose-600 rounded cursor-pointer"
-                            title="Remover etapa"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveStep(index)}
+                        className="min-h-12 min-w-11 rounded-xl border border-zinc-200 text-zinc-500 text-lg font-bold"
+                        aria-label="Remover dose"
+                      >
+                        ×
+                      </button>
                     </div>
                   ))}
-                </div>
-              </div>
-
-              {/* Banner de Eficiência */}
-              {viscosityAdjustmentCalc?.isValid && activePattern && (
-                <div className="p-3.5 bg-blue-50 border border-blue-200 text-blue-950 rounded-xl text-xs space-y-1.5">
-                  <p className="font-bold flex items-center gap-1.5">
-                    <Activity className="w-4 h-4 text-blue-700 shrink-0" />
-                    Ganho de {viscosityAdjustmentCalc.efficiency} cps/g na alíquota.
-                  </p>
-                  <p className="text-blue-900">
-                    Para atingir o centro do padrão ({formatViscosity((activePattern.viscosityMin + activePattern.viscosityMax) / 2, activePattern)} cps), a dose calculada é:
-                  </p>
-                  <div className="text-xs font-black text-blue-900 bg-blue-100 px-3 py-1 rounded-lg w-fit">
-                    Recomendação: {viscosityAdjustmentCalc.recommendedQtyPerLiter} g/L
-                  </div>
-                </div>
-              )}
-
-              {/* Linha Final de Aplicação */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-amber-200/70 pt-3">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">
-                    Dose Prática Adotada (g/L ou g/kg) *
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    required={hasAdjustment}
-                    placeholder="Ex: 5.5"
-                    value={adjFinalQty}
-                    onChange={(e) => setAdjFinalQty(e.target.value.replace(',', '.'))}
-                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs font-black bg-white text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">
-                    Total a Pesar para o Reator
-                  </label>
-                  <div className="text-base font-black text-amber-950 bg-amber-100 px-3 py-1.5 rounded-xl border border-amber-300">
-                    {adjFinalQty.trim() !== '' && adjBatchSize.trim() !== ''
-                      ? `${((parseFloat(adjFinalQty.replace(',', '.')) * Math.max(0, parseFloat(adjBatchSize.replace(',', '.')) - 1)) / 1000).toFixed(3)} kg`
-                      : '—'}
-                  </div>
-                </div>
-              </div>
-
-            </div>
-          )}
-        </div>
-
-        {/* Toggle Correção de pH (Cálculo Automático) */}
-        <div className="border-t border-zinc-100 pt-3 space-y-3">
-          <label className="flex items-center gap-3 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={hasPhAdjustment}
-              onChange={(e) => setHasPhAdjustment(e.target.checked)}
-              className="w-4 h-4 text-zinc-950 focus:ring-zinc-950 accent-zinc-950 rounded cursor-pointer"
-            />
-            <div>
-              <strong className="text-sm font-bold text-zinc-900 block">Correção de pH (Ensaio em Amostra de 1L)</strong>
-              <span className="text-xs text-zinc-500 font-medium">
-                Calcule a dosagem de ácido ou base necessária para alcançar o pH ideal no lote.
-              </span>
-            </div>
-          </label>
-
-          {hasPhAdjustment && (
-            <div className="p-4 sm:p-5 rounded-2xl border border-purple-200 bg-purple-50/40 text-left space-y-4 animate-in fade-in duration-200">
-              
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">Agente de pH *</label>
-                  <select
-                    value={adjPhAgentId}
-                    onChange={(e) => setAdjPhAgentId(e.target.value)}
-                    required={hasPhAdjustment}
-                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs bg-white text-zinc-900 font-bold focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                  <button
+                    type="button"
+                    onClick={handleAddStep}
+                    className="w-full min-h-12 rounded-xl border border-zinc-300 bg-white text-sm font-bold text-zinc-900"
                   >
-                    <option value="">Selecione o agente...</option>
-                    {phAgents.length > 0 ? (
-                      phAgents.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.name} ({a.id})
-                        </option>
-                      ))
-                    ) : (
-                      agents.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.name} ({a.id})
-                        </option>
-                      ))
-                    )}
-                  </select>
+                    + Adicionar dose
+                  </button>
                 </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">pH Inicial *</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="Ex: 7.80"
-                    value={adjPhInitial}
-                    onChange={(e) => setAdjPhInitial(e.target.value.replace(',', '.'))}
-                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs bg-white text-zinc-900 font-bold focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">Tamanho Lote (L ou kg) *</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="Ex: 1000"
-                    value={adjPhBatchSize}
-                    onChange={(e) => setAdjPhBatchSize(e.target.value.replace(',', '.'))}
-                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs bg-white text-zinc-900 font-bold focus:outline-none focus:ring-2 focus:ring-zinc-900"
-                  />
-                </div>
-              </div>
-
-              {/* Ensaio de Bancada em 1L */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-purple-200/70 pt-3">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">
-                    Dose Teste Adicionada em 1L (g) *
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="Ex: 0.5"
-                    value={adjPhTrialQty}
-                    onChange={(e) => setAdjPhTrialQty(e.target.value.replace(',', '.'))}
-                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs bg-white text-zinc-900 font-bold"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">
-                    pH Medido Após a Dose Teste *
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="Ex: 6.90"
-                    value={adjPhTrialResult}
-                    onChange={(e) => setAdjPhTrialResult(e.target.value.replace(',', '.'))}
-                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs bg-white text-zinc-900 font-bold"
-                  />
-                </div>
-              </div>
-
-              {/* Banner de Resultado de pH */}
-              {phAdjustmentCalc?.isValid && activePattern && (
-                <div className="p-3.5 bg-purple-100/70 border border-purple-200 text-purple-950 rounded-xl text-xs space-y-1.5">
-                  <p className="font-bold flex items-center gap-1.5">
-                    <Activity className="w-4 h-4 text-purple-700 shrink-0" />
-                    Variação de {phAdjustmentCalc.efficiency} unidades de pH por grama em 1L.
-                  </p>
-                  <p className="text-purple-900">
-                    Para atingir o pH alvo ({((activePattern.phMin + activePattern.phMax) / 2).toFixed(2)}), a dose calculada é:
-                  </p>
-                  <div className="text-xs font-black text-purple-950 bg-white px-3 py-1 rounded-lg w-fit border border-purple-300">
-                    Recomendação: {phAdjustmentCalc.recommendedQtyPerLiter} g/L
+                <div className="text-sm text-zinc-700 space-y-1">
+                  <div>
+                    Soma das doses:{' '}
+                    <strong className="text-zinc-950">
+                      {(() => {
+                        const dose = additionSteps.reduce((sum, step) => sum + (Number(step.addedGrams) || 0), 0);
+                        const lote = parseFloat(adjBatchSize);
+                        if (dose <= 0) return '—';
+                        const kg = lote > 0 ? ` · ${((dose * lote) / 1000).toFixed(3)} kg` : '';
+                        return `${formatPlainNumber(dose)} g/L${kg}`;
+                      })()}
+                    </strong>
                   </div>
+                  {(() => {
+                    const target = parseFloat(viscTarget);
+                    const last = [...additionSteps].reverse().find((step) => Number(step.measuredViscosity) > 0);
+                    const current = last ? Number(last.measuredViscosity) : 0;
+                    if (!(target > 0) || !(current > 0)) return null;
+                    const reached = current >= target;
+                    return (
+                      <div className={reached ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
+                        {reached ? 'Chegou no alvo' : 'Ainda abaixo do alvo'} · {formatPlainNumber(current)} cps
+                      </div>
+                    );
+                  })()}
                 </div>
-              )}
+              </div>
+            )}
 
-              {/* Linha Final de Aplicação de pH */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-purple-200/70 pt-3">
+            {hasPhAdjustment && (
+              <div className="space-y-3 rounded-2xl border border-zinc-200 p-3">
+                <CatalogSelect
+                  label="Corretor de pH"
+                  value={adjPhAgentId}
+                  options={phAgents.map((agent) => ({ value: agent.id, label: agent.name }))}
+                  onChange={(value) => { lockAutofill(); setAdjPhAgentId(value); }}
+                  onCreate={(raw) => { void addCorrectiveAgent('PH', raw, setAdjPhAgentId); }}
+                  placeholder="Novo corretor"
+                  inputMode="text"
+                />
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">
-                    Dose Prática Adotada (g/L ou g/kg) *
-                  </label>
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase">Dose usada (g/L)</label>
                   <input
                     type="text"
                     inputMode="decimal"
-                    placeholder="Ex: 1.0"
                     value={adjPhFinalQty}
                     onChange={(e) => setAdjPhFinalQty(e.target.value.replace(',', '.'))}
-                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs font-black bg-white text-zinc-900"
+                    placeholder="Ex: 1"
+                    className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-base font-black text-zinc-900 bg-white min-h-12 focus:outline-none focus:ring-2 focus:ring-zinc-900"
                   />
                 </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block">
-                    Total a Pesar de Agente de pH
-                  </label>
-                  <div className="text-base font-black text-purple-950 bg-purple-100 px-3 py-1.5 rounded-xl border border-purple-300">
-                    {adjPhFinalQty.trim() !== '' && (adjPhBatchSize.trim() !== '' || adjBatchSize.trim() !== '')
-                      ? `${((parseFloat(adjPhFinalQty.replace(',', '.')) * Math.max(0, parseFloat((adjPhBatchSize || adjBatchSize).replace(',', '.')) - 1)) / 1000).toFixed(3)} kg`
-                      : '—'}
-                  </div>
+                <div className="text-sm text-zinc-700">
+                  Total no reator:{' '}
+                  <strong className="text-lg text-zinc-950">
+                    {(() => {
+                      const dose = parseFloat(adjPhFinalQty);
+                      const lote = parseFloat(adjBatchSize);
+                      return dose > 0 && lote > 0 ? `${((dose * lote) / 1000).toFixed(3)} kg` : '—';
+                    })()}
+                  </strong>
                 </div>
               </div>
-
-            </div>
-          )}
-        </div>
-
+            )}
+          </div>
+        )}
       </div>
-
       {/* 4. Observações, Mídia e Ações */}
       <div className="bg-white rounded-2xl p-4 sm:p-6 border border-zinc-200 shadow-sm space-y-5">
         <div className="space-y-1.5">
           <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">
-            3. Observações Técnicas / Parecer do Laboratório
+            Observações
           </label>
           <textarea
             placeholder="Anote detalhes de liberação, alterações ou observações de bancada..."
             value={formNotes}
             onChange={(e) => setFormNotes(e.target.value)}
             rows={2}
-            className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900"
+            className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-base text-zinc-900 bg-white focus:outline-none focus:ring-2 focus:ring-zinc-900 min-h-20"
           />
         </div>
 
@@ -1869,7 +2235,7 @@ export function AnalysisCreationFlow({
         <div className="border-t border-zinc-100 pt-4 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
-              <ImageIcon className="w-3.5 h-3.5 text-zinc-400" /> 4. Registro Fotográfico / Mídia da Amostra (Opcional)
+              <ImageIcon className="w-3.5 h-3.5 text-zinc-400" /> Foto da amostra
             </span>
             {formMediaUrl && (
               <button
@@ -1884,6 +2250,14 @@ export function AnalysisCreationFlow({
 
           <input
             ref={mediaInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleMediaUpload}
+            className="hidden"
+          />
+          <input
+            ref={galleryInputRef}
             type="file"
             accept="image/*,video/*"
             onChange={handleMediaUpload}
@@ -1932,54 +2306,46 @@ export function AnalysisCreationFlow({
               </div>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={() => mediaInputRef.current?.click()}
-              className="w-full py-4 border-2 border-dashed border-zinc-300 hover:border-zinc-400 bg-zinc-50/50 hover:bg-zinc-50 rounded-2xl flex flex-col items-center justify-center gap-1.5 text-zinc-500 cursor-pointer transition-colors"
-            >
-              <Upload className="w-5 h-5 text-zinc-400" />
-              <span className="text-xs font-bold text-zinc-700">Anexar Foto ou Vídeo da Bancada</span>
-              <span className="text-[10px] text-zinc-400">Clique para enviar imagem ou gravação da amostra do lote</span>
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => mediaInputRef.current?.click()}
+                className="min-h-16 rounded-2xl border border-zinc-200 bg-white text-sm font-bold text-zinc-900"
+              >
+                Tirar foto
+              </button>
+              <button
+                type="button"
+                onClick={() => galleryInputRef.current?.click()}
+                className="min-h-16 rounded-2xl border border-zinc-200 bg-zinc-50 text-sm font-bold text-zinc-700"
+              >
+                Galeria
+              </button>
+            </div>
           )}
         </div>
 
-        <div className={cn(
-          "grid gap-3 pt-2",
-          (hasAdjustment || hasPhAdjustment) ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-1 sm:grid-cols-2"
-        )}>
+        <div className="grid gap-2 pt-2">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => handleSaveAnalysis(false, false)}
+            className="w-full min-h-12 flex items-center justify-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-sm font-bold"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+            {isEditingInCorrecao ? 'Concluir e Salvar Laudo' : 'Salvar Registro'}
+          </button>
           {(hasAdjustment || hasPhAdjustment) && (
             <button
               type="button"
               disabled={saving}
               onClick={() => handleSaveAnalysis(false, true)}
-              className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-zinc-950 py-3 rounded-xl text-xs font-black transition-all shadow-sm cursor-pointer"
-              title="Salva o lote com status 'Em Correção' e emite a Ordem de Ajuste para a Produção"
+              className="w-full min-h-12 flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-zinc-950 rounded-xl text-sm font-bold"
             >
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               Salvar Lote em Correção
             </button>
           )}
-
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => handleSaveAnalysis(false, false)}
-            className="w-full flex items-center justify-center gap-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-900 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-            {editingAnalysis?.status === 'EM_CORRECAO' ? 'Concluir e Salvar Laudo' : 'Salvar Registro'}
-          </button>
-
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => handleSaveAnalysis(true, false)}
-            className="w-full flex items-center justify-center gap-2 bg-zinc-950 hover:bg-zinc-800 text-white py-3 rounded-xl text-xs font-bold transition-all shadow cursor-pointer"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-            Salvar e Imprimir Laudo
-          </button>
         </div>
       </div>
 

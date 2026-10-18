@@ -327,18 +327,19 @@ pub async fn create_print_history(
 }
 
 pub async fn list_catalog_products(pool: &PgPool) -> Result<Vec<CatalogProductInfo>, sqlx::Error> {
-    let rows = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, Option<String>)>(
+    let rows = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, Option<String>, Option<i32>)>(
         r#"
         SELECT 
             p.codigo,
             p.descricao,
             p.linha_prefix,
             p.codigo_barras,
-            o.categoria_produto
+            o.categoria_produto,
+            NULLIF(p.qtde_cx, 0)
         FROM produtos p
         LEFT JOIN overrides_produtos o ON o.codigo = p.codigo
         ORDER BY p.descricao ASC
-        LIMIT 500
+        LIMIT 5000
         "#,
     )
     .fetch_all(pool)
@@ -346,7 +347,7 @@ pub async fn list_catalog_products(pool: &PgPool) -> Result<Vec<CatalogProductIn
 
     let list = rows
         .into_iter()
-        .map(|(codigo, descricao, linha, codigo_barras, categoria)| {
+        .map(|(codigo, descricao, linha, codigo_barras, categoria, qtde_cx)| {
             // Gerar DUN-14 derivado se EAN existir (prefixo 1 + 12 digitos + checksum)
             let box_barcode = codigo_barras.as_ref().map(|ean| {
                 if ean.len() == 13 {
@@ -361,7 +362,7 @@ pub async fn list_catalog_products(pool: &PgPool) -> Result<Vec<CatalogProductIn
                 descricao,
                 codigo_barras,
                 codigo_barras_caixa: box_barcode,
-                quantidade_caixa: Some(12),
+                quantidade_caixa: qtde_cx.filter(|n| *n > 0),
                 linha,
                 categoria,
             }

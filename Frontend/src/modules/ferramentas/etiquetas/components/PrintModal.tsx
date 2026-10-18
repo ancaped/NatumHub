@@ -20,6 +20,12 @@ interface PrintModalProps {
   initialEnableSequence?: boolean;
   initialSequenceStart?: number;
   initialSequenceTotal?: number;
+  /** Etiquetas diferentes, uma página por item. Cópias e sequência ficam de fora. */
+  batchTemplates?: LabelTemplate[];
+  /** Resolução do PNG enviado à impressora. A prévia já usa 300. */
+  printDpi?: number;
+  /** Preenchimento inicial, sem gravar o ajuste global. */
+  initialFillPercent?: number;
   history?: {
     product_code?: string;
     product_name?: string;
@@ -36,6 +42,9 @@ export default function PrintModal({
   initialEnableSequence = false,
   initialSequenceStart = 1,
   initialSequenceTotal = 10,
+  batchTemplates,
+  printDpi,
+  initialFillPercent,
   history,
 }: PrintModalProps) {
   const [copies, setCopies] = useState(initialCopies);
@@ -50,8 +59,16 @@ export default function PrintModal({
   const [previewPage, setPreviewPage] = useState(0);
   const [feed, setFeed] = useState<LabelFeed>('landscape');
   const [fillPercent, setFillPercent] = useState(100);
+  const batch = batchTemplates && batchTemplates.length > 0 ? batchTemplates : null;
 
-  const totalPages = enableSequence ? Math.max(1, sequenceTotal - sequenceStart + 1) : 1;
+  const totalPages = batch
+    ? batch.length
+    : enableSequence
+      ? Math.max(1, sequenceTotal - sequenceStart + 1)
+      : 1;
+  const previewTemplate = batch
+    ? batch[Math.min(previewPage, Math.max(0, batch.length - 1))] ?? batch[0]
+    : template;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -62,8 +79,8 @@ export default function PrintModal({
     setPreviewPage(0);
     setPrintError(null);
     setFeed(readLabelFeed());
-    setFillPercent(readLabelFillScale());
-  }, [isOpen, template.id, initialCopies, initialEnableSequence, initialSequenceStart, initialSequenceTotal]);
+    setFillPercent(initialFillPercent ?? readLabelFillScale());
+  }, [isOpen, template.id, batch?.length, initialCopies, initialEnableSequence, initialSequenceStart, initialSequenceTotal, initialFillPercent]);
 
   useEffect(() => {
     if (previewPage > totalPages - 1) setPreviewPage(Math.max(0, totalPages - 1));
@@ -73,14 +90,14 @@ export default function PrintModal({
     if (!isOpen) return;
     let cancelled = false;
     setPreviewLoading(true);
-    const pageIndex = enableSequence ? Math.min(previewPage, totalPages - 1) : 0;
+    const pageIndex = batch ? 0 : enableSequence ? Math.min(previewPage, totalPages - 1) : 0;
     renderLabelPngDataUrl(
-      template,
+      previewTemplate,
       pageIndex,
-      enableSequence ? sequenceTotal : copies,
+      batch ? batch.length : enableSequence ? sequenceTotal : copies,
       enableSequence ? sequenceStart : 1,
       2,
-      160
+      300
     )
       .then((url) => {
         if (!cancelled) setPreviewUrl(url);
@@ -94,12 +111,12 @@ export default function PrintModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, template, previewPage, enableSequence, sequenceStart, sequenceTotal, copies, totalPages]);
+  }, [isOpen, previewTemplate, previewPage, enableSequence, sequenceStart, sequenceTotal, copies, totalPages, batch]);
 
   if (!isOpen) return null;
 
-  const labelW = template.width_mm || 100;
-  const labelH = template.height_mm || 50;
+  const labelW = previewTemplate.width_mm || 100;
+  const labelH = previewTemplate.height_mm || 50;
   const portrait = feed === 'portrait';
   const outW = portrait ? labelH : labelW;
   const outH = portrait ? labelW : labelH;
@@ -116,11 +133,11 @@ export default function PrintModal({
       sequenceStart,
       sequenceTotal: enableSequence ? sequenceTotal : copies,
       sequencePadding: 2,
+      fillScale: fillPercent,
     };
   };
 
   const handleConfirmPrint = async () => {
-    const config = buildConfig();
     if (!selectedPrinter) {
       setPrintError('Selecione a impressora cadastrada no Windows.');
       return;
@@ -128,19 +145,48 @@ export default function PrintModal({
 
     setSending(true);
     setPrintError(null);
+    const config = buildConfig();
     try {
-      await printLabelDirect(template, config, selectedPrinter);
+      if (batch) {
+        const printerName = (selectedPrinter.system_printer_name || '').trim();
+        if (!printerName) {
+          throw new Error(
+            'Essa impressora não está ligada ao nome do Windows. Em Impressoras, importe o dispositivo.'
+          );
+        }
+        const dpi = printDpi && printDpi >= 150
+          ? printDpi
+          : selectedPrinter.dpi && selectedPrinter.dpi >= 150
+            ? selectedPrinter.dpi
+            : 300;
+        const pages: string[] = [];
+        for (const page of batch) {
+          pages.push(await renderLabelPngDataUrl(page, 0, batch.length, 1, 2, dpi));
+        }
+        await printersApi.printDirect({
+          printer_name: printerName,
+          width_mm: previewTemplate.width_mm || 100,
+          height_mm: previewTemplate.height_mm || 50,
+          copies: 1,
+          landscape: feed === 'portrait',
+          fill_scale: fillPercent / 100,
+          pages_png_base64: pages,
+        });
+      } else {
+        await printLabelDirect(template, config, selectedPrinter, printDpi);
+      }
     } catch (err: any) {
       setPrintError(err?.message || 'Não foi possível imprimir.');
       setSending(false);
       return;
     }
 
+    const printedCopies = batch ? batch.length : config.copies;
     try {
       await labelsApi.recordPrint({
         template_id: template.id.startsWith('template_') ? undefined : template.id,
         template_name: template.name,
-        copies: config.copies,
+        copies: printedCopies,
         printer_name: selectedPrinter.name,
         product_code: history?.product_code,
         product_name: history?.product_name,
@@ -152,8 +198,8 @@ export default function PrintModal({
           title: `Etiquetas ${template.name}`,
           template_id: template.id.startsWith('template_') ? undefined : template.id,
           payload_type: 'label_canvas_json',
-          payload_data: JSON.stringify(template),
-          copies: config.copies,
+          payload_data: JSON.stringify(batch ? { batch: batch.length, name: template.name } : template),
+          copies: printedCopies,
         });
       } catch (jobErr) {
         console.warn('Não foi possível enfileirar print job:', jobErr);
@@ -222,22 +268,24 @@ export default function PrintModal({
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                disabled={!enableSequence || previewPage <= 0}
+                disabled={(batch ? batch.length <= 1 : !enableSequence) || previewPage <= 0}
                 onClick={() => setPreviewPage((p) => Math.max(0, p - 1))}
                 className="p-1.5 rounded-lg border border-zinc-200 bg-white text-zinc-700 disabled:opacity-40 cursor-pointer"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <span className="text-xs font-mono font-bold text-zinc-700">
-                {enableSequence
-                  ? `Página ${previewPage + 1} de ${totalPages}`
-                  : copies === 1
-                    ? '1 cópia idêntica'
-                    : `${copies} cópias idênticas`}
+                {batch
+                  ? `Etiqueta ${previewPage + 1} de ${batch.length}`
+                  : enableSequence
+                    ? `Página ${previewPage + 1} de ${totalPages}`
+                    : copies === 1
+                      ? '1 cópia idêntica'
+                      : `${copies} cópias idênticas`}
               </span>
               <button
                 type="button"
-                disabled={!enableSequence || previewPage >= totalPages - 1}
+                disabled={(batch ? batch.length <= 1 : !enableSequence) || previewPage >= totalPages - 1}
                 onClick={() => setPreviewPage((p) => Math.min(totalPages - 1, p + 1))}
                 className="p-1.5 rounded-lg border border-zinc-200 bg-white text-zinc-700 disabled:opacity-40 cursor-pointer"
               >
@@ -251,6 +299,12 @@ export default function PrintModal({
 
           <div className="lg:col-span-2 p-5 space-y-4 border-t lg:border-t-0 lg:border-l border-zinc-100">
             <div className="space-y-3">
+              {batch ? (
+                <p className="text-xs text-zinc-600 leading-relaxed">
+                  Uma etiqueta por lote selecionado.
+                </p>
+              ) : (
+              <>
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-zinc-900">Páginas</label>
                 <div className="flex items-center gap-1 bg-zinc-100 p-0.5 rounded-lg text-xs font-semibold">
@@ -313,10 +367,13 @@ export default function PrintModal({
                   </div>
                 </div>
               )}
+              </>
+              )}
             </div>
 
             <PrinterSelector selectedPrinter={selectedPrinter} onSelectPrinter={setSelectedPrinter} />
             <LabelFillControl
+              initialPercent={initialFillPercent}
               onChange={({ percent, feed: nextFeed }) => {
                 setFillPercent(percent);
                 setFeed(nextFeed);
@@ -356,8 +413,8 @@ export default function PrintModal({
             >
               {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
               <span>
-                Imprimir {enableSequence ? totalPages : copies}{' '}
-                {(enableSequence ? totalPages : copies) === 1 ? 'etiqueta' : 'etiquetas'}
+                Imprimir {batch ? batch.length : enableSequence ? totalPages : copies}{' '}
+                {(batch ? batch.length : enableSequence ? totalPages : copies) === 1 ? 'etiqueta' : 'etiquetas'}
               </span>
             </button>
           </div>

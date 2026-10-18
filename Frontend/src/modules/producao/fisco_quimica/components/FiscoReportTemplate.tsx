@@ -1,6 +1,6 @@
 import React from 'react';
 import { FiscoQuimicaAnalysis, FiscoQuimicaPattern, FiscoQuimicaAgent, Product, FiscoTemplateConfig } from '../../../geral/lib/types';
-import { DEFAULT_FISCO_TEMPLATE, DENSITY_CUP_VOLUME, checkAnalysisCompliance, formatViscosity, calculateFillingTargets } from '../lib/fiscoUtils';
+import { DEFAULT_FISCO_TEMPLATE, DENSITY_CUP_VOLUME, checkAnalysisCompliance, formatViscosity, viscosityParameterParts, laudoAdjustmentParts, laudoNotes, calculateFillingTargets } from '../lib/fiscoUtils';
 
 interface FiscoReportTemplateProps {
   analysis: FiscoQuimicaAnalysis;
@@ -18,7 +18,16 @@ export const FiscoReportTemplate: React.FC<FiscoReportTemplateProps> = ({
   config
 }) => {
   const cfg = { ...DEFAULT_FISCO_TEMPLATE, ...(config || {}) };
+  const released = analysis.status !== 'EM_CORRECAO' && analysis.status !== 'FORA_PADRAO';
+  const viscMethod = 'VISCOSIMETRIA';
+  const viscParameterParts = viscosityParameterParts(analysis);
+  const legacySheet = viscParameterParts.length === 0;
+  const adjustmentParts = laudoAdjustmentParts(analysis, agent?.name || analysis.correctiveAgentId || 'Corretivo', pattern);
+  const notesText = laudoNotes(analysis.notes);
   const compliance = checkAnalysisCompliance(analysis, pattern);
+  const phApproved = legacySheet ? compliance.phOk : (released || compliance.phOk);
+  const viscApproved = legacySheet ? compliance.viscOk : (released || compliance.viscOk);
+  const densityApproved = legacySheet ? compliance.densityOk : (released || compliance.densityOk);
 
   const rawDate = analysis.analysisDate || '';
   const dateFormatted = rawDate.includes('-')
@@ -142,22 +151,19 @@ export const FiscoReportTemplate: React.FC<FiscoReportTemplateProps> = ({
       </div>
 
       {/* Tabela de Ensaios Físico-Químicos */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000000', fontSize: '8pt', marginBottom: '8px' }}>
+      <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, border: '1px solid #000000', fontSize: '8pt', marginBottom: '8px' }}>
         <thead>
           <tr style={{ background: '#f4f4f5' }}>
-            <th style={{ border: '1px solid #000000', padding: '4px 5px', fontWeight: 'bold', textAlign: 'left', textTransform: 'uppercase', width: '26%' }}>
+            <th style={{ border: '1px solid #000000', padding: '4px 5px', fontWeight: 'bold', textAlign: 'left', textTransform: 'uppercase', width: '34%' }}>
               ENSAIO
             </th>
-            <th style={{ border: '1px solid #000000', padding: '4px 5px', fontWeight: 'bold', textAlign: 'left', textTransform: 'uppercase', width: '28%' }}>
-              ESPECIFICAÇÃO
-            </th>
-            <th style={{ border: '1px solid #000000', padding: '4px 5px', fontWeight: 'bold', textAlign: 'center', textTransform: 'uppercase', width: '18%' }}>
+            <th style={{ border: '1px solid #000000', padding: '4px 5px', fontWeight: 'bold', textAlign: 'center', textTransform: 'uppercase', width: '26%' }}>
               RESULTADO OBTIDO
             </th>
-            <th style={{ border: '1px solid #000000', padding: '4px 5px', fontWeight: 'bold', textAlign: 'center', textTransform: 'uppercase', width: '16%' }}>
+            <th style={{ border: '1px solid #000000', padding: '4px 5px', fontWeight: 'bold', textAlign: 'center', textTransform: 'uppercase', width: '24%' }}>
               MÉTODO
             </th>
-            <th style={{ border: '1px solid #000000', padding: '4px 5px', fontWeight: 'bold', textAlign: 'center', textTransform: 'uppercase', width: '12%' }}>
+            <th style={{ border: '1px solid #000000', padding: '4px 5px', fontWeight: 'bold', textAlign: 'center', textTransform: 'uppercase', width: '16%' }}>
               AVALIAÇÃO
             </th>
           </tr>
@@ -165,7 +171,6 @@ export const FiscoReportTemplate: React.FC<FiscoReportTemplateProps> = ({
         <tbody>
           <tr>
             <td style={{ border: '1px solid #000000', padding: '4px 6px', fontWeight: 'bold' }}>ASPECTO</td>
-            <td style={{ border: '1px solid #000000', padding: '4px 6px' }}>{aspectSpec}</td>
             <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', fontWeight: 'bold' }}>{displayedAspect}</td>
             <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center' }}>ORGANOLÉPTICO</td>
             <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', fontWeight: 'bold', color: aspectOk ? '#047857' : '#b91c1c' }}>
@@ -174,7 +179,6 @@ export const FiscoReportTemplate: React.FC<FiscoReportTemplateProps> = ({
           </tr>
           <tr>
             <td style={{ border: '1px solid #000000', padding: '4px 6px', fontWeight: 'bold' }}>COR</td>
-            <td style={{ border: '1px solid #000000', padding: '4px 6px' }}>{colorSpec}</td>
             <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', fontWeight: 'bold' }}>{displayedColor}</td>
             <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center' }}>ORGANOLÉPTICO</td>
             <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', fontWeight: 'bold', color: colorOk ? '#047857' : '#b91c1c' }}>
@@ -182,49 +186,59 @@ export const FiscoReportTemplate: React.FC<FiscoReportTemplateProps> = ({
             </td>
           </tr>
           <tr>
-            <td style={{ border: '1px solid #000000', padding: '4px 6px', fontWeight: 'bold' }}>ODOR</td>
-            <td style={{ border: '1px solid #000000', padding: '4px 6px' }}>{odorSpec}</td>
-            <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', fontWeight: 'bold' }}>{displayedOdor}</td>
-            <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center' }}>ORGANOLÉPTICO</td>
-            <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', fontWeight: 'bold', color: odorOk ? '#047857' : '#b91c1c' }}>
+            <td style={{ border: '1px solid #000000', padding: '4px 6px', fontWeight: 'bold', borderTop: '1px solid #000000' }}>ODOR</td>
+            <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', fontWeight: 'bold', borderTop: '1px solid #000000' }}>{displayedOdor}</td>
+            <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', borderTop: '1px solid #000000' }}>ORGANOLÉPTICO</td>
+            <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', fontWeight: 'bold', borderTop: '1px solid #000000', color: odorOk ? '#047857' : '#b91c1c' }}>
               {odorOk ? 'APROVADO' : 'REPROVADO'}
             </td>
           </tr>
           <tr>
             <td style={{ border: '1px solid #000000', padding: '4px 6px', fontWeight: 'bold' }}>POTENCIAL HIDROGENIÔNICO (pH a 25°C)</td>
-            <td style={{ border: '1px solid #000000', padding: '4px 6px' }}>{phSpec}</td>
             <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', fontWeight: 'bold', fontSize: '8.5pt' }}>
               {analysis.phMeasured.toFixed(2)}
             </td>
             <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center' }}>POTENCIOMETRIA</td>
-            <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', fontWeight: 'bold', color: compliance.phOk ? '#047857' : '#b91c1c' }}>
-              {compliance.phOk ? 'APROVADO' : 'REPROVADO'}
+            <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', fontWeight: 'bold', color: phApproved ? '#047857' : '#b91c1c' }}>
+              {phApproved ? 'APROVADO' : 'REPROVADO'}
             </td>
           </tr>
           <tr>
             <td style={{ border: '1px solid #000000', padding: '4px 6px', fontWeight: 'bold' }}>VISCOSIDADE DINÂMICA (25°C)</td>
-            <td style={{ border: '1px solid #000000', padding: '4px 6px' }}>{viscSpec}</td>
             <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', fontWeight: 'bold', fontSize: '8.5pt' }}>
               {formatViscosity(analysis.viscosityMeasured, pattern)} cps
             </td>
-            <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center' }}>VISCOSIMETRIA</td>
-            <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', fontWeight: 'bold', color: compliance.viscOk ? '#047857' : '#b91c1c' }}>
-              {compliance.viscOk ? 'APROVADO' : 'REPROVADO'}
+            <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center' }}>{viscMethod}</td>
+            <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', fontWeight: 'bold', color: viscApproved ? '#047857' : '#b91c1c' }}>
+              {viscApproved ? 'APROVADO' : 'REPROVADO'}
             </td>
           </tr>
           <tr>
             <td style={{ border: '1px solid #000000', padding: '4px 6px', fontWeight: 'bold' }}>DENSIDADE RELATIVA (20°C)</td>
-            <td style={{ border: '1px solid #000000', padding: '4px 6px' }}>{densSpec}</td>
             <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', fontWeight: 'bold', fontSize: '8.5pt' }}>
               {analysis.densityMeasured.toFixed(3)} g/mL
             </td>
             <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center' }}>GRAVIMETRIA (BALANÇA DE PRECISÃO)</td>
-            <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', fontWeight: 'bold', color: compliance.densityOk ? '#047857' : '#b91c1c' }}>
-              {compliance.densityOk ? 'APROVADO' : 'REPROVADO'}
+            <td style={{ border: '1px solid #000000', padding: '4px 6px', textAlign: 'center', fontWeight: 'bold', color: densityApproved ? '#047857' : '#b91c1c' }}>
+              {densityApproved ? 'APROVADO' : 'REPROVADO'}
             </td>
           </tr>
         </tbody>
       </table>
+
+      {viscParameterParts.length > 0 && (
+        <div style={{ border: '1px solid #000000', padding: '5px 8px', marginBottom: '6px', fontSize: '8pt', background: '#fafafa' }}>
+          <div style={{ fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '3px' }}>PARÂMETROS DE VISCOSIDADE:</div>
+          <div style={{ fontSize: '7.5pt' }}>
+            {viscParameterParts.map((part, index) => (
+              <span key={part.label}>
+                {index > 0 ? ' | ' : ''}
+                {part.label}: <strong>{part.value}</strong>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Bloco de Calibração / Meta de Envase */}
       <div style={{ border: '1px solid #000000', padding: '5px 8px', marginBottom: '6px', fontSize: '8pt', background: '#fafafa' }}>
@@ -240,11 +254,12 @@ export const FiscoReportTemplate: React.FC<FiscoReportTemplateProps> = ({
         <div style={{ border: '1px solid #000000', padding: '5px 8px', marginBottom: '6px', fontSize: '7.5pt', background: '#fffbeb' }}>
           <strong style={{ textTransform: 'uppercase', color: '#92400e' }}>REGISTRO DE AJUSTE CORRETIVO NO LOTE:</strong>
           <div style={{ marginTop: '2px' }}>
-            Agente Corretivo: <strong>{agent?.name || analysis.correctiveAgentId || 'Corretivo'}</strong> |
-            Visc. Inicial: <strong>{formatViscosity(analysis.initialViscosity, pattern)} cps</strong> |
-            Dose Teste em 1L: <strong>{(analysis.trialAgentQty || 0).toFixed(2)} g</strong> |
-            Visc. no Teste: <strong>{formatViscosity(analysis.trialViscosity, pattern)} cps</strong> |
-            Dose Total Adicionada ao Lote: <strong>{analysis.totalAgentRequired ? `${(analysis.totalAgentRequired / 1000).toFixed(3)} kg` : 'Conforme Ensaio'}</strong>
+            {adjustmentParts.map((part, index) => (
+              <span key={part.label}>
+                {index > 0 ? ' | ' : ''}
+                {part.label}: <strong>{part.value}</strong>
+              </span>
+            ))}
           </div>
         </div>
       )}
@@ -264,9 +279,9 @@ export const FiscoReportTemplate: React.FC<FiscoReportTemplateProps> = ({
       </div>
 
       {/* Observações adicionais */}
-      {analysis.notes && (
+      {notesText && (
         <div style={{ fontSize: '7.5pt', fontStyle: 'italic', marginBottom: '8px' }}>
-          <strong>OBSERVAÇÕES:</strong> {analysis.notes}
+          <strong>OBSERVAÇÕES:</strong> {notesText}
         </div>
       )}
 

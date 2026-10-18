@@ -67,7 +67,7 @@ pub struct SyncResult {
     pub sales_orders: usize,
     pub mode: &'static str,
     pub since: String,
-    /// Insumos conferidos contra `nQtdeEstoque` após gravar snapshots.
+    /// Itens conferidos contra o recálculo de estoque após gravar snapshots.
     pub stock_verified: usize,
     /// Insumos corrigidos na verificação pós-sync.
     pub stock_repaired: usize,
@@ -84,6 +84,7 @@ struct ProductRow {
     fase: Option<String>,
     m_sales: [i32; 12],
     codigo_barras: Option<String>,
+    qtde_cx: i32,
 }
 
 struct SupplierRow {
@@ -119,6 +120,39 @@ struct StockRow {
     reserved_qty: f64,
     in_prod: f64,
     in_orders: f64,
+    /// Cache `Insumos.nQtdeEstoque` (diagnóstico). Ausente em Materiais.
+    erp_cache_qty: Option<f64>,
+}
+
+fn stock_row_from_mssql(row: &tiberius::Row, with_cache: bool) -> Option<StockRow> {
+    let code: &str = row.get(0).unwrap_or("");
+    let code = code.trim();
+    if code.is_empty() {
+        return None;
+    }
+    Some(StockRow {
+        code: code.to_string(),
+        stock_qty: mssql_f64(row, 1),
+        reserved_qty: mssql_f64(row, 2),
+        in_prod: mssql_f64(row, 3),
+        in_orders: mssql_f64(row, 4),
+        erp_cache_qty: if with_cache {
+            Some(mssql_f64(row, 5))
+        } else {
+            None
+        },
+    })
+}
+
+/// SQL do passo D1. `por_codigo` restringe a `@P1` (código já trimado).
+fn d1_insumos_stock_sql(por_codigo: bool) -> String {
+    let sql = include_str!("../../../erp-import/sql/D1-estoque-insumos.sql");
+    let filtro = if por_codigo {
+        "AND LTRIM(RTRIM(cReferencia)) = @P1"
+    } else {
+        ""
+    };
+    sql.replace("/*FILTRO_CODIGO*/", filtro)
 }
 
 /// Lê FLOAT/REAL/INT do SQL Server via Tiberius sem cair em 0 silencioso à toa.
@@ -840,7 +874,8 @@ SELECT
     CAST(ISNULL(v.M10, 0) AS INT) as M10,
     CAST(ISNULL(v.M11, 0) AS INT) as M11,
     CAST(ISNULL(v.M12, 0) AS INT) as M12,
-    NULLIF(LTRIM(RTRIM(p.cCodBarras COLLATE Latin1_General_CI_AS)), '') as cCodBarras
+    NULLIF(LTRIM(RTRIM(p.cCodBarras COLLATE Latin1_General_CI_AS)), '') as cCodBarras,
+    CAST(ISNULL(p.nQtdeCx, 0) AS INT) as nQtdeCx
 FROM Produtos p WITH (NOLOCK)
 LEFT JOIN (
     SELECT 
@@ -889,6 +924,7 @@ WHERE p.cInativo = 'N' OR p.cInativo IS NULL;
             fase: row.get(6).map(|s: &str| s.trim().to_string()).filter(|s| !s.is_empty()),
             m_sales,
             codigo_barras,
+            qtde_cx: row.get(20).unwrap_or(0),
         });
     }
 
@@ -981,34 +1017,16 @@ WHERE cReferencia IS NOT NULL AND cReferencia <> '';
         });
     }
 
-    // D. Query Insumos Stocks & Snapshots
-    // Estoque da tela ERP ("Estoque atual") = nQtdeEstoque
-    // Primeira passagem D1: lê estoque da tela do ERP (nQtdeEstoque).
-    let query_stocks = "
-SELECT 
-    cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
-    CAST(nQtdeEstoque AS FLOAT) as nQtdeEstoque,
-    CAST(nqtdeReserva AS FLOAT) as nqtdeReserva,
-    CAST(nQtdeProducao AS FLOAT) as nQtdeProducao,
-    CAST(nQtdePedidos AS FLOAT) as nQtdePedidos
-FROM Insumos
-WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInativo IS NULL);
-    ";
-    let query_stocks_clean = D1_INSUMOS_STOCKS_SQL_CLEAN;
-    println!("Step D1: Querying Insumos Stocks (nQtdeEstoque)");
-    let stream = client.query(query_stocks, &[]).await?;
+    // D. Posição de estoque dos insumos: recálculo dos movimentos (não o cache nQtdeEstoque).
+    let query_stocks = d1_insumos_stock_sql(false);
+    println!("Step D1: Querying Insumos Stocks (recálculo de movimentos)");
+    let stream = client.query(query_stocks.as_str(), &[]).await?;
     let db_rows_stocks = stream.into_first_result().await?;
     let mut stocks_list = Vec::new();
     for row in db_rows_stocks {
-        let code: &str = row.get(0).unwrap_or("");
-        if code.is_empty() { continue; }
-        stocks_list.push(StockRow {
-            code: code.trim().to_string(),
-            stock_qty: mssql_f64(&row, 1),
-            reserved_qty: mssql_f64(&row, 2),
-            in_prod: mssql_f64(&row, 3),
-            in_orders: mssql_f64(&row, 4),
-        });
+        if let Some(stk) = stock_row_from_mssql(&row, true) {
+            stocks_list.push(stk);
+        }
     }
 
     // D2. Query Materiais Stocks
@@ -1027,15 +1045,9 @@ WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInat
     let db_rows_mat_stocks = stream.into_first_result().await?;
     let mut mat_stocks_list = Vec::new();
     for row in db_rows_mat_stocks {
-        let code: &str = row.get(0).unwrap_or("");
-        if code.is_empty() { continue; }
-        mat_stocks_list.push(StockRow {
-            code: code.trim().to_string(),
-            stock_qty: mssql_f64(&row, 1),
-            reserved_qty: mssql_f64(&row, 2),
-            in_prod: mssql_f64(&row, 3),
-            in_orders: mssql_f64(&row, 4),
-        });
+        if let Some(stk) = stock_row_from_mssql(&row, false) {
+            mat_stocks_list.push(stk);
+        }
     }
 
     // E. Query Invoices (full: 48 meses; incremental: desde watermark)
@@ -1964,6 +1976,7 @@ WHERE {so2_date_filter};
     let mut hist_meses: Vec<i32> = Vec::with_capacity(count_prod * 12);
     let mut hist_qtds: Vec<i32> = Vec::with_capacity(count_prod * 12);
     let mut codigos_barras: Vec<Option<String>> = Vec::with_capacity(count_prod);
+    let mut qtde_cxs: Vec<i32> = Vec::with_capacity(count_prod);
 
     for p in &products_list {
         let prefix = get_linha_prefix(&p.codigo).to_string();
@@ -1973,6 +1986,7 @@ WHERE {so2_date_filter};
         bases.push(p.base.clone());
         medias.push(p.media_lev());
         codigos_barras.push(p.codigo_barras.clone());
+        qtde_cxs.push(p.qtde_cx);
         estoques.push(p.estoque);
         producoes.push(p.producao);
         pedidos.push(p.pedidos);
@@ -1991,14 +2005,15 @@ WHERE {so2_date_filter};
         let end = (chunk_start + PROD_CHUNK).min(codigos.len());
         sqlx::query(
             r#"
-            INSERT INTO produtos (codigo, descricao, linha_prefix, base, media_levantamento, codigo_barras)
-            SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::float8[], $6::text[])
+            INSERT INTO produtos (codigo, descricao, linha_prefix, base, media_levantamento, codigo_barras, qtde_cx)
+            SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::float8[], $6::text[], $7::int4[])
             ON CONFLICT (codigo) DO UPDATE SET
                 descricao = EXCLUDED.descricao,
                 linha_prefix = EXCLUDED.linha_prefix,
                 base = EXCLUDED.base,
                 media_levantamento = EXCLUDED.media_levantamento,
-                codigo_barras = EXCLUDED.codigo_barras
+                codigo_barras = EXCLUDED.codigo_barras,
+                qtde_cx = EXCLUDED.qtde_cx
             "#,
         )
         .bind(&codigos[chunk_start..end])
@@ -2007,6 +2022,7 @@ WHERE {so2_date_filter};
         .bind(&bases[chunk_start..end])
         .bind(&medias[chunk_start..end])
         .bind(&codigos_barras[chunk_start..end])
+        .bind(&qtde_cxs[chunk_start..end])
         .execute(&mut *tx)
         .await?;
 
@@ -2222,45 +2238,29 @@ WHERE {so2_date_filter};
     eprintln!("[ERP Sync] Fase fornecedores/itens commitada.");
     let mut tx = pool.begin().await?;
 
-    // Re-lê D1/D2 imediatamente antes de gravar (D1 limpo, sem NOLOCK).
+    // Re-lê D1/D2 imediatamente antes de gravar (sem NOLOCK).
     eprintln!("[ERP Sync] Reconsultando D1/D2 imediatamente antes dos snapshots...");
     {
-        let stream = client.query(query_stocks_clean, &[]).await?;
+        let stream = client.query(query_stocks.as_str(), &[]).await?;
         let db_rows_stocks = stream.into_first_result().await?;
         stocks_list.clear();
         for row in db_rows_stocks {
-            let code: &str = row.get(0).unwrap_or("");
-            if code.is_empty() {
-                continue;
+            if let Some(stk) = stock_row_from_mssql(&row, true) {
+                stocks_list.push(stk);
             }
-            stocks_list.push(StockRow {
-                code: code.trim().to_string(),
-                stock_qty: mssql_f64(&row, 1),
-                reserved_qty: mssql_f64(&row, 2),
-                in_prod: mssql_f64(&row, 3),
-                in_orders: mssql_f64(&row, 4),
-            });
         }
         let stream = client.query(D2_MATERIAIS_STOCKS_SQL_CLEAN, &[]).await?;
         let db_rows_mat_stocks = stream.into_first_result().await?;
         mat_stocks_list.clear();
         for row in db_rows_mat_stocks {
-            let code: &str = row.get(0).unwrap_or("");
-            if code.is_empty() {
-                continue;
+            if let Some(stk) = stock_row_from_mssql(&row, false) {
+                mat_stocks_list.push(stk);
             }
-            mat_stocks_list.push(StockRow {
-                code: code.trim().to_string(),
-                stock_qty: mssql_f64(&row, 1),
-                reserved_qty: mssql_f64(&row, 2),
-                in_prod: mssql_f64(&row, 3),
-                in_orders: mssql_f64(&row, 4),
-            });
         }
     }
 
     // Write Stock Snapshots (Insumos + Materiais) — delete + insert em lote.
-    // Insumos ganha de Materiais no mesmo código (evita sobrescrever nQtdeEstoque da tela).
+    // Insumos ganha de Materiais no mesmo código.
     let mut merged_stocks: std::collections::HashMap<String, StockRow> =
         std::collections::HashMap::with_capacity(stocks_list.len() + mat_stocks_list.len());
     for stk in &mat_stocks_list {
@@ -2330,7 +2330,7 @@ WHERE {so2_date_filter};
             .await?;
         }
         eprintln!(
-            "[ERP Sync] Snapshots gravados: {count_snapshots} (insumos via nQtdeEstoque)"
+            "[ERP Sync] Snapshots gravados: {count_snapshots} (insumos via recálculo de movimentos)"
         );
     }
 
@@ -3411,9 +3411,13 @@ WHERE {so2_date_filter};
         "[ERP Sync] Fase pedidos commitada (PO={count_pos} SO={count_sales_orders})."
     );
 
-    // Reaplica regras de subcategoria de todos os módulos (main/coloração/apoio).
-    crate::modules::compras::planejamento::commands::reapply_all_compras_auto_subcategories(pool)
-        .await;
+    // Passo Q: Recebimento de Insumos (Controle de Qualidade)
+    if let Err(e) = sync_recebe_insumos(pool, false).await {
+        eprintln!("[ERP Sync] Aviso: falha ao sincronizar Recebe_Insumos: {e}");
+    } else {
+        eprintln!("[ERP Sync] Passo Q: Recebimentos de Insumos sincronizados com sucesso.");
+    }
+
 
     let now_iso = Utc::now().to_rfc3339();
     let today = Local::now().date_naive().format("%Y-%m-%d").to_string();
@@ -3434,7 +3438,7 @@ WHERE {so2_date_filter};
         );
     }
 
-    // Sempre conferir tela ERP (nQtdeEstoque) após gravar — insumos + materiais + produtos.
+    // Sempre conferir o recálculo de estoque após gravar — insumos + materiais + produtos.
     let (stock_verified, stock_repaired) = match verify_and_repair_all_stocks(pool, None).await {
         Ok(vr) => {
             eprintln!(
@@ -3529,15 +3533,15 @@ pub async fn create_database_dump(pool: &PgPool) -> anyhow::Result<crate::models
 pub struct ErpStockLive {
     pub source: String,
     pub code: String,
-    /// Campo da tela ERP usado pelo Hub (insumos: `nQtdeEstoque`).
+    /// Saldo usado pelo Hub. Insumos: recálculo dos movimentos. Materiais e produtos: `nQtdeEstoque`.
     pub stock_qty: f64,
     pub reserved_qty: f64,
     pub in_production: f64,
     pub in_orders: f64,
-    /// Só insumos: `nQtdeEstoque` (igual a `stock_qty` na regra atual).
+    /// Só insumos: cache `nQtdeEstoque` (pode divergir da tela).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stock_qty_raw: Option<f64>,
-    /// Só insumos: `nQtdeEstoqueA` (diagnóstico; pode divergir da tela).
+    /// Só insumos: `nQtdeEstoqueA` (diagnóstico).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stock_qty_a: Option<f64>,
 }
@@ -3549,32 +3553,20 @@ pub async fn fetch_erp_stock_live(pool: &PgPool, code: &str) -> anyhow::Result<O
     }
     let mut client = connect_sql_server(pool).await?;
 
-    // Query limpa (sem NOLOCK); ORDER BY estabiliza TOP 1 se houver duplicata.
-    // Lê estoque da tela do ERP (nQtdeEstoque).
-    let query_insumo = "
-SELECT TOP 1
-    CAST(nQtdeEstoque AS FLOAT),
-    CAST(nqtdeReserva AS FLOAT),
-    CAST(nQtdeProducao AS FLOAT),
-    CAST(nQtdePedidos AS FLOAT),
-    CAST(nQtdeEstoque AS FLOAT),
-    CAST(nQtdeEstoqueA AS FLOAT)
-FROM Insumos
-WHERE LTRIM(RTRIM(cReferencia)) = @P1
-ORDER BY cReferencia
-";
-    let stream = client.query(query_insumo, &[&code]).await?;
+    // Recálculo dos movimentos. Coluna 5 = cache nQtdeEstoque; coluna 6 = nQtdeEstoqueA.
+    let query_insumo = d1_insumos_stock_sql(true);
+    let stream = client.query(query_insumo.as_str(), &[&code]).await?;
     let rows = stream.into_first_result().await?;
     if let Some(row) = rows.first() {
         return Ok(Some(ErpStockLive {
             source: "Insumos".into(),
             code: code.to_string(),
-            stock_qty: mssql_f64(row, 0),
-            reserved_qty: mssql_f64(row, 1),
-            in_production: mssql_f64(row, 2),
-            in_orders: mssql_f64(row, 3),
-            stock_qty_raw: Some(mssql_f64(row, 4)),
-            stock_qty_a: Some(mssql_f64(row, 5)),
+            stock_qty: mssql_f64(row, 1),
+            reserved_qty: mssql_f64(row, 2),
+            in_production: mssql_f64(row, 3),
+            in_orders: mssql_f64(row, 4),
+            stock_qty_raw: Some(mssql_f64(row, 5)),
+            stock_qty_a: Some(mssql_f64(row, 6)),
         }));
     }
 
@@ -3723,19 +3715,6 @@ pub async fn refresh_stock_snapshot_from_erp(
 /// ε unificado Hub × ERP (stock / reserva / produção / pedidos).
 pub const STOCK_VERIFY_EPS: f64 = 0.01;
 
-/// Query D1 limpa (sem NOLOCK) — reconsulta final do sync e verificação pós-sync.
-/// Lê estoque da tela do ERP (nQtdeEstoque).
-const D1_INSUMOS_STOCKS_SQL_CLEAN: &str = r#"
-SELECT 
-    cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
-    CAST(nQtdeEstoque AS FLOAT) as nQtdeEstoque,
-    CAST(nqtdeReserva AS FLOAT) as nqtdeReserva,
-    CAST(nQtdeProducao AS FLOAT) as nQtdeProducao,
-    CAST(nQtdePedidos AS FLOAT) as nQtdePedidos
-FROM Insumos
-WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInativo IS NULL)
-"#;
-
 const D2_MATERIAIS_STOCKS_SQL_CLEAN: &str = r#"
 SELECT 
     cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
@@ -3782,6 +3761,9 @@ pub struct VerifyRepairResult {
     pub repaired: usize,
     pub samples: Vec<StockVerifySample>,
     pub by_source: VerifyRepairBySource,
+    /// Insumos em que o cache `nQtdeEstoque` diverge do recálculo. Não é correção.
+    pub erp_cache_drift: usize,
+    pub erp_cache_drift_samples: Vec<StockVerifySample>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3818,24 +3800,13 @@ fn stock_fields_diverge(
 
 fn collect_stock_rows(
     rows: Vec<tiberius::Row>,
+    with_cache: bool,
 ) -> std::collections::HashMap<String, StockRow> {
     let mut map = std::collections::HashMap::with_capacity(rows.len());
     for row in rows {
-        let code: &str = row.get(0).unwrap_or("");
-        let code = code.trim();
-        if code.is_empty() {
-            continue;
+        if let Some(stk) = stock_row_from_mssql(&row, with_cache) {
+            map.insert(stk.code.clone(), stk);
         }
-        map.insert(
-            code.to_string(),
-            StockRow {
-                code: code.to_string(),
-                stock_qty: mssql_f64(&row, 1),
-                reserved_qty: mssql_f64(&row, 2),
-                in_prod: mssql_f64(&row, 3),
-                in_orders: mssql_f64(&row, 4),
-            },
-        );
     }
     map
 }
@@ -3862,11 +3833,12 @@ pub async fn verify_and_repair_all_stocks(
 
     let mut client = connect_sql_server(pool).await?;
 
-    let stream = client.query(D1_INSUMOS_STOCKS_SQL_CLEAN, &[]).await?;
-    let insumos_map = collect_stock_rows(stream.into_first_result().await?);
+    let query_d1 = d1_insumos_stock_sql(false);
+    let stream = client.query(query_d1.as_str(), &[]).await?;
+    let insumos_map = collect_stock_rows(stream.into_first_result().await?, true);
 
     let stream = client.query(D2_MATERIAIS_STOCKS_SQL_CLEAN, &[]).await?;
-    let mut materiais_map = collect_stock_rows(stream.into_first_result().await?);
+    let mut materiais_map = collect_stock_rows(stream.into_first_result().await?, false);
     // Insumos ganha de Materiais no mesmo código (regra do sync D1/D2).
     materiais_map.retain(|code, _| !insumos_map.contains_key(code));
 
@@ -3893,6 +3865,8 @@ pub async fn verify_and_repair_all_stocks(
     let mut repaired = 0usize;
     let mut samples: Vec<StockVerifySample> = Vec::new();
     let mut by_source = VerifyRepairBySource::default();
+    let mut erp_cache_drift = 0usize;
+    let mut erp_cache_drift_samples: Vec<StockVerifySample> = Vec::new();
 
     emit(
         &progress_tx,
@@ -3996,6 +3970,19 @@ pub async fn verify_and_repair_all_stocks(
             erp.in_prod,
             erp.in_orders,
         );
+        if let Some(cache) = erp.erp_cache_qty {
+            if (cache - erp.stock_qty).abs() > STOCK_VERIFY_EPS {
+                erp_cache_drift += 1;
+                if erp_cache_drift_samples.len() < 50 {
+                    erp_cache_drift_samples.push(StockVerifySample {
+                        code: erp.code.clone(),
+                        hub: cache,
+                        erp: erp.stock_qty,
+                        source: Some("insumos_cache".into()),
+                    });
+                }
+            }
+        }
         if needs {
             let hub_stock = hub.map(|(s, _, _, _)| s).unwrap_or(0.0);
             let write_code = canonical_items
@@ -4185,7 +4172,7 @@ pub async fn verify_and_repair_all_stocks(
     }
 
     eprintln!(
-        "[ERP Sync] Verificação estoque I+M+P: checked={total} repaired={repaired} (I={} M={} P={})",
+        "[ERP Sync] Verificação estoque I+M+P: checked={total} repaired={repaired} (I={} M={} P={}) cache_erp_desatualizado={erp_cache_drift}",
         by_source.insumos, by_source.materiais, by_source.produtos
     );
 
@@ -4194,37 +4181,22 @@ pub async fn verify_and_repair_all_stocks(
         repaired,
         samples,
         by_source,
+        erp_cache_drift,
+        erp_cache_drift_samples,
     })
 }
 
-/// Regrava todos os snapshots de insumos a partir de nQtdeEstoque (D1).
+/// Regrava todos os snapshots de insumos a partir do recálculo D1.
 pub async fn resync_all_insumo_snapshots_from_erp(pool: &PgPool) -> anyhow::Result<usize> {
     let mut client = connect_sql_server(pool).await?;
-    let query = "
-SELECT 
-    cReferencia COLLATE Latin1_General_CI_AS as cReferencia,
-    CAST(nQtdeEstoque AS FLOAT) as nQtdeEstoque,
-    CAST(nqtdeReserva AS FLOAT) as nqtdeReserva,
-    CAST(nQtdeProducao AS FLOAT) as nQtdeProducao,
-    CAST(nQtdePedidos AS FLOAT) as nQtdePedidos
-FROM Insumos
-WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInativo IS NULL);
-";
-    let stream = client.query(query, &[]).await?;
+    let query = d1_insumos_stock_sql(false);
+    let stream = client.query(query.as_str(), &[]).await?;
     let rows = stream.into_first_result().await?;
     let mut list = Vec::new();
     for row in rows {
-        let code: &str = row.get(0).unwrap_or("");
-        if code.is_empty() {
-            continue;
+        if let Some(stk) = stock_row_from_mssql(&row, true) {
+            list.push(stk);
         }
-        list.push(StockRow {
-            code: code.trim().to_string(),
-            stock_qty: mssql_f64(&row, 1),
-            reserved_qty: mssql_f64(&row, 2),
-            in_prod: mssql_f64(&row, 3),
-            in_orders: mssql_f64(&row, 4),
-        });
     }
 
     let import_id = Uuid::new_v4().to_string();
@@ -4233,7 +4205,7 @@ WHERE cReferencia IS NOT NULL AND cReferencia <> '' AND (cInativo = 'N' OR cInat
         "INSERT INTO stock_imports (id, filename, source, item_count) VALUES ($1, $2, $3, $4)",
     )
     .bind(&import_id)
-    .bind("D1 nQtdeEstoqueA resync")
+    .bind("D1 recalculo resync")
     .bind("ERP")
     .bind(list.len() as i32)
     .execute(&mut *tx)
@@ -4407,4 +4379,196 @@ WHERE cCodProd IS NOT NULL AND cCodProd <> '' AND (cInativo = 'N' OR cInativo IS
         sample_before_after: sample,
     })
 }
+
+/// Passo Q: Sincronização de Recebimento de Insumos / Matéria-Prima (Recebe_Insumos)
+pub async fn sync_recebe_insumos(pool: &PgPool, force_full: bool) -> Result<(usize, usize), String> {
+    let mut client = connect_sql_server(pool)
+        .await
+        .map_err(|e| format!("Erro conectando ao SQL Server: {e}"))?;
+
+    let max_reg: i32 = if !force_full {
+        sqlx::query_scalar("SELECT COALESCE(MAX(registro), 0) FROM erp_recebimentos_insumos")
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0)
+    } else {
+        0
+    };
+
+    let where_clause = if max_reg > 0 {
+        let min_reg = (max_reg - 50).max(0);
+        format!("WHERE Registro > {}", min_reg)
+    } else {
+        String::new()
+    };
+
+    let q_receb = format!(
+        r#"
+        SELECT 
+            Registro,
+            nCodFornec,
+            CAST(cNomeF AS NVARCHAR(200)) AS cNomeF,
+            NOTA,
+            CONVERT(NVARCHAR(19), DATA_EMISSAO, 120) AS dEmissaoStr,
+            CAST(cReferencia AS NVARCHAR(100)) AS cReferencia,
+            CAST(cDescricao AS NVARCHAR(200)) AS cDescricao,
+            CAST(UNIDADE AS NVARCHAR(50)) AS UNIDADE,
+            CAST(QUANTIDADE AS FLOAT) AS QUANTIDADE,
+            CAST(VALOR_UNITARIO AS FLOAT) AS VALOR_UNITARIO,
+            CAST(VALOR_TOTAL AS FLOAT) AS VALOR_TOTAL,
+            CONVERT(NVARCHAR(10), dEntrada, 120) AS dEntradaStr,
+            CAST(cLoteFornec AS NVARCHAR(100)) AS cLoteFornec,
+            CONVERT(NVARCHAR(10), dValidade, 120) AS dValidadeStr,
+            CAST(cTipoReceb AS NVARCHAR(50)) AS cTipoReceb,
+            CAST(cCodigoReceb AS NVARCHAR(100)) AS cCodigoReceb,
+            CAST(cObservacoes AS NVARCHAR(MAX)) AS cObservacoes,
+            CAST(cStatus AS NVARCHAR(50)) AS cStatus,
+            CAST(cUsuario AS NVARCHAR(100)) AS cUsuario,
+            nRegistro
+        FROM Recebe_Insumos WITH (NOLOCK)
+        {}
+        ORDER BY Registro DESC
+        "#,
+        where_clause
+    );
+
+    let stream = client
+        .query(q_receb, &[])
+        .await
+        .map_err(|e| format!("Falha ao consultar Recebe_Insumos: {e}"))?;
+    let rows = stream
+        .into_first_result()
+        .await
+        .map_err(|e| format!("Falha ao ler linhas de Recebe_Insumos: {e}"))?;
+
+    let mut total_saved = 0;
+    const CHUNK_SIZE: usize = 500;
+
+    for chunk in rows.chunks(CHUNK_SIZE) {
+        let mut v_registro: Vec<i32> = Vec::with_capacity(chunk.len());
+        let mut v_cod_fornec: Vec<Option<i32>> = Vec::with_capacity(chunk.len());
+        let mut v_fornec: Vec<Option<String>> = Vec::with_capacity(chunk.len());
+        let mut v_nota: Vec<Option<i32>> = Vec::with_capacity(chunk.len());
+        let mut v_cod_insumo: Vec<String> = Vec::with_capacity(chunk.len());
+        let mut v_desc_insumo: Vec<String> = Vec::with_capacity(chunk.len());
+        let mut v_unidade: Vec<Option<String>> = Vec::with_capacity(chunk.len());
+        let mut v_qtd: Vec<f64> = Vec::with_capacity(chunk.len());
+        let mut v_vlr_unit: Vec<Option<f64>> = Vec::with_capacity(chunk.len());
+        let mut v_vlr_tot: Vec<Option<f64>> = Vec::with_capacity(chunk.len());
+        let mut v_entrada: Vec<Option<NaiveDate>> = Vec::with_capacity(chunk.len());
+        let mut v_lote: Vec<Option<String>> = Vec::with_capacity(chunk.len());
+        let mut v_validade: Vec<Option<NaiveDate>> = Vec::with_capacity(chunk.len());
+        let mut v_tipo: Vec<Option<String>> = Vec::with_capacity(chunk.len());
+        let mut v_cod_receb: Vec<Option<String>> = Vec::with_capacity(chunk.len());
+        let mut v_obs: Vec<Option<String>> = Vec::with_capacity(chunk.len());
+        let mut v_status: Vec<Option<String>> = Vec::with_capacity(chunk.len());
+        let mut v_usuario: Vec<Option<String>> = Vec::with_capacity(chunk.len());
+        let mut v_num_reg: Vec<Option<i32>> = Vec::with_capacity(chunk.len());
+
+        for r in chunk {
+            let reg: i32 = r.get("Registro").unwrap_or(0);
+            v_registro.push(reg);
+            v_cod_fornec.push(r.get("nCodFornec"));
+            v_fornec.push(r.get::<&str, _>("cNomeF").map(|s| s.trim().to_string()));
+            v_nota.push(r.get("NOTA"));
+            v_cod_insumo.push(r.get::<&str, _>("cReferencia").unwrap_or("").trim().to_string());
+            v_desc_insumo.push(r.get::<&str, _>("cDescricao").unwrap_or("").trim().to_string());
+            v_unidade.push(r.get::<&str, _>("UNIDADE").map(|s| s.trim().to_string()));
+            v_qtd.push(r.get::<f64, _>("QUANTIDADE").unwrap_or(0.0));
+            v_vlr_unit.push(r.get::<f64, _>("VALOR_UNITARIO"));
+            v_vlr_tot.push(r.get::<f64, _>("VALOR_TOTAL"));
+
+            let dt_ent = r
+                .get::<&str, _>("dEntradaStr")
+                .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+            v_entrada.push(dt_ent);
+
+            v_lote.push(r.get::<&str, _>("cLoteFornec").map(|s| s.trim().to_string()));
+
+            let dt_val = r
+                .get::<&str, _>("dValidadeStr")
+                .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+            v_validade.push(dt_val);
+
+            v_tipo.push(r.get::<&str, _>("cTipoReceb").map(|s| s.trim().to_string()));
+            v_cod_receb.push(r.get::<&str, _>("cCodigoReceb").map(|s| s.trim().to_string()));
+            v_obs.push(r.get::<&str, _>("cObservacoes").map(|s| s.trim().to_string()));
+            v_status.push(r.get::<&str, _>("cStatus").map(|s| s.trim().to_string()));
+            v_usuario.push(r.get::<&str, _>("cUsuario").map(|s| s.trim().to_string()));
+            v_num_reg.push(r.get("nRegistro"));
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO erp_recebimentos_insumos (
+                registro, cod_fornecedor, fornecedor, nota_fiscal,
+                codigo_insumo, descricao_insumo, unidade, quantidade,
+                valor_unitario, valor_total, data_entrada, lote_fornecedor,
+                data_validade, tipo_recebimento, codigo_recebimento,
+                observacoes, status_erp, usuario, num_registro, updated_at
+            )
+            SELECT 
+                r, cf, f, nf,
+                ci, di, u, q,
+                vu, vt, de, lf,
+                dv, tr, cr,
+                ob, st, us, nr, NOW()
+            FROM UNNEST(
+                $1::int4[], $2::int4[], $3::text[], $4::int4[],
+                $5::text[], $6::text[], $7::text[], $8::float8[],
+                $9::float8[], $10::float8[], $11::date[], $12::text[],
+                $13::date[], $14::text[], $15::text[],
+                $16::text[], $17::text[], $18::text[], $19::int4[]
+            ) AS t(r, cf, f, nf, ci, di, u, q, vu, vt, de, lf, dv, tr, cr, ob, st, us, nr)
+            ON CONFLICT (registro) DO UPDATE SET
+                cod_fornecedor = EXCLUDED.cod_fornecedor,
+                fornecedor = EXCLUDED.fornecedor,
+                nota_fiscal = EXCLUDED.nota_fiscal,
+                codigo_insumo = EXCLUDED.codigo_insumo,
+                descricao_insumo = EXCLUDED.descricao_insumo,
+                unidade = EXCLUDED.unidade,
+                quantidade = EXCLUDED.quantidade,
+                valor_unitario = EXCLUDED.valor_unitario,
+                valor_total = EXCLUDED.valor_total,
+                data_entrada = EXCLUDED.data_entrada,
+                lote_fornecedor = EXCLUDED.lote_fornecedor,
+                data_validade = EXCLUDED.data_validade,
+                tipo_recebimento = EXCLUDED.tipo_recebimento,
+                codigo_recebimento = EXCLUDED.codigo_recebimento,
+                observacoes = EXCLUDED.observacoes,
+                status_erp = EXCLUDED.status_erp,
+                usuario = EXCLUDED.usuario,
+                num_registro = EXCLUDED.num_registro,
+                updated_at = NOW()
+            "#,
+        )
+        .bind(&v_registro)
+        .bind(&v_cod_fornec)
+        .bind(&v_fornec)
+        .bind(&v_nota)
+        .bind(&v_cod_insumo)
+        .bind(&v_desc_insumo)
+        .bind(&v_unidade)
+        .bind(&v_qtd)
+        .bind(&v_vlr_unit)
+        .bind(&v_vlr_tot)
+        .bind(&v_entrada)
+        .bind(&v_lote)
+        .bind(&v_validade)
+        .bind(&v_tipo)
+        .bind(&v_cod_receb)
+        .bind(&v_obs)
+        .bind(&v_status)
+        .bind(&v_usuario)
+        .bind(&v_num_reg)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Falha ao inserir erp_recebimentos_insumos: {e}"))?;
+
+        total_saved += chunk.len();
+    }
+
+    Ok((total_saved, 0))
+}
+
 

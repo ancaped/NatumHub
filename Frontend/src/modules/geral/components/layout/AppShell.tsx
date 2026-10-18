@@ -26,7 +26,7 @@ function HubWelcome() {
             <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-lg bg-zinc-900 text-white">0.1b</span>
           </div>
           <p className="text-sm text-zinc-500">
-            Passe o mouse ou clique em um módulo na barra superior para escolher a tela.
+            No celular, toque em Módulos. No computador, use a barra superior.
           </p>
         </div>
       </div>

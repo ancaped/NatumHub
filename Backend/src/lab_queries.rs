@@ -436,6 +436,9 @@ pub async fn get_fisco_quimica_analyses_query(pool: PgPool) -> Result<Vec<FiscoQ
     let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'CONFORME'")
         .execute(&pool)
         .await;
+    let _ = sqlx::query("UPDATE fisco_quimica_analyses SET status = 'EM_CORRECAO' WHERE (notes LIKE '%[STATUS: EM CORREÇÃO]%' OR notes LIKE '%[EM CORREÇÃO]%') AND (status IS NULL OR status = 'CONFORME')")
+        .execute(&pool)
+        .await;
     let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS media_url TEXT")
         .execute(&pool)
         .await;
@@ -457,9 +460,21 @@ pub async fn get_fisco_quimica_analyses_query(pool: PgPool) -> Result<Vec<FiscoQ
     let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS odor_result TEXT DEFAULT 'CARACTERÍSTICO'")
         .execute(&pool)
         .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS viscometer_model TEXT")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS viscometer_spindle TEXT")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS viscometer_rpm DOUBLE PRECISION")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS viscometer_seconds INTEGER")
+        .execute(&pool)
+        .await;
 
     let rows = sqlx::query(
-        "SELECT id, product_code, product_name, batch, analysis_date, technician, ph_measured, viscosity_measured, density_measured, fraction_weight, envase_target_weight, envase_target_unit, has_adjustment, corrective_agent_id, initial_viscosity, trial_agent_qty, trial_viscosity, agent_qty_per_liter, batch_size, total_agent_required, notes, created_at, fabricated_by, authorized_by, synced_to_erp, to_char(erp_synced_at, 'YYYY-MM-DD HH24:MI:SS'), COALESCE(status, 'CONFORME'), media_url, aspect_ok, aspect_result, color_ok, color_result, odor_ok, odor_result FROM fisco_quimica_analyses ORDER BY analysis_date DESC, created_at DESC",
+        "SELECT id, product_code, product_name, batch, analysis_date, technician, ph_measured, viscosity_measured, density_measured, fraction_weight, envase_target_weight, envase_target_unit, has_adjustment, corrective_agent_id, initial_viscosity, trial_agent_qty, trial_viscosity, agent_qty_per_liter, batch_size, total_agent_required, notes, created_at, fabricated_by, authorized_by, synced_to_erp, to_char(erp_synced_at, 'YYYY-MM-DD HH24:MI:SS'), COALESCE(status, 'CONFORME'), media_url, aspect_ok, aspect_result, color_ok, color_result, odor_ok, odor_result, viscometer_model, viscometer_spindle, viscometer_rpm, viscometer_seconds FROM fisco_quimica_analyses ORDER BY analysis_date DESC, created_at DESC",
     )
     .fetch_all(&pool)
     .await
@@ -507,6 +522,10 @@ pub async fn get_fisco_quimica_analyses_query(pool: PgPool) -> Result<Vec<FiscoQ
                 color_result: row.try_get(31).ok(),
                 odor_ok: row.try_get(32).ok(),
                 odor_result: row.try_get(33).ok(),
+                viscometer_model: row.try_get(34).ok(),
+                viscometer_spindle: row.try_get(35).ok(),
+                viscometer_rpm: row.try_get(36).ok(),
+                viscometer_seconds: row.try_get(37).ok(),
             }
         })
         .collect())
@@ -540,10 +559,31 @@ pub async fn save_fisco_quimica_analysis_query(
     let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS odor_result TEXT DEFAULT 'CARACTERÍSTICO'")
         .execute(&pool)
         .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS viscometer_model TEXT")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS viscometer_spindle TEXT")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS viscometer_rpm DOUBLE PRECISION")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE fisco_quimica_analyses ADD COLUMN IF NOT EXISTS viscometer_seconds INTEGER")
+        .execute(&pool)
+        .await;
+
+    let status_val = if analysis.status.as_deref() == Some("EM_CORRECAO")
+        || analysis.notes.as_deref().unwrap_or("").contains("[STATUS: EM CORREÇÃO]")
+        || analysis.notes.as_deref().unwrap_or("").contains("[EM CORREÇÃO]")
+    {
+        "EM_CORRECAO"
+    } else {
+        analysis.status.as_deref().unwrap_or("CONFORME")
+    };
 
     sqlx::query(
-        "INSERT INTO fisco_quimica_analyses (id, product_code, product_name, batch, analysis_date, technician, ph_measured, viscosity_measured, density_measured, fraction_weight, envase_target_weight, envase_target_unit, has_adjustment, corrective_agent_id, initial_viscosity, trial_agent_qty, trial_viscosity, agent_qty_per_liter, batch_size, total_agent_required, notes, fabricated_by, authorized_by, synced_to_erp, status, media_url, aspect_ok, aspect_result, color_ok, color_result, odor_ok, odor_result)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
+        "INSERT INTO fisco_quimica_analyses (id, product_code, product_name, batch, analysis_date, technician, ph_measured, viscosity_measured, density_measured, fraction_weight, envase_target_weight, envase_target_unit, has_adjustment, corrective_agent_id, initial_viscosity, trial_agent_qty, trial_viscosity, agent_qty_per_liter, batch_size, total_agent_required, notes, fabricated_by, authorized_by, synced_to_erp, status, media_url, aspect_ok, aspect_result, color_ok, color_result, odor_ok, odor_result, viscometer_model, viscometer_spindle, viscometer_rpm, viscometer_seconds)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36)
          ON CONFLICT(id) DO UPDATE SET
             product_code = EXCLUDED.product_code,
             product_name = EXCLUDED.product_name,
@@ -575,7 +615,11 @@ pub async fn save_fisco_quimica_analysis_query(
             color_ok = EXCLUDED.color_ok,
             color_result = EXCLUDED.color_result,
             odor_ok = EXCLUDED.odor_ok,
-            odor_result = EXCLUDED.odor_result",
+            odor_result = EXCLUDED.odor_result,
+            viscometer_model = EXCLUDED.viscometer_model,
+            viscometer_spindle = EXCLUDED.viscometer_spindle,
+            viscometer_rpm = EXCLUDED.viscometer_rpm,
+            viscometer_seconds = EXCLUDED.viscometer_seconds",
     )
     .bind(&analysis.id)
     .bind(&analysis.product_code)
@@ -601,7 +645,7 @@ pub async fn save_fisco_quimica_analysis_query(
     .bind(&analysis.fabricated_by)
     .bind(&analysis.authorized_by)
     .bind(analysis.synced_to_erp.unwrap_or(false))
-    .bind(analysis.status.as_deref().unwrap_or("CONFORME"))
+    .bind(status_val)
     .bind(&analysis.media_url)
     .bind(analysis.aspect_ok.unwrap_or(true))
     .bind(analysis.aspect_result.as_deref().unwrap_or("CONFORME"))
@@ -609,6 +653,10 @@ pub async fn save_fisco_quimica_analysis_query(
     .bind(analysis.color_result.as_deref().unwrap_or("CONFORME"))
     .bind(analysis.odor_ok.unwrap_or(true))
     .bind(analysis.odor_result.as_deref().unwrap_or("CARACTERÍSTICO"))
+    .bind(&analysis.viscometer_model)
+    .bind(&analysis.viscometer_spindle)
+    .bind(analysis.viscometer_rpm)
+    .bind(analysis.viscometer_seconds)
     .execute(&pool)
     .await
     .map_err(|e| e.to_string())?;

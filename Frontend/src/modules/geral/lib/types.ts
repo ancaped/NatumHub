@@ -174,6 +174,8 @@ export interface DemandResult {
   reservedQty: number;
   /** Reserva espelhada do ERP (tooltip). */
   reservedQtyErp?: number | null;
+  /** Soma nas ordens de produção abertas. Não é o nqtdeReserva do ERP. */
+  reservedQtyOrdens?: number;
   inProduction: number;
   inOrders: number;
   /** Consumo se produzir produtos em Produzir Urgente / Abrir Ordem. */
@@ -543,6 +545,10 @@ export interface FiscoQuimicaAnalysis {
   colorResult?: string | null;
   odorOk?: boolean | null;
   odorResult?: string | null;
+  viscometerModel?: string | null;
+  viscometerSpindle?: string | null;
+  viscometerRpm?: number | null;
+  viscometerSeconds?: number | null;
 }
 
 export interface CorrectiveBatchItem {
@@ -606,6 +612,7 @@ export interface FiscoErpLoteItem {
   fabricated_by: string;
   authorized_by: string;
   unidades: number;
+  qtde_cx?: number;
   d_pesado?: string | null;
   d_envase?: string | null;
   ph_erp?: number | null;

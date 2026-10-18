@@ -54,6 +54,27 @@ export const api = {
   getSimilarItems(code: string): Promise<Item[]> {
     return hubJson(`compras/items/similar${qs({ code })}`);
   },
+  getSimilarPairs(): Promise<{ codeA: string; codeB: string }[]> {
+    return hubJson('compras/items/similar/pairs');
+  },
+  getSimilarGroups(): Promise<{ groupId: string; stockTotal: number; members: { code: string; description: string; unit: string; stock: number }[] }[]> {
+    return hubJson('compras/items/similar/groups');
+  },
+  linkSimilarGroup(codes: string[], groupId?: string): Promise<void> {
+    return hubJson('compras/items/similar/link', { method: 'POST', body: JSON.stringify({ codes, groupId }) });
+  },
+  unlinkSimilarItem(code: string): Promise<void> {
+    return hubJson(`compras/items/similar/item/${encodeURIComponent(code)}`, { method: 'DELETE' });
+  },
+  unlinkSimilarGroup(groupId: string): Promise<void> {
+    return hubJson(`compras/items/similar/groups/${encodeURIComponent(groupId)}`, { method: 'DELETE' });
+  },
+  getStockCalibrations(): Promise<string[]> {
+    return hubJson('compras/items/stock-calibrations');
+  },
+  setItemRealStock(code: string, stock: number): Promise<void> {
+    return hubJson('compras/items/stock', { method: 'POST', body: JSON.stringify({ code, stock }) });
+  },
   addSimilarItem(codeA: string, codeB: string): Promise<void> {
     return hubJson('compras/items/similar', { method: 'POST', body: JSON.stringify({ codeA, codeB }) });
   },

@@ -25,6 +25,7 @@ pub const MODULE_ADMIN_ACOMPANHAMENTO_PRODUCAO: &str = "admin_acompanhamento_pro
 
 pub const MODULE_PLANEJAMENTO_PRODUCAO: &str = "planejamento_producao";
 pub const MODULE_PRODUCAO: &str = "producao";
+pub const MODULE_PRODUCAO_ROTINA: &str = "producao_rotina";
 pub const MODULE_PRODUCAO_BASES: &str = "producao_bases";
 pub const MODULE_PRODUCAO_LOTES: &str = "producao_lotes";
 pub const MODULE_PRODUCAO_PROC: &str = "producao_proc";
@@ -55,6 +56,7 @@ pub const MODULE_QUALIDADE_LIMPEZA: &str = "qualidade_limpeza";
 pub const MODULE_QUALIDADE_RECEBIMENTO_MP: &str = "qualidade_recebimento_mp";
 pub const MODULE_QUALIDADE_DOCUMENTACAO: &str = "qualidade_documentacao";
 pub const MODULE_QUALIDADE_DEVOLUCOES: &str = "qualidade_devolucoes";
+pub const MODULE_QUALIDADE_AVARIAS: &str = "qualidade_avarias";
 /// Placeholder legado — hub Administrativo usa filhos (`admin_linha_produtos`, …).
 pub const MODULE_ADMINISTRATIVO: &str = "administrativo";
 /// Legado — use [`MODULE_EXPEDICAO_ECOMMERCE`].
@@ -89,6 +91,7 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_ADMIN_ACOMPANHAMENTO_PRODUCAO,
     MODULE_PLANEJAMENTO_PRODUCAO,
     MODULE_PRODUCAO,
+    MODULE_PRODUCAO_ROTINA,
     MODULE_PRODUCAO_BASES,
     MODULE_PRODUCAO_LOTES,
     MODULE_PRODUCAO_PROC,
@@ -109,6 +112,7 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_VENDAS_ONLINE,
     MODULE_CONTROLE_QUALIDADE,
     MODULE_QUALIDADE_DEVOLUCOES,
+    MODULE_QUALIDADE_AVARIAS,
     MODULE_QUALIDADE_POPS,
     MODULE_QUALIDADE_TREINAMENTOS,
     MODULE_QUALIDADE_TEMPERATURA,
@@ -162,12 +166,10 @@ pub fn module_registry() -> Vec<ModuleGroup> {
             label: "Almoxarifado".into(),
             hub_view: "almoxarifado_hub".into(),
             children: vec![
-                leaf(MODULE_ESTOQUE_ITENS, "Itens"),
-                leaf(MODULE_ESTOQUE_ALMOX, "Almoxarifado"),
-                leaf(MODULE_ESTOQUE_SUPERMERCADO, "Supermercado"),
-                leaf(MODULE_ESTOQUE_PECAS, "Peças de Reposição"),
+                leaf(MODULE_ESTOQUE_ALMOX, "Estoque"),
                 leaf(MODULE_ESTOQUE_EQUIPAMENTOS, "Equipamentos"),
                 leaf(MODULE_ESTOQUE_MANUTENCOES, "Manutenções"),
+                leaf(MODULE_COMPRAS_ALMOX, "Compras"),
             ],
         },
         ModuleGroup {
@@ -177,6 +179,7 @@ pub fn module_registry() -> Vec<ModuleGroup> {
             children: vec![
                 leaf(MODULE_PLANEJAMENTO_PRODUCAO, "Planejamento de Produção"),
                 leaf(MODULE_PRODUCAO, "Gerenciamento"),
+                leaf(MODULE_PRODUCAO_ROTINA, "Rotina de Produção"),
                 leaf(MODULE_PRODUCAO_BASES, "Gestão de Bases"),
                 leaf(MODULE_PRODUCAO_PROC, "PROC (Processos)"),
                 leaf(MODULE_MONTAGEM_KITS, "Montagem de Kits"),
@@ -197,7 +200,6 @@ pub fn module_registry() -> Vec<ModuleGroup> {
                 leaf(MODULE_COMPRAS_ONLINE, "Compras Online"),
                 leaf(MODULE_COMPRAS_PEDIDOS, "Pedidos"),
                 leaf(MODULE_COMPRAS_NOTAS, "Notas Fiscais"),
-                leaf(MODULE_COMPRAS_ALMOX, "Almoxarifado"),
                 leaf(MODULE_COMPRAS_SIMULATION, "Simulador"),
             ],
         },
@@ -217,6 +219,7 @@ pub fn module_registry() -> Vec<ModuleGroup> {
             children: vec![
                 leaf(MODULE_CONTROLE_QUALIDADE, "Controle de Qualidade"),
                 leaf(MODULE_QUALIDADE_DEVOLUCOES, "Devoluções"),
+                leaf(MODULE_QUALIDADE_AVARIAS, "Avarias"),
                 leaf(MODULE_QUALIDADE_POPS, "POPs"),
                 leaf(MODULE_QUALIDADE_TREINAMENTOS, "Treinamentos"),
                 leaf(MODULE_QUALIDADE_TEMPERATURA, "Temperatura"),
@@ -236,10 +239,6 @@ pub fn module_registry() -> Vec<ModuleGroup> {
                     "Relatórios · Produtos Ativos",
                 ),
                 leaf(MODULE_ADMIN_FUNCIONARIOS, "Funcionários"),
-                leaf(
-                    MODULE_ADMIN_ACOMPANHAMENTO_PRODUCAO,
-                    "Acompanhamento de Produção",
-                ),
             ],
         },
         ModuleGroup {
@@ -302,13 +301,16 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
             MODULE_ESTOQUE_PECAS,
             MODULE_ESTOQUE_EQUIPAMENTOS,
             MODULE_ESTOQUE_MANUTENCOES,
+            MODULE_COMPRAS_ALMOX,
         ]
         .into_iter()
         .map(String::from)
         .collect(),
         "producao" | "produção" => vec![
             MODULE_PLANEJAMENTO_PRODUCAO,
+            MODULE_ADMIN_ACOMPANHAMENTO_PRODUCAO,
             MODULE_PRODUCAO,
+            MODULE_PRODUCAO_ROTINA,
             MODULE_PRODUCAO_BASES,
             MODULE_PRODUCAO_LOTES,
             MODULE_PRODUCAO_PROC,
@@ -341,6 +343,7 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
         "qualidade" => vec![
             MODULE_CONTROLE_QUALIDADE,
             MODULE_QUALIDADE_DEVOLUCOES,
+            MODULE_QUALIDADE_AVARIAS,
             MODULE_QUALIDADE_POPS,
             MODULE_QUALIDADE_TREINAMENTOS,
             MODULE_QUALIDADE_TEMPERATURA,

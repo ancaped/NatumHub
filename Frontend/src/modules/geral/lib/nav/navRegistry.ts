@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
+  AlertTriangle,
   BookOpen,
   Boxes,
   Briefcase,
@@ -99,7 +100,7 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   estoque_pecas: Cog,
   estoque_equipamentos: Wrench,
   estoque_manutencoes: ClipboardList,
-  compras_almoxarifado: Warehouse,
+  compras_almoxarifado: ShoppingCart,
   admin_linha_produtos: CheckCircle2,
   admin_relatorios: FileSpreadsheet,
   admin_produtos_ativos_relatorios: FileSpreadsheet,
@@ -109,6 +110,7 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   vendas_online: ShoppingBag,
   controle_qualidade: ClipboardCheck,
   qualidade_devolucoes: PackageX,
+  qualidade_avarias: AlertTriangle,
   qualidade_pops: BookOpen,
   qualidade_treinamentos: GraduationCap,
   qualidade_temperatura: Thermometer,

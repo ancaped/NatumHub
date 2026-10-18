@@ -3,7 +3,6 @@ import {
   Tag,
   Search,
   Printer,
-  Sparkles,
   Edit2,
   Trash2,
   Plus,
@@ -50,7 +49,7 @@ export default function LabelsCatalogTab({
     estoque: { label: 'Matérias-Primas', badgeClass: 'bg-amber-50 text-amber-700 border-amber-200' },
     embalagens: { label: 'Embalagens & Apoio', badgeClass: 'bg-orange-50 text-orange-700 border-orange-200' },
     qualidade: { label: 'Controle de Qualidade', badgeClass: 'bg-rose-50 text-rose-700 border-rose-200' },
-    custom: { label: 'Personalizada', badgeClass: 'bg-purple-50 text-purple-700 border-purple-200' },
+    custom: { label: 'Personalizada', badgeClass: 'bg-zinc-100 text-zinc-700 border-zinc-200' },
   };
 
   // Filter templates
@@ -199,11 +198,11 @@ export default function LabelsCatalogTab({
                         <button
                           type="button"
                           onClick={() => onOpenSystemPrint(tpl)}
-                          className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-2xs active:scale-98"
-                          title="Imprimir preenchendo automaticamente Produto e Lote"
+                          className="flex items-center gap-1 bg-zinc-900 hover:bg-zinc-800 text-white px-2.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
+                          title="Imprimir preenchendo produto e lote"
                         >
-                          <Sparkles className="h-3 w-3" />
-                          <span>Auto-Fill</span>
+                          <Printer className="h-3 w-3" />
+                          <span>Com lote</span>
                         </button>
 
                         {/* Quick Print */}

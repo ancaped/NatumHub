@@ -12,6 +12,12 @@ pub mod postgres_bootstrap;
 pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
     axum::Router::new()
         .route("/login", axum::routing::get(acesso::login_page))
+        .route(
+            "/api/settings/report-logo",
+            axum::routing::get(configuracoes::handlers::get_report_logo)
+                .post(configuracoes::handlers::upload_report_logo)
+                .layer(axum::extract::DefaultBodyLimit::max(4 * 1024 * 1024)),
+        )
         .route("/api/settings/:key", axum::routing::get(configuracoes::handlers::get_setting_handler).post(configuracoes::handlers::save_setting_handler))
         .route("/api/import/watch-config", axum::routing::get(configuracoes::handlers::get_watch_config_handler).post(configuracoes::handlers::save_watch_config_handler))
         .route("/api/import/erp-sync-schedule", axum::routing::get(configuracoes::handlers::get_erp_sync_schedule_handler).post(configuracoes::handlers::save_erp_sync_schedule_handler))

@@ -10,6 +10,7 @@ import MapaArquiteturaView from './modules/geral/mapa/MapaArquiteturaView';
 import AppShell from './modules/geral/components/layout/AppShell';
 
 import ProducaoView from './modules/producao/gerenciamento/ProducaoView';
+import ProducaoRotinaView from './modules/producao/rotina/ProducaoRotinaView';
 import PlanejamentoProducaoView from './modules/producao/planejamento/PlanejamentoProducaoView';
 import ProducaoLotesView from './modules/producao/lotes/ProducaoLotesView';
 import { ProcView } from './modules/producao/proc/ProcView';
@@ -19,8 +20,9 @@ import FiscoQuimicaView from './modules/producao/fisco_quimica/FiscoQuimicaView'
 import ComprasView from './modules/compras/planejamento/ComprasView';
 import ComprasOnlineView from './modules/compras/compras_online/ComprasOnlineView';
 import EstoqueView from './modules/estoque/estoque_geral/EstoqueView';
-import EstoqueOpsView from './modules/estoque/ops/EstoqueOpsView';
 import EquipamentosView from './modules/estoque/equipamentos/EquipamentosView';
+import AlmoxEstoqueView from './modules/estoque/almoxarifado/AlmoxEstoqueView';
+import AlmoxManutencoesView from './modules/estoque/manutencoes/AlmoxManutencoesView';
 import OrdensManuaisView from './modules/estoque/ordens_manuais/OrdensManuaisView';
 import PedidosView from './modules/compras/controle_pedidos/PedidosView';
 import NotasFiscaisView from './modules/compras/notas_fiscais/NotasFiscaisView';
@@ -40,6 +42,7 @@ import QualidadeLimpezaView from './modules/qualidade/limpeza/QualidadeLimpezaVi
 import QualidadeRecebimentoMpView from './modules/qualidade/recebimento_mp/QualidadeRecebimentoMpView';
 import QualidadeDocumentacaoView from './modules/qualidade/documentacao/QualidadeDocumentacaoView';
 import DevolucoesView from './modules/qualidade/devolucoes/DevolucoesView';
+import AvariasView from './modules/qualidade/avarias/AvariasView';
 import AdministrativoView from './modules/administrativo/AdministrativoView';
 import ExpedicaoView from './modules/expedicao/ExpedicaoView';
 import FinanceiroView from './modules/financeiro/FinanceiroView';
@@ -53,7 +56,7 @@ import {
   Boxes, ShoppingCart, Activity, FlaskConical, ArrowRight, ArrowLeft,
   Settings, Database, Loader2, Globe,
   FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp, Warehouse,
-  Truck, ClipboardCheck, BookOpen, GraduationCap, Thermometer, Sparkles, PackageCheck, FolderOpen, PackageX,
+  Truck, ClipboardCheck, BookOpen, GraduationCap, Thermometer, Sparkles, PackageCheck, FolderOpen, PackageX, AlertTriangle,
 } from 'lucide-react';
 import { APP_NAME } from './modules/geral/lib/utils';
 import { localAuth } from './modules/geral/lib/api';
@@ -71,7 +74,7 @@ import {
   ensureBrowserClientConfig,
 } from './modules/geral/lib/connectionConfig';
 
-type HubView = 'hub' | 'producao_hub' | 'planejamento_producao' | 'producao' | 'producao_bases' | 'producao_lotes' | 'producao_proc' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'compras_almoxarifado' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'mapa_arquitetura' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_ordens_manuais' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'qualidade_hub' | 'controle_qualidade' | 'qualidade_devolucoes' | 'qualidade_pops' | 'qualidade_treinamentos' | 'qualidade_temperatura' | 'qualidade_limpeza' | 'qualidade_recebimento_mp' | 'qualidade_documentacao' | 'administrativo' | 'admin_linha_produtos' | 'admin_produtos_ativos_relatorios' | 'admin_funcionarios' | 'admin_acompanhamento_producao' | 'expedicao_hub' | 'expedicao_ecommerce' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro' | 'ferramentas_hub' | 'ferramentas_etiquetas' | 'ferramentas_editor' | 'ferramentas_impressoras';
+type HubView = 'hub' | 'producao_hub' | 'planejamento_producao' | 'producao' | 'producao_rotina' | 'producao_bases' | 'producao_lotes' | 'producao_proc' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'compras_almoxarifado' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'mapa_arquitetura' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_ordens_manuais' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'qualidade_hub' | 'controle_qualidade' | 'qualidade_devolucoes' | 'qualidade_avarias' | 'qualidade_pops' | 'qualidade_treinamentos' | 'qualidade_temperatura' | 'qualidade_limpeza' | 'qualidade_recebimento_mp' | 'qualidade_documentacao' | 'administrativo' | 'admin_linha_produtos' | 'admin_produtos_ativos_relatorios' | 'admin_funcionarios' | 'admin_acompanhamento_producao' | 'expedicao_hub' | 'expedicao_ecommerce' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro' | 'ferramentas_hub' | 'ferramentas_etiquetas' | 'ferramentas_editor' | 'ferramentas_impressoras';
 
 const getInitialView = (): HubView => {
   if (typeof window !== 'undefined') {
@@ -103,6 +106,10 @@ export default function App() {
   const [restartMessage, setRestartMessage] = useState('');
   const [setupChecked, setSetupChecked] = useState(false);
   const [almoxStats, setAlmoxStats] = useState<any>(null);
+  const [manutEquipId, setManutEquipId] = useState<string | null>(null);
+  const [manutTicket, setManutTicket] = useState(0);
+  const [equipFocusId, setEquipFocusId] = useState<string | null>(null);
+  const [equipTicket, setEquipTicket] = useState(0);
 
   useEffect(() => {
     syncCurrentPageForView(view);
@@ -413,6 +420,14 @@ export default function App() {
       );
     }
 
+    if (view === 'producao_rotina') {
+      return (
+        <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro na rotina de produção">
+          <ProducaoRotinaView onBackToHub={() => setView('producao_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
     if (view === 'producao_lotes') {
       return (
         <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Produção">
@@ -526,11 +541,6 @@ export default function App() {
                 <p className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">Sub-módulos e inventários de produtos e insumos</p>
               </div>
             </div>
-            <div className="text-center space-y-2">
-              <h2 className="text-3xl font-extrabold tracking-tight text-zinc-900">Módulos de Estoque</h2>
-              <p className="text-sm text-zinc-500">Selecione o inventário específico para consulta e movimentações.</p>
-            </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 w-full max-w-5xl">
               {allow('estoque_materia_prima') && (
               <button 
@@ -543,7 +553,7 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-xl font-bold text-zinc-900">Matéria-Prima</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Insumos químicos e matérias-primas — saldo, movimentações e contagens.</p>
+                    <p className="text-sm text-zinc-500 mt-1">Consulta de saldo, reserva das ordens e pedidos a chegar.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
@@ -563,7 +573,7 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-xl font-bold text-zinc-900">Embalagens</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Frascos, rótulos e tampas — consulta de estoque e histórico.</p>
+                    <p className="text-sm text-zinc-500 mt-1">Consulta de saldo, reserva e pedidos de compra em aberto.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
@@ -583,7 +593,7 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-xl font-bold text-zinc-900">Coloração</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Produtos de coloração — estoque, lotes e movimentações.</p>
+                    <p className="text-sm text-zinc-500 mt-1">Consulta de saldo, produção e pedidos de venda em aberto.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
@@ -603,7 +613,7 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-xl font-bold text-zinc-900">Material de Apoio</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Materiais de apoio — saldo e rastreabilidade de movimentações.</p>
+                    <p className="text-sm text-zinc-500 mt-1">Consulta de saldo, produção e pedidos de venda em aberto.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
@@ -623,7 +633,7 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-xl font-bold text-zinc-900">Produtos Acabados</h3>
-                    <p className="text-sm text-zinc-500 mt-1">Cosméticos finais — estoque, produção de lotes e contagens físicas.</p>
+                    <p className="text-sm text-zinc-500 mt-1">Consulta de saldo, produção e pedidos de venda em aberto.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
@@ -662,20 +672,12 @@ export default function App() {
     }
 
     if (view === 'almoxarifado_hub') {
-      const openOps = () =>
-        setView(
-          allow('estoque_itens')
-            ? 'estoque_itens'
-            : allow('estoque_almoxarifado')
-              ? 'estoque_almoxarifado'
-              : allow('estoque_supermercado')
-                ? 'estoque_supermercado'
-                : allow('estoque_pecas')
-                  ? 'estoque_pecas'
-                  : allow('estoque_equipamentos')
-                    ? 'estoque_equipamentos'
-                    : 'estoque_manutencoes'
-        );
+      const allowStock =
+        allow('estoque_itens') ||
+        allow('estoque_almoxarifado') ||
+        allow('estoque_supermercado') ||
+        allow('estoque_pecas') ||
+        allow('estoque_movimentacoes');
       return (
         <div className="flex-1 flex flex-col justify-between overflow-y-auto bg-zinc-50 font-sans text-zinc-900">
           <main className="flex-1 flex flex-col items-center justify-center p-6 max-w-6xl w-full mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -690,7 +692,7 @@ export default function App() {
               <div>
                 <h1 className="font-bold text-lg tracking-tight">Almoxarifado</h1>
                 <p className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider">
-                  Consumíveis, supermercado e parque de máquinas
+                  Estoque, equipamentos, manutenções e compras
                 </p>
               </div>
             </div>
@@ -698,144 +700,62 @@ export default function App() {
               <h2 className="text-3xl font-extrabold tracking-tight text-zinc-900">Módulos do Almoxarifado</h2>
               <p className="text-sm text-zinc-500">Selecione a área operacional.</p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-4 w-full max-w-5xl">
-              {allow('estoque_itens') && (
-                <button onClick={() => setView('estoque_itens')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
-                  <div className="space-y-4">
-                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Boxes className="h-6 w-6" /></div>
-                    <div>
-                      <h3 className="text-xl font-bold text-zinc-900">Itens</h3>
-                      <p className="text-sm text-zinc-500 mt-1">
-                        {almoxStats 
-                          ? `${almoxStats.totalItems} itens catalogados no total.` 
-                          : 'Catálogo unificado dos itens monitorados.'
-                        }
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
-                </button>
-              )}
-              {allow('estoque_almoxarifado') && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 w-full max-w-4xl">
+              {allowStock && (
                 <button onClick={() => setView('estoque_almoxarifado')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
-                  {almoxStats && almoxStats.almoxBelowMin > 0 && (
-                    <span className="absolute top-4 right-4 bg-red-50 text-red-650 border border-red-200 text-[10px] font-bold px-2.5 py-1 rounded-full">
-                      {almoxStats.almoxBelowMin} abaixo do mín
-                    </span>
-                  )}
                   <div className="space-y-4">
                     <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Warehouse className="h-6 w-6" /></div>
                     <div>
-                      <h3 className="text-xl font-bold text-zinc-900">Almoxarifado</h3>
-                      <p className="text-sm text-zinc-500 mt-1">
-                        {almoxStats 
-                          ? `${almoxStats.totalAlmoxItems} itens de consumo monitorados.` 
-                          : 'Bobinas, stretch, caixas — vínculo com ERP.'
-                        }
-                      </p>
+                      <h3 className="text-xl font-bold text-zinc-900">Estoque</h3>
+                      <p className="text-sm text-zinc-500 mt-1">Supermercado, escritório, limpeza, peças e demais consumíveis.</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
                 </button>
               )}
-              {allow('estoque_supermercado') && (
-                <button onClick={() => setView('estoque_supermercado')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
-                  {almoxStats && almoxStats.supermercadoBelowMin > 0 && (
-                    <span className="absolute top-4 right-4 bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold px-2.5 py-1 rounded-full">
-                      {almoxStats.supermercadoBelowMin} abaixo do mín
-                    </span>
-                  )}
-                  <div className="space-y-4">
-                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Warehouse className="h-6 w-6" /></div>
-                    <div>
-                      <h3 className="text-xl font-bold text-zinc-900">Supermercado</h3>
-                      <p className="text-sm text-zinc-500 mt-1">
-                        {almoxStats 
-                          ? `${almoxStats.totalSupermercadoItems} famílias locais ativas.` 
-                          : 'Famílias locais, comprovantes e média por unidade padrão.'
-                        }
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
-                </button>
-              )}
-              {allow('estoque_pecas') && (
-                <button onClick={() => setView('estoque_pecas')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
-                  {almoxStats && (almoxStats.pecasOverdue > 0 || almoxStats.pecasDueSoon > 0) && (
-                    <span className="absolute top-4 right-4 bg-red-50 text-red-650 border border-red-200 text-[10px] font-bold px-2.5 py-1 rounded-full">
-                      {almoxStats.pecasOverdue > 0 ? `${almoxStats.pecasOverdue} vencida(s)` : `${almoxStats.pecasDueSoon} troca próxima`}
-                    </span>
-                  )}
-                  <div className="space-y-4">
-                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Settings className="h-6 w-6" /></div>
-                    <div>
-                      <h3 className="text-xl font-bold text-zinc-900">Peças de reposição</h3>
-                      <p className="text-sm text-zinc-500 mt-1">
-                        {almoxStats
-                          ? `${almoxStats.totalPecasItems} itens no catálogo, com estoque e vida útil.`
-                          : 'Catálogo com vínculo ERP, saldo e vida útil.'
-                        }
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
-                </button>
-              )}
-              {(allow('estoque_equipamentos') || allow('estoque_manutencoes')) && (
-                <button
-                  onClick={() => setView(allow('estoque_equipamentos') ? 'estoque_equipamentos' : 'estoque_manutencoes')}
-                  className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer"
-                >
-                  {almoxStats && (almoxStats.openMaintenances > 0 || almoxStats.equipmentsStopped > 0 || almoxStats.equipmentsInMaintenance > 0) && (
-                    <span className="absolute top-4 right-4 bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold px-2.5 py-1 rounded-full">
-                      {almoxStats.openMaintenances > 0
-                        ? `${almoxStats.openMaintenances} OS em aberto`
-                        : almoxStats.equipmentsStopped > 0
-                          ? `${almoxStats.equipmentsStopped} parado(s)`
-                          : `${almoxStats.equipmentsInMaintenance} em manut.`}
-                    </span>
-                  )}
+              {allow('estoque_equipamentos') && (
+                <button onClick={() => { setEquipFocusId(null); setView('estoque_equipamentos'); }} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
                   <div className="space-y-4">
                     <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><Database className="h-6 w-6" /></div>
                     <div>
                       <h3 className="text-xl font-bold text-zinc-900">Equipamentos</h3>
-                      <p className="text-sm text-zinc-500 mt-1">
-                        {almoxStats
-                          ? `${almoxStats.totalEquipments} máquinas — ficha, manutenções e peças associadas.`
-                          : 'Parque, histórico de OS, agenda e peças de cada máquina.'
-                        }
-                      </p>
+                      <p className="text-sm text-zinc-500 mt-1">Máquinas, computadores e demais equipamentos.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+              {allow('estoque_manutencoes') && (
+                <button onClick={() => { setManutEquipId(null); setView('estoque_manutencoes'); }} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><ClipboardList className="h-6 w-6" /></div>
+                    <div>
+                      <h3 className="text-xl font-bold text-zinc-900">Manutenções</h3>
+                      <p className="text-sm text-zinc-500 mt-1">Registro do que foi feito e agenda programada.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+              {allow('compras_almoxarifado') && (
+                <button onClick={() => setView('compras_almoxarifado')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><ShoppingCart className="h-6 w-6" /></div>
+                    <div>
+                      <h3 className="text-xl font-bold text-zinc-900">Compras</h3>
+                      <p className="text-sm text-zinc-500 mt-1">Solicitações em aberto e histórico com loja e comprovante.</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
                 </button>
               )}
             </div>
-            {!allow('estoque_itens') &&
-                !allow('estoque_almoxarifado') &&
-                !allow('estoque_supermercado') &&
-                !allow('estoque_pecas') &&
-                !allow('estoque_equipamentos') &&
-                !allow('estoque_manutencoes') &&
-                !allow('estoque_movimentacoes') && (
-                  <p className="text-sm text-zinc-400 col-span-full text-center py-8">Sem permissão para submódulos.</p>
-                )}
-            {(allow('estoque_itens') ||
-              allow('estoque_almoxarifado') ||
-              allow('estoque_supermercado') ||
-              allow('estoque_pecas') ||
-              allow('estoque_equipamentos') ||
-              allow('estoque_manutencoes') ||
-              allow('estoque_movimentacoes')) && (
-              <button
-                type="button"
-                onClick={openOps}
-                className="text-xs font-semibold text-zinc-500 hover:text-zinc-900 underline"
-              >
-                Abrir painel unificado (sidebar)
-              </button>
-            )}
+            {!allowStock &&
+              !allow('estoque_equipamentos') &&
+              !allow('estoque_manutencoes') &&
+              !allow('compras_almoxarifado') && (
+                <p className="text-sm text-zinc-400 text-center py-8">Sem permissão para submódulos.</p>
+              )}
           </main>
           <footer className="w-full text-center py-6 text-xs text-zinc-400 border-t border-zinc-200/50 bg-white/50">
             &copy; {new Date().getFullYear()} Nátum Bio Cosméticos. Todos os direitos reservados.
@@ -876,13 +796,50 @@ export default function App() {
       );
     }
 
-    if (view === 'estoque_equipamentos' || view === 'estoque_manutencoes') {
+    if (view === 'estoque_equipamentos') {
       return (
         <ErrorBoundary onReset={() => setView('almoxarifado_hub')} fallbackTitle="Erro no parque de equipamentos">
           <EquipamentosView
-            onBackToHub={() => setView('almoxarifado_hub')}
-            initialTab={view === 'estoque_manutencoes' ? 'agenda' : 'parque'}
+            onBackToHub={() => {
+              setEquipFocusId(null);
+              setView('almoxarifado_hub');
+            }}
+            initialEquipmentId={equipFocusId}
+            focusTicket={equipTicket}
+            onOpenMaintenance={(id) => {
+              setManutEquipId(id);
+              setManutTicket((n) => n + 1);
+              setView('estoque_manutencoes');
+            }}
           />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'estoque_manutencoes') {
+      return (
+        <ErrorBoundary onReset={() => setView('almoxarifado_hub')} fallbackTitle="Erro em manutenções">
+          <AlmoxManutencoesView
+            onBackToHub={() => {
+              setManutEquipId(null);
+              setView('almoxarifado_hub');
+            }}
+            initialEquipmentId={manutEquipId}
+            focusTicket={manutTicket}
+            onOpenEquipment={(id) => {
+              setEquipFocusId(id);
+              setEquipTicket((n) => n + 1);
+              setView('estoque_equipamentos');
+            }}
+          />
+        </ErrorBoundary>
+      );
+    }
+
+    if (view === 'compras_almoxarifado') {
+      return (
+        <ErrorBoundary onReset={() => setView('almoxarifado_hub')} fallbackTitle="Erro em compras do almoxarifado">
+          <ComprasAlmoxarifadoView onBackToHub={() => setView('almoxarifado_hub')} />
         </ErrorBoundary>
       );
     }
@@ -894,22 +851,19 @@ export default function App() {
       view === 'estoque_pecas' ||
       view === 'estoque_movimentacoes'
     ) {
-      const opsMode =
-        view === 'estoque_itens'
-          ? 'itens'
-          : view === 'estoque_almoxarifado'
-            ? 'almoxarifado'
-            : view === 'estoque_supermercado'
-              ? 'supermercado'
-              : view === 'estoque_pecas'
-                ? 'pecas'
-                : 'movimentacoes';
+      const family =
+        view === 'estoque_supermercado'
+          ? 'supermercado'
+          : view === 'estoque_pecas'
+            ? 'pecas'
+            : view === 'estoque_movimentacoes'
+              ? 'movimentos'
+              : '';
       return (
         <ErrorBoundary onReset={() => setView('almoxarifado_hub')} fallbackTitle="Erro no Almoxarifado">
-          <EstoqueOpsView
-            mode={opsMode}
+          <AlmoxEstoqueView
+            initialFamily={family}
             onBackToHub={() => setView('almoxarifado_hub')}
-            setView={(v) => setView(v as HubView)}
           />
         </ErrorBoundary>
       );
@@ -1007,6 +961,14 @@ export default function App() {
       );
     }
 
+    if (view === 'qualidade_avarias') {
+      return (
+        <ErrorBoundary onReset={() => setView('qualidade_hub')} fallbackTitle="Erro no módulo Avarias">
+          <AvariasView onBackToHub={() => setView('qualidade_hub')} />
+        </ErrorBoundary>
+      );
+    }
+
     if (view === 'qualidade_pops') {
       return (
         <ErrorBoundary onReset={() => setView('qualidade_hub')} fallbackTitle="Erro no módulo POPs">
@@ -1042,7 +1004,10 @@ export default function App() {
     if (view === 'qualidade_recebimento_mp') {
       return (
         <ErrorBoundary onReset={() => setView('qualidade_hub')} fallbackTitle="Erro no módulo Recebimento MP">
-          <QualidadeRecebimentoMpView onBackToHub={() => setView('qualidade_hub')} />
+          <QualidadeRecebimentoMpView
+            onBackToHub={() => setView('qualidade_hub')}
+            currentUserName={currentUser?.name || currentUser?.username}
+          />
         </ErrorBoundary>
       );
     }
@@ -1091,6 +1056,15 @@ export default function App() {
                   <div className="space-y-4">
                     <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><PackageX className="h-6 w-6" /></div>
                     <div><h3 className="text-xl font-bold text-zinc-900">Devoluções</h3><p className="text-sm text-zinc-500 mt-1">Recepção, conferência CQ e relançamento no ERP.</p></div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar <ArrowRight className="h-4 w-4" /></div>
+                </button>
+              )}
+              {allow('qualidade_avarias') && (
+                <button onClick={() => setView('qualidade_avarias')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full">
+                  <div className="space-y-4">
+                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><AlertTriangle className="h-6 w-6" /></div>
+                    <div><h3 className="text-xl font-bold text-zinc-900">Avarias</h3><p className="text-sm text-zinc-500 mt-1">Itens fora do fluxo, foto do lote e destino do CQ.</p></div>
                   </div>
                   <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Acessar <ArrowRight className="h-4 w-4" /></div>
                 </button>
@@ -1245,7 +1219,7 @@ export default function App() {
     if (view === 'ferramentas_impressoras') {
       return (
         <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro na Central de Impressoras">
-          <ImpressorasView />
+          <ImpressorasView onBackToHub={() => setView('hub')} />
         </ErrorBoundary>
       );
     }

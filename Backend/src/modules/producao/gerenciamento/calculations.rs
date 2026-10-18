@@ -144,52 +144,30 @@ pub fn calculate_products(
             .or_else(|| fat_lookup.get(&norm_prod_code))
             .copied();
         let (desvio_padrao, is_lancamento) = {
-            let manual_launch = ovr.and_then(|o| o.is_lancamento_manual);
-            if let Some(l_manual) = manual_launch {
-                let is_l = l_manual == 1;
-                let std_dev = if is_l {
+            // Etiqueta de lançamento só quando o operador marca. Sem venda não vira lançamento.
+            let is_l = ovr.and_then(|o| o.is_lancamento_manual) == Some(1);
+            let std_dev = if is_l {
+                0.0
+            } else if let Some(sales) = monthly_sales {
+                if sales.is_empty() || sales.iter().all(|&x| x == 0) {
                     0.0
-                } else if let Some(sales) = monthly_sales {
-                    if sales.is_empty() || sales.iter().all(|&x| x == 0) {
+                } else {
+                    let n = sales.len() as f64;
+                    let mean = sales.iter().sum::<i64>() as f64 / n;
+                    let variance = if n > 1.0 {
+                        sales.iter().map(|&x| {
+                            let diff = x as f64 - mean;
+                            diff * diff
+                        }).sum::<f64>() / (n - 1.0)
+                    } else {
                         0.0
-                    } else {
-                        let n = sales.len() as f64;
-                        let mean = sales.iter().sum::<i64>() as f64 / n;
-                        let variance = if n > 1.0 {
-                            sales.iter().map(|&x| {
-                                let diff = x as f64 - mean;
-                                diff * diff
-                            }).sum::<f64>() / (n - 1.0)
-                        } else {
-                            0.0
-                        };
-                        variance.sqrt()
-                    }
-                } else {
-                    0.0
-                };
-                (std_dev, is_l)
-            } else {
-                if let Some(sales) = monthly_sales {
-                    if sales.is_empty() || sales.iter().all(|&x| x == 0) {
-                        (0.0, true)
-                    } else {
-                        let n = sales.len() as f64;
-                        let mean = sales.iter().sum::<i64>() as f64 / n;
-                        let variance = if n > 1.0 {
-                            sales.iter().map(|&x| {
-                                let diff = x as f64 - mean;
-                                diff * diff
-                            }).sum::<f64>() / (n - 1.0)
-                        } else {
-                            0.0
-                        };
-                        (variance.sqrt(), false)
-                    }
-                } else {
-                    (0.0, true)
+                    };
+                    variance.sqrt()
                 }
-            }
+            } else {
+                0.0
+            };
+            (std_dev, is_l)
         };
 
         // 3. Demanda Mensal Ajustada (DA) = Média + Z * StdDev
@@ -346,6 +324,9 @@ pub fn calculate_products(
             is_producao_programada: ovr.and_then(|o| o.is_producao_programada),
             producao_programada_disparo: disparo,
             producao_programada_objetivo: objetivo,
+            lancamento_gatilho: ovr.and_then(|o| o.lancamento_gatilho),
+            lancamento_estoque_maximo: ovr.and_then(|o| o.lancamento_estoque_maximo),
+            familia_produto: ovr.and_then(|o| o.familia_produto.clone()),
             media_vendas: base_media,
             desvio_padrao,
             demanda_ajustada,

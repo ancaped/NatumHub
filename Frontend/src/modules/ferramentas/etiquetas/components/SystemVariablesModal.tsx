@@ -224,7 +224,7 @@ export default function SystemVariablesModal({
               /* CREATE CUSTOM VARIABLE FORM */
               <div className="max-w-lg mx-auto bg-white p-6 rounded-2xl border border-zinc-200 shadow-xs space-y-4">
                 <div className="flex items-center gap-2 pb-2 border-b border-zinc-100">
-                  <Sparkles className="h-5 w-5 text-purple-600" />
+                  <Sparkles className="h-4 w-4 text-zinc-700" />
                   <div>
                     <h3 className="text-sm font-bold text-zinc-900">Novo Campo Personalizado</h3>
                     <p className="text-xs text-zinc-500">
@@ -301,7 +301,7 @@ export default function SystemVariablesModal({
                     </button>
                     <button
                       type="submit"
-                      className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl cursor-pointer shadow-xs"
+                      className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white font-bold rounded-xl cursor-pointer"
                     >
                       Salvar Variável
                     </button>
@@ -337,7 +337,7 @@ export default function SystemVariablesModal({
                               {v.token}
                             </span>
                             {v.isCustom && (
-                              <span className="text-[9px] font-bold text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.2 rounded">
+                              <span className="text-[9px] font-bold text-zinc-700 bg-zinc-100 border border-zinc-200 px-1.5 py-0.2 rounded">
                                 Personalizado
                               </span>
                             )}

@@ -6,6 +6,9 @@ import type {
   SystemPrinterInfo,
   HubPrintJob,
   CreatePrintJobPayload,
+  NetworkComputerInfo,
+  RemoteDiscoveredPrinter,
+  ConnectRemotePrinterPayload,
 } from './types';
 
 interface ApiResponse<T> {
@@ -61,6 +64,33 @@ export const printersApi = {
     const res = await apiJson<ApiResponse<SystemPrinterInfo[]>>('/api/ferramentas/impressoras/system-scan');
     if (!res.success && res.error) throw new Error(res.error);
     return res.data || [];
+  },
+
+  async listNetworkComputers(): Promise<NetworkComputerInfo[]> {
+    const res = await apiJson<ApiResponse<NetworkComputerInfo[]>>('/api/ferramentas/impressoras/network-computers');
+    if (!res.success && res.error) throw new Error(res.error);
+    return res.data || [];
+  },
+
+  async scanRemotePrinters(target: string): Promise<RemoteDiscoveredPrinter[]> {
+    const res = await apiJson<ApiResponse<RemoteDiscoveredPrinter[]>>('/api/ferramentas/impressoras/remote-scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target }),
+    });
+    if (!res.success && res.error) throw new Error(res.error);
+    return res.data || [];
+  },
+
+  async connectRemotePrinter(payload: ConnectRemotePrinterPayload): Promise<HubPrinter> {
+    const res = await apiJson<ApiResponse<HubPrinter>>('/api/ferramentas/impressoras/connect-remote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.success && res.error) throw new Error(res.error);
+    if (!res.data) throw new Error('Erro ao conectar impressora');
+    return res.data;
   },
 
   async listPrintJobs(limit = 50): Promise<HubPrintJob[]> {

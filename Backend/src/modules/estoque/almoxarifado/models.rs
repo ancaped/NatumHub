@@ -16,7 +16,7 @@ pub struct AlmoxItemRow {
     pub avg_unit_cost: f64,
     pub erp_qty: Option<f64>,
     pub below_min: bool,
-    /// almoxarifado | supermercado | pecas
+    /// almoxarifado | supermercado | pecas | custom
     pub section: String,
     /// erp | local
     pub source: String,
@@ -27,6 +27,22 @@ pub struct AlmoxItemRow {
     pub next_exchange_at: Option<String>,
     /// ok | due_soon | overdue | none
     pub exchange_status: Option<String>,
+    pub default_pack_qty: Option<f64>,
+    pub default_pack_name: Option<String>,
+    pub last_pack_qty: Option<f64>,
+    pub last_pack_name: Option<String>,
+    pub photo_data: Option<String>,
+    pub photo_date: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlmoxFamilia {
+    pub id: String,
+    pub label: String,
+    pub icon: Option<String>,
+    pub color: Option<String>,
+    pub sort_order: Option<i32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -44,6 +60,12 @@ pub struct UpsertItemConfigRequest {
     pub installed_at: Option<String>,
     pub expires_at: Option<String>,
     pub next_exchange_at: Option<String>,
+    pub default_pack_qty: Option<f64>,
+    pub default_pack_name: Option<String>,
+    pub last_pack_qty: Option<f64>,
+    pub last_pack_name: Option<String>,
+    pub photo_data: Option<String>,
+    pub photo_date: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -61,6 +83,7 @@ pub struct LinkErpItemRequest {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateLocalItemRequest {
+    pub code: Option<String>,
     pub description: String,
     pub unit: String,
     pub section: String,
@@ -144,6 +167,23 @@ pub struct PurchaseDemandRow {
     pub created_at: String,
     pub updated_at: String,
     pub received_at: Option<String>,
+    pub store_name: Option<String>,
+    pub purchased_at: Option<String>,
+    pub receipt_name: Option<String>,
+    pub has_receipt: bool,
+    pub origin: Option<String>,
+    pub qty: Option<f64>,
+    pub requested_by: Option<String>,
+    pub quoted_value: Option<f64>,
+    pub purchase_value: Option<f64>,
+    pub tracking_code: Option<String>,
+    pub equipment_id: Option<String>,
+    pub equipment_name: Option<String>,
+    pub sector: Option<String>,
+    pub urgency: Option<String>,
+    pub quotes_json: Option<String>,
+    #[serde(default)]
+    pub receipts_json: Option<String>,
     pub items: Vec<PurchaseDemandItemRow>,
 }
 
@@ -154,6 +194,7 @@ pub struct PurchaseDemandItemRow {
     pub demand_id: String,
     pub item_code: String,
     pub item_description: Option<String>,
+    pub description: Option<String>,
     pub qty_requested: f64,
     pub qty_received: f64,
     pub unit_cost: Option<f64>,
@@ -165,16 +206,131 @@ pub struct PurchaseDemandItemRow {
 pub struct CreateDemandRequest {
     pub title: Option<String>,
     pub notes: Option<String>,
+    pub origin: Option<String>,
+    pub qty: Option<f64>,
+    pub requested_by: Option<String>,
+    pub quoted_value: Option<f64>,
+    pub tracking_code: Option<String>,
+    pub equipment_id: Option<String>,
+    pub equipment_name: Option<String>,
+    pub sector: Option<String>,
+    pub urgency: Option<String>,
+    pub quotes_json: Option<String>,
     pub items: Vec<CreateDemandItemRequest>,
+    #[serde(default)]
+    pub purchase_value: Option<f64>,
+    #[serde(default)]
+    pub store_name: Option<String>,
+    #[serde(default)]
+    pub purchased_at: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub receipt_name: Option<String>,
+    #[serde(default)]
+    pub receipt_data: Option<String>,
+    #[serde(default)]
+    pub receipts_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDemandRequest {
+    pub title: Option<String>,
+    pub notes: Option<String>,
+    pub qty: Option<f64>,
+    pub requested_by: Option<String>,
+    pub quoted_value: Option<f64>,
+    pub purchase_value: Option<f64>,
+    pub store_name: Option<String>,
+    pub purchased_at: Option<String>,
+    pub tracking_code: Option<String>,
+    pub equipment_id: Option<String>,
+    pub equipment_name: Option<String>,
+    pub sector: Option<String>,
+    pub urgency: Option<String>,
+    pub quotes_json: Option<String>,
+    #[serde(default)]
+    pub receipt_name: Option<String>,
+    #[serde(default)]
+    pub receipt_data: Option<String>,
+    #[serde(default)]
+    pub receipts_json: Option<String>,
+    #[serde(default)]
+    pub items: Option<Vec<CreateDemandItemRequest>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemPurchaseHistoryRow {
+    pub demand_id: String,
+    pub tracking_code: Option<String>,
+    pub title: Option<String>,
+    pub item_code: Option<String>,
+    pub store_name: Option<String>,
+    pub purchased_at: Option<String>,
+    pub purchase_value: Option<f64>,
+    pub quoted_value: Option<f64>,
+    pub unit_cost: Option<f64>,
+    pub qty: Option<f64>,
+    pub quotes_json: Option<String>,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateDemandItemRequest {
     pub item_code: String,
+    pub description: Option<String>,
     pub qty_requested: f64,
     pub unit_cost: Option<f64>,
     pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarkPurchasedRequest {
+    pub store_name: String,
+    pub purchased_at: String,
+    pub receipt_name: Option<String>,
+    pub receipt_data: Option<String>,
+    #[serde(default)]
+    pub receipts_json: Option<String>,
+    pub purchase_value: Option<f64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StockCountLine {
+    pub item_code: String,
+    pub counted_qty: f64,
+    pub pack_qty: Option<f64>,
+    pub pack_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StockCountRequest {
+    pub counted_at: Option<String>,
+    pub lines: Vec<StockCountLine>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StockCountStatus {
+    pub last_counted_at: Option<String>,
+    pub next_counted_at: String,
+    pub due: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StockCountResult {
+    pub id: String,
+    pub counted_at: String,
+    pub saidas: i32,
+    pub entradas: i32,
+    pub next_counted_at: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -235,6 +391,11 @@ pub struct EquipmentRow {
     pub model: Option<String>,
     pub manufacture_year: Option<i32>,
     pub serial_number: Option<String>,
+    pub equip_type: Option<String>,
+    pub location: Option<String>,
+    pub supplier: Option<String>,
+    pub acquired_at: Option<String>,
+    pub purchase_value: Option<f64>,
     pub maintenance_interval_days: Option<i32>,
     pub last_maintenance_at: Option<String>,
     pub next_maintenance_at: Option<String>,
@@ -267,6 +428,11 @@ pub struct UpsertEquipmentRequest {
     pub model: Option<String>,
     pub manufacture_year: Option<i32>,
     pub serial_number: Option<String>,
+    pub equip_type: Option<String>,
+    pub location: Option<String>,
+    pub supplier: Option<String>,
+    pub acquired_at: Option<String>,
+    pub purchase_value: Option<f64>,
     pub maintenance_interval_days: Option<i32>,
     pub next_maintenance_at: Option<String>,
     pub notes: Option<String>,
@@ -314,8 +480,13 @@ pub struct MaintenanceRow {
     pub occurred_at: String,
     pub scheduled_at: Option<String>,
     pub completed_at: Option<String>,
+    pub recurrence_days: Option<i32>,
     pub created_by: Option<String>,
     pub created_at: String,
+    #[serde(default)]
+    pub avulsa_tipo: Option<String>,
+    #[serde(default)]
+    pub store_name: Option<String>,
     #[serde(default)]
     pub parts: Vec<MaintenancePartRow>,
 }
@@ -323,7 +494,12 @@ pub struct MaintenanceRow {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateMaintenanceRequest {
-    pub equipment_id: String,
+    #[serde(default)]
+    pub equipment_id: Option<String>,
+    #[serde(default)]
+    pub avulsa_tipo: Option<String>,
+    #[serde(default)]
+    pub store_name: Option<String>,
     pub kind: String,
     pub status: Option<String>,
     pub routine: Option<String>,
@@ -334,6 +510,7 @@ pub struct CreateMaintenanceRequest {
     pub notes: Option<String>,
     pub occurred_at: Option<String>,
     pub scheduled_at: Option<String>,
+    pub recurrence_days: Option<i32>,
     pub consume_stock: Option<bool>,
     pub parts: Option<Vec<MaintenancePartInput>>,
 }

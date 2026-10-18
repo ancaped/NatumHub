@@ -12,7 +12,8 @@ use crate::modules::geral::auth::models::AuthContext;
 
 use super::{
     models::{
-        CreatePrintJobRequest, CreatePrinterRequest, SystemPrinterInfo,
+        ConnectRemotePrinterRequest, CreatePrintJobRequest, CreatePrinterRequest,
+        NetworkComputerInfo, RemoteScanRequest, SystemPrinterInfo,
         UpdatePrinterRequest,
     },
     store,
@@ -151,6 +152,46 @@ pub async fn scan_system_printers_handler(
 ) -> impl IntoResponse {
     let list: Vec<SystemPrinterInfo> = store::scan_system_printers();
     (StatusCode::OK, Json(ApiResponse::ok(list)))
+}
+
+pub async fn list_network_computers_handler(
+    Extension(_ctx): Extension<AuthContext>,
+) -> impl IntoResponse {
+    let list: Vec<NetworkComputerInfo> = store::list_network_computers();
+    (StatusCode::OK, Json(ApiResponse::ok(list)))
+}
+
+pub async fn scan_remote_printers_handler(
+    Extension(_ctx): Extension<AuthContext>,
+    Json(req): Json<RemoteScanRequest>,
+) -> impl IntoResponse {
+    let target = req.target.clone();
+    let joined = tokio::task::spawn_blocking(move || store::scan_remote_printers(&target)).await;
+    match joined {
+        Ok(Ok(list)) => (StatusCode::OK, Json(ApiResponse::ok(list))),
+        Ok(Err(err)) => (StatusCode::BAD_REQUEST, Json(ApiResponse::err(err))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::err(format!("Erro ao executar varredura: {e}"))),
+        ),
+    }
+}
+
+pub async fn connect_remote_printer_handler(
+    State(state): State<Arc<AppState>>,
+    Extension(_ctx): Extension<AuthContext>,
+    Json(req): Json<ConnectRemotePrinterRequest>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    let _ = store::ensure_tables(pool).await;
+
+    match store::connect_and_map_remote_printer(pool, req).await {
+        Ok(printer) => (StatusCode::CREATED, Json(ApiResponse::ok(printer))),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::err(e)),
+        ),
+    }
 }
 
 pub async fn list_print_jobs_handler(

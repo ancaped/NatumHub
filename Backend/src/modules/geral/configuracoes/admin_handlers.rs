@@ -109,6 +109,7 @@ pub async fn reset_operational_data(State(state): State<Arc<AppState>>) -> impl 
         "stock_snapshots",
         "stock_imports",
         "similar_items",
+        "item_similar_links",
         "online_orders",
         "feedbacks",
         "feedback_notes",
@@ -234,11 +235,20 @@ pub async fn audit_stock(
                 "reservedQty": live.reserved_qty,
                 "inProduction": live.in_production,
                 "inOrders": live.in_orders,
-                "hubField": "nQtdeEstoque (tela Estoque atual)",
+                "hubField": if live.source == "Insumos" {
+                    "recálculo de movimentos (Reprocessa_Estoque_Insumos)"
+                } else {
+                    "nQtdeEstoque"
+                },
             });
             if let Some(raw) = live.stock_qty_raw {
                 obj["stockQtyRaw"] = json!(raw);
-                obj["stockQtyRawField"] = json!("nQtdeEstoque");
+                obj["stockQtyRawField"] = json!("nQtdeEstoque (cache do ERP)");
+                if (raw - live.stock_qty).abs() > crate::core::legacy_db::STOCK_VERIFY_EPS {
+                    warnings.push(format!(
+                        "Coluna nQtdeEstoque do ERP desatualizada ({raw:.4}). A tela do ERP recalcula ao abrir o item; o Nexus usa o recálculo."
+                    ));
+                }
             }
             if let Some(a) = live.stock_qty_a {
                 obj["stockQtyA"] = json!(a);
@@ -294,7 +304,7 @@ pub async fn audit_stock(
             "warnings": warnings,
             "notes": {
                 "estoqueExibidoProdutos": "nQtdeEstoque (cadastro Produtos)",
-                "estoqueExibidoInsumos": "nQtdeEstoque (tela Estoque atual)",
+                "estoqueExibidoInsumos": "recálculo de movimentos (Reprocessa_Estoque_Insumos)",
                 "prevFutura": "cálculo interno Hub — não comparar com estoque ERP",
                 "efpProducao": "estoque + produção − pedidos (não é o estoque ERP)"
             }
@@ -343,7 +353,9 @@ pub async fn verify_insumo_stocks(State(state): State<Arc<AppState>>) -> impl In
                 "repaired": r.repaired,
                 "samples": r.samples,
                 "bySource": r.by_source,
-                "source": "nQtdeEstoque",
+                "erpCacheDrift": r.erp_cache_drift,
+                "erpCacheDriftSamples": r.erp_cache_drift_samples,
+                "source": "recalculo_movimentos",
             })),
         )
             .into_response(),
@@ -396,7 +408,9 @@ pub async fn verify_all_stocks_stream(State(state): State<Arc<AppState>>) -> imp
                 "repaired": r.repaired,
                 "samples": r.samples,
                 "bySource": r.by_source,
-                "source": "nQtdeEstoque",
+                "erpCacheDrift": r.erp_cache_drift,
+                "erpCacheDriftSamples": r.erp_cache_drift_samples,
+                "source": "recalculo_movimentos",
             }),
             Err(e) => json!({ "type": "error", "error": e.to_string() }),
         };
@@ -421,7 +435,7 @@ pub async fn verify_all_stocks_stream(State(state): State<Arc<AppState>>) -> imp
         .into_response()
 }
 
-/// POST /api/admin/audit/stock/resync-insumos — regrava todos os snapshots D1 com nQtdeEstoque.
+/// POST /api/admin/audit/stock/resync-insumos — regrava todos os snapshots D1 com o recálculo.
 pub async fn resync_insumo_stocks(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     match crate::core::legacy_db::resync_all_insumo_snapshots_from_erp(state.db.pool()).await {
         Ok(n) => (
@@ -429,7 +443,7 @@ pub async fn resync_insumo_stocks(State(state): State<Arc<AppState>>) -> impl In
             Json(json!({
                 "status": "ok",
                 "updated": n,
-                "source": "nQtdeEstoque",
+                "source": "recalculo_movimentos",
             })),
         )
             .into_response(),

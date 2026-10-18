@@ -75,6 +75,7 @@ pub struct AcompanhamentoLoteItem {
     pub quantity: f64,       // Quantidade em unidades (frascos)
     pub quantity_kg: f64,    // Peso em kg do lote completo
     pub date: String,
+    pub details: Option<String>,
     pub erp_status: String,
     pub erp_status_label: String,
     pub custom_status: Option<String>,
@@ -100,6 +101,7 @@ pub struct AcompanhamentoLoteItem {
     pub historico_reagendamentos: Option<serde_json::Value>,
     pub quadros_ocultos: Option<serde_json::Value>,
     pub etapas_status: Option<serde_json::Value>,
+    pub planning_ordem: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,6 +119,7 @@ pub struct SaveLoteEtapaStatusPayload {
     pub insumo_faltante_codigo: Option<String>,
     pub insumo_faltante_descricao: Option<String>,
     pub updated_by: Option<String>,
+    pub data_agendada: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

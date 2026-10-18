@@ -102,6 +102,7 @@ fn kit_component_from_item(
         fator_proporcao_kits: fat_kits,
         necessita_producao: false,
         fonte: Some("item".into()),
+        produzir_apenas_kit: None,
     }
 }
 
@@ -656,8 +657,8 @@ pub async fn list_products(
         }
     }
 
-    // Filter out kits, coloracao, and apoio from the general production list!
-    // Bases (cat_base) ficam na lista geral a menos que o filtro peça só bases.
+    // Lista geral: sem kit, coloração, apoio e base.
+    // Base só entra quando o filtro pede Gestão de Bases.
     computed.retain(|p| {
         let clean_code = clean_product_code(&p.codigo);
         let is_kit = kit_composition.contains_key(&p.codigo) || kit_composition.contains_key(&clean_code);
@@ -678,6 +679,16 @@ pub async fn list_products(
 
         if params.programadas_only == Some(true) || params.status.as_deref() == Some("programadas") {
             return p.is_producao_programada == Some(1);
+        }
+
+        if params.fixas_only == Some(true) {
+            if is_base {
+                return false;
+            }
+            let marcado = p.is_lancamento_manual == Some(1);
+            let tem_teto = p.lancamento_gatilho.filter(|n| *n > 0).is_some()
+                || p.lancamento_estoque_maximo.filter(|n| *n > 0).is_some();
+            return marcado || tem_teto;
         }
 
         if let Some(ref status) = params.status {
@@ -724,7 +735,14 @@ pub async fn list_products(
             return false;
         }
 
-        !is_kit && !is_coloracao && !is_apoio
+        let em_fixa = p.is_lancamento_manual == Some(1)
+            || p.lancamento_gatilho.filter(|n| *n > 0).is_some()
+            || p.lancamento_estoque_maximo.filter(|n| *n > 0).is_some();
+        if em_fixa {
+            return false;
+        }
+
+        !is_kit && !is_coloracao && !is_apoio && !is_base
     });
 
     // Extract stats for metadata based on visible products (excluding hidden ones and ignored statuses)
@@ -1127,6 +1145,9 @@ pub async fn list_kits(
                     is_producao_programada: ovr.and_then(|o| o.is_producao_programada),
                     producao_programada_disparo: ovr.and_then(|o| o.producao_programada_disparo),
                     producao_programada_objetivo: ovr.and_then(|o| o.producao_programada_objetivo),
+                    lancamento_gatilho: ovr.and_then(|o| o.lancamento_gatilho),
+                    lancamento_estoque_maximo: ovr.and_then(|o| o.lancamento_estoque_maximo),
+                    familia_produto: ovr.and_then(|o| o.familia_produto.clone()),
                     media_vendas: ovr.and_then(|o| o.media_manual).unwrap_or(0.0),
                     desvio_padrao: 0.0,
                     demanda_ajustada: ovr.and_then(|o| o.media_manual).unwrap_or(0.0),
@@ -1182,6 +1203,7 @@ pub async fn list_kits(
                     fator_proporcao_kits: *fat_kits,
                     necessita_producao: comp_calc.producao_recomendada > 0,
                     fonte: Some("produto".into()),
+                    produzir_apenas_kit: comp_calc.produzir_apenas_kit,
                 })
             } else if let Some((desc, est, prod, ped)) = item_stocks.get(comp_code) {
                 Some(kit_component_from_item(
@@ -1211,6 +1233,7 @@ pub async fn list_kits(
                     fator_proporcao_kits: *fat_kits,
                     necessita_producao: false,
                     fonte: None,
+                    produzir_apenas_kit: None,
                 })
             };
 
@@ -3728,6 +3751,8 @@ pub struct InsumoStatusDetail {
     pub is_missing: bool,
     pub purchase_orders: Vec<InsumoPurchaseOrderInfo>,
     pub next_delivery_date: Option<String>,
+    pub unit: Option<String>,
+    pub category_id: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -3756,7 +3781,9 @@ pub async fn get_insumos_status(
         SELECT f.ingredient_code,
                COALESCE(f.description, i.description, '') as description,
                f.quantity,
-               COALESCE(s.stock_qty, e.estoque::float8, 0.0)::float8 as current_stock
+               COALESCE(s.stock_qty, e.estoque::float8, 0.0)::float8 as current_stock,
+               i.unit as item_unit,
+               i.category_id as item_category
         FROM formulations f
         LEFT JOIN items i ON TRIM(REPLACE(i.code, '"', '')) = TRIM(REPLACE(f.ingredient_code, '"', ''))
         LEFT JOIN estoque_atual e ON TRIM(REPLACE(e.codigo, '"', '')) = TRIM(REPLACE(f.ingredient_code, '"', ''))
@@ -3906,6 +3933,9 @@ pub async fn get_insumos_status(
             }
         }
 
+        let item_unit: Option<String> = row.try_get(4).ok().flatten();
+        let item_category: Option<String> = row.try_get(5).ok().flatten();
+
         ingredients.push(InsumoStatusDetail {
             ingredient_code: ing_code,
             description: ing_desc,
@@ -3916,6 +3946,8 @@ pub async fn get_insumos_status(
             is_missing,
             purchase_orders,
             next_delivery_date,
+            unit: item_unit,
+            category_id: item_category,
         });
     }
 
@@ -4197,22 +4229,97 @@ pub async fn save_planejamento_item(
         .await
     {
         Ok(_) => {
+            if let Some(ref l) = item.lote_erp {
+                let clean = l.trim();
+                if !clean.is_empty() {
+                    // Migra todos os dados customizados (etapas_status, quadros_ocultos, datas) do ID temporário para o lote ERP real
+                    let _ = sqlx::query(r#"
+                        INSERT INTO lote_custom_status (
+                            lote_number, custom_status, category, notes, motivo_espera,
+                            data_pesagem, data_producao, data_rotulagem, data_envase, data_previsao,
+                            etapas_status, quadros_ocultos, historico_reagendamentos, updated_at
+                        )
+                        SELECT 
+                            $2, custom_status, category, notes, motivo_espera,
+                            data_pesagem, data_producao, data_rotulagem, data_envase, data_previsao,
+                            etapas_status, quadros_ocultos, historico_reagendamentos, NOW()
+                        FROM lote_custom_status
+                        WHERE lote_number = $1
+                        ON CONFLICT (lote_number) DO UPDATE SET
+                            custom_status = COALESCE(EXCLUDED.custom_status, lote_custom_status.custom_status),
+                            etapas_status = COALESCE(lote_custom_status.etapas_status, '{}'::jsonb) || COALESCE(EXCLUDED.etapas_status, '{}'::jsonb),
+                            quadros_ocultos = COALESCE(EXCLUDED.quadros_ocultos, lote_custom_status.quadros_ocultos),
+                            data_pesagem = COALESCE(lote_custom_status.data_pesagem, EXCLUDED.data_pesagem),
+                            data_producao = COALESCE(lote_custom_status.data_producao, EXCLUDED.data_producao),
+                            updated_at = NOW()
+                    "#)
+                    .bind(&item.id)
+                    .bind(clean)
+                    .execute(pool)
+                    .await;
+
+                    // Atualiza programacao_rotulagem e programacao_envase que usavam o ID temporário
+                    let _ = sqlx::query("UPDATE programacao_rotulagem SET lote_number = $2 WHERE lote_number = $1")
+                        .bind(&item.id)
+                        .bind(clean)
+                        .execute(pool)
+                        .await;
+
+                    let _ = sqlx::query("UPDATE programacao_envase SET lote_number = $2 WHERE lote_number = $1")
+                        .bind(&item.id)
+                        .bind(clean)
+                        .execute(pool)
+                        .await;
+
+                    let _ = sqlx::query("DELETE FROM lote_custom_status WHERE lote_number = $1")
+                        .bind(&item.id)
+                        .execute(pool)
+                        .await;
+                }
+            }
+
             let doc_num = match &item.lote_erp {
                 Some(l) if !l.trim().is_empty() => Some(l.trim().to_string()),
-                _ if item.ordem_status.as_deref() == Some("aprovado") => Some(format!("PL-{}", &item.id[..item.id.len().min(8)])),
-                _ => None,
+                _ => Some(item.id.clone()),
             };
             if let Some(clean) = doc_num {
                 let _ = sqlx::query(r#"
                     INSERT INTO lote_custom_status (
                         lote_number, custom_status, data_pesagem, data_producao, data_previsao, updated_at
                     ) VALUES (
-                        $1, 'Pesagem', $2::date, $2::date, $2::date, CURRENT_TIMESTAMP
+                        $1, 'Pesagem', ($2 || ' 08:00:00-03')::timestamptz, ($2 || ' 08:00:00-03')::timestamptz, ($2 || ' 08:00:00-03')::timestamptz, CURRENT_TIMESTAMP
                     )
                     ON CONFLICT (lote_number) DO UPDATE SET
-                        data_pesagem = COALESCE(lote_custom_status.data_pesagem, EXCLUDED.data_pesagem),
-                        data_producao = COALESCE(lote_custom_status.data_producao, EXCLUDED.data_producao),
-                        data_previsao = COALESCE(lote_custom_status.data_previsao, EXCLUDED.data_previsao),
+                        custom_status = CASE 
+                            WHEN lote_custom_status.custom_status IN ('Finalizada', 'Ordem Finalizada', 'Produzido', 'Aberto', 'Pendente') THEN 'Pesagem'
+                            ELSE lote_custom_status.custom_status
+                        END,
+                        data_pesagem = CASE
+                            WHEN lote_custom_status.etapas_status->'pesagem'->>'status' IN ('concluido', 'Concluído', 'ativo', 'fila', 'Em Espera') THEN lote_custom_status.data_pesagem
+                            WHEN lote_custom_status.data_pesagem IS NOT NULL AND lote_custom_status.data_pesagem <> lote_custom_status.data_producao THEN lote_custom_status.data_pesagem
+                            ELSE ($2 || ' 08:00:00-03')::timestamptz
+                        END,
+                        historico_reagendamentos = CASE
+                            WHEN lote_custom_status.data_producao IS NOT NULL 
+                                 AND TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') <> $2
+                            THEN COALESCE(lote_custom_status.historico_reagendamentos, '[]'::jsonb) || jsonb_build_array(
+                                jsonb_build_object(
+                                    'tipo', CASE
+                                        WHEN TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') < $2 THEN 'adiamento'
+                                        ELSE 'retorno'
+                                    END,
+                                    'etapa', 'producao',
+                                    'motivo', 'Reagendado de ' || TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') || ' para ' || $2,
+                                    'dataAnterior', TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD'),
+                                    'novaData', $2,
+                                    'alteradoEm', CURRENT_TIMESTAMP,
+                                    'alteradoPor', 'Planejamento Semanal'
+                                )
+                            )
+                            ELSE lote_custom_status.historico_reagendamentos
+                        END,
+                        data_producao = ($2 || ' 08:00:00-03')::timestamptz,
+                        data_previsao = ($2 || ' 08:00:00-03')::timestamptz,
                         updated_at = CURRENT_TIMESTAMP
                 "#)
                 .bind(&clean)
@@ -4294,22 +4401,97 @@ pub async fn bulk_save_planejamento(
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response();
         }
 
+        if let Some(ref l) = item.lote_erp {
+            let clean = l.trim();
+            if !clean.is_empty() {
+                // Migra todos os dados customizados (etapas_status, quadros_ocultos, datas) do ID temporário para o lote ERP real
+                let _ = sqlx::query(r#"
+                    INSERT INTO lote_custom_status (
+                        lote_number, custom_status, category, notes, motivo_espera,
+                        data_pesagem, data_producao, data_rotulagem, data_envase, data_previsao,
+                        etapas_status, quadros_ocultos, historico_reagendamentos, updated_at
+                    )
+                    SELECT 
+                        $2, custom_status, category, notes, motivo_espera,
+                        data_pesagem, data_producao, data_rotulagem, data_envase, data_previsao,
+                        etapas_status, quadros_ocultos, historico_reagendamentos, NOW()
+                    FROM lote_custom_status
+                    WHERE lote_number = $1
+                    ON CONFLICT (lote_number) DO UPDATE SET
+                        custom_status = COALESCE(EXCLUDED.custom_status, lote_custom_status.custom_status),
+                        etapas_status = COALESCE(lote_custom_status.etapas_status, '{}'::jsonb) || COALESCE(EXCLUDED.etapas_status, '{}'::jsonb),
+                        quadros_ocultos = COALESCE(EXCLUDED.quadros_ocultos, lote_custom_status.quadros_ocultos),
+                        data_pesagem = COALESCE(lote_custom_status.data_pesagem, EXCLUDED.data_pesagem),
+                        data_producao = COALESCE(lote_custom_status.data_producao, EXCLUDED.data_producao),
+                        updated_at = NOW()
+                "#)
+                .bind(&item.id)
+                .bind(clean)
+                .execute(pool)
+                .await;
+
+                // Atualiza programacao_rotulagem e programacao_envase que usavam o ID temporário
+                let _ = sqlx::query("UPDATE programacao_rotulagem SET lote_number = $2 WHERE lote_number = $1")
+                    .bind(&item.id)
+                    .bind(clean)
+                    .execute(pool)
+                    .await;
+
+                let _ = sqlx::query("UPDATE programacao_envase SET lote_number = $2 WHERE lote_number = $1")
+                    .bind(&item.id)
+                    .bind(clean)
+                    .execute(pool)
+                    .await;
+
+                let _ = sqlx::query("DELETE FROM lote_custom_status WHERE lote_number = $1")
+                    .bind(&item.id)
+                    .execute(pool)
+                    .await;
+            }
+        }
+
         let doc_num = match &item.lote_erp {
             Some(l) if !l.trim().is_empty() => Some(l.trim().to_string()),
-            _ if item.ordem_status.as_deref() == Some("aprovado") => Some(format!("PL-{}", &item.id[..item.id.len().min(8)])),
-            _ => None,
+            _ => Some(item.id.clone()),
         };
         if let Some(clean) = doc_num {
             let _ = sqlx::query(r#"
                 INSERT INTO lote_custom_status (
                     lote_number, custom_status, data_pesagem, data_producao, data_previsao, updated_at
                 ) VALUES (
-                    $1, 'Pesagem', $2::date, $2::date, $2::date, CURRENT_TIMESTAMP
+                    $1, 'Pesagem', ($2 || ' 08:00:00-03')::timestamptz, ($2 || ' 08:00:00-03')::timestamptz, ($2 || ' 08:00:00-03')::timestamptz, CURRENT_TIMESTAMP
                 )
                 ON CONFLICT (lote_number) DO UPDATE SET
-                    data_pesagem = COALESCE(lote_custom_status.data_pesagem, EXCLUDED.data_pesagem),
-                    data_producao = COALESCE(lote_custom_status.data_producao, EXCLUDED.data_producao),
-                    data_previsao = COALESCE(lote_custom_status.data_previsao, EXCLUDED.data_previsao),
+                    custom_status = CASE 
+                        WHEN lote_custom_status.custom_status IN ('Finalizada', 'Ordem Finalizada', 'Produzido', 'Aberto', 'Pendente') THEN 'Pesagem'
+                        ELSE lote_custom_status.custom_status
+                    END,
+                    data_pesagem = CASE
+                        WHEN lote_custom_status.etapas_status->'pesagem'->>'status' IN ('concluido', 'Concluído', 'ativo', 'fila', 'Em Espera') THEN lote_custom_status.data_pesagem
+                        WHEN lote_custom_status.data_pesagem IS NOT NULL AND lote_custom_status.data_pesagem <> lote_custom_status.data_producao THEN lote_custom_status.data_pesagem
+                        ELSE ($2 || ' 08:00:00-03')::timestamptz
+                    END,
+                    historico_reagendamentos = CASE
+                        WHEN lote_custom_status.data_producao IS NOT NULL
+                             AND TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') <> $2
+                        THEN COALESCE(lote_custom_status.historico_reagendamentos, '[]'::jsonb) || jsonb_build_array(
+                            jsonb_build_object(
+                                'tipo', CASE
+                                    WHEN TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') < $2 THEN 'adiamento'
+                                    ELSE 'retorno'
+                                END,
+                                'etapa', 'producao',
+                                'motivo', 'Reagendado de ' || TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') || ' para ' || $2,
+                                'dataAnterior', TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD'),
+                                'novaData', $2,
+                                'alteradoEm', CURRENT_TIMESTAMP,
+                                'alteradoPor', 'Planejamento Semanal'
+                            )
+                        )
+                        ELSE lote_custom_status.historico_reagendamentos
+                    END,
+                    data_producao = ($2 || ' 08:00:00-03')::timestamptz,
+                    data_previsao = ($2 || ' 08:00:00-03')::timestamptz,
                     updated_at = CURRENT_TIMESTAMP
             "#)
             .bind(&clean)
@@ -4326,14 +4508,32 @@ pub async fn delete_planejamento_item(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     let pool = state.db.pool();
-    match sqlx::query("DELETE FROM producao_planejamento_semanal WHERE id = $1")
+    let row: Option<(Option<String>,)> = sqlx::query_as("SELECT lote_erp FROM producao_planejamento_semanal WHERE id = $1")
+        .bind(&id)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None);
+
+    let _ = sqlx::query("DELETE FROM producao_planejamento_semanal WHERE id = $1")
         .bind(&id)
         .execute(pool)
-        .await
-    {
-        Ok(_) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response()
+        .await;
+
+    let _ = sqlx::query("DELETE FROM lote_custom_status WHERE lote_number = $1")
+        .bind(&id)
+        .execute(pool)
+        .await;
+
+    if let Some((Some(ref lote),)) = row {
+        let clean = lote.trim();
+        if !clean.is_empty() {
+            let _ = sqlx::query("DELETE FROM lote_custom_status WHERE lote_number = $1")
+                .bind(clean)
+                .execute(pool)
+                .await;
+        }
     }
+    (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
 }
 
 pub async fn confirm_fisico_planejamento(
@@ -4366,27 +4566,62 @@ pub async fn confirm_fisico_planejamento(
             let lote_erp: Option<String> = row.try_get(1).ok();
             let ordem_status: String = row.try_get(2).unwrap_or_default();
             if ordem_status == "aprovado" {
-                if let Some(lote) = lote_erp {
-                    let clean = lote.trim();
-                    if !clean.is_empty() {
-                        let _ = sqlx::query(r#"
-                            INSERT INTO lote_custom_status (
-                                lote_number, custom_status, data_pesagem, data_producao, data_previsao, updated_at
-                            ) VALUES (
-                                $1, 'Pesagem', $2::date, $2::date, $2::date, CURRENT_TIMESTAMP
+                let target_lote = match lote_erp {
+                    Some(ref l) if !l.trim().is_empty() => l.trim().to_string(),
+                    _ => id.clone(),
+                };
+                let _ = sqlx::query(r#"
+                    INSERT INTO lote_custom_status (
+                        lote_number, custom_status, data_pesagem, data_producao, data_previsao, updated_at
+                    ) VALUES (
+                        $1, 'Pesagem', ($2 || ' 08:00:00-03')::timestamptz, ($2 || ' 08:00:00-03')::timestamptz, ($2 || ' 08:00:00-03')::timestamptz, CURRENT_TIMESTAMP
+                    )
+                    ON CONFLICT (lote_number) DO UPDATE SET
+                        custom_status = CASE 
+                            WHEN lote_custom_status.custom_status IN ('Finalizada', 'Ordem Finalizada', 'Produzido', 'Aberto', 'Pendente') THEN 'Pesagem'
+                            ELSE lote_custom_status.custom_status
+                        END,
+                        data_pesagem = CASE
+                            WHEN lote_custom_status.etapas_status->'pesagem'->>'status' IN ('concluido', 'Concluído') THEN lote_custom_status.data_pesagem
+                            ELSE ($2 || ' 08:00:00-03')::timestamptz
+                        END,
+                        historico_reagendamentos = CASE
+                            WHEN lote_custom_status.data_producao IS NOT NULL 
+                                 AND TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') <> $2
+                            THEN COALESCE(lote_custom_status.historico_reagendamentos, '[]'::jsonb) || jsonb_build_array(
+                                jsonb_build_object(
+                                    'tipo', CASE
+                                        WHEN TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') < $2 THEN 'adiamento'
+                                        ELSE 'retorno'
+                                    END,
+                                    'etapa', 'producao',
+                                    'motivo', 'Reagendado de ' || TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') || ' para ' || $2,
+                                    'dataAnterior', TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD'),
+                                    'novaData', $2,
+                                    'alteradoEm', CURRENT_TIMESTAMP,
+                                    'alteradoPor', 'Planejamento Semanal'
+                                )
                             )
-                            ON CONFLICT (lote_number) DO UPDATE SET
-                                data_pesagem = COALESCE(lote_custom_status.data_pesagem, EXCLUDED.data_pesagem),
-                                data_producao = COALESCE(lote_custom_status.data_producao, EXCLUDED.data_producao),
-                                data_previsao = COALESCE(lote_custom_status.data_previsao, EXCLUDED.data_previsao),
-                                updated_at = CURRENT_TIMESTAMP
-                        "#)
-                        .bind(clean)
-                        .bind(&data_planejada)
-                        .execute(pool)
-                        .await;
-                    }
-                }
+                            ELSE lote_custom_status.historico_reagendamentos
+                        END,
+                        data_producao = ($2 || ' 08:00:00-03')::timestamptz,
+                        data_previsao = ($2 || ' 08:00:00-03')::timestamptz,
+                        updated_at = CURRENT_TIMESTAMP
+                "#)
+                .bind(&target_lote)
+                .bind(&data_planejada)
+                .execute(pool)
+                .await;
+            } else {
+                let target_lote = match lote_erp {
+                    Some(ref l) if !l.trim().is_empty() => l.trim().to_string(),
+                    _ => id.clone(),
+                };
+                let _ = sqlx::query("DELETE FROM lote_custom_status WHERE lote_number = $1 OR lote_number = $2")
+                    .bind(&id)
+                    .bind(&target_lote)
+                    .execute(pool)
+                    .await;
             }
             (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
         }
@@ -4425,6 +4660,7 @@ pub struct UltimoLoteResponse {
     pub code: String,
     pub ultimo_lote: Option<String>,
     pub data_ultimo_lote: Option<String>,
+    pub quantidade_kg: Option<f64>,
     pub origem: Option<String>,
     pub sugestao_proximo: Option<String>,
     pub historico: Vec<LoteHistoricoItem>,
@@ -4435,6 +4671,7 @@ pub struct LoteHistoricoItem {
     pub lote: String,
     pub date: Option<String>,
     pub source: String,
+    pub quantidade_kg: Option<f64>,
 }
 
 pub async fn get_ultimo_lote_produto_query(
@@ -4460,48 +4697,82 @@ async fn get_ultimo_lote_impl(
     let clean_code = clean_product_code(&code);
 
     let sql = r#"
-        SELECT lote, date, source FROM (
-            SELECT sm.document_number AS lote, sm.date::text AS date, 'ERP' AS source, 1 AS prio, sm.date::text AS sort_dt
+        SELECT lote, date, source, quantidade_kg FROM (
+            SELECT sm.document_number AS lote, sm.date::text AS date, 'ERP' AS source, 1 AS prio, sm.date::text AS sort_dt, sm.quantity::float8 AS quantidade_kg
             FROM stock_movements sm
             WHERE sm.item_code = $1 
               AND sm.document_number IS NOT NULL 
               AND TRIM(sm.document_number) != ''
-              AND sm.document_number NOT LIKE 'PL-%'
+              AND TRIM(sm.document_number) NOT LIKE 'PL-%'
+              AND TRIM(sm.document_number) NOT LIKE 'pl-%'
+              AND TRIM(sm.document_number) NOT LIKE 'PLAN_%'
+              AND TRIM(sm.document_number) NOT LIKE 'plan_%'
               AND sm.movement_type = 'entrada'
 
             UNION ALL
 
-            SELECT pp.lote_erp AS lote, to_char(pp.data_planejada, 'YYYY-MM-DD') AS date, 'Planejamento' AS source, 2 AS prio, to_char(pp.data_planejada, 'YYYY-MM-DD') AS sort_dt
+            SELECT ell.lote, ell.data_lote::text AS date, 'Laudo' AS source, 1 AS prio, ell.data_lote::text AS sort_dt, ell.quantidade_kg::float8 AS quantidade_kg
+            FROM erp_lotes_laudos ell
+            WHERE ell.product_code = $1
+              AND ell.lote IS NOT NULL
+              AND TRIM(ell.lote) != ''
+              AND TRIM(ell.lote) NOT LIKE 'PL-%'
+              AND TRIM(ell.lote) NOT LIKE 'pl-%'
+              AND TRIM(ell.lote) NOT LIKE 'PLAN_%'
+              AND TRIM(ell.lote) NOT LIKE 'plan_%'
+
+            UNION ALL
+
+            SELECT pp.lote_erp AS lote, to_char(pp.data_planejada, 'YYYY-MM-DD') AS date, 'Planejamento' AS source, 2 AS prio, to_char(pp.data_planejada, 'YYYY-MM-DD') AS sort_dt, pp.quantidade_planejada::float8 AS quantidade_kg
             FROM producao_planejamento_semanal pp
             WHERE pp.codigo_produto = $1 
               AND pp.lote_erp IS NOT NULL 
               AND TRIM(pp.lote_erp) != ''
-              AND pp.lote_erp NOT LIKE 'PL-%'
+              AND TRIM(pp.lote_erp) NOT LIKE 'PL-%'
+              AND TRIM(pp.lote_erp) NOT LIKE 'pl-%'
+              AND TRIM(pp.lote_erp) NOT LIKE 'PLAN_%'
+              AND TRIM(pp.lote_erp) NOT LIKE 'plan_%'
 
             UNION ALL
 
-            SELECT pe.lote_number AS lote, to_char(pe.data_programada, 'YYYY-MM-DD') AS date, 'Envase' AS source, 3 AS prio, to_char(pe.data_programada, 'YYYY-MM-DD') AS sort_dt
+            SELECT pe.lote_number AS lote, to_char(pe.data_programada, 'YYYY-MM-DD') AS date, 'Envase' AS source, 3 AS prio, to_char(pe.data_programada, 'YYYY-MM-DD') AS sort_dt, pe.quantity_kg::float8 AS quantidade_kg
             FROM programacao_envase pe
             WHERE pe.product_code = $1
               AND pe.lote_number IS NOT NULL
               AND TRIM(pe.lote_number) != ''
+              AND TRIM(pe.lote_number) NOT LIKE 'PL-%'
+              AND TRIM(pe.lote_number) NOT LIKE 'pl-%'
+              AND TRIM(pe.lote_number) NOT LIKE 'PLAN_%'
+              AND TRIM(pe.lote_number) NOT LIKE 'plan_%'
 
             UNION ALL
 
-            SELECT pr.lote_number AS lote, to_char(pr.data_programada, 'YYYY-MM-DD') AS date, 'Rotulagem' AS source, 4 AS prio, to_char(pr.data_programada, 'YYYY-MM-DD') AS sort_dt
+            SELECT pr.lote_number AS lote, to_char(pr.data_programada, 'YYYY-MM-DD') AS date, 'Rotulagem' AS source, 4 AS prio, to_char(pr.data_programada, 'YYYY-MM-DD') AS sort_dt, NULL::float8 AS quantidade_kg
             FROM programacao_rotulagem pr
             WHERE pr.product_code = $1
               AND pr.lote_number IS NOT NULL
               AND TRIM(pr.lote_number) != ''
+              AND TRIM(pr.lote_number) NOT LIKE 'PL-%'
+              AND TRIM(pr.lote_number) NOT LIKE 'pl-%'
+              AND TRIM(pr.lote_number) NOT LIKE 'PLAN_%'
+              AND TRIM(pr.lote_number) NOT LIKE 'plan_%'
 
             UNION ALL
 
-            SELECT ts.lote_number AS lote, to_char(ts.created_at, 'YYYY-MM-DD') AS date, 'Terceirizado' AS source, 5 AS prio, to_char(ts.created_at, 'YYYY-MM-DD') AS sort_dt
+            SELECT ts.lote_number AS lote, to_char(ts.created_at, 'YYYY-MM-DD') AS date, 'Terceirizado' AS source, 5 AS prio, to_char(ts.created_at, 'YYYY-MM-DD') AS sort_dt, NULL::float8 AS quantidade_kg
             FROM terceirizados_solicitacoes ts
             WHERE ts.product_code = $1 
               AND ts.lote_number IS NOT NULL 
               AND TRIM(ts.lote_number) != ''
+              AND TRIM(ts.lote_number) NOT LIKE 'PL-%'
+              AND TRIM(ts.lote_number) NOT LIKE 'pl-%'
+              AND TRIM(ts.lote_number) NOT LIKE 'PLAN_%'
+              AND TRIM(ts.lote_number) NOT LIKE 'plan_%'
         ) all_lotes
+        WHERE TRIM(lote) NOT LIKE 'PL-%'
+          AND TRIM(lote) NOT LIKE 'pl-%'
+          AND TRIM(lote) NOT LIKE 'PLAN_%'
+          AND TRIM(lote) NOT LIKE 'plan_%'
         ORDER BY sort_dt DESC NULLS LAST, lote DESC
         LIMIT 10
     "#;
@@ -4519,12 +4790,14 @@ async fn get_ultimo_lote_impl(
                 let lote: String = row.try_get("lote").unwrap_or_default();
                 let date: Option<String> = row.try_get("date").ok();
                 let source: String = row.try_get("source").unwrap_or_else(|_| "ERP".to_string());
+                let quantidade_kg: Option<f64> = row.try_get("quantidade_kg").ok();
                 let clean_lote = lote.trim().to_string();
                 if !clean_lote.is_empty() && seen_lotes.insert(clean_lote.clone()) {
                     historico.push(LoteHistoricoItem {
                         lote: clean_lote,
                         date,
                         source,
+                        quantidade_kg,
                     });
                 }
             }
@@ -4532,6 +4805,7 @@ async fn get_ultimo_lote_impl(
             let first = historico.first();
             let ultimo_lote = first.map(|x| x.lote.clone());
             let data_ultimo_lote = first.and_then(|x| x.date.clone());
+            let quantidade_kg = first.and_then(|x| x.quantidade_kg);
             let origem = first.map(|x| x.source.clone());
 
             let sugestao_proximo = ultimo_lote.as_ref().and_then(|l| {
@@ -4548,6 +4822,7 @@ async fn get_ultimo_lote_impl(
                     code: clean_code,
                     ultimo_lote,
                     data_ultimo_lote,
+                    quantidade_kg,
                     origem,
                     sugestao_proximo,
                     historico,
@@ -4562,6 +4837,78 @@ async fn get_ultimo_lote_impl(
             .into_response(),
     }
 }
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct ProdutoMesmaFormulacao {
+    pub codigo: String,
+    pub descricao: String,
+    pub base: Option<String>,
+}
+
+/// GET /api/producao/produtos-mesma-formulacao/:code
+/// Retorna EXCLUSIVAMENTE os produtos que possuem a exata mesma formulação química (mesmas matérias-primas e proporções)
+pub async fn get_produtos_mesma_formulacao(
+    State(state): State<Arc<AppState>>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    let clean_code = code.trim().to_string();
+
+    let query = r#"
+      WITH target_formula AS (
+        SELECT ingredient_code, ROUND(percentage::numeric, 4) as pct
+        FROM formulations
+        WHERE product_code = $1 AND percentage > 0
+      ),
+      target_count AS (
+        SELECT COUNT(*)::bigint as total FROM target_formula
+      ),
+      other_products AS (
+        SELECT f.product_code, COUNT(*)::bigint as ing_count
+        FROM formulations f
+        WHERE f.product_code != $1 AND f.percentage > 0
+        GROUP BY f.product_code
+        HAVING COUNT(*)::bigint = (SELECT total FROM target_count)
+      ),
+      matched_products AS (
+        SELECT op.product_code
+        FROM other_products op
+        JOIN formulations f ON f.product_code = op.product_code AND f.percentage > 0
+        JOIN target_formula tf ON tf.ingredient_code = f.ingredient_code AND ABS(ROUND(f.percentage::numeric, 4) - tf.pct) < 0.001
+        GROUP BY op.product_code
+        HAVING COUNT(*)::bigint = (SELECT total FROM target_count)
+      )
+      SELECT p.codigo, p.descricao, p.base
+      FROM matched_products mp
+      JOIN produtos p ON p.codigo = mp.product_code
+      WHERE (SELECT total FROM target_count) > 0
+      ORDER BY p.descricao;
+    "#;
+
+    match sqlx::query(query)
+        .bind(&clean_code)
+        .fetch_all(pool)
+        .await
+    {
+        Ok(rows) => {
+            let list: Vec<ProdutoMesmaFormulacao> = rows
+                .into_iter()
+                .map(|r| ProdutoMesmaFormulacao {
+                    codigo: r.get::<String, _>(0),
+                    descricao: r.get::<Option<String>, _>(1).unwrap_or_default(),
+                    base: r.get::<Option<String>, _>(2),
+                })
+                .collect();
+            (axum::http::StatusCode::OK, Json(list)).into_response()
+        }
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Erro ao buscar produtos com mesma formulação: {}", e) })),
+        )
+            .into_response(),
+    }
+}
+
 
 
 

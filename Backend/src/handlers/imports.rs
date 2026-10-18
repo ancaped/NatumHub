@@ -248,7 +248,7 @@ pub async fn execute_erp_sync(
             );
             if res.stock_repaired > 0 {
                 let body = format!(
-                    "{} item(ns) corrigidos para bater com a tela do ERP (nQtdeEstoque).",
+                    "{} item(ns) corrigidos para bater com o estoque recalculado do ERP.",
                     res.stock_repaired
                 );
                 crate::modules::geral::notifications::notify_config(
@@ -272,7 +272,7 @@ pub async fn execute_erp_sync(
                     &state,
                     "error",
                     "Falha na verificação de estoque",
-                    "Sync gravou snapshots mas a conferência com nQtdeEstoque não rodou. Use o botão Verificar estoque em Configurações.",
+                    "Sync gravou snapshots mas a conferência com o estoque recalculado do ERP não rodou. Use o botão Verificar estoque em Configurações.",
                     None,
                 );
             }

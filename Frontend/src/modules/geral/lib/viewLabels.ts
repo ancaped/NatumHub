@@ -91,6 +91,8 @@ export function getModuleTitle(view: string): string {
       return 'Qualidade > Controle de Qualidade';
     case 'qualidade_devolucoes':
       return 'Qualidade > Devoluções';
+    case 'qualidade_avarias':
+      return 'Qualidade > Avarias';
     case 'qualidade_pops':
       return 'Qualidade > POPs';
     case 'qualidade_treinamentos':
