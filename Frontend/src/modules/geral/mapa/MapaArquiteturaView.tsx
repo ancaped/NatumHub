@@ -12,6 +12,11 @@ import {
   RefreshCw,
   Save,
   X,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Copy,
+  Check,
 } from 'lucide-react';
 import AppLayout from '../components/layout/AppLayout';
 import { apiJson } from '../lib/http';
@@ -33,9 +38,9 @@ interface Props {
 type TabId = 'org' | 'tasks' | 'registro' | 'feedbacks' | 'propor';
 
 const STATUS_STYLE: Record<string, string> = {
-  live: 'bg-emerald-100 text-emerald-800',
-  stub: 'bg-zinc-100 text-zinc-600',
-  planned: 'bg-amber-100 text-amber-800',
+  live: 'bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold',
+  stub: 'bg-zinc-100 text-zinc-600 border border-zinc-200 font-medium',
+  planned: 'bg-amber-50 text-amber-700 border border-amber-200 font-bold',
 };
 
 function fmt(raw?: string | null) {
@@ -398,57 +403,88 @@ export default function MapaArquiteturaView({ onBackToHub }: Props) {
                       onPointerDown={(e) => onNodePointerDown(e, m.moduleKey)}
                       onClick={() => selectModule(m.moduleKey)}
                       className={cn(
-                        'absolute w-[180px] cursor-grab rounded-xl border bg-white px-3 py-2 text-left shadow-sm active:cursor-grabbing',
-                        active ? 'border-zinc-900 ring-2 ring-zinc-900/15' : 'border-zinc-200 hover:border-zinc-400'
+                        'absolute w-[190px] cursor-grab rounded-2xl border bg-white p-3 text-left shadow-xs transition-all active:cursor-grabbing hover:shadow-md',
+                        active
+                          ? 'border-zinc-950 ring-2 ring-zinc-950/20 shadow-md z-20'
+                          : 'border-zinc-200 hover:border-zinc-300'
                       )}
                       style={{ left: p.x, top: p.y }}
                     >
-                      <div className="flex items-center gap-1.5">
-                        <span className={cn('rounded-full px-1.5 py-0.5 text-[9px] font-bold', STATUS_STYLE[m.status] || STATUS_STYLE.stub)}>
+                      <div className="flex items-center justify-between gap-1 mb-1.5">
+                        <span className={cn('rounded-full px-2 py-0.5 text-[9px] uppercase tracking-wider', STATUS_STYLE[m.status] || STATUS_STYLE.stub)}>
                           {m.status}
                         </span>
                         <span className="truncate text-[10px] font-mono text-zinc-400">{m.moduleKey}</span>
                       </div>
-                      <div className="mt-0.5 truncate text-sm font-semibold text-zinc-900">{m.label}</div>
+                      <div className="truncate text-xs font-bold text-zinc-900 leading-tight">{m.label}</div>
                     </button>
                   );
                 })}
               </div>
-              <div className="absolute bottom-4 left-4 flex gap-1 rounded-xl border border-zinc-200 bg-white p-1 shadow-sm">
-                <button type="button" className="h-8 w-8 rounded-lg bg-zinc-100 font-bold" onClick={() => setScale((s) => Math.min(1.6, s + 0.1))}>
-                  +
-                </button>
-                <button type="button" className="h-8 w-8 rounded-lg bg-zinc-100 font-bold" onClick={() => setScale((s) => Math.max(0.4, s - 0.1))}>
-                  −
+              <div className="absolute bottom-5 left-5 flex items-center gap-1 rounded-2xl border border-zinc-200 bg-white/95 backdrop-blur-md p-1 shadow-md z-30">
+                <button
+                  type="button"
+                  title="Aproximar zoom"
+                  className="h-8 w-8 rounded-xl hover:bg-zinc-100 flex items-center justify-center text-zinc-700 transition-colors cursor-pointer"
+                  onClick={() => setScale((s) => Math.min(1.6, s + 0.1))}
+                >
+                  <ZoomIn className="h-4 w-4" />
                 </button>
                 <button
                   type="button"
-                  className="h-8 rounded-lg bg-zinc-100 px-2 text-xs font-semibold"
+                  title="Afastar zoom"
+                  className="h-8 w-8 rounded-xl hover:bg-zinc-100 flex items-center justify-center text-zinc-700 transition-colors cursor-pointer"
+                  onClick={() => setScale((s) => Math.max(0.4, s - 0.1))}
+                >
+                  <ZoomOut className="h-4 w-4" />
+                </button>
+                <div className="h-4 w-[1px] bg-zinc-200 mx-0.5" />
+                <button
+                  type="button"
+                  title="Enquadrar visualização"
+                  className="h-8 px-2.5 rounded-xl hover:bg-zinc-100 flex items-center gap-1.5 text-xs font-bold text-zinc-700 transition-colors cursor-pointer"
                   onClick={() => {
                     setScale(0.85);
                     setPan({ x: 40, y: 20 });
                   }}
                 >
-                  Fit
+                  <Maximize2 className="h-3.5 w-3.5" />
+                  <span>Ajustar</span>
                 </button>
               </div>
             </div>
 
-            <aside className="flex w-[380px] max-w-[42vw] flex-col border-l border-zinc-200 bg-white">
+            <aside className="flex w-[390px] max-w-[42vw] flex-col border-l border-zinc-200 bg-white shadow-xs">
               {selected ? (
                 <>
-                  <header className="border-b border-zinc-100 px-4 py-3">
-                    <div className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">{selected.groupKey}</div>
-                    <h2 className="text-lg font-bold tracking-tight text-zinc-900">{selected.label}</h2>
-                    <p className="font-mono text-[11px] text-zinc-500">{selected.moduleKey}</p>
+                  <header className="border-b border-zinc-150 px-5 py-4 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-0.5">
+                        {selected.groupKey}
+                      </span>
+                      <h2 className="text-base font-black tracking-tight text-zinc-900 truncate">
+                        {selected.label}
+                      </h2>
+                      <p className="font-mono text-[11px] font-bold text-zinc-500 mt-0.5">{selected.moduleKey}</p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedKey(null)}
+                      className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 transition-colors cursor-pointer shrink-0"
+                      title="Fechar detalhes"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
                   </header>
-                  <div className="flex-1 space-y-4 overflow-auto p-4 text-sm">
+                  <div className="flex-1 space-y-4 overflow-auto p-5 text-sm">
                     <section>
-                      <div className="mb-1 text-[10px] font-bold uppercase text-zinc-400">Visão geral</div>
+                      <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400">Visão geral / Propósito</div>
                       <textarea
-                        className="min-h-[72px] w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
+                        className="min-h-[80px] w-full rounded-xl border border-zinc-200 px-3 py-2 text-xs leading-relaxed focus:ring-1 focus:ring-zinc-950 focus:outline-none bg-zinc-50/50"
                         value={editPurpose}
                         onChange={(e) => setEditPurpose(e.target.value)}
+                        placeholder="Descreva a finalidade e responsabilidade deste módulo..."
                       />
                     </section>
                     <section>
@@ -546,147 +582,239 @@ export default function MapaArquiteturaView({ onBackToHub }: Props) {
             </aside>
           </div>
         ) : tab === 'tasks' ? (
-          <div className="flex-1 overflow-auto p-4 md:p-6">
-            <div className="mb-3 flex items-center gap-2 text-sm text-zinc-600">
-              <GitBranch className="h-4 w-4" />
-              Fila Postgres (`mapa_tasks`) — export: <code className="rounded bg-zinc-100 px-1">GET /api/mapa/tasks/export.md</code>
+          <div className="flex-1 overflow-auto p-4 md:p-6 space-y-4">
+            <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-zinc-200 bg-white shadow-2xs">
+              <div className="flex items-center gap-2.5 text-xs text-zinc-700">
+                <GitBranch className="h-4 w-4 text-indigo-600" />
+                <span className="font-bold">Fila de Tarefas Arquiteturais (<code className="font-mono text-zinc-900 bg-zinc-100 px-1 py-0.5 rounded">mapa_tasks</code>)</span>
+                <span className="text-zinc-400">·</span>
+                <span className="text-zinc-500">Persistência contínua no PostgreSQL</span>
+              </div>
+              <span className="text-[11px] font-bold text-zinc-500 tabular-nums bg-zinc-100 px-2.5 py-1 rounded-lg">
+                {tasks.filter((t) => t.status === 'open').length} pendente(s)
+              </span>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               {tasks.map((t) => (
-                <div key={t.id} className="rounded-xl border border-zinc-200 bg-white p-3">
-                  <div className="flex items-start gap-2">
-                    <div className="min-w-0 flex-1">
+                <div key={t.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xs hover:border-zinc-300 transition-all">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1 space-y-1.5">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-[11px] text-zinc-400">{t.id}</span>
-                        <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-bold">{t.type}</span>
-                        <span className={cn('rounded-full px-1.5 py-0.5 text-[10px] font-bold', t.status === 'open' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}>
-                          {t.status}
+                        <span className="font-mono text-[10px] font-bold text-zinc-400 bg-zinc-100 px-2 py-0.5 rounded-md">
+                          {t.id.slice(0, 8)}
+                        </span>
+                        <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-[10px] font-bold text-zinc-700 uppercase tracking-wider">
+                          {t.type}
+                        </span>
+                        <span className={cn(
+                          'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
+                          t.status === 'open'
+                            ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                            : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        )}>
+                          {t.status === 'open' ? 'Pendente' : 'Concluído'}
                         </span>
                       </div>
-                      <div className="mt-1 font-semibold text-zinc-900">{t.title}</div>
-                      <div className="mt-1 text-xs text-zinc-500">{fmt(t.createdAt)} · {t.createdBy || '—'}</div>
+                      <div className="text-sm font-bold text-zinc-900 leading-snug">{t.title}</div>
+                      <div className="text-xs text-zinc-500 flex items-center gap-2">
+                        <span>{fmt(t.createdAt)}</span>
+                        {t.createdBy && (
+                          <>
+                            <span>·</span>
+                            <span>Criado por <strong>{t.createdBy}</strong></span>
+                          </>
+                        )}
+                      </div>
                     </div>
                     {t.status === 'open' && (
                       <button
                         type="button"
                         onClick={() => void markTaskDone(t.id)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2 py-1 text-xs font-semibold hover:bg-zinc-50"
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-bold text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900 shadow-2xs cursor-pointer transition-all shrink-0"
                       >
-                        <CheckCircle2 className="h-3.5 w-3.5" /> Done
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                        <span>Concluir</span>
                       </button>
                     )}
                   </div>
                 </div>
               ))}
-              {!tasks.length && <p className="text-sm text-zinc-500">Nenhuma task.</p>}
+              {!tasks.length && (
+                <div className="py-12 text-center text-zinc-400 text-xs">
+                  Nenhuma tarefa arquitetural na fila.
+                </div>
+              )}
             </div>
           </div>
         ) : tab === 'registro' ? (
-          <div className="flex-1 overflow-auto p-4 md:p-6">
-            <ul className="space-y-2">
+          <div className="flex-1 overflow-auto p-4 md:p-6 space-y-4">
+            <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-zinc-200 bg-white shadow-2xs">
+              <div className="flex items-center gap-2.5 text-xs text-zinc-700">
+                <History className="h-4 w-4 text-zinc-500" />
+                <span className="font-bold">Registro de Atividades Arquiteturais</span>
+                <span className="text-zinc-400">·</span>
+                <span className="text-zinc-500">Histórico cronológico de alterações nos módulos e conexões</span>
+              </div>
+              <span className="text-[11px] font-bold text-zinc-500 tabular-nums bg-zinc-100 px-2.5 py-1 rounded-lg">
+                {activity.length} evento(s)
+              </span>
+            </div>
+            <ul className="space-y-2.5">
               {activity.map((a) => (
-                <li key={a.id} className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
-                  <div className="flex flex-wrap gap-2 text-xs text-zinc-500">
-                    <span>{fmt(a.at)}</span>
-                    <span className="font-semibold text-zinc-800">{a.actor || 'system'}</span>
-                    <span className="rounded bg-zinc-100 px-1.5 font-mono text-[11px]">{a.action}</span>
+                <li key={a.id} className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm shadow-2xs space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="font-extrabold text-zinc-900">{a.actor || 'system'}</span>
+                      <span className="rounded-md bg-zinc-100 border border-zinc-200 px-2 py-0.5 font-mono text-[11px] font-bold text-zinc-700">
+                        {a.action}
+                      </span>
+                    </div>
+                    <span className="font-mono text-[11px] text-zinc-400 font-bold">{fmt(a.at)}</span>
                   </div>
-                  <pre className="mt-1 overflow-auto text-[11px] text-zinc-600">{JSON.stringify(a.meta, null, 0)}</pre>
+                  {a.meta && Object.keys(a.meta).length > 0 && (
+                    <div className="p-2.5 rounded-xl bg-zinc-50 border border-zinc-150 font-mono text-[11px] text-zinc-700 overflow-x-auto">
+                      <pre className="whitespace-pre-wrap">{JSON.stringify(a.meta, null, 2)}</pre>
+                    </div>
+                  )}
                 </li>
               ))}
-              {!activity.length && <p className="text-sm text-zinc-500">Registro vazio.</p>}
+              {!activity.length && (
+                <div className="py-12 text-center text-zinc-400 text-xs">
+                  Nenhum registro de atividade recente.
+                </div>
+              )}
             </ul>
           </div>
         ) : tab === 'feedbacks' ? (
-          <div className="flex-1 overflow-auto p-4 md:p-6">
-            <div className="mb-3 flex flex-wrap gap-2">
-              {['all', 'pending', 'queued', 'awaiting_review', 'resolved'].map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setFbFilter(s)}
-                  className={cn(
-                    'rounded-lg border px-2.5 py-1 text-xs font-semibold',
-                    fbFilter === s ? 'border-zinc-900 bg-zinc-900 text-white' : 'border-zinc-200 bg-white text-zinc-700'
-                  )}
-                >
-                  {s}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="ml-auto text-xs font-semibold text-zinc-600 underline"
-                onClick={() => onBackToHub()}
-              >
-                Abrir gestão completa no menu do usuário
-              </button>
+          <div className="flex-1 overflow-auto p-4 md:p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl border border-zinc-200 bg-white shadow-2xs">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[
+                  { id: 'all', label: 'Todos' },
+                  { id: 'pending', label: 'Triagem' },
+                  { id: 'queued', label: 'Na fila' },
+                  { id: 'awaiting_review', label: 'Em aberto' },
+                  { id: 'resolved', label: 'Finalizados' },
+                ].map(({ id, label }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setFbFilter(id)}
+                    className={cn(
+                      'px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer',
+                      fbFilter === id
+                        ? 'bg-zinc-900 text-white shadow-xs'
+                        : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200/80 hover:text-zinc-900'
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs font-bold text-zinc-400">
+                {filteredFb.length} feedback(s)
+              </span>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               {filteredFb.slice(0, 80).map((f) => (
-                <div key={f.id} className="rounded-xl border border-zinc-200 bg-white p-3 text-sm">
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="font-mono text-zinc-400">{f.id.slice(0, 8)}</span>
-                    <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 font-bold">{f.status}</span>
-                    <span className="text-zinc-400">{f.feedbackType}</span>
+                <div key={f.id} className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm shadow-2xs hover:border-zinc-300 transition-all space-y-1.5">
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[10px] font-bold text-zinc-400 bg-zinc-100 px-2 py-0.5 rounded-md">
+                        {f.id.slice(0, 8)}
+                      </span>
+                      <span className="rounded-full bg-zinc-100 border border-zinc-200 px-2 py-0.5 text-[10px] font-bold text-zinc-700 capitalize">
+                        {f.feedbackType}
+                      </span>
+                    </div>
+                    <span className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-zinc-100 text-zinc-700 border border-zinc-200">
+                      {f.status}
+                    </span>
                   </div>
-                  <p className="mt-1 line-clamp-2 font-medium text-zinc-900">{f.description}</p>
+                  <p className="font-semibold text-zinc-900 leading-snug">{f.description}</p>
                 </div>
               ))}
-              {!filteredFb.length && <p className="text-sm text-zinc-500">Sem feedbacks.</p>}
+              {!filteredFb.length && (
+                <div className="py-12 text-center text-zinc-400 text-xs">
+                  Nenhum feedback encontrado neste filtro.
+                </div>
+              )}
             </div>
           </div>
         ) : (
           <div className="flex-1 overflow-auto p-4 md:p-6">
-            <div className="mx-auto max-w-lg space-y-3 rounded-2xl border border-zinc-200 bg-white p-5">
-              <h3 className="text-base font-bold">Propor / adicionar módulo</h3>
-              <p className="text-sm text-zinc-500">Cria módulo planned + task module_spec no Postgres.</p>
-              <label className="block text-xs font-semibold">
-                module_key
-                <input
-                  className="mt-1 w-full rounded-lg border border-zinc-200 px-2 py-1.5 font-mono text-sm"
-                  value={addForm.moduleKey}
-                  onChange={(e) => setAddForm((f) => ({ ...f, moduleKey: e.target.value }))}
-                  placeholder="ex: qualidade_auditoria"
-                />
-              </label>
-              <label className="block text-xs font-semibold">
-                Label
-                <input
-                  className="mt-1 w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
-                  value={addForm.label}
-                  onChange={(e) => setAddForm((f) => ({ ...f, label: e.target.value }))}
-                />
-              </label>
-              <label className="block text-xs font-semibold">
-                Grupo
-                <select
-                  className="mt-1 w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
-                  value={addForm.groupKey}
-                  onChange={(e) => setAddForm((f) => ({ ...f, groupKey: e.target.value }))}
+            <div className="mx-auto max-w-lg space-y-4 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+              <div className="border-b border-zinc-150 pb-3">
+                <h3 className="text-base font-black tracking-tight text-zinc-900">Propor / Adicionar Novo Módulo</h3>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  Registra uma nova proposta de módulo com status <code className="font-mono text-zinc-700 bg-zinc-100 px-1 py-0.5 rounded">planned</code> e gera a tarefa arquitetural correspondente no PostgreSQL.
+                </p>
+              </div>
+
+              <div className="space-y-3 text-left">
+                <div>
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
+                    Chave do Módulo (module_key)
+                  </label>
+                  <input
+                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-zinc-50"
+                    value={addForm.moduleKey}
+                    onChange={(e) => setAddForm((f) => ({ ...f, moduleKey: e.target.value }))}
+                    placeholder="ex: qualidade_auditoria"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
+                    Nome de Exibição (label)
+                  </label>
+                  <input
+                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-xs font-semibold focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-zinc-50"
+                    value={addForm.label}
+                    onChange={(e) => setAddForm((f) => ({ ...f, label: e.target.value }))}
+                    placeholder="ex: Auditoria de Qualidade"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
+                    Grupo de Setor
+                  </label>
+                  <select
+                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-xs font-semibold focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-white"
+                    value={addForm.groupKey}
+                    onChange={(e) => setAddForm((f) => ({ ...f, groupKey: e.target.value }))}
+                  >
+                    {groups.map((g) => (
+                      <option key={g.key} value={g.key}>
+                        {g.label} ({g.key})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
+                    Finalidade / Propósito Inicial
+                  </label>
+                  <textarea
+                    className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-xs leading-relaxed focus:ring-1 focus:ring-zinc-900 focus:outline-none bg-zinc-50 min-h-[90px]"
+                    value={addForm.purpose}
+                    onChange={(e) => setAddForm((f) => ({ ...f, purpose: e.target.value }))}
+                    placeholder="Qual problema operacional este módulo resolve?"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  disabled={saving || !addForm.moduleKey.trim() || !addForm.label.trim()}
+                  onClick={() => void createModule()}
+                  className="w-full mt-2 inline-flex items-center justify-center gap-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white py-2.5 text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-xs"
                 >
-                  {groups.map((g) => (
-                    <option key={g.key} value={g.key}>
-                      {g.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-xs font-semibold">
-                Purpose
-                <textarea
-                  className="mt-1 w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
-                  value={addForm.purpose}
-                  onChange={(e) => setAddForm((f) => ({ ...f, purpose: e.target.value }))}
-                />
-              </label>
-              <button
-                type="button"
-                disabled={saving || !addForm.moduleKey || !addForm.label}
-                onClick={() => void createModule()}
-                className="w-full rounded-xl bg-zinc-900 py-2 text-sm font-semibold text-white disabled:opacity-50"
-              >
-                Criar módulo + task
-              </button>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  Cadastrar Módulo e Gerar Task
+                </button>
+              </div>
             </div>
           </div>
         )}

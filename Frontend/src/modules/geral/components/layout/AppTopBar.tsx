@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Settings, LogOut, UserCog, ClipboardList, Shield, ArrowLeft, Network, Loader2, RefreshCw, RotateCcw, CheckCircle2, AlertTriangle, Menu, X } from 'lucide-react';
-import { cn, APP_VERSION } from '../../lib/utils';
+import { ChevronDown, Settings, LogOut, UserCog, ClipboardList, Shield, ArrowLeft, Network, Loader2, RefreshCw, CheckCircle2, AlertTriangle, Menu, X } from 'lucide-react';
+import { cn, getAppVersion, getAppEnvironment } from '../../lib/utils';
 import { canAccessView } from '../../lib/modules/permissions';
 import { isSupervisor, canSeeFeedbacks } from '../../lib/auth';
 import type { AuthUser } from '../../lib/auth';
@@ -130,62 +130,22 @@ export default function AppTopBar({
     }
   }, [canQuickSync, quickSyncing]);
 
-  const [restartModalOpen, setRestartModalOpen] = useState(false);
-  const [restartingServer, setRestartingServer] = useState(false);
-  const [restartSuccess, setRestartSuccess] = useState(false);
-  const [restartError, setRestartError] = useState<string | null>(null);
-  const [restartCountdown, setRestartCountdown] = useState<number | null>(null);
-
-  const handleRestartServer = useCallback(async () => {
-    if (!isSupervisor(currentUser) || restartingServer) return;
-    setRestartingServer(true);
-    setRestartError(null);
-    setRestartSuccess(false);
-    setRestartCountdown(12);
-
-    try {
-      await apiJson('/server-manager/restart', { method: 'POST' });
-    } catch (e: unknown) {
-      // Conexão encerrada pelo encerramento do processo é esperado
-      console.info('Reinício do servidor disparado');
-    }
-  }, [currentUser, restartingServer]);
+  const [appVersion, setAppVersion] = useState<string>(() => getAppVersion());
+  const appEnv = getAppEnvironment();
 
   useEffect(() => {
-    if (restartCountdown === null) return;
-
-    let pollInterval: number;
-    let timer: number;
-
-    if (restartCountdown > 0) {
-      timer = window.setTimeout(() => {
-        setRestartCountdown((prev) => (prev !== null && prev > 0 ? prev - 1 : 0));
-      }, 1000);
-    }
-
-    if (restartCountdown <= 10) {
-      pollInterval = window.setInterval(async () => {
-        try {
-          const res = await fetch('/api/server-manager/status');
-          if (res.ok) {
-            setRestartSuccess(true);
-            setRestartCountdown(null);
-            clearInterval(pollInterval);
-            window.setTimeout(() => {
-              window.location.reload();
-            }, 1000);
-          }
-        } catch {
-          // Servidor ainda não respondeu, aguarda próxima tentativa
+    let cancelled = false;
+    apiJson<{ version?: string }>('/server-manager/status')
+      .then((res) => {
+        if (!cancelled && res?.version) {
+          setAppVersion(res.version);
         }
-      }, 1200);
-    }
-
+      })
+      .catch(() => undefined);
     return () => {
-      clearTimeout(timer);
-      clearInterval(pollInterval);
+      cancelled = true;
     };
-  }, [restartCountdown]);
+  }, []);
 
   useEffect(() => {
     const mq = window.matchMedia('(hover: hover) and (pointer: fine)');
@@ -519,7 +479,17 @@ export default function AppTopBar({
         )}
 
         <div className="flex items-center gap-3 shrink-0">
-          <span className="text-xs text-zinc-400 font-mono hidden sm:inline">v{APP_VERSION}</span>
+          <span
+            className={cn(
+              'hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-[11px] font-bold tracking-wide select-none',
+              appEnv === 'dev'
+                ? 'bg-amber-500/10 text-amber-700 border border-amber-500/25 shadow-2xs'
+                : 'bg-zinc-100 text-zinc-600 border border-zinc-200'
+            )}
+            title={appEnv === 'dev' ? 'Nexus DEV (:3002)' : 'Nexus PROD (:3001)'}
+          >
+            v{appVersion} · {appEnv.toUpperCase()}
+          </span>
 
           {canQuickSync && (
             <div className="relative hidden sm:block">
@@ -539,18 +509,6 @@ export default function AppTopBar({
                 </div>
               )}
             </div>
-          )}
-
-          {isSupervisor(currentUser) && (
-            <button
-              type="button"
-              onClick={() => setRestartModalOpen(true)}
-              className="hidden sm:inline-flex p-2 rounded-xl border border-zinc-200 bg-white text-zinc-650 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 transition-colors cursor-pointer"
-              title="Reiniciar Servidor Nexus (Apenas Supervisor)"
-              aria-label="Reiniciar Servidor"
-            >
-              <RotateCcw className="h-4 w-4" />
-            </button>
           )}
 
           {currentUser && <NotificationsPanel currentUser={currentUser} />}
@@ -644,23 +602,10 @@ export default function AppTopBar({
                           fetchSqlConfig();
                           setView('hub_supervisor');
                         }}
-                        className="w-full flex items-center gap-2.5 px-3 py-3 min-h-11 rounded-lg text-sm font-semibold text-violet-700 hover:bg-violet-50 transition-colors cursor-pointer text-left"
+                        className="w-full flex items-center gap-2.5 px-3 py-3 min-h-11 rounded-lg text-sm font-semibold text-zinc-700 hover:bg-zinc-50 hover:text-zinc-950 transition-colors cursor-pointer text-left"
                       >
                         <Shield className="h-4 w-4 text-violet-500" />
-                        Painel Supervisor
-                      </button>
-                    )}
-
-                    {isSupervisor(currentUser) && (
-                      <button
-                        onClick={() => {
-                          setDropdownOpen(false);
-                          setRestartModalOpen(true);
-                        }}
-                        className="w-full flex items-center gap-2.5 px-3 py-3 min-h-11 rounded-lg text-sm font-semibold text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer text-left"
-                      >
-                        <RotateCcw className="h-4 w-4 text-rose-500" />
-                        Reiniciar Servidor
+                        Painel do Supervisor
                       </button>
                     )}
 
@@ -669,7 +614,7 @@ export default function AppTopBar({
                         onClick={() => {
                           setDropdownOpen(false);
                           fetchSqlConfig();
-                          setView('hub_settings');
+                          setView(isSupervisor(currentUser) ? 'hub_supervisor' : 'hub_settings');
                         }}
                         className="w-full flex items-center gap-2.5 px-3 py-3 min-h-11 rounded-lg text-sm font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left"
                       >
@@ -898,91 +843,6 @@ export default function AppTopBar({
               </button>
             </div>
           </form>
-        </Modal>
-      )}
-
-      {restartModalOpen && (
-        <Modal isOpen={true} title="Reiniciar Servidor Nexus" onClose={() => !restartingServer && setRestartModalOpen(false)}>
-          <div className="space-y-4 p-1 text-zinc-800">
-            {restartSuccess ? (
-              <div className="py-6 text-center space-y-3">
-                <div className="h-12 w-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
-                  <CheckCircle2 className="h-6 w-6" />
-                </div>
-                <h4 className="font-extrabold text-base text-emerald-900">Servidor Reiniciado com Sucesso!</h4>
-                <p className="text-xs text-zinc-500">Reconectado aos serviços. A aplicação será recarregada em instantes...</p>
-              </div>
-            ) : restartingServer ? (
-              <div className="py-6 text-center space-y-3">
-                <div className="h-12 w-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto">
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                </div>
-                <h4 className="font-extrabold text-sm text-zinc-900">Reiniciando o Servidor Nexus...</h4>
-                <p className="text-xs text-zinc-500 max-w-sm mx-auto">
-                  O processo do servidor está sendo reinicializado. Aguarde a reconexão automática.
-                </p>
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-zinc-100 rounded-xl text-xs font-mono font-bold text-zinc-700">
-                  <span>Reconectando:</span>
-                  <span className="text-rose-600 font-extrabold">
-                    {restartCountdown !== null && restartCountdown > 0 ? `${restartCountdown}s` : 'Verificando porta...'}
-                  </span>
-                </div>
-                {restartCountdown === 0 && (
-                  <div className="pt-2">
-                    <button
-                      type="button"
-                      onClick={() => window.location.reload()}
-                      className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-xl cursor-pointer shadow-sm"
-                    >
-                      Recarregar Página Agora
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <>
-                <div className="flex items-start gap-3 p-3 bg-rose-50 border border-rose-200/80 rounded-2xl">
-                  <div className="p-2 bg-white text-rose-600 rounded-xl border border-rose-100 shrink-0">
-                    <AlertTriangle className="h-5 w-5" />
-                  </div>
-                  <div className="space-y-1 text-xs">
-                    <span className="font-bold text-rose-900 block">Ação Exclusiva do Supervisor</span>
-                    <p className="text-rose-800 leading-relaxed">
-                      Esta ação reinicia o processo do servidor HTTP e recarrega os módulos no computador principal. Não é necessário fechar ou clicar novamente no <code className="font-mono bg-white/70 px-1 py-0.5 rounded font-semibold text-rose-900">server.bat</code>.
-                    </p>
-                  </div>
-                </div>
-
-                <p className="text-xs text-zinc-600 leading-relaxed px-1">
-                  Durante a reinicialização (cerca de 2 a 5 segundos), as conexões com outros computadores da rede serão brevemente restabelecidas.
-                </p>
-
-                {restartError && (
-                  <p className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-xl p-3 font-semibold">
-                    {restartError}
-                  </p>
-                )}
-
-                <div className="flex justify-end gap-2 pt-3 border-t border-zinc-100">
-                  <button
-                    type="button"
-                    onClick={() => setRestartModalOpen(false)}
-                    className="px-4 py-2 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-650 hover:bg-zinc-50 cursor-pointer"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleRestartServer}
-                    className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 shadow-sm"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                    Reiniciar Servidor Agora
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
         </Modal>
       )}
     </>

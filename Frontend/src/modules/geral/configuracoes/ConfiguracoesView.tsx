@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 
 import ConexaoServidorPanel from './ConexaoServidorPanel';
+import ImportacoesServidorPanel from './ImportacoesServidorPanel';
 import OperadoresPanel from './OperadoresPanel';
 import PostgresUsagePanel from './PostgresUsagePanel';
 import PostgresBackupPanel from './PostgresBackupPanel';
@@ -561,9 +562,9 @@ export default function ConfiguracoesView({
       },
       {
         id: 'erp',
-        label: 'Sincronização ERP',
+        label: 'Importações & ERP',
         icon: Database,
-        description: 'SQL Server, agenda e travas',
+        description: 'Servidor original, histórico e mapeamento',
       },
       {
         id: 'rede',
@@ -889,319 +890,26 @@ export default function ConfiguracoesView({
               <AuditoriaPanel setMessage={setMessage} />
             )}
 
-            {/* Aba ERP */}
+            {/* Aba Importações & ERP (Servidor Original) */}
             {supervisorTab === 'erp' && canEditInfra && (
-              <>
-                <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-4">
-                  <div className="flex items-center gap-3 border-b border-zinc-150 pb-4">
-                    <div className="p-2 bg-amber-50 text-amber-700 rounded-xl">
-                      <Clock className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-black text-sm tracking-tight">Janela de pedidos de venda</h3>
-                      <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
-                        Trava de período · Produção (Ped) · Vendas · faltas / Compras
-                      </p>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-zinc-600 leading-relaxed">
-                    Pedidos antigos ainda abertos no ERP (ex.: 2024) incham o campo <strong>Ped</strong> na Produção.
-                    Use esta trava para considerar só o residual de pedidos dos últimos N dias. <strong>Sem limite</strong> inclui todo o histórico aberto.
-                  </p>
-
-                  {loadingSalesPedidos ? (
-                    <div className="flex items-center gap-2 text-xs text-zinc-500 py-2">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      Carregando...
-                    </div>
-                  ) : (
-                    <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-                      <div className="flex-1">
-                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
-                          Considerar pedidos dos últimos
-                        </label>
-                        <select
-                          value={salesPedidosDays}
-                          onChange={(e) => setSalesPedidosDays(Number(e.target.value))}
-                          className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-zinc-950 focus:outline-none bg-white text-zinc-800 font-semibold"
-                        >
-                          <option value={30}>30 dias</option>
-                          <option value={60}>60 dias</option>
-                          <option value={90}>90 dias (3 meses)</option>
-                          <option value={180}>180 dias (6 meses)</option>
-                          <option value={365}>365 dias (1 ano)</option>
-                          <option value={0}>Sem limite (todo o histórico aberto)</option>
-                        </select>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleSaveSalesPedidosDays}
-                        disabled={savingSalesPedidos}
-                        className="bg-zinc-950 text-white hover:bg-zinc-800 px-5 py-2.5 rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-sm"
-                      >
-                        {savingSalesPedidos ? 'Salvando...' : 'Salvar janela'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-6">
-                  <div className="flex items-center gap-3 border-b border-zinc-150 pb-4">
-                    <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
-                      <Database className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-black text-sm tracking-tight">Sincronização ERP (SQL Server)</h3>
-                      <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
-                        Importação ERP → PostgreSQL · manual ou agenda automática
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="text-xs text-zinc-600 bg-zinc-50 border border-zinc-100 rounded-xl px-3 py-2.5 space-y-1">
-                    <p className="font-bold text-zinc-800">O que a sincronização importa:</p>
-                    <p>Produtos, insumos, fornecedores, notas fiscais de compra, movimentações, fórmulas, pedidos de compra e pedidos de venda do ERP NATUM.</p>
-                    <p className="text-zinc-500">
-                      Depois do primeiro sync, o botão normal é <strong>incremental</strong> (só o delta desde o watermark). Use <strong>Sync completo</strong> só quando precisar reprocessar o histórico na janela configurada abaixo.
-                    </p>
-                  </div>
-
-                  {(syncingSql || syncLock?.running) && (
-                    <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-3 space-y-2">
-                      <div className="flex items-center gap-2 text-indigo-900 text-xs font-bold">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-                        Sync ERP em andamento
-                        {typeof syncLock?.ageSeconds === 'number' && syncLock.ageSeconds > 0
-                          ? ` · ${Math.floor(syncLock.ageSeconds / 60)} min`
-                          : ''}
-                      </div>
-                      <p className="text-[11px] text-indigo-800/90 leading-relaxed">
-                        Com histórico completo isso pode demorar bastante. O botão fica em “Sincronizando…” até a API responder.
-                        Se clicou de novo e “nada aconteceu”, o sync anterior ainda está rodando.
-                      </p>
-                      {syncLock?.running && !syncingSql && (
-                        <button
-                          type="button"
-                          onClick={handleReleaseSyncLock}
-                          disabled={releasingLock}
-                          className="text-[11px] font-bold text-rose-700 underline cursor-pointer disabled:opacity-50"
-                        >
-                          {releasingLock ? 'Liberando…' : 'Liberar lock (somente se travou)'}
-                        </button>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="rounded-xl border border-zinc-150 bg-white px-3 py-3 space-y-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <p className="text-[11px] font-bold text-zinc-800">Janela histórica do sync completo</p>
-                        <p className="text-[10px] text-zinc-500">
-                          Afeta passos datados (lotes, vendas, pedidos, NFs…). Incremental continua pelo watermark.
-                        </p>
-                      </div>
-                    </div>
-                    {loadingHistoryFloor ? (
-                      <div className="flex items-center gap-2 text-xs text-zinc-500 py-1">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        Carregando...
-                      </div>
-                    ) : (
-                      <div className="flex flex-col sm:flex-row sm:items-end gap-2">
-                        <div className="flex-1">
-                          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
-                            Importar dados desde
-                          </label>
-                          <select
-                            value={historyFloor}
-                            onChange={(e) => setHistoryFloor(e.target.value)}
-                            className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-zinc-950 focus:outline-none bg-white text-zinc-800 font-semibold"
-                          >
-                            <option value="2024-01-01">01/01/2024 (padrão, mais rápido)</option>
-                            <option value="2020-01-01">01/01/2020</option>
-                            <option value="2015-01-01">01/01/2015</option>
-                            <option value="all">Histórico completo (todo o ERP)</option>
-                          </select>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleSaveHistoryFloor}
-                          disabled={savingHistoryFloor}
-                          className="px-4 py-2 rounded-xl text-xs font-bold bg-zinc-900 text-white hover:bg-zinc-800 cursor-pointer disabled:opacity-50"
-                        >
-                          {savingHistoryFloor ? 'Salvando...' : 'Salvar janela'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-3.5 text-left">
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="col-span-2">
-                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">IP / Host do SQL Server</label>
-                        <input
-                          type="text"
-                          value={sqlHost}
-                          onChange={(e) => setSqlHost(e.target.value)}
-                          className="w-full border border-zinc-300 rounded-xl px-3 py-1.5 text-xs focus:ring-1 focus:ring-zinc-950 focus:outline-none bg-white text-zinc-800"
-                          placeholder="127.0.0.1"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">Porta</label>
-                        <input
-                          type="text"
-                          value={sqlPort}
-                          onChange={(e) => setSqlPort(e.target.value)}
-                          className="w-full border border-zinc-300 rounded-xl px-3 py-1.5 text-xs focus:ring-1 focus:ring-zinc-950 focus:outline-none bg-white text-zinc-800"
-                          placeholder="1433"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">Usuário SQL Server</label>
-                        <input
-                          type="text"
-                          value={sqlUser}
-                          onChange={(e) => setSqlUser(e.target.value)}
-                          className="w-full border border-zinc-300 rounded-xl px-3 py-1.5 text-xs focus:ring-1 focus:ring-zinc-950 focus:outline-none bg-white text-zinc-800"
-                          placeholder="sa"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">Senha</label>
-                        <input
-                          type="password"
-                          value={sqlPassword}
-                          onChange={(e) => setSqlPassword(e.target.value)}
-                          className="w-full border border-zinc-300 rounded-xl px-3 py-1.5 text-xs focus:ring-1 focus:ring-zinc-950 focus:outline-none bg-white text-zinc-800"
-                          placeholder="••••••••"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">Nome do Banco</label>
-                      <input
-                        type="text"
-                        value={sqlDatabase}
-                        onChange={(e) => setSqlDatabase(e.target.value)}
-                        className="w-full border border-zinc-300 rounded-xl px-3 py-1.5 text-xs focus:ring-1 focus:ring-zinc-950 focus:outline-none bg-white text-zinc-800"
-                        placeholder="NATUM"
-                      />
-                    </div>
-
-                    <div className="pt-2 flex flex-col sm:flex-row gap-2">
-                      <button
-                        type="button"
-                        onClick={handleSaveSqlConfig}
-                        disabled={savingSql}
-                        className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 transition-colors disabled:opacity-50 cursor-pointer"
-                      >
-                        {savingSql ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
-                        Salvar Credenciais
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSyncSqlDatabase('incremental')}
-                        disabled={syncingSql || (syncLock?.running ?? false)}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 transition-colors disabled:opacity-50 cursor-pointer"
-                        title="Importa só o delta desde o último sync"
-                      >
-                        {syncingSql ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                        Sincronizar Agora (Delta)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSyncSqlDatabase('full')}
-                        disabled={syncingSql || (syncLock?.running ?? false)}
-                        className="bg-zinc-800 hover:bg-zinc-900 text-zinc-200 hover:text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 transition-colors disabled:opacity-50 cursor-pointer"
-                        title="Reprocessa todo o histórico desde a data configurada acima"
-                      >
-                        {syncingSql ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                        Sync Completo
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="border-t border-zinc-200/60 pt-4 mt-2 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-indigo-600" />
-                      <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-                        Sync automático (horários diários)
-                      </span>
-                    </div>
-
-                    <label className="flex items-center gap-2 text-xs font-bold text-zinc-700 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={erpSchedule.ativo}
-                        onChange={(e) => setErpSchedule((prev) => ({ ...prev, ativo: e.target.checked }))}
-                        className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      Ativar importação automática do ERP nestes horários
-                    </label>
-
-                    <div className="grid grid-cols-2 gap-2 text-[11px] text-zinc-500">
-                      <div className="bg-zinc-50 border border-zinc-100 rounded-lg px-2.5 py-2">
-                        <span className="font-bold text-zinc-600 block mb-0.5">Última sync automática</span>
-                        <span className="font-mono text-zinc-800">{erpSchedule.ultima_execucao || '—'}</span>
-                      </div>
-                      <div className="bg-zinc-50 border border-zinc-100 rounded-lg px-2.5 py-2">
-                        <span className="font-bold text-zinc-600 block mb-0.5">Próxima execução</span>
-                        <span className="font-mono text-zinc-800">
-                          {erpSchedule.ativo ? (erpSchedule.proxima_execucao || '—') : 'Desativado'}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="border-t border-zinc-150 pt-3 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Boxes className="h-4 w-4 text-emerald-600" />
-                        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-                          Auto-Auditor de Estoque em Segundo Plano
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-zinc-500 leading-relaxed">
-                        Verificação periódica que recalcula o estoque de insumos a partir dos movimentos do ERP, lê <code className="font-mono text-zinc-700">nQtdeEstoque</code> de materiais e produtos, e corrige o Hub automaticamente.
-                      </p>
-                      <div>
-                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
-                          Intervalo de auto-auditoria de estoque
-                        </label>
-                        <select
-                          value={erpSchedule.auto_audit_interval_minutes ?? 15}
-                          onChange={(e) =>
-                            setErpSchedule((prev) => ({
-                              ...prev,
-                              auto_audit_interval_minutes: Number(e.target.value),
-                            }))
-                          }
-                          className="w-full border border-zinc-300 rounded-xl px-3 py-2 text-xs focus:ring-1 focus:ring-zinc-950 focus:outline-none bg-white text-zinc-800 font-semibold"
-                        >
-                          <option value={5}>A cada 5 minutos (alta frequência)</option>
-                          <option value={15}>A cada 15 minutos (recomendado)</option>
-                          <option value={30}>A cada 30 minutos</option>
-                          <option value={60}>A cada 1 hora</option>
-                          <option value={0}>Desativado (somente manual)</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleSaveErpSchedule}
-                      disabled={savingSchedule || loadingSchedule}
-                      className="w-full bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer"
-                    >
-                      {savingSchedule ? 'Salvando...' : 'Salvar configurações automáticas'}
-                    </button>
-                  </div>
-                </div>
-              </>
+              <ImportacoesServidorPanel
+                sqlHost={sqlHost}
+                setSqlHost={setSqlHost}
+                sqlPort={sqlPort}
+                setSqlPort={setSqlPort}
+                sqlUser={sqlUser}
+                setSqlUser={setSqlUser}
+                sqlPassword={sqlPassword}
+                setSqlPassword={setSqlPassword}
+                sqlDatabase={sqlDatabase}
+                setSqlDatabase={setSqlDatabase}
+                handleSaveSqlConfig={handleSaveSqlConfig}
+                savingSql={savingSql}
+                handleSyncSqlDatabase={handleSyncSqlDatabase}
+                syncingSql={syncingSql}
+                message={message}
+                setMessage={setMessage}
+              />
             )}
           </div>
         </main>

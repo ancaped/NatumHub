@@ -5,8 +5,31 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+declare const __APP_VERSION__: string | undefined;
+
 export const APP_NAME = "NEXUS";
-export const APP_VERSION = "0.1b";
+
+/** Retorna a versão da aplicação injetada pelo Vite ou fallback */
+export function getAppVersion(): string {
+  if (typeof __APP_VERSION__ !== 'undefined' && __APP_VERSION__) {
+    return __APP_VERSION__;
+  }
+  return "0.1.0";
+}
+
+export const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' && __APP_VERSION__ ? __APP_VERSION__ : "0.1.0";
+
+/** Detecta se o aplicativo está rodando em ambiente de Desenvolvimento (:3002 ou localhost) ou Produção (:3001) */
+export function getAppEnvironment(): 'dev' | 'prod' {
+  if (typeof window === 'undefined') return 'prod';
+  const port = window.location.port;
+  const host = window.location.hostname.toLowerCase();
+  if (port === '3002' || port === '5175' || host.includes('dev') || (host === 'localhost' && port !== '3001')) {
+    return 'dev';
+  }
+  return 'prod';
+}
+
 export const COMPANY_INFO = {
   name: "NÁTUM BIO COSMÉTICOS LTDA",
   address: "RUA LUIS BELLETI, 78, SANTA MARIA, CARANGOLA-MG",
