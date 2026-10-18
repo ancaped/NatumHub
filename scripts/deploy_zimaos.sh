@@ -2,6 +2,8 @@
 # scripts/deploy_zimaos.sh - Atualiza a build do Nexus no ZimaOS via SSH + BuildKit
 set -euo pipefail
 
+export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
+
 ZIMAOS_HOST="${ZIMAOS_HOST:-192.168.122.196}"
 ZIMAOS_APP_DIR="${ZIMAOS_APP_DIR:-/DATA/AppData/nexus}"
 TARGET_SERVICE="${1:-nexus-dev}" # default: nexus-dev (:3002). Use 'nexus-prod' para produção (:3001).
