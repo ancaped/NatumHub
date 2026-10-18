@@ -20,7 +20,7 @@ Executar correções a partir da **fila de feedbacks no banco** (ou ID pedido pe
 - [ ] 2. Escolher menor priority (ou ID pedido)
 - [ ] 3. Ler description, page, logs, screenshot, admin_notes + feedback_notes
 - [ ] 4. Reproduzir mentalmente: página, logs, descrição
-- [ ] 5. Localizar código (mapa: ContextoIA/arquitetura/mapa_pastas.md)
+- [ ] 5. Localizar código (mapa no ai-memory: `concepts/arquitetura-geral.md`)
 - [ ] 6. Fix mínimo — seguir convenções do módulo vizinho
 - [ ] 7. cargo check + npm run build
 - [ ] 8. INSERT em feedback_notes com o texto de resolução (author = 'IA')
@@ -49,20 +49,21 @@ WHERE id = $1 AND status IN ('queued', 'in_progress');
 ```
 
 Acesso obrigatório ao banco:
-1. Ler `DATABASE_URL` em `C:\api\Saves\postgres.env` (workspace)
+1. Ler `DATABASE_URL` em `Saves/postgres.env` (workspace)
 2. Tabelas `feedbacks` / `feedback_notes`
-3. Playbook: `Feedbacks/feedback.md`
+3. Playbook no ai-memory: `concepts/fluxo-feedbacks-playbook.md`
 
-Instalado: `%LOCALAPPDATA%\Nexus\Saves\postgres.env`
+Instalado: `%LOCALAPPDATA%\Nexus\Saves\postgres.env` ou `/DATA/AppData/nexus/`
 
-## Leitura dirigida (economia de tokens)
+## Leitura dirigida (economia de tokens via ai-memory)
 
-| Precisa de | Ler |
-|------------|-----|
-| Contexto geral | `ContextoIA/inicio/gemini.md` |
+| Precisa de | Consultar no ai-memory (`memory_read_page`) |
+|------------|---------------------------------------------|
+| Contexto geral | `concepts/arquitetura-geral.md` |
 | HTTP sem token | `Frontend/src/modules/geral/lib/http.ts` — usar `apiFetch`/`apiJson` |
-| Permissões | `ContextoIA/arquitetura/multi_usuario.md` |
-| Schema DB | `ContextoIA/banco-dados/database_blueprint.md` (só tabelas afetadas) |
+| Permissões | `concepts/multi-usuario-auth.md` |
+| Schema DB | `concepts/database-blueprint.md` (só tabelas afetadas) |
+| Null Safety / Robustez | `gotchas/frontend-null-safety.md` |
 | Módulo específico | código em `Frontend|Backend/src/modules/<area>/<sub>/` (sem docs/ por módulo) |
 
 **Não** ler `legacy_db.rs` inteiro salvo se o bug for sync ERP.

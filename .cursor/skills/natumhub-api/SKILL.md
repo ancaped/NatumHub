@@ -13,10 +13,10 @@ description: >-
 
 Nova rota, alteração de handler, cliente HTTP frontend, ou debug de auth em API.
 
-## Ler primeiro
+## Ler primeiro no ai-memory (`memory_read_page`)
 
-1. `ContextoIA/api/routes.md`
-2. `ContextoIA/arquitetura/multi_usuario.md` (rotas públicas vs admin)
+1. `concepts/api-routes.md` (catálogo de rotas da API)
+2. `concepts/multi-usuario-auth.md` (rotas públicas vs admin)
 3. `Backend/src/lib.rs` (router merge)
 4. `Frontend/src/modules/geral/lib/http.ts`
 
@@ -54,8 +54,8 @@ Demais exigem `Authorization: Bearer <token>`.
 - [ ] Handler + registro no router correto
 - [ ] Auth/admin conforme sensibilidade
 - [ ] Cliente FE com `apiJson`/`hubJson`
-- [ ] Entrada em `ContextoIA/api/routes.md` se rota estável
-- [ ] `cargo check` + `npm run build`
+- [ ] Atualizar catálogo no ai-memory (`concepts/api-routes.md`) se rota estável
+- [ ] `cargo check --bin nexus-server --no-default-features` + `npm run build`
 
 ## Regras
 

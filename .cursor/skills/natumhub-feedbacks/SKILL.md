@@ -16,7 +16,7 @@ Triagem admin, alterar fluxo de envio, API de feedbacks, ou schema das tabelas d
 
 ## Ler primeiro
 
-1. Playbook: `Feedbacks/feedback.md`
+1. Playbook no ai-memory: `concepts/fluxo-feedbacks-playbook.md` (`memory_read_page`)
 2. Código: `Backend/src/modules/geral/feedbacks/`, `Frontend/src/modules/geral/components/FeedbackWidget.tsx`, `Frontend/src/modules/geral/feedbacks/FeedbacksAdminView.tsx`
 
 ## Fluxo do sistema
@@ -58,7 +58,7 @@ Frontend: `api.submitFeedback`, `getFeedbacksManage`, `getFeedbackDetail`, `upda
 
 ## Regras
 
-- Fonte de verdade = Postgres (`feedbacks` / `feedback_notes`). Playbook: `Feedbacks/feedback.md`.
+- Fonte de verdade = Postgres (`feedbacks` / `feedback_notes`). Playbook no ai-memory: `concepts/fluxo-feedbacks-playbook.md`.
 - Solicitante vem de `AuthContext.display_name` no submit.
 - Gestão admin: **somente** `role === 'admin'`.
 - `awaiting_review` exige nota em `feedback_notes`.
@@ -70,4 +70,4 @@ Frontend: `api.submitFeedback`, `getFeedbacksManage`, `getFeedbackDetail`, `upda
 - [ ] Status/prioridade refletem no Postgres (e no painel admin)
 - [ ] Admin panel só no dropdown do perfil
 - [ ] Widget sem lista/resolver (só envio)
-- [ ] Contrato API: atualizar `ContextoIA/api/routes.md` se mudou
+- [ ] Contrato API: consultar e atualizar `concepts/api-routes.md` no ai-memory se mudou

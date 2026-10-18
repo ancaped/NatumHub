@@ -10,6 +10,7 @@ Skills de especialidade para agentes Cursor neste repositório.
 | [natumhub-erp-sql](natumhub-erp-sql/SKILL.md) | Sync ERP / SQL Server |
 | [natumhub-api](natumhub-api/SKILL.md) | Rotas REST e cliente HTTP |
 
-Roteamento completo: [`../AGENTS.md`](../AGENTS.md)
+Roteamento completo e páginas de conhecimento: [`../AGENTS.md`](../AGENTS.md)
 
-Documentação: [`../ContextoIA/INDEX.md`](../ContextoIA/INDEX.md)
+Memória e conceitos arquiteturais: consulte o **`ai-memory`** (`memory_query` / `memory_read_page`).
+

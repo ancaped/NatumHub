@@ -18,14 +18,12 @@ description: >-
 
 ## Fonte da verdade
 
-1. **Preferir API** (supervisor, master `:3001`):
+1. **API / Banco de Dados (Master `:3001` ou `:3002`):**
    - `GET /api/mapa/tasks?status=open`
-   - Ao concluir: `PATCH /api/mapa/tasks/:id` com `{ "status": "done", "notes": "…" }`
-     (grava activity `ai_implemented`)
-   - Opcional: `GET /api/mapa/tasks/export.md` → gravar em [`task.md`](../../../task.md)
-2. **Fallback** se API offline: ler [`task.md`](../../../task.md) na raiz do repo.
+   - Ao concluir: `PATCH /api/mapa/tasks/:id` com `{ "status": "done", "notes": "…" }` (grava activity `ai_implemented`)
+2. **Conceito no ai-memory:** `concepts/fila-tarefas-mapa.md`
 
-UI: Hub view `mapa_arquitetura` · HTML `ContextoIA/arquitetura/mapa-app.html?api=http://127.0.0.1:3001&token=…`
+UI: Hub view `mapa_arquitetura`.
 
 ## Protocolo
 
