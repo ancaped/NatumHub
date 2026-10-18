@@ -48,6 +48,7 @@ Rota HTTP           → natumhub-api
 | Produção e Planejamento | `concepts/modulo-producao-planejamento.md` |
 | Criação de Módulos | `concepts/modulo-criacao-modulos.md` |
 | Design System HSL Zinc | `concepts/ui-design-hsl-zinc.md` |
+| Padrões de Interface e Drawers | `concepts/ui-padroes-componentes.md` |
 | Null Safety no Frontend | `gotchas/frontend-null-safety.md` |
 
 ## Stack Atual
