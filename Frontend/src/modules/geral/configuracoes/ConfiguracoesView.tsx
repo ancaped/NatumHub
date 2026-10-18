@@ -560,7 +560,7 @@ export default function ConfiguracoesView({
       activeTab={currentTab}
       onTabChange={(id) => setCurrentTab(id as SettingsTab)}
     >
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="w-full space-y-6">
         {/* Mensagem Toast */}
         {message && (
           <div className={`p-3.5 rounded-xl border text-xs font-bold flex items-center justify-between shadow-2xs ${

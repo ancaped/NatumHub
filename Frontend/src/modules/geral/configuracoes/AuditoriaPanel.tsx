@@ -56,7 +56,7 @@ export default function AuditoriaPanel({ setMessage }: Props) {
 
   return (
     <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-4">
-      <div className="flex items-center gap-3 border-b border-zinc-150 pb-4">
+      <div className="flex items-center gap-3 border-b border-zinc-100 pb-4">
         <div className="p-2 bg-zinc-900 text-white rounded-xl">
           <Shield className="h-5 w-5" />
         </div>

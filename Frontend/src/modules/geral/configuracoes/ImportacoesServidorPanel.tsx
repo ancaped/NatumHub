@@ -471,7 +471,7 @@ export default function ImportacoesServidorPanel({
 
       {/* Card 2: Catálogo de Entidades Importadas (Documentação Visual) */}
       <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-4">
-        <div className="border-b border-zinc-150 pb-3">
+        <div className="border-b border-zinc-200 pb-3">
           <h3 className="font-black text-sm tracking-tight text-zinc-900">
             Catálogo de Entidades Importadas do Servidor Original
           </h3>
@@ -502,7 +502,7 @@ export default function ImportacoesServidorPanel({
 
                 <p className="text-[11px] text-zinc-600 leading-relaxed">{ent.description}</p>
 
-                <div className="space-y-1 pt-1 border-t border-zinc-150">
+                <div className="space-y-1 pt-1 border-t border-zinc-100">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block">
                     Campos Importados:
                   </span>

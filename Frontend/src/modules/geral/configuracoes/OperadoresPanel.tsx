@@ -507,7 +507,7 @@ export default function OperadoresPanel({
                               ? 'bg-emerald-50/40 border-emerald-200/80 text-emerald-950'
                               : currentLevel === 'view'
                               ? 'bg-sky-50/40 border-sky-200/80 text-sky-950'
-                              : 'bg-zinc-50 border-zinc-150 text-zinc-500 opacity-80 hover:opacity-100'
+                              : 'bg-zinc-50 border-zinc-200 text-zinc-500 opacity-80 hover:opacity-100'
                           }`}
                         >
                           <span className="text-xs font-semibold truncate pr-2" title={leaf.label}>
