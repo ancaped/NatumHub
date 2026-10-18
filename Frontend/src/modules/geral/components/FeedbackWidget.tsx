@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Bug, MessageSquare, X, Upload, Camera, Lock,
   Send, Sparkles, Check, Mic, Square, Trash2,
   ArrowLeft, Search, Users, Hash, MessageCircle, ListFilter, Plus,
-  User, ShieldCheck, UserCheck
+  User, ShieldCheck, UserCheck, Layers
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import { api } from '../lib/api';
@@ -12,6 +12,7 @@ import { getLogs } from '../lib/logInterceptor';
 import { randomId, cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { buildFeedbackPagePath, splitFeedbackPagePath } from '../lib/viewLabels';
+import { MODULE_CATALOG, resolveCatalogItem, type ModuleCatalogItem } from '../lib/moduloCatalog';
 import type { AuthUser } from '../lib/auth';
 
 interface FeedbackWidgetProps {
@@ -151,13 +152,28 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
   // Estado Feedback/Bug
   const [feedbackMode, setFeedbackMode] = useState<'form' | 'list' | 'detail'>('form');
   const [feedbackType, setFeedbackType] = useState<'bug' | 'feedback'>('bug');
+  const [selectedModuleKey, setSelectedModuleKey] = useState<string>('');
   const [module, setModule] = useState('Geral');
   const [subPage, setSubPage] = useState('');
+  const [detectedFromView, setDetectedFromView] = useState(false);
   const [description, setDescription] = useState('');
   const [screenshot, setScreenshot] = useState<string>('');
   const [includeScreenshot, setIncludeScreenshot] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+
+  const catalogGroups = useMemo(() => {
+    const acc: Record<string, ModuleCatalogItem[]> = {};
+    for (const item of MODULE_CATALOG) {
+      if (!acc[item.group]) acc[item.group] = [];
+      acc[item.group].push(item);
+    }
+    return acc;
+  }, []);
+
+  const currentCatalogItem = useMemo(() => {
+    return MODULE_CATALOG.find((m) => m.key === selectedModuleKey);
+  }, [selectedModuleKey]);
 
   // Lista e Detalhes de Feedbacks
   const [feedbacksList, setFeedbacksList] = useState<FeedbackItem[]>([]);
@@ -214,13 +230,25 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
   const [aiInput, setAiInput] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
 
-  // Sincronizar contexto da página atual
+  // Sincronizar contexto da página atual com módulo e submódulo canônicos
   useEffect(() => {
     if (currentView) {
-      const full = buildFeedbackPagePath(currentView);
-      const { module: m, subPage: s } = splitFeedbackPagePath(full);
-      setModule(m);
-      setSubPage(s);
+      const catalogItem = resolveCatalogItem(currentView);
+      if (catalogItem) {
+        setSelectedModuleKey(catalogItem.key);
+        setModule(catalogItem.label);
+        setDetectedFromView(true);
+        const full = buildFeedbackPagePath(currentView);
+        const { subPage: s } = splitFeedbackPagePath(full);
+        setSubPage(s || catalogItem.subPages[0] || '');
+      } else {
+        const full = buildFeedbackPagePath(currentView);
+        const { module: m, subPage: s } = splitFeedbackPagePath(full);
+        setSelectedModuleKey(currentView);
+        setModule(m);
+        setSubPage(s);
+        setDetectedFromView(Boolean(currentView && currentView !== 'hub'));
+      }
     }
   }, [currentView]);
 
@@ -578,6 +606,7 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
         type: feedbackType,
         description: description.trim(),
         page: finalPage,
+        moduleKey: selectedModuleKey || undefined,
         logs: getLogs(),
         screenshot: includeScreenshot ? screenshot : undefined,
       });
@@ -891,29 +920,90 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
                           </button>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-2.5">
                           <div>
-                            <label className="block text-[11px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
-                              Módulo
-                            </label>
-                            <input
-                              type="text"
-                              value={module}
-                              onChange={(e) => setModule(e.target.value)}
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="block text-[11px] font-bold text-zinc-500 uppercase tracking-wider">
+                                Módulo
+                              </label>
+                              {detectedFromView && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded border border-zinc-200">
+                                  <Sparkles className="w-2.5 h-2.5 text-zinc-600" />
+                                  Detectado da tela atual
+                                </span>
+                              )}
+                            </div>
+                            <select
+                              value={selectedModuleKey}
+                              onChange={(e) => {
+                                const key = e.target.value;
+                                setSelectedModuleKey(key);
+                                setDetectedFromView(false);
+                                const found = MODULE_CATALOG.find((m) => m.key === key);
+                                if (found) {
+                                  setModule(found.label);
+                                  if (found.subPages.length > 0 && (!subPage || !found.subPages.includes(subPage))) {
+                                    setSubPage(found.subPages[0]);
+                                  }
+                                } else {
+                                  setModule(key);
+                                }
+                              }}
                               className="w-full px-3 py-2 text-xs bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-medium text-zinc-800"
-                            />
+                            >
+                              <option value="">Selecione um módulo...</option>
+                              {Object.entries(catalogGroups).map(([group, items]) => (
+                                <optgroup key={group} label={group}>
+                                  {items.map((item) => (
+                                    <option key={item.key} value={item.key}>
+                                      {item.label}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              ))}
+                            </select>
                           </div>
+
                           <div>
-                            <label className="block text-[11px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
-                              Página / Aba
-                            </label>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="block text-[11px] font-bold text-zinc-500 uppercase tracking-wider">
+                                Submódulo / Aba / Tela
+                              </label>
+                              {subPage && (
+                                <span className="text-[10px] text-zinc-400 font-mono">
+                                  {subPage}
+                                </span>
+                              )}
+                            </div>
                             <input
                               type="text"
-                              placeholder="Ex: Dashboard, Estoque..."
+                              placeholder="Ex: Dashboard, Lançamentos, Estoque..."
                               value={subPage}
                               onChange={(e) => setSubPage(e.target.value)}
                               className="w-full px-3 py-2 text-xs bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-medium text-zinc-800 placeholder-zinc-400"
                             />
+                            {currentCatalogItem?.subPages && currentCatalogItem.subPages.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mr-1">
+                                  Atalhos:
+                                </span>
+                                {currentCatalogItem.subPages.map((sp) => (
+                                  <button
+                                    key={sp}
+                                    type="button"
+                                    onClick={() => setSubPage(sp)}
+                                    className={cn(
+                                      'text-[10px] px-2 py-0.5 rounded-md border font-medium transition-colors cursor-pointer',
+                                      subPage === sp
+                                        ? 'bg-zinc-900 text-white border-zinc-900 shadow-2xs'
+                                        : 'bg-zinc-50 hover:bg-zinc-100 text-zinc-600 border-zinc-200'
+                                    )}
+                                  >
+                                    {sp}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
 

@@ -364,6 +364,7 @@ export default function DesenvolvimentoView({
             onCreateDemanda={(moduleKey) => {
               setActiveTab('novo_modulo');
             }}
+            onSelectModule={(key) => setSelectedModuleKey(key)}
           />
         )}
 

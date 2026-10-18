@@ -10,6 +10,8 @@ pub struct Feedback {
     pub feedback_type: String,
     pub description: String,
     pub page: String,
+    #[serde(default)]
+    pub module_key: Option<String>,
     pub logs: String,
     pub screenshot: String,
     pub status: String,
@@ -42,6 +44,8 @@ pub struct FeedbackSubmitInput {
     pub feedback_type: String,
     pub description: String,
     pub page: String,
+    #[serde(default)]
+    pub module_key: Option<String>,
     pub logs: String,
     #[serde(default)]
     pub screenshot: String,

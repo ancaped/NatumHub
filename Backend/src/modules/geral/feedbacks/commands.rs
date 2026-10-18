@@ -5,7 +5,7 @@ use super::models::{
     FeedbackReorderItem, FeedbackSubmitInput,
 };
 
-const FEEDBACK_SELECT: &str = r#"SELECT id, "type", description, page, logs, screenshot, status, "createdAt", "resolvedAt", requested_by, priority, admin_notes FROM feedbacks"#;
+const FEEDBACK_SELECT: &str = r#"SELECT id, "type", description, page, logs, screenshot, status, "createdAt", "resolvedAt", requested_by, priority, admin_notes, module_key FROM feedbacks"#;
 
 fn map_feedback_row(row: &sqlx::postgres::PgRow) -> Feedback {
     let logs: String = row.get(4);
@@ -15,6 +15,7 @@ fn map_feedback_row(row: &sqlx::postgres::PgRow) -> Feedback {
         feedback_type: row.get(1),
         description: row.get(2),
         page: row.get(3),
+        module_key: row.try_get::<Option<String>, _>(12).unwrap_or(None),
         logs: logs.clone(),
         screenshot: screenshot.clone(),
         status: row.get(6),
@@ -34,7 +35,7 @@ fn map_feedback_list_row(row: &sqlx::postgres::PgRow) -> Feedback {
     // Lista: não envia payload pesado; flags + contagem de notas.
     fb.has_logs = !fb.logs.trim().is_empty();
     fb.has_screenshot = !fb.screenshot.is_empty();
-    fb.notes_count = row.try_get::<i64, _>(12).unwrap_or(0) as i32;
+    fb.notes_count = row.try_get::<i64, _>(13).unwrap_or(0) as i32;
     fb.logs = String::new();
     fb.screenshot = String::new();
     fb
@@ -52,7 +53,7 @@ async fn fetch_feedback_by_id(pool: &PgPool, id: &str) -> Result<Feedback, Strin
 
 pub async fn get_feedbacks_admin_query(pool: PgPool) -> Result<Vec<Feedback>, String> {
     let sql = r#"SELECT id, "type", description, page, logs, screenshot, status, "createdAt", "resolvedAt",
-                requested_by, priority, admin_notes,
+                requested_by, priority, admin_notes, module_key,
                 (SELECT COUNT(*)::bigint FROM feedback_notes n WHERE n.feedback_id = feedbacks.id) AS notes_count
          FROM feedbacks
          ORDER BY
@@ -290,6 +291,69 @@ pub async fn sync_feedback_md(pool: PgPool) -> Result<(), String> {
     Ok(())
 }
 
+pub fn infer_module_key_from_page(page: &str) -> Option<String> {
+    let p = page.to_lowercase();
+    if p.contains("físico-química") || p.contains("fisico-quimica") || p.contains("fisco_quimica") {
+        Some("fisco_quimica".to_string())
+    } else if p.contains("microbiologia") {
+        Some("microbiologia".to_string())
+    } else if p.contains("lote") {
+        Some("producao_lotes".to_string())
+    } else if p.contains("base") {
+        Some("producao_bases".to_string())
+    } else if p.contains("kit") {
+        Some("montagem_kits".to_string())
+    } else if p.contains("proc") {
+        Some("producao_proc".to_string())
+    } else if p.contains("rotina") {
+        Some("producao_rotina".to_string())
+    } else if p.contains("planejamento") {
+        Some("planejamento_producao".to_string())
+    } else if p.contains("acompanhamento de produ") {
+        Some("admin_acompanhamento_producao".to_string())
+    } else if p.contains("linha de produto") || p.contains("produtos ativo") {
+        Some("admin_linha_produtos".to_string())
+    } else if p.contains("pop") {
+        Some("qualidade_pops".to_string())
+    } else if p.contains("devolu") {
+        Some("qualidade_devolucoes".to_string())
+    } else if p.contains("avaria") {
+        Some("qualidade_avarias".to_string())
+    } else if p.contains("recebimento mp") || p.contains("recebimento de mp") {
+        Some("qualidade_recebimento_mp".to_string())
+    } else if p.contains("documenta") {
+        Some("qualidade_documentacao".to_string())
+    } else if p.contains("simulador") {
+        Some("compras_simulation".to_string())
+    } else if p.contains("pedido") {
+        Some("compras_pedidos".to_string())
+    } else if p.contains("nota") {
+        Some("compras_notas".to_string())
+    } else if p.contains("almoxarifado") || p.contains("almox") {
+        Some("estoque_almoxarifado".to_string())
+    } else if p.contains("ordens manuais") || p.contains("ordem manual") {
+        Some("estoque_ordens_manuais".to_string())
+    } else if p.contains("etiqueta") {
+        Some("ferramentas_etiquetas".to_string())
+    } else if p.contains("impressora") {
+        Some("ferramentas_impressoras".to_string())
+    } else if p.contains("supervisor") || p.contains("configura") {
+        Some("hub_settings".to_string())
+    } else if p.contains("produção") || p.contains("producao") {
+        Some("producao".to_string())
+    } else if p.contains("compras") {
+        Some("compras_materia_prima".to_string())
+    } else if p.contains("qualidade") {
+        Some("controle_qualidade".to_string())
+    } else if p.contains("venda") {
+        Some("vendas".to_string())
+    } else if p.contains("mapa") || p.contains("desenvolvimento") || p.contains("feedback") {
+        Some("desenvolvimento".to_string())
+    } else {
+        None
+    }
+}
+
 pub async fn save_feedback_from_user_query(
     pool: PgPool,
     input: &FeedbackSubmitInput,
@@ -302,9 +366,16 @@ pub async fn save_feedback_from_user_query(
     .await
     .unwrap_or(99);
 
+    let inferred_key = input
+        .module_key
+        .as_deref()
+        .filter(|k| !k.trim().is_empty())
+        .map(String::from)
+        .or_else(|| infer_module_key_from_page(&input.page));
+
     sqlx::query(
-        r#"INSERT INTO feedbacks (id, "type", description, page, logs, screenshot, status, "createdAt", requested_by, priority)
-         VALUES ($1, $2, $3, $4, $5, $6, 'pending', CURRENT_TIMESTAMP::TEXT, $7, $8)"#,
+        r#"INSERT INTO feedbacks (id, "type", description, page, logs, screenshot, status, "createdAt", requested_by, priority, module_key)
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending', CURRENT_TIMESTAMP::TEXT, $7, $8, $9)"#,
     )
     .bind(&input.id)
     .bind(&input.feedback_type)
@@ -314,6 +385,7 @@ pub async fn save_feedback_from_user_query(
     .bind(&input.screenshot)
     .bind(&requested_by)
     .bind(max_prio + 1)
+    .bind(inferred_key)
     .execute(&pool)
     .await
     .map_err(|e| e.to_string())?;

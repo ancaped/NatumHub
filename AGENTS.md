@@ -62,7 +62,13 @@ Rota HTTP           → natumhub-api
 | Playbook de Feedbacks | `concepts/fluxo-feedbacks-playbook.md` |
 | Módulos Descontinuados | `decisions/modulos-descontinuados.md` |
 | Fusão Mapa & Feedbacks | `decisions/fusao-mapa-feedbacks.md` |
+| Inspeção Prévia de Módulo | `concepts/regra-consulta-modulo-desenvolvimento.md` |
 | Null Safety no Frontend | `gotchas/frontend-null-safety.md` |
+
+> [!IMPORTANT]
+> **Consulta Obrigatória de Módulo antes de Alterações**:
+> Antes de alterar ou criar código em qualquer módulo, consulte sempre a ficha técnica do módulo (`GET /api/mapa/modules/:key` ou central **Desenvolvimento**), seus caminhos (`frontend_path`, `backend_path`, `router_prefix`), suas conexões arquiteturais (`mapa_edges`) e o histórico de feedbacks anteriores (`feedbacks` com `module_key`).
+
 
 ## Stack Atual
 

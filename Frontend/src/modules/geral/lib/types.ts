@@ -4,6 +4,7 @@ export interface Feedback {
   feedbackType: string;
   description: string;
   page: string;
+  moduleKey?: string | null;
   logs: string;
   screenshot: string;
   status: string;
@@ -34,6 +35,7 @@ export interface FeedbackSubmitInput {
   feedbackType: string;
   description: string;
   page: string;
+  moduleKey?: string | null;
   logs: string;
   screenshot?: string;
 }

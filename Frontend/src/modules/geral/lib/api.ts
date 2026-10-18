@@ -399,7 +399,7 @@ export const api = {
     }
   },
 
-  createFeedback(data: { type: string; description: string; page: string; logs?: string; screenshot?: string }): Promise<void> {
+  createFeedback(data: { type: string; description: string; page: string; moduleKey?: string; logs?: string; screenshot?: string }): Promise<void> {
     return apiJson('/api/hub/feedbacks', {
       method: 'POST',
       body: JSON.stringify({
@@ -407,6 +407,7 @@ export const api = {
         feedbackType: data.type,
         description: data.description,
         page: data.page,
+        moduleKey: data.moduleKey,
         logs: data.logs || '',
         screenshot: data.screenshot || '',
       }),

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   X, ExternalLink, Route, Bug, ListTodo, FileText, CheckCircle2,
-  Clock, Shield, ArrowRight, Save, Loader2, Plus, Code, Network
+  Clock, Shield, ArrowRight, Save, Loader2, Plus, Code, Network,
+  Copy, Check
 } from 'lucide-react';
 import type { MapaModule, MapaRoute, MapaEdge, Feedback, MapaTask, MapaDetail } from '../types';
 import { cn } from '../../lib/utils';
@@ -19,6 +20,7 @@ interface ModuleDetailDrawerProps {
   onOpenView?: (view: string) => void;
   onSelectFeedback?: (feedback: Feedback) => void;
   onCreateDemanda?: (moduleKey: string) => void;
+  onSelectModule?: (moduleKey: string) => void;
 }
 
 type DrawerTab = 'tecnica' | 'demandas' | 'tasks' | 'documentacao';
@@ -50,9 +52,18 @@ export default function ModuleDetailDrawer({
   onOpenView,
   onSelectFeedback,
   onCreateDemanda,
+  onSelectModule,
 }: ModuleDetailDrawerProps) {
   const [activeTab, setActiveTab] = useState<DrawerTab>('tecnica');
   const [notes, setNotes] = useState('');
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const handleCopy = (text: string, key: string) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 1500);
+  };
 
   useEffect(() => {
     if (module) {
@@ -73,9 +84,16 @@ export default function ModuleDetailDrawer({
   const outEdges = edges.filter((e) => e.fromKey === module.moduleKey);
 
   const moduleFeedbacks = feedbacks.filter((f) => {
+    const rawModuleKey = (f.moduleKey || (f as any).module_key || '').toLowerCase();
+    const targetKey = module.moduleKey.toLowerCase();
+    if (rawModuleKey && rawModuleKey === targetKey) return true;
+
     const p = (f.page || '').toLowerCase();
-    const k = module.moduleKey.toLowerCase();
-    return p.includes(k) || (module.routerPrefix && p.includes(module.routerPrefix.toLowerCase()));
+    const labelNorm = module.label.toLowerCase();
+    if (p.includes(targetKey)) return true;
+    if (p.includes(labelNorm)) return true;
+    if (module.routerPrefix && p.includes(module.routerPrefix.toLowerCase())) return true;
+    return false;
   });
 
   const moduleTasks = tasks.filter((t) => {
@@ -198,24 +216,69 @@ export default function ModuleDetailDrawer({
         {/* ABA: Ficha Técnica */}
         {activeTab === 'tecnica' && (
           <div className="space-y-4">
-            {/* Arquivos de Código */}
-            <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-2.5 shadow-2xs">
+            {/* Arquivos de Código com Botões de Cópia */}
+            <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-3 shadow-2xs">
               <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">
                 Localização no Código-Fonte
               </span>
-              <div className="space-y-1.5 text-xs font-mono">
-                <div className="flex items-start gap-2">
-                  <span className="text-zinc-400 font-sans font-bold text-[10px] uppercase w-14 shrink-0">Frontend:</span>
-                  <span className="text-zinc-800 break-all">{module.frontendPath || '—'}</span>
+              <div className="space-y-2 text-xs">
+                {/* Frontend Path */}
+                <div className="p-2 rounded-lg bg-zinc-50 border border-zinc-200/70 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="text-[10px] font-bold uppercase text-zinc-400 block">Frontend</span>
+                    <code className="text-zinc-800 text-[11px] font-mono break-all font-semibold select-all">
+                      {module.frontendPath || '—'}
+                    </code>
+                  </div>
+                  {module.frontendPath && (
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(module.frontendPath!, 'fe')}
+                      className="p-1.5 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-100 text-zinc-600 transition-colors cursor-pointer shrink-0"
+                      title="Copiar caminho frontend"
+                    >
+                      {copiedKey === 'fe' ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                    </button>
+                  )}
                 </div>
-                <div className="flex items-start gap-2">
-                  <span className="text-zinc-400 font-sans font-bold text-[10px] uppercase w-14 shrink-0">Backend:</span>
-                  <span className="text-zinc-800 break-all">{module.backendPath || '—'}</span>
+
+                {/* Backend Path */}
+                <div className="p-2 rounded-lg bg-zinc-50 border border-zinc-200/70 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="text-[10px] font-bold uppercase text-zinc-400 block">Backend</span>
+                    <code className="text-zinc-800 text-[11px] font-mono break-all font-semibold select-all">
+                      {module.backendPath || '—'}
+                    </code>
+                  </div>
+                  {module.backendPath && (
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(module.backendPath!, 'be')}
+                      className="p-1.5 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-100 text-zinc-600 transition-colors cursor-pointer shrink-0"
+                      title="Copiar caminho backend"
+                    >
+                      {copiedKey === 'be' ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                    </button>
+                  )}
                 </div>
+
+                {/* Prefixo de Rota */}
                 {module.routerPrefix && (
-                  <div className="flex items-start gap-2">
-                    <span className="text-zinc-400 font-sans font-bold text-[10px] uppercase w-14 shrink-0">Prefixo:</span>
-                    <span className="text-zinc-800 bg-zinc-100 px-1 rounded">{module.routerPrefix}</span>
+                  <div className="p-2 rounded-lg bg-zinc-50 border border-zinc-200/70 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="text-[10px] font-bold uppercase text-zinc-400 block">Prefixo REST API</span>
+                      <code className="text-zinc-900 text-[11px] font-mono font-bold select-all bg-zinc-200/60 px-1 rounded">
+                        {module.routerPrefix}
+                      </code>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(module.routerPrefix!, 'prefix')}
+                      className="p-1.5 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-100 text-zinc-600 transition-colors cursor-pointer shrink-0"
+                      title="Copiar prefixo"
+                    >
+                      {copiedKey === 'prefix' ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                    </button>
                   </div>
                 )}
               </div>
@@ -259,7 +322,7 @@ export default function ModuleDetailDrawer({
               )}
             </div>
 
-            {/* Conexões (Edges) */}
+            {/* Conexões (Edges) Navegáveis */}
             <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-2.5 shadow-2xs">
               <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">
                 Conexões Arquiteturais
@@ -267,36 +330,48 @@ export default function ModuleDetailDrawer({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                 {/* Entradas */}
-                <div className="p-2.5 rounded-lg border border-zinc-100 bg-zinc-50/60 space-y-1">
+                <div className="p-2.5 rounded-lg border border-zinc-100 bg-zinc-50/60 space-y-1.5">
                   <span className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-1">
                     <ArrowRight className="h-3 w-3 rotate-180 text-zinc-400" /> Recebe de:
                   </span>
                   {inEdges.length > 0 ? (
-                    <ul className="space-y-1 pt-1">
+                    <div className="flex flex-wrap gap-1.5 pt-1">
                       {inEdges.map((e) => (
-                        <li key={e.id} className="font-mono text-[11px] text-zinc-800">
+                        <button
+                          key={e.id}
+                          type="button"
+                          onClick={() => onSelectModule?.(e.fromKey)}
+                          className="font-mono text-[11px] text-zinc-800 bg-white border border-zinc-200 hover:border-zinc-400 px-2 py-0.5 rounded-md transition-colors cursor-pointer font-semibold shadow-2xs"
+                          title={`Ver módulo ${e.fromKey}`}
+                        >
                           {e.fromKey}
-                        </li>
+                        </button>
                       ))}
-                    </ul>
+                    </div>
                   ) : (
                     <span className="text-zinc-400 italic text-[11px] block pt-1">Nenhum</span>
                   )}
                 </div>
 
                 {/* Saídas */}
-                <div className="p-2.5 rounded-lg border border-zinc-100 bg-zinc-50/60 space-y-1">
+                <div className="p-2.5 rounded-lg border border-zinc-100 bg-zinc-50/60 space-y-1.5">
                   <span className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-1">
                     <ArrowRight className="h-3 w-3 text-zinc-400" /> Envia para:
                   </span>
                   {outEdges.length > 0 ? (
-                    <ul className="space-y-1 pt-1">
+                    <div className="flex flex-wrap gap-1.5 pt-1">
                       {outEdges.map((e) => (
-                        <li key={e.id} className="font-mono text-[11px] text-zinc-800">
+                        <button
+                          key={e.id}
+                          type="button"
+                          onClick={() => onSelectModule?.(e.toKey)}
+                          className="font-mono text-[11px] text-zinc-800 bg-white border border-zinc-200 hover:border-zinc-400 px-2 py-0.5 rounded-md transition-colors cursor-pointer font-semibold shadow-2xs"
+                          title={`Ver módulo ${e.toKey}`}
+                        >
                           {e.toKey}
-                        </li>
+                        </button>
                       ))}
-                    </ul>
+                    </div>
                   ) : (
                     <span className="text-zinc-400 italic text-[11px] block pt-1">Nenhum</span>
                   )}
@@ -311,7 +386,7 @@ export default function ModuleDetailDrawer({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-zinc-700">
-                Demandas registradas para este módulo
+                Histórico de Feedbacks & Demandas ({moduleFeedbacks.length})
               </span>
               {onCreateDemanda && (
                 <button
@@ -331,24 +406,44 @@ export default function ModuleDetailDrawer({
                   <div
                     key={f.id}
                     onClick={() => onSelectFeedback?.(f)}
-                    className="p-3 rounded-xl border border-zinc-200 bg-white hover:border-zinc-300 transition-all cursor-pointer space-y-1.5 shadow-2xs"
+                    className="p-3 rounded-xl border border-zinc-200 bg-white hover:border-zinc-400 hover:shadow-xs transition-all cursor-pointer space-y-1.5 shadow-2xs"
                   >
                     <div className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-1.5">
                         <span className="font-mono text-[10px] font-bold text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded">
                           {f.id.slice(0, 8)}
                         </span>
-                        <span className="text-[10px] font-bold capitalize text-zinc-600">
+                        <span className={cn(
+                          'text-[10px] font-bold uppercase px-1.5 py-0.2 rounded border',
+                          f.feedbackType === 'bug' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-sky-50 text-sky-700 border-sky-200'
+                        )}>
                           {f.feedbackType}
                         </span>
+                        <span className="text-[10px] font-mono text-zinc-400">
+                          P{f.priority || 100}
+                        </span>
                       </div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider bg-zinc-100 text-zinc-700 px-2 py-0.5 rounded-full border border-zinc-200">
+                      <span className={cn(
+                        'text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border',
+                        f.status === 'resolved' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                        f.status === 'awaiting_review' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                        f.status === 'in_progress' ? 'bg-blue-50 text-blue-800 border-blue-200' :
+                        'bg-zinc-100 text-zinc-700 border-zinc-200'
+                      )}>
                         {f.status}
                       </span>
                     </div>
                     <p className="text-xs font-semibold text-zinc-900 line-clamp-2">
                       {f.description}
                     </p>
+                    <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-1 border-t border-zinc-100">
+                      <span>Por: {f.requestedBy || 'Operador'}</span>
+                      <div className="flex items-center gap-2">
+                        {f.hasScreenshot && <span>📷 Print</span>}
+                        {f.hasLogs && <span>💻 Logs</span>}
+                        {Boolean(f.notesCount) && <span>💬 {f.notesCount} notas</span>}
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
