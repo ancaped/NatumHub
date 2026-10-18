@@ -1,0 +1,14 @@
+# ai-memory no ZimaOS - Servidor Central de Memória para IAs
+services:
+  ai-memory:
+    image: akitaonrails/ai-memory:latest
+    container_name: nexus-ai-memory
+    restart: unless-stopped
+    environment:
+      AI_MEMORY_AUTH_TOKEN: nexus-memory-token-secret
+      AI_MEMORY_ALLOWED_HOSTS: 192.168.122.196,nexus.local,localhost,127.0.0.1
+      AI_MEMORY_DATA_DIR: /data
+    ports:
+      - "49374:49374"
+    volumes:
+      - /DATA/AppData/ai-memory/data:/data

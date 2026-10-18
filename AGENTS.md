@@ -2,7 +2,7 @@
 
 O produto se chama **Nexus**. Skills internas ainda usam o prefixo `natumhub-*` (id da pasta). O database PostgreSQL continua `natumhub`. O repositório GitHub continua `ancaped/NatumHub`.
 
-Leia **`ContextoIA/INDEX.md`** antes de explorar o código.
+Memória de longo prazo, decisões arquiteturais e conceitos: consulte o **`ai-memory`** (`memory_query` / `memory_read_page`). O repositório contém apenas código-fonte limpo.
 
 Idioma: **pt-BR**. Escopo mínimo; `cargo check --bin nexus-server --no-default-features` + `npm run build`. Melhor parte = nenhuma parte.
 
@@ -24,22 +24,31 @@ Fila do mapa        → /api/mapa/tasks (+ task.md) + natumhub-tasks
 Módulo novo         → natumhub-modulos
 Sync ERP            → natumhub-erp-sql
 Rota HTTP           → natumhub-api
-Genérico            → ContextoIA/inicio/gemini.md
 ```
 
-## Documentação Principal
+## Páginas Canônicas de Conhecimento (`ai-memory`)
 
-| Tema | Onde |
-|------|------|
-| Índice Geral | `ContextoIA/INDEX.md` |
-| Migração CasaOS / Linux | `ContextoIA/devops/migracao_casaos_linux.md` |
-| Servidor Headless Axum | `ContextoIA/devops/instalacao_servidor.md` |
-| Conectividade Tailscale | `ContextoIA/devops/tailscale.md` |
-| Mapa de Arquitetura | `ContextoIA/arquitetura/mapa-app.html` |
-| Rotas da API | `ContextoIA/api/routes.md` |
-| Esquema do Banco | `ContextoIA/banco-dados/database_blueprint.md` + `Backend/supabase/` |
-| Impressão de etiquetas | `ContextoIA/modulos/etiquetas.md` — `PrintModal` é a tela padrão |
-| Sync ERP | `erp-import/` |
+| Tema | Página no ai-memory |
+|------|---------------------|
+| Arquitetura ZimaOS Dual | `decisions/zimaos-dual-stack.md` |
+| Infraestrutura e Deploy | `concepts/infraestrutura-zimaos.md` |
+| Gotchas de Build Linux/Docker | `gotchas/build-linux-docker.md` |
+| Servidor Headless Axum | `concepts/servidor-headless-axum.md` |
+| Instâncias PostgreSQL 17 | `concepts/postgresql-dual-databases.md` |
+| Conectividade Tailscale | `concepts/rede-tailscale.md` |
+| Blueprint do Banco de Dados | `concepts/database-blueprint.md` |
+| Catálogo de Rotas da API | `concepts/api-routes.md` |
+| Arquitetura do Sistema | `concepts/arquitetura-geral.md` |
+| Multi-usuário e Sessão | `concepts/multi-usuario-auth.md` |
+| Módulo Almoxarifado | `concepts/modulo-almoxarifado.md` |
+| Impressão de Etiquetas | `concepts/modulo-etiquetas-impressao.md` |
+| Linha de Produtos e Bases | `concepts/modulo-linhas-bases-producao.md` |
+| Qualidade e POPs | `concepts/modulo-qualidade-pops.md` |
+| Compras e Simulador MRP | `concepts/modulo-simulador-compras.md` |
+| Produção e Planejamento | `concepts/modulo-producao-planejamento.md` |
+| Criação de Módulos | `concepts/modulo-criacao-modulos.md` |
+| Design System HSL Zinc | `concepts/ui-design-hsl-zinc.md` |
+| Null Safety no Frontend | `gotchas/frontend-null-safety.md` |
 
 ## Stack Atual
 

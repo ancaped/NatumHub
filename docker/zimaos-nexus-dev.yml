@@ -1,0 +1,25 @@
+# ZimaOS Card 5: Nexus Desenvolvimento / Beta (:3002 - Homologação IA)
+services:
+  nexus-dev:
+    image: nexus:dev
+    container_name: nexus-dev
+    restart: unless-stopped
+    network_mode: bridge
+    pull_policy: never
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@172.17.0.1:5433/natumhub_dev
+      NEXUS_DATA_DIR: /opt/nexus/Saves
+      NEXUS_FRONTEND_DIST: /opt/nexus/Frontend/dist
+      RUST_LOG: debug
+    ports:
+      - "3002:3001"
+    volumes:
+      - /DATA/AppData/nexus/saves-dev:/opt/nexus/Saves
+x-casaos:
+  main: nexus-dev
+  port_map: "3002"
+  scheme: http
+  index: /
+  title:
+    custom: Nexus Dev
+

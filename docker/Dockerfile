@@ -13,7 +13,7 @@ COPY Frontend ./
 RUN npm run build
 
 # --- ESTÁGIO 2: BUILD DO BACKEND RUST ---
-FROM rust:1.80-slim-bookworm AS backend-builder
+FROM rust:slim-bookworm AS backend-builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
@@ -25,7 +25,11 @@ COPY Backend/Cargo.toml Backend/Cargo.lock ./Backend/
 COPY Backend ./Backend
 
 WORKDIR /app/Backend
-RUN cargo build --release --bin nexus-server --no-default-features
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/Backend/target \
+    cargo build --release --bin nexus-server --no-default-features && \
+    cp target/release/nexus-server /app/nexus-server
 
 # --- ESTÁGIO 3: RUNTIME FINAL (LEVE) ---
 FROM debian:bookworm-slim AS runtime
@@ -43,7 +47,7 @@ WORKDIR /opt/nexus
 RUN mkdir -p /opt/nexus/Saves
 
 # Copia binário do servidor e frontend estático
-COPY --from=backend-builder /app/Backend/target/release/nexus-server /opt/nexus/nexus-server
+COPY --from=backend-builder /app/nexus-server /opt/nexus/nexus-server
 COPY --from=frontend-builder /app/Frontend/dist /opt/nexus/Frontend/dist
 
 # Permissão de execução
@@ -54,5 +58,8 @@ EXPOSE 3001
 ENV NEXUS_DATA_DIR=/opt/nexus/Saves
 ENV NEXUS_FRONTEND_DIST=/opt/nexus/Frontend/dist
 ENV RUST_LOG=info
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:3001/api/health || exit 1
 
 CMD ["/opt/nexus/nexus-server"]

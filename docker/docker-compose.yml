@@ -1,14 +1,13 @@
-# Nexus Industrial Hub - Docker Compose para CasaOS / Servidor Linux
+# Nexus Industrial Hub - Docker Compose para ZimaOS / Servidor Linux
 #
-# Arquitetura Dual:
-#   - PRODUÇÃO:      nexus-prod (:3001)       + nexus-postgres-prod (:5432)
+# Arquitetura Dual + ai-memory:
+#   - PRODUÇÃO:        nexus-prod (:3001)       + nexus-postgres-prod (:5432)
 #   - DESENVOLVIMENTO: nexus-dev (:3002)     + nexus-postgres-dev (:5433)
-#   - MONITORAMENTO:  nexus-pgadmin (:5050)  (inspeciona os 2 bancos)
+#   - AI-MEMORY:       nexus-ai-memory (:49374) (Servidor de memória contínua para IAs)
+#   - MONITORAMENTO:    nexus-pgadmin (:5050)  (inspeciona os 2 bancos)
 #
-# Como importar no CasaOS:
-#   1. No painel do CasaOS, clique no botão "+" (Adicionar aplicativo).
-#   2. Clique em "Importar" (ícone no topo direito).
-#   3. Cole o conteúdo deste arquivo e clique em Instalar.
+# Diretório padrão de persistência no ZimaOS: /DATA/AppData/
+# (Pode ser sobrescrito definindo DATA_ROOT no arquivo .env)
 
 services:
   # ==========================================
@@ -28,7 +27,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_prod_data:/var/lib/postgresql/data
+      - ${DATA_ROOT:-/DATA/AppData}/nexus/pgdata-prod:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d natumhub"]
       interval: 10s
@@ -50,7 +49,7 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - postgres_dev_data:/var/lib/postgresql/data
+      - ${DATA_ROOT:-/DATA/AppData}/nexus/pgdata-dev:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d natumhub_dev"]
       interval: 10s
@@ -59,7 +58,80 @@ services:
     networks:
       - nexus-net
 
-  # Interface Web para Inspecionar os Bancos (Opcional)
+  # ==========================================
+  # 2. APLICAÇÕES NEXUS (PROD VS DEV)
+  # ==========================================
+
+  # Servidor de Produção (Acessado pelos Clientes e Fábrica 24/7)
+  nexus-prod:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: nexus:prod
+    container_name: nexus-prod
+    restart: always
+    depends_on:
+      postgres-prod:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres-prod:5432/natumhub
+      NEXUS_DATA_DIR: /opt/nexus/Saves
+      NEXUS_FRONTEND_DIST: /opt/nexus/Frontend/dist
+      RUST_LOG: info
+    ports:
+      - "3001:3001"
+    volumes:
+      - ${DATA_ROOT:-/DATA/AppData}/nexus/saves-prod:/opt/nexus/Saves
+    networks:
+      - nexus-net
+
+  # Servidor de Desenvolvimento / Beta (Conectado aos Agentes de IA)
+  nexus-dev:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: nexus:dev
+    container_name: nexus-dev
+    restart: unless-stopped
+    depends_on:
+      postgres-dev:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres-dev:5432/natumhub_dev
+      NEXUS_DATA_DIR: /opt/nexus/Saves
+      NEXUS_FRONTEND_DIST: /opt/nexus/Frontend/dist
+      RUST_LOG: debug
+    ports:
+      - "3002:3001"
+    volumes:
+      - ${DATA_ROOT:-/DATA/AppData}/nexus/saves-dev:/opt/nexus/Saves
+    networks:
+      - nexus-net
+
+  # ==========================================
+  # 3. AI-MEMORY (MEMÓRIA COMPARTILHADA DAS IAS)
+  # ==========================================
+
+  ai-memory:
+    image: akitaonrails/ai-memory:latest
+    container_name: nexus-ai-memory
+    restart: unless-stopped
+    command: ["serve", "--transport", "http", "--enable-web"]
+    environment:
+      AI_MEMORY_AUTH_TOKEN: ${AI_MEMORY_AUTH_TOKEN:-nexus-memory-token-secret}
+      AI_MEMORY_ALLOWED_HOSTS: ${AI_MEMORY_ALLOWED_HOSTS:-192.168.122.196,nexus.local,localhost,127.0.0.1}
+      AI_MEMORY_DATA_DIR: /data
+    ports:
+      - "49374:49374"
+    volumes:
+      - ${DATA_ROOT:-/DATA/AppData}/ai-memory/data:/data
+    networks:
+      - nexus-net
+
+  # ==========================================
+  # 4. MONITORAMENTO E INSPEÇÃO (OPCIONAL)
+  # ==========================================
+
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: nexus-pgadmin
@@ -76,75 +148,12 @@ services:
     ports:
       - "5050:80"
     volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    networks:
-      - nexus-net
-
-  # ==========================================
-  # 2. APLICAÇÕES NEXUS (PROD VS DEV)
-  # ==========================================
-
-  # Servidor de Produção (Acessado pelos Clientes e Fábrica 24/7)
-  nexus-prod:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    container_name: nexus-prod
-    restart: always
-    depends_on:
-      postgres-prod:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres-prod:5432/natumhub
-      NEXUS_DATA_DIR: /opt/nexus/Saves
-      NEXUS_FRONTEND_DIST: /opt/nexus/Frontend/dist
-      RUST_LOG: info
-    ports:
-      - "3001:3001"
-    volumes:
-      - nexus_prod_saves:/opt/nexus/Saves
-    networks:
-      - nexus-net
-
-  # Servidor de Desenvolvimento / Beta (Conectado ao Antigravity)
-  nexus-dev:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    container_name: nexus-dev
-    restart: unless-stopped
-    depends_on:
-      postgres-dev:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres-dev:5432/natumhub_dev
-      NEXUS_DATA_DIR: /opt/nexus/Saves
-      NEXUS_FRONTEND_DIST: /opt/nexus/Frontend/dist
-      RUST_LOG: debug
-    ports:
-      - "3002:3001"
-    volumes:
-      - nexus_dev_saves:/opt/nexus/Saves
+      - ${DATA_ROOT:-/DATA/AppData}/nexus/pgadmin:/var/lib/pgadmin
     networks:
       - nexus-net
 
 # ==========================================
-# 3. VOLUMES PERSISTENTES
-# ==========================================
-volumes:
-  postgres_prod_data:
-    driver: local
-  postgres_dev_data:
-    driver: local
-  pgadmin_data:
-    driver: local
-  nexus_prod_saves:
-    driver: local
-  nexus_dev_saves:
-    driver: local
-
-# ==========================================
-# 4. REDE INTERNA DOCKER
+# 5. REDE INTERNA DOCKER
 # ==========================================
 networks:
   nexus-net:

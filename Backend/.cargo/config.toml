@@ -1,2 +1,3 @@
 [build]
-target-dir = "C:/natumhub"
+# target-dir padrão ("target") para compatibilidade Linux / ZimaOS / Docker
+

@@ -1,0 +1,25 @@
+# ZimaOS Card 4: Nexus Produção (:3001 - Servidor Oficial da Fábrica)
+services:
+  nexus-prod:
+    image: nexus:prod
+    container_name: nexus-prod
+    restart: always
+    network_mode: bridge
+    pull_policy: never
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@172.17.0.1:5432/natumhub
+      NEXUS_DATA_DIR: /opt/nexus/Saves
+      NEXUS_FRONTEND_DIST: /opt/nexus/Frontend/dist
+      RUST_LOG: info
+    ports:
+      - "3001:3001"
+    volumes:
+      - /DATA/AppData/nexus/saves-prod:/opt/nexus/Saves
+x-casaos:
+  main: nexus-prod
+  port_map: "3001"
+  scheme: http
+  index: /
+  title:
+    custom: Nexus Prod
+

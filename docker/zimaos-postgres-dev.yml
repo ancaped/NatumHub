@@ -1,0 +1,20 @@
+# ZimaOS Card 2: PostgreSQL Desenvolvimento (:5433 - Banco Isolado natumhub_dev)
+services:
+  postgres-dev:
+    image: postgres:17-alpine
+    container_name: nexus-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: natumhub_dev
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432"
+    volumes:
+      - /DATA/AppData/nexus/pgdata-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d natumhub_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
