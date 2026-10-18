@@ -93,12 +93,6 @@ export const MODULE_CATALOG: ModuleCatalogItem[] = [
     group: 'Compras',
     subPages: ['Mercado Livre / Amazon', 'Rastreio de Pacotes', 'Histórico'],
   },
-  {
-    key: 'compras_almoxarifado',
-    label: 'Compras > Almoxarifado',
-    group: 'Compras',
-    subPages: ['Solicitações de Compra', 'Itens de Reposição'],
-  },
 
   // Estoque & Almoxarifado
   {
