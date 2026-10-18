@@ -60,7 +60,7 @@ pub async fn get_server_status(State(state): State<Arc<AppState>>) -> impl IntoR
         online_devices_count: online_devices_count as usize,
         autostart_enabled: is_autostart_enabled(),
         is_restarting: base_status.is_restarting,
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: crate::core::app_config::APP_VERSION.to_string(),
         saves_dir: crate::core::app_config::saves_dir().to_string_lossy().to_string(),
     };
 

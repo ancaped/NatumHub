@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Settings, LogOut, UserCog, ClipboardList, Shield, ArrowLeft, Network, Loader2, RefreshCw, CheckCircle2, AlertTriangle, Menu, X } from 'lucide-react';
+import { ChevronDown, Settings, LogOut, UserCog, ClipboardList, Shield, ArrowLeft, Network, Loader2, RefreshCw, CheckCircle2, AlertTriangle, Menu, X, Code2 } from 'lucide-react';
 import { cn, getAppVersion, getAppEnvironment } from '../../lib/utils';
 import { canAccessView } from '../../lib/modules/permissions';
 import { isSupervisor, canSeeFeedbacks } from '../../lib/auth';
@@ -135,13 +135,21 @@ export default function AppTopBar({
 
   useEffect(() => {
     let cancelled = false;
-    apiJson<{ version?: string }>('/server-manager/status')
+    apiJson<{ version?: string }>('/health')
       .then((res) => {
         if (!cancelled && res?.version) {
           setAppVersion(res.version);
         }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        apiJson<{ version?: string }>('/server-manager/status')
+          .then((res) => {
+            if (!cancelled && res?.version) {
+              setAppVersion(res.version);
+            }
+          })
+          .catch(() => undefined);
+      });
     return () => {
       cancelled = true;
     };
@@ -569,29 +577,16 @@ export default function AppTopBar({
                       Dados do Perfil
                     </button>
 
-                    {canSeeFeedbacks(currentUser) && (
-                      <button
-                        onClick={() => {
-                          setDropdownOpen(false);
-                          setView('hub_feedbacks');
-                        }}
-                        className="w-full flex items-center gap-2.5 px-3 py-3 min-h-11 rounded-lg text-sm font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left"
-                      >
-                        <ClipboardList className="h-4 w-4 text-zinc-400" />
-                        Gestão de Feedbacks
-                      </button>
-                    )}
-
                     {isSupervisor(currentUser) && (
                       <button
                         onClick={() => {
                           setDropdownOpen(false);
-                          setView('mapa_arquitetura');
+                          setView('desenvolvimento');
                         }}
                         className="w-full flex items-center gap-2.5 px-3 py-3 min-h-11 rounded-lg text-sm font-semibold text-zinc-650 hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer text-left"
                       >
-                        <Network className="h-4 w-4 text-zinc-400" />
-                        Mapa operacional
+                        <Code2 className="h-4 w-4 text-zinc-400" />
+                        Desenvolvimento
                       </button>
                     )}
 

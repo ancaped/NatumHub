@@ -44,7 +44,7 @@ pub async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
             "status": "ok",
             "appMode": cfg.app_mode.as_str(),
             "isSyncMaster": cfg.app_mode == crate::core::app_config::AppMode::Master,
-            "version": env!("CARGO_PKG_VERSION"),
+            "version": crate::core::app_config::APP_VERSION,
             "database": "postgresql",
             "dbConnected": true,
             "dbLatencyMs": db_latency_ms,
@@ -74,7 +74,7 @@ pub async fn hub_status(State(state): State<Arc<AppState>>) -> impl IntoResponse
             "apiPort": cfg.api_port,
             "database": "postgresql",
             "dbConnected": db_ok,
-            "version": env!("CARGO_PKG_VERSION"),
+            "version": crate::core::app_config::APP_VERSION,
         })),
     )
         .into_response()

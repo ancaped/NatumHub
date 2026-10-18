@@ -5,6 +5,12 @@ use std::path::PathBuf;
 pub const CLIENT_CONFIG_PATH: &str = "../Saves/client_config.json";
 pub const LEGACY_SAVES_REL: &str = "../Saves";
 
+/// Versão dinâmica do Nexus injetada via APP_VERSION no build ou fallback para Cargo.toml
+pub const APP_VERSION: &str = match option_env!("APP_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
 /// Raiz do repositório (Backend + Frontend), subindo a partir do executável ou do manifest.
 pub fn resolve_repo_root() -> Option<PathBuf> {
     if let Ok(mut path) = std::env::current_exe() {

@@ -6,6 +6,8 @@
 
 # --- ESTÁGIO 1: BUILD DO FRONTEND ---
 FROM node:20-alpine AS frontend-builder
+ARG APP_VERSION=0.2.0
+ENV APP_VERSION=$APP_VERSION
 WORKDIR /app/Frontend
 COPY Frontend/package*.json ./
 RUN npm ci --silent || npm install
@@ -14,6 +16,8 @@ RUN npm run build
 
 # --- ESTÁGIO 2: BUILD DO BACKEND RUST ---
 FROM rust:slim-bookworm AS backend-builder
+ARG APP_VERSION=0.2.0
+ENV APP_VERSION=$APP_VERSION
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \

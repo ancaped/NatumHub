@@ -605,7 +605,7 @@ impl ServerManager {
             online_devices_count: online_devices,
             autostart_enabled: is_autostart_enabled(),
             is_restarting: restarting,
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: crate::core::app_config::APP_VERSION.to_string(),
             saves_dir: crate::core::app_config::saves_dir().to_string_lossy().to_string(),
         }
     }

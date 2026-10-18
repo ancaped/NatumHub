@@ -297,8 +297,8 @@ export default function MapaArquiteturaView({ onBackToHub }: Props) {
 
   return (
     <AppLayout
-      moduleTitle="Mapa operacional"
-      moduleSubtitle="Organograma · Postgres"
+      moduleTitle="Desenvolvimento"
+      moduleSubtitle="Arquitetura, demandas e homologação de tarefas"
       onBackToHub={onBackToHub}
       sidebarItems={sidebarItems}
       activeTab={tab}
@@ -744,7 +744,7 @@ export default function MapaArquiteturaView({ onBackToHub }: Props) {
         ) : (
           <div className="flex-1 overflow-auto p-4 md:p-6">
             <div className="mx-auto max-w-lg space-y-4 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-              <div className="border-b border-zinc-150 pb-3">
+              <div className="border-b border-zinc-200 pb-3">
                 <h3 className="text-base font-black tracking-tight text-zinc-900">Propor / Adicionar Novo Módulo</h3>
                 <p className="text-xs text-zinc-500 mt-0.5">
                   Registra uma nova proposta de módulo com status <code className="font-mono text-zinc-700 bg-zinc-100 px-1 py-0.5 rounded">planned</code> e gera a tarefa arquitetural correspondente no PostgreSQL.
