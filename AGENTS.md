@@ -47,8 +47,15 @@ Rota HTTP           → natumhub-api
 | Compras e Simulador MRP | `concepts/modulo-simulador-compras.md` |
 | Produção e Planejamento | `concepts/modulo-producao-planejamento.md` |
 | Criação de Módulos | `concepts/modulo-criacao-modulos.md` |
+| Regra Canônica de Estoque e MRP | `concepts/calculo-estoque-erp.md` |
+| Qualidade — Avarias | `concepts/modulo-qualidade-avarias.md` |
+| Qualidade — Recebimento MP | `concepts/modulo-qualidade-recebimento-mp.md` |
+| Qualidade — Devoluções | `concepts/modulo-qualidade-devolucoes.md` |
+| Produção — Lançamentos e Fixas | `concepts/modulo-producao-lancamentos-fixas.md` |
+| Compras — Itens Semelhantes | `concepts/modulo-compras-itens-semelhantes.md` |
 | Design System HSL Zinc | `concepts/ui-design-hsl-zinc.md` |
 | Padrões de Interface e Drawers | `concepts/ui-padroes-componentes.md` |
+| Sidebar Minimalista e Modo Mini | `concepts/ui-sidebar-minimalista.md` |
 | Null Safety no Frontend | `gotchas/frontend-null-safety.md` |
 
 ## Stack Atual
