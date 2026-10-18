@@ -58,6 +58,8 @@ Rota HTTP           → natumhub-api
 | Sidebar Minimalista e Modo Mini | `concepts/ui-sidebar-minimalista.md` |
 | Navegação sem Botão Voltar | `concepts/ui-navegacao-topbar-sidebar.md` |
 | Sugestão de Produção e Gatilhos | `concepts/regras-sugestao-producao-gatilhos.md` |
+| Gestão de Importações ERP | `concepts/modulo-gestao-importacoes-erp.md` |
+| Playbook de Feedbacks | `concepts/fluxo-feedbacks-playbook.md` |
 | Módulos Descontinuados | `decisions/modulos-descontinuados.md` |
 | Null Safety no Frontend | `gotchas/frontend-null-safety.md` |
 
