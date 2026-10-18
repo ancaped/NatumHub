@@ -127,7 +127,7 @@ export default function AppLayout({
   return (
     <div className="flex flex-col md:flex-row flex-1 h-full bg-zinc-50 font-sans overflow-hidden text-zinc-900">
       <aside className={cn(
-        "no-print hidden md:flex bg-white border-r border-zinc-200 flex-col shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.2,0,0,1)] overflow-visible relative z-20",
+        "no-print hidden md:flex bg-white border-r border-zinc-200 flex-col shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.2,0,0,1)] overflow-visible relative z-20 -mt-px",
         isCollapsed ? "w-16" : "w-64"
       )}>
         {/* Top Header of Sidebar */}

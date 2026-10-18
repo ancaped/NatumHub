@@ -5022,13 +5022,24 @@ pub async fn ensure_fila_demandas_table(pool: &PgPool) -> Result<(), sqlx::Error
             prioridade INTEGER DEFAULT 1,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS idx_fila_demandas_codigo ON producao_fila_demandas (codigo_produto);
-        CREATE INDEX IF NOT EXISTS idx_fila_demandas_prioridade ON producao_fila_demandas (prioridade, created_at);
-        "#
+        )
+        "#,
     )
     .execute(pool)
     .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_fila_demandas_codigo ON producao_fila_demandas (codigo_produto)",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_fila_demandas_prioridade ON producao_fila_demandas (prioridade, created_at)",
+    )
+    .execute(pool)
+    .await?;
+
     Ok(())
 }
 
@@ -5088,7 +5099,7 @@ pub async fn create_fila_demandas(
                 id, codigo_produto, descricao, quantidade, unidade,
                 quantidade_kg, origem_demanda, linha_envase, base_codigo,
                 base_nome, observacoes, prioridade
-            ) VALUES (, , , , , , , , , 0, 1, 2)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         "#;
 
         let res = sqlx::query(q)
@@ -5107,7 +5118,7 @@ pub async fn create_fila_demandas(
             .execute(pool)
             .await;
 
-        if let Ok(_) = res {
+        if res.is_ok() {
             inserted_ids.push(new_id);
         }
     }
@@ -5132,7 +5143,7 @@ pub async fn delete_fila_demanda(
             .into_response();
     }
 
-    match sqlx::query("DELETE FROM producao_fila_demandas WHERE id = ")
+    match sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1")
         .bind(&id)
         .execute(pool)
         .await

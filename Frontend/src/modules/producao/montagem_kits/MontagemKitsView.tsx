@@ -1565,7 +1565,7 @@ export default function MontagemKitsView({ onBackToHub }) {
       )}
 
       {/* Sidebar */}
-      <div className="print:hidden w-64 bg-white border-r border-zinc-200 flex flex-col shrink-0">
+      <div className="print:hidden w-64 bg-white border-r border-zinc-200 flex flex-col shrink-0 -mt-px">
 
           {/* Back Button */}
           <div className="p-3 border-b border-zinc-100">

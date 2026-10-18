@@ -928,7 +928,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   return (
     <div className="flex flex-1 h-full bg-zinc-50 font-sans text-zinc-900 overflow-hidden w-full">
       {/* Sidebar */}
-      <div className="w-64 bg-white border-r border-zinc-200 flex flex-col shrink-0">
+      <div className="w-64 bg-white border-r border-zinc-200 flex flex-col shrink-0 -mt-px">
 
         {/* Navigation Tabs */}
         <div className="p-2 border-b border-zinc-100 space-y-0.5">

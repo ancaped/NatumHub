@@ -106,17 +106,6 @@ body {
 }
 
 /* Header Section */
-@layer base {
-  header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 1px solid hsl(var(--card-border-hsl));
-    background-color: hsl(var(--card-hsl));
-    padding: 0.75rem 1.5rem;
-    flex-shrink: 0;
-  }
-}
 
 .logo-section {
   display: flex;

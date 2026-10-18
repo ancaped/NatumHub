@@ -435,7 +435,7 @@ export default function AppTopBar({
     <>
       <header
         ref={barRef}
-        className="no-print h-14 w-full bg-white px-2 sm:px-4 lg:px-6 flex items-center gap-2 lg:gap-4 shrink-0 z-40 relative select-none"
+        className="no-print h-14 w-full bg-white px-2 sm:px-4 lg:px-6 flex items-center gap-2 lg:gap-4 shrink-0 z-40 relative select-none border-none border-b-0 shadow-none"
       >
         {/* Borda inferior dinâmica: une visualmente a barra superior e a sidebar, eliminando a linha divisória entre elas */}
         <div
@@ -443,8 +443,8 @@ export default function AppTopBar({
             'absolute bottom-0 right-0 h-px bg-zinc-200 pointer-events-none transition-[left] duration-300 ease-[cubic-bezier(0.2,0,0,1)]',
             hasActiveSidebar
               ? isCollapsed
-                ? 'left-0 md:left-16'
-                : 'left-0 md:left-64'
+                ? 'left-0 md:left-[calc(4rem-1px)]'
+                : 'left-0 md:left-[calc(16rem-1px)]'
               : 'left-0'
           )}
         />

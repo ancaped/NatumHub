@@ -409,6 +409,7 @@ where
     let _ = modules::geral::mapa::store::ensure_schema(&pool).await;
     let _ = modules::administrativo::funcionarios::store::ensure_schema(&pool).await;
     let _ = modules::administrativo::acompanhamento_producao::store::ensure_schema(&pool).await;
+    let _ = handlers::ensure_fila_demandas_table(&pool).await;
 
     let state = Arc::new(handlers::AppState { db });
 
