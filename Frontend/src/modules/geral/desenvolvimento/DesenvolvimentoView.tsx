@@ -3,6 +3,7 @@ import {
   Network, ListTodo, History, Plus, RefreshCw, Loader2, X, Check, ArrowLeft
 } from 'lucide-react';
 import AppLayout from '../components/layout/AppLayout';
+import { cn } from '../lib/utils';
 import { apiJson } from '../lib/http';
 import { api } from '../lib/api';
 import type { AuthUser } from '../lib/auth';
