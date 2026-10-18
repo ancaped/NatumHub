@@ -5,8 +5,7 @@ import SetupConnectionView from './modules/geral/acesso/SetupConnectionView';
 import RestartRequiredView from './modules/geral/acesso/RestartRequiredView';
 import DashboardView from './modules/geral/dashboard/DashboardView';
 import ConfiguracoesView from './modules/geral/configuracoes/ConfiguracoesView';
-import FeedbacksAdminView from './modules/geral/feedbacks/FeedbacksAdminView';
-import MapaArquiteturaView from './modules/geral/mapa/MapaArquiteturaView';
+import DesenvolvimentoView from './modules/geral/desenvolvimento/DesenvolvimentoView';
 import AppShell from './modules/geral/components/layout/AppShell';
 
 import ProducaoView from './modules/producao/gerenciamento/ProducaoView';
@@ -1284,18 +1283,14 @@ export default function App() {
       );
     }
 
-    if (view === 'desenvolvimento' || view === 'mapa_arquitetura') {
+    if (view === 'desenvolvimento' || view === 'mapa_arquitetura' || view === 'hub_feedbacks') {
       return (
         <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro em Desenvolvimento">
-          <MapaArquiteturaView onBackToHub={() => setView('hub')} />
-        </ErrorBoundary>
-      );
-    }
-
-    if (view === 'hub_feedbacks') {
-      return (
-        <ErrorBoundary onReset={() => setView('hub')} fallbackTitle="Erro na Gestão de Feedbacks">
-          <FeedbacksAdminView currentUser={currentUser} setView={setView} />
+          <DesenvolvimentoView
+            currentUser={currentUser}
+            onBackToHub={() => setView('hub')}
+            onNavigateToView={(v) => setView(v as any)}
+          />
         </ErrorBoundary>
       );
     }

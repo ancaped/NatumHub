@@ -1,0 +1,456 @@
+import React, { useState, useEffect } from 'react';
+import {
+  X, ExternalLink, Route, Bug, ListTodo, FileText, CheckCircle2,
+  Clock, Shield, ArrowRight, Save, Loader2, Plus, Code, Network
+} from 'lucide-react';
+import type { MapaModule, MapaRoute, MapaEdge, Feedback, MapaTask, MapaDetail } from '../types';
+import { cn } from '../../lib/utils';
+
+interface ModuleDetailDrawerProps {
+  module: MapaModule | null;
+  onClose: () => void;
+  routes: MapaRoute[];
+  edges: MapaEdge[];
+  groupName?: string;
+  feedbacks: Feedback[];
+  tasks: MapaTask[];
+  onSaveNotes: (notes: string) => Promise<void>;
+  savingNotes: boolean;
+  onOpenView?: (view: string) => void;
+  onSelectFeedback?: (feedback: Feedback) => void;
+  onCreateDemanda?: (moduleKey: string) => void;
+}
+
+type DrawerTab = 'tecnica' | 'demandas' | 'tasks' | 'documentacao';
+
+const STATUS_STYLE: Record<string, string> = {
+  live: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+  stub: 'bg-zinc-100 text-zinc-700 border-zinc-200',
+  planned: 'bg-amber-50 text-amber-800 border-amber-200',
+};
+
+const METHOD_COLORS: Record<string, string> = {
+  GET: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  POST: 'bg-sky-50 text-sky-700 border-sky-200',
+  PUT: 'bg-amber-50 text-amber-700 border-amber-200',
+  PATCH: 'bg-violet-50 text-violet-700 border-violet-200',
+  DELETE: 'bg-rose-50 text-rose-700 border-rose-200',
+};
+
+export default function ModuleDetailDrawer({
+  module,
+  onClose,
+  routes,
+  edges,
+  groupName,
+  feedbacks,
+  tasks,
+  onSaveNotes,
+  savingNotes,
+  onOpenView,
+  onSelectFeedback,
+  onCreateDemanda,
+}: ModuleDetailDrawerProps) {
+  const [activeTab, setActiveTab] = useState<DrawerTab>('tecnica');
+  const [notes, setNotes] = useState('');
+
+  useEffect(() => {
+    if (module) {
+      const d = (module.detail || {}) as MapaDetail;
+      setNotes(d.notes || '');
+      setActiveTab('tecnica');
+    }
+  }, [module?.moduleKey]);
+
+  if (!module) return null;
+
+  // Filtra rotas, conexões e demandas vinculadas ao módulo
+  const moduleRoutes = routes.filter(
+    (r) => r.moduleKey === module.moduleKey || (module.routerPrefix && r.path.startsWith(module.routerPrefix))
+  );
+
+  const inEdges = edges.filter((e) => e.toKey === module.moduleKey);
+  const outEdges = edges.filter((e) => e.fromKey === module.moduleKey);
+
+  const moduleFeedbacks = feedbacks.filter((f) => {
+    const p = (f.page || '').toLowerCase();
+    const k = module.moduleKey.toLowerCase();
+    return p.includes(k) || (module.routerPrefix && p.includes(module.routerPrefix.toLowerCase()));
+  });
+
+  const moduleTasks = tasks.filter((t) => {
+    const title = (t.title || '').toLowerCase();
+    const k = module.moduleKey.toLowerCase();
+    return title.includes(k) || (typeof t.targets === 'string' && t.targets.toLowerCase().includes(k));
+  });
+
+  return (
+    <aside className="fixed inset-y-0 right-0 z-40 w-full sm:w-[540px] lg:w-[600px] bg-white border-l border-zinc-200 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+      {/* Top Header */}
+      <div className="p-4 sm:p-5 border-b border-zinc-200 flex items-start justify-between gap-3 bg-zinc-50/70 shrink-0">
+        <div className="min-w-0 space-y-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider bg-white border border-zinc-200 px-2 py-0.5 rounded-md">
+              {groupName || 'Módulo'}
+            </span>
+            <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-md border uppercase tracking-wider', STATUS_STYLE[module.status] || STATUS_STYLE.stub)}>
+              {module.status}
+            </span>
+            <code className="text-[11px] font-mono text-zinc-600 bg-zinc-100 px-1.5 py-0.5 rounded">
+              {module.moduleKey}
+            </code>
+          </div>
+          <h2 className="text-lg font-black text-zinc-900 tracking-tight truncate">
+            {module.label}
+          </h2>
+          {module.purpose && (
+            <p className="text-xs text-zinc-600 line-clamp-2 leading-relaxed">
+              {module.purpose}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="p-1.5 rounded-xl hover:bg-zinc-200/60 text-zinc-400 hover:text-zinc-700 transition-colors cursor-pointer shrink-0"
+          title="Fechar painel"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* Sub-abas do Drawer */}
+      <div className="px-4 border-b border-zinc-200 bg-white flex gap-1 shrink-0 overflow-x-auto">
+        <button
+          type="button"
+          onClick={() => setActiveTab('tecnica')}
+          className={cn(
+            'flex items-center gap-1.5 py-3 px-3 border-b-2 text-xs font-bold transition-all cursor-pointer whitespace-nowrap',
+            activeTab === 'tecnica'
+              ? 'border-zinc-900 text-zinc-900'
+              : 'border-transparent text-zinc-500 hover:text-zinc-800'
+          )}
+        >
+          <Route className="h-3.5 w-3.5" />
+          <span>Ficha Técnica</span>
+          {moduleRoutes.length > 0 && (
+            <span className="text-[10px] bg-zinc-100 text-zinc-600 font-bold px-1.5 py-0.2 rounded-full">
+              {moduleRoutes.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('demandas')}
+          className={cn(
+            'flex items-center gap-1.5 py-3 px-3 border-b-2 text-xs font-bold transition-all cursor-pointer whitespace-nowrap',
+            activeTab === 'demandas'
+              ? 'border-zinc-900 text-zinc-900'
+              : 'border-transparent text-zinc-500 hover:text-zinc-800'
+          )}
+        >
+          <Bug className="h-3.5 w-3.5" />
+          <span>Demandas & Bugs</span>
+          {moduleFeedbacks.length > 0 && (
+            <span className="text-[10px] bg-rose-100 text-rose-800 font-bold px-1.5 py-0.2 rounded-full">
+              {moduleFeedbacks.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('tasks')}
+          className={cn(
+            'flex items-center gap-1.5 py-3 px-3 border-b-2 text-xs font-bold transition-all cursor-pointer whitespace-nowrap',
+            activeTab === 'tasks'
+              ? 'border-zinc-900 text-zinc-900'
+              : 'border-transparent text-zinc-500 hover:text-zinc-800'
+          )}
+        >
+          <ListTodo className="h-3.5 w-3.5" />
+          <span>Tasks</span>
+          {moduleTasks.length > 0 && (
+            <span className="text-[10px] bg-zinc-100 text-zinc-600 font-bold px-1.5 py-0.2 rounded-full">
+              {moduleTasks.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('documentacao')}
+          className={cn(
+            'flex items-center gap-1.5 py-3 px-3 border-b-2 text-xs font-bold transition-all cursor-pointer whitespace-nowrap',
+            activeTab === 'documentacao'
+              ? 'border-zinc-900 text-zinc-900'
+              : 'border-transparent text-zinc-500 hover:text-zinc-800'
+          )}
+        >
+          <FileText className="h-3.5 w-3.5" />
+          <span>Documentação</span>
+        </button>
+      </div>
+
+      {/* Conteúdo scrollável */}
+      <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+        {/* ABA: Ficha Técnica */}
+        {activeTab === 'tecnica' && (
+          <div className="space-y-4">
+            {/* Arquivos de Código */}
+            <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-2.5 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">
+                Localização no Código-Fonte
+              </span>
+              <div className="space-y-1.5 text-xs font-mono">
+                <div className="flex items-start gap-2">
+                  <span className="text-zinc-400 font-sans font-bold text-[10px] uppercase w-14 shrink-0">Frontend:</span>
+                  <span className="text-zinc-800 break-all">{module.frontendPath || '—'}</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-zinc-400 font-sans font-bold text-[10px] uppercase w-14 shrink-0">Backend:</span>
+                  <span className="text-zinc-800 break-all">{module.backendPath || '—'}</span>
+                </div>
+                {module.routerPrefix && (
+                  <div className="flex items-start gap-2">
+                    <span className="text-zinc-400 font-sans font-bold text-[10px] uppercase w-14 shrink-0">Prefixo:</span>
+                    <span className="text-zinc-800 bg-zinc-100 px-1 rounded">{module.routerPrefix}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Rotas REST */}
+            <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-2.5 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                  Rotas REST Mapeadas ({moduleRoutes.length})
+                </span>
+              </div>
+
+              {moduleRoutes.length > 0 ? (
+                <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                  {moduleRoutes.map((r) => (
+                    <div key={r.id} className="p-2 rounded-lg border border-zinc-100 bg-zinc-50/60 flex items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {(r.methods || ['GET']).map((m) => (
+                          <span
+                            key={m}
+                            className={cn('text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border', METHOD_COLORS[m] || 'bg-zinc-100 text-zinc-700 border-zinc-200')}
+                          >
+                            {m}
+                          </span>
+                        ))}
+                        <code className="font-mono text-[11px] text-zinc-800 truncate" title={r.path}>
+                          {r.path}
+                        </code>
+                      </div>
+                      {r.summary && (
+                        <span className="text-[10px] text-zinc-400 truncate max-w-[120px]" title={r.summary}>
+                          {r.summary}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-zinc-400 italic py-2">Nenhuma rota individual mapeada.</p>
+              )}
+            </div>
+
+            {/* Conexões (Edges) */}
+            <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-2.5 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">
+                Conexões Arquiteturais
+              </span>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                {/* Entradas */}
+                <div className="p-2.5 rounded-lg border border-zinc-100 bg-zinc-50/60 space-y-1">
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-1">
+                    <ArrowRight className="h-3 w-3 rotate-180 text-zinc-400" /> Recebe de:
+                  </span>
+                  {inEdges.length > 0 ? (
+                    <ul className="space-y-1 pt-1">
+                      {inEdges.map((e) => (
+                        <li key={e.id} className="font-mono text-[11px] text-zinc-800">
+                          {e.fromKey}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span className="text-zinc-400 italic text-[11px] block pt-1">Nenhum</span>
+                  )}
+                </div>
+
+                {/* Saídas */}
+                <div className="p-2.5 rounded-lg border border-zinc-100 bg-zinc-50/60 space-y-1">
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase flex items-center gap-1">
+                    <ArrowRight className="h-3 w-3 text-zinc-400" /> Envia para:
+                  </span>
+                  {outEdges.length > 0 ? (
+                    <ul className="space-y-1 pt-1">
+                      {outEdges.map((e) => (
+                        <li key={e.id} className="font-mono text-[11px] text-zinc-800">
+                          {e.toKey}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span className="text-zinc-400 italic text-[11px] block pt-1">Nenhum</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ABA: Demandas & Bugs */}
+        {activeTab === 'demandas' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-zinc-700">
+                Demandas registradas para este módulo
+              </span>
+              {onCreateDemanda && (
+                <button
+                  type="button"
+                  onClick={() => onCreateDemanda(module.moduleKey)}
+                  className="flex items-center gap-1 text-xs font-bold bg-zinc-900 hover:bg-zinc-800 text-white px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Reportar</span>
+                </button>
+              )}
+            </div>
+
+            {moduleFeedbacks.length > 0 ? (
+              <div className="space-y-2">
+                {moduleFeedbacks.map((f) => (
+                  <div
+                    key={f.id}
+                    onClick={() => onSelectFeedback?.(f)}
+                    className="p-3 rounded-xl border border-zinc-200 bg-white hover:border-zinc-300 transition-all cursor-pointer space-y-1.5 shadow-2xs"
+                  >
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono text-[10px] font-bold text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded">
+                          {f.id.slice(0, 8)}
+                        </span>
+                        <span className="text-[10px] font-bold capitalize text-zinc-600">
+                          {f.feedbackType}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider bg-zinc-100 text-zinc-700 px-2 py-0.5 rounded-full border border-zinc-200">
+                        {f.status}
+                      </span>
+                    </div>
+                    <p className="text-xs font-semibold text-zinc-900 line-clamp-2">
+                      {f.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-12 text-center text-zinc-400 text-xs">
+                Nenhum bug ou demanda vinculada a este módulo.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ABA: Tasks */}
+        {activeTab === 'tasks' && (
+          <div className="space-y-3">
+            <span className="text-xs font-bold text-zinc-700 block">
+              Tarefas de Engenharia do Módulo
+            </span>
+
+            {moduleTasks.length > 0 ? (
+              <div className="space-y-2">
+                {moduleTasks.map((t) => (
+                  <div key={t.id} className="p-3 rounded-xl border border-zinc-200 bg-white space-y-1.5 shadow-2xs">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-mono text-[10px] font-bold text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded">
+                        {t.id.slice(0, 8)}
+                      </span>
+                      <span className={cn('text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border', t.status === 'open' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200')}>
+                        {t.status === 'open' ? 'Pendente' : 'Concluído'}
+                      </span>
+                    </div>
+                    <p className="text-xs font-bold text-zinc-900">{t.title}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-12 text-center text-zinc-400 text-xs">
+                Nenhuma tarefa técnica aberta para este módulo.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ABA: Documentação & Notas */}
+        {activeTab === 'documentacao' && (
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">
+                Propósito Funcional
+              </label>
+              <p className="text-xs text-zinc-700 bg-zinc-50 p-3 rounded-xl border border-zinc-200 leading-relaxed">
+                {module.purpose || 'Sem descrição funcional cadastrada.'}
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">
+                Notas Técnicas & Arquiteturais (PostgreSQL)
+              </label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Insira detalhes de implementação, regras de negócio ou observações para os agentes de IA..."
+                className="w-full min-h-[140px] p-3 rounded-xl border border-zinc-300 text-xs text-zinc-800 leading-relaxed focus:outline-none focus:ring-1 focus:ring-zinc-900"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Footer Ações */}
+      <div className="p-4 border-t border-zinc-200 bg-zinc-50/80 flex items-center justify-between gap-3 shrink-0">
+        {onOpenView && (
+          <button
+            type="button"
+            onClick={() => onOpenView(module.moduleKey)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-white border border-zinc-200 hover:bg-zinc-100 text-zinc-800 text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs"
+          >
+            <ExternalLink className="h-3.5 w-3.5 text-zinc-500" />
+            <span>Abrir Tela do Módulo</span>
+          </button>
+        )}
+
+        {activeTab === 'documentacao' ? (
+          <button
+            type="button"
+            onClick={() => void onSaveNotes(notes)}
+            disabled={savingNotes}
+            className="ml-auto flex items-center gap-1.5 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-xs disabled:opacity-50"
+          >
+            {savingNotes ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            <span>Salvar Notas</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onClose}
+            className="ml-auto px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+          >
+            Fechar
+          </button>
+        )}
+      </div>
+    </aside>
+  );
+}
