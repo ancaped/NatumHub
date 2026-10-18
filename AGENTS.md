@@ -56,6 +56,9 @@ Rota HTTP           → natumhub-api
 | Design System HSL Zinc | `concepts/ui-design-hsl-zinc.md` |
 | Padrões de Interface e Drawers | `concepts/ui-padroes-componentes.md` |
 | Sidebar Minimalista e Modo Mini | `concepts/ui-sidebar-minimalista.md` |
+| Navegação sem Botão Voltar | `concepts/ui-navegacao-topbar-sidebar.md` |
+| Sugestão de Produção e Gatilhos | `concepts/regras-sugestao-producao-gatilhos.md` |
+| Módulos Descontinuados | `decisions/modulos-descontinuados.md` |
 | Null Safety no Frontend | `gotchas/frontend-null-safety.md` |
 
 ## Stack Atual
