@@ -9,6 +9,7 @@ import { cn } from '../../../geral/lib/utils';
 import { api } from '../../../geral/lib/api';
 import type { DemandResult, ActiveRequestedItemSummary } from '../../../geral/lib/types';
 import { getAuthUser, isSupervisor } from '../../../geral/lib/auth';
+import Drawer from '../../../geral/components/ui/Drawer';
 
 interface ProductRow {
   codigo: string;
@@ -1547,131 +1548,96 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
       </div>
 
       {/* Slide-over Product Details Drawer */}
-      {selectedProductCode && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-end">
-          <div className="absolute inset-0 cursor-pointer" onClick={setSelectedItemCodeNull} />
-          
-          <div className="relative w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-350 z-10 text-left">
-            {/* Drawer Header */}
-            <div className="px-6 py-5 border-b border-zinc-200 bg-zinc-50/50 flex justify-between items-start shrink-0">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-0.5 bg-zinc-900 text-white rounded-full text-[9px] font-extrabold uppercase tracking-wider">
-                    Detalhamento de Produto Acabado
-                  </span>
-                  {selectedProduct?.visivel === 0 && (
-                    <span className="px-2 py-0.5 bg-red-100 text-red-800 rounded-full text-[9px] font-extrabold uppercase tracking-wider">
-                      Suspenso
-                    </span>
-                  )}
-                </div>
-                <h3 className="font-extrabold text-zinc-900 text-lg mt-1.5 truncate">
-                  {details?.description || 'Carregando...'}
-                </h3>
-                <p className="text-xs text-zinc-500 font-mono mt-0.5">Código do Produto: {selectedProductCode}</p>
-              </div>
-              <div className="flex items-center gap-2 ml-4 shrink-0">
-                {selectedProduct && (
-                  <button
-                    onClick={async () => {
-                      const newVisivel = selectedProduct.visivel === 0 ? 1 : 0;
-                      if (confirm(newVisivel === 0 
-                        ? `Tem certeza que deseja suspender o produto "${selectedProduct.descricao}"? Ele será ocultado das demandas e sugestões de compra.`
-                        : `Deseja reativar o produto "${selectedProduct.descricao}"?`
-                      )) {
-                        try {
-                          const res = await apiFetch(`/overrides`, {
-                            method: 'POST',
-                            headers: {
-                              'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                              codigo: selectedProduct.codigo,
-                              estoque_ideal_manual: selectedProduct.estoque_ideal_manual ?? null,
-                              pedidos_manual: selectedProduct.pedidos_manual ?? null,
-                              media_manual: selectedProduct.media_manual ?? null,
-                              is_lancamento_manual: selectedProduct.is_lancamento_manual ?? null,
-                              visivel: newVisivel,
-                              observacao: selectedProduct.observacao ?? null,
-                              linha_prefix_manual: selectedProduct.linha_prefix_manual ?? null,
-                              status_produto: selectedProduct.status_produto ?? null,
-                              categoria_produto: selectedProduct.categoria_produto ?? null,
-                              produzir_apenas_kit: selectedProduct.produzir_apenas_kit ?? null
-                            })
-                          });
-                          if (res.ok) {
-                            await loadProducts();
-                            if (newVisivel === 0) {
-                              setSelectedItemCodeNull();
-                            } else {
-                              await loadDetails(selectedProduct.codigo);
-                            }
-                          } else {
-                            alert("Erro ao salvar alteração");
-                          }
-                        } catch (e) {
-                          console.error(e);
-                          alert("Erro de conexão com o servidor");
-                        }
+      {/* Slide-over Product Details Drawer */}
+      <Drawer
+        isOpen={Boolean(selectedProductCode)}
+        onClose={setSelectedItemCodeNull}
+        title={details?.description || 'Carregando...'}
+        subtitle={`Código do Produto: ${selectedProductCode}`}
+        badge={
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-0.5 bg-zinc-900 text-white rounded text-[9px] font-bold uppercase tracking-wider">
+              Detalhamento de Produto Acabado
+            </span>
+            {selectedProduct?.visivel === 0 && (
+              <span className="px-2 py-0.5 bg-red-100 text-red-800 rounded-full text-[9px] font-extrabold uppercase tracking-wider">
+                Suspenso
+              </span>
+            )}
+          </div>
+        }
+        headerActions={
+          selectedProduct ? (
+            <button
+              onClick={async () => {
+                const newVisivel = selectedProduct.visivel === 0 ? 1 : 0;
+                if (confirm(newVisivel === 0 
+                  ? `Tem certeza que deseja suspender o produto "${selectedProduct.descricao}"? Ele será ocultado das demandas e sugestões de compra.`
+                  : `Deseja reativar o produto "${selectedProduct.descricao}"?`
+                )) {
+                  try {
+                    const res = await apiFetch(`/overrides`, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json'
+                      },
+                      body: JSON.stringify({
+                        codigo: selectedProduct.codigo,
+                        estoque_ideal_manual: selectedProduct.estoque_ideal_manual ?? null,
+                        pedidos_manual: selectedProduct.pedidos_manual ?? null,
+                        media_manual: selectedProduct.media_manual ?? null,
+                        is_lancamento_manual: selectedProduct.is_lancamento_manual ?? null,
+                        visivel: newVisivel,
+                        observacao: selectedProduct.observacao ?? null,
+                        linha_prefix_manual: selectedProduct.linha_prefix_manual ?? null,
+                        status_produto: selectedProduct.status_produto ?? null,
+                        categoria_produto: selectedProduct.categoria_produto ?? null,
+                        produzir_apenas_kit: selectedProduct.produzir_apenas_kit ?? null
+                      })
+                    });
+                    if (res.ok) {
+                      await loadProducts();
+                      if (newVisivel === 0) {
+                        setSelectedItemCodeNull();
+                      } else {
+                        await loadDetails(selectedProduct.codigo);
                       }
-                    }}
-                    className={cn(
-                      "text-xs px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 cursor-pointer border",
-                      selectedProduct.visivel === 0
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-250/30 hover:bg-emerald-100/70"
-                        : "bg-rose-50 text-rose-700 border-rose-250/30 hover:bg-rose-100/70"
-                    )}
-                    title={selectedProduct.visivel === 0 ? "Reativar Produto" : "Suspender Produto das Demandas"}
-                  >
-                    {selectedProduct.visivel === 0 ? (
-                      <>Reativar Produto</>
-                    ) : (
-                      <>Suspender Produto</>
-                    )}
-                  </button>
-                )}
-                <button 
-                  onClick={setSelectedItemCodeNull} 
-                  className="p-1.5 hover:bg-zinc-150 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer border border-zinc-250/20"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Drawer Tab Navigation */}
-            <div className="flex border-b border-zinc-200 bg-zinc-50 shrink-0">
-              {([
-                { id: 'visao_geral' as const, label: 'Visão Geral', icon: Info },
-                { id: 'vendas_mensais' as const, label: 'Consumo/Vendas', icon: BarChart3 },
-                { id: 'pedidos_venda' as const, label: 'Pedidos Pendentes', icon: Clock },
-                { id: 'pedidos_compra' as const, label: 'Compras em Trânsito', icon: ShoppingCart },
-                { id: 'configuracoes' as const, label: 'Configurações', icon: Settings },
-              ]).map(tab => (
-                <button
-                  key={tab.id}
-                  onClick={() => setDrawerTab(tab.id)}
-                  className={cn(
-                    "flex-1 py-3.5 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center justify-center gap-1.5",
-                    drawerTab === tab.id 
-                      ? "border-zinc-900 text-zinc-900 font-extrabold bg-white" 
-                      : "border-transparent text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100/50"
-                  )}
-                >
-                  <tab.icon className="h-4 w-4" />
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Detail Body */}
-            {detailsLoading ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 font-semibold gap-2">
-                <RefreshCw className="h-6 w-6 animate-spin text-zinc-550" />
-                Carregando dados detalhados...
-              </div>
-            ) : details ? (
-              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                    } else {
+                      alert("Erro ao salvar alteração");
+                    }
+                  } catch (e) {
+                    console.error(e);
+                    alert("Erro de conexão com o servidor");
+                  }
+                }
+              }}
+              className={cn(
+                "text-xs px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 cursor-pointer border mr-1",
+                selectedProduct.visivel === 0
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-250/30 hover:bg-emerald-100/70"
+                  : "bg-rose-50 text-rose-700 border-rose-250/30 hover:bg-rose-100/70"
+              )}
+              title={selectedProduct.visivel === 0 ? "Reativar Produto" : "Suspender Produto das Demandas"}
+            >
+              {selectedProduct.visivel === 0 ? "Reativar Produto" : "Suspender Produto"}
+            </button>
+          ) : null
+        }
+        tabs={[
+          { id: 'visao_geral', label: 'Visão Geral', icon: Info },
+          { id: 'vendas_mensais', label: 'Consumo/Vendas', icon: BarChart3 },
+          { id: 'pedidos_venda', label: 'Pedidos Pendentes', icon: Clock },
+          { id: 'pedidos_compra', label: 'Compras em Trânsito', icon: ShoppingCart },
+          { id: 'configuracoes', label: 'Configurações', icon: Settings },
+        ]}
+        activeTab={drawerTab}
+        onTabChange={(tabId) => setDrawerTab(tabId as any)}
+        loading={detailsLoading}
+        loadingText="Carregando dados detalhados..."
+        size="xl"
+      >
+        {details ? (
+          <>
 
                 {/* ===== TAB: Visão Geral ===== */}
                 {drawerTab === 'visao_geral' && (
@@ -2355,25 +2321,13 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
                   </div>
                 )}
 
-              </div>
-            ) : (
-              <div className="flex-1 flex items-center justify-center text-zinc-400">
-                Selecione um produto para visualizar o detalhamento de compras.
-              </div>
-            )}
-
-            {/* Drawer Footer */}
-            <div className="px-6 py-4 border-t border-zinc-200 bg-zinc-50/50 flex justify-end shrink-0">
-              <button 
-                onClick={setSelectedItemCodeNull}
-                className="px-5 py-2 bg-zinc-950 hover:bg-zinc-800 text-white rounded-lg text-xs font-bold shadow-md cursor-pointer transition-all border border-zinc-950"
-              >
-                Fechar Painel
-              </button>
-            </div>
+          </>
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-zinc-400 py-12">
+            Selecione um produto para visualizar o detalhamento de compras.
           </div>
-        </div>
-      )}
+        )}
+      </Drawer>
 
       {/* Print Options Modal */}
       {showPrintModal && (

@@ -6,6 +6,7 @@ import { AlertCircle, ArrowDownToLine, Package, Filter, CheckCircle2, ShoppingCa
 import { cn } from '../../../geral/lib/utils';
 import { getAuthUser, isSupervisor } from '../../../geral/lib/auth';
 import { LoteDetailsDrawer } from '../../../producao/gerenciamento/components/LoteDetailsDrawer';
+import Drawer from '../../../geral/components/ui/Drawer';
 
 interface InsumoDetalhes {
   code: string;
@@ -1267,63 +1268,30 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
           )}
         </div>
 
-        {selectedItemCode && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-end">
-            <div className="absolute inset-0 cursor-pointer" onClick={() => setSelectedItemCode(null)} />
-            
-            <div className="relative w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-350 z-10">
-              <div className="px-6 py-5 border-b border-zinc-200 bg-zinc-50/50 flex justify-between items-start shrink-0">
-                <div className="min-w-0 flex-1 text-left">
-                  <span className="px-2 py-0.5 bg-zinc-900 text-white rounded text-[9px] font-bold uppercase tracking-wider">
-                    Detalhes do Insumo
-                  </span>
-                  <h3 className="font-bold text-zinc-900 text-lg mt-1 truncate">
-                    {details?.description || 'Carregando...'}
-                  </h3>
-                  <p className="text-xs text-zinc-500 font-mono mt-0.5">Código: {selectedItemCode}</p>
-                </div>
-                <button 
-                  onClick={() => setSelectedItemCode(null)} 
-                  className="p-1.5 hover:bg-zinc-150 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-            {/* Drawer Tab Navigation */}
-            <div className="flex border-b border-zinc-200 bg-zinc-50 shrink-0 overflow-x-auto">
-              {([
-                { id: 'visao_geral' as const, label: 'Visão Geral', icon: Info, show: true },
-                { id: 'consumo' as const, label: 'Consumo', icon: BarChart3, show: true },
-                { id: 'pedidos' as const, label: 'Pedidos Abertos', icon: Clock, show: true },
-                { id: 'historico_pedidos' as const, label: 'Histórico de Pedidos', icon: FileText, show: true },
-                { id: 'producao' as const, label: 'Produção', icon: Factory, show: true },
-                { id: 'simulacao' as const, label: 'Simulação', icon: Calculator, show: true },
-                { id: 'semelhantes' as const, label: '', icon: Layers, show: similarItems.length > 0 },
-                { id: 'configuracoes' as const, label: 'Configurações', icon: Settings, show: true },
-              ]).filter(t => t.show).map(tab => (
-                <button
-                  key={tab.id}
-                  onClick={() => setDrawerTab(tab.id)}
-                  className={cn(
-                    "shrink-0 px-3 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center justify-center gap-1.5",
-                    drawerTab === tab.id ? "border-zinc-900 text-zinc-900 font-extrabold" : "border-transparent text-zinc-500 hover:text-zinc-800"
-                  )}
-                >
-                  <tab.icon className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">{tab.label}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Detail Body */}
-            {detailsLoading ? (
-              <div className="flex-1 flex items-center justify-center text-zinc-400 font-semibold gap-2">
-                <RefreshCw className="h-5 w-5 animate-spin text-zinc-500" />
-                Carregando análises detalhadas...
-              </div>
-            ) : details ? (
-              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 text-left">
+        <Drawer
+          isOpen={Boolean(selectedItemCode)}
+          onClose={() => setSelectedItemCode(null)}
+          title={details?.description || 'Carregando...'}
+          subtitle={`Código: ${selectedItemCode}`}
+          badge="Detalhes do Insumo"
+          tabs={[
+            { id: 'visao_geral', label: 'Visão Geral', icon: Info },
+            { id: 'consumo', label: 'Consumo', icon: BarChart3 },
+            { id: 'pedidos', label: 'Pedidos Abertos', icon: Clock },
+            { id: 'historico_pedidos', label: 'Histórico de Pedidos', icon: FileText },
+            { id: 'producao', label: 'Produção', icon: Factory },
+            { id: 'simulacao', label: 'Simulação', icon: Calculator },
+            { id: 'semelhantes', label: 'Semelhantes', icon: Layers, show: similarItems.length > 0 },
+            { id: 'configuracoes', label: 'Configurações', icon: Settings },
+          ]}
+          activeTab={drawerTab}
+          onTabChange={(tabId) => setDrawerTab(tabId as any)}
+          loading={detailsLoading}
+          loadingText="Carregando análises detalhadas..."
+          size="xl"
+        >
+          {details ? (
+            <>
 
                 {/* ===== TAB: Visão Geral ===== */}
                 {drawerTab === 'visao_geral' && (
@@ -2466,11 +2434,9 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                   </div>
                 )}
 
-              </div>
-            ) : null}
-          </div>
-        </div>
-      )}
+            </>
+          ) : null}
+        </Drawer>
       {showPrintModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl border border-zinc-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">

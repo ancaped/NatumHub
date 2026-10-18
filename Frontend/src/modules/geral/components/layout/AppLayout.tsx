@@ -127,7 +127,7 @@ export default function AppLayout({
       )}>
         {/* Top Header of Sidebar */}
         <div className={cn(
-          "h-12 px-3 border-b border-zinc-100 flex items-center shrink-0 bg-white select-none transition-all duration-200",
+          "px-3 pt-3 pb-1.5 flex items-center shrink-0 bg-white select-none transition-all duration-200",
           isCollapsed ? "justify-center" : "justify-between"
         )}>
           {isCollapsed ? (
@@ -143,7 +143,7 @@ export default function AppLayout({
           ) : (
             <>
               <div className="flex items-center gap-2 min-w-0 pr-1">
-                <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider truncate">
+                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest truncate pl-0.5">
                   {moduleTitle}
                 </span>
               </div>
@@ -152,8 +152,8 @@ export default function AppLayout({
                   type="button"
                   onClick={toggleSidebar}
                   className="h-7 w-7 rounded-lg flex items-center justify-center text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 transition-all cursor-pointer group shrink-0"
-                  title="Recolher menu lateral (Ctrl+B)"
-                  aria-label="Recolher menu lateral"
+                  title="Ocultar menu lateral (Ctrl+B)"
+                  aria-label="Ocultar menu lateral"
                 >
                   <PanelLeftClose className="h-3.5 w-3.5 transition-transform group-hover:scale-110" />
                 </button>
