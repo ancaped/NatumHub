@@ -138,7 +138,8 @@ pub fn calculate_products(
         } else {
             prod.media_levantamento
         };
-        // 2. Calculate Standard Deviation and Launch status (incorporating manual overrides)
+
+        // 2. Calculate Standard Deviation and Launch status (incorporating manual overrides)
         let monthly_sales = fat_lookup.get(&prod.codigo)
             .or_else(|| fat_lookup.get(prod.codigo.trim()))
             .or_else(|| fat_lookup.get(&norm_prod_code))
@@ -349,6 +350,9 @@ pub fn calculate_products(
             sugestao_compra: None,
             is_kit: None,
             parent_kits: None,
+            na_fila: None,
+            planejado_semana: None,
+            conflito_regra: None,
         });
     }
 

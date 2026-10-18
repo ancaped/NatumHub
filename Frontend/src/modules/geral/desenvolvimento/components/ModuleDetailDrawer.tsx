@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import type { MapaModule, MapaRoute, MapaEdge, Feedback, MapaTask, MapaDetail } from '../types';
 import { cn } from '../../lib/utils';
+import Drawer from '../../components/ui/Drawer';
 
 interface ModuleDetailDrawerProps {
   module: MapaModule | null;
@@ -103,116 +104,69 @@ export default function ModuleDetailDrawer({
   });
 
   return (
-    <aside className="fixed inset-y-0 right-0 z-40 w-full sm:w-[540px] lg:w-[600px] bg-white border-l border-zinc-200 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
-      {/* Top Header */}
-      <div className="p-4 sm:p-5 border-b border-zinc-200 flex items-start justify-between gap-3 bg-zinc-50/70 shrink-0">
-        <div className="min-w-0 space-y-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider bg-white border border-zinc-200 px-2 py-0.5 rounded-md">
-              {groupName || 'Módulo'}
-            </span>
-            <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-md border uppercase tracking-wider', STATUS_STYLE[module.status] || STATUS_STYLE.stub)}>
-              {module.status}
-            </span>
-            <code className="text-[11px] font-mono text-zinc-600 bg-zinc-100 px-1.5 py-0.5 rounded">
-              {module.moduleKey}
-            </code>
-          </div>
-          <h2 className="text-lg font-black text-zinc-900 tracking-tight truncate">
-            {module.label}
-          </h2>
-          {module.purpose && (
-            <p className="text-xs text-zinc-600 line-clamp-2 leading-relaxed">
-              {module.purpose}
-            </p>
+    <Drawer
+      isOpen={Boolean(module)}
+      onClose={onClose}
+      size="2xl"
+      title={module.label}
+      subtitle={module.purpose || undefined}
+      badge={
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider bg-white border border-zinc-200 px-2 py-0.5 rounded-md">
+            {groupName || 'Módulo'}
+          </span>
+          <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-md border uppercase tracking-wider', STATUS_STYLE[module.status] || STATUS_STYLE.stub)}>
+            {module.status}
+          </span>
+          <code className="text-[11px] font-mono text-zinc-600 bg-zinc-100 px-1.5 py-0.5 rounded">
+            {module.moduleKey}
+          </code>
+        </div>
+      }
+      tabs={[
+        { id: 'tecnica', label: 'Ficha Técnica', icon: Route, badge: moduleRoutes.length || undefined },
+        { id: 'demandas', label: 'Demandas & Bugs', icon: Bug, badge: moduleFeedbacks.length || undefined },
+        { id: 'tasks', label: 'Tasks', icon: ListTodo, badge: moduleTasks.length || undefined },
+        { id: 'documentacao', label: 'Documentação', icon: FileText },
+      ]}
+      activeTab={activeTab}
+      onTabChange={(t) => setActiveTab(t as any)}
+      footer={
+        <div className="w-full flex items-center justify-between gap-3">
+          {onOpenView && (
+            <button
+              type="button"
+              onClick={() => onOpenView(module.moduleKey)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-white border border-zinc-200 hover:bg-zinc-100 text-zinc-800 text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs"
+            >
+              <ExternalLink className="h-3.5 w-3.5 text-zinc-500" />
+              <span>Abrir Tela do Módulo</span>
+            </button>
+          )}
+
+          {activeTab === 'documentacao' ? (
+            <button
+              type="button"
+              onClick={() => void onSaveNotes(notes)}
+              disabled={savingNotes}
+              className="ml-auto flex items-center gap-1.5 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-xs disabled:opacity-50"
+            >
+              {savingNotes ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              <span>Salvar Notas</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onClose}
+              className="ml-auto px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+            >
+              Fechar
+            </button>
           )}
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="p-1.5 rounded-xl hover:bg-zinc-200/60 text-zinc-400 hover:text-zinc-700 transition-colors cursor-pointer shrink-0"
-          title="Fechar painel"
-        >
-          <X className="h-5 w-5" />
-        </button>
-      </div>
-
-      {/* Sub-abas do Drawer */}
-      <div className="px-4 border-b border-zinc-200 bg-white flex gap-1 shrink-0 overflow-x-auto">
-        <button
-          type="button"
-          onClick={() => setActiveTab('tecnica')}
-          className={cn(
-            'flex items-center gap-1.5 py-3 px-3 border-b-2 text-xs font-bold transition-all cursor-pointer whitespace-nowrap',
-            activeTab === 'tecnica'
-              ? 'border-zinc-900 text-zinc-900'
-              : 'border-transparent text-zinc-500 hover:text-zinc-800'
-          )}
-        >
-          <Route className="h-3.5 w-3.5" />
-          <span>Ficha Técnica</span>
-          {moduleRoutes.length > 0 && (
-            <span className="text-[10px] bg-zinc-100 text-zinc-600 font-bold px-1.5 py-0.2 rounded-full">
-              {moduleRoutes.length}
-            </span>
-          )}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('demandas')}
-          className={cn(
-            'flex items-center gap-1.5 py-3 px-3 border-b-2 text-xs font-bold transition-all cursor-pointer whitespace-nowrap',
-            activeTab === 'demandas'
-              ? 'border-zinc-900 text-zinc-900'
-              : 'border-transparent text-zinc-500 hover:text-zinc-800'
-          )}
-        >
-          <Bug className="h-3.5 w-3.5" />
-          <span>Demandas & Bugs</span>
-          {moduleFeedbacks.length > 0 && (
-            <span className="text-[10px] bg-rose-100 text-rose-800 font-bold px-1.5 py-0.2 rounded-full">
-              {moduleFeedbacks.length}
-            </span>
-          )}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('tasks')}
-          className={cn(
-            'flex items-center gap-1.5 py-3 px-3 border-b-2 text-xs font-bold transition-all cursor-pointer whitespace-nowrap',
-            activeTab === 'tasks'
-              ? 'border-zinc-900 text-zinc-900'
-              : 'border-transparent text-zinc-500 hover:text-zinc-800'
-          )}
-        >
-          <ListTodo className="h-3.5 w-3.5" />
-          <span>Tasks</span>
-          {moduleTasks.length > 0 && (
-            <span className="text-[10px] bg-zinc-100 text-zinc-600 font-bold px-1.5 py-0.2 rounded-full">
-              {moduleTasks.length}
-            </span>
-          )}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('documentacao')}
-          className={cn(
-            'flex items-center gap-1.5 py-3 px-3 border-b-2 text-xs font-bold transition-all cursor-pointer whitespace-nowrap',
-            activeTab === 'documentacao'
-              ? 'border-zinc-900 text-zinc-900'
-              : 'border-transparent text-zinc-500 hover:text-zinc-800'
-          )}
-        >
-          <FileText className="h-3.5 w-3.5" />
-          <span>Documentação</span>
-        </button>
-      </div>
-
-      {/* Conteúdo scrollável */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+      }
+    >
+      <div className="space-y-4">
         {/* ABA: Ficha Técnica */}
         {activeTab === 'tecnica' && (
           <div className="space-y-4">
@@ -512,40 +466,6 @@ export default function ModuleDetailDrawer({
           </div>
         )}
       </div>
-
-      {/* Footer Ações */}
-      <div className="p-4 border-t border-zinc-200 bg-zinc-50/80 flex items-center justify-between gap-3 shrink-0">
-        {onOpenView && (
-          <button
-            type="button"
-            onClick={() => onOpenView(module.moduleKey)}
-            className="flex items-center gap-1.5 px-4 py-2 bg-white border border-zinc-200 hover:bg-zinc-100 text-zinc-800 text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs"
-          >
-            <ExternalLink className="h-3.5 w-3.5 text-zinc-500" />
-            <span>Abrir Tela do Módulo</span>
-          </button>
-        )}
-
-        {activeTab === 'documentacao' ? (
-          <button
-            type="button"
-            onClick={() => void onSaveNotes(notes)}
-            disabled={savingNotes}
-            className="ml-auto flex items-center gap-1.5 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-xs disabled:opacity-50"
-          >
-            {savingNotes ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-            <span>Salvar Notas</span>
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={onClose}
-            className="ml-auto px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
-          >
-            Fechar
-          </button>
-        )}
-      </div>
-    </aside>
+    </Drawer>
   );
 }

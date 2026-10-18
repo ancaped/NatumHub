@@ -100,7 +100,6 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   estoque_pecas: Cog,
   estoque_equipamentos: Wrench,
   estoque_manutencoes: ClipboardList,
-  compras_almoxarifado: ShoppingCart,
   admin_linha_produtos: CheckCircle2,
   admin_relatorios: FileSpreadsheet,
   admin_produtos_ativos_relatorios: FileSpreadsheet,

@@ -306,7 +306,7 @@ pub fn infer_module_key_from_page(page: &str) -> Option<String> {
     } else if p.contains("proc") {
         Some("producao_proc".to_string())
     } else if p.contains("rotina") {
-        Some("producao_rotina".to_string())
+        Some("producao".to_string())
     } else if p.contains("planejamento") {
         Some("planejamento_producao".to_string())
     } else if p.contains("acompanhamento de produ") {

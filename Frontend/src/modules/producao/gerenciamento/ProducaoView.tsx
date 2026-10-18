@@ -24,10 +24,10 @@ import { HistoryTab } from './components/HistoryTab';
 import { SettingsTab } from './components/SettingsTab';
 import { LotesTab } from './components/LotesTab';
 import { LotesCalendarTab } from './components/LotesCalendarTab';
-import { AprovacaoTab } from './components/AprovacaoTab';
 import { PlanejamentoSemanalTab } from './components/PlanejamentoSemanalTab';
 import { LoteDetailsDrawer } from './components/LoteDetailsDrawer';
 import KitCompositionDrawer from '../components/KitCompositionDrawer';
+import Drawer from '../../geral/components/ui/Drawer';
 
 type ProducaoLockedView = 'bases' | 'lotes';
 
@@ -40,21 +40,18 @@ export default function ProducaoView({
 }) {
   // Navigation State
   const [currentView, setCurrentView] = useState(lockedView || 'inventory');
+  const [rulesDrawerType, setRulesDrawerType] = useState<'programadas' | 'fixas' | null>(null);
 
   useEffect(() => {
     const viewLabels = {
-      inventory: 'Gerenciamento de Produção',
-      kits: 'Gerenciamento de Kits',
-      programadas: 'Produções Programadas',
-      aprovacao: 'Planejamento Semanal de Ordens',
-      acompanhamento: 'Acompanhamento / Quadros de Produção',
-      calendar: 'Calendário',
-      lotes: 'Lotes de Produção',
-      erros: 'Erros de Estoque',
-      bases: 'Gestão de Bases',
-      history: 'Histórico',
+      inventory: 'Demandas de Produção',
+      kits: 'Central de Kits',
+      bases: 'Bases (Granel)',
+      aprovacao: 'Planejamento Semanal',
+      history: 'Histórico de Lotes',
       ignored_items: 'Produtos Suspensos',
-      imports: 'Importações ERP',
+      programadas: 'Produções Programadas',
+      lancamentos: 'Produções Fixas',
       settings: 'Configurações'
     };
     window.__current_page__ = viewLabels[currentView] || currentView;
@@ -1411,12 +1408,11 @@ export default function ProducaoView({
   ];
 
   const gerenciamentoSidebarItems = [
-    { id: 'inventory', label: 'Gerenciamento de Produção', icon: Table },
-    { id: 'kits', label: 'Gerenciamento de Kits', icon: Layers },
-    { id: 'montagem_kits', label: 'Montagem de Kits', icon: Boxes },
-    { id: 'programadas', label: 'Produções Programadas', icon: CalendarClock },
-    { id: 'lancamentos', label: 'Produções Fixas', icon: Target },
-    { id: 'history', label: 'Histórico', icon: History },
+    { id: 'inventory', label: 'Demandas de Produção', icon: Table },
+    { id: 'kits', label: 'Central de Kits', icon: Package },
+    { id: 'bases', label: 'Bases (Granel)', icon: Scale },
+    { id: 'aprovacao', label: 'Planejamento Semanal', icon: CalendarClock },
+    { id: 'history', label: 'Histórico de Lotes', icon: History },
     { id: 'ignored_items', label: 'Produtos Suspensos', icon: EyeOff },
   ];
 
@@ -1542,6 +1538,13 @@ export default function ProducaoView({
               SortIcon={SortIcon}
               productionApprovalList={productionApprovalList}
               onToggleApprovalList={handleToggleApprovalList}
+              onOpenProgramadasDrawer={() => {
+                fetchProgramadas();
+                setRulesDrawerType('programadas');
+              }}
+              onOpenFixasDrawer={() => {
+                setRulesDrawerType('fixas');
+              }}
             />
           )}
 
@@ -2820,6 +2823,68 @@ export default function ProducaoView({
             fetchKits();
           }}
         />
+
+        <Drawer
+          isOpen={rulesDrawerType !== null}
+          onClose={() => {
+            setRulesDrawerType(null);
+            fetchProducts();
+          }}
+          size="2xl"
+          badge="Regras de Produção"
+          title={
+            rulesDrawerType === 'programadas'
+              ? 'Configurar Regras de Produções Programadas'
+              : 'Configurar Regras de Produções Fixas e Metas'
+          }
+          subtitle={
+            rulesDrawerType === 'programadas'
+              ? 'Gatilhos de disparo e objetivos de cobertura em lote'
+              : 'Metas mensais, datas limite e famílias de lançamentos'
+          }
+        >
+          {rulesDrawerType === 'programadas' ? (
+            <ProgramadasTab
+              products={programadasProducts}
+              configs={configs}
+              bases={bases}
+              activeTab={programadasActiveTab}
+              handleTabChange={(t: string) => { setProgramadasActiveTab(t); setProgramadasPage(1); }}
+              search={programadasSearch}
+              setSearch={setProgramadasSearch}
+              selectedStatus={programadasSelectedStatus}
+              setSelectedStatus={setProgramadasSelectedStatus}
+              page={programadasPage}
+              setPage={setProgramadasPage}
+              totalPages={programadasTotalPages}
+              totalItems={programadasTotalItems}
+              limitPerPage={limitPerPage}
+              diasComerciais={diasComerciais}
+              sortField={programadasSortField}
+              setSortField={setProgramadasSortField}
+              sortDir={programadasSortDir}
+              setSortDir={setProgramadasSortDir}
+              onEditOverrides={openEditModal}
+              onRefresh={fetchProgramadas}
+              loading={programadasLoading}
+              tabOptions={tabOptions}
+              toggleSort={toggleSort}
+              SortIcon={SortIcon}
+              onShowDetails={fetchProductDetails}
+              productionApprovalList={productionApprovalList}
+              onToggleApprovalList={handleToggleApprovalList}
+            />
+          ) : rulesDrawerType === 'fixas' ? (
+            <ProducoesFixasTab
+              tabOptions={tabOptions}
+              reloadToken={lancamentosTick}
+              onEditOverrides={openEditModal}
+              onShowDetails={fetchProductDetails}
+              productionApprovalList={productionApprovalList}
+              onToggleApprovalList={handleToggleApprovalList}
+            />
+          ) : null}
+        </Drawer>
 
       {/* Action status notification Toast */}
       {toast && (

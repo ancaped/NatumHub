@@ -6,7 +6,7 @@ export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
 
 ZIMAOS_HOST="${ZIMAOS_HOST:-192.168.122.196}"
 ZIMAOS_APP_DIR="${ZIMAOS_APP_DIR:-/DATA/AppData/nexus}"
-TARGET_SERVICE="${1:-nexus-dev}" # default: nexus-dev (:3002). Use 'nexus-prod' para produção (:3001).
+TARGET_SERVICE="${1:-nexus-prod}" # default: nexus-prod (:3001) conforme Single-Stack ZimaOS.
 
 # Cálculo automático de versão a partir do histórico Git
 GIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "1")

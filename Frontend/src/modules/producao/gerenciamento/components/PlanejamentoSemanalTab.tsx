@@ -136,8 +136,8 @@ export function getProductColorInfo(p: any): {
     return { 
       tag: 'red', 
       label: 'Vermelho / Marsala (Fim da fila)', 
-      shortLabel: '🔴 Red', 
-      badgeClass: 'bg-rose-600 text-white font-bold', 
+      shortLabel: 'Red', 
+      badgeClass: 'bg-red-50 text-red-700 border border-red-200 font-mono font-bold', 
       dotClass: 'bg-rose-600',
       orderPriority: 4 
     };
@@ -148,8 +148,8 @@ export function getProductColorInfo(p: any): {
     return { 
       tag: 'black', 
       label: 'Black / Escuro (3º da Fila)', 
-      shortLabel: '⚫ Black', 
-      badgeClass: 'bg-zinc-900 text-zinc-100 font-bold border border-zinc-700', 
+      shortLabel: 'Black', 
+      badgeClass: 'bg-zinc-900 text-zinc-100 font-mono font-bold border border-zinc-700', 
       dotClass: 'bg-zinc-900',
       orderPriority: 3 
     };
@@ -160,9 +160,9 @@ export function getProductColorInfo(p: any): {
     return { 
       tag: 'blond', 
       label: 'Blond / Matizador (2º da Fila)', 
-      shortLabel: '🟣 Blond', 
-      badgeClass: 'bg-purple-600 text-white font-bold', 
-      dotClass: 'bg-purple-600',
+      shortLabel: 'Matizador', 
+      badgeClass: 'bg-zinc-100 text-zinc-800 border border-zinc-300 font-mono font-bold', 
+      dotClass: 'bg-zinc-500',
       orderPriority: 2 
     };
   }
@@ -171,8 +171,8 @@ export function getProductColorInfo(p: any): {
   return { 
     tag: 'neutro', 
     label: 'Branco / Neutro (1º da Fila)', 
-    shortLabel: '⚪ Branco', 
-    badgeClass: 'bg-zinc-100 text-zinc-800 font-bold border border-zinc-300', 
+    shortLabel: 'Branco', 
+    badgeClass: 'bg-zinc-100 text-zinc-800 font-mono font-bold border border-zinc-300', 
     dotClass: 'bg-zinc-200 border border-zinc-400',
     orderPriority: 1 
   };
@@ -332,7 +332,7 @@ export function getProductProcessType(p: any): {
       isShampoo: isBaseShampoo,
       canBombona: recKg <= 200,
       motivo: isBaseShampoo ? 'Base de Shampoo a Frio' : (isQuente ? 'Base a Quente (Caldeira)' : 'Base de Produção'),
-      label: isBaseShampoo ? '❄️ Base Frio' : (isQuente ? '🔥 Base Quente' : '🧪 Base Granel'),
+      label: isBaseShampoo ? 'Base Frio' : (isQuente ? 'Base Quente' : 'Base Granel'),
       recipienteSugerido: isBaseShampoo ? 'R_1000_SHAMPOO' : (recKg >= 600 ? 'R_1000_MISTO' : (recKg <= 250 ? 'R_200' : 'R_500')),
       unitWeightKg: 1.0,
       reqUnits: recKg,
@@ -368,7 +368,7 @@ export function getProductProcessType(p: any): {
       isShampoo: false,
       canBombona: reqQtyKg <= 150,
       motivo: isR40 ? 'Reator 40kg Quente (Fusão de ceras/óleos)' : 'Fusão de ceras/óleos (Quente)', 
-      label: isR40 ? '🔥 Reator 40kg' : 'Caldeira',
+      label: isR40 ? 'Reator 40kg' : 'Caldeira',
       recipienteSugerido: isR40 ? 'R_40' : (reqQtyKg <= 100 ? 'R_100' : (reqQtyKg >= 600 ? 'R_1000_MISTO' : (reqQtyKg <= 250 ? 'R_200' : 'R_500'))),
       unitWeightKg,
       reqUnits,
@@ -385,7 +385,7 @@ export function getProductProcessType(p: any): {
       isShampoo: false,
       canBombona: podeBombona,
       motivo: isR40 ? 'Reator 40kg (Produção Quente)' : (podeBombona ? 'Máscara Quente na Bombona (Água da Caldeira)' : 'Emulsão a Quente (Requer Caldeira)'), 
-      label: isR40 ? '🔥 Reator 40kg' : (podeBombona ? '🔥 Bombona (Água Caldeira)' : '🔥 Caldeira'),
+      label: isR40 ? 'Reator 40kg' : (podeBombona ? 'Bombona (Água Caldeira)' : 'Caldeira'),
       recipienteSugerido: isR40 ? 'R_40' : (podeBombona ? 'BOMBONAS' : (reqQtyKg >= 600 ? 'R_1000_MISTO' : (reqQtyKg <= 250 ? 'R_200' : 'R_500'))),
       unitWeightKg,
       reqUnits,
@@ -416,7 +416,7 @@ export function getProductProcessType(p: any): {
       isShampoo: false,
       canBombona: reqQtyKg <= 150,
       motivo: isR40 ? 'Reator 40kg (Condicionador Quente)' : 'Condicionador sem base pronta (Requer Caldeira)', 
-      label: isR40 ? '🔥 Reator 40kg' : 'Caldeira',
+      label: isR40 ? 'Reator 40kg' : 'Caldeira',
       recipienteSugerido: isR40 ? 'R_40' : (reqQtyKg <= 150 ? 'BOMBONAS' : (reqQtyKg >= 600 ? 'R_1000_MISTO' : (reqQtyKg <= 250 ? 'R_200' : 'R_500'))),
       unitWeightKg,
       reqUnits,
@@ -525,7 +525,20 @@ export function PlanejamentoSemanalTab({
   // Painel lateral e busca do Banco de Demandas
   const [demandBankOpen, setDemandBankOpen] = useState(true);
   const [demandSearch, setDemandSearch] = useState('');
-  const [demandFilter, setDemandFilter] = useState<'ALL' | 'CRITICOS' | 'PROGRAMADAS' | 'KITS' | 'BASES'>('ALL');
+  const [filaDemandas, setFilaDemandas] = useState<any[]>([]);
+  const [demandFilter, setDemandFilter] = useState<'FILA' | 'ALL' | 'CRITICOS' | 'PROGRAMADAS' | 'KITS' | 'BASES'>('FILA');
+
+  const fetchFila = useCallback(async () => {
+    try {
+      const res = await apiFetch('/producao/fila-demandas');
+      if (res.ok) {
+        const data = await res.json();
+        setFilaDemandas(Array.isArray(data.items) ? data.items : []);
+      }
+    } catch (e) {
+      console.warn('Erro ao buscar fila de demandas:', e);
+    }
+  }, []);
   const [selectedLineFilter, setSelectedLineFilter] = useState<string>('ALL');
 
   // Modais de Ação
@@ -730,8 +743,9 @@ export function PlanejamentoSemanalTab({
     if (active) {
       fetchReatores();
       fetchProducts();
+      fetchFila();
     }
-  }, [active, fetchReatores, fetchProducts]);
+  }, [active, fetchReatores, fetchProducts, fetchFila]);
 
   useEffect(() => {
     if (active) {
@@ -795,6 +809,58 @@ export function PlanejamentoSemanalTab({
 
   // Itens elegíveis para o Banco de Demandas
   const demandCandidates = useMemo(() => {
+    if (demandFilter === 'FILA') {
+      const prodMap = new Map(products.map(p => [p.codigo, p]));
+      const mapped = filaDemandas
+        .filter(f => {
+          if (!demandSearch.trim()) return true;
+          const q = demandSearch.toLowerCase().trim();
+          const code = (f.codigoProduto || f.codigo_produto || '').toLowerCase();
+          const desc = (f.descricao || '').toLowerCase();
+          return code.includes(q) || desc.includes(q);
+        })
+        .map(f => {
+          const code = f.codigoProduto || f.codigo_produto;
+          const p = prodMap.get(code) || {};
+          const batchMatch = (f.observacoes || '').match(/\[batch:([^\]]+)\]/i);
+          return {
+            ...p,
+            _filaId: f.id,
+            _isFromFila: true,
+            _batchGroupId: batchMatch ? batchMatch[1].trim() : null,
+            codigo: code,
+            descricao: f.descricao,
+            producao_recomendada: f.quantidade,
+            quantidade: f.quantidade,
+            quantidade_kg: f.quantidadeKg || f.quantidade_kg,
+            origem_demanda: f.origemDemanda || f.origem_demanda,
+            base_codigo: f.baseCodigo || f.base_codigo,
+            base: f.baseNome || f.base_nome,
+            unidade: f.unidade || 'un',
+            observacoes: f.observacoes
+          };
+        });
+
+      const grouped: any[] = [];
+      const seenGroups = new Set<string>();
+      for (const item of mapped) {
+        if (item._batchGroupId) {
+          if (seenGroups.has(item._batchGroupId)) continue;
+          seenGroups.add(item._batchGroupId);
+          const siblings = mapped.filter(m => m._batchGroupId === item._batchGroupId);
+          const totalBatchKg = Number(siblings.reduce((acc, s) => acc + (Number(s.quantidade_kg) || 0), 0).toFixed(1));
+          grouped.push({
+            ...item,
+            _batchSiblings: siblings,
+            _totalBatchKg: totalBatchKg
+          });
+        } else {
+          grouped.push(item);
+        }
+      }
+      return grouped;
+    }
+
     return products.filter(p => {
       // Filtro de Linha Comercial
       if (selectedLineFilter !== 'ALL' && p.linha_prefix !== selectedLineFilter) {
@@ -863,7 +929,7 @@ export function PlanejamentoSemanalTab({
 
       return efpA - efpB;
     });
-  }, [products, selectedLineFilter, demandSearch, demandFilter]);
+  }, [products, filaDemandas, selectedLineFilter, demandSearch, demandFilter]);
 
   // Mapeamento de Itens Agendados na Grade (por Reator e por Dia)
   const matrixItemsMap = useMemo(() => {
@@ -938,11 +1004,31 @@ export function PlanejamentoSemanalTab({
     }
   };
 
-  // Excluir Item do Planejamento
+  // Excluir Item do Planejamento (e retornar para a Fila se não concluído)
   const handleDeleteItem = async (id: string) => {
-    if (!window.confirm("Deseja remover esta batelada do planejamento semanal?")) return;
+    if (!window.confirm("Deseja remover esta batelada do planejamento semanal? Ela retornará para a Fila de Demandas.")) return;
+    const itemToRemove = plannedItems.find(i => i.id === id);
     try {
       await apiFetch(`/producao/planejamento-semanal/${id}`, { method: 'DELETE' });
+      if (itemToRemove && itemToRemove.ordem_status !== 'concluido') {
+        const uW = parseProductUnitWeightKg(itemToRemove.descricao);
+        const estUn = Math.max(1, Math.round((Number(itemToRemove.quantidade_planejada) || 0) / (uW || 1)));
+        await apiFetch('/producao/fila-demandas', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            codigoProduto: itemToRemove.codigo_produto,
+            descricao: itemToRemove.descricao,
+            quantidade: estUn,
+            unidade: 'un',
+            quantidadeKg: Number(itemToRemove.quantidade_planejada) || 0,
+            origemDemanda: 'retorno_pcp',
+            baseCodigo: itemToRemove.base_codigo,
+            baseNome: itemToRemove.base_nome
+          })
+        });
+        await fetchFila();
+      }
     } catch (e) {
       console.warn('Erro ao deletar no servidor:', e);
     }
@@ -1179,11 +1265,40 @@ export function PlanejamentoSemanalTab({
       return next;
     });
 
+    const returnPayload: any[] = [];
+    const batchGroupTag = batchItems.length > 1 ? `[batch:BAT_${Date.now()}]` : undefined;
     for (const it of batchItems) {
       try {
         await apiFetch(`/producao/planejamento/${it.id}`, { method: 'DELETE' });
+        if (it.ordem_status !== 'concluido') {
+          const uW = parseProductUnitWeightKg(it.descricao);
+          const estUn = Math.max(1, Math.round((Number(it.quantidade_planejada) || 0) / (uW || 1)));
+          returnPayload.push({
+            codigoProduto: it.codigo_produto,
+            descricao: it.descricao,
+            quantidade: estUn,
+            unidade: 'un',
+            quantidadeKg: Number(it.quantidade_planejada) || 0,
+            origemDemanda: 'retorno_pcp',
+            baseCodigo: it.base_codigo,
+            baseNome: it.base_nome,
+            observacoes: batchGroupTag
+          });
+        }
       } catch (e) {
         console.error(e);
+      }
+    }
+    if (returnPayload.length > 0) {
+      try {
+        await apiFetch('/producao/fila-demandas', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(returnPayload)
+        });
+        await fetchFila();
+      } catch (e) {
+        console.warn('Erro ao devolver itens à fila:', e);
       }
     }
     window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
@@ -1402,12 +1517,29 @@ export function PlanejamentoSemanalTab({
     setScheduleSearch('');
 
     if (product) {
-      setScheduleSelectedProducts([product]);
+      if (Array.isArray(product._batchSiblings) && product._batchSiblings.length > 1) {
+        setScheduleSelectedProducts(product._batchSiblings);
+        const masses: Record<string, number> = {};
+        let sumKg = 0;
+        for (const s of product._batchSiblings) {
+          const pInfo = getProductProcessType(s);
+          const kg = Number(s.quantidade_kg) || (pInfo.reqQtyKg <= 50 ? 50 : Math.round(pInfo.reqQtyKg));
+          masses[s.codigo] = kg;
+          sumKg += kg;
+        }
+        setScheduleQty(Number(sumKg.toFixed(1)));
+        setScheduleItemMasses(masses);
+      } else {
+        setScheduleSelectedProducts([product]);
+        const procInfo = getProductProcessType(product);
+        const suggestedMassKg = Number(product.quantidade_kg) || (procInfo.reqQtyKg <= 50 ? 50 : Math.round(procInfo.reqQtyKg));
+        setScheduleQty(suggestedMassKg);
+        setScheduleItemMasses({ [product.codigo]: suggestedMassKg });
+      }
       const procInfo = getProductProcessType(product);
-      // Quantidade sugerida em MASSA (kg) baseada no peso/volume unitário
-      const suggestedMassKg = procInfo.reqQtyKg <= 50 ? 50 : Math.round(procInfo.reqQtyKg);
-      setScheduleQty(suggestedMassKg);
-      setScheduleItemMasses({ [product.codigo]: suggestedMassKg });
+      const suggestedMassKg = Array.isArray(product._batchSiblings) && product._batchSiblings.length > 1
+        ? Number(product._totalBatchKg) || 100
+        : (Number(product.quantidade_kg) || (procInfo.reqQtyKg <= 50 ? 50 : Math.round(procInfo.reqQtyKg)));
 
       // Encontra reator compatível com o processo e tamanho
       let matchingReator = reatores.find(r => r.id === targetReator);
@@ -1494,7 +1626,7 @@ export function PlanejamentoSemanalTab({
     if (scheduleReator === 'R_100') {
       const existingIn100 = plannedItems.filter(i => i.data_planejada === scheduleDate && i.reator_id === 'R_100');
       if (existingIn100.length >= 1) {
-        alert("⚠️ Limite atingido: O Reator 100kg funciona por resistência e está limitado a no máximo 1 produção por dia! Escolha outro dia ou use uma Bombona de Mistura.");
+        alert("Limite atingido: O Reator 100kg funciona por resistência e está limitado a no máximo 1 produção por dia! Escolha outro dia ou use uma Bombona de Mistura.");
         return;
       }
     }
@@ -1519,8 +1651,8 @@ export function PlanejamentoSemanalTab({
       const batchObs = numItems > 1 
         ? `Batelada conjunta (${i + 1}/${numItems}) [batch:${batchId}] | ${massPerItem} kg | ~${estUnits.toLocaleString('pt-BR')} un`
         : (procInfo.isQuente 
-            ? (scheduleReator === 'BOMBONAS' ? '🔥 Água Quente Caldeira (Bombona)' : (scheduleReator === 'R_100' ? '⚡ Resistência (100kg)' : (scheduleReator === 'R_40' ? '🔥 Reator 40kg (Quente)' : '🔥 Requer Caldeira'))) 
-            : '❄️ Processo a Frio') + ` | ~${estUnits.toLocaleString('pt-BR')} un`;
+            ? (scheduleReator === 'BOMBONAS' ? 'Água Quente Caldeira (Bombona)' : (scheduleReator === 'R_100' ? 'Resistência (100kg)' : (scheduleReator === 'R_40' ? 'Reator 40kg (Quente)' : 'Requer Caldeira'))) 
+            : 'Processo a Frio') + ` | ~${estUnits.toLocaleString('pt-BR')} un`;
 
       const newItem: PlanejamentoItem = {
         id: itemId,
@@ -1547,6 +1679,20 @@ export function PlanejamentoSemanalTab({
 
       await handleSaveItem(newItem);
     }
+
+    // Desinfileirar da Fila Postgres se estava presente
+    for (const prod of scheduleSelectedProducts) {
+      const code = prod.codigo;
+      const fItem = filaDemandas.find((f: any) => (f.codigoProduto || f.codigo_produto) === code || f.id === prod._filaId);
+      if (fItem?.id) {
+        try {
+          await apiFetch(`/producao/fila-demandas/${fItem.id}`, { method: 'DELETE' });
+        } catch (e) {
+          console.warn('Erro ao remover item da fila:', e);
+        }
+      }
+    }
+    fetchFila();
 
     setScheduleModalItem(null);
     setScheduleSelectedProducts([]);
@@ -1888,7 +2034,7 @@ export function PlanejamentoSemanalTab({
         <div style="margin-bottom: 8px; page-break-inside: avoid;">
           <div style="background: #18181b; color: white; padding: 3px 6px; display: flex; justify-content: space-between; align-items: center; border-radius: 2px 2px 0 0; font-size: 9px;">
             <span style="font-weight: bold; text-transform: uppercase;">
-              📅 ${day.label} (${day.dayNumber}/${currentWeekKey.split('-W')[0]})
+              ${day.label} (${day.dayNumber}/${currentWeekKey.split('-W')[0]})
               ${day.holiday ? ` <span style="background: #f59e0b; color: #000; padding: 1px 4px; border-radius: 2px; font-size: 7.5px; margin-left: 4px;">FERIADO: ${day.holiday.name}</span>` : ''}
             </span>
             <span style="font-weight: bold;">
@@ -2091,11 +2237,11 @@ export function PlanejamentoSemanalTab({
             <td style="text-align: center; border: 1px solid #cbd5e1; padding: 4px; font-size: 8.5px;">
               ${mat.isMissing ? `
                 <span style="background: #fee2e2; color: #991b1b; padding: 2px 4px; border-radius: 3px; font-weight: bold; font-size: 7.5px; border: 1px solid #fca5a5;">
-                  🚨 RUPTURA (${isMp ? `${Math.round(mat.missingQty * 10) / 10} kg` : `${Math.round(mat.missingQty)} un`})
+                  RUPTURA (${isMp ? `${Math.round(mat.missingQty * 10) / 10} kg` : `${Math.round(mat.missingQty)} un`})
                 </span>
               ` : `
                 <span style="background: #dcfce7; color: #166534; padding: 2px 4px; border-radius: 3px; font-weight: bold; font-size: 7.5px; border: 1px solid #86efac;">
-                  ✅ OK
+                  OK
                 </span>
               `}
             </td>
@@ -2240,14 +2386,14 @@ export function PlanejamentoSemanalTab({
             <div class="kpi-title">Matérias-Primas</div>
             <div class="kpi-val">${mpItems.length} insumos</div>
             <div style="font-size: 7.5px; font-weight: bold; margin-top: 1px; color: ${missingMp.length > 0 ? '#dc2626' : '#15803d'};">
-              ${missingMp.length > 0 ? `🚨 ${missingMp.length} em ruptura` : '✅ Estoque OK'}
+              ${missingMp.length > 0 ? `${missingMp.length} em ruptura` : 'Estoque OK'}
             </div>
           </div>
           <div class="kpi-card">
             <div class="kpi-title">Embalagens & Rótulos</div>
             <div class="kpi-val">${embItems.length} componentes</div>
             <div style="font-size: 7.5px; font-weight: bold; margin-top: 1px; color: ${missingEmb.length > 0 ? '#dc2626' : '#15803d'};">
-              ${missingEmb.length > 0 ? `🚨 ${missingEmb.length} em ruptura` : '✅ Estoque OK'}
+              ${missingEmb.length > 0 ? `${missingEmb.length} em ruptura` : 'Estoque OK'}
             </div>
           </div>
           <div class="kpi-card">
@@ -2419,7 +2565,7 @@ export function PlanejamentoSemanalTab({
                 base_codigo: prod.base || null,
                 base_nome: prod.base || null,
                 linha_envase: envLine,
-                observacoes: `❄️ Reator 1.000kg (Exclusivo Shampoos) | ~${plannedUnits.toLocaleString('pt-BR')} un`,
+                observacoes: `Reator 1.000kg (Exclusivo Shampoos) | ~${plannedUnits.toLocaleString('pt-BR')} un`,
                 ordem_status: 'planejado',
                 fisico_confirmado_massa: false,
                 fisico_confirmado_embalagem: false,
@@ -2463,7 +2609,7 @@ export function PlanejamentoSemanalTab({
                 base_codigo: prod.base || null,
                 base_nome: prod.base || null,
                 linha_envase: envLine,
-                observacoes: `🔥 Reator 40kg (Produção Quente) | ~${plannedUnits.toLocaleString('pt-BR')} un`,
+                observacoes: `Reator 40kg (Produção Quente) | ~${plannedUnits.toLocaleString('pt-BR')} un`,
                 ordem_status: 'planejado',
                 fisico_confirmado_massa: false,
                 fisico_confirmado_embalagem: false,
@@ -2516,7 +2662,7 @@ export function PlanejamentoSemanalTab({
                 base_codigo: prod.base || null,
                 base_nome: prod.base || null,
                 linha_envase: envLine,
-                observacoes: `🔥 Água Quente Caldeira (Bombona) | ~${plannedUnits.toLocaleString('pt-BR')} un`,
+                observacoes: `Água Quente Caldeira (Bombona) | ~${plannedUnits.toLocaleString('pt-BR')} un`,
                 ordem_status: 'planejado',
                 fisico_confirmado_massa: false,
                 fisico_confirmado_embalagem: false,
@@ -2560,7 +2706,7 @@ export function PlanejamentoSemanalTab({
                 base_codigo: prod.base || null,
                 base_nome: prod.base || null,
                 linha_envase: envLine,
-                observacoes: `❄️ Mistura a Frio (Base Pronta) | ~${plannedUnits.toLocaleString('pt-BR')} un`,
+                observacoes: `Mistura a Frio (Base Pronta) | ~${plannedUnits.toLocaleString('pt-BR')} un`,
                 ordem_status: 'planejado',
                 fisico_confirmado_massa: false,
                 fisico_confirmado_embalagem: false,
@@ -2649,8 +2795,8 @@ export function PlanejamentoSemanalTab({
               base_nome: prod.base || null,
               linha_envase: envLine,
               observacoes: (procInfo.isQuente 
-                ? (reator.id === 'R_100' ? '⚡ Resistência (100kg - Máx 1/dia)' : (reator.id === 'R_40' ? '🔥 Reator 40kg (Quente)' : '🔥 Requer Caldeira (Quente)')) 
-                : '❄️ Processo a Frio') + ` | ~${plannedUnits.toLocaleString('pt-BR')} un`,
+                ? (reator.id === 'R_100' ? 'Resistência (100kg - Máx 1/dia)' : (reator.id === 'R_40' ? 'Reator 40kg (Quente)' : 'Requer Caldeira (Quente)')) 
+                : 'Processo a Frio') + ` | ~${plannedUnits.toLocaleString('pt-BR')} un`,
               ordem_status: 'planejado',
               fisico_confirmado_massa: false,
               fisico_confirmado_embalagem: false,
@@ -2826,85 +2972,115 @@ export function PlanejamentoSemanalTab({
             </button>
           </div>
 
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-lg text-blue-900 font-semibold text-xs">
-            <CalendarClock size={16} className="text-blue-600" />
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-100 border border-zinc-200 rounded-lg text-zinc-900 font-mono font-bold text-xs">
+            <CalendarClock size={14} className="text-zinc-600" />
             <span>Semana {currentWeekKey.split('-W')[1]} ({weekDays[0].dateStr.split('-').slice(1).reverse().join('/')} a {weekDays[4].dateStr.split('-').slice(1).reverse().join('/')})</span>
           </div>
 
           <button
-            onClick={() => fetchPlanejamento()}
-            className="p-2 text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 rounded-lg transition-colors"
+            onClick={() => { fetchPlanejamento(); fetchFila(); }}
+            className="p-1.5 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors cursor-pointer"
             title="Atualizar Planejamento"
           >
             <RefreshCw size={15} className={loadingPlan ? "animate-spin" : ""} />
           </button>
         </div>
 
-        {/* Métricas Compactas da Semana */}
-        <div className="flex items-center gap-2 text-xs">
+        {/* Métricas Compactas da Semana (font-mono) */}
+        <div className="flex items-center gap-2 text-xs font-mono">
           <div className="px-2.5 py-1 bg-zinc-50 border border-zinc-200 rounded-md flex items-center gap-1.5">
-            <span className="text-zinc-500">Ordens:</span>
+            <span className="text-zinc-500 font-sans">Ordens:</span>
             <strong className="text-zinc-900 font-bold">{weekStats.totalBatches}</strong>
           </div>
           <div className="px-2.5 py-1 bg-zinc-50 border border-zinc-200 rounded-md flex items-center gap-1.5">
-            <span className="text-zinc-500">Massa:</span>
+            <span className="text-zinc-500 font-sans">Massa:</span>
             <strong className="text-zinc-900 font-bold">{weekStats.totalKg.toLocaleString('pt-BR')} kg</strong>
           </div>
           <div className="px-2.5 py-1 bg-zinc-50 border border-zinc-200 rounded-md flex items-center gap-1.5">
-            <span className="text-zinc-500">Caldeira:</span>
+            <span className="text-zinc-500 font-sans">Caldeira:</span>
             <strong className="text-zinc-800 font-bold">{weekStats.caldeiraItems}</strong>
           </div>
           <div className="px-2.5 py-1 bg-zinc-50 border border-zinc-200 rounded-md flex items-center gap-1.5">
-            <span className="text-zinc-500">Ocupação:</span>
+            <span className="text-zinc-500 font-sans">Ocupação:</span>
             <strong className={`font-bold ${weekStats.occupancyRate > 90 ? 'text-amber-600' : 'text-emerald-600'}`}>
               {weekStats.occupancyRate}%
             </strong>
           </div>
         </div>
 
-        {/* Botões de Ação Principal */}
-        <div className="flex items-center gap-2">
-          {/* BOTÃO LIMPAR SEMANA */}
+        {/* Hierarquia de Ações (HSL Zinc) */}
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
-            onClick={handleClearWeek}
-            disabled={plannedItems.length === 0}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
-              plannedItems.length > 0 
-                ? 'bg-red-50 hover:bg-red-100 text-red-700 border-red-200 cursor-pointer' 
-                : 'bg-zinc-50 text-zinc-400 border-zinc-200 cursor-not-allowed'
+            onClick={() => setDemandBankOpen(!demandBankOpen)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+              demandBankOpen
+                ? 'bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-900 shadow-2xs'
+                : 'bg-white hover:bg-zinc-50 text-zinc-900 border border-zinc-300 shadow-2xs'
             }`}
-            title="Limpar todas as ordens de produção agendadas para esta semana"
           >
-            <Trash2 size={14} />
-            <span>Limpar Semana</span>
+            <Package size={14} />
+            <span>Banco de Demandas / Na Fila</span>
+            <span className={`font-mono px-1.5 py-0.2 rounded text-[10px] ${
+              demandBankOpen ? 'bg-white/15 text-white' : 'bg-zinc-100 text-zinc-800'
+            }`}>
+              {filaDemandas.length}
+            </span>
           </button>
 
           <button
-            onClick={handlePrintWeeklyPlan}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-900 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors cursor-pointer"
-            title="Imprimir Programação Semanal de Produção em formato A4"
+            onClick={() => handleOpenScheduleModal(null, weekDays[0]?.dateStr, reatores[0]?.id || 'R_500')}
+            className="bg-white hover:bg-zinc-50 text-zinc-900 border border-zinc-300 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+            title="Agendar nova batelada ou ordem conjunta"
           >
-            <Printer size={14} className="text-zinc-200" />
-            <span>Imprimir Programação</span>
+            <Plus size={14} className="text-zinc-600" />
+            <span>+ Agendar / Ordem Conjunta</span>
+          </button>
+
+          <button
+            onClick={handleRunHeuristic}
+            className="bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+            title="Sugerir sequência otimizada de produção para a semana"
+          >
+            <Sparkles size={14} className="text-zinc-500" />
+            <span>Sugerir Sequência</span>
           </button>
 
           <button
             onClick={handleOpenMaterialsReport}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 text-xs font-semibold rounded-lg border border-blue-200 transition-colors cursor-pointer"
+            className="bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
             title="Relatório consolidado de matérias-primas e embalagens necessárias na semana planejada"
           >
-            <Boxes size={14} className="text-blue-600" />
-            <span>Consumo MP & Embalagens</span>
+            <Boxes size={14} className="text-zinc-500" />
+            <span>Insumos da Semana</span>
           </button>
 
           <button
-            onClick={() => setDemandBankOpen(!demandBankOpen)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors cursor-pointer ${
-              demandBankOpen ? 'bg-zinc-800 text-white border-zinc-800' : 'bg-zinc-50 text-zinc-700 border-zinc-200 hover:bg-zinc-100'
-            }`}
+            onClick={handlePrintWeeklyPlan}
+            className="p-1.5 bg-white hover:bg-zinc-50 text-zinc-600 hover:text-zinc-900 border border-zinc-200 rounded-lg transition-colors cursor-pointer"
+            title="Imprimir Programação Semanal de Produção em formato A4"
           >
-            <Package size={14} />
-            <span>Banco de Demandas</span>
+            <Printer size={15} />
+          </button>
+
+          <button
+            onClick={() => setReatoresModalOpen(true)}
+            className="p-1.5 bg-white hover:bg-zinc-50 text-zinc-600 hover:text-zinc-900 border border-zinc-200 rounded-lg transition-colors cursor-pointer"
+            title="Configurar Reatores e Capacidades"
+          >
+            <Settings size={15} />
+          </button>
+
+          <button
+            onClick={handleClearWeek}
+            disabled={plannedItems.length === 0}
+            className={`p-1.5 rounded-lg border transition-colors ${
+              plannedItems.length > 0 
+                ? 'bg-white border-zinc-200 text-zinc-400 hover:text-red-600 hover:bg-red-50 hover:border-red-200 cursor-pointer' 
+                : 'bg-zinc-50 text-zinc-300 border-zinc-200 cursor-not-allowed'
+            }`}
+            title="Limpar todas as ordens de produção agendadas para esta semana"
+          >
+            <Trash2 size={15} />
           </button>
         </div>
       </div>
@@ -2916,13 +3092,15 @@ export function PlanejamentoSemanalTab({
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-left text-xs">
               <thead>
-                <tr className="bg-zinc-50 border-b border-zinc-200">
-                  <th className="p-3 w-56 font-bold text-zinc-700 border-r border-zinc-200">
+                <tr className="bg-zinc-900 text-white border-b border-zinc-800">
+                  <th className="p-3 w-56 font-bold text-zinc-200 border-r border-zinc-800">
                     REATOR / CAPACIDADE
                   </th>
-                  {weekDays.map(day => (
-                    <th key={day.dateStr} className={`p-3 font-bold border-r border-zinc-200 min-w-[200px] ${
-                      day.holiday ? 'bg-amber-50/70 text-amber-900' : 'text-zinc-800'
+                  {weekDays.map(day => {
+                    const isToday = day.dateStr === new Date().toISOString().split('T')[0];
+                    return (
+                    <th key={day.dateStr} className={`p-3 font-bold border-r border-zinc-800 min-w-[200px] ${
+                      day.holiday ? 'bg-amber-950/60 text-amber-200' : isToday ? 'bg-zinc-800 border-b-2 border-b-emerald-400 text-white' : 'text-zinc-100'
                     }`}>
                       <div className="flex items-center justify-between">
                         <span>{day.label} ({day.dayNumber})</span>
@@ -2933,12 +3111,13 @@ export function PlanejamentoSemanalTab({
                         )}
                       </div>
                       {day.holiday && (
-                        <div className="text-[10px] text-amber-800 font-normal truncate mt-0.5" title={day.holiday.name}>
+                        <div className="text-[10px] text-amber-300 font-normal truncate mt-0.5" title={day.holiday.name}>
                           {day.holiday.name}
                         </div>
                       )}
                     </th>
-                  ))}
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-200">
@@ -2948,17 +3127,17 @@ export function PlanejamentoSemanalTab({
                     <td className="p-3 font-semibold text-zinc-800 border-r border-zinc-200 bg-zinc-50/50 align-top w-56">
                       <div className="flex items-start gap-1.5">
                         {reator.id === 'BOMBONAS' ? (
-                          <Package size={16} className="text-amber-600 mt-0.5" title="Bombonas Móveis de Mistura" />
+                          <Package size={16} className="text-zinc-500 mt-0.5" title="Bombonas Móveis de Mistura" />
                         ) : reator.id === 'R_100' ? (
-                          <AlertCircle size={16} className="text-amber-500 mt-0.5" title="Aquecimento por Resistência (Máx 1/dia)" />
+                          <Zap size={16} className="text-zinc-500 mt-0.5" title="Aquecimento por Resistência (Máx 1/dia)" />
                         ) : reator.id === 'R_40' ? (
-                          <Flame size={16} className="text-orange-600 mt-0.5" title="Reator 40kg (Produção Quente)" />
+                          <Flame size={16} className="text-zinc-500 mt-0.5" title="Reator 40kg (Produção Quente)" />
                         ) : (reator.id === 'R_1000_SHAMPOO' || reator.id === 'R_1000') ? (
-                          <Snowflake size={16} className="text-blue-500 mt-0.5" title="Exclusivo Shampoos" />
+                          <Snowflake size={16} className="text-zinc-500 mt-0.5" title="Exclusivo Shampoos" />
                         ) : reator.id === 'R_1000_MISTO' ? (
-                          <Boxes size={16} className="text-purple-600 mt-0.5" title="Caldeira - Produção Mista" />
+                          <Boxes size={16} className="text-zinc-500 mt-0.5" title="Caldeira - Produção Mista" />
                         ) : reator.tipo === 'quente' ? (
-                          <Flame size={16} className="text-orange-500 mt-0.5" title="Requer Caldeira" />
+                          <Flame size={16} className="text-zinc-500 mt-0.5" title="Requer Caldeira" />
                         ) : (
                           <Boxes size={16} className="text-zinc-500 mt-0.5" title="Caldeira / Misto" />
                         )}
@@ -2971,33 +3150,33 @@ export function PlanejamentoSemanalTab({
                       </div>
                       <div className="text-[10px] mt-1.5 flex flex-wrap gap-1">
                         {(reator.id === 'R_1000_SHAMPOO' || reator.id === 'R_1000') && (
-                          <span className="px-1.5 py-0.2 rounded font-bold bg-blue-100 text-blue-900 border border-blue-200">
-                            ❄️ Exclusivo Shampoo
+                          <span className="px-1.5 py-0.2 rounded font-semibold bg-zinc-100 text-zinc-800 border border-zinc-200">
+                            Shampoo (Frio)
                           </span>
                         )}
                         {reator.id === 'R_1000_MISTO' && (
-                          <span className="px-1.5 py-0.2 rounded font-bold bg-purple-100 text-purple-900 border border-purple-200">
-                            🔥 Produção Mista
+                          <span className="px-1.5 py-0.2 rounded font-semibold bg-zinc-100 text-zinc-800 border border-zinc-200">
+                            Produção Mista
                           </span>
                         )}
                         {reator.id === 'R_100' && (
-                          <span className="px-1.5 py-0.2 rounded font-bold bg-amber-100 text-amber-900 border border-amber-200">
-                            ⚡ Resistência (Máx 1/dia)
+                          <span className="px-1.5 py-0.2 rounded font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                            Resistência (1/dia)
                           </span>
                         )}
                         {reator.id === 'R_40' && (
-                          <span className="px-1.5 py-0.2 rounded font-bold bg-orange-100 text-orange-900 border border-orange-200">
-                            🔥 Produção Quente (40kg)
+                          <span className="px-1.5 py-0.2 rounded font-semibold bg-zinc-100 text-zinc-800 border border-zinc-200">
+                            Quente (40kg)
                           </span>
                         )}
                         {reator.id === 'BOMBONAS' && (
-                          <span className="px-1.5 py-0.2 rounded font-bold bg-amber-50 text-amber-850 border border-amber-200">
-                            🛢️ Mistura Móvel (Múltiplas/dia)
+                          <span className="px-1.5 py-0.2 rounded font-semibold bg-zinc-100 text-zinc-800 border border-zinc-200">
+                            Bombonas Móveis
                           </span>
                         )}
                         {reator.id !== 'R_1000_SHAMPOO' && reator.id !== 'R_1000' && reator.id !== 'R_1000_MISTO' && reator.id !== 'R_100' && reator.id !== 'R_40' && reator.id !== 'BOMBONAS' && (
-                          <span className="px-1.5 py-0.2 rounded font-semibold bg-orange-50 text-orange-800 border border-orange-200">
-                            🔥 Caldeira (Quente/Frio)
+                          <span className="px-1.5 py-0.2 rounded font-semibold bg-zinc-100 text-zinc-800 border border-zinc-200">
+                            Caldeira
                           </span>
                         )}
                       </div>
@@ -3164,13 +3343,11 @@ export function PlanejamentoSemanalTab({
                                       setDragOverCell(null);
                                     }}
                                     className={`p-2 rounded-lg border transition-all text-xs flex flex-col gap-1.5 shadow-xs cursor-grab active:cursor-grabbing select-none ${
-                                      (draggedBatch?.some(b => b.id === batch.primaryItem.id) || draggedItem?.id === batch.primaryItem.id) ? 'opacity-30 border-dashed border-blue-400 scale-95' : ''
+                                      (draggedBatch?.some(b => b.id === batch.primaryItem.id) || draggedItem?.id === batch.primaryItem.id) ? 'opacity-30 border-dashed border-zinc-400 scale-95' : ''
                                     } ${
-                                      batch.isAprovado
-                                        ? 'bg-emerald-50/70 border-emerald-300'
-                                        : batch.isMulti
-                                          ? 'bg-purple-50/40 border-purple-200 hover:border-purple-400 hover:shadow-sm'
-                                          : 'bg-white border-zinc-200 hover:border-blue-400 hover:shadow-sm'
+                                      batch.isAprovado || batch.loteErp
+                                        ? 'bg-white border-zinc-200 border-l-4 border-l-emerald-500 hover:border-zinc-300'
+                                        : 'bg-white border-zinc-200 border-l-4 border-l-zinc-400 hover:border-zinc-300'
                                     }`}
                                     title="Arraste para mover para outro dia ou reator"
                                   >
@@ -3189,7 +3366,7 @@ export function PlanejamentoSemanalTab({
                                             className="cursor-pointer flex items-center gap-1"
                                             title="Batelada Conjunta - Clique para configurar parâmetros"
                                           >
-                                            <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 text-[10px] font-extrabold uppercase tracking-wide">
+                                            <span className="px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-800 text-[10px] font-bold uppercase tracking-wide border border-zinc-300 font-mono">
                                               Batelada ({batch.items.length} itens)
                                             </span>
                                           </div>
@@ -3225,7 +3402,7 @@ export function PlanejamentoSemanalTab({
 
                                     {/* 2. Se for multi-produto, lista os itens com código, descrição e kg individual */}
                                     {batch.isMulti && (
-                                      <div className="space-y-1 pl-1.5 border-l-2 border-purple-300 my-0.5">
+                                      <div className="space-y-1 pl-1.5 border-l-2 border-zinc-300 my-0.5">
                                         {batch.items.map((it) => {
                                           const uW = parseProductUnitWeightKg(it.descricao);
                                           const estUn = Math.round(it.quantidade_planejada / (uW || 1));
@@ -3269,7 +3446,7 @@ export function PlanejamentoSemanalTab({
                                               className="flex items-center gap-1 font-bold text-zinc-800 hover:text-blue-700 hover:bg-blue-50 px-1 py-0.5 rounded cursor-pointer transition-colors"
                                               title="Clique para editar a massa (kg)"
                                             >
-                                              <span className="font-extrabold text-indigo-900">{batch.totalKg} kg</span>
+                                              <span className="font-mono font-extrabold text-zinc-900">{batch.totalKg} kg</span>
                                               <Edit3 size={10} className="text-zinc-400 hover:text-blue-600" />
                                             </button>
                                             <span className="text-zinc-500 font-medium text-[11px]">
@@ -3309,11 +3486,11 @@ export function PlanejamentoSemanalTab({
                                                     e.stopPropagation();
                                                     handleOpenLinkLoteModal(batch.primaryItem, batch.items);
                                                   }}
-                                                  className="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 font-semibold text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+                                                  className="bg-zinc-50 hover:bg-zinc-100 text-zinc-700 border border-dashed border-zinc-300 font-medium text-[10px] px-2 py-0.5 rounded flex items-center gap-1 cursor-pointer transition-colors shrink-0"
                                                   title="Vincular Lote ERP compartilhado"
                                                 >
-                                                  <Tag size={9} className="text-blue-500" />
-                                                  <span>+ Lote</span>
+                                                  <Tag size={9} className="text-zinc-500" />
+                                                  <span>+ Vincular Lote</span>
                                                 </button>
                                               )}
                                             </div>
@@ -3355,7 +3532,7 @@ export function PlanejamentoSemanalTab({
                                   onClick={() => {
                                     handleOpenScheduleModal(null, day.dateStr, reator.id);
                                   }}
-                                  className="w-full py-6 flex flex-col items-center justify-center gap-1 border border-dashed border-zinc-200 hover:border-blue-400 rounded-lg text-zinc-400 hover:text-blue-600 hover:bg-blue-50/30 transition-all cursor-pointer"
+                                  className="w-full py-6 flex flex-col items-center justify-center gap-1 border border-dashed border-zinc-200 hover:border-zinc-400 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 transition-all cursor-pointer"
                                 >
                                   <Plus size={14} />
                                   <span className="text-[10px] font-medium">Agendar</span>
@@ -3406,17 +3583,31 @@ export function PlanejamentoSemanalTab({
               </div>
 
               {/* Filtros de Tipo de Demanda */}
-              <div className="grid grid-cols-5 gap-1 text-[10px]">
+              <div className="grid grid-cols-6 gap-1 text-[10px]">
+                <button
+                  onClick={() => setDemandFilter('FILA')}
+                  className={`py-1 px-1 rounded font-semibold cursor-pointer flex items-center justify-center gap-0.5 ${
+                    demandFilter === 'FILA' ? 'bg-zinc-900 text-white shadow-xs' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+                  }`}
+                  title="Demandas enviadas da central de gerenciamento para o PCP"
+                >
+                  <span>Fila</span>
+                  <span className={`text-[9px] px-1 py-0.2 rounded-full font-mono font-bold ${
+                    demandFilter === 'FILA' ? 'bg-zinc-800 text-zinc-200' : 'bg-zinc-200 text-zinc-800'
+                  }`}>
+                    {filaDemandas.length}
+                  </span>
+                </button>
                 <button
                   onClick={() => setDemandFilter('ALL')}
                   className={`py-1 px-1 rounded font-semibold cursor-pointer flex items-center justify-center gap-0.5 ${
-                    demandFilter === 'ALL' ? 'bg-zinc-800 text-white' : 'bg-zinc-200/70 text-zinc-700 hover:bg-zinc-200'
+                    demandFilter === 'ALL' ? 'bg-zinc-900 text-white shadow-xs' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
                   }`}
                   title="Todos os produtos ativos do catálogo"
                 >
                   <span>Todos</span>
-                  <span className={`text-[9px] px-1 py-0.2 rounded-full ${
-                    demandFilter === 'ALL' ? 'bg-zinc-700 text-zinc-200' : 'bg-zinc-300 text-zinc-700'
+                  <span className={`text-[9px] px-1 py-0.2 rounded-full font-mono font-bold ${
+                    demandFilter === 'ALL' ? 'bg-zinc-800 text-zinc-200' : 'bg-zinc-200 text-zinc-800'
                   }`}>
                     {demandFilterCounts.all}
                   </span>
@@ -3424,13 +3615,13 @@ export function PlanejamentoSemanalTab({
                 <button
                   onClick={() => setDemandFilter('CRITICOS')}
                   className={`py-1 px-1 rounded font-semibold cursor-pointer flex items-center justify-center gap-0.5 ${
-                    demandFilter === 'CRITICOS' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-700 hover:bg-red-100'
+                    demandFilter === 'CRITICOS' ? 'bg-zinc-900 text-white shadow-xs' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
                   }`}
                   title="Produtos com déficit ou status crítico"
                 >
                   <span>Críticos</span>
-                  <span className={`text-[9px] px-1 py-0.2 rounded-full ${
-                    demandFilter === 'CRITICOS' ? 'bg-red-700 text-red-100' : 'bg-red-100 text-red-800'
+                  <span className={`text-[9px] px-1 py-0.2 rounded-full font-mono font-bold ${
+                    demandFilter === 'CRITICOS' ? 'bg-zinc-800 text-rose-300' : 'bg-rose-100 text-rose-700'
                   }`}>
                     {demandFilterCounts.criticos}
                   </span>
@@ -3438,13 +3629,13 @@ export function PlanejamentoSemanalTab({
                 <button
                   onClick={() => setDemandFilter('PROGRAMADAS')}
                   className={`py-1 px-1 rounded font-semibold cursor-pointer flex items-center justify-center gap-0.5 ${
-                    demandFilter === 'PROGRAMADAS' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                    demandFilter === 'PROGRAMADAS' ? 'bg-zinc-900 text-white shadow-xs' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
                   }`}
                   title="Produtos com programação de produção ativa"
                 >
                   <span>Prog.</span>
-                  <span className={`text-[9px] px-1 py-0.2 rounded-full ${
-                    demandFilter === 'PROGRAMADAS' ? 'bg-blue-700 text-blue-100' : 'bg-blue-100 text-blue-800'
+                  <span className={`text-[9px] px-1 py-0.2 rounded-full font-mono font-bold ${
+                    demandFilter === 'PROGRAMADAS' ? 'bg-zinc-800 text-zinc-200' : 'bg-zinc-200 text-zinc-800'
                   }`}>
                     {demandFilterCounts.programadas}
                   </span>
@@ -3452,13 +3643,13 @@ export function PlanejamentoSemanalTab({
                 <button
                   onClick={() => setDemandFilter('KITS')}
                   className={`py-1 px-1 rounded font-semibold cursor-pointer flex items-center justify-center gap-0.5 ${
-                    demandFilter === 'KITS' ? 'bg-purple-600 text-white' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'
+                    demandFilter === 'KITS' ? 'bg-zinc-900 text-white shadow-xs' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
                   }`}
                   title="Kits e componentes de kits"
                 >
                   <span>Kits</span>
-                  <span className={`text-[9px] px-1 py-0.2 rounded-full ${
-                    demandFilter === 'KITS' ? 'bg-purple-700 text-purple-100' : 'bg-purple-100 text-purple-800'
+                  <span className={`text-[9px] px-1 py-0.2 rounded-full font-mono font-bold ${
+                    demandFilter === 'KITS' ? 'bg-zinc-800 text-zinc-200' : 'bg-zinc-200 text-zinc-800'
                   }`}>
                     {demandFilterCounts.kits}
                   </span>
@@ -3466,13 +3657,13 @@ export function PlanejamentoSemanalTab({
                 <button
                   onClick={() => setDemandFilter('BASES')}
                   className={`py-1 px-1 rounded font-semibold cursor-pointer flex items-center justify-center gap-0.5 ${
-                    demandFilter === 'BASES' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
+                    demandFilter === 'BASES' ? 'bg-zinc-900 text-white shadow-xs' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
                   }`}
                   title="Bases de fabricação e semi-acabados"
                 >
                   <span>Bases</span>
-                  <span className={`text-[9px] px-1 py-0.2 rounded-full ${
-                    demandFilter === 'BASES' ? 'bg-amber-700 text-amber-100' : 'bg-amber-200 text-amber-900 font-bold'
+                  <span className={`text-[9px] px-1 py-0.2 rounded-full font-mono font-bold ${
+                    demandFilter === 'BASES' ? 'bg-zinc-800 text-zinc-200' : 'bg-zinc-200 text-zinc-800'
                   }`}>
                     {demandFilterCounts.bases}
                   </span>
@@ -3554,39 +3745,51 @@ export function PlanejamentoSemanalTab({
                           {colorInfo.shortLabel}
                         </span>
 
+                        {/* Tag de Origem se vier da Fila */}
+                        {(prod as any)._isFromFila && (
+                          <span className="px-1.5 py-0.2 bg-zinc-900 text-white font-mono text-[9px] font-bold rounded">
+                            Fila: {(prod as any).origem_demanda || 'Demanda'}
+                          </span>
+                        )}
+                        {Array.isArray((prod as any)._batchSiblings) && (prod as any)._batchSiblings.length > 1 && (
+                          <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-800 border border-zinc-300 font-mono text-[9px] font-bold rounded">
+                            Batelada Conjunta Sugerida ({(prod as any)._batchSiblings.length} SKUs • {(prod as any)._totalBatchKg} kg)
+                          </span>
+                        )}
+
                         {/* Tag Térmica */}
-                        <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
-                          procInfo.isQuente ? 'bg-orange-100 text-orange-900 border border-orange-200' : 'bg-blue-100 text-blue-900 border border-blue-200'
+                        <span className={`px-1.5 py-0.2 rounded text-[9px] font-semibold border ${
+                          procInfo.isQuente ? 'bg-zinc-100 text-zinc-800 border-zinc-300' : 'bg-zinc-100 text-zinc-700 border-zinc-200'
                         }`}>
-                          {procInfo.label}
+                          {procInfo.isQuente ? 'Quente' : 'Frio'}
                         </span>
 
                         {isBase && (
-                          <span className="px-1.5 py-0.2 bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-bold rounded">
-                            🧪 Base de Fabricação
+                          <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-800 border border-zinc-300 text-[9px] font-bold rounded">
+                            Base de Fabricação
                           </span>
                         )}
 
                         {pedidosAberto > 0 && (
-                          <span className="px-1.5 py-0.2 bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-bold rounded">
-                            📦 {pedidosAberto.toLocaleString('pt-BR')} em carteira
+                          <span className="px-1.5 py-0.2 bg-amber-50 text-amber-800 border border-amber-200 text-[9px] font-bold font-mono rounded">
+                            {pedidosAberto.toLocaleString('pt-BR')} em carteira
                           </span>
                         )}
 
                         {isProgramada && (
-                          <span className="px-1.5 py-0.2 bg-purple-100 text-purple-800 text-[9px] font-bold rounded">
-                            ⭐ Programada
+                          <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-800 border border-zinc-200 text-[9px] font-bold rounded">
+                            Programada
                           </span>
                         )}
 
                         {prod.linha_prefix && (
-                          <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-650 text-[9px] rounded font-medium">
+                          <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-600 text-[9px] rounded font-medium">
                             Linha {prod.linha_prefix}
                           </span>
                         )}
 
                         {prod.base && (
-                          <span className="px-1.5 py-0.2 bg-indigo-50 text-indigo-750 text-[9px] rounded truncate max-w-[140px]" title={`Base: ${prod.base}`}>
+                          <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-700 border border-zinc-200 text-[9px] rounded truncate max-w-[140px]" title={`Base: ${prod.base}`}>
                             Base: {prod.base}
                           </span>
                         )}
@@ -3639,11 +3842,11 @@ export function PlanejamentoSemanalTab({
                       {/* 5. Ação de Agendamento */}
                       <div className="flex items-center justify-between pt-1 border-t border-zinc-100">
                         <span className="text-[10px] text-zinc-500">
-                          Sugerido: <strong className="text-zinc-700">{procInfo.recipienteSugerido === 'BOMBONAS' ? '🛢️ Bombona' : (procInfo.recipienteSugerido === 'R_40' ? '🔥 Reator 40kg' : ((procInfo.recipienteSugerido === 'R_1000_SHAMPOO' || procInfo.recipienteSugerido === 'R_1000') ? '⚗️ 1000kg (Shampoo)' : (procInfo.recipienteSugerido === 'R_1000_MISTO' ? '⚗️ 1000kg (Misto)' : '⚗️ Reator')))}</strong>
+                          Sugerido: <strong className="text-zinc-800">{procInfo.recipienteSugerido === 'BOMBONAS' ? 'Bombona' : (procInfo.recipienteSugerido === 'R_40' ? 'Reator 40kg' : ((procInfo.recipienteSugerido === 'R_1000_SHAMPOO' || procInfo.recipienteSugerido === 'R_1000') ? 'R-1000 (Shampoo)' : (procInfo.recipienteSugerido === 'R_1000_MISTO' ? 'R-1000 (Misto)' : 'Reator')))}</strong>
                         </span>
                         <button
                           onClick={() => handleOpenScheduleModal(prod)}
-                          className="flex items-center gap-1 px-3 py-1 bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white text-xs font-semibold rounded-lg border border-blue-200 hover:border-blue-600 transition-all cursor-pointer shadow-2xs"
+                          className="flex items-center gap-1 px-3 py-1 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-lg transition-all cursor-pointer shadow-xs"
                         >
                           <Plus size={13} />
                           <span>Agendar</span>
@@ -3724,9 +3927,9 @@ export function PlanejamentoSemanalTab({
                         }}
                         className="w-full p-1 bg-white border border-zinc-300 rounded text-xs font-semibold"
                       >
-                        <option value="quente">🔥 Quente (Requer Caldeira)</option>
-                        <option value="frio">❄️ A Frio (Mistura)</option>
-                        <option value="misto">🔄 Misto (Quente ou Frio)</option>
+                        <option value="quente">Quente (Requer Caldeira)</option>
+                        <option value="frio">A Frio (Mistura)</option>
+                        <option value="misto">Misto (Quente ou Frio)</option>
                       </select>
                     </div>
                   </div>
@@ -3756,7 +3959,7 @@ export function PlanejamentoSemanalTab({
                     setReatoresModalOpen(false);
                   }
                 }}
-                className="px-4 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs cursor-pointer"
+                className="px-4 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer"
               >
                 Salvar Reatores
               </button>
@@ -3868,7 +4071,7 @@ export function PlanejamentoSemanalTab({
                                   ? 'bg-zinc-100 text-zinc-400 border border-zinc-200 cursor-not-allowed'
                                   : isLimitReached
                                   ? 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
-                                  : 'bg-blue-600 hover:bg-blue-700 text-white shadow-2xs'
+                                  : 'bg-zinc-900 hover:bg-zinc-800 text-white shadow-2xs'
                               }`}
                             >
                               {isAlreadySelected ? 'Já incluído' : '+ Adicionar'}
@@ -3996,7 +4199,7 @@ export function PlanejamentoSemanalTab({
               </div>
             ) : (
               <div className="p-4 bg-zinc-50 border border-dashed border-zinc-200 rounded-lg text-center text-xs text-zinc-500">
-                🔍 Digite no campo acima para pesquisar e selecionar o(s) produto(s) da ordem de produção.
+                Digite no campo acima para pesquisar e selecionar o(s) produto(s) da ordem de produção.
               </div>
             )}
 
@@ -4059,9 +4262,9 @@ export function PlanejamentoSemanalTab({
                     }}
                     className="w-full p-2 bg-white border border-zinc-200 rounded-lg text-xs font-semibold text-zinc-800"
                   >
-                    <option value="Bombona 50kg">🛢️ Bombona 50 kg (Mistura rápida a frio)</option>
-                    <option value="Bombona 100kg">🛢️ Bombona 100 kg (Mistura / Água Quente da Caldeira)</option>
-                    <option value="Bombona 200kg">🛢️ Bombona 200 kg (Bases / Água Quente da Caldeira)</option>
+                    <option value="Bombona 50kg">Bombona 50 kg (Mistura rápida a frio)</option>
+                    <option value="Bombona 100kg">Bombona 100 kg (Mistura / Água Quente da Caldeira)</option>
+                    <option value="Bombona 200kg">Bombona 200 kg (Bases / Água Quente da Caldeira)</option>
                   </select>
                 </div>
               )}
@@ -4115,7 +4318,7 @@ export function PlanejamentoSemanalTab({
                 className={`px-4 py-1.5 text-xs font-semibold rounded-lg shadow-xs cursor-pointer ${
                   scheduleSelectedProducts.length === 0
                     ? 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
-                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                    : 'bg-zinc-900 hover:bg-zinc-800 text-white'
                 }`}
               >
                 Confirmar Agendamento ({scheduleSelectedProducts.length})
@@ -4301,7 +4504,7 @@ export function PlanejamentoSemanalTab({
               <button
                 type="button"
                 onClick={handleConfirmLinkLote}
-                className="px-4 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs cursor-pointer"
+                className="px-4 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer"
               >
                 Salvar Lote
               </button>
@@ -4378,9 +4581,9 @@ export function PlanejamentoSemanalTab({
                     );
                   })}
                 </div>
-                <div className="p-2.5 bg-purple-50 border border-purple-200 rounded-lg flex items-center justify-between text-xs">
-                  <span className="font-bold text-purple-900">Massa Total da Batelada:</span>
-                  <span className="font-mono font-extrabold text-sm text-purple-950">{editQtyModalItem.newQty} kg</span>
+                <div className="p-2.5 bg-zinc-50 border border-zinc-200 rounded-lg flex items-center justify-between text-xs">
+                  <span className="font-bold text-zinc-800">Massa Total da Batelada:</span>
+                  <span className="font-mono font-extrabold text-sm text-zinc-900">{editQtyModalItem.newQty} kg</span>
                 </div>
               </div>
             ) : (() => {
@@ -4425,7 +4628,7 @@ export function PlanejamentoSemanalTab({
               <button
                 type="button"
                 onClick={handleConfirmEditQty}
-                className="px-4 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs cursor-pointer"
+                className="px-4 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer"
               >
                 Salvar Quantidade
               </button>
@@ -4485,7 +4688,7 @@ export function PlanejamentoSemanalTab({
                 >
                   <Snowflake size={16} className="text-blue-500 shrink-0" />
                   <div>
-                    <div className="font-bold">❄️ A Frio (Mistura)</div>
+                    <div className="font-bold">A Frio (Mistura)</div>
                     <div className="text-[10px] text-zinc-500 font-normal">Homogeneização direta</div>
                   </div>
                 </button>
@@ -4508,7 +4711,7 @@ export function PlanejamentoSemanalTab({
                 >
                   <Flame size={16} className="text-orange-500 shrink-0" />
                   <div>
-                    <div className="font-bold">🔥 A Quente</div>
+                    <div className="font-bold">A Quente</div>
                     <div className="text-[10px] text-zinc-500 font-normal">Aquecimento / Emulsão</div>
                   </div>
                 </button>
@@ -4534,7 +4737,7 @@ export function PlanejamentoSemanalTab({
                           : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
                       }`}
                     >
-                      <div className="text-xs font-bold">🛢️ Bombona (Água Caldeira)</div>
+                      <div className="text-xs font-bold">Bombona (Água Caldeira)</div>
                       <div className="text-[10px] text-zinc-500 font-normal">Usa água aquecida da caldeira</div>
                     </button>
 
@@ -4549,11 +4752,11 @@ export function PlanejamentoSemanalTab({
                       })}
                       className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
                         technicalModalItem.processoTermico === 'resistencia' || technicalModalItem.reatorId === 'R_100'
-                          ? 'bg-purple-100 border-purple-400 text-purple-950 font-bold ring-1 ring-purple-300'
+                          ? 'bg-zinc-900 border-zinc-900 text-white font-bold'
                           : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
                       }`}
                     >
-                      <div className="text-xs font-bold">⚡ Tanque Resistência (R-100)</div>
+                      <div className="text-xs font-bold">Tanque Resistência (R-100)</div>
                       <div className="text-[10px] text-zinc-500 font-normal">R-100 aquecimento elétrico</div>
                     </button>
 
@@ -4568,11 +4771,11 @@ export function PlanejamentoSemanalTab({
                       })}
                       className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
                         technicalModalItem.reatorId === 'R_40'
-                          ? 'bg-orange-100 border-orange-400 text-orange-950 font-bold ring-1 ring-orange-300'
+                          ? 'bg-zinc-900 border-zinc-900 text-white font-bold'
                           : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
                       }`}
                     >
-                      <div className="text-xs font-bold">🍳 Panela 40kg (R-40)</div>
+                      <div className="text-xs font-bold">Panela 40kg (R-40)</div>
                       <div className="text-[10px] text-zinc-500 font-normal">Produção piloto / pequena</div>
                     </button>
 
@@ -4593,7 +4796,7 @@ export function PlanejamentoSemanalTab({
                           : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
                       }`}
                     >
-                      <div className="text-xs font-bold">🏭 Reator Caldeira (Vapor)</div>
+                      <div className="text-xs font-bold">Reator Caldeira (Vapor)</div>
                       <div className="text-[10px] text-zinc-500 font-normal">Reatores industriais a vapor</div>
                     </button>
                   </div>
@@ -4614,7 +4817,7 @@ export function PlanejamentoSemanalTab({
                       : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
                   }`}
                 >
-                  <div className="font-bold">🧪 Produção Completa</div>
+                  <div className="font-bold">Produção Completa</div>
                   <div className="text-[10px] text-zinc-500 font-normal">Fabricação do zero (Granel)</div>
                 </button>
 
@@ -4627,7 +4830,7 @@ export function PlanejamentoSemanalTab({
                       : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
                   }`}
                 >
-                  <div className="font-bold">🧫 Usar Base Pronta</div>
+                  <div className="font-bold">Usar Base Pronta</div>
                   <div className="text-[10px] text-zinc-500 font-normal">Diluição / Aditivação de base</div>
                 </button>
               </div>
@@ -4699,9 +4902,9 @@ export function PlanejamentoSemanalTab({
                     }}
                     className="w-full p-2 bg-white border border-zinc-300 rounded-lg text-xs font-semibold text-amber-900"
                   >
-                    <option value="Bombona 50kg">🛢️ Bombona 50 kg</option>
-                    <option value="Bombona 100kg">🛢️ Bombona 100 kg</option>
-                    <option value="Bombona 200kg">🛢️ Bombona 200 kg</option>
+                    <option value="Bombona 50kg">Bombona 50 kg</option>
+                    <option value="Bombona 100kg">Bombona 100 kg</option>
+                    <option value="Bombona 200kg">Bombona 200 kg</option>
                   </select>
                 ) : (
                   <input
@@ -4839,7 +5042,7 @@ export function PlanejamentoSemanalTab({
               <button
                 type="button"
                 onClick={handleSaveTechnicalModal}
-                className="px-4 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
+                className="px-4 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
               >
                 <Check size={14} />
                 <span>Salvar Configurações</span>
@@ -4880,9 +5083,9 @@ export function PlanejamentoSemanalTab({
                 <span className="text-orange-700 text-[11px] block">Dias de Caldeira</span>
                 <strong className="text-orange-950 font-bold text-sm">{heuristicStats.caldeiraDays} dias</strong>
               </div>
-              <div className="p-2.5 bg-purple-50 border border-purple-200 rounded-lg">
-                <span className="text-purple-700 text-[11px] block">Bases Agrupadas</span>
-                <strong className="text-purple-950 font-bold text-sm">{heuristicStats.groupedBases}</strong>
+              <div className="p-2.5 bg-zinc-50 border border-zinc-200 rounded-lg">
+                <span className="text-zinc-600 text-[11px] block">Bases Agrupadas</span>
+                <strong className="text-zinc-900 font-mono font-bold text-sm">{heuristicStats.groupedBases}</strong>
               </div>
             </div>
 
@@ -4923,14 +5126,14 @@ export function PlanejamentoSemanalTab({
                         <td className="p-2.5">
                           <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
                             (item.observacoes || '').includes('Caldeira') 
-                              ? 'bg-orange-100 text-orange-800' 
+                              ? 'bg-zinc-100 text-zinc-800 border border-zinc-200' 
                               : 'bg-blue-100 text-blue-800'
                           }`}>
-                            {(item.observacoes || '').includes('Caldeira') ? '🔥 Caldeira' : '❄️ A Frio'}
+                            {(item.observacoes || '').includes('Caldeira') ? 'Caldeira' : 'A Frio'}
                           </span>
                         </td>
                         <td className="p-2.5">
-                          <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 rounded text-[10px] font-semibold">
+                          <span className="px-1.5 py-0.5 bg-zinc-100 text-zinc-700 border border-zinc-200 rounded text-[10px] font-semibold">
                             {item.linha_envase}
                           </span>
                         </td>

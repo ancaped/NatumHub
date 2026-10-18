@@ -38,7 +38,6 @@ export const MODULE_KEYS = {
   ADMIN_ACOMPANHAMENTO_PRODUCAO: 'admin_acompanhamento_producao',
   PLANEJAMENTO_PRODUCAO: 'planejamento_producao',
   PRODUCAO: 'producao',
-  PRODUCAO_ROTINA: 'producao_rotina',
   PRODUCAO_BASES: 'producao_bases',
   PRODUCAO_LOTES: 'producao_lotes',
   PRODUCAO_PROC: 'producao_proc',
@@ -55,7 +54,6 @@ export const MODULE_KEYS = {
   COMPRAS_ONLINE: 'compras_online',
   COMPRAS_PEDIDOS: 'compras_pedidos',
   COMPRAS_NOTAS: 'compras_notas',
-  COMPRAS_ALMOX: 'compras_almoxarifado',
   COMPRAS_SIMULATION: 'compras_simulation',
   VENDAS: 'vendas',
   VENDAS_ONLINE: 'vendas_online',
@@ -266,7 +264,7 @@ export function defaultModulesForRole(role: string): string[] {
         MODULE_KEYS.COMPRAS_ONLINE,
         MODULE_KEYS.COMPRAS_PEDIDOS,
         MODULE_KEYS.COMPRAS_NOTAS,
-        MODULE_KEYS.COMPRAS_ALMOX,
+        MODULE_KEYS.COMPRAS_SIMULATION,
       ];
     case 'financeiro':
       return [MODULE_KEYS.FINANCEIRO];

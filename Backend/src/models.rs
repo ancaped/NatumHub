@@ -145,6 +145,13 @@ pub struct ProductCalculationResult {
 
     pub is_kit: Option<bool>,
     pub parent_kits: Option<Vec<String>>,
+
+    #[serde(default)]
+    pub na_fila: Option<bool>,
+    #[serde(default)]
+    pub planejado_semana: Option<bool>,
+    #[serde(default)]
+    pub conflito_regra: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

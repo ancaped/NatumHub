@@ -219,12 +219,12 @@ export interface ProgramacaoRotulagemItem {
 
 
 export const CATEGORIAS_ENVASE = [
-  { id: 'Shampoo', label: 'Shampoo', icon: '🧴', colorClass: 'bg-sky-100 text-sky-900 border-sky-300' },
-  { id: 'Máscaras', label: 'Máscaras', icon: '🧖', colorClass: 'bg-purple-100 text-purple-900 border-purple-300' },
-  { id: 'Condicionador', label: 'Condicionador', icon: '🧴', colorClass: 'bg-emerald-100 text-emerald-900 border-emerald-300' },
-  { id: 'Óleos', label: 'Óleos', icon: '💧', colorClass: 'bg-amber-100 text-amber-900 border-amber-300' },
-  { id: 'AOX', label: 'AOX (Oxidante)', icon: '⚗️', colorClass: 'bg-orange-100 text-orange-900 border-orange-300' },
-  { id: 'Outros', label: 'Outros', icon: '📦', colorClass: 'bg-zinc-100 text-zinc-800 border-zinc-300' },
+  { id: 'Shampoo', label: 'Shampoo', icon: '', colorClass: 'bg-zinc-100 text-zinc-700 border-zinc-200 font-mono text-[10px]' },
+  { id: 'Máscaras', label: 'Máscaras', icon: '', colorClass: 'bg-zinc-100 text-zinc-700 border-zinc-200 font-mono text-[10px]' },
+  { id: 'Condicionador', label: 'Condicionador', icon: '', colorClass: 'bg-zinc-100 text-zinc-700 border-zinc-200 font-mono text-[10px]' },
+  { id: 'Óleos', label: 'Óleos', icon: '', colorClass: 'bg-zinc-100 text-zinc-700 border-zinc-200 font-mono text-[10px]' },
+  { id: 'AOX', label: 'AOX (Oxidante)', icon: '', colorClass: 'bg-zinc-100 text-zinc-700 border-zinc-200 font-mono text-[10px]' },
+  { id: 'Outros', label: 'Outros', icon: '', colorClass: 'bg-zinc-100 text-zinc-700 border-zinc-200 font-mono text-[10px]' },
 ] as const;
 
 export const CORES_PREDEFINIDAS = [
@@ -1253,10 +1253,10 @@ export function getLoteEsperaDetails(
   }
 
   const mapEtapa: Record<'pesagem' | 'producao' | 'rotulagem' | 'envase', { label: string; bg: string; text: string; border: string }> = {
-    pesagem: { label: 'Pesagem', bg: 'bg-amber-500/10', text: 'text-amber-800', border: 'border-amber-300' },
-    producao: { label: 'Produção', bg: 'bg-orange-500/10', text: 'text-orange-800', border: 'border-orange-300' },
-    envase: { label: 'Envase', bg: 'bg-teal-500/10', text: 'text-teal-800', border: 'border-teal-300' },
-    rotulagem: { label: 'Rotulagem', bg: 'bg-purple-500/10', text: 'text-purple-800', border: 'border-purple-300' },
+    pesagem: { label: 'Pesagem', bg: 'bg-amber-50', text: 'text-amber-800', border: 'border-amber-200' },
+    producao: { label: 'Produção', bg: 'bg-amber-50', text: 'text-amber-800', border: 'border-amber-200' },
+    envase: { label: 'Envase', bg: 'bg-amber-50', text: 'text-amber-800', border: 'border-amber-200' },
+    rotulagem: { label: 'Rotulagem', bg: 'bg-amber-50', text: 'text-amber-800', border: 'border-amber-200' },
   };
 
   const config = mapEtapa[activeEtapa];
@@ -4753,7 +4753,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-zinc-900 flex-wrap">
             {renderLoteNumberBadge(lote.loteNumber)}
             {reatorVal && (
-              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono">
+              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono">
                 {reatorVal}
               </span>
             )}
@@ -4772,15 +4772,15 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         <div className="flex items-center gap-1.5 font-mono text-xs font-bold text-zinc-900 flex-wrap">
           {renderLoteNumberBadge(lote.loteNumber)}
           {reatorVal && (
-            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono">
+            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono">
               {reatorVal}
             </span>
           )}
-          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 border border-purple-200 font-sans">
+          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono">
             {prods.length} Produtos
           </span>
         </div>
-        <div className="space-y-1 pl-1.5 border-l-2 border-purple-300">
+        <div className="space-y-1 pl-1.5 border-l-2 border-zinc-300">
           {prods.map((p, pIdx) => (
             <div key={`${p.productCode || pIdx}_${pIdx}`} className="text-[11px] leading-tight">
               <span className="font-bold text-zinc-800 line-clamp-1">{p.productDescription}</span>
@@ -6180,27 +6180,22 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     }
   };
 
-  // Helpers de Estilização de Badges
+  // Helpers de Estilização de Badges (Padrão HSL Zinc + 3 Famílias Semânticas)
   const getBadgeClass = (status: string | null | undefined) => {
     switch (status) {
-      case 'Pesagem':
-        return 'bg-amber-100 text-amber-900 border-amber-300 font-semibold';
-      case 'Produzido':
-      case 'Produção':
-        return 'bg-blue-100 text-blue-900 border-blue-300 font-semibold';
       case 'Liberado para Envase':
-        return 'bg-teal-100 text-teal-900 border-teal-300 font-semibold';
-      case 'Rotulagem':
-        return 'bg-cyan-100 text-cyan-900 border-cyan-300 font-semibold';
-      case 'Envase':
-        return 'bg-purple-100 text-purple-900 border-purple-300 font-semibold';
-      case 'Em Espera':
-        return 'bg-orange-100 text-orange-950 border-orange-300 font-semibold';
-      case 'Ordem Parcial':
-        return 'bg-indigo-100 text-indigo-900 border-indigo-300 font-semibold';
       case 'Ordem Finalizada':
       case 'Finalizada':
-        return 'bg-emerald-100 text-emerald-900 border-emerald-300 font-semibold';
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold';
+      case 'Em Espera':
+      case 'Ordem Parcial':
+        return 'bg-amber-50 text-amber-700 border-amber-200 font-semibold';
+      case 'Pesagem':
+      case 'Produzido':
+      case 'Produção':
+      case 'Rotulagem':
+      case 'Envase':
+        return 'bg-zinc-100 text-zinc-800 border-zinc-300 font-semibold';
       default:
         return 'bg-zinc-100 text-zinc-700 border-zinc-200';
     }
@@ -6208,15 +6203,13 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
   const getErpBadgeClass = (erpCode: string) => {
     if (erpCode === 'EA') {
-      return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      return 'bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold';
     }
     switch (erpCode) {
       case 'PG':
-        return 'bg-amber-50 text-amber-700 border-amber-200';
       case 'PR':
-        return 'bg-blue-50 text-blue-700 border-blue-200';
       case 'CF':
-        return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+        return 'bg-zinc-100 text-zinc-800 border-zinc-300 font-semibold';
       default:
         return 'bg-zinc-50 text-zinc-600 border-zinc-200';
     }
@@ -6517,7 +6510,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               <p className="text-xs text-zinc-500 mt-0.5">
                 {subtitle}
                 <span className="text-zinc-300 mx-1.5">•</span>
-                <span className={showAllDates ? "text-zinc-600 font-semibold" : "text-indigo-600 font-semibold"}>
+                <span className={showAllDates ? "text-zinc-600 font-semibold" : "text-zinc-900 font-semibold"}>
                   {showAllDates ? "Exibindo todos os lotes pendentes" : `Planejamento focado no dia ${displayDateFormatted}`}
                 </span>
               </p>
@@ -6537,7 +6530,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 )}
                 title="Ver apenas lotes programados para o dia selecionado"
               >
-                <Calendar className="h-3.5 w-3.5 text-indigo-600" />
+                <Calendar className="h-3.5 w-3.5 text-zinc-700" />
                 <span>Deste Dia</span>
               </button>
               <button
@@ -6570,7 +6563,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 onClick={handleToday}
                 className={cn(
                   "px-2 py-0.5 rounded text-xs font-bold transition-all cursor-pointer",
-                  isTodaySelected ? "bg-indigo-600 text-white shadow-2xs" : "text-zinc-700 hover:bg-zinc-200"
+                  isTodaySelected ? "bg-zinc-900 text-white shadow-2xs" : "text-zinc-700 hover:bg-zinc-200"
                 )}
                 title="Ir para o dia de hoje"
               >
@@ -6608,10 +6601,10 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 setShowLocalizarDataModal(true);
                 setLocalizarDataSearch('');
               }}
-              className="px-2.5 py-1.5 bg-zinc-900 hover:bg-black active:bg-zinc-800 text-white rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs shrink-0"
+              className="px-2.5 py-1.5 bg-white hover:bg-zinc-50 active:bg-zinc-100 text-zinc-700 border border-zinc-200 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs shrink-0"
               title="Pesquisar em qual data qualquer lote está agendado (Envase, Rotulagem, Produção, Pesagem)"
             >
-              <Search className="h-3.5 w-3.5 text-amber-400" />
+              <Search className="h-3.5 w-3.5 text-zinc-500" />
               <span>Localizar Data do Lote</span>
             </button>
 
@@ -8185,7 +8178,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
   const getCategoriaIcon = (categoria: string) => {
     const found = CATEGORIAS_ENVASE.find(c => c.id === categoria);
-    return found ? found.icon : '📦';
+    return found ? found.icon : '';
   };
 
   const getCorBadgeClass = (corName?: string | null, isColorido?: boolean) => {
@@ -9710,7 +9703,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           {renderUnifiedQuadroHeader({
             title: "Quadro de Pesagem & Fracionamento",
             subtitle: "Fluxo sequencial e contínuo de fracionamento e pesagem de matérias-primas para formulação.",
-            icon: <Scale className="h-6 w-6 text-amber-400" />,
+            icon: <Scale className="h-6 w-6 text-white" />,
             selectedDate: pesagemSelectedDate,
             setSelectedDate: setPesagemSelectedDate,
             showAllDates: pesagemShowAllDates,
@@ -9746,7 +9739,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             <div className="col-span-12 xl:col-span-6 lg:col-span-6 bg-white border border-zinc-200 rounded-lg shadow-xs overflow-hidden flex flex-col">
               <div className="bg-zinc-900 px-4 py-3 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Scale className="h-4 w-4 text-emerald-400" />
+                  <Scale className="h-4 w-4 text-white" />
                   <span className="font-extrabold text-sm tracking-tight">Na Balança / Cabine</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -9878,14 +9871,12 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               </div>
                             )}
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 font-sans" title="Ordem conjunta com múltiplos produtos">
-                                📦 Multi-Produto
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                                Multi-Produto
                               </span>
                             )}
                             {isSearched && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-600 text-white font-mono animate-pulse">
-                                📍 Buscado
-                              </span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-900 text-white font-mono">Buscado</span>
                             )}
                           </div>
 
@@ -9911,7 +9902,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 hover:bg-indigo-50 rounded text-zinc-400 hover:text-indigo-600 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -9923,50 +9914,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               title="Ver Detalhes do Item"
                             >
                               <Eye className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPesagemOrderOverrides(prev => {
-                                  const next = prev.filter(x => x !== lote.loteNumber);
-                                  try { localStorage.setItem('natum_pesagem_order_overrides', JSON.stringify(next)); } catch {}
-                                  return next;
-                                });
-                                setPesagemConcluidosLotes(prev => {
-                                  const next = prev.filter(x => x !== lote.loteNumber);
-                                  try { localStorage.setItem('natum_pesagem_concluidos_lotes', JSON.stringify(next)); } catch {}
-                                  return next;
-                                });
-                                const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
-                                saveEtapaStatus(lote.loteNumber, 'pesagem', 'fila', null, null, null, responsibleName);
-                                showToast(`Lote #${lote.loteNumber} retornado para a Fila de Pesagem.`);
-                              }}
-                              className="p-1 hover:bg-amber-50 rounded text-zinc-400 hover:text-amber-700 cursor-pointer"
-                              title="Retornar lote para a Fila de Pesagem"
-                            >
-                              <Undo2 className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                setPesagemOrderOverrides(prev => {
-                                  const next = prev.filter(x => x !== lote.loteNumber);
-                                  try { localStorage.setItem('natum_pesagem_order_overrides', JSON.stringify(next)); } catch {}
-                                  return next;
-                                });
-                                setPesagemConcluidosLotes(prev => {
-                                  const next = prev.filter(x => x !== lote.loteNumber);
-                                  try { localStorage.setItem('natum_pesagem_concluidos_lotes', JSON.stringify(next)); } catch {}
-                                  return next;
-                                });
-                                const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
-                                await saveEtapaStatus(lote.loteNumber, 'pesagem', 'fila', null, null, null, responsibleName);
-                                showToast(`Lote #${lote.loteNumber} retirado da balança e retornado para a fila.`);
-                              }}
-                              className="p-1 hover:bg-rose-50 rounded text-zinc-400 hover:text-rose-600 cursor-pointer transition-colors"
-                              title="Retirar da balança (retorna à fila)"
-                            >
-                              <X className="h-3.5 w-3.5" />
                             </button>
                           </div>
                         </div>
@@ -10060,7 +10007,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             <div className="col-span-12 xl:col-span-6 lg:col-span-6 bg-white border border-zinc-200 rounded-lg shadow-xs overflow-hidden flex flex-col">
               <div className="bg-zinc-900 px-4 py-3 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Scale className="h-4 w-4 text-amber-400" />
+                  <Scale className="h-4 w-4 text-zinc-300" />
                   <span className="font-extrabold text-sm tracking-tight">Fila de Pesagem</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -10263,21 +10210,19 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               </div>
                             )}
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 font-sans" title="Ordem conjunta com múltiplos produtos">
-                                📦 Multi-Produto
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                                Multi-Produto
                               </span>
                             )}
                             {isSearched && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-600 text-white font-mono animate-pulse">
-                                📍 Buscado
-                              </span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-900 text-white font-mono">Buscado</span>
                             )}
                           </div>
                           <div className="flex items-center gap-1">
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 hover:bg-indigo-50 rounded text-zinc-400 hover:text-indigo-600 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -10409,7 +10354,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           {renderUnifiedQuadroHeader({
             title: "Quadro de Produção & Caldeira",
             subtitle: "Acompanhamento da produção nos reatores, processos térmicos na caldeira e fila de produção.",
-            icon: <FlaskConical className="h-6 w-6 text-blue-400" />,
+            icon: <FlaskConical className="h-6 w-6 text-white" />,
             selectedDate: producaoSelectedDate,
             setSelectedDate: setProducaoSelectedDate,
             showAllDates: producaoShowAllDates,
@@ -10450,7 +10395,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             <div className="col-span-12 xl:col-span-4 lg:col-span-4 bg-white border border-zinc-200 rounded-lg shadow-xs overflow-hidden flex flex-col">
               <div className="bg-zinc-900 px-4 py-3 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <FlaskConical className="h-4 w-4 text-blue-400" />
+                  <FlaskConical className="h-4 w-4 text-white" />
                   <span className="font-extrabold text-sm tracking-tight">Quadro de Produção</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -10571,19 +10516,17 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               </div>
                             )}
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 font-sans" title="Ordem conjunta com múltiplos produtos">
-                                📦 Multi-Produto
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                                Multi-Produto
                               </span>
                             )}
                             {isLoteParcial(lote) && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 font-sans" title="Ordem com apontamento parcial pendente">
-                                🌓 Parcial
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-mono" title="Ordem com apontamento parcial pendente">
+                                Parcial
                               </span>
                             )}
                             {isSearched && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-600 text-white font-mono animate-pulse">
-                                📍 Buscado
-                              </span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-900 text-white font-mono">Buscado</span>
                             )}
                           </div>
 
@@ -10608,30 +10551,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             </button>
                             <button
                               type="button"
-                              onClick={() => {
-                                setProducaoOrderOverrides(prev => {
-                                  const next = prev.filter(x => x !== lote.loteNumber);
-                                  try { localStorage.setItem('natum_producao_order_overrides', JSON.stringify(next)); } catch {}
-                                  return next;
-                                });
-                                setProducaoConcluidosLotes(prev => {
-                                  const next = prev.filter(x => x !== lote.loteNumber);
-                                  try { localStorage.setItem('natum_producao_concluidos_lotes', JSON.stringify(next)); } catch {}
-                                  return next;
-                                });
-                                const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
-                                saveEtapaStatus(lote.loteNumber, 'producao', 'fila', null, null, null, responsibleName);
-                                showToast(`Lote #${lote.loteNumber} retornado para a Fila de Produção.`);
-                              }}
-                              className="p-1 hover:bg-amber-50 rounded text-zinc-400 hover:text-amber-700 cursor-pointer"
-                              title="Retornar lote para a Fila de Produção"
-                            >
-                              <Undo2 className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 hover:bg-indigo-50 rounded text-zinc-400 hover:text-indigo-600 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -10709,10 +10630,32 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           <button
                             type="button"
                             onClick={() => handleOpenEsperaModal(lote.loteNumber, 'producao')}
-                            className="py-1.5 px-2.5 bg-zinc-100 hover:bg-orange-100 hover:text-orange-900 text-zinc-600 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center"
+                            className="py-1.5 px-2.5 bg-zinc-100 hover:bg-amber-100 hover:text-amber-900 text-zinc-600 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center"
                             title="Aguardar Laudo QC / Colocar em Espera na Produção"
                           >
                             <PauseCircle className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setProducaoOrderOverrides(prev => {
+                                const next = prev.filter(x => x !== lote.loteNumber);
+                                try { localStorage.setItem('natum_producao_order_overrides', JSON.stringify(next)); } catch {}
+                                return next;
+                              });
+                              setProducaoConcluidosLotes(prev => {
+                                const next = prev.filter(x => x !== lote.loteNumber);
+                                try { localStorage.setItem('natum_producao_concluidos_lotes', JSON.stringify(next)); } catch {}
+                                return next;
+                              });
+                              const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
+                              saveEtapaStatus(lote.loteNumber, 'producao', 'fila', null, null, null, responsibleName);
+                              showToast(`Lote #${lote.loteNumber} retornado para a Fila de Produção.`);
+                            }}
+                            className="py-1.5 px-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center"
+                            title="Retornar lote para a Fila de Produção"
+                          >
+                            <Undo2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       </div>
@@ -10860,19 +10803,17 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               </div>
                             )}
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 font-sans" title="Ordem conjunta com múltiplos produtos">
-                                📦 Multi-Produto
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                                Multi-Produto
                               </span>
                             )}
                             {isLoteParcial(lote) && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 font-sans" title="Ordem com apontamento parcial pendente">
-                                🌓 Parcial
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-mono" title="Ordem com apontamento parcial pendente">
+                                Parcial
                               </span>
                             )}
                             {isSearched && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-600 text-white font-mono animate-pulse">
-                                📍 Buscado
-                              </span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-900 text-white font-mono">Buscado</span>
                             )}
                           </div>
 
@@ -10975,7 +10916,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             <div className="col-span-12 xl:col-span-4 lg:col-span-4 bg-white border border-zinc-200 rounded-lg shadow-xs overflow-hidden flex flex-col">
               <div className="bg-zinc-900 px-4 py-3 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Scale className="h-4 w-4 text-amber-400" />
+                  <Scale className="h-4 w-4 text-zinc-300" />
                   <span className="font-extrabold text-sm tracking-tight">Fila de Produção</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -11177,26 +11118,24 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               </div>
                             )}
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 font-sans" title="Ordem conjunta com múltiplos produtos">
-                                📦 Multi-Produto
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                                Multi-Produto
                               </span>
                             )}
                             {isLoteParcial(lote) && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 font-sans" title="Ordem com apontamento parcial pendente">
-                                🌓 Parcial
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-mono" title="Ordem com apontamento parcial pendente">
+                                Parcial
                               </span>
                             )}
                             {isSearched && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-600 text-white font-mono animate-pulse">
-                                📍 Buscado
-                              </span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-900 text-white font-mono">Buscado</span>
                             )}
                           </div>
                           <div className="flex items-center gap-1">
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 hover:bg-indigo-50 rounded text-zinc-400 hover:text-indigo-600 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -11370,7 +11309,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           {renderUnifiedQuadroHeader({
             title: "Quadro de Rotulagem",
             subtitle: "Organização e sequenciamento de rotulagem (Máquina e Manual) para lotes liberados e em produção.",
-            icon: <Tag className="h-6 w-6 text-emerald-400" />,
+            icon: <Tag className="h-6 w-6 text-white" />,
             selectedDate: rotulagemSelectedDate,
             setSelectedDate: setRotulagemSelectedDate,
             showAllDates: rotulagemShowAllDates,
@@ -11474,7 +11413,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               <div className="bg-white border border-zinc-200 rounded-lg shadow-xs overflow-hidden flex flex-col">
                 <div className="bg-zinc-900 px-4 py-3 text-white flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Tag className="h-4 w-4 text-emerald-400" />
+                    <Tag className="h-4 w-4 text-white" />
                     <span className="font-extrabold text-sm tracking-tight">Rotulagem Máquina</span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -11921,7 +11860,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             <div className="col-span-12 lg:col-span-4 bg-white border border-zinc-200 rounded-lg shadow-xs overflow-hidden flex flex-col">
               <div className="bg-zinc-900 px-4 py-3 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Package className="h-4 w-4 text-amber-400" />
+                  <Package className="h-4 w-4 text-zinc-300" />
                   <span className="font-extrabold text-sm tracking-tight">Lotes Disponíveis para Rotulagem</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -12056,13 +11995,13 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {renderLoteNumberBadge(lote.loteNumber)}
                             <span className="text-[10px] text-zinc-400 font-normal">({lote.productCode})</span>
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 font-sans" title="Ordem conjunta com múltiplos produtos">
-                                📦 Multi-Produto
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                                Multi-Produto
                               </span>
                             )}
                             {isLoteParcial(lote) && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 font-sans" title="Ordem com apontamento parcial pendente">
-                                🌓 Parcial
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-mono" title="Ordem com apontamento parcial pendente">
+                                Parcial
                               </span>
                             )}
                           </div>
@@ -12083,7 +12022,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 hover:bg-indigo-50 rounded text-zinc-400 hover:text-indigo-600 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -12177,7 +12116,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           {renderUnifiedQuadroHeader({
             title: "Programação de Linhas de Envase",
             subtitle: "Fluxo contínuo de lotes em andamento nas esteiras e linhas operacionais.",
-            icon: <Droplets className="h-5 w-5 text-indigo-400" />,
+            icon: <Droplets className="h-5 w-5 text-white" />,
             selectedDate: envaseSelectedDate,
             setSelectedDate: setEnvaseSelectedDate,
             showAllDates: envaseShowAllDates,
@@ -12844,7 +12783,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             <div className="col-span-12 xl:col-span-3 lg:col-span-6 bg-white border border-zinc-200 rounded-lg shadow-xs overflow-hidden flex flex-col">
               <div className="bg-zinc-900 px-4 py-3 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Droplets className="h-4 w-4 text-amber-400" />
+                  <Droplets className="h-4 w-4 text-zinc-300" />
                   <span className="text-sm font-extrabold tracking-tight">Linha 3 (Apenas Óleos)</span>
                   <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-white/10 text-white">
                     {envaseLinha3Items.length}
@@ -13120,7 +13059,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             <div className="col-span-12 xl:col-span-3 lg:col-span-6 bg-white border border-zinc-200 rounded-lg shadow-xs overflow-hidden flex flex-col">
               <div className="bg-zinc-900 px-4 py-3 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Package className="h-4 w-4 text-emerald-400" />
+                  <Package className="h-4 w-4 text-white" />
                   <div>
                     <span className="text-sm font-extrabold tracking-tight">Lotes</span>
                     <span className="block text-[10px] font-medium text-zinc-300">Aguardando encaixe no envase</span>
@@ -13243,18 +13182,18 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {renderLoteNumberBadge(lote.loteNumber)}
                             <span className="text-[10px] text-zinc-400 font-normal">({lote.productCode})</span>
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 font-sans" title="Ordem conjunta com múltiplos produtos">
-                                📦 Multi-Produto
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                                Multi-Produto
                               </span>
                             )}
                             {isLoteParcial(lote) && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 font-sans" title="Ordem com apontamento parcial pendente">
-                                🌓 Parcial
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-mono" title="Ordem com apontamento parcial pendente">
+                                Parcial
                               </span>
                             )}
                             {isLoteTerceirizado(lote) && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-sans" title="Lote Terceirizado">
-                                🏭 Terceirizado
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Lote Terceirizado">
+                                Terceirizado
                               </span>
                             )}
                             {encaixeSearch.trim() && scheduledItem?.dataProgramada && parseLoteDateToIso(scheduledItem.dataProgramada) === envaseSelectedDate && (
@@ -13281,7 +13220,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 hover:bg-indigo-50 rounded text-zinc-400 hover:text-indigo-600 cursor-pointer"
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-zinc-700 cursor-pointer"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -13435,7 +13374,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           {renderUnifiedQuadroHeader({
             title: "Quadro de Ordens",
             subtitle: "Acompanhamento contínuo de ordens finalizadas no chão de fábrica e ordens com apontamentos parciais.",
-            icon: <CheckSquare className="h-6 w-6 text-emerald-400" />,
+            icon: <CheckSquare className="h-6 w-6 text-white" />,
             selectedDate: ordensSelectedDate,
             setSelectedDate: setOrdensSelectedDate,
             showAllDates: ordensShowAllDates,
@@ -13504,7 +13443,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             <div className="col-span-12 xl:col-span-4 lg:col-span-6 bg-white border border-zinc-200 rounded-lg shadow-xs overflow-hidden flex flex-col">
               <div className="bg-zinc-900 px-4 py-3 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <CheckCheck className="h-4 w-4 text-emerald-400" />
+                  <CheckCheck className="h-4 w-4 text-white" />
                   <span className="text-sm font-extrabold tracking-tight">Ordens Finalizadas</span>
                   <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-white/10 text-white">
                     {filteredOrdensFinalizadas.length}
@@ -13565,8 +13504,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               </span>
                             )}
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 font-sans" title="Ordem conjunta com múltiplos produtos">
-                                📦 Multi-Produto
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                                Multi-Produto
                               </span>
                             )}
                           </div>
@@ -13575,7 +13514,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 text-zinc-400 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 transition-colors cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -13651,7 +13590,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             <div className="col-span-12 xl:col-span-4 lg:col-span-6 bg-white border border-zinc-200 rounded-lg shadow-xs overflow-hidden flex flex-col">
               <div className="bg-zinc-900 px-4 py-3 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-purple-400" />
+                  <Clock className="h-4 w-4 text-zinc-300" />
                   <span className="text-sm font-extrabold tracking-tight">Ordens Parciais</span>
                   <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-white/10 text-white">
                     {filteredOrdensParciais.length}
@@ -13698,8 +13637,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               Parcial ({pct}%)
                             </span>
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 font-sans" title="Ordem conjunta com múltiplos produtos">
-                                📦 Multi-Produto
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                                Multi-Produto
                               </span>
                             )}
                           </div>
@@ -13708,7 +13647,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 text-zinc-400 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 transition-colors cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />
@@ -13862,8 +13801,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               {eff}
                             </span>
                             {isMulti && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 font-sans" title="Ordem conjunta com múltiplos produtos">
-                                📦 Multi-Produto
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono" title="Ordem conjunta com múltiplos produtos">
+                                Multi-Produto
                               </span>
                             )}
                           </div>
@@ -13872,7 +13811,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <button
                               type="button"
                               onClick={() => handleMoveLoteNextDay(lote)}
-                              className="p-1 text-zinc-400 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 transition-colors cursor-pointer"
+                              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer"
                               title="Adiar lote (selecionar nova data)"
                             >
                               <CalendarPlus className="h-3.5 w-3.5" />

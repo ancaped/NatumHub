@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { X, RefreshCw, Truck, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../../../geral/lib/http';
 import { cn } from '../../../geral/lib/utils';
+import Drawer from '../../../geral/components/ui/Drawer';
 import type {
   PendingPurchaseOrderItem,
   ProductDetails,
@@ -84,75 +85,40 @@ export function ProductSalesDrawer({
     };
   }, [open, productCode]);
 
-  if (!open) return null;
-
-  const maxMonthly = Math.max(1, ...(details?.monthlySales.map((m) => m.qty) || [1]));
-
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-250">
-        <div className="h-16 border-b border-zinc-200 px-6 flex items-center justify-between shrink-0 bg-zinc-50">
-          <div className="min-w-0">
-            <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest block">
-              Produto
-            </span>
-            <h3 className="font-extrabold text-zinc-900 text-sm truncate mt-0.5">
-              {loading ? 'Carregando…' : details?.description || error || productCode}
-            </h3>
-            {details && (
-              <span className="font-mono text-[10px] text-zinc-400">{details.code}</span>
-            )}
+    <Drawer
+      isOpen={open}
+      onClose={onClose}
+      badge="Produto Acabado"
+      title={details?.description || error || productCode || 'Detalhe do Produto'}
+      subtitle={details?.code ? `Código: ${details.code} · Estoque: ${details.currentStock ?? 0} ${details.unit}` : undefined}
+      tabs={[
+        { id: 'geral', label: 'Geral' },
+        { id: 'pedidos', label: 'Pedidos Abertos', badge: pending?.pending_sales_orders?.length },
+        { id: 'compras', label: 'Compras em Trânsito', badge: pending?.in_transit_purchase_orders?.length },
+      ]}
+      activeTab={tab}
+      onTabChange={(t) => setTab(t as any)}
+      size="xl"
+      loading={loading}
+      loadingText="Carregando informações do produto..."
+      footer={
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer transition-all ml-auto"
+        >
+          Fechar Painel
+        </button>
+      }
+    >
+      <div className="space-y-6">
+        {error && !loading && (
+          <div className="flex items-center gap-2 text-rose-600 text-sm font-semibold">
+            <AlertCircle className="h-4 w-4" />
+            {error}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-700 cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="border-b border-zinc-150 px-6 flex bg-zinc-50/50 shrink-0">
-          {(
-            [
-              ['geral', 'Geral'],
-              ['pedidos', 'Pedidos abertos'],
-              ['compras', 'Compras'],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setTab(id)}
-              className={cn(
-                'px-4 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center gap-1.5',
-                tab === id
-                  ? 'border-zinc-900 text-zinc-900'
-                  : 'border-transparent text-zinc-450 hover:text-zinc-700',
-              )}
-            >
-              {label}
-              {id === 'pedidos' && pending && pending.pending_sales_orders.length > 0 && (
-                <span className="px-1.5 py-0.5 bg-rose-500 text-white rounded-full text-[9px] font-bold">
-                  {pending.pending_sales_orders.length}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-6">
-          {loading && (
-            <div className="flex flex-col items-center justify-center h-48 gap-3 text-zinc-400">
-              <RefreshCw className="h-8 w-8 animate-spin" />
-            </div>
-          )}
-          {error && !loading && (
-            <div className="flex items-center gap-2 text-rose-600 text-sm font-semibold">
-              <AlertCircle className="h-4 w-4" />
-              {error}
-            </div>
-          )}
+        )}
           {details && !loading && tab === 'geral' && (
             <div className="space-y-6">
               <div className="grid grid-cols-2 gap-4">
@@ -277,7 +243,6 @@ export function ProductSalesDrawer({
             )
           )}
         </div>
-      </div>
-    </div>
+      </Drawer>
   );
 }

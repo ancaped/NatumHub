@@ -62,12 +62,17 @@ Rota HTTP           → natumhub-api
 | Playbook de Feedbacks | `concepts/fluxo-feedbacks-playbook.md` |
 | Módulos Descontinuados | `decisions/modulos-descontinuados.md` |
 | Fusão Mapa & Feedbacks | `decisions/fusao-mapa-feedbacks.md` |
-| Inspeção Prévia de Módulo | `concepts/regra-consulta-modulo-desenvolvimento.md` |
+| Inspeção Prévia e Espelhamento | `concepts/regra-consulta-modulo-desenvolvimento.md` |
+| Vendas e Pedidos | `concepts/modulo-vendas.md` |
+| Expedição e E-commerce | `concepts/modulo-expedicao.md` |
+| Administrativo e Colaboradores | `concepts/modulo-administrativo.md` |
 | Null Safety no Frontend | `gotchas/frontend-null-safety.md` |
 
 > [!IMPORTANT]
-> **Consulta Obrigatória de Módulo antes de Alterações**:
-> Antes de alterar ou criar código em qualquer módulo, consulte sempre a ficha técnica do módulo (`GET /api/mapa/modules/:key` ou central **Desenvolvimento**), seus caminhos (`frontend_path`, `backend_path`, `router_prefix`), suas conexões arquiteturais (`mapa_edges`) e o histórico de feedbacks anteriores (`feedbacks` com `module_key`).
+> **Espelhamento Contínuo e Consulta Obrigatória (Desenvolvimento <-> ai-memory)**:
+> 1. **Consulta Prévia**: Antes de alterar ou criar código em qualquer módulo, consulte sempre a ficha técnica do módulo (`GET /api/mapa/modules/:key` ou central **Desenvolvimento**), seus caminhos (`frontend_path`, `backend_path`, `router_prefix`), suas conexões arquiteturais (`mapa_edges`) e o histórico de feedbacks anteriores (`feedbacks` com `module_key`).
+> 2. **Espelhamento Bidirecional**: A Central de Desenvolvimento e o `ai-memory` devem espelhar-se mutuamente. Sempre que alterar, criar ou descobrir qualquer detalhe sobre um módulo (menus laterais direitos/drawers, rotas, tabelas, regras de negócio ou telas), registre imediatamente na Ficha Técnica do módulo em Desenvolvimento E na página correspondente do `ai-memory` (`concepts/modulo-<key>.md`). Isso documenta o sistema com nível máximo de detalhe e economiza tokens nas próximas sessões.
+> 3. **Padronização Visual de Menus Direitos (Drawers)**: Todos os menus e abas abertos na lateral direita (detalhes de insumos, produtos, lotes, notas fiscais, ordens de compra/venda, cadastros) DEVEM utilizar obrigatoriamente o componente canônico `<Drawer>` (`Frontend/src/modules/geral/components/ui/Drawer.tsx`), mantendo o design system HSL Zinc unificado.
 
 
 ## Stack Atual

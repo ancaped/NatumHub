@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Trash2, Edit2, Plus, Package, EyeOff, Save, X, ArrowUpDown, ArrowUp, ArrowDown, Info, Calendar, Layers, ClipboardList, RefreshCw } from 'lucide-react';
 import { api } from '../../../geral/lib/api';
 import { Item, Category } from '../../../geral/lib/types';
+import Drawer from '../../../geral/components/ui/Drawer';
 
 
 interface ItemRegistryProps {
@@ -370,63 +371,33 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
       )}
 
       {/* Details Drawer */}
-      {detailsOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-end">
-          <div className="absolute inset-0 cursor-pointer" onClick={() => setDetailsOpen(false)} />
-          <div className="relative w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300 z-10 text-left">
-            <div className="px-6 py-4 border-b border-zinc-100 flex justify-between items-center bg-zinc-50/50 shrink-0">
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Ficha de Insumo Suspenso</span>
-                <h3 className="font-bold text-zinc-900 text-lg mt-0.5">
-                  {detailsLoading ? 'Carregando detalhes...' : (detailsItem?.description || 'Detalhes do Insumo')}
-                </h3>
-                <p className="text-xs text-zinc-500 font-mono mt-0.5">REF: {detailsLoading ? '...' : detailsItem?.code}</p>
-              </div>
-              <button onClick={() => setDetailsOpen(false)} className="text-zinc-400 hover:text-zinc-650 cursor-pointer"><X className="w-5 h-5" /></button>
-            </div>
-
-            {/* Tab Navigation */}
-            <div className="flex border-b border-zinc-150 bg-zinc-50/50 px-6 shrink-0">
-              <button
-                onClick={() => setDetailsActiveTab('geral')}
-                className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer focus:outline-none ${
-                  detailsActiveTab === 'geral' 
-                    ? 'border-zinc-900 text-zinc-900 font-extrabold' 
-                    : 'border-transparent text-zinc-450 hover:text-zinc-650'
-                }`}
-              >
-                Geral
-              </button>
-              <button
-                onClick={() => setDetailsActiveTab('produtos')}
-                className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer focus:outline-none ${
-                  detailsActiveTab === 'produtos' 
-                    ? 'border-zinc-900 text-zinc-900 font-extrabold' 
-                    : 'border-transparent text-zinc-450 hover:text-zinc-650'
-                }`}
-              >
-                Produtos Vinculados
-              </button>
-              <button
-                onClick={() => setDetailsActiveTab('compras')}
-                className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer focus:outline-none ${
-                  detailsActiveTab === 'compras' 
-                    ? 'border-zinc-900 text-zinc-900 font-extrabold' 
-                    : 'border-transparent text-zinc-450 hover:text-zinc-650'
-                }`}
-              >
-                Histórico de Compras
-              </button>
-            </div>
-            
-            <div className="p-6 overflow-y-auto space-y-6 flex-1">
-              {detailsLoading ? (
-                <div className="flex flex-col items-center justify-center py-12 gap-3 text-zinc-450">
-                  <RefreshCw className="h-8 w-8 animate-spin text-zinc-550" />
-                  <span className="font-semibold text-sm">Carregando dados e histórico...</span>
-                </div>
-              ) : detailsItem ? (
-                <>
+      <Drawer
+        isOpen={detailsOpen}
+        onClose={() => setDetailsOpen(false)}
+        badge={showIgnoredOnly ? "Ficha de Insumo Suspenso" : "Ficha de Insumo"}
+        title={detailsLoading ? 'Carregando detalhes...' : (detailsItem?.description || 'Detalhes do Insumo')}
+        subtitle={detailsItem?.code ? `REF: ${detailsItem.code}` : undefined}
+        tabs={[
+          { id: 'geral', label: 'Geral', icon: Info },
+          { id: 'produtos', label: 'Produtos Vinculados', icon: Layers, badge: detailsItem?.productsUsedIn?.length },
+          { id: 'compras', label: 'Histórico de Compras', icon: ClipboardList, badge: detailsItem?.recentInvoices?.length },
+        ]}
+        activeTab={detailsActiveTab}
+        onTabChange={(tabId) => setDetailsActiveTab(tabId as any)}
+        size="xl"
+        loading={detailsLoading}
+        loadingText="Carregando dados e histórico..."
+        footer={
+          <button 
+            onClick={() => setDetailsOpen(false)}
+            className="px-6 py-2 text-sm font-bold bg-zinc-900 text-white rounded-xl hover:bg-zinc-800 shadow-xs transition-colors cursor-pointer"
+          >
+            Fechar
+          </button>
+        }
+      >
+        {detailsItem ? (
+          <div className="space-y-6">
                   {/* TAB CONTENT: GERAL */}
                   {detailsActiveTab === 'geral' && (
                     <div className="space-y-6">
@@ -585,22 +556,11 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
                       )}
                     </div>
                   )}
-                </>
-              ) : (
-                <div className="text-center text-zinc-450 py-12">Não foi possível carregar os detalhes.</div>
-              )}
-            </div>
-
-            <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-100 flex justify-end shrink-0">
-              <button 
-                onClick={() => setDetailsOpen(false)}
-                className="px-6 py-2 text-sm font-bold bg-zinc-900 text-white rounded-xl hover:bg-zinc-800 shadow transition-colors cursor-pointer">
-                Fechar
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="text-center text-zinc-400 py-12">Não foi possível carregar os detalhes.</div>
+        )}
+      </Drawer>
     </div>
   );
 }

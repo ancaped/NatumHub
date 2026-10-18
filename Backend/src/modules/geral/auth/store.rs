@@ -1358,7 +1358,7 @@ pub fn requires_module(path: &str, method: &str) -> Option<&'static str> {
         return Some(super::modules_registry::MODULE_FINANCEIRO);
     }
     if path.starts_with("/api/almox/demands") {
-        return Some(super::modules_registry::MODULE_COMPRAS_ALMOX);
+        return Some(super::modules_registry::MODULE_ESTOQUE_ALMOX);
     }
     if path.starts_with("/api/almox/equipments") {
         return Some(super::modules_registry::MODULE_ESTOQUE_EQUIPAMENTOS);

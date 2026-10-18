@@ -3,8 +3,10 @@ import { apiFetch } from '../../../geral/lib/http';
 import { kitComponentNeedQty } from '../../lib/kitComponentQty';
 import {
   Search, RefreshCw, HelpCircle, AlertTriangle, Edit3, ChevronLeft, ChevronRight,
-  CheckCircle2, PlusCircle, ChevronRight as ChevronRightIcon, Layers, Zap, CalendarClock, Package,
+  CheckCircle2, PlusCircle, ChevronRight as ChevronRightIcon, Layers, Zap, CalendarClock, Package, Boxes, Plus, FlaskConical, X
 } from 'lucide-react';
+import { MontagemKitsPainel } from './MontagemKitsPainel';
+import { BatchOpportunityModal } from './BatchOpportunityModal';
 
 function kitProduto(k: any) {
   return k?.produto || k?.kit_detalhes || k;
@@ -13,6 +15,33 @@ function kitProduto(k: any) {
 function componentesProduto(k: any) {
   const lista = Array.isArray(k?.componentes) ? k.componentes : [];
   return lista.filter((c: any) => c && c.fonte !== 'item');
+}
+
+function cobreComponente(comp: any) {
+  const qtd = Number(comp?.quantidade) || 0;
+  const estoque = Number(comp?.estoque) || 0;
+  if (qtd <= 0) return estoque;
+  return Math.floor(estoque / qtd);
+}
+
+function calcularGargaloKit(k: any) {
+  const comps = Array.isArray(k?.componentes) ? k.componentes : [];
+  let worst: any = null;
+  let worstN = Infinity;
+  for (const comp of comps) {
+    const n = cobreComponente(comp);
+    if (n < worstN) {
+      worstN = n;
+      worst = comp;
+    }
+  }
+  const maxEstoque = Number.isFinite(Number(k?.max_montavel_estoque))
+    ? Number(k.max_montavel_estoque)
+    : Number.isFinite(worstN) ? worstN : 0;
+  return {
+    potencialHoje: Math.max(0, maxEstoque),
+    gargaloComp: worst ? { ...worst, cobre: worstN } : null,
+  };
 }
 
 function DurationCell({ produto, diasComerciais }: { produto: any; diasComerciais: number }) {
@@ -75,7 +104,122 @@ export function KitsTab({
   onShowDetails,
   diasComerciais = 30,
 }: any) {
+  const [centralSubTab, setCentralSubTab] = useState<'demandas' | 'montagem'>('demandas');
   const [modo, setModo] = useState<'kit' | 'itens'>('kit');
+  const [queuedKitCodes, setQueuedKitCodes] = useState<Set<string>>(new Set());
+  const [batchModalProduct, setBatchModalProduct] = useState<any | null>(null);
+  const [kitOrderModal, setKitOrderModal] = useState<{ kit: any; qty: number; obs: string } | null>(null);
+  const [creatingKitOrder, setCreatingKitOrder] = useState(false);
+
+  const fetchQueuedItems = () => {
+    apiFetch('/producao/fila-demandas')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data.items)) {
+          setQueuedKitCodes(new Set(data.items.map((it: any) => it.codigoProduto)));
+        }
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchQueuedItems();
+  }, []);
+
+  const handleEnqueueItem = async (code: string, desc: string, qty: number, compObj?: any) => {
+    try {
+      const res = await apiFetch('/producao/fila-demandas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          codigoProduto: code,
+          descricao: desc,
+          quantidade: Math.max(1, qty),
+          unidade: 'un',
+          origemDemanda: 'kit',
+          baseCodigo: compObj?.base_codigo,
+          baseNome: compObj?.base,
+        })
+      });
+      if (res.ok) {
+        setQueuedKitCodes(prev => new Set([...prev, code]));
+        if (compObj && (compObj.base || compObj.base_codigo)) {
+          setBatchModalProduct(compObj);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleEnqueueBatch = async (items: any[]) => {
+    try {
+      const res = await apiFetch('/producao/fila-demandas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(items)
+      });
+      if (res.ok) {
+        fetchQueuedItems();
+        if (onRefresh) onRefresh();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleCreateKitOrder = async () => {
+    if (!kitOrderModal) return;
+    const { kit, qty, obs } = kitOrderModal;
+    const p = kitProduto(kit);
+    if (!p?.codigo || qty <= 0) return;
+
+    setCreatingKitOrder(true);
+    try {
+      let orderNum = `KIT-${Date.now()}`;
+      const resNext = await apiFetch('/kits/next-order-number');
+      if (resNext.ok) {
+        const data = await resNext.json();
+        if (data.nextOrderNumber) orderNum = data.nextOrderNumber;
+      }
+      const comps = Array.isArray(kit.componentes) ? kit.componentes : [];
+      const lotesList = comps.map((comp: any) => {
+        const perKit = Number(comp.quantidade) || 1;
+        return {
+          code: comp.codigo,
+          description: comp.descricao,
+          expected_qty: perKit,
+          fator_proporcao_qtd: comp.fator_proporcao_qtd ?? null,
+          fator_proporcao_kits: comp.fator_proporcao_kits ?? null,
+          need_qty: kitComponentNeedQty(perKit, qty, comp.fator_proporcao_qtd, comp.fator_proporcao_kits),
+          lote: '',
+        };
+      });
+      const res = await apiFetch('/kits/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderNumber: orderNum,
+          kitProductCode: String(p.codigo),
+          kitProductDescription: p.descricao || '',
+          quantity: qty,
+          status: 'PENDING',
+          assembledBy: '',
+          checkedBy: '',
+          observations: obs,
+          componentsLotes: JSON.stringify(lotesList),
+        }),
+      });
+      if (res.ok) {
+        setKitOrderModal(null);
+        if (onRefresh) onRefresh();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCreatingKitOrder(false);
+    }
+  };
   const [allKits, setAllKits] = useState<any[]>([]);
   const [loadingItens, setLoadingItens] = useState(false);
   const [itemSearch, setItemSearch] = useState('');
@@ -139,6 +283,43 @@ export function KitsTab({
 
   return (
     <div className="view-container animate-in fade-in duration-200">
+      {/* Central de Kits: Sub-abas de topo */}
+      <div className="flex items-center justify-between mb-4 pb-2 border-b border-zinc-200">
+        <div className="inline-flex p-1 bg-zinc-100 rounded-lg border border-zinc-200 text-xs font-semibold">
+          <button
+            type="button"
+            onClick={() => setCentralSubTab('demandas')}
+            className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
+              centralSubTab === 'demandas'
+                ? 'bg-white text-zinc-900 shadow-xs font-bold'
+                : 'text-zinc-600 hover:text-zinc-900'
+            }`}
+          >
+            <Package size={14} />
+            <span>Demandas de Kits</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setCentralSubTab('montagem')}
+            className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
+              centralSubTab === 'montagem'
+                ? 'bg-white text-zinc-900 shadow-xs font-bold'
+                : 'text-zinc-600 hover:text-zinc-900'
+            }`}
+          >
+            <Boxes size={14} />
+            <span>Ordens de Montagem</span>
+          </button>
+        </div>
+      </div>
+
+      {centralSubTab === 'montagem' ? (
+        <MontagemKitsPainel
+          tabOptions={tabOptions}
+          onOpenComposition={onOpenComposition}
+        />
+      ) : (
+        <>
       <div className="flex flex-wrap items-center gap-1.5 mb-4">
         <button
           type="button"
@@ -180,13 +361,13 @@ export function KitsTab({
               </div>
             </div>
             <div
-              className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-blue-300 hover:shadow-md ${kitsSelectedStatus === 'aguardando' ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50/20' : 'border-zinc-200'}`}
+              className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-zinc-400 hover:shadow-md ${kitsSelectedStatus === 'aguardando' ? 'ring-2 ring-zinc-900 border-zinc-900 bg-zinc-50/40' : 'border-zinc-200'}`}
               onClick={() => { setKitsSelectedStatus(kitsSelectedStatus === 'aguardando' ? 'ALL' : 'aguardando'); setKitsPage(1); }}
             >
-              <div className="p-2.5 rounded-lg bg-blue-50 text-blue-600 shrink-0"><CalendarClock size={20} /></div>
+              <div className="p-2.5 rounded-lg bg-zinc-100 text-zinc-700 shrink-0"><CalendarClock size={20} /></div>
               <div>
                 <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Aguardando produção</div>
-                <div className="text-xl font-bold text-blue-600">{kitsStats?.aguardando ?? 0}</div>
+                <div className="text-xl font-bold font-mono text-zinc-800">{kitsStats?.aguardando ?? 0}</div>
               </div>
             </div>
             <div
@@ -196,7 +377,7 @@ export function KitsTab({
               <div className="p-2.5 rounded-lg bg-emerald-50 text-emerald-600 shrink-0"><CheckCircle2 size={20} /></div>
               <div>
                 <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Estoque saudável</div>
-                <div className="text-xl font-bold text-emerald-600">{(kitsStats?.saudavel ?? 0) + (kitsStats?.abundante ?? 0)}</div>
+                <div className="text-xl font-bold font-mono text-emerald-600">{(kitsStats?.saudavel ?? 0) + (kitsStats?.abundante ?? 0)}</div>
               </div>
             </div>
           </div>
@@ -262,6 +443,7 @@ export function KitsTab({
                         <div className="flex items-center justify-end">EFP <SortIcon field="estoque_futuro_com_producao" activeField={kitSortField} activeDir={kitSortDir} /></div>
                       </th>
                       <th className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px]">Duração</th>
+                      <th className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px]">Potencial Hoje (Gargalo)</th>
                       <th className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px] cursor-pointer" onClick={() => toggleSort('status', kitSortField, setKitSortField, kitSortDir, setKitSortDir)}>
                         <div className="flex items-center">Status <SortIcon field="status" activeField={kitSortField} activeDir={kitSortDir} /></div>
                       </th>
@@ -277,6 +459,7 @@ export function KitsTab({
                       const expanded = expandedKits.includes(p.codigo);
                       const produtos = componentesProduto(k);
                       const faltas = produtos.filter((c: any) => (c.producao_recomendada || 0) > 0);
+                      const { potencialHoje, gargaloComp } = calcularGargaloKit(k);
                       return (
                         <React.Fragment key={p.codigo}>
                           <tr className="hover:bg-zinc-50/30 transition-colors">
@@ -298,32 +481,65 @@ export function KitsTab({
                                 )}
                               </div>
                             </td>
-                            <td className="px-4 py-2.5 text-right font-bold text-zinc-900">
+                            <td className="px-4 py-2.5 text-right font-bold font-mono text-zinc-900">
                               {p.estoque_futuro_com_producao}
-                              <div className="text-[10px] text-zinc-400 font-semibold mt-0.5">
+                              <div className="text-[10px] text-zinc-400 font-semibold font-mono mt-0.5">
                                 Est: {p.estoque} | Prod: {p.producao} | Ped: {p.pedidos_aberto}
                               </div>
                             </td>
                             <td className="px-4 py-2.5"><DurationCell produto={p} diasComerciais={diasComerciais} /></td>
+                            <td className="px-4 py-2.5">
+                              <div className="flex flex-col gap-0.5">
+                                <span className={`inline-flex items-center w-fit px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                                  potencialHoje > 0
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                }`}>
+                                  {potencialHoje} kits hoje
+                                </span>
+                                {gargaloComp && (
+                                  <span className="text-[10px] text-zinc-500 font-mono truncate max-w-[160px]" title={`Gargalo: ${gargaloComp.codigo} - ${gargaloComp.descricao} (cobre ${gargaloComp.cobre} kits)`}>
+                                    Gargalo: <strong className="text-zinc-700">{gargaloComp.codigo}</strong> ({gargaloComp.cobre})
+                                  </span>
+                                )}
+                              </div>
+                            </td>
                             <td className="px-4 py-2.5"><span className={`status-badge ${p.status}`}>{p.status_label}</span></td>
-                            <td className="px-4 py-2.5 text-right font-bold" style={{ color: p.producao_recomendada > 0 ? 'hsl(var(--danger-hsl))' : 'inherit' }}>
+                            <td className="px-4 py-2.5 text-right font-bold font-mono" style={{ color: p.producao_recomendada > 0 ? 'hsl(var(--danger-hsl))' : 'inherit' }}>
                               {p.producao_recomendada > 0 ? `${p.producao_recomendada} un` : '—'}
                               {p.producao_recomendada > 0 && p.estoque_ideal_qtd > 0 && (
-                                <div className="text-[10px] text-zinc-400 font-semibold mt-0.5">Ideal: {Number(p.estoque_ideal_qtd).toFixed(0)}</div>
+                                <div className="text-[10px] text-zinc-400 font-semibold font-mono mt-0.5">Ideal: {Number(p.estoque_ideal_qtd).toFixed(0)}</div>
                               )}
                             </td>
                             <td className="px-4 py-2.5 text-center">
                               <button
                                 type="button"
-                                onClick={() => onToggleApprovalList?.(p.codigo)}
-                                className={`p-1 rounded cursor-pointer ${productionApprovalList.includes(p.codigo) ? 'text-emerald-600 hover:bg-emerald-50' : 'text-zinc-400 hover:bg-zinc-100'}`}
-                                title={productionApprovalList.includes(p.codigo) ? 'Remover do planejamento semanal' : 'Adicionar ao planejamento semanal'}
+                                onClick={() => handleEnqueueItem(p.codigo, p.descricao, p.producao_recomendada > 0 ? p.producao_recomendada : 50)}
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+                                  queuedKitCodes.has(p.codigo)
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    : 'bg-zinc-900 text-white hover:bg-zinc-800'
+                                }`}
+                                title="Adicionar kit à fila de demandas do PCP"
                               >
-                                {productionApprovalList.includes(p.codigo) ? <CheckCircle2 size={14} /> : <PlusCircle size={14} />}
+                                {queuedKitCodes.has(p.codigo) ? 'Na Fila' : '+ Fila'}
                               </button>
                             </td>
                             <td className="px-4 py-2.5 text-center">
-                              <div className="flex gap-1 justify-center">
+                              <div className="flex gap-1 justify-center items-center">
+                                <button
+                                  type="button"
+                                  onClick={() => setKitOrderModal({
+                                    kit: k,
+                                    qty: potencialHoje > 0 ? potencialHoje : (p.producao_recomendada > 0 ? p.producao_recomendada : 20),
+                                    obs: ''
+                                  })}
+                                  className="px-2 py-1 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-800 border border-zinc-200 text-[10px] font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                                  title="Criar ordem de montagem deste kit diretamente"
+                                >
+                                  <Boxes size={12} />
+                                  <span>Montar Kit</span>
+                                </button>
                                 <button type="button" className="p-1 rounded text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 cursor-pointer" title="Composição" onClick={() => onOpenComposition?.(p.codigo, p.descricao)}>
                                   <Layers size={14} />
                                 </button>
@@ -335,7 +551,7 @@ export function KitsTab({
                           </tr>
                           {expanded && (
                             <tr className="expanded-row-tr">
-                              <td colSpan={9} style={{ padding: 0 }}>
+                              <td colSpan={10} style={{ padding: 0 }}>
                                 <div className="components-detail-panel">
                                   <div className="components-panel-title">O que falta produzir neste kit</div>
                                   {produtos.length === 0 ? (
@@ -357,28 +573,53 @@ export function KitsTab({
                                         </tr>
                                       </thead>
                                       <tbody>
-                                        {produtos.map((comp: any) => (
-                                          <tr key={comp.codigo}>
-                                            <td className="comp-code">{comp.codigo}</td>
-                                            <td className="comp-desc">{comp.descricao}</td>
-                                            <td className="numeric-col">{comp.estoque}</td>
-                                            <td className="numeric-col">{comp.producao}</td>
-                                            <td className="numeric-col">{comp.pedidos_aberto}</td>
-                                            <td className="numeric-col">{comp.estoque_futuro_com_producao}</td>
-                                            <td><span className={`status-badge ${comp.status}`}>{comp.status_label}</span></td>
-                                            <td className="numeric-col" style={{ color: comp.producao_recomendada > 0 ? 'hsl(var(--danger-hsl))' : undefined, fontWeight: 700 }}>
-                                              {comp.producao_recomendada > 0 ? `${comp.producao_recomendada} un` : '—'}
-                                            </td>
-                                            <td>
-                                              <button type="button" className="text-[10px] font-bold cursor-pointer" onClick={() => onToggleApenasKit?.(comp.codigo, comp.produzir_apenas_kit ?? 0)}>
-                                                {comp.produzir_apenas_kit === 1 ? 'Só para kit' : 'Também avulso'}
-                                              </button>
-                                            </td>
-                                            <td>
-                                              <button type="button" className="px-2 py-1 rounded-lg bg-zinc-900 text-white text-[10px] font-bold cursor-pointer" onClick={() => onLaunchProduct(comp)}>Lançar</button>
-                                            </td>
-                                          </tr>
-                                        ))}
+                                        {produtos.map((comp: any) => {
+                                          const recQty = Number(comp.producao_recomendada) > 0 ? Number(comp.producao_recomendada) : 50;
+                                          return (
+                                            <tr key={comp.codigo}>
+                                              <td className="comp-code font-mono">{comp.codigo}</td>
+                                              <td className="comp-desc">{comp.descricao}</td>
+                                              <td className="numeric-col font-mono">{comp.estoque}</td>
+                                              <td className="numeric-col font-mono">{comp.producao}</td>
+                                              <td className="numeric-col font-mono">{comp.pedidos_aberto}</td>
+                                              <td className="numeric-col font-mono">{comp.estoque_futuro_com_producao}</td>
+                                              <td><span className={`status-badge ${comp.status}`}>{comp.status_label}</span></td>
+                                              <td className="numeric-col font-mono" style={{ color: comp.producao_recomendada > 0 ? 'hsl(var(--danger-hsl))' : undefined, fontWeight: 700 }}>
+                                                {comp.producao_recomendada > 0 ? `${comp.producao_recomendada} un` : '—'}
+                                              </td>
+                                              <td>
+                                                <button type="button" className="text-[10px] font-bold cursor-pointer" onClick={() => onToggleApenasKit?.(comp.codigo, comp.produzir_apenas_kit ?? 0)}>
+                                                  {comp.produzir_apenas_kit === 1 ? 'Só para kit' : 'Também avulso'}
+                                                </button>
+                                              </td>
+                                              <td>
+                                                <div className="flex items-center gap-1 justify-center">
+                                                  <button 
+                                                    type="button" 
+                                                    className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer ${
+                                                      queuedKitCodes.has(comp.codigo)
+                                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                        : 'bg-zinc-900 text-white hover:bg-zinc-800'
+                                                    }`} 
+                                                    onClick={() => handleEnqueueItem(comp.codigo, comp.descricao, recQty, comp)}
+                                                    title="Enviar componente para a Fila de Demandas do PCP"
+                                                  >
+                                                    {queuedKitCodes.has(comp.codigo) ? 'Na Fila' : '+ Fila'}
+                                                  </button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => setBatchModalProduct(comp)}
+                                                    className="p-1 rounded text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 cursor-pointer"
+                                                    title="Oportunidades de Batelada & Suprimentos"
+                                                  >
+                                                    <FlaskConical size={13} />
+                                                  </button>
+                                                  <button type="button" className="px-2 py-1 rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 text-[10px] font-semibold cursor-pointer" onClick={() => onLaunchProduct(comp)}>Lançar</button>
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
                                       </tbody>
                                     </table>
                                   )}
@@ -464,18 +705,31 @@ export function KitsTab({
                             ))}
                           </div>
                         </td>
-                        <td className="px-4 py-2.5 text-right font-bold">{comp.estoque}</td>
-                        <td className="px-4 py-2.5 text-right">{comp.producao}</td>
-                        <td className="px-4 py-2.5 text-right font-bold">{demandaKit}</td>
-                        <td className="px-4 py-2.5 text-right">{avulsa}</td>
-                        <td className="px-4 py-2.5 text-right font-bold">{total}</td>
+                        <td className="px-4 py-2.5 text-right font-bold font-mono">{comp.estoque}</td>
+                        <td className="px-4 py-2.5 text-right font-mono">{comp.producao}</td>
+                        <td className="px-4 py-2.5 text-right font-bold font-mono">{demandaKit}</td>
+                        <td className="px-4 py-2.5 text-right font-mono">{avulsa}</td>
+                        <td className="px-4 py-2.5 text-right font-bold font-mono">{total}</td>
                         <td className="px-4 py-2.5">
-                          <button type="button" className={`text-[10px] font-bold px-2 py-0.5 rounded-md border cursor-pointer ${exclusiva ? 'bg-zinc-100 text-zinc-700 border-zinc-200' : 'bg-slate-50 text-slate-700 border-slate-200'}`} onClick={() => onToggleApenasKit?.(comp.codigo, comp.produzir_apenas_kit ?? 0)}>
+                          <button type="button" className={`text-[10px] font-bold px-2 py-0.5 rounded-md border cursor-pointer ${exclusiva ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-zinc-100 text-zinc-700 border-zinc-200'}`} onClick={() => onToggleApenasKit?.(comp.codigo, comp.produzir_apenas_kit ?? 0)}>
                             {exclusiva ? 'Apenas Kit' : 'Misto'}
                           </button>
                         </td>
                         <td className="px-4 py-2.5 text-center">
-                          <button type="button" className="px-2 py-1 rounded-lg bg-zinc-900 text-white text-[10px] font-bold cursor-pointer" onClick={() => onLaunchProduct(comp)}>Lançar</button>
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleEnqueueItem(comp.codigo, comp.descricao, total > 0 ? total : 50, comp)}
+                              className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer ${
+                                queuedKitCodes.has(comp.codigo)
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-zinc-900 text-white hover:bg-zinc-800'
+                              }`}
+                            >
+                              {queuedKitCodes.has(comp.codigo) ? 'Na Fila' : '+ Fila'}
+                            </button>
+                            <button type="button" className="px-2 py-1 rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 text-[10px] font-semibold cursor-pointer" onClick={() => onLaunchProduct(comp)}>Lançar</button>
+                          </div>
                         </td>
                       </tr>
                       );
@@ -489,6 +743,98 @@ export function KitsTab({
             </div>
           </div>
         </>
+      )}
+        </>
+      )}
+
+      {/* Modal Rápido: Criar Ordem de Montagem de Kit */}
+      {kitOrderModal && (() => {
+        const p = kitProduto(kitOrderModal.kit);
+        const { potencialHoje, gargaloComp } = calcularGargaloKit(kitOrderModal.kit);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+            <div className="bg-white rounded-xl border border-zinc-200 shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+              <div className="px-5 py-4 border-b border-zinc-200 bg-zinc-50 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-lg bg-zinc-900 text-white">
+                    <Boxes size={16} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-zinc-900">Criar Ordem de Montagem</h3>
+                    <p className="text-[11px] text-zinc-500 font-mono">{p?.codigo} — {p?.descricao}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setKitOrderModal(null)}
+                  className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="p-5 space-y-4 text-xs">
+                <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 flex items-center justify-between">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase text-zinc-500">Potencial de Montagem Hoje</div>
+                    <div className="text-base font-bold font-mono text-zinc-900">{potencialHoje} kits disponíveis</div>
+                  </div>
+                  {gargaloComp && (
+                    <div className="text-right">
+                      <div className="text-[10px] font-bold uppercase text-zinc-500">Item Gargalo</div>
+                      <div className="text-xs font-mono font-bold text-amber-700">{gargaloComp.codigo} ({gargaloComp.cobre} kits)</div>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-700 mb-1">Quantidade de Kits a Montar</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={kitOrderModal.qty}
+                    onChange={(e) => setKitOrderModal({ ...kitOrderModal, qty: Math.max(1, Number(e.target.value) || 0) })}
+                    className="w-full px-3 py-2 rounded-lg border border-zinc-300 font-mono text-sm font-bold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-700 mb-1">Observações da Ordem (opcional)</label>
+                  <input
+                    type="text"
+                    value={kitOrderModal.obs}
+                    onChange={(e) => setKitOrderModal({ ...kitOrderModal, obs: e.target.value })}
+                    placeholder="Ex: Prioridade expedição..."
+                    className="w-full px-3 py-2 rounded-lg border border-zinc-300 text-xs text-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                  />
+                </div>
+              </div>
+              <div className="px-5 py-3.5 bg-zinc-50 border-t border-zinc-200 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setKitOrderModal(null)}
+                  className="px-3 py-1.5 rounded-lg border border-zinc-300 bg-white text-zinc-700 text-xs font-bold hover:bg-zinc-50 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={creatingKitOrder || kitOrderModal.qty <= 0}
+                  onClick={handleCreateKitOrder}
+                  className="px-4 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                >
+                  {creatingKitOrder ? 'Criando...' : 'Confirmar Ordem de Montagem'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Modal de Aproveitamento de Batelada & Suprimentos */}
+      {batchModalProduct && (
+        <BatchOpportunityModal
+          product={batchModalProduct}
+          onClose={() => setBatchModalProduct(null)}
+          onEnqueueBatch={handleEnqueueBatch}
+        />
       )}
     </div>
   );

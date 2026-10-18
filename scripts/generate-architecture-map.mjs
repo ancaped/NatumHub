@@ -142,7 +142,6 @@ const MODULE_GROUPS = [
       'compras_online',
       'compras_pedidos',
       'compras_notas',
-      'compras_almoxarifado',
       'compras_simulation',
     ],
   },

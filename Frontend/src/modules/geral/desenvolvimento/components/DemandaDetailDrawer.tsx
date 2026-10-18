@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import type { Feedback, FeedbackDetail, FeedbackNote } from '../types';
 import { cn } from '../../lib/utils';
+import Drawer from '../../components/ui/Drawer';
 
 interface DemandaDetailDrawerProps {
   feedback: FeedbackDetail | null;
@@ -102,65 +103,62 @@ export default function DemandaDetailDrawer({
 
   return (
     <>
-      <aside className="fixed inset-y-0 right-0 z-50 w-full sm:w-[560px] lg:w-[640px] bg-white border-l border-zinc-200 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
-        {/* Top Header */}
-        <div className="p-4 sm:p-5 border-b border-zinc-200 flex items-start justify-between gap-3 bg-zinc-50/70 shrink-0">
-          <div className="min-w-0 space-y-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              {feedback.feedbackType === 'bug' ? (
-                <span className="flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
-                  <Bug className="h-3 w-3" /> Bug
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded-md">
-                  <MessageSquare className="h-3 w-3" /> Sugestão
-                </span>
-              )}
-
-              <button
-                type="button"
-                onClick={handleCopyId}
-                className="flex items-center gap-1 text-[10px] font-mono text-zinc-600 bg-zinc-100 hover:bg-zinc-200 px-2 py-0.5 rounded-md cursor-pointer transition-colors"
-                title="Copiar ID completo"
-              >
-                <span>{feedback.id.slice(0, 8)}</span>
-                {copiedId ? <Check className="h-2.5 w-2.5 text-emerald-600" /> : <Copy className="h-2.5 w-2.5 text-zinc-400" />}
-              </button>
-
-              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-800 border border-zinc-200">
-                {feedback.status}
-              </span>
-            </div>
-
-            <h2 className="text-base sm:text-lg font-black text-zinc-900 tracking-tight leading-snug">
-              {feedback.description}
-            </h2>
-
-            <div className="flex items-center gap-3 text-xs text-zinc-500 pt-0.5">
-              <span>Por <strong>{feedback.requestedBy || 'Operador'}</strong></span>
-              <span>·</span>
-              <span>{formatDateTime(feedback.createdAt)}</span>
-              {feedback.page && (
-                <>
-                  <span>·</span>
-                  <code className="text-[11px] font-mono text-zinc-700 bg-zinc-100 px-1 rounded">{feedback.page}</code>
-                </>
-              )}
-            </div>
+      <Drawer
+        isOpen={Boolean(feedback)}
+        onClose={onClose}
+        size="2xl"
+        title={feedback.description}
+        subtitle={
+          <div className="flex items-center gap-3 text-xs text-zinc-500 pt-0.5">
+            <span>Por <strong>{feedback.requestedBy || 'Operador'}</strong></span>
+            <span>·</span>
+            <span>{formatDateTime(feedback.createdAt)}</span>
+            {feedback.page && (
+              <>
+                <span>·</span>
+                <code className="text-[11px] font-mono text-zinc-700 bg-zinc-100 px-1 rounded">{feedback.page}</code>
+              </>
+            )}
           </div>
+        }
+        badge={
+          <div className="flex items-center gap-2 flex-wrap">
+            {feedback.feedbackType === 'bug' ? (
+              <span className="flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
+                <Bug className="h-3 w-3" /> Bug
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded-md">
+                <MessageSquare className="h-3 w-3" /> Sugestão
+              </span>
+            )}
 
+            <button
+              type="button"
+              onClick={handleCopyId}
+              className="flex items-center gap-1 text-[10px] font-mono text-zinc-600 bg-zinc-100 hover:bg-zinc-200 px-2 py-0.5 rounded-md cursor-pointer transition-colors"
+              title="Copiar ID completo"
+            >
+              <span>{feedback.id.slice(0, 8)}</span>
+              {copiedId ? <Check className="h-2.5 w-2.5 text-emerald-600" /> : <Copy className="h-2.5 w-2.5 text-zinc-400" />}
+            </button>
+
+            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-800 border border-zinc-200">
+              {feedback.status}
+            </span>
+          </div>
+        }
+        footer={
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-xl hover:bg-zinc-200/60 text-zinc-400 hover:text-zinc-700 transition-colors cursor-pointer shrink-0"
-            title="Fechar"
+            className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer transition-all ml-auto"
           >
-            <X className="h-5 w-5" />
+            Fechar Painel
           </button>
-        </div>
-
-        {/* Scrollable Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5">
+        }
+      >
+        <div className="space-y-5">
           {/* Alerta de Homologação se awaiting_review */}
           {feedback.status === 'awaiting_review' && (
             <div className="p-4 rounded-xl border border-violet-200 bg-violet-50/70 text-violet-950 space-y-2">
@@ -380,7 +378,7 @@ export default function DemandaDetailDrawer({
             </div>
           )}
         </div>
-      </aside>
+      </Drawer>
 
       {/* Modal de Zoom do Screenshot em Tela Cheia */}
       {showFullImage && (

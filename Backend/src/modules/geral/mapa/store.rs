@@ -465,16 +465,36 @@ pub async fn ensure_seeded(pool: &PgPool) -> Result<(), String> {
         *li += 1;
     }
 
-    // edges for priority modules
+    // canonical architectural edges (28)
     let edges = [
-        ("admin_linha_produtos", "producao", "feeds", "Produtos da linha alimentam produção"),
-        ("admin_linha_produtos", "estoque_produtos", "feeds", "Catálogo → estoque produtos"),
-        ("admin_linha_produtos", "vendas", "feeds", "Linha disponível para vendas"),
-        ("qualidade_documentacao", "notifications", "notify", "check-alerts"),
-        ("qualidade_documentacao", "auth", "guard", "module_key"),
-        ("estoque_almoxarifado", "erp", "sync", "seed/link ERP"),
-        ("hub_settings", "erp", "sync", "agenda sync"),
-        ("hub_settings", "audit", "audit", "hub_audit_events"),
+        ("admin_linha_produtos", "compras_simulation", "data", "Estrutura técnica de consumo de insumos para explosão MRP"),
+        ("admin_linha_produtos", "estoque_produtos", "data", "Catálogo de acabados, códigos ERP e saldo de segurança"),
+        ("admin_linha_produtos", "producao", "data", "Eixo central define fórmulas, rendimento e grade a fabricar"),
+        ("admin_linha_produtos", "vendas", "feeds", "Produtos ativos disponíveis na tabela comercial"),
+        ("compras_notas", "qualidade_recebimento_mp", "events", "Entrada física de carga gera lote para quarentena"),
+        ("compras_pedidos", "compras_notas", "flow", "Conciliação fiscal de XMLs contra pedidos aprovados"),
+        ("compras_simulation", "compras_pedidos", "flow", "Necessidade líquida convertida em ordens de compra"),
+        ("compras_simulation", "producao", "feeds", "Chegada de insumos libera ordens travadas no planejamento"),
+        ("desenvolvimento", "hub_settings", "data", "Governança arquitetural, trilha de auditoria e configurações"),
+        ("estoque_almoxarifado", "estoque_manutencoes", "flow", "Atendimento de peças e consumíveis para manutenção"),
+        ("estoque_almoxarifado", "producao", "data", "Fornecimento de EPIs e materiais de apoio operacional"),
+        ("estoque_equipamentos", "estoque_manutencoes", "data", "Prontuário de máquinas orienta ordens preventivas"),
+        ("expedicao_ecommerce", "estoque_produtos", "flow", "Baixa de estoque por conferência no empacotamento"),
+        ("expedicao_ecommerce", "ferramentas_editor", "data", "Emissão de etiquetas de envio e declaração de conteúdo"),
+        ("hub_settings", "audit", "audit", "Trilha estruturada de eventos (hub_audit_events)"),
+        ("hub_settings", "hub_operadores", "data", "Controle de acesso granular baseado em module_keys"),
+        ("producao", "producao_lotes", "flow", "Ordens de batelada convertidas em lotes rastreáveis"),
+        ("producao_lotes", "estoque_produtos", "flow", "Lotes liberados entram no saldo disponível de vendas"),
+        ("producao_lotes", "ferramentas_editor", "data", "Impressão de etiquetas térmicas de lote e caixas"),
+        ("producao_lotes", "fisco_quimica", "events", "Amostragem de tanque para ensaios de pH, viscosidade e densidade"),
+        ("producao_lotes", "microbiologia", "events", "Amostragem para incubação de mesófilos e fungos"),
+        ("producao_lotes", "montagem_kits", "flow", "Lotes aprovados liberados para composição de kits"),
+        ("qualidade_avarias", "estoque_produtos", "events", "Baixa de estoque por quebra ou dano no processo"),
+        ("qualidade_devolucoes", "vendas", "events", "Triagem de logística reversa e retorno ao armazém"),
+        ("qualidade_pops", "producao", "data", "Procedimentos Operacionais Padrão e instruções técnicas BPF"),
+        ("qualidade_pops", "qualidade_documentacao", "data", "Histórico regulatório de revisões e auditoria ANVISA"),
+        ("qualidade_recebimento_mp", "estoque_materia_prima", "flow", "Insumos aprovados em laudo liberados para saldo ativo"),
+        ("vendas", "expedicao_ecommerce", "flow", "Pedidos faturados liberados para separação e despacho"),
     ];
     for (from, to, kind, note) in edges {
         let id = Uuid::new_v4().to_string();

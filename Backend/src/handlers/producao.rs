@@ -591,8 +591,49 @@ pub async fn list_products(
         }
     }
 
+    // Fila de demandas e Planejamento ativo
+    let _ = ensure_fila_demandas_table(pool).await;
+    let mut fila_set = std::collections::HashSet::new();
+    if let Ok(rows) = sqlx::query("SELECT codigo_produto FROM producao_fila_demandas")
+        .fetch_all(pool)
+        .await
+    {
+        for r in rows {
+            let c: String = r.get(0);
+            fila_set.insert(clean_product_code(&c));
+            fila_set.insert(c.trim().to_string());
+        }
+    }
+
+    let mut planejado_set = std::collections::HashSet::new();
+    if let Ok(rows) = sqlx::query(
+        "SELECT codigo_produto FROM producao_planejamento_semanal WHERE ordem_status IN ('planejado', 'em_producao', 'aguardando')"
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for r in rows {
+            let c: String = r.get(0);
+            planejado_set.insert(clean_product_code(&c));
+            planejado_set.insert(c.trim().to_string());
+        }
+    }
+
     // Decorate computed items with formulation and missing ingredients info
     for p in &mut computed {
+        let clean_code = clean_product_code(&p.codigo);
+        let trimmed_code = p.codigo.trim().to_string();
+
+        let in_queue = fila_set.contains(&clean_code) || fila_set.contains(&trimmed_code);
+        p.na_fila = Some(in_queue);
+
+        let in_plan = planejado_set.contains(&clean_code) || planejado_set.contains(&trimmed_code);
+        p.planejado_semana = Some(in_plan);
+
+        let has_conflict = (p.is_producao_programada == Some(1) && p.is_lancamento)
+            || (p.producao_programada_disparo.is_some() && p.producao_programada_objetivo.is_some()
+                && p.producao_programada_disparo.unwrap_or(0) >= p.producao_programada_objetivo.unwrap_or(0));
+        p.conflito_regra = Some(has_conflict);
         let clean_code = clean_product_code(&p.codigo);
         let is_kit = kit_composition.contains_key(&p.codigo) || kit_composition.contains_key(&clean_code) || p.is_kit == Some(true);
         p.is_kit = Some(is_kit);
@@ -1170,6 +1211,9 @@ pub async fn list_kits(
                     sugestao_compra: None,
                     is_kit: Some(true),
                     parent_kits: None,
+                    na_fila: None,
+                    planejado_semana: None,
+                    conflito_regra: None,
                 }
             }
         };
@@ -4909,6 +4953,229 @@ pub async fn get_produtos_mesma_formulacao(
     }
 }
 
+// ==========================================
+// FILA DE DEMANDAS (INTEGRAÇÃO GERENCIAMENTO & PCP)
+// ==========================================
 
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct FilaDemandaRow {
+    pub id: String,
+    pub codigo_produto: String,
+    pub descricao: String,
+    pub quantidade: f64,
+    pub unidade: String,
+    pub quantidade_kg: Option<f64>,
+    pub origem_demanda: String,
+    pub linha_envase: Option<String>,
+    pub base_codigo: Option<String>,
+    pub base_nome: Option<String>,
+    pub observacoes: Option<String>,
+    pub prioridade: Option<i32>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
 
+#[derive(Debug, serde::Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateFilaDemandaItem {
+    pub codigo_produto: String,
+    pub descricao: String,
+    pub quantidade: f64,
+    #[serde(default = "default_fila_unidade")]
+    pub unidade: String,
+    pub quantidade_kg: Option<f64>,
+    #[serde(default = "default_origem_demanda")]
+    pub origem_demanda: String,
+    pub linha_envase: Option<String>,
+    pub base_codigo: Option<String>,
+    pub base_nome: Option<String>,
+    pub observacoes: Option<String>,
+    pub prioridade: Option<i32>,
+}
+
+fn default_fila_unidade() -> String { "un".to_string() }
+fn default_origem_demanda() -> String { "sugestao_estoque".to_string() }
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(untagged)]
+pub enum CreateFilaDemandaPayload {
+    Batch(Vec<CreateFilaDemandaItem>),
+    Single(CreateFilaDemandaItem),
+}
+
+pub async fn ensure_fila_demandas_table(pool: &PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS producao_fila_demandas (
+            id TEXT PRIMARY KEY,
+            codigo_produto TEXT NOT NULL,
+            descricao TEXT NOT NULL,
+            quantidade NUMERIC(12, 3) NOT NULL,
+            unidade TEXT NOT NULL DEFAULT 'un',
+            quantidade_kg NUMERIC(12, 3),
+            origem_demanda TEXT NOT NULL,
+            linha_envase TEXT,
+            base_codigo TEXT,
+            base_nome TEXT,
+            observacoes TEXT,
+            prioridade INTEGER DEFAULT 1,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_fila_demandas_codigo ON producao_fila_demandas (codigo_produto);
+        CREATE INDEX IF NOT EXISTS idx_fila_demandas_prioridade ON producao_fila_demandas (prioridade, created_at);
+        "#
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn list_fila_demandas(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    if let Err(e) = ensure_fila_demandas_table(pool).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Erro ao inicializar tabela de fila: {}", e) })),
+        )
+            .into_response();
+    }
+
+    let sql = r#"
+        SELECT id, codigo_produto, descricao, quantidade::float8, unidade,
+               quantidade_kg::float8, origem_demanda, linha_envase, base_codigo,
+               base_nome, observacoes, prioridade, created_at::text, updated_at::text
+        FROM producao_fila_demandas
+        ORDER BY COALESCE(prioridade, 1) ASC, created_at ASC
+    "#;
+
+    match sqlx::query_as::<_, FilaDemandaRow>(sql).fetch_all(pool).await {
+        Ok(items) => (StatusCode::OK, Json(json!({ "ok": true, "items": items }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Erro ao listar fila de demandas: {}", e) })),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn create_fila_demandas(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CreateFilaDemandaPayload>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    if let Err(e) = ensure_fila_demandas_table(pool).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Erro ao inicializar tabela de fila: {}", e) })),
+        )
+            .into_response();
+    }
+
+    let items = match payload {
+        CreateFilaDemandaPayload::Batch(list) => list,
+        CreateFilaDemandaPayload::Single(item) => vec![item],
+    };
+
+    let mut inserted_ids = Vec::new();
+    for it in items {
+        let new_id = uuid::Uuid::new_v4().to_string();
+        let q = r#"
+            INSERT INTO producao_fila_demandas (
+                id, codigo_produto, descricao, quantidade, unidade,
+                quantidade_kg, origem_demanda, linha_envase, base_codigo,
+                base_nome, observacoes, prioridade
+            ) VALUES (, , , , , , , , , 0, 1, 2)
+        "#;
+
+        let res = sqlx::query(q)
+            .bind(&new_id)
+            .bind(&it.codigo_produto)
+            .bind(&it.descricao)
+            .bind(it.quantidade)
+            .bind(&it.unidade)
+            .bind(it.quantidade_kg)
+            .bind(&it.origem_demanda)
+            .bind(&it.linha_envase)
+            .bind(&it.base_codigo)
+            .bind(&it.base_nome)
+            .bind(&it.observacoes)
+            .bind(it.prioridade.unwrap_or(1))
+            .execute(pool)
+            .await;
+
+        if let Ok(_) = res {
+            inserted_ids.push(new_id);
+        }
+    }
+
+    (
+        StatusCode::OK,
+        Json(json!({ "ok": true, "count": inserted_ids.len(), "ids": inserted_ids })),
+    )
+        .into_response()
+}
+
+pub async fn delete_fila_demanda(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    if let Err(e) = ensure_fila_demandas_table(pool).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Erro ao inicializar tabela de fila: {}", e) })),
+        )
+            .into_response();
+    }
+
+    match sqlx::query("DELETE FROM producao_fila_demandas WHERE id = ")
+        .bind(&id)
+        .execute(pool)
+        .await
+    {
+        Ok(res) => (
+            StatusCode::OK,
+            Json(json!({ "ok": true, "deleted": res.rows_affected() })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Erro ao excluir item da fila: {}", e) })),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn clear_fila_demandas(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    if let Err(e) = ensure_fila_demandas_table(pool).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Erro ao inicializar tabela de fila: {}", e) })),
+        )
+            .into_response();
+    }
+
+    match sqlx::query("DELETE FROM producao_fila_demandas")
+        .execute(pool)
+        .await
+    {
+        Ok(res) => (
+            StatusCode::OK,
+            Json(json!({ "ok": true, "deleted": res.rows_affected() })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Erro ao limpar fila de demandas: {}", e) })),
+        )
+            .into_response(),
+    }
+}
 

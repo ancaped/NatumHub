@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Search, Loader2, X, AlertCircle, CheckCircle2, History, PlusCircle } from 'lucide-react';
 import { apiFetch } from '../../../geral/lib/http';
+import Drawer from '../../../geral/components/ui/Drawer';
 
 interface ProductItem {
   codigo: string;
@@ -237,25 +238,23 @@ export function ProdutoContagemTab({ active = false }: { active?: boolean }) {
       </div>
 
       {/* Drawer */}
-      {selectedProduct && (
-        <div className="fixed inset-0 z-50 bg-black/35 backdrop-blur-xs flex justify-end">
-          <div className="w-full max-w-xl bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-250">
-            {/* Header */}
-            <div className="px-6 py-4 border-b border-zinc-200 flex justify-between items-start shrink-0">
-              <div>
-                <h3 className="text-sm font-extrabold text-zinc-900">{selectedProduct.descricao}</h3>
-                <p className="text-xs font-mono text-zinc-400 mt-0.5">Código: {selectedProduct.codigo}</p>
-              </div>
-              <button
-                onClick={() => setSelectedProduct(null)}
-                className="p-1.5 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-700 transition-colors cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Content Area */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      <Drawer
+        isOpen={Boolean(selectedProduct)}
+        onClose={() => setSelectedProduct(null)}
+        badge="Contagem de Estoque"
+        title={selectedProduct?.descricao || ''}
+        subtitle={selectedProduct ? `Código: ${selectedProduct.codigo} · Linha: ${selectedProduct.nomeLinha || 'Geral'}` : undefined}
+        size="lg"
+        footer={
+          <button
+            onClick={() => setSelectedProduct(null)}
+            className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer transition-all ml-auto"
+          >
+            Fechar Painel
+          </button>
+        }
+      >
+        <div className="space-y-6">
               {/* Quick Info Grid */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-3.5">
@@ -384,10 +383,8 @@ export function ProdutoContagemTab({ active = false }: { active?: boolean }) {
                   </div>
                 )}
               </div>
-            </div>
-          </div>
         </div>
-      )}
+      </Drawer>
     </div>
   );
 }

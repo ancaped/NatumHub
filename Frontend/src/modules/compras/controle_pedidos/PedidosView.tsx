@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../geral/lib/utils';
 import { useGlobalNavActive } from '../../geral/components/layout/NavShellContext';
+import Drawer from '../../geral/components/ui/Drawer';
 
 
 interface PedidosViewProps {
@@ -316,186 +317,163 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
       </div>
 
       {/* Detail Drawer */}
-      {(selectedOrder || drawerLoading) && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-end">
-          <div className="absolute inset-0 cursor-pointer" onClick={() => { setSelectedOrder(null); }} />
-
-          <div className="relative w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-350 z-10">
-            {drawerLoading ? (
-              <div className="flex-1 flex items-center justify-center text-zinc-400 font-semibold gap-2">
-                <RefreshCw className="h-5 w-5 animate-spin" />
-                Carregando detalhes do pedido...
+      <Drawer
+        isOpen={Boolean(selectedOrder || drawerLoading)}
+        onClose={() => setSelectedOrder(null)}
+        badge="Pedido de Compra"
+        title={selectedOrder ? `Pedido #${selectedOrder.nPedido}` : 'Carregando...'}
+        subtitle={selectedOrder ? `${selectedOrder.cNomeF || 'Fornecedor não informado'} · ${formatDate(selectedOrder.dPedido)}` : undefined}
+        size="xl"
+        loading={drawerLoading}
+        loadingText="Carregando detalhes do pedido..."
+        footer={
+          <button
+            onClick={() => setSelectedOrder(null)}
+            className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer transition-all"
+          >
+            Fechar Painel
+          </button>
+        }
+      >
+        {selectedOrder && (
+          <div className="space-y-6">
+            {/* Order Header Info Grid */}
+            <div className="bg-zinc-50 border border-zinc-200/80 rounded-2xl p-4 grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="space-y-0.5">
+                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Valor Total</span>
+                <p className="text-sm font-extrabold text-zinc-900">{formatCurrency(selectedOrder.nValor)}</p>
               </div>
-            ) : selectedOrder ? (
-              <>
-                {/* Drawer Header */}
-                <div className="px-6 py-5 border-b border-zinc-200 bg-zinc-50/50 flex justify-between items-start shrink-0">
-                  <div>
-                    <span className="px-2 py-0.5 bg-zinc-900 text-white rounded text-[9px] font-bold uppercase tracking-wider">
-                      Pedido de Compra
-                    </span>
-                    <h3 className="font-bold text-zinc-900 text-lg mt-1">Pedido #{selectedOrder.nPedido}</h3>
-                    <p className="text-xs text-zinc-500 font-mono mt-0.5">
-                      {selectedOrder.cNomeF || 'Fornecedor não informado'} | {formatDate(selectedOrder.dPedido)}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setSelectedOrder(null)}
-                    className="p-1.5 hover:bg-zinc-150 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
+              <div className="space-y-0.5">
+                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Status</span>
+                <p className="text-sm font-bold">
+                  {(() => {
+                    const badge = getStatusBadge(selectedOrder.cStatus);
+                    return (
+                      <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border", badge.className)}>
+                        <badge.icon className="h-3 w-3" />
+                        {badge.label}
+                      </span>
+                    );
+                  })()}
+                </p>
+              </div>
+              <div className="space-y-0.5">
+                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Prazo Pgto</span>
+                <p className="text-xs font-semibold text-zinc-700">{selectedOrder.cPrazoPgto || '-'}</p>
+              </div>
+              <div className="space-y-0.5">
+                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Previsão Entrega</span>
+                <p className="text-xs font-semibold text-zinc-700">{selectedOrder.cPrevEntrega || formatDate(selectedOrder.dPrevisao) || '-'}</p>
+              </div>
+              <div className="space-y-0.5">
+                <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Usuário</span>
+                <p className="text-xs font-semibold text-zinc-700">{selectedOrder.cUsuario || '-'}</p>
+              </div>
+              {selectedOrder.cEmail && (
+                <div className="space-y-0.5">
+                  <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">E-mail</span>
+                  <p className="text-xs font-medium text-zinc-600 truncate">{selectedOrder.cEmail}</p>
                 </div>
+              )}
+            </div>
 
-                {/* Order Header Info Grid */}
-                <div className="px-6 py-4 border-b border-zinc-100 bg-zinc-50/30 grid grid-cols-2 md:grid-cols-3 gap-4 shrink-0">
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Valor Total</span>
-                    <p className="text-sm font-extrabold text-zinc-900">{formatCurrency(selectedOrder.nValor)}</p>
-                  </div>
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Status</span>
-                    <p className="text-sm font-bold">
-                      {(() => {
-                        const badge = getStatusBadge(selectedOrder.cStatus);
-                        return (
-                          <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border", badge.className)}>
-                            <badge.icon className="h-3 w-3" />
-                            {badge.label}
-                          </span>
-                        );
-                      })()}
-                    </p>
-                  </div>
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Prazo Pgto</span>
-                    <p className="text-xs font-semibold text-zinc-700">{selectedOrder.cPrazoPgto || '-'}</p>
-                  </div>
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Previsão Entrega</span>
-                    <p className="text-xs font-semibold text-zinc-700">{selectedOrder.cPrevEntrega || formatDate(selectedOrder.dPrevisao) || '-'}</p>
-                  </div>
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] text-zinc-400 font-bold uppercase">Usuário</span>
-                    <p className="text-xs font-semibold text-zinc-700">{selectedOrder.cUsuario || '-'}</p>
-                  </div>
-                  {selectedOrder.cEmail && (
-                    <div className="space-y-0.5">
-                      <span className="text-[10px] text-zinc-400 font-bold uppercase">E-mail</span>
-                      <p className="text-xs font-medium text-zinc-600 truncate">{selectedOrder.cEmail}</p>
-                    </div>
-                  )}
-                </div>
+            {/* Observations if any */}
+            {selectedOrder.mObservac && (
+              <div className="p-4 border border-amber-200/80 bg-amber-50/50 rounded-2xl">
+                <p className="text-[10px] text-amber-800 font-bold uppercase tracking-wider mb-1">Observações</p>
+                <p className="text-xs text-amber-900/90 whitespace-pre-wrap leading-relaxed">{selectedOrder.mObservac}</p>
+              </div>
+            )}
 
-                {/* Observations if any */}
-                {selectedOrder.mObservac && (
-                  <div className="px-6 py-3 border-b border-zinc-100 bg-amber-50/30 shrink-0">
-                    <p className="text-[10px] text-zinc-400 font-bold uppercase mb-1">Observações</p>
-                    <p className="text-xs text-zinc-600 whitespace-pre-wrap">{selectedOrder.mObservac}</p>
-                  </div>
-                )}
+            {/* Items list */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-extrabold text-zinc-900 tracking-tight">Itens do Pedido</h4>
+                <span className="text-xs font-semibold text-zinc-500 bg-zinc-100 border border-zinc-200 px-2.5 py-0.5 rounded-lg">
+                  {selectedOrder.items.length} itens
+                </span>
+              </div>
 
-                {/* Items list */}
-                <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-bold text-zinc-900">Itens do Pedido</h4>
-                    <span className="text-xs font-semibold text-zinc-500 bg-zinc-100 px-2 py-1 rounded-lg">
-                      {selectedOrder.items.length} itens
-                    </span>
-                  </div>
-
-                  {selectedOrder.items.length === 0 ? (
-                    <div className="text-center py-12 text-zinc-400 text-sm">Nenhum item registrado neste pedido.</div>
-                  ) : (
-                    <div className="space-y-3">
-                      {selectedOrder.items.map((item, idx) => {
-                        const percent = item.nQtde > 0 ? (item.nChegou / item.nQtde) * 100 : 0;
-                        const isComplete = item.nChegou >= item.nQtde;
-                        return (
-                          <div key={`${item.id}-${idx}`} className="bg-white border border-zinc-150 rounded-xl p-4 shadow-sm space-y-3 hover:border-zinc-300 transition-colors">
-                            {/* Item header row */}
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1 min-w-0">
-                                <p className="font-bold text-zinc-800 text-sm truncate">
-                                  {item.cDescricao || item.cReferencia}
-                                </p>
-                                <p className="text-[10px] font-mono text-zinc-400 mt-0.5">
-                                  Ref: {item.cReferencia} {item.cUnidade ? `| ${item.cUnidade}` : ''}
-                                </p>
-                              </div>
-                              <span className={cn(
-                                "px-2 py-0.5 text-[9px] font-bold uppercase rounded-full border shrink-0",
-                                isComplete
-                                  ? "bg-emerald-50 text-emerald-600 border-emerald-200"
-                                  : item.nChegou > 0
-                                    ? "bg-amber-50 text-amber-600 border-amber-200"
-                                    : "bg-blue-50 text-blue-600 border-blue-200"
-                              )}>
-                                {isComplete ? 'Recebido' : item.nChegou > 0 ? 'Parcial' : 'Pendente'}
-                              </span>
-                            </div>
-
-                            {/* Quantities row */}
-                            <div className="grid grid-cols-3 gap-4 text-xs">
-                              <div>
-                                <span className="text-zinc-400 font-medium">Solicitado</span>
-                                <p className="font-bold text-zinc-900">{item.nQtde.toLocaleString('pt-BR')} {item.cUnidade || ''}</p>
-                              </div>
-                              <div>
-                                <span className="text-zinc-400 font-medium">Recebido</span>
-                                <p className={cn("font-bold", isComplete ? "text-emerald-600" : "text-amber-600")}>
-                                  {item.nChegou.toLocaleString('pt-BR')} {item.cUnidade || ''}
-                                </p>
-                              </div>
-                              <div className="text-right">
-                                <span className="text-zinc-400 font-medium">Preço Unit.</span>
-                                <p className="font-semibold text-zinc-800">{formatCurrency(item.nPreco)}</p>
-                              </div>
-                            </div>
-
-                            {/* Progress bar */}
-                            <div className="space-y-1">
-                              <div className="flex justify-between text-[10px] text-zinc-400">
-                                <span>Progresso de Recebimento</span>
-                                <span className="font-bold">{percent.toFixed(0)}%</span>
-                              </div>
-                              <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
-                                <div
-                                  className={cn(
-                                    "h-full rounded-full transition-all duration-500",
-                                    isComplete ? "bg-emerald-500" : percent > 0 ? "bg-amber-500" : "bg-zinc-200"
-                                  )}
-                                  style={{ width: `${Math.min(percent, 100)}%` }}
-                                />
-                              </div>
-                            </div>
-
-                            {/* Value row */}
-                            <div className="flex justify-between items-center pt-1 border-t border-zinc-100">
-                              <span className="text-[10px] text-zinc-400 font-medium">Valor Total do Item</span>
-                              <span className="text-sm font-extrabold text-zinc-900">{formatCurrency(item.nValorTotal)}</span>
-                            </div>
+              {selectedOrder.items.length === 0 ? (
+                <div className="text-center py-12 text-zinc-400 text-sm">Nenhum item registrado neste pedido.</div>
+              ) : (
+                <div className="space-y-3">
+                  {selectedOrder.items.map((item, idx) => {
+                    const percent = item.nQtde > 0 ? (item.nChegou / item.nQtde) * 100 : 0;
+                    const isComplete = item.nChegou >= item.nQtde;
+                    return (
+                      <div key={`${item.id}-${idx}`} className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-xs space-y-3 hover:border-zinc-300 transition-colors">
+                        {/* Item header row */}
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0 pr-2">
+                            <p className="font-bold text-zinc-800 text-sm truncate">
+                              {item.cDescricao || item.cReferencia}
+                            </p>
+                            <p className="text-[10px] font-mono text-zinc-400 mt-0.5">
+                              Ref: {item.cReferencia} {item.cUnidade ? `| ${item.cUnidade}` : ''}
+                            </p>
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+                          <span className={cn(
+                            "px-2 py-0.5 text-[9px] font-bold uppercase rounded-full border shrink-0",
+                            isComplete
+                              ? "bg-emerald-50 text-emerald-600 border-emerald-200"
+                              : item.nChegou > 0
+                                ? "bg-amber-50 text-amber-600 border-amber-200"
+                                : "bg-blue-50 text-blue-600 border-blue-200"
+                          )}>
+                            {isComplete ? 'Recebido' : item.nChegou > 0 ? 'Parcial' : 'Pendente'}
+                          </span>
+                        </div>
 
-                {/* Drawer Footer */}
-                <div className="px-6 py-4 border-t border-zinc-200 bg-zinc-50/50 flex justify-end shrink-0">
-                  <button
-                    onClick={() => setSelectedOrder(null)}
-                    className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer transition-all"
-                  >
-                    Fechar Painel
-                  </button>
+                        {/* Quantities row */}
+                        <div className="grid grid-cols-3 gap-4 text-xs">
+                          <div>
+                            <span className="text-zinc-400 font-medium">Solicitado</span>
+                            <p className="font-bold text-zinc-900">{item.nQtde.toLocaleString('pt-BR')} {item.cUnidade || ''}</p>
+                          </div>
+                          <div>
+                            <span className="text-zinc-400 font-medium">Recebido</span>
+                            <p className={cn("font-bold", isComplete ? "text-emerald-600" : "text-amber-600")}>
+                              {item.nChegou.toLocaleString('pt-BR')} {item.cUnidade || ''}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-zinc-400 font-medium">Preço Unit.</span>
+                            <p className="font-semibold text-zinc-800">{formatCurrency(item.nPreco)}</p>
+                          </div>
+                        </div>
+
+                        {/* Progress bar */}
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-[10px] text-zinc-400">
+                            <span>Progresso de Recebimento</span>
+                            <span className="font-bold">{percent.toFixed(0)}%</span>
+                          </div>
+                          <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                            <div
+                              className={cn(
+                                "h-full rounded-full transition-all duration-500",
+                                isComplete ? "bg-emerald-500" : percent > 0 ? "bg-amber-500" : "bg-zinc-200"
+                              )}
+                              style={{ width: `${Math.min(percent, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Value row */}
+                        <div className="flex justify-between items-center pt-1 border-t border-zinc-100">
+                          <span className="text-[10px] text-zinc-400 font-medium">Valor Total do Item</span>
+                          <span className="text-sm font-extrabold text-zinc-900">{formatCurrency(item.nValorTotal)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              </>
-            ) : null}
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </Drawer>
     </div>
   );
 }

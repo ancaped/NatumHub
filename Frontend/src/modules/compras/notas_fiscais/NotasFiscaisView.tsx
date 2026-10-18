@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../geral/lib/utils';
 import { useGlobalNavActive } from '../../geral/components/layout/NavShellContext';
+import Drawer from '../../geral/components/ui/Drawer';
 
 
 interface NotasFiscaisViewProps {
@@ -297,90 +298,33 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
       </div>
 
       {/* Detail Drawer */}
-      {(selectedInvoice || drawerLoading) && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex justify-end">
-          <div className="absolute inset-0 cursor-pointer" onClick={() => { setSelectedInvoice(null); }} />
-
-          <div className="relative w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-350 z-10">
-            {drawerLoading ? (
-              <div className="flex-1 flex items-center justify-center text-zinc-400 font-semibold gap-2">
-                <RefreshCw className="h-5 w-5 animate-spin" />
-                Carregando detalhes da nota fiscal...
-              </div>
-            ) : selectedInvoice ? (
-              <>
-                {/* Drawer Header */}
-                <div className="px-6 py-5 border-b border-zinc-200 bg-zinc-50/50 flex justify-between items-start shrink-0">
-                  <div>
-                    <span className="px-2 py-0.5 bg-zinc-900 text-white rounded text-[9px] font-bold uppercase tracking-wider">
-                      Nota Fiscal de Compra
-                    </span>
-                    <h3 className="font-bold text-zinc-900 text-lg mt-1">NF #{selectedInvoice.invoiceNumber}</h3>
-                    <p className="text-xs text-zinc-500 font-mono mt-0.5">
-                      {selectedInvoice.supplierName || 'Fornecedor não informado'} | {formatDate(selectedInvoice.invoiceDate)}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setSelectedInvoice(null)}
-                    className="p-1.5 hover:bg-zinc-150 rounded-lg text-zinc-400 hover:text-zinc-700 transition-all cursor-pointer"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-
-                {/* Tabs Navigation */}
-                <div className="px-6 py-3 border-b border-zinc-100 bg-white shrink-0">
-                  <div className="flex bg-zinc-100/80 p-1 rounded-xl gap-1">
-                    <button
-                      onClick={() => setActiveTab('geral')}
-                      className={cn(
-                        "flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer border border-transparent",
-                        activeTab === 'geral'
-                          ? "bg-white text-zinc-900 shadow-sm border-zinc-200/50"
-                          : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50/50"
-                      )}
-                    >
-                      <FileText size={14} />
-                      Dados Gerais
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('itens')}
-                      className={cn(
-                        "flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer border border-transparent",
-                        activeTab === 'itens'
-                          ? "bg-white text-zinc-900 shadow-sm border-zinc-200/50"
-                          : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50/50"
-                      )}
-                    >
-                      <Package size={14} />
-                      Itens Faturados
-                      <span className={cn(
-                        "px-1.5 py-0.25 text-[10px] rounded-md font-extrabold ml-1",
-                        activeTab === 'itens' ? "bg-zinc-900 text-white" : "bg-zinc-200 text-zinc-650"
-                      )}>
-                        {selectedInvoice.items.length}
-                      </span>
-                    </button>
-                    <button
-                      onClick={() => setActiveTab('frete')}
-                      className={cn(
-                        "flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer border border-transparent",
-                        activeTab === 'frete'
-                          ? "bg-white text-zinc-900 shadow-sm border-zinc-200/50"
-                          : "text-zinc-500 hover:text-zinc-800 hover:bg-zinc-50/50"
-                      )}
-                    >
-                      <Truck size={14} />
-                      Frete / CTe
-                      {hasFte && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse ml-1" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Tab Content Area */}
-                <div className="flex-1 overflow-y-auto">
+      <Drawer
+        isOpen={Boolean(selectedInvoice || drawerLoading)}
+        onClose={() => setSelectedInvoice(null)}
+        badge="Nota Fiscal de Compra"
+        title={selectedInvoice ? `NF #${selectedInvoice.invoiceNumber}` : 'Carregando...'}
+        subtitle={selectedInvoice ? `${selectedInvoice.supplierName || 'Fornecedor não informado'} | ${formatDate(selectedInvoice.invoiceDate)}` : undefined}
+        tabs={[
+          { id: 'geral', label: 'Dados Gerais', icon: FileText },
+          { id: 'itens', label: 'Itens Faturados', icon: Package, badge: selectedInvoice?.items.length },
+          { id: 'frete', label: 'Frete / CTe', icon: Truck, badge: hasFte ? 'CTe' : undefined },
+        ]}
+        activeTab={activeTab}
+        onTabChange={(tabId) => setActiveTab(tabId as any)}
+        size="xl"
+        loading={drawerLoading}
+        loadingText="Carregando detalhes da nota fiscal..."
+        footer={
+          <button
+            onClick={() => setSelectedInvoice(null)}
+            className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer transition-all"
+          >
+            Fechar Detalhes
+          </button>
+        }
+      >
+        {selectedInvoice && (
+          <div className="space-y-6">
                   {activeTab === 'geral' && (
                     <div className="animate-in fade-in duration-200">
                       {/* Info Header */}
@@ -595,22 +539,9 @@ export default function NotasFiscaisView({ onBackToHub }: NotasFiscaisViewProps)
                       )}
                     </div>
                   )}
-                </div>
-
-                {/* Drawer Footer */}
-                <div className="px-6 py-4 border-t border-zinc-200 bg-zinc-50/50 flex justify-end shrink-0">
-                  <button
-                    onClick={() => setSelectedInvoice(null)}
-                    className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer transition-all"
-                  >
-                    Fechar Detalhes
-                  </button>
-                </div>
-              </>
-            ) : null}
           </div>
-        </div>
-      )}
+        )}
+      </Drawer>
     </div>
   );
 }

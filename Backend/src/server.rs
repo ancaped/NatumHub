@@ -238,6 +238,16 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
             get(handlers::list_reatores).put(handlers::save_reatores),
         )
         .route(
+            "/api/producao/fila-demandas",
+            get(handlers::list_fila_demandas)
+                .post(handlers::create_fila_demandas)
+                .delete(handlers::clear_fila_demandas),
+        )
+        .route(
+            "/api/producao/fila-demandas/:id",
+            delete(handlers::delete_fila_demanda),
+        )
+        .route(
             "/api/producao/planejamento-semanal",
             get(handlers::list_planejamento_semanal).post(handlers::save_planejamento_item),
         )

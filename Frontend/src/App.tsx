@@ -9,7 +9,6 @@ import DesenvolvimentoView from './modules/geral/desenvolvimento/Desenvolvimento
 import AppShell from './modules/geral/components/layout/AppShell';
 
 import ProducaoView from './modules/producao/gerenciamento/ProducaoView';
-import ProducaoRotinaView from './modules/producao/rotina/ProducaoRotinaView';
 import PlanejamentoProducaoView from './modules/producao/planejamento/PlanejamentoProducaoView';
 import ProducaoLotesView from './modules/producao/lotes/ProducaoLotesView';
 import { ProcView } from './modules/producao/proc/ProcView';
@@ -25,7 +24,6 @@ import AlmoxManutencoesView from './modules/estoque/manutencoes/AlmoxManutencoes
 import OrdensManuaisView from './modules/estoque/ordens_manuais/OrdensManuaisView';
 import PedidosView from './modules/compras/controle_pedidos/PedidosView';
 import NotasFiscaisView from './modules/compras/notas_fiscais/NotasFiscaisView';
-import ComprasAlmoxarifadoView from './modules/compras/almoxarifado/ComprasAlmoxarifadoView';
 import ActiveProductsView from './modules/administrativo/linha_produtos/ActiveProductsView';
 import RelatoriosView from './modules/administrativo/relatorios/RelatoriosView';
 import ProdutosAtivosRelatoriosView from './modules/administrativo/produtos_ativos_relatorios/ProdutosAtivosRelatoriosView';
@@ -73,7 +71,7 @@ import {
   ensureBrowserClientConfig,
 } from './modules/geral/lib/connectionConfig';
 
-type HubView = 'hub' | 'producao_hub' | 'planejamento_producao' | 'producao' | 'producao_rotina' | 'producao_bases' | 'producao_lotes' | 'producao_proc' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'compras_almoxarifado' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'mapa_arquitetura' | 'desenvolvimento' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_ordens_manuais' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'qualidade_hub' | 'controle_qualidade' | 'qualidade_devolucoes' | 'qualidade_avarias' | 'qualidade_pops' | 'qualidade_treinamentos' | 'qualidade_temperatura' | 'qualidade_limpeza' | 'qualidade_recebimento_mp' | 'qualidade_documentacao' | 'administrativo' | 'admin_linha_produtos' | 'admin_produtos_ativos_relatorios' | 'admin_funcionarios' | 'admin_acompanhamento_producao' | 'expedicao_hub' | 'expedicao_ecommerce' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro' | 'ferramentas_hub' | 'ferramentas_etiquetas' | 'ferramentas_editor' | 'ferramentas_impressoras';
+type HubView = 'hub' | 'producao_hub' | 'planejamento_producao' | 'producao' | 'producao_bases' | 'producao_lotes' | 'producao_proc' | 'montagem_kits' | 'microbiologia' | 'fisco_quimica' | 'compras_hub' | 'compras_online' | 'compras_pedidos' | 'compras_notas' | 'hub_settings' | 'hub_supervisor' | 'hub_feedbacks' | 'mapa_arquitetura' | 'desenvolvimento' | 'estoque_hub' | 'almoxarifado_hub' | 'estoque_insumos' | 'estoque_produtos' | 'estoque_materia_prima' | 'estoque_embalagens' | 'estoque_coloracao' | 'estoque_apoio' | 'estoque_ordens_manuais' | 'estoque_itens' | 'estoque_almoxarifado' | 'estoque_supermercado' | 'estoque_pecas' | 'estoque_equipamentos' | 'estoque_manutencoes' | 'compras_materia_prima' | 'compras_embalagens' | 'compras_coloracao' | 'compras_apoio' | 'compras_quotations' | 'compras_simulation' | 'vendas_hub' | 'vendas' | 'vendas_online' | 'qualidade_hub' | 'controle_qualidade' | 'qualidade_devolucoes' | 'qualidade_avarias' | 'qualidade_pops' | 'qualidade_treinamentos' | 'qualidade_temperatura' | 'qualidade_limpeza' | 'qualidade_recebimento_mp' | 'qualidade_documentacao' | 'administrativo' | 'admin_linha_produtos' | 'admin_produtos_ativos_relatorios' | 'admin_funcionarios' | 'admin_acompanhamento_producao' | 'expedicao_hub' | 'expedicao_ecommerce' | 'expedicao' | 'linha_produtos' | 'estoque_ativos' | 'financeiro' | 'ferramentas_hub' | 'ferramentas_etiquetas' | 'ferramentas_editor' | 'ferramentas_impressoras';
 
 const getInitialView = (): HubView => {
   if (typeof window !== 'undefined') {
@@ -699,7 +697,7 @@ export default function App() {
               <h2 className="text-3xl font-extrabold tracking-tight text-zinc-900">Módulos do Almoxarifado</h2>
               <p className="text-sm text-zinc-500">Selecione a área operacional.</p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 w-full max-w-4xl">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 w-full max-w-5xl">
               {allowStock && (
                 <button onClick={() => setView('estoque_almoxarifado')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
                   <div className="space-y-4">
@@ -736,23 +734,10 @@ export default function App() {
                   <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
                 </button>
               )}
-              {allow('compras_almoxarifado') && (
-                <button onClick={() => setView('compras_almoxarifado')} className="group relative bg-white border border-zinc-200 hover:border-zinc-400 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer">
-                  <div className="space-y-4">
-                    <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors"><ShoppingCart className="h-6 w-6" /></div>
-                    <div>
-                      <h3 className="text-xl font-bold text-zinc-900">Compras</h3>
-                      <p className="text-sm text-zinc-500 mt-1">Solicitações em aberto e histórico com loja e comprovante.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">Abrir <ArrowRight className="h-4 w-4" /></div>
-                </button>
-              )}
             </div>
             {!allowStock &&
               !allow('estoque_equipamentos') &&
-              !allow('estoque_manutencoes') &&
-              !allow('compras_almoxarifado') && (
+              !allow('estoque_manutencoes') && (
                 <p className="text-sm text-zinc-400 text-center py-8">Sem permissão para submódulos.</p>
               )}
           </main>
@@ -831,14 +816,6 @@ export default function App() {
               setView('estoque_equipamentos');
             }}
           />
-        </ErrorBoundary>
-      );
-    }
-
-    if (view === 'compras_almoxarifado') {
-      return (
-        <ErrorBoundary onReset={() => setView('almoxarifado_hub')} fallbackTitle="Erro em compras do almoxarifado">
-          <ComprasAlmoxarifadoView onBackToHub={() => setView('almoxarifado_hub')} />
         </ErrorBoundary>
       );
     }

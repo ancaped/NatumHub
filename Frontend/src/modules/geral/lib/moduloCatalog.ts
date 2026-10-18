@@ -55,14 +55,7 @@ export const MODULE_CATALOG: ModuleCatalogItem[] = [
     group: 'Produção',
     subPages: ['Planejamento Semanal', 'Capacidade Fabril', 'Gatilhos'],
   },
-  {
-    key: 'producao_rotina',
-    label: 'Produção > Rotina',
-    group: 'Produção',
-    subPages: ['Checklist Diário', 'Turnos', 'Apontamentos'],
-  },
-
-  // Compras
+// Compras
   {
     key: 'compras_simulation',
     label: 'Compras > Simulador MRP',

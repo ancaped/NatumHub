@@ -12,7 +12,7 @@ use std::sync::Arc;
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
 use crate::modules::geral::auth::modules_registry::{
-    MODULE_COMPRAS_ALMOX, MODULE_ESTOQUE_ALMOX, MODULE_ESTOQUE_EQUIPAMENTOS, MODULE_ESTOQUE_ITENS,
+    MODULE_ESTOQUE_ALMOX, MODULE_ESTOQUE_EQUIPAMENTOS, MODULE_ESTOQUE_ITENS,
     MODULE_ESTOQUE_MANUTENCOES, MODULE_ESTOQUE_PECAS, MODULE_ESTOQUE_SUPERMERCADO,
 };
 use crate::modules::geral::notifications;
@@ -40,7 +40,6 @@ fn has_any_ops(ctx: &AuthContext) -> bool {
         || ctx.has_module(MODULE_ESTOQUE_PECAS)
         || ctx.has_module(MODULE_ESTOQUE_EQUIPAMENTOS)
         || ctx.has_module(MODULE_ESTOQUE_MANUTENCOES)
-        || ctx.has_module(MODULE_COMPRAS_ALMOX)
 }
 
 fn module_for_section(section: &str) -> Option<&'static str> {
@@ -71,7 +70,7 @@ fn can_write_stock(ctx: &AuthContext) -> bool {
 
 fn require_compras_almox(ctx: &AuthContext) -> bool {
     is_supervisor(ctx)
-        || ctx.has_module(MODULE_COMPRAS_ALMOX)
+        || ctx.has_module(MODULE_ESTOQUE_ALMOX)
         || can_write_stock(ctx)
 }
 
@@ -393,7 +392,7 @@ pub async fn create_demand_from_min(
         Ok(d) => {
             notifications::notify(
                 &state,
-                MODULE_COMPRAS_ALMOX,
+                MODULE_ESTOQUE_ALMOX,
                 "info",
                 "Nova demanda de almoxarifado",
                 d.title.as_deref().unwrap_or("Reposição"),

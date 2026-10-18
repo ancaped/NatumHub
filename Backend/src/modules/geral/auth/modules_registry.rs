@@ -25,7 +25,6 @@ pub const MODULE_ADMIN_ACOMPANHAMENTO_PRODUCAO: &str = "admin_acompanhamento_pro
 
 pub const MODULE_PLANEJAMENTO_PRODUCAO: &str = "planejamento_producao";
 pub const MODULE_PRODUCAO: &str = "producao";
-pub const MODULE_PRODUCAO_ROTINA: &str = "producao_rotina";
 pub const MODULE_PRODUCAO_BASES: &str = "producao_bases";
 pub const MODULE_PRODUCAO_LOTES: &str = "producao_lotes";
 pub const MODULE_PRODUCAO_PROC: &str = "producao_proc";
@@ -43,7 +42,6 @@ pub const MODULE_COMPRAS_COT: &str = "compras_quotations";
 pub const MODULE_COMPRAS_ONLINE: &str = "compras_online";
 pub const MODULE_COMPRAS_PEDIDOS: &str = "compras_pedidos";
 pub const MODULE_COMPRAS_NOTAS: &str = "compras_notas";
-pub const MODULE_COMPRAS_ALMOX: &str = "compras_almoxarifado";
 pub const MODULE_COMPRAS_SIMULATION: &str = "compras_simulation";
 
 pub const MODULE_VENDAS: &str = "vendas";
@@ -91,7 +89,6 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_ADMIN_ACOMPANHAMENTO_PRODUCAO,
     MODULE_PLANEJAMENTO_PRODUCAO,
     MODULE_PRODUCAO,
-    MODULE_PRODUCAO_ROTINA,
     MODULE_PRODUCAO_BASES,
     MODULE_PRODUCAO_LOTES,
     MODULE_PRODUCAO_PROC,
@@ -106,7 +103,6 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_COMPRAS_ONLINE,
     MODULE_COMPRAS_PEDIDOS,
     MODULE_COMPRAS_NOTAS,
-    MODULE_COMPRAS_ALMOX,
     MODULE_COMPRAS_SIMULATION,
     MODULE_VENDAS,
     MODULE_VENDAS_ONLINE,
@@ -169,7 +165,6 @@ pub fn module_registry() -> Vec<ModuleGroup> {
                 leaf(MODULE_ESTOQUE_ALMOX, "Estoque"),
                 leaf(MODULE_ESTOQUE_EQUIPAMENTOS, "Equipamentos"),
                 leaf(MODULE_ESTOQUE_MANUTENCOES, "Manutenções"),
-                leaf(MODULE_COMPRAS_ALMOX, "Compras"),
             ],
         },
         ModuleGroup {
@@ -179,7 +174,6 @@ pub fn module_registry() -> Vec<ModuleGroup> {
             children: vec![
                 leaf(MODULE_PLANEJAMENTO_PRODUCAO, "Planejamento de Produção"),
                 leaf(MODULE_PRODUCAO, "Gerenciamento"),
-                leaf(MODULE_PRODUCAO_ROTINA, "Rotina de Produção"),
                 leaf(MODULE_PRODUCAO_BASES, "Gestão de Bases"),
                 leaf(MODULE_PRODUCAO_PROC, "PROC (Processos)"),
                 leaf(MODULE_MONTAGEM_KITS, "Montagem de Kits"),
@@ -301,7 +295,6 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
             MODULE_ESTOQUE_PECAS,
             MODULE_ESTOQUE_EQUIPAMENTOS,
             MODULE_ESTOQUE_MANUTENCOES,
-            MODULE_COMPRAS_ALMOX,
         ]
         .into_iter()
         .map(String::from)
@@ -310,8 +303,7 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
             MODULE_PLANEJAMENTO_PRODUCAO,
             MODULE_ADMIN_ACOMPANHAMENTO_PRODUCAO,
             MODULE_PRODUCAO,
-            MODULE_PRODUCAO_ROTINA,
-            MODULE_PRODUCAO_BASES,
+                    MODULE_PRODUCAO_BASES,
             MODULE_PRODUCAO_LOTES,
             MODULE_PRODUCAO_PROC,
             MODULE_MONTAGEM_KITS,
@@ -330,7 +322,7 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
             MODULE_COMPRAS_ONLINE,
             MODULE_COMPRAS_PEDIDOS,
             MODULE_COMPRAS_NOTAS,
-            MODULE_COMPRAS_ALMOX,
+            MODULE_COMPRAS_SIMULATION,
         ]
         .into_iter()
         .map(String::from)

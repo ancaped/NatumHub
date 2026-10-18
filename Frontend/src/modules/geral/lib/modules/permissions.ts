@@ -31,10 +31,7 @@ export function canAccessView(user: AuthUser | null, view: string): boolean {
   if (view === 'hub') return true;
 
   const modules = user.modules ?? [];
-  if (view === 'producao_rotina') {
-    return modules.includes('producao_rotina') || modules.includes('producao');
-  }
-  if (view === 'planejamento_producao' || view === 'admin_acompanhamento_producao') {
+if (view === 'planejamento_producao' || view === 'admin_acompanhamento_producao') {
     return modules.some((m) =>
       ['planejamento_producao', 'admin_acompanhamento_producao', 'producao', 'producao_lotes'].includes(m)
     );
@@ -62,12 +59,6 @@ export function canAccessView(user: AuthUser | null, view: string): boolean {
   }
   if (view === 'estoque_equipamentos' || view === 'estoque_manutencoes') {
     return modules.includes('estoque_equipamentos') || modules.includes('estoque_manutencoes');
-  }
-  if (view === 'compras_almoxarifado') {
-    return (
-      modules.includes('compras_almoxarifado') ||
-      modules.some((m) => almoxStock.includes(m))
-    );
   }
 
   const key = viewToModuleKey(view);

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { X, RefreshCw, Package } from 'lucide-react';
 import { apiFetch } from '../../../geral/lib/http';
 import { cn } from '../../../geral/lib/utils';
+import Drawer from '../../../geral/components/ui/Drawer';
 import type { SalesOrder } from '../lib/types';
 import {
   formatSalesCurrency,
@@ -67,35 +68,35 @@ export function OrderDetailsDrawer({
     };
   }, [open, nPedido, dPedido]);
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-250">
-        <div className="h-16 border-b border-zinc-200 px-6 flex items-center justify-between shrink-0 bg-zinc-50">
-          <div className="min-w-0">
-            <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest block">
-              Pedido de venda
-            </span>
-            <h3 className="font-extrabold text-zinc-900 text-sm truncate mt-0.5">
-              {loading
-                ? 'Carregando…'
-                : order
-                  ? `#${order.n_pedido} · ${formatSalesDate(order.d_pedido)}`
-                  : error || '—'}
-            </h3>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-700 transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
+    <Drawer
+      isOpen={open}
+      onClose={onClose}
+      badge="Pedido de Venda"
+      title={order ? `#${order.n_pedido} · ${formatSalesDate(order.d_pedido)}` : (error || 'Detalhe do Pedido')}
+      subtitle={order ? `${order.c_nome || 'Consumidor final'} · Total: ${formatSalesCurrency(order.n_valor_tot)}` : undefined}
+      tabs={[
+        { id: 'itens', label: 'Itens', icon: Package, badge: order?.items?.length },
+        { id: 'resumo', label: 'Resumo & Prazos' },
+      ]}
+      activeTab={tab}
+      onTabChange={(t) => setTab(t as any)}
+      size="xl"
+      loading={loading}
+      loadingText="Carregando pedido de venda..."
+      footer={
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer transition-all ml-auto"
+        >
+          Fechar Painel
+        </button>
+      }
+    >
+      <div className="space-y-4">
         {order && !loading && (
-          <div className="px-6 py-3 border-b border-zinc-100 bg-white flex flex-wrap items-center gap-2 text-xs">
+          <div className="p-3 border border-zinc-200/80 rounded-xl bg-zinc-50 flex flex-wrap items-center gap-2 text-xs">
             <span
               className={cn(
                 'px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase',
@@ -119,43 +120,9 @@ export function OrderDetailsDrawer({
           </div>
         )}
 
-        <div className="border-b border-zinc-150 px-6 flex bg-zinc-50/50 shrink-0">
-          <button
-            type="button"
-            onClick={() => setTab('itens')}
-            className={cn(
-              'px-4 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer',
-              tab === 'itens'
-                ? 'border-zinc-900 text-zinc-900'
-                : 'border-transparent text-zinc-450 hover:text-zinc-700',
-            )}
-          >
-            Itens
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('resumo')}
-            className={cn(
-              'px-4 py-3 text-xs font-bold border-b-2 transition-all cursor-pointer',
-              tab === 'resumo'
-                ? 'border-zinc-900 text-zinc-900'
-                : 'border-transparent text-zinc-450 hover:text-zinc-700',
-            )}
-          >
-            Resumo
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-6">
-          {loading && (
-            <div className="flex flex-col items-center justify-center h-48 gap-3 text-zinc-400">
-              <RefreshCw className="h-8 w-8 animate-spin" />
-              <span className="text-sm font-bold">Carregando pedido…</span>
-            </div>
-          )}
-          {error && !loading && (
-            <div className="text-center text-sm text-rose-600 font-semibold py-12">{error}</div>
-          )}
+        {error && !loading && (
+          <div className="text-center text-sm text-rose-600 font-semibold py-12">{error}</div>
+        )}
           {order && !loading && tab === 'itens' && (
             <div className="border border-zinc-200 rounded-xl overflow-hidden">
               <table className="w-full text-left text-xs">
@@ -228,8 +195,7 @@ export function OrderDetailsDrawer({
               </div>
             </dl>
           )}
-        </div>
       </div>
-    </div>
+    </Drawer>
   );
 }
