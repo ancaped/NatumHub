@@ -43,6 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
     libpq5 \
+    postgresql-client \
     curl \
     && rm -rf /var/lib/apt/lists/*
 

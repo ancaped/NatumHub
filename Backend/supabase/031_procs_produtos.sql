@@ -1,4 +1,4 @@
-﻿-- Migration: 031_procs_produtos.sql
+-- Migration: 031_procs_produtos.sql
 -- Tabela para armazenamento e gestão de PROCs de Produtos (Processos ANVISA / Processos de Fabricação)
 
 CREATE TABLE IF NOT EXISTS procs_produtos (
