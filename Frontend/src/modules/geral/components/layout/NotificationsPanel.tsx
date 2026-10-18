@@ -178,7 +178,7 @@ export default function NotificationsPanel({ currentUser }: NotificationsPanelPr
                                 <span className="text-[9px] font-bold uppercase text-zinc-400 shrink-0">Nova</span>
                               )}
                             </div>
-                            <p className="text-[11px] text-zinc-600 mt-0.5 leading-snug">{n.message}</p>
+                            <p className="text-[11px] text-zinc-600 mt-0.5 leading-snug whitespace-pre-line">{n.message}</p>
                             <div className="flex items-center gap-2 mt-1.5">
                               <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">
                                 {moduleLabelForNotification(n.moduleKey)}
