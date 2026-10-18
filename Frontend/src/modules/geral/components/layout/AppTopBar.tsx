@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Settings, LogOut, UserCog, ClipboardList, Shield, ArrowLeft, Network, Loader2, RefreshCw, CheckCircle2, AlertTriangle, Menu, X, Code2 } from 'lucide-react';
+import { ChevronDown, Settings, LogOut, UserCog, ClipboardList, Shield, ArrowLeft, Network, Loader2, RefreshCw, CheckCircle2, AlertTriangle, Menu, X, Code2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { cn, getAppVersion, getAppEnvironment } from '../../lib/utils';
 import { canAccessView } from '../../lib/modules/permissions';
 import { isSupervisor, canSeeFeedbacks } from '../../lib/auth';
@@ -8,6 +8,7 @@ import type { AuthUser } from '../../lib/auth';
 import { apiJson, ApiError } from '../../lib/http';
 import Modal from '../ui/Modal';
 import NotificationsPanel from './NotificationsPanel';
+import { useNavShell } from './NavShellContext';
 import NexusLogo from '../NexusLogo';
 import {
   getAccessibleSubmodules,
@@ -79,6 +80,7 @@ export default function AppTopBar({
   fetchSqlConfig,
   showModules = true,
 }: AppTopBarProps) {
+  const { sidebarCollapsed, toggleSidebar } = useNavShell();
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileExpanded, setMobileExpanded] = useState<string | null>(null);
@@ -434,14 +436,36 @@ export default function AppTopBar({
         ref={barRef}
         className="no-print h-14 w-full bg-white border-b border-zinc-200 px-2 sm:px-4 lg:px-6 flex items-center gap-2 lg:gap-4 shadow-sm shrink-0 z-40 relative select-none"
       >
-        <button
-          type="button"
-          onClick={() => setView('hub')}
-          className="flex items-center hover:opacity-80 transition-opacity focus:outline-none shrink-0 mr-1 cursor-pointer"
-          title="Início"
-        >
-          <NexusLogo variant="badge" size="sm" />
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setView('hub')}
+            className="flex items-center hover:opacity-80 transition-opacity focus:outline-none shrink-0 cursor-pointer"
+            title="Início"
+          >
+            <NexusLogo variant="badge" size="sm" />
+          </button>
+
+          {view !== 'hub' && (
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              className="hidden md:inline-flex items-center justify-center h-8 w-8 rounded-lg text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 transition-colors cursor-pointer border border-transparent hover:border-zinc-200"
+              title={sidebarCollapsed ? 'Expandir menu lateral (Ctrl+B)' : 'Recolher menu lateral (Ctrl+B)'}
+              aria-label="Alternar menu lateral"
+            >
+              {sidebarCollapsed ? (
+                <PanelLeftOpen className="h-4 w-4" />
+              ) : (
+                <PanelLeftClose className="h-4 w-4" />
+              )}
+            </button>
+          )}
+        </div>
+
+        {view !== 'hub' && (
+          <div className="h-4 w-px bg-zinc-200 hidden md:block mx-0.5 shrink-0" />
+        )}
 
         {showModules ? (
           <>
