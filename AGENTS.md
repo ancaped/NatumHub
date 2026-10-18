@@ -30,7 +30,7 @@ Rota HTTP           → natumhub-api
 
 | Tema | Página no ai-memory |
 |------|---------------------|
-| Arquitetura ZimaOS Dual | `decisions/zimaos-dual-stack.md` |
+| Arquitetura ZimaOS Single Stack | `decisions/zimaos-single-stack-gitops.md` |
 | Infraestrutura e Deploy | `concepts/infraestrutura-zimaos.md` |
 | Gotchas de Build Linux/Docker | `gotchas/build-linux-docker.md` |
 | Servidor Headless Axum | `concepts/servidor-headless-axum.md` |
