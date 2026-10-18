@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Menu, X, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useGlobalNavActive, useNavShell } from './NavShellContext';
@@ -115,7 +115,12 @@ export default function AppLayout({
 }: AppLayoutProps) {
   const globalNav = useGlobalNavActive();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { sidebarCollapsed: isCollapsed, toggleSidebar } = useNavShell();
+  const { sidebarCollapsed: isCollapsed, toggleSidebar, setHasSidebar } = useNavShell();
+
+  useEffect(() => {
+    setHasSidebar(true);
+    return () => setHasSidebar(false);
+  }, [setHasSidebar]);
 
   const hasMobileTabs = sidebarItems.length > 1;
 

@@ -18,6 +18,7 @@ import {
   type NavSubmodule,
 } from '../../lib/nav/navRegistry';
 import { getModuleTitle } from '../../lib/viewLabels';
+import { useNavShell } from './NavShellContext';
 
 interface ProfileForm {
   fullName: string;
@@ -79,6 +80,8 @@ export default function AppTopBar({
   fetchSqlConfig,
   showModules = true,
 }: AppTopBarProps) {
+  const { sidebarCollapsed: isCollapsed, hasSidebar } = useNavShell();
+  const hasActiveSidebar = hasSidebar || (view ? view !== 'hub' : false);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileExpanded, setMobileExpanded] = useState<string | null>(null);
@@ -432,8 +435,19 @@ export default function AppTopBar({
     <>
       <header
         ref={barRef}
-        className="no-print h-14 w-full bg-white border-b border-zinc-200 px-2 sm:px-4 lg:px-6 flex items-center gap-2 lg:gap-4 shrink-0 z-40 relative select-none"
+        className="no-print h-14 w-full bg-white px-2 sm:px-4 lg:px-6 flex items-center gap-2 lg:gap-4 shrink-0 z-40 relative select-none"
       >
+        {/* Borda inferior dinâmica: une visualmente a barra superior e a sidebar, eliminando a linha divisória entre elas */}
+        <div
+          className={cn(
+            'absolute bottom-0 right-0 h-px bg-zinc-200 pointer-events-none transition-[left] duration-300 ease-[cubic-bezier(0.2,0,0,1)]',
+            hasActiveSidebar
+              ? isCollapsed
+                ? 'left-0 md:left-16'
+                : 'left-0 md:left-64'
+              : 'left-0'
+          )}
+        />
         <button
           type="button"
           onClick={() => setView('hub')}

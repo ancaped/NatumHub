@@ -5,6 +5,8 @@ interface NavShellContextValue {
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
+  hasSidebar: boolean;
+  setHasSidebar: (has: boolean) => void;
 }
 
 const NavShellContext = createContext<NavShellContextValue>({
@@ -12,6 +14,8 @@ const NavShellContext = createContext<NavShellContextValue>({
   sidebarCollapsed: false,
   toggleSidebar: () => {},
   setSidebarCollapsed: () => {},
+  hasSidebar: false,
+  setHasSidebar: () => {},
 });
 
 export function NavShellProvider({
@@ -27,6 +31,7 @@ export function NavShellProvider({
     if (mini != null) return mini === 'true';
     return localStorage.getItem('nexus_sidebar_collapsed') === 'true';
   });
+  const [hasSidebar, setHasSidebar] = useState<boolean>(false);
 
   const setSidebarCollapsed = useCallback((collapsed: boolean) => {
     setSidebarCollapsedState(collapsed);
@@ -69,8 +74,10 @@ export function NavShellProvider({
       sidebarCollapsed,
       toggleSidebar,
       setSidebarCollapsed,
+      hasSidebar,
+      setHasSidebar,
     }),
-    [active, sidebarCollapsed, toggleSidebar, setSidebarCollapsed]
+    [active, sidebarCollapsed, toggleSidebar, setSidebarCollapsed, hasSidebar]
   );
 
   return <NavShellContext.Provider value={value}>{children}</NavShellContext.Provider>;
