@@ -175,6 +175,7 @@ pub struct QueryParams {
     pub fixas_only: Option<bool>,
     pub include_fixas: Option<bool>,
     pub include_all_regimes: Option<bool>,
+    pub segment: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

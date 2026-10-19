@@ -1010,6 +1010,73 @@ pub async fn list_products(
         }
     }
 
+    // Compute segment counts across all visible products before segment filter
+    let count_needed = computed.iter().filter(|p| {
+        p.producao_recomendada > 0 || p.na_fila == Some(true) || p.planejado_semana == Some(true)
+    }).count();
+    let count_normal = computed.iter().filter(|p| {
+        let is_prog = p.is_producao_programada == Some(1);
+        let is_fixa = p.is_lancamento_manual == Some(1)
+            || p.lancamento_gatilho.filter(|n| *n > 0).is_some()
+            || p.lancamento_estoque_maximo.filter(|n| *n > 0).is_some();
+        let is_kit_comp = p.is_kit_component == Some(true);
+        !is_kit_comp && !is_prog && !is_fixa
+    }).count();
+    let count_kit_mixed = computed.iter().filter(|p| {
+        p.is_kit_component == Some(true) && p.produzir_apenas_kit != Some(1)
+    }).count();
+    let count_kit_only = computed.iter().filter(|p| {
+        p.is_kit_component == Some(true) && p.produzir_apenas_kit == Some(1)
+    }).count();
+    let count_programadas = computed.iter().filter(|p| {
+        p.is_producao_programada == Some(1)
+    }).count();
+    let count_fixas = computed.iter().filter(|p| {
+        p.is_lancamento_manual == Some(1)
+            || p.lancamento_gatilho.filter(|n| *n > 0).is_some()
+            || p.lancamento_estoque_maximo.filter(|n| *n > 0).is_some()
+    }).count();
+
+    // Apply segment filter if provided
+    if let Some(ref seg) = params.segment {
+        match seg.as_str() {
+            "needed" => {
+                computed.retain(|p| p.producao_recomendada > 0 || p.na_fila == Some(true) || p.planejado_semana == Some(true));
+            }
+            "normal" => {
+                computed.retain(|p| {
+                    let is_prog = p.is_producao_programada == Some(1);
+                    let is_fixa = p.is_lancamento_manual == Some(1)
+                        || p.lancamento_gatilho.filter(|n| *n > 0).is_some()
+                        || p.lancamento_estoque_maximo.filter(|n| *n > 0).is_some();
+                    let is_kit_comp = p.is_kit_component == Some(true);
+                    !is_kit_comp && !is_prog && !is_fixa
+                });
+            }
+            "kit_mixed" => {
+                computed.retain(|p| {
+                    p.is_kit_component == Some(true) && p.produzir_apenas_kit != Some(1)
+                });
+            }
+            "kit_only" => {
+                computed.retain(|p| {
+                    p.is_kit_component == Some(true) && p.produzir_apenas_kit == Some(1)
+                });
+            }
+            "programadas" => {
+                computed.retain(|p| p.is_producao_programada == Some(1));
+            }
+            "fixas" => {
+                computed.retain(|p| {
+                    p.is_lancamento_manual == Some(1)
+                        || p.lancamento_gatilho.filter(|n| *n > 0).is_some()
+                        || p.lancamento_estoque_maximo.filter(|n| *n > 0).is_some()
+                });
+            }
+            _ => {}
+        }
+    }
+
     let total_items = computed.len();
 
     // Get unique base names for filter dropdown
@@ -1053,6 +1120,14 @@ pub async fn list_products(
                 "abundante": count_abundante,
                 "lancamentos": count_lancamentos,
                 "total_visible": total_visible,
+            },
+            "segment_counts": {
+                "needed": count_needed,
+                "normal": count_normal,
+                "kit_mixed": count_kit_mixed,
+                "kit_only": count_kit_only,
+                "programadas": count_programadas,
+                "fixas": count_fixas,
             },
             "bases": unique_bases,
         }))

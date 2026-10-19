@@ -42,11 +42,24 @@ export function InventoryTab({
   onShowDetails,
   productionApprovalList = [],
   onToggleApprovalList,
-  onToggleApenasKit
+  onToggleApenasKit,
+  segment: controlledSegment,
+  onSegmentChange,
+  segmentCounts: backendSegmentCounts
 }: any) {
   // Segmented Control: 'needed' | 'normal' | 'kit_mixed' | 'kit_only' | 'programadas' | 'fixas'
   type InventorySegment = 'needed' | 'normal' | 'kit_mixed' | 'kit_only' | 'programadas' | 'fixas';
-  const [segment, setSegment] = useState<InventorySegment>('needed');
+  const [internalSegment, setInternalSegment] = useState<InventorySegment>('needed');
+  const segment: InventorySegment = controlledSegment || internalSegment;
+
+  const handleSegmentClick = (newSeg: InventorySegment) => {
+    if (onSegmentChange) {
+      onSegmentChange(newSeg);
+    } else {
+      setInternalSegment(newSeg);
+    }
+  };
+
   const [hideQueued, setHideQueued] = useState(false);
   
   // State for PostgreSQL Fila de Demandas
@@ -81,8 +94,19 @@ export function InventoryTab({
     return map;
   }, [queuedItems]);
 
-  // Segment counts
-  const segmentCounts = useMemo(() => {
+  // Segment counts: use accurate catalog totals from backend if provided, otherwise compute locally
+  const counts = useMemo(() => {
+    if (backendSegmentCounts && Object.keys(backendSegmentCounts).length > 0) {
+      return {
+        needed: backendSegmentCounts.needed || 0,
+        normal: backendSegmentCounts.normal || 0,
+        kit_mixed: backendSegmentCounts.kit_mixed || 0,
+        kit_only: backendSegmentCounts.kit_only || 0,
+        programadas: backendSegmentCounts.programadas || 0,
+        fixas: backendSegmentCounts.fixas || 0,
+      };
+    }
+
     let needed = 0;
     let normal = 0;
     let kit_mixed = 0;
@@ -92,7 +116,7 @@ export function InventoryTab({
 
     for (const p of products) {
       const isProg = p.is_producao_programada === 1;
-      const isFixa = p.is_lancamento || p.is_lancamento_manual === 1;
+      const isFixa = p.is_lancamento || p.is_lancamento_manual === 1 || (p.lancamento_gatilho ?? 0) > 0 || (p.lancamento_estoque_maximo ?? 0) > 0;
       const isRec = (p.producao_recomendada || 0) > 0;
       const inQueue = p.na_fila || queuedMap.has(p.codigo);
       const inPlan = p.planejado_semana;
@@ -108,40 +132,45 @@ export function InventoryTab({
     }
 
     return { needed, normal, kit_mixed, kit_only, programadas, fixas };
-  }, [products, queuedMap]);
+  }, [backendSegmentCounts, products, queuedMap]);
 
   // Filter products by active segment and search/queue options
   const displayedProducts = useMemo(() => {
     return products.filter((p: any) => {
-      const isProg = p.is_producao_programada === 1;
-      const isFixa = p.is_lancamento || p.is_lancamento_manual === 1;
-      const isRec = (p.producao_recomendada || 0) > 0;
       const inQueue = p.na_fila || queuedMap.has(p.codigo);
       const inPlan = p.planejado_semana;
-      const isKitComp = Boolean(p.is_kit_component);
-      const onlyKit = p.produzir_apenas_kit === 1;
 
       if (hideQueued && (inQueue || inPlan)) {
         return false;
       }
 
+      // When backend filters by segment, products is already the correct items.
+      // Local safety check only if not filtered on backend:
       if (segment === 'needed') {
+        const isRec = (p.producao_recomendada || 0) > 0;
         return isRec || inQueue || inPlan;
       }
       if (segment === 'normal') {
+        const isProg = p.is_producao_programada === 1;
+        const isFixa = p.is_lancamento || p.is_lancamento_manual === 1 || (p.lancamento_gatilho ?? 0) > 0 || (p.lancamento_estoque_maximo ?? 0) > 0;
+        const isKitComp = Boolean(p.is_kit_component);
         return !isKitComp && !isProg && !isFixa;
       }
       if (segment === 'kit_mixed') {
+        const isKitComp = Boolean(p.is_kit_component);
+        const onlyKit = p.produzir_apenas_kit === 1;
         return isKitComp && !onlyKit;
       }
       if (segment === 'kit_only') {
+        const isKitComp = Boolean(p.is_kit_component);
+        const onlyKit = p.produzir_apenas_kit === 1;
         return isKitComp && onlyKit;
       }
       if (segment === 'programadas') {
-        return isProg;
+        return p.is_producao_programada === 1;
       }
       if (segment === 'fixas') {
-        return isFixa;
+        return p.is_lancamento || p.is_lancamento_manual === 1 || (p.lancamento_gatilho ?? 0) > 0 || (p.lancamento_estoque_maximo ?? 0) > 0;
       }
       return true;
     });
@@ -267,7 +296,7 @@ export function InventoryTab({
         <div className="flex flex-wrap items-center gap-1.5">
           <div className="inline-flex rounded-lg p-0.5 bg-zinc-200/60 text-xs font-semibold flex-wrap gap-0.5">
             <button
-              onClick={() => setSegment('needed')}
+              onClick={() => handleSegmentClick('needed')}
               className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
                 segment === 'needed'
                   ? 'bg-white text-zinc-900 shadow-xs font-bold'
@@ -277,12 +306,12 @@ export function InventoryTab({
               <Zap size={14} className={segment === 'needed' ? 'text-amber-600' : ''} />
               <span>Tudo p/ Produzir Hoje</span>
               <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-100 text-zinc-700 font-mono">
-                {segmentCounts.needed}
+                {counts.needed}
               </span>
             </button>
 
             <button
-              onClick={() => setSegment('normal')}
+              onClick={() => handleSegmentClick('normal')}
               className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
                 segment === 'normal'
                   ? 'bg-white text-zinc-900 shadow-xs font-bold'
@@ -292,12 +321,12 @@ export function InventoryTab({
               <Layers size={14} />
               <span>Linha Normal</span>
               <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-100 text-zinc-700 font-mono">
-                {segmentCounts.normal}
+                {counts.normal}
               </span>
             </button>
 
             <button
-              onClick={() => setSegment('kit_mixed')}
+              onClick={() => handleSegmentClick('kit_mixed')}
               className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
                 segment === 'kit_mixed'
                   ? 'bg-white text-zinc-900 shadow-xs font-bold'
@@ -307,12 +336,12 @@ export function InventoryTab({
               <Package size={14} className={segment === 'kit_mixed' ? 'text-sky-600' : ''} />
               <span>Venda + Kit (Misto)</span>
               <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-100 text-zinc-700 font-mono">
-                {segmentCounts.kit_mixed}
+                {counts.kit_mixed}
               </span>
             </button>
 
             <button
-              onClick={() => setSegment('kit_only')}
+              onClick={() => handleSegmentClick('kit_only')}
               className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
                 segment === 'kit_only'
                   ? 'bg-white text-zinc-900 shadow-xs font-bold'
@@ -322,12 +351,12 @@ export function InventoryTab({
               <Package size={14} className={segment === 'kit_only' ? 'text-violet-600' : ''} />
               <span>Somente em Kits</span>
               <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-100 text-zinc-700 font-mono">
-                {segmentCounts.kit_only}
+                {counts.kit_only}
               </span>
             </button>
 
             <button
-              onClick={() => setSegment('programadas')}
+              onClick={() => handleSegmentClick('programadas')}
               className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
                 segment === 'programadas'
                   ? 'bg-white text-zinc-900 shadow-xs font-bold'
@@ -337,12 +366,12 @@ export function InventoryTab({
               <Calendar size={14} />
               <span>Programadas</span>
               <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-100 text-zinc-700 font-mono">
-                {segmentCounts.programadas}
+                {counts.programadas}
               </span>
             </button>
 
             <button
-              onClick={() => setSegment('fixas')}
+              onClick={() => handleSegmentClick('fixas')}
               className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
                 segment === 'fixas'
                   ? 'bg-white text-zinc-900 shadow-xs font-bold'
@@ -352,7 +381,7 @@ export function InventoryTab({
               <Target size={14} />
               <span>Fixas / Metas</span>
               <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-100 text-zinc-700 font-mono">
-                {segmentCounts.fixas}
+                {counts.fixas}
               </span>
             </button>
           </div>
@@ -595,12 +624,12 @@ export function InventoryTab({
                               {p.produzir_apenas_kit === 1 ? 'Mudar p/ Venda + Kit' : 'Mudar p/ Somente Kit'}
                             </button>
                           )}
-                          {p.is_producao_programada === 1 && (
+                          {(p.is_producao_programada === 1 || (p.programada_gatilho ?? 0) > 0 || (p.producao_programada_disparo ?? 0) > 0) && (
                             <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-zinc-900 text-white rounded">
-                              Programada {p.programada_gatilho ? `(Gat: ${p.programada_gatilho} | Obj: ${p.programada_objetivo || '—'})` : ''}
+                              Programada {(p.programada_gatilho || p.producao_programada_disparo) ? `(Gat: ${p.programada_gatilho || p.producao_programada_disparo} | Obj: ${p.programada_objetivo || p.producao_programada_meta || '—'})` : ''}
                             </span>
                           )}
-                          {p.is_lancamento && (
+                          {(p.is_lancamento || (p.lancamento_gatilho ?? 0) > 0 || (p.lancamento_estoque_maximo ?? 0) > 0) && (
                             <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-zinc-100 text-zinc-800 border border-zinc-300 rounded">
                               Fixa / Meta {p.lancamento_gatilho ? `(Gat: ${p.lancamento_gatilho} | Máx: ${p.lancamento_estoque_maximo || '—'})` : ''}
                             </span>

@@ -99,6 +99,8 @@ export default function ProducaoView({
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
+  const [inventorySegment, setInventorySegment] = useState<'needed' | 'normal' | 'kit_mixed' | 'kit_only' | 'programadas' | 'fixas'>('needed');
+  const [inventorySegmentCounts, setInventorySegmentCounts] = useState<{ [key: string]: number }>({});
   
   // Global Settings (Stored in LocalStorage)
   const [diasComerciais, setDiasComerciais] = useState(() => {
@@ -589,6 +591,7 @@ export default function ProducaoView({
       params.append('page', page.toString());
       params.append('limit', limitPerPage.toString());
       params.append('include_all_regimes', 'true');
+      params.append('segment', inventorySegment);
       if (sortField) {
         params.append('sort', sortField);
         params.append('order', sortDir);
@@ -602,6 +605,7 @@ export default function ProducaoView({
         setTotalPages(data.total_pages || 1);
         if (data.stats) setStats(data.stats);
         if (data.bases) setBases(data.bases);
+        if (data.segment_counts) setInventorySegmentCounts(data.segment_counts);
       } else {
         let detail = '';
         try {
@@ -618,7 +622,7 @@ export default function ProducaoView({
     } finally {
       setLoading(false);
     }
-  }, [search, activeTab, selectedStatus, selectedBase, page, limitPerPage, showHidden, sortField, sortDir]);
+  }, [search, activeTab, selectedStatus, selectedBase, page, limitPerPage, showHidden, sortField, sortDir, inventorySegment]);
 
   // Fetch kits from API
   const fetchKits = useCallback(async () => {
@@ -1521,6 +1525,12 @@ export default function ProducaoView({
               setSortField={setSortField}
               sortDir={sortDir}
               setSortDir={setSortDir}
+              segment={inventorySegment}
+              onSegmentChange={(seg: any) => {
+                setInventorySegment(seg);
+                setPage(1);
+              }}
+              segmentCounts={inventorySegmentCounts}
               onLaunchProduct={(p) => {
                 setLaunchingProduct(p);
                 setLaunchQty(p.producao_recomendada > 0 ? p.producao_recomendada : 100);
