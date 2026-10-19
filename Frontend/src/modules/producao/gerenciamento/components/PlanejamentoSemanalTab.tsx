@@ -3170,7 +3170,6 @@ export function PlanejamentoSemanalTab({
                                 return;
                               }
 
-                              const targetReator = reatores.find(r => r.id === reator.id);
                               const updatedList: PlanejamentoItem[] = [];
 
                               for (let idx = 0; idx < draggedBatch.length; idx++) {
@@ -3184,9 +3183,6 @@ export function PlanejamentoSemanalTab({
                                   }
                                 } else {
                                   newRecipiente = 'Reator';
-                                  if (draggedBatch.length === 1 && targetReator && targetReator.capacidade_kg > 0 && newQty < 40 && targetReator.capacidade_kg >= 100) {
-                                    newQty = targetReator.capacidade_kg;
-                                  }
                                 }
 
                                 const updated: PlanejamentoItem = {
@@ -3219,7 +3215,6 @@ export function PlanejamentoSemanalTab({
                                 return;
                               }
 
-                              const targetReator = reatores.find(r => r.id === reator.id);
                               let newQty = draggedItem.quantidade_planejada;
                               let newRecipiente = draggedItem.recipiente_detalhe;
 
@@ -3229,9 +3224,6 @@ export function PlanejamentoSemanalTab({
                                 }
                               } else {
                                 newRecipiente = 'Reator';
-                                if (targetReator && targetReator.capacidade_kg > 0 && newQty < 40 && targetReator.capacidade_kg >= 100) {
-                                  newQty = targetReator.capacidade_kg;
-                                }
                               }
 
                               const updated: PlanejamentoItem = {
@@ -4073,15 +4065,10 @@ export function PlanejamentoSemanalTab({
                   onChange={(e) => {
                     const rId = e.target.value;
                     setScheduleReator(rId);
-                    const r = reatores.find(x => x.id === rId);
-                    if (r) {
-                      if (rId === 'BOMBONAS') {
-                        setScheduleRecipienteDetalhe('Bombona 50kg');
-                        handleChangeTotalMass(50);
-                      } else {
-                        setScheduleRecipienteDetalhe('Reator');
-                        handleChangeTotalMass(r.capacidade_kg);
-                      }
+                    if (rId === 'BOMBONAS') {
+                      setScheduleRecipienteDetalhe('Bombona 50kg');
+                    } else {
+                      setScheduleRecipienteDetalhe('Reator');
                     }
                   }}
                   className="w-full p-2 bg-white border border-zinc-200 rounded-lg text-xs"
@@ -4100,11 +4087,7 @@ export function PlanejamentoSemanalTab({
                   <select
                     value={scheduleRecipienteDetalhe}
                     onChange={(e) => {
-                      const val = e.target.value;
-                      setScheduleRecipienteDetalhe(val);
-                      if (val === 'Bombona 50kg') handleChangeTotalMass(50);
-                      else if (val === 'Bombona 100kg') handleChangeTotalMass(100);
-                      else if (val === 'Bombona 200kg') handleChangeTotalMass(200);
+                      setScheduleRecipienteDetalhe(e.target.value);
                     }}
                     className="w-full p-2 bg-white border border-zinc-200 rounded-lg text-xs font-semibold text-zinc-800"
                   >
@@ -4575,7 +4558,6 @@ export function PlanejamentoSemanalTab({
                         processoTermico: 'agua_caldeira',
                         reatorId: 'BOMBONAS',
                         recipienteDetalhe: 'Bombona 100kg',
-                        quantidadeKg: technicalModalItem.quantidadeKg > 200 ? 100 : technicalModalItem.quantidadeKg,
                       })}
                       className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
                         technicalModalItem.processoTermico === 'agua_caldeira' || technicalModalItem.reatorId === 'BOMBONAS'
@@ -4594,7 +4576,6 @@ export function PlanejamentoSemanalTab({
                         processoTermico: 'resistencia',
                         reatorId: 'R_100',
                         recipienteDetalhe: 'Reator',
-                        quantidadeKg: 100,
                       })}
                       className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
                         technicalModalItem.processoTermico === 'resistencia' || technicalModalItem.reatorId === 'R_100'
@@ -4613,7 +4594,6 @@ export function PlanejamentoSemanalTab({
                         processoTermico: 'quente',
                         reatorId: 'R_40',
                         recipienteDetalhe: 'Reator 40kg',
-                        quantidadeKg: 40,
                       })}
                       className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
                         technicalModalItem.reatorId === 'R_40'
@@ -4707,7 +4687,6 @@ export function PlanejamentoSemanalTab({
                   value={technicalModalItem.reatorId}
                   onChange={(e) => {
                     const rId = e.target.value;
-                    const r = reatores.find(x => x.id === rId);
                     let recip = technicalModalItem.recipienteDetalhe;
                     if (rId === 'BOMBONAS') recip = 'Bombona 50kg';
                     else if (rId === 'R_40') recip = 'Reator 40kg';
@@ -4716,7 +4695,6 @@ export function PlanejamentoSemanalTab({
                       ...technicalModalItem,
                       reatorId: rId,
                       recipienteDetalhe: recip,
-                      quantidadeKg: r ? (rId === 'BOMBONAS' ? 50 : r.capacidade_kg) : technicalModalItem.quantidadeKg,
                     });
                   }}
                   className="w-full p-2 bg-white border border-zinc-300 rounded-lg text-xs font-medium"
@@ -4735,15 +4713,9 @@ export function PlanejamentoSemanalTab({
                   <select
                     value={technicalModalItem.recipienteDetalhe}
                     onChange={(e) => {
-                      const det = e.target.value;
-                      let q = technicalModalItem.quantidadeKg;
-                      if (det === 'Bombona 50kg') q = 50;
-                      else if (det === 'Bombona 100kg') q = 100;
-                      else if (det === 'Bombona 200kg') q = 200;
                       setTechnicalModalItem({
                         ...technicalModalItem,
-                        recipienteDetalhe: det,
-                        quantidadeKg: q
+                        recipienteDetalhe: e.target.value,
                       });
                     }}
                     className="w-full p-2 bg-white border border-zinc-300 rounded-lg text-xs font-semibold text-amber-900"
