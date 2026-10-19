@@ -419,8 +419,8 @@ export default function App() {
 
     if (view === 'producao_rotina') {
       return (
-        <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro na rotina de produção">
-          <ProducaoRotinaView onBackToHub={() => setView('producao_hub')} />
+        <ErrorBoundary onReset={() => setView('producao_hub')} fallbackTitle="Erro no módulo de Produção">
+          <ProducaoView onBackToHub={() => setView('producao_hub')} />
         </ErrorBoundary>
       );
     }

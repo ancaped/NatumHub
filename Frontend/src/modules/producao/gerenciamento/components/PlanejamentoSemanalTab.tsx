@@ -5,7 +5,7 @@ import {
   Clock, ChevronDown, ChevronUp, Package, Truck, Boxes, Sparkles, Settings,
   ShieldCheck, ShieldAlert, Layers, Plus, ChevronLeft, ChevronRight, Filter,
   TrendingDown, CheckCircle, Info, Flame, Snowflake, AlertCircle, ArrowUpDown, Tag,
-  FileSpreadsheet, Download, GripVertical, AlertOctagon, SlidersHorizontal, FlaskConical
+  FileSpreadsheet, Download, GripVertical, AlertOctagon, SlidersHorizontal, FlaskConical, Zap
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { apiFetch } from '../../../geral/lib/http';

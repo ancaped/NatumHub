@@ -6,7 +6,7 @@ import {
   ArrowLeft, Search, Database, Layers, Boxes, Calculator, 
   RefreshCw, CheckCircle2, AlertTriangle, ArrowUpRight, ArrowDownRight, 
   Info, Shield, Package, ShoppingCart, User, HelpCircle, FileSpreadsheet, Lock,
-  Truck, Receipt, Clock, X, Link, Palette, Tag
+  Truck, Receipt, Clock, X, Link, Palette, Tag, Calendar
 } from 'lucide-react';
 import { cn } from '../../geral/lib/utils';
 import { StockMovement, FormulationLine, DbDumpResult } from '../../geral/lib/types';
