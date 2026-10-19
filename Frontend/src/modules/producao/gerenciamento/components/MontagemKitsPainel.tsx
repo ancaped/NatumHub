@@ -440,45 +440,7 @@ export function MontagemKitsPainel({ tabOptions = [], onOpenComposition }: Props
       {aviso && <p className="text-xs font-semibold text-zinc-700 mb-3">{aviso}</p>}
       {modo === 'capacidade' && (
       <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-        <div
-          className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer hover:shadow-md ${filtro === 'montar' ? 'ring-2 ring-emerald-500 border-emerald-500' : 'border-zinc-200'}`}
-          onClick={() => setFiltro(filtro === 'montar' ? 'ALL' : 'montar')}
-        >
-          <div className="p-2.5 rounded-lg bg-emerald-50 text-emerald-600 shrink-0"><Boxes size={20} /></div>
-          <div>
-            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Montar agora</div>
-            <div className="text-xl font-bold text-emerald-600">{contagem.montar}</div>
-          </div>
-        </div>
-        <div
-          className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer hover:shadow-md ${filtro === 'aguardando' ? 'ring-2 ring-amber-500 border-amber-500' : 'border-zinc-200'}`}
-          onClick={() => setFiltro(filtro === 'aguardando' ? 'ALL' : 'aguardando')}
-        >
-          <div className="p-2.5 rounded-lg bg-amber-50 text-amber-600 shrink-0"><Package size={20} /></div>
-          <div>
-            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Itens em produção</div>
-            <div className="text-xl font-bold text-amber-600">{contagem.aguardando}</div>
-          </div>
-        </div>
-        <div
-          className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer hover:shadow-md ${filtro === 'sem' ? 'ring-2 ring-rose-500 border-rose-500' : 'border-zinc-200'}`}
-          onClick={() => setFiltro(filtro === 'sem' ? 'ALL' : 'sem')}
-        >
-          <div className="p-2.5 rounded-lg bg-rose-50 text-rose-600 shrink-0"><HelpCircle size={20} /></div>
-          <div>
-            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Sem estoque</div>
-            <div className="text-xl font-bold text-rose-600">{contagem.sem}</div>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl border border-zinc-200 p-3.5 shadow-sm flex items-center gap-3 cursor-pointer hover:shadow-md" onClick={() => setModo('ordens')}>
-          <div className="p-2.5 rounded-lg bg-zinc-100 text-zinc-700 shrink-0"><ClipboardList size={20} /></div>
-          <div>
-            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Ordens em aberto</div>
-            <div className="text-xl font-bold text-zinc-900">{contagem.ordens}</div>
-          </div>
-        </div>
-      </div>
+
 
       {tabOptions.length > 0 && (
         <div className="tabs-container">

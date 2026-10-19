@@ -198,7 +198,7 @@ export function LoteDetailsDrawer({
             animate={{ opacity: 0.5 }}
             exit={{ opacity: 0 }}
             className="modal-backdrop bg-black/60 backdrop-blur-sm"
-            style={{ zIndex: 60 }}
+            style={{ zIndex: 220 }}
             onClick={onClose}
           />
           <motion.div
@@ -207,7 +207,7 @@ export function LoteDetailsDrawer({
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
             className="fixed right-0 top-0 h-screen w-full max-w-3xl bg-white border-l border-zinc-200 shadow-2xl flex flex-col text-left text-zinc-800 font-sans"
-            style={{ zIndex: 70 }}
+            style={{ zIndex: 230 }}
           >
             <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50 flex items-center justify-between shrink-0">
               <div className="min-w-0 flex-1 pr-4">
@@ -331,14 +331,19 @@ function LoteInicioTab({
   onResolve,
   onUndoResolve,
 }: any) {
+  const isOkStatus = (status: string) =>
+    status === 'OK' ||
+    status === 'OK (Na Base)' ||
+    status === 'OK (Base)' ||
+    status === 'OK_BASE';
   const hasYieldError = details.bulk_yield_percentage < 90.0;
-  const hasPesagemError = details.pesagem_items.some((item: any) => item.status !== 'OK');
+  const hasPesagemError = details.pesagem_items.some((item: any) => !isOkStatus(item.status));
   const hasEnvaseError = details.envase_products.some((p: any) =>
     p.packaging_items.some((item: any) => item.status !== 'OK')
   );
   const hasConfError = details.conferencia_items.some((item: any) => item.status !== 'OK');
   const hasErrors = hasYieldError || hasPesagemError || hasEnvaseError || hasConfError;
-  const missingIngredients = details.pesagem_items.filter((item: any) => item.status === 'MISSING');
+  const missingIngredients = details.pesagem_items.filter((item: any) => item.status === 'MISSING' && !isOkStatus(item.status));
   const unplannedIngredients = details.pesagem_items.filter((item: any) => item.status === 'UNPLANNED');
 
   return (
@@ -681,11 +686,13 @@ function LotePesagemTab({ details, highlightInsumoCode }: { details: any; highli
                   <span className={cn(
                     'px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border',
                     item.status === 'OK' ? 'bg-emerald-50 text-emerald-700 border-emerald-200/50' :
+                    (item.status === 'OK (Na Base)' || item.status === 'OK (Base)' || item.status === 'OK_BASE') ? 'bg-sky-50 text-sky-700 border-sky-200/50' :
                     item.status === 'MISSING' ? 'bg-rose-50 text-rose-700 border-rose-200/50' :
                     item.status === 'EXTRA' ? 'bg-blue-50 text-blue-700 border-blue-200/50' :
                     'bg-amber-50 text-amber-700 border-amber-200/50'
                   )}>
                     {item.status === 'OK' ? 'OK' :
+                     (item.status === 'OK (Na Base)' || item.status === 'OK (Base)' || item.status === 'OK_BASE') ? 'Na Base' :
                      item.status === 'MISSING' ? 'Faltando' :
                      item.status === 'EXTRA' ? 'Extra' : 'Desvio'}
                   </span>
@@ -772,10 +779,11 @@ function LoteEnvaseTab({ details }: { details: any }) {
                         <span className={cn(
                           'px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border',
                           item.status === 'OK' ? 'bg-emerald-50 text-emerald-700 border-emerald-200/50' :
+                          (item.status === 'OK (Na Base)' || item.status === 'OK (Base)' || item.status === 'OK_BASE') ? 'bg-sky-50 text-sky-700 border-sky-200/50' :
                           item.status === 'MISSING' ? 'bg-rose-50 text-rose-700 border-rose-200/50' :
                           'bg-amber-50 text-amber-700 border-amber-200/50'
                         )}>
-                          {item.status === 'OK' ? 'OK' : item.status === 'MISSING' ? 'Ausente' : 'Desvio'}
+                          {item.status === 'OK' ? 'OK' : (item.status === 'OK (Na Base)' || item.status === 'OK (Base)' || item.status === 'OK_BASE') ? 'Na Base' : item.status === 'MISSING' ? 'Ausente' : 'Desvio'}
                         </span>
                       </td>
                     </tr>

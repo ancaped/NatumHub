@@ -173,6 +173,8 @@ pub struct QueryParams {
     pub include_bases: Option<bool>,
     /// Só itens em regime de produção fixa (marca manual, gatilho ou teto).
     pub fixas_only: Option<bool>,
+    pub include_fixas: Option<bool>,
+    pub include_all_regimes: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -9,7 +9,6 @@ import { parseProductUnitWeightKg, formatUnitsToKg } from '../../lib/unitConvers
 import { BatchOpportunityModal } from './BatchOpportunityModal';
 
 export function InventoryTab({
-  stats,
   products,
   configs,
   bases,
@@ -43,13 +42,12 @@ export function InventoryTab({
   onShowDetails,
   productionApprovalList = [],
   onToggleApprovalList,
-  onOpenProgramadasDrawer,
-  onOpenFixasDrawer
+  onToggleApenasKit
 }: any) {
-  // Segmented Control: 'tudo' | 'normal' | 'programadas' | 'fixas'
-  const [segment, setSegment] = useState<'tudo' | 'normal' | 'programadas' | 'fixas'>('tudo');
+  // Segmented Control: 'needed' | 'normal' | 'kit_mixed' | 'kit_only' | 'programadas' | 'fixas'
+  type InventorySegment = 'needed' | 'normal' | 'kit_mixed' | 'kit_only' | 'programadas' | 'fixas';
+  const [segment, setSegment] = useState<InventorySegment>('needed');
   const [hideQueued, setHideQueued] = useState(false);
-  const [onlyConflicts, setOnlyConflicts] = useState(false);
   
   // State for PostgreSQL Fila de Demandas
   const [queuedItems, setQueuedItems] = useState<any[]>([]);
@@ -85,27 +83,31 @@ export function InventoryTab({
 
   // Segment counts
   const segmentCounts = useMemo(() => {
-    let tudo = 0;
+    let needed = 0;
     let normal = 0;
+    let kit_mixed = 0;
+    let kit_only = 0;
     let programadas = 0;
     let fixas = 0;
-    let conflicts = 0;
 
     for (const p of products) {
       const isProg = p.is_producao_programada === 1;
       const isFixa = p.is_lancamento || p.is_lancamento_manual === 1;
-      const isRec = p.producao_recomendada > 0;
+      const isRec = (p.producao_recomendada || 0) > 0;
       const inQueue = p.na_fila || queuedMap.has(p.codigo);
       const inPlan = p.planejado_semana;
+      const isKitComp = Boolean(p.is_kit_component);
+      const onlyKit = p.produzir_apenas_kit === 1;
 
-      if (p.conflito_regra || (isProg && isFixa)) conflicts++;
+      if (isRec || inQueue || inPlan) needed++;
       if (isProg) programadas++;
       if (isFixa) fixas++;
-      if (!isProg && !isFixa) normal++;
-      if (isRec || inQueue || inPlan || isProg || isFixa) tudo++;
+      if (!isKitComp && !isProg && !isFixa) normal++;
+      if (isKitComp && !onlyKit) kit_mixed++;
+      if (isKitComp && onlyKit) kit_only++;
     }
 
-    return { tudo, normal, programadas, fixas, conflicts };
+    return { needed, normal, kit_mixed, kit_only, programadas, fixas };
   }, [products, queuedMap]);
 
   // Filter products by active segment and search/queue options
@@ -113,24 +115,27 @@ export function InventoryTab({
     return products.filter((p: any) => {
       const isProg = p.is_producao_programada === 1;
       const isFixa = p.is_lancamento || p.is_lancamento_manual === 1;
-      const isRec = p.producao_recomendada > 0;
+      const isRec = (p.producao_recomendada || 0) > 0;
       const inQueue = p.na_fila || queuedMap.has(p.codigo);
       const inPlan = p.planejado_semana;
-      const hasConflict = Boolean(p.conflito_regra || (isProg && isFixa));
+      const isKitComp = Boolean(p.is_kit_component);
+      const onlyKit = p.produzir_apenas_kit === 1;
 
       if (hideQueued && (inQueue || inPlan)) {
         return false;
       }
 
-      if (onlyConflicts) {
-        return hasConflict;
-      }
-
-      if (segment === 'tudo') {
-        return isRec || inQueue || inPlan || isProg || isFixa;
+      if (segment === 'needed') {
+        return isRec || inQueue || inPlan;
       }
       if (segment === 'normal') {
-        return !isProg && !isFixa;
+        return !isKitComp && !isProg && !isFixa;
+      }
+      if (segment === 'kit_mixed') {
+        return isKitComp && !onlyKit;
+      }
+      if (segment === 'kit_only') {
+        return isKitComp && onlyKit;
       }
       if (segment === 'programadas') {
         return isProg;
@@ -140,7 +145,7 @@ export function InventoryTab({
       }
       return true;
     });
-  }, [products, segment, hideQueued, onlyConflicts, queuedMap]);
+  }, [products, segment, hideQueued, queuedMap]);
 
   // Handle single enqueue
   const handleEnqueue = async (p: any) => {
@@ -257,88 +262,29 @@ export function InventoryTab({
 
   return (
     <div className="view-container animate-in fade-in duration-200">
-      {/* Summary KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-        <div 
-          className={`bg-white rounded-xl border p-3.5 shadow-xs flex items-center gap-3 cursor-pointer transition-all hover:border-zinc-400 ${selectedStatus === 'critico' ? 'ring-2 ring-zinc-900 border-zinc-900 bg-zinc-50/50' : 'border-zinc-200'}`}
-          onClick={() => { setSelectedStatus(selectedStatus === 'critico' ? 'ALL' : 'critico'); setPage(1); }}
-          title="Clique para filtrar por itens críticos"
-        >
-          <div className="p-2.5 rounded-lg bg-rose-50 text-rose-600 shrink-0">
-            <Zap size={20} />
-          </div>
-          <div>
-            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Produzir Urgente</div>
-            <div className="text-xl font-bold font-mono text-rose-600">{stats?.critico ?? 0}</div>
-          </div>
-        </div>
-
-        <div 
-          className={`bg-white rounded-xl border p-3.5 shadow-xs flex items-center gap-3 cursor-pointer transition-all hover:border-zinc-400 ${selectedStatus === 'ordem' ? 'ring-2 ring-zinc-900 border-zinc-900 bg-zinc-50/50' : 'border-zinc-200'}`}
-          onClick={() => { setSelectedStatus(selectedStatus === 'ordem' ? 'ALL' : 'ordem'); setPage(1); }}
-          title="Clique para filtrar por abrir ordem"
-        >
-          <div className="p-2.5 rounded-lg bg-amber-50 text-amber-600 shrink-0">
-            <AlertTriangle size={20} />
-          </div>
-          <div>
-            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Abrir Ordem</div>
-            <div className="text-xl font-bold font-mono text-amber-600">{stats?.ordem ?? 0}</div>
-          </div>
-        </div>
-
-        <div 
-          className={`bg-white rounded-xl border p-3.5 shadow-xs flex items-center gap-3 cursor-pointer transition-all hover:border-zinc-400 ${selectedStatus === 'saudavel' ? 'ring-2 ring-zinc-900 border-zinc-900 bg-zinc-50/50' : 'border-zinc-200'}`}
-          onClick={() => { setSelectedStatus(selectedStatus === 'saudavel' ? 'ALL' : 'saudavel'); setPage(1); }}
-          title="Clique para filtrar por estoque saudável"
-        >
-          <div className="p-2.5 rounded-lg bg-emerald-50 text-emerald-600 shrink-0">
-            <CheckCircle2 size={20} />
-          </div>
-          <div>
-            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Estoque Saudável</div>
-            <div className="text-xl font-bold font-mono text-emerald-600">{stats?.saudavel ?? 0}</div>
-          </div>
-        </div>
-
-        <div 
-          className={`bg-white rounded-xl border p-3.5 shadow-xs flex items-center gap-3 cursor-pointer transition-all hover:border-zinc-400 ${selectedStatus === 'abundante' ? 'ring-2 ring-zinc-900 border-zinc-900 bg-zinc-50/50' : 'border-zinc-200'}`}
-          onClick={() => { setSelectedStatus(selectedStatus === 'abundante' ? 'ALL' : 'abundante'); setPage(1); }}
-          title="Clique para filtrar por estoque abundante"
-        >
-          <div className="p-2.5 rounded-lg bg-zinc-100 text-zinc-700 shrink-0">
-            <Package size={20} />
-          </div>
-          <div>
-            <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Estoque Abundante</div>
-            <div className="text-xl font-bold font-mono text-zinc-800">{stats?.abundante ?? 0}</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Segmented Control Superior (Tudo p/ Produzir Hoje, Linha Normal, Programadas, Fixas) */}
+      {/* Segmented Control Superior (6 Regimes Canônicos) */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4 bg-zinc-100 p-1.5 rounded-xl border border-zinc-200">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-lg p-0.5 bg-zinc-200/60 text-xs font-semibold">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="inline-flex rounded-lg p-0.5 bg-zinc-200/60 text-xs font-semibold flex-wrap gap-0.5">
             <button
-              onClick={() => { setSegment('tudo'); setOnlyConflicts(false); }}
+              onClick={() => setSegment('needed')}
               className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
-                segment === 'tudo' && !onlyConflicts
+                segment === 'needed'
                   ? 'bg-white text-zinc-900 shadow-xs font-bold'
                   : 'text-zinc-600 hover:text-zinc-900'
               }`}
             >
-              <Zap size={14} className={segment === 'tudo' && !onlyConflicts ? 'text-amber-600' : ''} />
+              <Zap size={14} className={segment === 'needed' ? 'text-amber-600' : ''} />
               <span>Tudo p/ Produzir Hoje</span>
               <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-100 text-zinc-700 font-mono">
-                {segmentCounts.tudo}
+                {segmentCounts.needed}
               </span>
             </button>
 
             <button
-              onClick={() => { setSegment('normal'); setOnlyConflicts(false); }}
+              onClick={() => setSegment('normal')}
               className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
-                segment === 'normal' && !onlyConflicts
+                segment === 'normal'
                   ? 'bg-white text-zinc-900 shadow-xs font-bold'
                   : 'text-zinc-600 hover:text-zinc-900'
               }`}
@@ -351,9 +297,39 @@ export function InventoryTab({
             </button>
 
             <button
-              onClick={() => { setSegment('programadas'); setOnlyConflicts(false); }}
+              onClick={() => setSegment('kit_mixed')}
               className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
-                segment === 'programadas' && !onlyConflicts
+                segment === 'kit_mixed'
+                  ? 'bg-white text-zinc-900 shadow-xs font-bold'
+                  : 'text-zinc-600 hover:text-zinc-900'
+              }`}
+            >
+              <Package size={14} className={segment === 'kit_mixed' ? 'text-sky-600' : ''} />
+              <span>Venda + Kit (Misto)</span>
+              <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-100 text-zinc-700 font-mono">
+                {segmentCounts.kit_mixed}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setSegment('kit_only')}
+              className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
+                segment === 'kit_only'
+                  ? 'bg-white text-zinc-900 shadow-xs font-bold'
+                  : 'text-zinc-600 hover:text-zinc-900'
+              }`}
+            >
+              <Package size={14} className={segment === 'kit_only' ? 'text-violet-600' : ''} />
+              <span>Somente em Kits</span>
+              <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-100 text-zinc-700 font-mono">
+                {segmentCounts.kit_only}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setSegment('programadas')}
+              className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
+                segment === 'programadas'
                   ? 'bg-white text-zinc-900 shadow-xs font-bold'
                   : 'text-zinc-600 hover:text-zinc-900'
               }`}
@@ -366,9 +342,9 @@ export function InventoryTab({
             </button>
 
             <button
-              onClick={() => { setSegment('fixas'); setOnlyConflicts(false); }}
+              onClick={() => setSegment('fixas')}
               className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
-                segment === 'fixas' && !onlyConflicts
+                segment === 'fixas'
                   ? 'bg-white text-zinc-900 shadow-xs font-bold'
                   : 'text-zinc-600 hover:text-zinc-900'
               }`}
@@ -380,54 +356,10 @@ export function InventoryTab({
               </span>
             </button>
           </div>
-
-          {/* Pílula de Diagnóstico Rápido: Conflitos de Regra (N) */}
-          <button
-            type="button"
-            onClick={() => setOnlyConflicts((prev) => !prev)}
-            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer ${
-              onlyConflicts
-                ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
-                : segmentCounts.conflicts > 0
-                  ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
-                  : 'bg-white text-zinc-500 border-zinc-200 hover:bg-zinc-50'
-            }`}
-            title="Filtrar produtos com conflito entre regra Programada e Fixa/Lançamento"
-          >
-            <AlertTriangle size={13} className={onlyConflicts ? 'text-white' : segmentCounts.conflicts > 0 ? 'text-amber-600' : 'text-zinc-400'} />
-            <span>Conflitos de Regra</span>
-            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
-              onlyConflicts ? 'bg-amber-700 text-white' : 'bg-amber-100/80 text-amber-900'
-            }`}>
-              {segmentCounts.conflicts}
-            </span>
-          </button>
         </div>
 
-        {/* Actions: Configurar Regras (Contextual) + Enviar Sugeridos para a Fila */}
-        <div className="flex flex-wrap items-center gap-2">
-          {segment === 'programadas' && onOpenProgramadasDrawer && (
-            <button
-              type="button"
-              onClick={onOpenProgramadasDrawer}
-              className="px-3 py-1.5 rounded-lg bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
-              title="Abrir painel lateral de configuração em lote de gatilhos e objetivos programados"
-            >
-              <Sliders size={13} className="text-zinc-600" />
-              <span>Configurar Regras Programadas</span>
-            </button>
-          )}
-          {segment === 'fixas' && onOpenFixasDrawer && (
-            <button
-              type="button"
-              onClick={onOpenFixasDrawer}
-              className="px-3 py-1.5 rounded-lg bg-white hover:bg-zinc-50 text-zinc-800 border border-zinc-200 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
-              title="Abrir painel lateral de metas mensais e datas limite de produções fixas"
-            >
-              <Sliders size={13} className="text-zinc-600" />
-              <span>Configurar Regras Fixas</span>
-            </button>
-          )}
+        {/* Action: Enviar Sugeridos para a Fila */}
+        <div className="flex items-center gap-2">
           <button
             onClick={handleBulkEnqueue}
             disabled={enqueuingBulk || loading}
@@ -638,33 +570,39 @@ export function InventoryTab({
                           >
                             {p.descricao}
                           </button>
-                          {hasConflict && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200" title="Conflito de Regras: Produto com configuração simultânea de programada e lançamento">
-                              <AlertTriangle size={10} />
-                              Conflito
-                            </span>
-                          )}
                         </div>
                         <div className="product-subinfo flex flex-wrap gap-1.5 mt-1 items-center">
                           <span className="text-[10px] text-zinc-500 font-semibold bg-zinc-100 px-1.5 py-0.5 rounded">Linha: {p.nome_linha}</span>
                           {p.base && <span className="text-[10px] text-zinc-600 bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded">Base: {p.base}</span>}
-                          {p.produzir_apenas_kit === 1 ? (
-                            <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-amber-50 text-amber-700 border border-amber-200 rounded">
-                              Apenas Kit
-                            </span>
-                          ) : p.is_kit_component ? (
-                            <span className="px-1.5 py-0.5 text-[9px] font-medium bg-zinc-100 text-zinc-700 border border-zinc-200 rounded">
-                              Comp. Kit
-                            </span>
+                          {p.is_kit_component ? (
+                            p.produzir_apenas_kit === 1 ? (
+                              <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-violet-50 text-violet-700 border border-violet-200 rounded">
+                                Somente Kit {p.parent_kits?.length ? `(${p.parent_kits.join(', ')})` : ''}
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 text-[9px] font-medium bg-sky-50 text-sky-700 border border-sky-200 rounded">
+                                Venda + Kit {p.parent_kits?.length ? `(${p.parent_kits.join(', ')})` : ''}
+                              </span>
+                            )
                           ) : null}
+                          {onToggleApenasKit && Boolean(p.is_kit_component) && (segment === 'kit_mixed' || segment === 'kit_only') && (
+                            <button
+                              type="button"
+                              onClick={() => onToggleApenasKit(p.codigo, p.produzir_apenas_kit ?? 0)}
+                              className="text-[9px] text-zinc-500 hover:text-zinc-900 underline cursor-pointer"
+                              title="Alternar entre Somente Kit e Venda + Kit"
+                            >
+                              {p.produzir_apenas_kit === 1 ? 'Mudar p/ Venda + Kit' : 'Mudar p/ Somente Kit'}
+                            </button>
+                          )}
                           {p.is_producao_programada === 1 && (
-                            <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase bg-zinc-900 text-white rounded">
-                              Programada
+                            <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-zinc-900 text-white rounded">
+                              Programada {p.programada_gatilho ? `(Gat: ${p.programada_gatilho} | Obj: ${p.programada_objetivo || '—'})` : ''}
                             </span>
                           )}
                           {p.is_lancamento && (
-                            <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase bg-zinc-100 text-zinc-800 border border-zinc-300 rounded">
-                              Fixa / Lançamento
+                            <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-zinc-100 text-zinc-800 border border-zinc-300 rounded">
+                              Fixa / Meta {p.lancamento_gatilho ? `(Gat: ${p.lancamento_gatilho} | Máx: ${p.lancamento_estoque_maximo || '—'})` : ''}
                             </span>
                           )}
                           {!p.has_formulation && (

@@ -200,6 +200,23 @@ export function parseProductUnitWeightKg(descricao?: string): number {
   return 1.0;
 }
 
+export function isPastEndOfDay(scheduleDateIso?: string | null): boolean {
+  if (!scheduleDateIso) return false;
+  try {
+    const now = new Date();
+    const currentIsoDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const cleanScheduleDate = scheduleDateIso.split('T')[0];
+    
+    if (cleanScheduleDate < currentIsoDate) {
+      return true;
+    }
+    if (cleanScheduleDate === currentIsoDate && now.getHours() >= 18) {
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
 export interface CellBatchGroup {
   key: string;
   items: PlanejamentoItem[];
@@ -253,7 +270,9 @@ export function groupCellItems(cellItems: PlanejamentoItem[]): CellBatchGroup[] 
     const isMulti = items.length > 1;
     const loteErp = items.find(it => it.lote_erp && it.lote_erp.trim())?.lote_erp?.trim();
     const isAprovado = items.every(it => 
-      it.ordem_status === 'aprovado' || (it.fisico_confirmado_massa && it.fisico_confirmado_embalagem && it.fisico_confirmado_rotulo)
+      it.ordem_status === 'aprovado' || 
+      (it.fisico_confirmado_massa && it.fisico_confirmado_embalagem && it.fisico_confirmado_rotulo) ||
+      isPastEndOfDay(it.data_planejada)
     );
     const isLoteCriado = items.some(it => it.ordem_status === 'lote_criado' || Boolean(it.lote_erp));
     const isQuente = items.some(it => 
@@ -807,129 +826,59 @@ export function PlanejamentoSemanalTab({
     return { all, criticos, programadas, kits, bases };
   }, [products, selectedLineFilter]);
 
-  // Itens elegíveis para o Banco de Demandas
+  // Itens elegíveis para o Banco de Demandas (Exclusivo Fila de Demandas)
   const demandCandidates = useMemo(() => {
-    if (demandFilter === 'FILA') {
-      const prodMap = new Map(products.map(p => [p.codigo, p]));
-      const mapped = filaDemandas
-        .filter(f => {
-          if (!demandSearch.trim()) return true;
-          const q = demandSearch.toLowerCase().trim();
-          const code = (f.codigoProduto || f.codigo_produto || '').toLowerCase();
-          const desc = (f.descricao || '').toLowerCase();
-          return code.includes(q) || desc.includes(q);
-        })
-        .map(f => {
-          const code = f.codigoProduto || f.codigo_produto;
-          const p = prodMap.get(code) || {};
-          const batchMatch = (f.observacoes || '').match(/\[batch:([^\]]+)\]/i);
-          return {
-            ...p,
-            _filaId: f.id,
-            _isFromFila: true,
-            _batchGroupId: batchMatch ? batchMatch[1].trim() : null,
-            codigo: code,
-            descricao: f.descricao,
-            producao_recomendada: f.quantidade,
-            quantidade: f.quantidade,
-            quantidade_kg: f.quantidadeKg || f.quantidade_kg,
-            origem_demanda: f.origemDemanda || f.origem_demanda,
-            base_codigo: f.baseCodigo || f.base_codigo,
-            base: f.baseNome || f.base_nome,
-            unidade: f.unidade || 'un',
-            observacoes: f.observacoes
-          };
-        });
-
-      const grouped: any[] = [];
-      const seenGroups = new Set<string>();
-      for (const item of mapped) {
-        if (item._batchGroupId) {
-          if (seenGroups.has(item._batchGroupId)) continue;
-          seenGroups.add(item._batchGroupId);
-          const siblings = mapped.filter(m => m._batchGroupId === item._batchGroupId);
-          const totalBatchKg = Number(siblings.reduce((acc, s) => acc + (Number(s.quantidade_kg) || 0), 0).toFixed(1));
-          grouped.push({
-            ...item,
-            _batchSiblings: siblings,
-            _totalBatchKg: totalBatchKg
-          });
-        } else {
-          grouped.push(item);
-        }
-      }
-      return grouped;
-    }
-
-    return products.filter(p => {
-      // Filtro de Linha Comercial
-      if (selectedLineFilter !== 'ALL' && p.linha_prefix !== selectedLineFilter) {
-        return false;
-      }
-
-      const isBase = p.categoria_produto === 'cat_base' || 
-                     p.status_produto === 'bases' || 
-                     p.status === 'bases' ||
-                     (p.codigo || '').includes('.36.') ||
-                     (p.descricao || '').toUpperCase().startsWith('BASE ') ||
-                     (p.descricao || '').toUpperCase().startsWith('PRE BASE ');
-
-      // Filtro de busca textual (permite encontrar qualquer produto do catálogo)
-      const hasSearch = !!demandSearch.trim();
-      if (hasSearch) {
+    const prodMap = new Map(products.map(p => [p.codigo, p]));
+    const mapped = filaDemandas
+      .filter(f => {
+        if (!demandSearch.trim()) return true;
         const q = demandSearch.toLowerCase().trim();
-        const code = (p.codigo || '').toLowerCase();
-        const desc = (p.descricao || '').toLowerCase();
-        const base = (p.base || '').toLowerCase();
-        if (!code.includes(q) && !desc.includes(q) && !base.includes(q)) return false;
+        const code = (f.codigoProduto || f.codigo_produto || '').toLowerCase();
+        const desc = (f.descricao || '').toLowerCase();
+        const obs = (f.observacoes || '').toLowerCase();
+        return code.includes(q) || desc.includes(q) || obs.includes(q);
+      })
+      .map(f => {
+        const code = f.codigoProduto || f.codigo_produto;
+        const p = prodMap.get(code) || {};
+        const batchMatch = (f.observacoes || '').match(/\[batch:([^\]]+)\]/i);
+        return {
+          ...p,
+          _filaId: f.id,
+          _isFromFila: true,
+          _batchGroupId: batchMatch ? batchMatch[1].trim() : null,
+          codigo: code,
+          descricao: f.descricao,
+          producao_recomendada: f.quantidade,
+          quantidade: f.quantidade,
+          quantidade_kg: f.quantidadeKg || f.quantidade_kg,
+          origem_demanda: f.origemDemanda || f.origem_demanda,
+          base_codigo: f.baseCodigo || f.base_codigo,
+          base: f.baseNome || f.base_nome,
+          unidade: f.unidade || 'un',
+          observacoes: f.observacoes
+        };
+      });
 
-        if (demandFilter === 'CRITICOS') {
-          const efp = p.estoque_futuro_com_producao ?? p.estoque_futuro ?? 0;
-          return efp < 0 || p.status === 'critico' || p.status === 'ordem';
-        }
-        if (demandFilter === 'PROGRAMADAS') {
-          return p.is_producao_programada === 1 || p.is_producao_programada === true;
-        }
-        if (demandFilter === 'KITS') {
-          return p.is_kit || p.is_kit_component === 1 || p.produzir_apenas_kit === 1;
-        }
-        if (demandFilter === 'BASES') {
-          return isBase;
-        }
-        return true;
+    const grouped: any[] = [];
+    const seenGroups = new Set<string>();
+    for (const item of mapped) {
+      if (item._batchGroupId) {
+        if (seenGroups.has(item._batchGroupId)) continue;
+        seenGroups.add(item._batchGroupId);
+        const siblings = mapped.filter(m => m._batchGroupId === item._batchGroupId);
+        const totalBatchKg = Number(siblings.reduce((acc, s) => acc + (Number(s.quantidade_kg) || 0), 0).toFixed(1));
+        grouped.push({
+          ...item,
+          _batchSiblings: siblings,
+          _totalBatchKg: totalBatchKg
+        });
+      } else {
+        grouped.push(item);
       }
-
-      // Sem busca textual: filtra pela aba selecionada
-      if (demandFilter === 'CRITICOS') {
-        const efp = p.estoque_futuro_com_producao ?? p.estoque_futuro ?? 0;
-        return efp < 0 || p.status === 'critico' || p.status === 'ordem';
-      }
-      if (demandFilter === 'PROGRAMADAS') {
-        return p.is_producao_programada === 1 || p.is_producao_programada === true;
-      }
-      if (demandFilter === 'KITS') {
-        return p.is_kit || p.is_kit_component === 1 || p.produzir_apenas_kit === 1;
-      }
-      if (demandFilter === 'BASES') {
-        return isBase;
-      }
-
-      // No modo ALL: traz todos os itens ativos (permitindo planejar qualquer item desejado)
-      return true;
-    }).sort((a, b) => {
-      const efpA = a.estoque_futuro_com_producao ?? a.estoque_futuro ?? 0;
-      const efpB = b.estoque_futuro_com_producao ?? b.estoque_futuro ?? 0;
-      const isDeficitA = efpA < 0 ? 1 : 0;
-      const isDeficitB = efpB < 0 ? 1 : 0;
-      if (isDeficitA !== isDeficitB) return isDeficitB - isDeficitA;
-
-      const pedA = (a.pedidos_aberto || 0) > 0 ? 1 : 0;
-      const pedB = (b.pedidos_aberto || 0) > 0 ? 1 : 0;
-      if (pedA !== pedB) return pedB - pedA;
-
-      return efpA - efpB;
-    });
-  }, [products, filaDemandas, selectedLineFilter, demandSearch, demandFilter]);
+    }
+    return grouped;
+  }, [products, filaDemandas, demandSearch]);
 
   // Mapeamento de Itens Agendados na Grade (por Reator e por Dia)
   const matrixItemsMap = useMemo(() => {
@@ -2925,7 +2874,9 @@ export function PlanejamentoSemanalTab({
         (s.observacoes || '').includes('Caldeira')
       );
       const isAprovado = siblings.every(s => 
-        s.ordem_status === 'aprovado' || (s.fisico_confirmado_massa && s.fisico_confirmado_embalagem && s.fisico_confirmado_rotulo)
+        s.ordem_status === 'aprovado' || 
+        (s.fisico_confirmado_massa && s.fisico_confirmado_embalagem && s.fisico_confirmado_rotulo) ||
+        isPastEndOfDay(s.data_planejada)
       );
 
       groups.push({
@@ -3550,7 +3501,7 @@ export function PlanejamentoSemanalTab({
           </div>
         </div>
 
-        {/* GAVETA LATERAL: BANCO DE DEMANDAS COM FILTRO POR LINHA DE PRODUTO E DADOS DE VENDA */}
+        {/* GAVETA LATERAL: BANCO DE DEMANDAS (FILA EXCLUSIVA) */}
         {demandBankOpen && (
           <div className="w-[420px] bg-white rounded-xl border border-zinc-200 shadow-xs flex flex-col h-[750px] shrink-0">
             {/* Cabeçalho da Gaveta */}
@@ -3558,116 +3509,11 @@ export function PlanejamentoSemanalTab({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <Package size={16} className="text-zinc-700" />
-                  <h3 className="font-bold text-zinc-900 text-xs">Banco de Demandas</h3>
+                  <h3 className="font-bold text-zinc-900 text-xs">Fila de Demandas</h3>
                 </div>
-                <span className="px-2 py-0.5 bg-blue-100 text-blue-800 font-bold text-[10px] rounded-full">
-                  {demandCandidates.length} itens ativos
+                <span className="px-2 py-0.5 bg-zinc-900 text-white font-bold text-[10px] rounded-full">
+                  {demandCandidates.length} itens na fila
                 </span>
-              </div>
-
-              {/* Seletor de Linha Comercial de Produto */}
-              <div>
-                <label className="text-[10px] font-semibold text-zinc-500 block mb-0.5">
-                  Linha de Produtos:
-                </label>
-                <select
-                  value={selectedLineFilter}
-                  onChange={(e) => setSelectedLineFilter(e.target.value)}
-                  className="w-full p-1.5 bg-white border border-zinc-200 rounded-lg text-xs font-semibold text-zinc-800 focus:outline-hidden"
-                >
-                  <option value="ALL">Todas as Linhas de Produtos</option>
-                  {availableLines.map(line => (
-                    <option key={line} value={line}>Linha {line}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Filtros de Tipo de Demanda */}
-              <div className="grid grid-cols-6 gap-1 text-[10px]">
-                <button
-                  onClick={() => setDemandFilter('FILA')}
-                  className={`py-1 px-1 rounded font-semibold cursor-pointer flex items-center justify-center gap-0.5 ${
-                    demandFilter === 'FILA' ? 'bg-zinc-900 text-white shadow-xs' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-                  }`}
-                  title="Demandas enviadas da central de gerenciamento para o PCP"
-                >
-                  <span>Fila</span>
-                  <span className={`text-[9px] px-1 py-0.2 rounded-full font-mono font-bold ${
-                    demandFilter === 'FILA' ? 'bg-zinc-800 text-zinc-200' : 'bg-zinc-200 text-zinc-800'
-                  }`}>
-                    {filaDemandas.length}
-                  </span>
-                </button>
-                <button
-                  onClick={() => setDemandFilter('ALL')}
-                  className={`py-1 px-1 rounded font-semibold cursor-pointer flex items-center justify-center gap-0.5 ${
-                    demandFilter === 'ALL' ? 'bg-zinc-900 text-white shadow-xs' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-                  }`}
-                  title="Todos os produtos ativos do catálogo"
-                >
-                  <span>Todos</span>
-                  <span className={`text-[9px] px-1 py-0.2 rounded-full font-mono font-bold ${
-                    demandFilter === 'ALL' ? 'bg-zinc-800 text-zinc-200' : 'bg-zinc-200 text-zinc-800'
-                  }`}>
-                    {demandFilterCounts.all}
-                  </span>
-                </button>
-                <button
-                  onClick={() => setDemandFilter('CRITICOS')}
-                  className={`py-1 px-1 rounded font-semibold cursor-pointer flex items-center justify-center gap-0.5 ${
-                    demandFilter === 'CRITICOS' ? 'bg-zinc-900 text-white shadow-xs' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-                  }`}
-                  title="Produtos com déficit ou status crítico"
-                >
-                  <span>Críticos</span>
-                  <span className={`text-[9px] px-1 py-0.2 rounded-full font-mono font-bold ${
-                    demandFilter === 'CRITICOS' ? 'bg-zinc-800 text-rose-300' : 'bg-rose-100 text-rose-700'
-                  }`}>
-                    {demandFilterCounts.criticos}
-                  </span>
-                </button>
-                <button
-                  onClick={() => setDemandFilter('PROGRAMADAS')}
-                  className={`py-1 px-1 rounded font-semibold cursor-pointer flex items-center justify-center gap-0.5 ${
-                    demandFilter === 'PROGRAMADAS' ? 'bg-zinc-900 text-white shadow-xs' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-                  }`}
-                  title="Produtos com programação de produção ativa"
-                >
-                  <span>Prog.</span>
-                  <span className={`text-[9px] px-1 py-0.2 rounded-full font-mono font-bold ${
-                    demandFilter === 'PROGRAMADAS' ? 'bg-zinc-800 text-zinc-200' : 'bg-zinc-200 text-zinc-800'
-                  }`}>
-                    {demandFilterCounts.programadas}
-                  </span>
-                </button>
-                <button
-                  onClick={() => setDemandFilter('KITS')}
-                  className={`py-1 px-1 rounded font-semibold cursor-pointer flex items-center justify-center gap-0.5 ${
-                    demandFilter === 'KITS' ? 'bg-zinc-900 text-white shadow-xs' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-                  }`}
-                  title="Kits e componentes de kits"
-                >
-                  <span>Kits</span>
-                  <span className={`text-[9px] px-1 py-0.2 rounded-full font-mono font-bold ${
-                    demandFilter === 'KITS' ? 'bg-zinc-800 text-zinc-200' : 'bg-zinc-200 text-zinc-800'
-                  }`}>
-                    {demandFilterCounts.kits}
-                  </span>
-                </button>
-                <button
-                  onClick={() => setDemandFilter('BASES')}
-                  className={`py-1 px-1 rounded font-semibold cursor-pointer flex items-center justify-center gap-0.5 ${
-                    demandFilter === 'BASES' ? 'bg-zinc-900 text-white shadow-xs' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-                  }`}
-                  title="Bases de fabricação e semi-acabados"
-                >
-                  <span>Bases</span>
-                  <span className={`text-[9px] px-1 py-0.2 rounded-full font-mono font-bold ${
-                    demandFilter === 'BASES' ? 'bg-zinc-800 text-zinc-200' : 'bg-zinc-200 text-zinc-800'
-                  }`}>
-                    {demandFilterCounts.bases}
-                  </span>
-                </button>
               </div>
 
               {/* Campo de Busca */}
@@ -3675,10 +3521,10 @@ export function PlanejamentoSemanalTab({
                 <Search size={13} className="absolute left-2.5 top-2.5 text-zinc-400" />
                 <input
                   type="text"
-                  placeholder="Buscar REF, nome ou base..."
+                  placeholder="Buscar REF, descrição ou lote na fila..."
                   value={demandSearch}
                   onChange={(e) => setDemandSearch(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 bg-white border border-zinc-200 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                  className="w-full pl-8 pr-3 py-1.5 bg-white border border-zinc-200 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-zinc-400"
                 />
               </div>
             </div>
@@ -3687,7 +3533,7 @@ export function PlanejamentoSemanalTab({
             <div className="flex-1 overflow-y-auto p-2 divide-y divide-zinc-100">
               {demandCandidates.length === 0 ? (
                 <div className="py-8 text-center text-zinc-400 text-xs">
-                  Nenhum produto ativo pendente no filtro atual.
+                  Nenhum item pendente na fila de demandas.
                 </div>
               ) : (
                 demandCandidates.map(prod => {

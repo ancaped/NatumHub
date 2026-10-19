@@ -142,39 +142,7 @@ export function LotesTab({
 
   return (
     <div className="view-container animate-in fade-in duration-200">
-      {/* KPI Cards */}
-      <section className="summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
-        <div className="summary-card abundant">
-          <div className="card-header">
-            <span className="card-title">Total de Lotes</span>
-            <div className="card-icon"><ClipboardList size={20} /></div>
-          </div>
-          <div className="card-value">{lotes.length}</div>
-          <div className="card-subtitle">Lotes carregados no banco local</div>
-        </div>
 
-        <div className="summary-card ordem">
-          <div className="card-header">
-            <span className="card-title">Lotes em Produção</span>
-            <div className="card-icon"><Layers size={20} /></div>
-          </div>
-          <div className="card-value">
-            {lotes.filter(l => ['PG', 'PP', 'PR', 'EN', 'CF'].includes((l.status || '').toUpperCase())).length}
-          </div>
-          <div className="card-subtitle">Lotes em andamento na fábrica</div>
-        </div>
-
-        <div className="summary-card saudavel">
-          <div className="card-header">
-            <span className="card-title">Total Produzido (Lotes)</span>
-            <div className="card-icon"><Calendar size={20} /></div>
-          </div>
-          <div className="card-value">
-            {lotes.reduce((sum, l) => sum + (['EA', 'FP'].includes((l.status || '').toUpperCase()) ? (Number(l.quantity) || 0) : 0), 0).toLocaleString('pt-BR')} kg
-          </div>
-          <div className="card-subtitle">Volume físico total dos lotes concluídos</div>
-        </div>
-      </section>
 
       {/* Filtering Toolbar */}
       <div className="toolbar-section">

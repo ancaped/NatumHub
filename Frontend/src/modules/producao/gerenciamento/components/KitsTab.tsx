@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../../../geral/lib/http';
 import { kitComponentNeedQty } from '../../lib/kitComponentQty';
+import { formatUnitsToKg } from '../../lib/unitConversion';
 import {
   Search, RefreshCw, HelpCircle, AlertTriangle, Edit3, ChevronLeft, ChevronRight,
   CheckCircle2, PlusCircle, ChevronRight as ChevronRightIcon, Layers, Zap, CalendarClock, Package, Boxes, Plus, FlaskConical, X
@@ -339,48 +340,7 @@ export function KitsTab({
 
       {modo === 'kit' ? (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-            <div
-              className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-rose-300 hover:shadow-md ${kitsSelectedStatus === 'critico' ? 'ring-2 ring-rose-500 border-rose-500 bg-rose-50/20' : 'border-zinc-200'}`}
-              onClick={() => { setKitsSelectedStatus(kitsSelectedStatus === 'critico' ? 'ALL' : 'critico'); setKitsPage(1); }}
-            >
-              <div className="p-2.5 rounded-lg bg-rose-50 text-rose-600 shrink-0"><Zap size={20} /></div>
-              <div>
-                <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Produzir urgente</div>
-                <div className="text-xl font-bold text-rose-600">{kitsStats?.critico ?? 0}</div>
-              </div>
-            </div>
-            <div
-              className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-amber-300 hover:shadow-md ${kitsSelectedStatus === 'ordem' ? 'ring-2 ring-amber-500 border-amber-500 bg-amber-50/20' : 'border-zinc-200'}`}
-              onClick={() => { setKitsSelectedStatus(kitsSelectedStatus === 'ordem' ? 'ALL' : 'ordem'); setKitsPage(1); }}
-            >
-              <div className="p-2.5 rounded-lg bg-amber-50 text-amber-600 shrink-0"><AlertTriangle size={20} /></div>
-              <div>
-                <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Abrir ordem</div>
-                <div className="text-xl font-bold text-amber-600">{kitsStats?.ordem ?? 0}</div>
-              </div>
-            </div>
-            <div
-              className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-zinc-400 hover:shadow-md ${kitsSelectedStatus === 'aguardando' ? 'ring-2 ring-zinc-900 border-zinc-900 bg-zinc-50/40' : 'border-zinc-200'}`}
-              onClick={() => { setKitsSelectedStatus(kitsSelectedStatus === 'aguardando' ? 'ALL' : 'aguardando'); setKitsPage(1); }}
-            >
-              <div className="p-2.5 rounded-lg bg-zinc-100 text-zinc-700 shrink-0"><CalendarClock size={20} /></div>
-              <div>
-                <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Aguardando produção</div>
-                <div className="text-xl font-bold font-mono text-zinc-800">{kitsStats?.aguardando ?? 0}</div>
-              </div>
-            </div>
-            <div
-              className={`bg-white rounded-xl border p-3.5 shadow-sm flex items-center gap-3 cursor-pointer transition-all hover:border-emerald-300 hover:shadow-md ${kitsSelectedStatus === 'saudavel' ? 'ring-2 ring-emerald-500 border-emerald-500 bg-emerald-50/20' : 'border-zinc-200'}`}
-              onClick={() => { setKitsSelectedStatus(kitsSelectedStatus === 'saudavel' ? 'ALL' : 'saudavel'); setKitsPage(1); }}
-            >
-              <div className="p-2.5 rounded-lg bg-emerald-50 text-emerald-600 shrink-0"><CheckCircle2 size={20} /></div>
-              <div>
-                <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Estoque saudável</div>
-                <div className="text-xl font-bold font-mono text-emerald-600">{(kitsStats?.saudavel ?? 0) + (kitsStats?.abundante ?? 0)}</div>
-              </div>
-            </div>
-          </div>
+
 
           <div className="tabs-container">
             {(tabOptions || []).map((opt: any) => (
@@ -708,11 +668,17 @@ export function KitsTab({
                         <td className="px-4 py-2.5 text-right font-bold font-mono">{comp.estoque}</td>
                         <td className="px-4 py-2.5 text-right font-mono">{comp.producao}</td>
                         <td className="px-4 py-2.5 text-right font-bold font-mono">{demandaKit}</td>
-                        <td className="px-4 py-2.5 text-right font-mono">{avulsa}</td>
-                        <td className="px-4 py-2.5 text-right font-bold font-mono">{total}</td>
+                        <td className="px-4 py-2.5 text-right font-bold font-mono">
+                          <div>{total} un</div>
+                          {total > 0 && (
+                            <div className="text-[10px] text-zinc-400 font-normal">
+                              (~{formatUnitsToKg(total, comp.descricao)})
+                            </div>
+                          )}
+                        </td>
                         <td className="px-4 py-2.5">
-                          <button type="button" className={`text-[10px] font-bold px-2 py-0.5 rounded-md border cursor-pointer ${exclusiva ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-zinc-100 text-zinc-700 border-zinc-200'}`} onClick={() => onToggleApenasKit?.(comp.codigo, comp.produzir_apenas_kit ?? 0)}>
-                            {exclusiva ? 'Apenas Kit' : 'Misto'}
+                          <button type="button" className={`text-[10px] font-bold px-2 py-0.5 rounded-md border cursor-pointer ${exclusiva ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`} onClick={() => onToggleApenasKit?.(comp.codigo, comp.produzir_apenas_kit ?? 0)}>
+                            {exclusiva ? 'Somente Kit' : 'Venda + Kit'}
                           </button>
                         </td>
                         <td className="px-4 py-2.5 text-center">

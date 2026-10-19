@@ -40,7 +40,6 @@ export default function ProducaoView({
 }) {
   // Navigation State
   const [currentView, setCurrentView] = useState(lockedView || 'inventory');
-  const [rulesDrawerType, setRulesDrawerType] = useState<'programadas' | 'fixas' | null>(null);
 
   useEffect(() => {
     const viewLabels = {
@@ -589,6 +588,7 @@ export default function ProducaoView({
       if (showHidden) params.append('show_hidden', 'true');
       params.append('page', page.toString());
       params.append('limit', limitPerPage.toString());
+      params.append('include_all_regimes', 'true');
       if (sortField) {
         params.append('sort', sortField);
         params.append('order', sortDir);
@@ -1496,7 +1496,6 @@ export default function ProducaoView({
           {/* VIEW: STOCK & ALERTS */}
           {currentView === 'inventory' && (
             <InventoryTab
-              stats={stats}
               onShowDetails={fetchProductDetails}
               products={products}
               configs={configs}
@@ -1538,13 +1537,7 @@ export default function ProducaoView({
               SortIcon={SortIcon}
               productionApprovalList={productionApprovalList}
               onToggleApprovalList={handleToggleApprovalList}
-              onOpenProgramadasDrawer={() => {
-                fetchProgramadas();
-                setRulesDrawerType('programadas');
-              }}
-              onOpenFixasDrawer={() => {
-                setRulesDrawerType('fixas');
-              }}
+              onToggleApenasKit={handleToggleComponentApenasKit}
             />
           )}
 
@@ -1686,28 +1679,15 @@ export default function ProducaoView({
             />
           )}
 
-          {/* VIEW: PRODUCTION HISTORY */}
+          {/* VIEW: PRODUCTION HISTORY (UNIFIED LOTES TAB) */}
           {currentView === 'history' && (
-            <HistoryTab
-              historyRecords={historyRecords}
-              configs={configs}
-              historySearch={historySearch}
-              setHistorySearch={setHistorySearch}
-              historyActiveTab={historyActiveTab}
-              setHistoryActiveTab={setHistoryActiveTab}
-              historyDateFilter={historyDateFilter}
-              setHistoryDateFilter={setHistoryDateFilter}
-              historySortField={historySortField}
-              setHistorySortField={setHistorySortField}
-              historySortDir={historySortDir}
-              setHistorySortDir={setHistorySortDir}
-              onDeleteHistory={handleDeleteHistory}
-              onRefresh={fetchHistory}
-              loading={loading}
-              toggleSort={toggleSort}
-              SortIcon={SortIcon}
-              expandedHistoryId={expandedHistoryId}
-              setExpandedHistoryId={setExpandedHistoryId}
+            <LotesTab
+              lotes={lotes}
+              onRefresh={fetchLotes}
+              loading={lotesLoading}
+              onOpenDetails={fetchLoteDetails}
+              selectedStatus="ALL"
+              setSelectedStatus={setSelectedLoteStatus}
             />
           )}
 
@@ -2824,67 +2804,7 @@ export default function ProducaoView({
           }}
         />
 
-        <Drawer
-          isOpen={rulesDrawerType !== null}
-          onClose={() => {
-            setRulesDrawerType(null);
-            fetchProducts();
-          }}
-          size="2xl"
-          badge="Regras de Produção"
-          title={
-            rulesDrawerType === 'programadas'
-              ? 'Configurar Regras de Produções Programadas'
-              : 'Configurar Regras de Produções Fixas e Metas'
-          }
-          subtitle={
-            rulesDrawerType === 'programadas'
-              ? 'Gatilhos de disparo e objetivos de cobertura em lote'
-              : 'Metas mensais, datas limite e famílias de lançamentos'
-          }
-        >
-          {rulesDrawerType === 'programadas' ? (
-            <ProgramadasTab
-              products={programadasProducts}
-              configs={configs}
-              bases={bases}
-              activeTab={programadasActiveTab}
-              handleTabChange={(t: string) => { setProgramadasActiveTab(t); setProgramadasPage(1); }}
-              search={programadasSearch}
-              setSearch={setProgramadasSearch}
-              selectedStatus={programadasSelectedStatus}
-              setSelectedStatus={setProgramadasSelectedStatus}
-              page={programadasPage}
-              setPage={setProgramadasPage}
-              totalPages={programadasTotalPages}
-              totalItems={programadasTotalItems}
-              limitPerPage={limitPerPage}
-              diasComerciais={diasComerciais}
-              sortField={programadasSortField}
-              setSortField={setProgramadasSortField}
-              sortDir={programadasSortDir}
-              setSortDir={setProgramadasSortDir}
-              onEditOverrides={openEditModal}
-              onRefresh={fetchProgramadas}
-              loading={programadasLoading}
-              tabOptions={tabOptions}
-              toggleSort={toggleSort}
-              SortIcon={SortIcon}
-              onShowDetails={fetchProductDetails}
-              productionApprovalList={productionApprovalList}
-              onToggleApprovalList={handleToggleApprovalList}
-            />
-          ) : rulesDrawerType === 'fixas' ? (
-            <ProducoesFixasTab
-              tabOptions={tabOptions}
-              reloadToken={lancamentosTick}
-              onEditOverrides={openEditModal}
-              onShowDetails={fetchProductDetails}
-              productionApprovalList={productionApprovalList}
-              onToggleApprovalList={handleToggleApprovalList}
-            />
-          ) : null}
-        </Drawer>
+
 
       {/* Action status notification Toast */}
       {toast && (

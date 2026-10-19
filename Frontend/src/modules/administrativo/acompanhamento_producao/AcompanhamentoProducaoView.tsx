@@ -983,10 +983,13 @@ export function getLoteEtapaStatus(
   // 1. Consulta estrutura específica de etapas gravada no lote (backend Postgres / JSONB)
   const rawEtapas = l.etapasStatus || (l as any).etapas_status;
   const etapaEntry = rawEtapas?.[etapa];
+  const schedDate = getLoteScheduleDateIso(l, etapa);
+  const autoOk = Boolean(schedDate && isPastEndOfDay(schedDate) && l.erpStatus !== 'CA');
 
   if (etapaEntry) {
     const isEspera = etapaEntry.status === 'Em Espera' || Boolean(etapaEntry.motivoEspera);
-    const isConcluido = etapaEntry.status === 'concluido' || etapaEntry.status === 'Concluído';
+    const isExplicitConcluido = etapaEntry.status === 'concluido' || etapaEntry.status === 'Concluído';
+    const isConcluido = isExplicitConcluido || (!isEspera && autoOk);
     return {
       status: etapaEntry.status || (isConcluido ? 'concluido' : isEspera ? 'Em Espera' : 'ativo'),
       isEspera,
@@ -1016,10 +1019,12 @@ export function getLoteEtapaStatus(
     }
   }
 
+  const isConcluido = !isEsperaLegado && autoOk;
+
   return {
-    status: isEsperaLegado ? 'Em Espera' : 'pendente',
+    status: isEsperaLegado ? 'Em Espera' : (isConcluido ? 'concluido' : 'pendente'),
     isEspera: isEsperaLegado,
-    isConcluido: false,
+    isConcluido,
     motivoEspera: isEsperaLegado ? (l.motivoEspera || null) : null,
     insumoFaltanteCodigo: isEsperaLegado ? (l.insumoFaltanteCodigo || (l as any).insumo_faltante_codigo || null) : null,
     insumoFaltanteDescricao: isEsperaLegado ? (l.insumoFaltanteDescricao || (l as any).insumo_faltante_descricao || null) : null,
@@ -1056,6 +1061,23 @@ export function getEffectivePrevisao(dateAbertura?: string | null, dataPrevisao?
     console.error("Erro calculando previsao padrao de 15 dias:", e);
   }
   return null;
+}
+
+export function isPastEndOfDay(scheduleDateIso?: string | null): boolean {
+  if (!scheduleDateIso) return false;
+  try {
+    const now = new Date();
+    const currentIsoDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const cleanScheduleDate = scheduleDateIso.split('T')[0];
+    
+    if (cleanScheduleDate < currentIsoDate) {
+      return true;
+    }
+    if (cleanScheduleDate === currentIsoDate && now.getHours() >= 18) {
+      return true;
+    }
+  } catch {}
+  return false;
 }
 
 export function getLoteScheduleDateIso(
@@ -5546,6 +5568,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       if (isLoteTerceirizado(l)) return false;
       if (isLoteConcluido(l)) return false;
       if (isLoteOcultoNoQuadro(l, 'pesagem')) return false;
+      const etapaStatus = getLoteEtapaStatus(l, 'pesagem');
+      if (etapaStatus.isConcluido) return false;
       const eff = getEffectiveStatus(l);
       return eff === 'Pesagem' || (!l.customStatus && l.erpStatus === 'PG') || Boolean(l.details?.includes('Planejamento Semanal'));
     })).length;
@@ -5557,6 +5581,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       if (isLoteTerceirizado(l)) return false;
       if (isLoteConcluido(l)) return false;
       if (isLoteOcultoNoQuadro(l, 'producao')) return false;
+      const etapaStatus = getLoteEtapaStatus(l, 'producao');
+      if (etapaStatus.isConcluido) return false;
       const eff = getEffectiveStatus(l);
       return eff === 'Produção' || l.customStatus === 'Produção' || (!l.customStatus && l.erpStatus === 'PR') || isLoteParcial(l) || Boolean(l.details?.includes('Planejamento Semanal'));
     })).length;
@@ -5564,60 +5590,25 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
   // Contagens para o Quadro de Envase (Liberados e Prontos para Encaixar + Em Linha)
   const totalEnvaseDisponivel = useMemo(() => {
-    const liberadosCount = lotes.filter(l => {
-      if (isLoteConcluido(l)) return false;
-      if (isLoteOcultoNoQuadro(l, 'envase')) return false;
-
-      // Se já está programado no quadro de envase (Linha 1, 2 ou 3), não conta nesta etapa
-      const isAlreadyScheduled = programacaoEnvase.some(it => 
-        (it.loteNumber || '').trim().toUpperCase() === (l.loteNumber || '').trim().toUpperCase() && 
-        (!it.productCode || !l.productCode || (it.productCode || '').trim().toUpperCase() === (l.productCode || '').trim().toUpperCase())
-      );
-      if (isAlreadyScheduled) return false;
-
-      const esperaDetails = getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem);
-      if (esperaDetails.isEmEspera) return true;
-
-      const cleanNum = (l.loteNumber || '').trim().toLowerCase();
-      const cleanNumNoZero = cleanNum.replace(/^0+/, '');
-      const hasFqAnalysis = fiscoAnalysesByBatch.has(cleanNum) || (cleanNumNoZero ? fiscoAnalysesByBatch.has(cleanNumNoZero) : false) || Boolean(l.dataLiberadoEnvase);
-      const isManual = manualLiberadosEnvase.has(cleanNum) || manualLiberadosEnvase.has(l.loteNumber) || l.customStatus === 'Liberado para Envase';
-      const isPlanned = Boolean(l.details?.includes('Planejamento Semanal'));
-
-      return hasFqAnalysis || isManual || isPlanned;
-    }).length;
-
-    const emLinhaCount = programacaoEnvase.filter(it => {
+    return programacaoEnvase.filter(it => {
       if (it.statusEnvase === 'CONCLUIDO') return false;
+      if (isPastEndOfDay(it.dataProgramada) && it.statusEnvase !== 'EM_ESPERA') return false;
       const realLote = lotes.find(l => (l.loteNumber || '').trim().toUpperCase() === (it.loteNumber || '').trim().toUpperCase());
       if (realLote && (isLoteConcluido(realLote) || isLoteOcultoNoQuadro(realLote, 'envase'))) return false;
       return true;
     }).length;
+  }, [lotes, programacaoEnvase]);
 
-    return liberadosCount + emLinhaCount;
-  }, [lotes, programacaoEnvase, fiscoAnalysesByBatch, manualLiberadosEnvase, programacaoRotulagem]);
-
-  // Contagens para o Quadro de Rotulagem (Lotes entre Pesagem e Produção)
+  // Contagens para o Quadro de Rotulagem (Itens ativos na programação de rotulagem)
   const totalRotulagemDisponivel = useMemo(() => {
-    return lotes.filter(l => {
-      if (isLoteTerceirizado(l)) {
-        const effStatus = getEffectiveStatus(l);
-        const isAptoTerc = effStatus === 'Rotulagem' || effStatus === 'Liberado para Envase' || effStatus === 'Produzido' ||
-          l.customStatus === 'Rotulagem' || l.customStatus === 'Liberado para Envase' || l.customStatus === 'Produzido' || isLoteParcial(l);
-        if (!isAptoTerc) return false;
-      }
-      if (isLoteConcluido(l)) return false;
-      if (isLoteOcultoNoQuadro(l, 'rotulagem')) return false;
-      if (isLoteParcial(l)) return true;
-      const eff = getEffectiveStatus(l);
-      const isPlanned = Boolean(l.details?.includes('Planejamento Semanal'));
-      return (
-        (eff === 'Pesagem' || eff === 'Produção' || eff === 'Em Pesagem' || eff === 'Produzido' || eff === 'Liberado para Envase' || eff === 'Rotulagem' ||
-         l.erpStatus === 'PG' || l.erpStatus === 'PP' || l.erpStatus === 'PR' || isPlanned) &&
-        l.erpStatus !== 'CA'
-      );
+    return programacaoRotulagem.filter(it => {
+      if (it.statusRotulagem === 'CONCLUIDO') return false;
+      if (isPastEndOfDay(it.dataProgramada) && it.statusRotulagem !== 'EM_ESPERA') return false;
+      const realLote = lotes.find(l => (l.loteNumber || '').trim().toUpperCase() === (it.loteNumber || '').trim().toUpperCase());
+      if (realLote && (isLoteConcluido(realLote) || isLoteOcultoNoQuadro(realLote, 'rotulagem'))) return false;
+      return true;
     }).length;
-  }, [lotes, isLoteTerceirizado]);
+  }, [lotes, programacaoRotulagem]);
 
   // Contagens para a Aba de Terceirizados
   const totalTerceirizadosAberto = useMemo(() => {
@@ -8283,7 +8274,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 <button
                   type="button"
                   onClick={() => setShowNovaSolicitacaoModal(true)}
-                  className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                  className="px-3.5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
                   <Plus className="h-3.5 w-3.5" />
                   <span>+ Nova Solicitação Terceirizado</span>
@@ -8302,7 +8293,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       Exibindo <strong>{filteredSolicitacoes.length}</strong> de <strong>{solicitacoes.length}</strong> solicitações
                     </span>
                     {Object.keys(solicColumnFilters).length > 0 && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-zinc-100 text-zinc-800 border border-zinc-200">
                         <SlidersHorizontal className="h-3 w-3" />
                         {Object.keys(solicColumnFilters).length} filtro(s) ativo(s)
                       </span>
@@ -8445,7 +8436,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               key={solic.id}
                               className={cn(
                                 "hover:bg-zinc-50/80 transition-colors",
-                                isVinculado ? "bg-emerald-50/20" : isAprovado ? "bg-indigo-50/20" : "bg-white"
+                                isVinculado ? "bg-emerald-50/20" : isAprovado ? "bg-zinc-50/60" : "bg-white"
                               )}
                             >
                               <td className="py-2.5 px-4 font-mono text-zinc-600 whitespace-nowrap">
@@ -8603,17 +8594,17 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               {/* STATUS / ETAPA */}
                               <td className="py-2.5 px-4 text-center whitespace-nowrap">
                                 {isVinculado ? (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs">
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
                                     <CheckCircle2 className="h-3 w-3 text-emerald-600" />
                                     Vinculado ao Lote
                                   </span>
                                 ) : isAprovado ? (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-300 shadow-2xs">
-                                    <CheckCheck className="h-3.5 w-3.5 text-indigo-600" />
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full bg-zinc-100 text-zinc-800 border border-zinc-200 shadow-2xs">
+                                    <CheckCheck className="h-3.5 w-3.5 text-zinc-700" />
                                     Aprovado • Liberado
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300 shadow-2xs">
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs">
                                     <Clock className="h-3 w-3 text-amber-600" />
                                     Aguardando ({(solic.aprovacaoEmbalagem ? 1 : 0) + (solic.aprovacaoMateriaPrima ? 1 : 0)}/2)
                                   </span>
@@ -8628,7 +8619,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                       setTerceirizadosSubTab('acompanhamento');
                                       setSearch(solic.loteNumber || '');
                                     }}
-                                    className="text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1 cursor-pointer"
+                                    className="text-zinc-900 hover:text-zinc-600 hover:underline flex items-center gap-1 cursor-pointer"
                                     title="Ir para o lote em acompanhamento"
                                   >
                                     <span>#{solic.loteNumber}</span>
@@ -8707,7 +8698,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       Exibindo <strong>{sortedLotes.length}</strong> de <strong>{baseTabLotes.length}</strong> lotes {currentTab === 'terceirizados' ? 'terceirizados' : 'internos'}
                     </span>
                     {Object.keys(lotesColumnFilters).length > 0 && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-zinc-100 text-zinc-800 border border-zinc-200">
                         <SlidersHorizontal className="h-3 w-3" />
                         {Object.keys(lotesColumnFilters).length} coluna(s) com filtro
                       </span>
@@ -15808,7 +15799,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 type="button"
                 onClick={handleCreateSolicitacao}
                 disabled={savingSolicitacao}
-                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                className="px-5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
               >
                 {savingSolicitacao && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
                 <span>Salvar Solicitação</span>
@@ -15824,7 +15815,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           <div className="bg-white rounded-2xl max-w-xl w-full border border-zinc-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-5 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/70">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-indigo-100 text-indigo-700 rounded-xl">
+                <div className="p-2 bg-zinc-100 text-zinc-900 rounded-xl">
                   <Layers className="h-5 w-5" />
                 </div>
                 <div>
@@ -15965,7 +15956,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 type="button"
                 onClick={handleVincularSolicitacao}
                 disabled={savingVinculo || !vincularLoteInput.trim()}
-                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                className="px-5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
               >
                 {savingVinculo && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
                 <span>Confirmar Vínculo</span>

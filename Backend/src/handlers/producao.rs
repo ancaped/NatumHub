@@ -772,15 +772,17 @@ pub async fn list_products(
             return true;
         }
 
-        if params.include_programadas != Some(true) && params.show_hidden != Some(true) && p.is_producao_programada == Some(1) {
-            return false;
-        }
+        if params.include_all_regimes != Some(true) {
+            if params.include_programadas != Some(true) && params.show_hidden != Some(true) && p.is_producao_programada == Some(1) {
+                return false;
+            }
 
-        let em_fixa = p.is_lancamento_manual == Some(1)
-            || p.lancamento_gatilho.filter(|n| *n > 0).is_some()
-            || p.lancamento_estoque_maximo.filter(|n| *n > 0).is_some();
-        if em_fixa {
-            return false;
+            let em_fixa = p.is_lancamento_manual == Some(1)
+                || p.lancamento_gatilho.filter(|n| *n > 0).is_some()
+                || p.lancamento_estoque_maximo.filter(|n| *n > 0).is_some();
+            if params.include_fixas != Some(true) && em_fixa {
+                return false;
+            }
         }
 
         !is_kit && !is_coloracao && !is_apoio && !is_base
@@ -2573,19 +2575,39 @@ pub async fn check_lote_errors(
         .flatten()
         .flatten()
         {
-            if let Ok(bc) = sqlx::query_scalar::<_, String>(
+            if let Ok(Some(bc)) = sqlx::query_scalar::<_, String>(
                 "SELECT codigo FROM produtos WHERE descricao = $1 LIMIT 1",
             )
             .bind(&b_desc)
             .fetch_optional(pool)
             .await
             {
-                if let Some(bc) = bc {
-                    if exits_map.contains_key(&bc) {
-                        base_code = Some(bc);
-                    }
-                }
+                base_code = Some(bc);
             }
+        }
+    }
+
+    if base_code.is_none() {
+        if let Ok(Some(bc)) = sqlx::query_scalar::<_, String>(
+            "SELECT base_codigo FROM produtos WHERE codigo = $1 AND base_codigo IS NOT NULL AND base_codigo != '' LIMIT 1",
+        )
+        .bind(product_code)
+        .fetch_optional(pool)
+        .await
+        {
+            base_code = Some(bc);
+        }
+    }
+
+    if base_code.is_none() {
+        if let Ok(Some(bc)) = sqlx::query_scalar::<_, String>(
+            "SELECT base_codigo FROM producao_planejamento_semanal WHERE (lote = $1 OR ordem_producao = $1) AND base_codigo IS NOT NULL AND base_codigo != '' LIMIT 1",
+        )
+        .bind(lote_number)
+        .fetch_optional(pool)
+        .await
+        {
+            base_code = Some(bc);
         }
     }
 
@@ -3273,12 +3295,32 @@ pub async fn get_lote_detalhes(
                 .fetch_optional(pool)
                 .await
                 {
-                    if exits_map.contains_key(&bc) {
-                        base_code = Some(bc);
-                        break;
-                    }
+                    base_code = Some(bc);
+                    break;
                 }
             }
+            if let Ok(Some(bc)) = sqlx::query_scalar::<_, String>(
+                "SELECT base_codigo FROM produtos WHERE codigo = $1 AND base_codigo IS NOT NULL AND base_codigo != '' LIMIT 1",
+            )
+            .bind(p_code)
+            .fetch_optional(pool)
+            .await
+            {
+                base_code = Some(bc);
+                break;
+            }
+        }
+    }
+
+    if base_code.is_none() {
+        if let Ok(Some(bc)) = sqlx::query_scalar::<_, String>(
+            "SELECT base_codigo FROM producao_planejamento_semanal WHERE (lote = $1 OR ordem_producao = $1) AND base_codigo IS NOT NULL AND base_codigo != '' LIMIT 1",
+        )
+        .bind(&lote_number)
+        .fetch_optional(pool)
+        .await
+        {
+            base_code = Some(bc);
         }
     }
 
