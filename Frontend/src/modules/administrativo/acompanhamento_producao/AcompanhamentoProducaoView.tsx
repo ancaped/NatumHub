@@ -5643,31 +5643,26 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           id: 'quadro_pesagem',
           label: 'Quadro de Pesagem',
           icon: Scale,
-          badge: totalPesagemAberto > 0 ? totalPesagemAberto : undefined,
         },
         {
           id: 'quadro_producao',
           label: 'Quadro de Produção',
           icon: FlaskConical,
-          badge: totalProducaoAberto > 0 ? totalProducaoAberto : undefined,
         },
         {
           id: 'quadro_rotulagem',
           label: 'Quadro de Rotulagem',
           icon: Tag,
-          badge: totalRotulagemDisponivel > 0 ? totalRotulagemDisponivel : undefined,
         },
         {
           id: 'quadro_envase',
           label: 'Quadro de Envase',
           icon: Layers,
-          badge: totalEnvaseDisponivel > 0 ? totalEnvaseDisponivel : undefined,
         },
         {
           id: 'quadro_ordens',
           label: 'Quadro de Ordens',
           icon: CheckSquare,
-          badge: totalOrdensFinalizadasNaoLancadas > 0 ? totalOrdensFinalizadasNaoLancadas : undefined,
         },
         {
           id: 'kits',
@@ -5707,31 +5702,26 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         id: 'quadro_pesagem',
         label: 'Quadro de Pesagem',
         icon: Scale,
-        badge: totalPesagemAberto > 0 ? totalPesagemAberto : undefined,
       },
       {
         id: 'quadro_producao',
         label: 'Quadro de Produção',
         icon: FlaskConical,
-        badge: totalProducaoAberto > 0 ? totalProducaoAberto : undefined,
       },
       {
         id: 'quadro_rotulagem',
         label: 'Quadro de Rotulagem',
         icon: Tag,
-        badge: totalRotulagemDisponivel > 0 ? totalRotulagemDisponivel : undefined,
       },
       {
         id: 'quadro_envase',
         label: 'Quadro de Envase',
         icon: Layers,
-        badge: totalEnvaseDisponivel > 0 ? totalEnvaseDisponivel : undefined,
       },
       {
         id: 'quadro_ordens',
         label: 'Quadro de Ordens',
         icon: CheckSquare,
-        badge: totalOrdensFinalizadasNaoLancadas > 0 ? totalOrdensFinalizadasNaoLancadas : undefined,
       },
       {
         id: 'calendar',
@@ -8233,24 +8223,81 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       {/* VIEW 1 & VIEW 2: STATUS DE LOTES (INTERNOS) E TERCEIRIZADOS */}
       {(currentTab === 'lotes' || currentTab === 'terceirizados') && (
         <div className="space-y-3">
-          {/* Sub-Aba Exclusiva para Terceirizados: Acompanhamento de Lotes vs Solicitações */}
+          {/* Sub-Aba Exclusiva para Terceirizados: Header e KPIs Dedicados */}
           {currentTab === 'terceirizados' && (
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-lg border border-zinc-200 shadow-xs">
-              <div className="flex items-center gap-2">
+            <div className="bg-white border border-zinc-200 rounded-xl p-4 shadow-2xs space-y-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-zinc-900 text-white rounded-xl shadow-2xs shrink-0">
+                    <Building2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-base font-extrabold text-zinc-900 tracking-tight">
+                        Gestão de Terceirizados & Demandas Externas
+                      </h2>
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-zinc-100 text-zinc-800 border border-zinc-200">
+                        {solicitacoes.length} solicitações · {baseTabLotes.length} lotes
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-500 mt-0.5">
+                      Controle e rastreio de solicitações para terceiristas, validação de insumos e acompanhamento de lotes externos.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowNovaSolicitacaoModal(true)}
+                  className="px-3.5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-xl shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>+ Nova Solicitação</span>
+                </button>
+              </div>
+
+              {/* KPIS DE TERCEIRIZAÇÃO */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-1 border-t border-zinc-100">
+                <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-xl">
+                  <span className="text-[10px] uppercase font-bold text-zinc-400 block">Total de Demandas</span>
+                  <span className="text-base font-mono font-extrabold text-zinc-900 mt-0.5 block">{solicitacoes.length}</span>
+                </div>
+                <div className="p-3 bg-amber-50/60 border border-amber-200 rounded-xl">
+                  <span className="text-[10px] uppercase font-bold text-amber-800 block">Aguardando Insumos</span>
+                  <span className="text-base font-mono font-extrabold text-amber-900 mt-0.5 block">
+                    {solicitacoes.filter(s => !s.aprovacaoEmbalagem || !s.aprovacaoMateriaPrima).length}
+                  </span>
+                </div>
+                <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-xl">
+                  <span className="text-[10px] uppercase font-bold text-zinc-600 block">Aprovados / Prontos</span>
+                  <span className="text-base font-mono font-extrabold text-zinc-900 mt-0.5 block">
+                    {solicitacoes.filter(s => s.aprovacaoEmbalagem && s.aprovacaoMateriaPrima && s.status !== 'VINCULADO').length}
+                  </span>
+                </div>
+                <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl">
+                  <span className="text-[10px] uppercase font-bold text-emerald-800 block">Vinculados ao ERP</span>
+                  <span className="text-base font-mono font-extrabold text-emerald-900 mt-0.5 block">
+                    {solicitacoes.filter(s => s.status === 'VINCULADO').length}
+                  </span>
+                </div>
+              </div>
+
+              {/* CONTROLE SEGMENTADO DE SUB-ABAS */}
+              <div className="flex items-center gap-2 pt-1 border-t border-zinc-100">
                 <button
                   type="button"
                   onClick={() => { setTerceirizadosSubTab('solicitados'); fetchSolicitacoes(); }}
                   className={cn(
-                    "px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border flex items-center gap-1.5",
+                    "px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border flex items-center gap-1.5",
                     terceirizadosSubTab === 'solicitados'
-                      ? "bg-zinc-900 text-white border-zinc-900 shadow-xs"
+                      ? "bg-zinc-900 text-white border-zinc-900 shadow-2xs"
                       : "bg-white text-zinc-650 border-zinc-200 hover:bg-zinc-50 hover:text-zinc-900"
                   )}
                 >
                   <Tag className="h-3.5 w-3.5" />
                   <span>Solicitações & Aguardando Lote ERP</span>
                   {solicitacoes.filter(s => s.status === 'SOLICITADO').length > 0 && (
-                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-amber-400 text-zinc-950 font-bold ml-0.5">
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-amber-400 text-zinc-950 font-bold ml-0.5">
                       {solicitacoes.filter(s => s.status === 'SOLICITADO').length}
                     </span>
                   )}
@@ -8259,25 +8306,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   type="button"
                   onClick={() => setTerceirizadosSubTab('acompanhamento')}
                   className={cn(
-                    "px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border flex items-center gap-1.5",
+                    "px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border flex items-center gap-1.5",
                     terceirizadosSubTab === 'acompanhamento'
-                      ? "bg-zinc-900 text-white border-zinc-900 shadow-xs"
+                      ? "bg-zinc-900 text-white border-zinc-900 shadow-2xs"
                       : "bg-white text-zinc-650 border-zinc-200 hover:bg-zinc-50 hover:text-zinc-900"
                   )}
                 >
                   <Package className="h-3.5 w-3.5" />
-                  <span>Lotes Terceirizados em Produção ({filterCounts.todos})</span>
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowNovaSolicitacaoModal(true)}
-                  className="px-3.5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  <span>+ Nova Solicitação Terceirizado</span>
+                  <span>Lotes Terceirizados em Produção ({baseTabLotes.length})</span>
                 </button>
               </div>
             </div>
@@ -9082,13 +9118,13 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                     const isEspera = !isOrdensFin && !!lote.motivoEspera;
 
                                     const badges = [];
-                                    if (isPesando) badges.push(<span key="pes" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">⚖️ Pesagem</span>);
-                                    if (isProducao) badges.push(<span key="prod" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-100 text-blue-900 border border-blue-300 shadow-2xs">🧪 Produção</span>);
-                                    if (isCaldeira) badges.push(<span key="cald" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-orange-100 text-orange-900 border border-orange-300 shadow-2xs">🔥 Caldeira</span>);
-                                    if (isEnvase) badges.push(<span key="env" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-100 text-purple-900 border border-purple-300 shadow-2xs">📦 Envase</span>);
-                                    if (isRotulagem) badges.push(<span key="rot" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300 shadow-2xs">🏷️ Rotulagem</span>);
+                                    if (isPesando) badges.push(<span key="pes" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 shadow-2xs">⚖️ Pesagem</span>);
+                                    if (isProducao) badges.push(<span key="prod" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-zinc-100 text-zinc-900 border border-zinc-200 shadow-2xs">🧪 Produção</span>);
+                                    if (isCaldeira) badges.push(<span key="cald" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200 shadow-2xs">🔥 Caldeira</span>);
+                                    if (isEnvase) badges.push(<span key="env" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-zinc-100 text-zinc-800 border border-zinc-200 shadow-2xs">📦 Envase</span>);
+                                    if (isRotulagem) badges.push(<span key="rot" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">🏷️ Rotulagem</span>);
                                     if (isOrdensFin) badges.push(<span key="ord" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-zinc-200 text-zinc-900 border border-zinc-300 shadow-2xs">🏁 Concluído</span>);
-                                    if (isEspera) badges.push(<span key="esp" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-300 truncate max-w-[140px] shadow-2xs" title={lote.motivoEspera || ''}>⏸️ {lote.motivoEspera}</span>);
+                                    if (isEspera) badges.push(<span key="esp" className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-900 border border-rose-200 truncate max-w-[140px] shadow-2xs" title={lote.motivoEspera || ''}>⏸️ {lote.motivoEspera}</span>);
 
                                     if (badges.length === 0) {
                                       return <span className="text-[11px] text-zinc-400 font-medium italic">Aguardando início</span>;
@@ -9099,7 +9135,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 {lote.motivoEspera && (
                                   <div
                                     onClick={() => handleOpenPauseModal(lote)}
-                                    className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 border border-amber-300 text-amber-900 cursor-pointer hover:bg-amber-100 transition-colors line-clamp-1 max-w-[240px]"
+                                    className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-900 cursor-pointer hover:bg-amber-100 transition-colors line-clamp-1 max-w-[240px]"
                                     title="Clique para editar motivo ou insumo faltante"
                                   >
                                     <span>⏸️</span>
@@ -9120,17 +9156,29 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   )}
                                 >
                                   <option value="">Padrão ({lote.erpStatusLabel || lote.erpStatus || 'Sem Status'})</option>
-                                  <optgroup label="Pesagem e Produção">
-                                    <option value="Pesagem">Pesagem</option>
-                                    <option value="Produzido">Produzido</option>
-                                    <option value="Liberado para Envase">Liberado para Envase</option>
-                                  </optgroup>
-                                  <optgroup label="Embalagem">
-                                    <option value="Rotulagem">Rotulagem</option>
-                                    <option value="Envase">Envase</option>
-                                    <option value="Ordem Parcial">Ordem Parcial</option>
-                                    <option value="Ordem Finalizada">Ordem Finalizada</option>
-                                  </optgroup>
+                                  {currentTab === 'terceirizados' ? (
+                                    <optgroup label="Situação no Terceirista">
+                                      <option value="Aguardando Insumos">Aguardando Insumos</option>
+                                      <option value="Em Fabricação Externa">Em Fabricação Externa</option>
+                                      <option value="Enviado para Envase">Enviado para Envase</option>
+                                      <option value="Entregue na Fábrica">Entregue na Fábrica</option>
+                                      <option value="Finalizada">Finalizado</option>
+                                    </optgroup>
+                                  ) : (
+                                    <>
+                                      <optgroup label="Pesagem e Produção">
+                                        <option value="Pesagem">Pesagem</option>
+                                        <option value="Produzido">Produzido</option>
+                                        <option value="Liberado para Envase">Liberado para Envase</option>
+                                      </optgroup>
+                                      <optgroup label="Embalagem">
+                                        <option value="Rotulagem">Rotulagem</option>
+                                        <option value="Envase">Envase</option>
+                                        <option value="Ordem Parcial">Ordem Parcial</option>
+                                        <option value="Ordem Finalizada">Ordem Finalizada</option>
+                                      </optgroup>
+                                    </>
+                                  )}
                                   {lote.customStatus === 'Em Espera' && (
                                     <optgroup label="Pausa">
                                       <option value="Em Espera">⏸️ Em Espera (Pausado)</option>
@@ -9816,14 +9864,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         onDrop={(e) => handleDropPesagem(e, 'ativa', idx)}
                         className={cn(
                           "bg-white border rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2 cursor-grab active:cursor-grabbing",
-                          dragOverTarget === `pesagem_ativa_${idx}` && "border-t-4 border-t-emerald-600 ring-2 ring-emerald-300",
+                          dragOverTarget === `pesagem_ativa_${idx}` && "border-t-4 border-t-zinc-900 ring-2 ring-zinc-300",
                           isAdiadoOriginal
                             ? "border-rose-400 bg-rose-50/25 ring-1 ring-rose-300"
                             : isSearched
-                              ? "border-emerald-500 ring-2 ring-emerald-300/80 bg-emerald-50/20"
+                              ? "border-zinc-400 ring-2 ring-zinc-300/80 bg-zinc-50/40"
                               : isPesagemConcluida
-                                ? "border-emerald-400 bg-emerald-50/20 ring-1 ring-emerald-200"
-                                : "border-emerald-200/80"
+                                ? "border-emerald-300 bg-emerald-50/20 ring-1 ring-emerald-200"
+                                : "border-zinc-200 hover:border-zinc-300"
                         )}
                       >
                         <div className="flex items-center justify-between gap-1 pb-1.5 border-b border-zinc-100">
@@ -10356,18 +10404,18 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             isRefreshing: loading,
             operationalMetrics: (
               <>
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 font-bold">
-                  <FlaskConical className="h-3.5 w-3.5 text-blue-600" />
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-800 font-bold">
+                  <FlaskConical className="h-3.5 w-3.5 text-zinc-600" />
                   <span>Produção:</span>
                   <span className="font-mono">{lotesReatoresNormais.length} lotes</span>
-                  <span className="text-blue-400 font-normal">|</span>
-                  <span className="font-mono text-[11px] text-blue-700">
+                  <span className="text-zinc-400 font-normal">|</span>
+                  <span className="font-mono text-[11px] text-zinc-600">
                     {lotesReatoresNormais.reduce((s, l) => s + (Number(l.quantityKg) || 0), 0).toLocaleString('pt-BR')} kg
                   </span>
                 </div>
 
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-bold bg-orange-50 border-orange-200 text-orange-950">
-                  <Flame className="h-3.5 w-3.5 fill-orange-500 text-orange-500" />
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-bold bg-zinc-50 border-zinc-200 text-zinc-800">
+                  <Flame className="h-3.5 w-3.5 text-amber-600" />
                   <span>Caldeira:</span>
                   <span className="font-mono">{lotesCaldeira.length} lotes</span>
                 </div>
@@ -10657,14 +10705,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             </div>
 
             {/* COLUNA 2: QUADRO DE CALDEIRA (4 COLUNAS - LADO A LADO) */}
-            <div className="col-span-12 xl:col-span-4 lg:col-span-4 bg-white border border-orange-200 rounded-lg shadow-xs overflow-hidden flex flex-col">
-              <div className="bg-gradient-to-r from-orange-600 via-amber-600 to-zinc-900 px-4 py-3 text-white flex items-center justify-between">
+            <div className="col-span-12 xl:col-span-4 lg:col-span-4 bg-white border border-zinc-200 rounded-lg shadow-xs overflow-hidden flex flex-col">
+              <div className="bg-zinc-900 px-4 py-3 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className={cn(
                     "p-1 rounded text-white",
-                    caldeiraAtiva ? "bg-rose-600 animate-pulse" : "bg-white/20"
+                    caldeiraAtiva ? "bg-amber-500/20 text-amber-400" : "bg-white/10 text-zinc-300"
                   )}>
-                    <Flame className="h-4 w-4 fill-white" />
+                    <Flame className="h-4 w-4 fill-amber-400 text-amber-400" />
                   </div>
                   <div>
                     <div className="flex items-center gap-1.5">
@@ -10673,10 +10721,10 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-black/30 text-white border border-white/10">
+                  <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-white/10 text-white border border-white/10">
                     {filteredLotesCaldeira.length}{producaoSearch ? ` / ${lotesCaldeira.length}` : ''}
                   </span>
-                  <span className="text-xs font-mono text-orange-100">
+                  <span className="text-xs font-mono text-zinc-300">
                     {filteredLotesCaldeira.reduce((s, l) => s + (Number(l.quantityKg) || 0), 0).toLocaleString('pt-BR')} kg
                   </span>
                 </div>
@@ -10692,18 +10740,18 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 }}
                 onDrop={(e) => handleDropProducao(e, 'caldeira')}
                 className={cn(
-                  "p-3 bg-orange-50/20 min-h-[480px] max-h-[750px] overflow-y-auto space-y-2.5 transition-colors",
-                  dragOverTarget === 'producao-caldeira' ? "bg-orange-100/60 ring-2 ring-orange-500 rounded-xl" : ""
+                  "p-3 bg-zinc-50/50 min-h-[480px] max-h-[750px] overflow-y-auto space-y-2.5 transition-colors",
+                  dragOverTarget === 'producao-caldeira' ? "bg-zinc-100/60 ring-2 ring-zinc-400 rounded-xl" : ""
                 )}
               >
                 {filteredLotesCaldeira.length === 0 ? (
-                  <div className="py-20 text-center text-zinc-400 border border-dashed border-orange-200 rounded-xl p-4 bg-white shadow-2xs">
-                    <Flame className="h-10 w-10 mx-auto mb-2 text-orange-400" />
+                  <div className="py-20 text-center text-zinc-400 border border-dashed border-zinc-200 rounded-xl p-4 bg-white shadow-2xs">
+                    <Flame className="h-10 w-10 mx-auto mb-2 text-zinc-300" />
                     <p className="text-sm font-bold text-zinc-800">
                       {producaoSearch ? `Nenhum lote na caldeira com "${producaoSearch}"` : 'Nenhum lote no Quadro de Caldeira'}
                     </p>
                     <p className="text-xs text-zinc-500 mt-1 max-w-xs mx-auto">
-                      Clique em <span className="font-bold text-orange-700">"+ Caldeira"</span> nos reatores ao lado ou na fila para alocar lotes aqui.
+                      Clique em <span className="font-bold text-zinc-800">"+ Caldeira"</span> nos reatores ao lado ou na fila para alocar lotes aqui.
                     </p>
                   </div>
                 ) : (
@@ -12120,7 +12168,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               <button
                 type="button"
                 onClick={handleOpenRelatorioEnvaseModal}
-                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-extrabold shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer"
+                className="px-3.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 active:bg-black text-white rounded-xl text-xs font-extrabold shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer"
                 title="Abrir e imprimir relatório de envase para um período personalizado"
               >
                 <Printer className="h-4 w-4" />
@@ -12129,23 +12177,23 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             ),
             operationalMetrics: (
               <>
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 font-bold">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-800 font-bold">
                   <span>Linha 1:</span>
                   <span className="font-mono">{envaseDayStats.linha1Count} lotes</span>
-                  <span className="text-blue-400 font-normal">|</span>
-                  <span className="font-mono text-[11px] text-blue-700">{Number(envaseDayStats.linha1Un).toLocaleString('pt-BR')} un</span>
+                  <span className="text-zinc-400 font-normal">|</span>
+                  <span className="font-mono text-[11px] text-zinc-600">{Number(envaseDayStats.linha1Un).toLocaleString('pt-BR')} un</span>
                 </div>
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900 font-bold">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-800 font-bold">
                   <span>Linha 2:</span>
                   <span className="font-mono">{envaseDayStats.linha2Count} lotes</span>
-                  <span className="text-indigo-400 font-normal">|</span>
-                  <span className="font-mono text-[11px] text-indigo-700">{Number(envaseDayStats.linha2Un).toLocaleString('pt-BR')} un</span>
+                  <span className="text-zinc-400 font-normal">|</span>
+                  <span className="font-mono text-[11px] text-zinc-600">{Number(envaseDayStats.linha2Un).toLocaleString('pt-BR')} un</span>
                 </div>
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 font-bold">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-800 font-bold">
                   <span>Linha 3 (Óleos):</span>
                   <span className="font-mono">{envaseDayStats.linha3Count} lotes</span>
-                  <span className="text-amber-400 font-normal">|</span>
-                  <span className="font-mono text-[11px] text-amber-700">{Number(envaseDayStats.linha3Un).toLocaleString('pt-BR')} un</span>
+                  <span className="text-zinc-400 font-normal">|</span>
+                  <span className="font-mono text-[11px] text-zinc-600">{Number(envaseDayStats.linha3Un).toLocaleString('pt-BR')} un</span>
                 </div>
                 <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-100 border border-zinc-200 text-zinc-800 font-bold">
                   <span>Total:</span>

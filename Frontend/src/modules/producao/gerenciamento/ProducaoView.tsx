@@ -753,7 +753,7 @@ export default function ProducaoView({
   }, []);
 
   useEffect(() => {
-    if (currentView === 'lotes' || currentView === 'calendar' || currentView === 'erros' || lockedView === 'lotes') {
+    if (currentView === 'lotes' || currentView === 'calendar' || currentView === 'erros' || currentView === 'history' || lockedView === 'lotes') {
       fetchLotes();
     }
   }, [currentView, lockedView, fetchLotes]);
@@ -1463,6 +1463,7 @@ export default function ProducaoView({
       fetchKits();
     } else if (tabId === 'history') {
       setCurrentView('history');
+      fetchLotes();
       fetchHistory();
     } else if (tabId === 'ignored_items') {
       setCurrentView('ignored_items');
