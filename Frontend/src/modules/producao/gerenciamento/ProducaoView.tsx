@@ -1607,6 +1607,7 @@ export default function ProducaoView({
               onToggleApprovalList={handleToggleApprovalList}
               diasComerciais={diasComerciais}
               configs={configs}
+              onShowDetails={fetchProductDetails}
               onLaunchSuccess={() => {
                 fetchProducts();
                 fetchKits();

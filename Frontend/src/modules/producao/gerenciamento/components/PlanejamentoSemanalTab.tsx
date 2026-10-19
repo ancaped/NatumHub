@@ -99,6 +99,7 @@ interface PlanejamentoSemanalTabProps {
   currentDate?: Date;
   onCurrentDateChange?: (d: Date) => void;
   hideHeaderNav?: boolean;
+  onShowDetails?: (code: string) => void;
 }
 
 // Reatores padrão de fábrica solicitados por Edson com classificação Quente / Frio / Shampoos / Bombonas
@@ -515,6 +516,7 @@ export function PlanejamentoSemanalTab({
   currentDate: propCurrentDate,
   onCurrentDateChange,
   hideHeaderNav = false,
+  onShowDetails,
 }: PlanejamentoSemanalTabProps) {
   // Estado da semana atual selecionada (sincronizada com prop se fornecida)
   const [internalCurrentDate, setInternalCurrentDate] = useState<Date>(() => new Date());
@@ -3539,7 +3541,6 @@ export function PlanejamentoSemanalTab({
                                  (prod.descricao || '').toUpperCase().startsWith('BASE ') ||
                                  (prod.descricao || '').toUpperCase().startsWith('PRE BASE ');
                   const procInfo = getProductProcessType(prod);
-                  const colorInfo = getProductColorInfo(prod);
                   const mediaVendas = prod.media_vendas || prod.media_manual || 0;
                   const qtdRecomendada = prod.producao_recomendada || 0;
                   const estoqueFisico = prod.estoque || 0;
@@ -3566,72 +3567,60 @@ export function PlanejamentoSemanalTab({
                       }`}
                       title="Arraste este produto para uma célula do quadro para agendar"
                     >
-                      {/* 1. Descrição e Código */}
+                      {/* 1. Descrição e Código com visualização de detalhes */}
                       <div className="flex items-start justify-between gap-1.5">
-                        <span className="font-bold text-zinc-900 text-xs leading-snug line-clamp-2" title={prod.descricao}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onShowDetails?.(prod.codigo);
+                          }}
+                          className="font-bold text-zinc-900 text-xs leading-snug line-clamp-2 text-left hover:underline hover:text-zinc-700 cursor-pointer bg-transparent border-none p-0"
+                          title={`Ver detalhes de ${prod.descricao}`}
+                        >
                           {prod.descricao}
-                        </span>
-                        <span className="font-mono text-[10px] text-zinc-600 font-semibold bg-zinc-100 px-1 py-0.5 rounded shrink-0">
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onShowDetails?.(prod.codigo);
+                          }}
+                          className="font-mono text-[10px] text-zinc-600 font-semibold bg-zinc-100 hover:bg-zinc-200 hover:text-zinc-900 px-1 py-0.5 rounded shrink-0 cursor-pointer transition-colors"
+                          title={`Ver detalhes do produto ${prod.codigo}`}
+                        >
                           {prod.codigo}
-                        </span>
+                        </button>
                       </div>
 
-                      {/* 2. Badges de Sequência, Cor, Processo e Base */}
-                      <div className="flex flex-wrap items-center gap-1 text-[10px]">
-                        {/* Tag de Cor com prioridade */}
-                        <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${colorInfo.badgeClass}`} title={colorInfo.label}>
-                          {colorInfo.shortLabel}
-                        </span>
+                      {/* 2. Badges Relevantes (Batelada Conjunta, Base de Fabricação, Programada) */}
+                      {((Array.isArray((prod as any)._batchSiblings) && (prod as any)._batchSiblings.length > 1) || isBase || isProgramada || prod.base) && (
+                        <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                          {Array.isArray((prod as any)._batchSiblings) && (prod as any)._batchSiblings.length > 1 && (
+                            <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-800 border border-zinc-300 font-mono text-[9px] font-bold rounded">
+                              Batelada Conjunta Sugerida ({(prod as any)._batchSiblings.length} SKUs • {(prod as any)._totalBatchKg} kg)
+                            </span>
+                          )}
 
-                        {/* Tag de Origem se vier da Fila */}
-                        {(prod as any)._isFromFila && (
-                          <span className="px-1.5 py-0.2 bg-zinc-900 text-white font-mono text-[9px] font-bold rounded">
-                            Fila: {(prod as any).origem_demanda || 'Demanda'}
-                          </span>
-                        )}
-                        {Array.isArray((prod as any)._batchSiblings) && (prod as any)._batchSiblings.length > 1 && (
-                          <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-800 border border-zinc-300 font-mono text-[9px] font-bold rounded">
-                            Batelada Conjunta Sugerida ({(prod as any)._batchSiblings.length} SKUs • {(prod as any)._totalBatchKg} kg)
-                          </span>
-                        )}
+                          {isBase && (
+                            <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-800 border border-zinc-300 text-[9px] font-bold rounded">
+                              Base de Fabricação
+                            </span>
+                          )}
 
-                        {/* Tag Térmica */}
-                        <span className={`px-1.5 py-0.2 rounded text-[9px] font-semibold border ${
-                          procInfo.isQuente ? 'bg-zinc-100 text-zinc-800 border-zinc-300' : 'bg-zinc-100 text-zinc-700 border-zinc-200'
-                        }`}>
-                          {procInfo.isQuente ? 'Quente' : 'Frio'}
-                        </span>
+                          {isProgramada && (
+                            <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-800 border border-zinc-200 text-[9px] font-bold rounded">
+                              Programada
+                            </span>
+                          )}
 
-                        {isBase && (
-                          <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-800 border border-zinc-300 text-[9px] font-bold rounded">
-                            Base de Fabricação
-                          </span>
-                        )}
-
-                        {pedidosAberto > 0 && (
-                          <span className="px-1.5 py-0.2 bg-amber-50 text-amber-800 border border-amber-200 text-[9px] font-bold font-mono rounded">
-                            {pedidosAberto.toLocaleString('pt-BR')} em carteira
-                          </span>
-                        )}
-
-                        {isProgramada && (
-                          <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-800 border border-zinc-200 text-[9px] font-bold rounded">
-                            Programada
-                          </span>
-                        )}
-
-                        {prod.linha_prefix && (
-                          <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-600 text-[9px] rounded font-medium">
-                            Linha {prod.linha_prefix}
-                          </span>
-                        )}
-
-                        {prod.base && (
-                          <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-700 border border-zinc-200 text-[9px] rounded truncate max-w-[140px]" title={`Base: ${prod.base}`}>
-                            Base: {prod.base}
-                          </span>
-                        )}
-                      </div>
+                          {prod.base && (
+                            <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-700 border border-zinc-200 text-[9px] rounded truncate max-w-[140px]" title={`Base: ${prod.base}`}>
+                              Base: {prod.base}
+                            </span>
+                          )}
+                        </div>
+                      )}
 
                       {/* 3. Painel de Métricas de Venda & Produção Solicitadas por Edson */}
                       <div className="grid grid-cols-3 gap-1.5 bg-zinc-50/90 p-2 rounded-lg border border-zinc-200/70 text-[10px]">
@@ -3677,11 +3666,22 @@ export function PlanejamentoSemanalTab({
                         </div>
                       </div>
 
-                      {/* 5. Ação de Agendamento */}
+                      {/* 5. Ação de Agendamento e Ver Detalhes */}
                       <div className="flex items-center justify-between pt-1 border-t border-zinc-100">
-                        <span className="text-[10px] text-zinc-500">
-                          Sugerido: <strong className="text-zinc-800">{procInfo.recipienteSugerido === 'BOMBONAS' ? 'Bombona' : (procInfo.recipienteSugerido === 'R_40' ? 'Reator 40kg' : ((procInfo.recipienteSugerido === 'R_1000_SHAMPOO' || procInfo.recipienteSugerido === 'R_1000') ? 'R-1000 (Shampoo)' : (procInfo.recipienteSugerido === 'R_1000_MISTO' ? 'R-1000 (Misto)' : 'Reator')))}</strong>
-                        </span>
+                        {onShowDetails ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onShowDetails(prod.codigo);
+                            }}
+                            className="flex items-center gap-1 text-[11px] font-semibold text-zinc-600 hover:text-zinc-900 transition-colors cursor-pointer py-1 px-1.5 rounded hover:bg-zinc-100"
+                            title="Ver detalhes completos do produto"
+                          >
+                            <Info size={13} className="text-zinc-500" />
+                            <span>Ver Detalhes</span>
+                          </button>
+                        ) : <div />}
                         <button
                           onClick={() => handleOpenScheduleModal(prod)}
                           className="flex items-center gap-1 px-3 py-1 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-lg transition-all cursor-pointer shadow-xs"
