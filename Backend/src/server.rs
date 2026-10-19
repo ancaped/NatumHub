@@ -245,7 +245,13 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
         )
         .route(
             "/api/producao/fila-demandas/:id",
-            delete(handlers::delete_fila_demanda),
+            delete(handlers::delete_fila_demanda)
+                .patch(handlers::update_fila_demanda)
+                .put(handlers::update_fila_demanda),
+        )
+        .route(
+            "/api/producao/bases-resumo",
+            get(handlers::get_bases_resumo),
         )
         .route(
             "/api/producao/planejamento-semanal",

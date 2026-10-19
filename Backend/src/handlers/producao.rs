@@ -772,14 +772,19 @@ pub async fn list_products(
             return true;
         }
 
-        if params.include_all_regimes != Some(true) {
-            if params.include_programadas != Some(true) && params.show_hidden != Some(true) && p.is_producao_programada == Some(1) {
+        let is_prog = p.is_producao_programada == Some(1);
+        let em_fixa = p.is_lancamento_manual == Some(1)
+            || p.lancamento_gatilho.filter(|n| *n > 0).is_some()
+            || p.lancamento_estoque_maximo.filter(|n| *n > 0).is_some();
+
+        if params.include_all_regimes == Some(true) {
+            if !is_base && (is_prog || em_fixa) {
+                return true;
+            }
+        } else {
+            if params.include_programadas != Some(true) && params.show_hidden != Some(true) && is_prog {
                 return false;
             }
-
-            let em_fixa = p.is_lancamento_manual == Some(1)
-                || p.lancamento_gatilho.filter(|n| *n > 0).is_some()
-                || p.lancamento_estoque_maximo.filter(|n| *n > 0).is_some();
             if params.include_fixas != Some(true) && em_fixa {
                 return false;
             }
@@ -825,7 +830,9 @@ pub async fn list_products(
     let total_visible = visible_products.len();
 
     // Apply visibility filter (skip for programadas_only — items programados devem aparecer mesmo que ocultos)
-    let is_programadas_view = params.programadas_only == Some(true) || params.status.as_deref() == Some("programadas");
+    let is_programadas_view = params.programadas_only == Some(true)
+        || params.status.as_deref() == Some("programadas")
+        || params.segment.as_deref() == Some("programadas");
     let show_hidden = params.show_hidden.unwrap_or(false);
     if !show_hidden && !params.suspended_only.unwrap_or(false) && !is_programadas_view {
         computed.retain(|p| {
@@ -847,7 +854,13 @@ pub async fn list_products(
             }
 
             let status = p.status_produto.as_deref().unwrap_or("ativo");
-            !ignored_statuses.contains(&status.to_string()) && p.visivel.unwrap_or(1) != 0
+            if ignored_statuses.contains(&status.to_string()) {
+                return false;
+            }
+            if params.include_all_regimes == Some(true) && p.is_producao_programada == Some(1) {
+                return true;
+            }
+            p.visivel.unwrap_or(1) != 0
         });
     }
 
@@ -5210,6 +5223,43 @@ pub async fn create_fila_demandas(
 
     let mut inserted_ids = Vec::new();
     for it in items {
+        let existing_id: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM producao_fila_demandas WHERE codigo_produto = $1 LIMIT 1",
+        )
+        .bind(&it.codigo_produto)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+
+        if let Some(eid) = existing_id {
+            let uq = r#"
+                UPDATE producao_fila_demandas
+                SET quantidade = $1,
+                    unidade = $2,
+                    quantidade_kg = $3,
+                    origem_demanda = $4,
+                    base_codigo = COALESCE($5, base_codigo),
+                    base_nome = COALESCE($6, base_nome),
+                    observacoes = COALESCE($7, observacoes),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = $8
+            "#;
+            let _ = sqlx::query(uq)
+                .bind(it.quantidade)
+                .bind(&it.unidade)
+                .bind(it.quantidade_kg)
+                .bind(&it.origem_demanda)
+                .bind(&it.base_codigo)
+                .bind(&it.base_nome)
+                .bind(&it.observacoes)
+                .bind(&eid)
+                .execute(pool)
+                .await;
+            inserted_ids.push(eid);
+            continue;
+        }
+
         let new_id = uuid::Uuid::new_v4().to_string();
         let q = r#"
             INSERT INTO producao_fila_demandas (
@@ -5247,6 +5297,64 @@ pub async fn create_fila_demandas(
         .into_response()
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateFilaDemandaPayload {
+    pub quantidade: Option<f64>,
+    pub quantidade_kg: Option<f64>,
+    pub unidade: Option<String>,
+    pub observacoes: Option<String>,
+    pub prioridade: Option<i32>,
+}
+
+pub async fn update_fila_demanda(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<UpdateFilaDemandaPayload>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    if let Err(e) = ensure_fila_demandas_table(pool).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Erro ao inicializar tabela de fila: {}", e) })),
+        )
+            .into_response();
+    }
+
+    let q = r#"
+        UPDATE producao_fila_demandas
+        SET quantidade = COALESCE($1, quantidade),
+            quantidade_kg = COALESCE($2, quantidade_kg),
+            unidade = COALESCE($3, unidade),
+            observacoes = COALESCE($4, observacoes),
+            prioridade = COALESCE($5, prioridade),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $6 OR codigo_produto = $6
+    "#;
+
+    match sqlx::query(q)
+        .bind(payload.quantidade)
+        .bind(payload.quantidade_kg)
+        .bind(payload.unidade)
+        .bind(payload.observacoes)
+        .bind(payload.prioridade)
+        .bind(&id)
+        .execute(pool)
+        .await
+    {
+        Ok(res) => (
+            StatusCode::OK,
+            Json(json!({ "ok": true, "updated": res.rows_affected() })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Erro ao atualizar item da fila: {}", e) })),
+        )
+            .into_response(),
+    }
+}
+
 pub async fn delete_fila_demanda(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -5260,7 +5368,7 @@ pub async fn delete_fila_demanda(
             .into_response();
     }
 
-    match sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1")
+    match sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1 OR codigo_produto = $1")
         .bind(&id)
         .execute(pool)
         .await
@@ -5306,4 +5414,376 @@ pub async fn clear_fila_demandas(
             .into_response(),
     }
 }
+
+fn normalize_base_key(raw: &str) -> String {
+    let mut s = raw
+        .to_uppercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    s = s.replace("BASE LEAVE - IN", "BASE LEAVE-IN");
+    s = s.replace("BASE LEAVE IN", "BASE LEAVE-IN");
+    s = s.replace("BASE SH PEROL ", "BASE SHAMPOO PEROLADO ");
+    s = s.replace("BASE SH ", "BASE SHAMPOO ");
+    s = s.replace("BASE CONDICIONADOR ", "BASE COND ");
+    s = s.replace("BASE CONDIC ", "BASE COND ");
+    if s == "BASE BOTTOX POTE NH 16" {
+        s = "BASE BOTTOX POTE H 16".to_string();
+    } else if s == "BASE COND NATUM" {
+        s = "BASE COND NATUM 5L/1L".to_string();
+    } else if s == "BASE TIOGLICOLATO" {
+        s = "BASE TIOGLICOLATO 250 G NATUM".to_string();
+    } else if s.starts_with("BASE LUMINI SPA") {
+        s = "BASE LUMINI SPA 200ML NATUM".to_string();
+    } else if s == "BASE SHAMPOO GALÃO" || s == "BASE SHAMPOO GALAO" {
+        s = "BASE LAURIL 27% (LAURIL DPV) SH GALAO 5L".to_string();
+    }
+    s
+}
+
+/// GET /api/producao/bases-resumo
+/// Retorna todas as bases granel com:
+/// - produtos acabados vinculados e suas demandas em kg
+/// - demanda projetada da fila PCP + sugestões de estoque (kg)
+/// - saldo interno de lotes de base produzidos e último lote
+/// - fórmula da base com estoque atual de matérias-primas
+pub async fn get_bases_resumo(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let (products, stocks, fat_map, configs, overrides, _sales_faltas_map) =
+        match fetch_calculation_data(&state.db).await {
+            Ok(data) => data,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": format!("Erro ao calcular dados de bases: {}", e) })),
+                )
+                    .into_response()
+            }
+        };
+
+    let mut computed = calculate_products(&products, &stocks, &fat_map, &configs, &overrides);
+    let kit_composition = state.db.get_kit_composition().await.unwrap_or_default();
+    post_process_kit_only_production(&mut computed, &kit_composition);
+
+    let pool = state.db.pool();
+    let _ = ensure_fila_demandas_table(pool).await;
+
+    // Map of items in fila_demandas: code -> (id, qty, qty_kg)
+    let mut fila_map: StdHashMap<String, (String, f64, f64)> = StdHashMap::new();
+    if let Ok(rows) = sqlx::query(
+        "SELECT id, codigo_produto, quantidade::float8, COALESCE(quantidade_kg::float8, 0.0) FROM producao_fila_demandas",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for r in rows {
+            let id: String = r.get(0);
+            let code: String = r.get(1);
+            let qty: f64 = r.get(2);
+            let kg: f64 = r.get(3);
+            fila_map.insert(code.trim().to_string(), (id.clone(), qty, kg));
+            fila_map.insert(clean_product_code(&code), (id, qty, kg));
+        }
+    }
+
+    let mut planejado_map: StdHashMap<String, f64> = StdHashMap::new();
+    if let Ok(rows) = sqlx::query(
+        "SELECT codigo_produto, SUM(quantidade_planejada::float8) FROM producao_planejamento_semanal WHERE ordem_status IN ('planejado', 'em_producao', 'aguardando') GROUP BY codigo_produto",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for r in rows {
+            let code: String = r.get(0);
+            let qty: f64 = r.get(1);
+            planejado_map.insert(code.trim().to_string(), qty);
+            planejado_map.insert(clean_product_code(&code), qty);
+        }
+    }
+
+    // Load formulations for all products/bases
+    let mut formulations_by_prod: StdHashMap<String, Vec<serde_json::Value>> = StdHashMap::new();
+    let mut insumo_stock_map: StdHashMap<String, f64> = StdHashMap::new();
+    if let Ok(rows) = sqlx::query("SELECT codigo, COALESCE(estoque, 0.0)::float8 FROM insumos")
+        .fetch_all(pool)
+        .await
+    {
+        for r in rows {
+            let c: String = r.get(0);
+            let est: f64 = r.get(1);
+            insumo_stock_map.insert(c.trim().to_string(), est);
+            insumo_stock_map.insert(clean_product_code(&c), est);
+        }
+    }
+
+    if let Ok(rows) = sqlx::query(
+        "SELECT product_code, ingredient_code, description, COALESCE(quantity, 0.0)::float8, COALESCE(percentage, 0.0)::float8 FROM formulations ORDER BY quantity DESC",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for r in rows {
+            let p_code: String = r.get(0);
+            let i_code: String = r.get(1);
+            let desc: String = r.get::<Option<String>, _>(2).unwrap_or_default();
+            let qty: f64 = r.get(3);
+            let pct: f64 = r.get(4);
+            let cur_stock = insumo_stock_map
+                .get(i_code.trim())
+                .or_else(|| insumo_stock_map.get(&clean_product_code(&i_code)))
+                .copied()
+                .unwrap_or(0.0);
+            formulations_by_prod
+                .entry(p_code.trim().to_string())
+                .or_default()
+                .push(json!({
+                    "ingredient_code": i_code,
+                    "description": desc,
+                    "quantity": qty,
+                    "percentage": pct,
+                    "current_stock": cur_stock,
+                }));
+        }
+    }
+
+    // Recent base production in stock_movements or historico_producao
+    let mut base_lote_info: StdHashMap<String, (f64, Option<String>, Option<String>)> = StdHashMap::new();
+    if let Ok(rows) = sqlx::query(
+        r#"
+        SELECT item_code, COALESCE(quantity, 0.0)::float8, date::text, document_number
+        FROM stock_movements
+        WHERE item_type = 'produto' AND movement_type = 'entrada'
+        ORDER BY date DESC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    {
+        for r in rows {
+            let c: String = r.get(0);
+            let qty: f64 = r.get(1);
+            let dt: Option<String> = r.get(2);
+            let doc: Option<String> = r.get(3);
+            base_lote_info.entry(c.trim().to_string()).or_insert((qty, dt, doc));
+        }
+    }
+
+    // Separate catalog bases and finished products
+    let mut base_items = Vec::new();
+    let mut finished_items = Vec::new();
+
+    for p in computed {
+        let is_base = p.categoria_produto.as_deref() == Some("cat_base")
+            || p.status_produto.as_deref() == Some("bases")
+            || p.status_produto.as_deref() == Some("base")
+            || p.codigo.starts_with("1.36.")
+            || p.codigo.starts_with("2.36.")
+            || p.codigo.starts_with("60.36.");
+        if is_base {
+            base_items.push(p);
+        } else if p.visivel != 0 {
+            let st = p.status_produto.as_deref().unwrap_or("ativo");
+            if st != "descontinuado" && st != "suspenso" && st != "ignorado" {
+                finished_items.push(p);
+            }
+        }
+    }
+
+    // Map base key -> index in base_items
+    let mut key_to_base_idx: StdHashMap<String, usize> = StdHashMap::new();
+    let mut code_to_base_idx: StdHashMap<String, usize> = StdHashMap::new();
+    for (idx, b) in base_items.iter().enumerate() {
+        key_to_base_idx.insert(normalize_base_key(&b.descricao), idx);
+        code_to_base_idx.insert(b.codigo.trim().to_string(), idx);
+        code_to_base_idx.insert(clean_product_code(&b.codigo), idx);
+    }
+
+    let mut deps_by_base: Vec<Vec<serde_json::Value>> = vec![Vec::new(); base_items.len()];
+
+    for fp in &finished_items {
+        let mut matched_idx = None;
+        if let Some(ref bc) = fp.base_codigo {
+            if !bc.trim().is_empty() {
+                matched_idx = code_to_base_idx
+                    .get(bc.trim())
+                    .or_else(|| code_to_base_idx.get(&clean_product_code(bc)))
+                    .copied();
+            }
+        }
+        if matched_idx.is_none() {
+            if let Some(ref b_name) = fp.base {
+                if !b_name.trim().is_empty() {
+                    let norm = normalize_base_key(b_name);
+                    matched_idx = key_to_base_idx.get(&norm).copied();
+                }
+            }
+        }
+
+        if let Some(b_idx) = matched_idx {
+            let unit_w = parse_unit_weight_from_desc(&fp.descricao);
+            let rec_units = fp.producao_recomendada.max(0) as f64;
+            let rec_kg = (rec_units * unit_w * 10.0).round() / 10.0;
+
+            let fila_entry = fila_map
+                .get(fp.codigo.trim())
+                .or_else(|| fila_map.get(&clean_product_code(&fp.codigo)));
+            let in_fila = fila_entry.is_some();
+            let fila_units = fila_entry.map(|(_, q, _)| *q).unwrap_or(0.0);
+            let fila_kg = fila_entry
+                .map(|(_, q, kg)| if *kg > 0.0 { *kg } else { (*q * unit_w * 10.0).round() / 10.0 })
+                .unwrap_or(0.0);
+
+            let plan_units = planejado_map
+                .get(fp.codigo.trim())
+                .or_else(|| planejado_map.get(&clean_product_code(&fp.codigo)))
+                .copied()
+                .unwrap_or(0.0);
+            let in_plan = plan_units > 0.0;
+
+            deps_by_base[b_idx].push(json!({
+                "codigo": fp.codigo,
+                "descricao": fp.descricao,
+                "nome_linha": fp.nome_linha,
+                "estoque": fp.estoque,
+                "producao": fp.producao,
+                "pedidos_aberto": fp.pedidos_aberto,
+                "efp": fp.estoque_futuro_com_producao,
+                "status": fp.status,
+                "status_label": fp.status_label,
+                "unit_weight_kg": unit_w,
+                "producao_recomendada": fp.producao_recomendada,
+                "demanda_sugerida_kg": rec_kg,
+                "na_fila": in_fila,
+                "fila_unidades": fila_units,
+                "fila_kg": fila_kg,
+                "planejado_semana": in_plan,
+                "planejado_unidades": plan_units,
+            }));
+        }
+    }
+
+    let mut result_bases = Vec::with_capacity(base_items.len());
+    for (idx, b) in base_items.into_iter().enumerate() {
+        let mut deps = std::mem::take(&mut deps_by_base[idx]);
+        deps.sort_by(|a, b_val| {
+            let a_rec = a.get("demanda_sugerida_kg").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let b_rec = b_val.get("demanda_sugerida_kg").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            b_rec.partial_cmp(&a_rec).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut demanda_fila_kg = 0.0;
+        let mut demanda_sugerida_kg = 0.0;
+        let mut demanda_total_kg = 0.0;
+        let mut produtos_com_demanda = 0;
+
+        for d in &deps {
+            let f_kg = d.get("fila_kg").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let s_kg = d.get("demanda_sugerida_kg").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let in_f = d.get("na_fila").and_then(|v| v.as_bool()).unwrap_or(false);
+            if in_f {
+                demanda_fila_kg += f_kg;
+            }
+            if s_kg > 0.0 {
+                demanda_sugerida_kg += s_kg;
+            }
+            let effective_kg = if in_f { f_kg.max(s_kg) } else { s_kg };
+            if effective_kg > 0.0 {
+                demanda_total_kg += effective_kg;
+                produtos_com_demanda += 1;
+            }
+        }
+
+        demanda_fila_kg = (demanda_fila_kg * 10.0).round() / 10.0;
+        demanda_sugerida_kg = (demanda_sugerida_kg * 10.0).round() / 10.0;
+        demanda_total_kg = (demanda_total_kg * 10.0).round() / 10.0;
+
+        // Saldo interno de base: se o usuário configurou estoque_ideal_manual como saldo/lote padrão ou se há lote recente
+        let (ult_qtd, ult_data, ult_doc) = base_lote_info
+            .get(b.codigo.trim())
+            .cloned()
+            .unwrap_or((0.0, None, None));
+
+        // Base in fila_demandas
+        let base_fila = fila_map
+            .get(b.codigo.trim())
+            .or_else(|| fila_map.get(&clean_product_code(&b.codigo)));
+        let na_fila = base_fila.is_some();
+        let fila_id = base_fila.map(|(id, _, _)| id.clone());
+        let fila_qtd_kg = base_fila
+            .map(|(_, q, kg)| if *kg > 0.0 { *kg } else { *q })
+            .unwrap_or(0.0);
+
+        let planejado_kg = planejado_map
+            .get(b.codigo.trim())
+            .or_else(|| planejado_map.get(&clean_product_code(&b.codigo)))
+            .copied()
+            .unwrap_or(0.0);
+
+        let lote_padrao_kg = b.estoque_ideal_manual.unwrap_or(200.0).max(50.0);
+        let sugestao_base_kg = if demanda_total_kg > 0.0 {
+            demanda_total_kg
+        } else {
+            0.0
+        };
+
+        let form = formulations_by_prod
+            .remove(b.codigo.trim())
+            .unwrap_or_default();
+
+        result_bases.push(json!({
+            "codigo": b.codigo,
+            "descricao": b.descricao,
+            "linha_prefix": b.linha_prefix,
+            "nome_linha": b.nome_linha,
+            "observacao": b.observacao,
+            "estoque_ideal_manual": b.estoque_ideal_manual,
+            "lote_padrao_kg": lote_padrao_kg,
+            "dependent_products_count": deps.len(),
+            "produtos_com_demanda_count": produtos_com_demanda,
+            "dependent_products": deps,
+            "demanda_fila_kg": demanda_fila_kg,
+            "demanda_sugerida_kg": demanda_sugerida_kg,
+            "demanda_total_kg": demanda_total_kg,
+            "sugestao_base_kg": sugestao_base_kg,
+            "ultimo_lote_kg": ult_qtd,
+            "ultimo_lote_data": ult_data,
+            "ultimo_lote_numero": ult_doc,
+            "na_fila": na_fila,
+            "fila_id": fila_id,
+            "fila_qtd_kg": fila_qtd_kg,
+            "planejado_semana": planejado_kg > 0.0,
+            "planejado_kg": planejado_kg,
+            "formulation": form,
+        }));
+    }
+
+    // Sort bases: first those with highest demanda_total_kg, then by dependent_products_count desc, then by codigo
+    result_bases.sort_by(|a, b| {
+        let da = a.get("demanda_total_kg").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let db = b.get("demanda_total_kg").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        if (da - db).abs() > 0.01 {
+            return db.partial_cmp(&da).unwrap_or(std::cmp::Ordering::Equal);
+        }
+        let ca = a.get("dependent_products_count").and_then(|v| v.as_u64()).unwrap_or(0);
+        let cb = b.get("dependent_products_count").and_then(|v| v.as_u64()).unwrap_or(0);
+        if ca != cb {
+            return cb.cmp(&ca);
+        }
+        let code_a = a.get("codigo").and_then(|v| v.as_str()).unwrap_or("");
+        let code_b = b.get("codigo").and_then(|v| v.as_str()).unwrap_or("");
+        code_a.cmp(code_b)
+    });
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "ok": true,
+            "items": result_bases,
+            "total": result_bases.len(),
+        })),
+    )
+        .into_response()
+}
+
 

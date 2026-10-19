@@ -107,7 +107,10 @@ export function KitsTab({
 }: any) {
   const [centralSubTab, setCentralSubTab] = useState<'demandas' | 'montagem'>('demandas');
   const [modo, setModo] = useState<'kit' | 'itens'>('kit');
-  const [queuedKitCodes, setQueuedKitCodes] = useState<Set<string>>(new Set());
+  const [queuedMap, setQueuedMap] = useState<Map<string, any>>(new Map());
+  const [editingQueueCode, setEditingQueueCode] = useState<string | null>(null);
+  const [editingQueueQty, setEditingQueueQty] = useState<number>(100);
+  const [savingQueue, setSavingQueue] = useState(false);
   const [batchModalProduct, setBatchModalProduct] = useState<any | null>(null);
   const [kitOrderModal, setKitOrderModal] = useState<{ kit: any; qty: number; obs: string } | null>(null);
   const [creatingKitOrder, setCreatingKitOrder] = useState(false);
@@ -117,7 +120,13 @@ export function KitsTab({
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data.items)) {
-          setQueuedKitCodes(new Set(data.items.map((it: any) => it.codigoProduto)));
+          const map = new Map<string, any>();
+          for (const it of data.items) {
+            if (it.codigoProduto) {
+              map.set(String(it.codigoProduto).trim(), it);
+            }
+          }
+          setQueuedMap(map);
         }
       })
       .catch(() => {});
@@ -128,6 +137,7 @@ export function KitsTab({
   }, []);
 
   const handleEnqueueItem = async (code: string, desc: string, qty: number, compObj?: any) => {
+    const cleanQty = Math.max(1, qty);
     try {
       const res = await apiFetch('/producao/fila-demandas', {
         method: 'POST',
@@ -135,7 +145,7 @@ export function KitsTab({
         body: JSON.stringify({
           codigoProduto: code,
           descricao: desc,
-          quantidade: Math.max(1, qty),
+          quantidade: cleanQty,
           unidade: 'un',
           origemDemanda: 'kit',
           baseCodigo: compObj?.base_codigo,
@@ -143,14 +153,139 @@ export function KitsTab({
         })
       });
       if (res.ok) {
-        setQueuedKitCodes(prev => new Set([...prev, code]));
-        if (compObj && (compObj.base || compObj.base_codigo)) {
-          setBatchModalProduct(compObj);
-        }
+        fetchQueuedItems();
       }
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const handleUpdateQueueQty = async (code: string, desc: string) => {
+    if (editingQueueQty <= 0) return;
+    setSavingQueue(true);
+    try {
+      const item = queuedMap.get(code);
+      const targetId = item?.id || code;
+      const res = await apiFetch(`/producao/fila-demandas/${encodeURIComponent(targetId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          quantidade: editingQueueQty,
+          unidade: 'un',
+        }),
+      });
+      if (res.ok) {
+        setEditingQueueCode(null);
+        fetchQueuedItems();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSavingQueue(false);
+    }
+  };
+
+  const handleRemoveFromQueue = async (code: string) => {
+    setSavingQueue(true);
+    try {
+      const item = queuedMap.get(code);
+      const targetId = item?.id || code;
+      const res = await apiFetch(`/producao/fila-demandas/${encodeURIComponent(targetId)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setEditingQueueCode(null);
+        fetchQueuedItems();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSavingQueue(false);
+    }
+  };
+
+  const renderQueueCell = (code: string, desc: string, defaultQty: number, compObj?: any) => {
+    const qItem = queuedMap.get(code);
+    if (qItem) {
+      const currentQ = qItem.quantidade || defaultQty;
+      const isEditing = editingQueueCode === code;
+      return (
+        <div className="inline-block relative">
+          <button
+            type="button"
+            onClick={() => {
+              if (isEditing) {
+                setEditingQueueCode(null);
+              } else {
+                setEditingQueueCode(code);
+                setEditingQueueQty(currentQ);
+              }
+            }}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors cursor-pointer"
+            title="Clique para ajustar a quantidade na fila ou remover"
+          >
+            <CheckCircle2 size={11} />
+            <span>Na Fila ({currentQ} un)</span>
+          </button>
+          {isEditing && (
+            <div className="absolute right-0 mt-1.5 w-56 bg-white rounded-xl shadow-xl border border-zinc-200 p-3 z-30 text-left">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-bold uppercase text-zinc-500">Qtd na Fila PCP</span>
+                <button
+                  type="button"
+                  onClick={() => setEditingQueueCode(null)}
+                  className="text-zinc-400 hover:text-zinc-700 cursor-pointer"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+              <div className="flex items-center gap-1.5 mb-2">
+                <input
+                  type="number"
+                  min={1}
+                  value={editingQueueQty}
+                  onChange={(e) => setEditingQueueQty(Math.max(1, Number(e.target.value) || 0))}
+                  className="w-full px-2.5 py-1.5 border border-zinc-300 rounded-lg font-mono text-xs font-bold text-zinc-900"
+                />
+                <span className="text-xs font-bold text-zinc-500">un</span>
+              </div>
+              <div className="text-[10px] text-zinc-400 font-mono mb-2">
+                Equiv.: ~{formatUnitsToKg(editingQueueQty, desc)}
+              </div>
+              <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-zinc-100">
+                <button
+                  type="button"
+                  disabled={savingQueue}
+                  onClick={() => handleRemoveFromQueue(code)}
+                  className="px-2 py-1 rounded text-[10px] font-bold text-rose-600 hover:bg-rose-50 cursor-pointer"
+                >
+                  Remover
+                </button>
+                <button
+                  type="button"
+                  disabled={savingQueue}
+                  onClick={() => handleUpdateQueueQty(code, desc)}
+                  className="px-3 py-1 rounded bg-zinc-900 hover:bg-zinc-800 text-white text-[10px] font-bold cursor-pointer"
+                >
+                  Salvar
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => handleEnqueueItem(code, desc, defaultQty, compObj)}
+        className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-bold bg-zinc-900 text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+        title="Adicionar à fila de demandas do PCP"
+      >
+        <Plus size={11} />
+        <span>+ Fila</span>
+      </button>
+    );
   };
 
   const handleEnqueueBatch = async (items: any[]) => {
@@ -472,18 +607,7 @@ export function KitsTab({
                               )}
                             </td>
                             <td className="px-4 py-2.5 text-center">
-                              <button
-                                type="button"
-                                onClick={() => handleEnqueueItem(p.codigo, p.descricao, p.producao_recomendada > 0 ? p.producao_recomendada : 50)}
-                                className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
-                                  queuedKitCodes.has(p.codigo)
-                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                    : 'bg-zinc-900 text-white hover:bg-zinc-800'
-                                }`}
-                                title="Adicionar kit à fila de demandas do PCP"
-                              >
-                                {queuedKitCodes.has(p.codigo) ? 'Na Fila' : '+ Fila'}
-                              </button>
+                              {renderQueueCell(p.codigo, p.descricao, p.producao_recomendada > 0 ? p.producao_recomendada : 50)}
                             </td>
                             <td className="px-4 py-2.5 text-center">
                               <div className="flex gap-1 justify-center items-center">
@@ -554,18 +678,7 @@ export function KitsTab({
                                               </td>
                                               <td>
                                                 <div className="flex items-center gap-1 justify-center">
-                                                  <button 
-                                                    type="button" 
-                                                    className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer ${
-                                                      queuedKitCodes.has(comp.codigo)
-                                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                                        : 'bg-zinc-900 text-white hover:bg-zinc-800'
-                                                    }`} 
-                                                    onClick={() => handleEnqueueItem(comp.codigo, comp.descricao, recQty, comp)}
-                                                    title="Enviar componente para a Fila de Demandas do PCP"
-                                                  >
-                                                    {queuedKitCodes.has(comp.codigo) ? 'Na Fila' : '+ Fila'}
-                                                  </button>
+                                                  {renderQueueCell(comp.codigo, comp.descricao, recQty, comp)}
                                                   <button
                                                     type="button"
                                                     onClick={() => setBatchModalProduct(comp)}
@@ -574,7 +687,14 @@ export function KitsTab({
                                                   >
                                                     <FlaskConical size={13} />
                                                   </button>
-                                                  <button type="button" className="px-2 py-1 rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 text-[10px] font-semibold cursor-pointer" onClick={() => onLaunchProduct(comp)}>Lançar</button>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => onEditOverrides?.(comp)}
+                                                    className="p-1 rounded text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 cursor-pointer"
+                                                    title="Ajustar regras e overrides"
+                                                  >
+                                                    <Edit3 size={13} />
+                                                  </button>
                                                 </div>
                                               </td>
                                             </tr>
@@ -636,13 +756,14 @@ export function KitsTab({
                   <thead className="bg-zinc-50">
                     <tr className="border-b border-zinc-200">
                       <th className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px]">Código</th>
-                      <th className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px]">Descrição</th>
+                      <th className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px]">Descrição / Kits Vinculados</th>
                       <th className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px] text-right">Estoque</th>
                       <th className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px] text-right">Em produção</th>
                       <th className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px] text-right">Demanda kit</th>
                       <th className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px] text-right">Demanda avulsa</th>
                       <th className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px] text-right">Demanda total</th>
-                      <th className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px]">Tipo</th>
+                      <th className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px]">Regime</th>
+                      <th className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px] text-center">Fila PCP</th>
                       <th className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px] text-center">Ações</th>
                     </tr>
                   </thead>
@@ -658,7 +779,7 @@ export function KitsTab({
                           <button type="button" className="hover:underline cursor-pointer bg-transparent border-none p-0 font-bold" onClick={() => onShowDetails?.(comp.codigo)}>{comp.codigo}</button>
                         </td>
                         <td className="px-4 py-2.5">
-                          <div className="font-bold text-zinc-900">{comp.descricao}</div>
+                          <button type="button" onClick={() => onShowDetails?.(comp.codigo)} className="font-bold text-zinc-900 hover:underline cursor-pointer bg-transparent border-none p-0 text-left">{comp.descricao}</button>
                           <div className="flex flex-wrap gap-1 mt-1 max-w-[420px] whitespace-normal">
                             {comp.kits.map((k: any) => (
                               <span key={k.codigo} className="text-[10px] text-zinc-600 font-semibold bg-zinc-100 px-1.5 py-0.5 rounded" title={k.codigo}>{k.descricao}</span>
@@ -667,9 +788,10 @@ export function KitsTab({
                         </td>
                         <td className="px-4 py-2.5 text-right font-bold font-mono">{comp.estoque}</td>
                         <td className="px-4 py-2.5 text-right font-mono">{comp.producao}</td>
-                        <td className="px-4 py-2.5 text-right font-bold font-mono">{demandaKit}</td>
-                        <td className="px-4 py-2.5 text-right font-bold font-mono">
-                          <div>{total} un</div>
+                        <td className="px-4 py-2.5 text-right font-bold font-mono text-zinc-700">{demandaKit > 0 ? `${demandaKit} un` : '0'}</td>
+                        <td className="px-4 py-2.5 text-right font-mono text-zinc-600">{exclusiva ? '—' : `${avulsa} un`}</td>
+                        <td className="px-4 py-2.5 text-right font-bold font-mono text-zinc-900">
+                          <div>{total > 0 ? `${total} un` : '—'}</div>
                           {total > 0 && (
                             <div className="text-[10px] text-zinc-400 font-normal">
                               (~{formatUnitsToKg(total, comp.descricao)})
@@ -677,24 +799,31 @@ export function KitsTab({
                           )}
                         </td>
                         <td className="px-4 py-2.5">
-                          <button type="button" className={`text-[10px] font-bold px-2 py-0.5 rounded-md border cursor-pointer ${exclusiva ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`} onClick={() => onToggleApenasKit?.(comp.codigo, comp.produzir_apenas_kit ?? 0)}>
+                          <button type="button" className={`text-[10px] font-bold px-2 py-0.5 rounded-md border cursor-pointer ${exclusiva ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`} onClick={() => onToggleApenasKit?.(comp.codigo, comp.produzir_apenas_kit ?? 0)} title="Clique para alternar entre Somente Kit e Venda + Kit">
                             {exclusiva ? 'Somente Kit' : 'Venda + Kit'}
                           </button>
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          {renderQueueCell(comp.codigo, comp.descricao, total > 0 ? total : 50, comp)}
                         </td>
                         <td className="px-4 py-2.5 text-center">
                           <div className="flex items-center justify-center gap-1">
                             <button
                               type="button"
-                              onClick={() => handleEnqueueItem(comp.codigo, comp.descricao, total > 0 ? total : 50, comp)}
-                              className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer ${
-                                queuedKitCodes.has(comp.codigo)
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                  : 'bg-zinc-900 text-white hover:bg-zinc-800'
-                              }`}
+                              onClick={() => setBatchModalProduct(comp)}
+                              className="p-1 rounded text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 cursor-pointer"
+                              title="Oportunidades de Batelada & Suprimentos"
                             >
-                              {queuedKitCodes.has(comp.codigo) ? 'Na Fila' : '+ Fila'}
+                              <FlaskConical size={14} />
                             </button>
-                            <button type="button" className="px-2 py-1 rounded-lg bg-zinc-100 text-zinc-700 hover:bg-zinc-200 text-[10px] font-semibold cursor-pointer" onClick={() => onLaunchProduct(comp)}>Lançar</button>
+                            <button
+                              type="button"
+                              onClick={() => onEditOverrides?.(comp)}
+                              className="p-1 rounded text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 cursor-pointer"
+                              title="Ajustar regras e overrides"
+                            >
+                              <Edit3 size={14} />
+                            </button>
                           </div>
                         </td>
                       </tr>

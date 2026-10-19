@@ -1308,6 +1308,7 @@ export default function ProducaoView({
         setLancamentosTick((n) => n + 1);
         fetchProducts();
         fetchProgramadas();
+        fetchSuspendedProducts();
       } else {
         showToast("Erro ao salvar overrides manuais", "error");
       }
@@ -1503,6 +1504,7 @@ export default function ProducaoView({
             <InventoryTab
               onShowDetails={fetchProductDetails}
               products={products}
+              allProducts={allProducts}
               configs={configs}
               bases={bases}
               activeTab={activeTab}
@@ -1629,6 +1631,7 @@ export default function ProducaoView({
                 setLaunchDate(`${yyyy}-${mm}-${dd}`);
               }}
               onEditOverrides={openEditModal}
+              onShowDetails={fetchProductDetails}
               onRefresh={fetchProducts}
               productionApprovalList={productionApprovalList}
               onToggleApprovalList={handleToggleApprovalList}
@@ -1738,89 +1741,122 @@ export default function ProducaoView({
 
           {/* VIEW: IGNORED ITEMS (PRODUTOS SUSPENSOS) */}
           {currentView === 'ignored_items' && (
-            <div className="view-container animate-in fade-in duration-200">
-              {/* Search Toolbar */}
-              <div className="toolbar-section flex justify-between items-center gap-4">
-                <div className="search-input-wrapper flex-1 max-w-md">
-                  <Search size={18} />
-                  <input 
-                    type="text" 
-                    placeholder="Buscar por código ou descrição..." 
-                    className="search-input"
-                    value={suspendedSearch}
-                    onChange={(e) => setSuspendedSearch(e.target.value)}
-                  />
+            <div className="view-container animate-in fade-in duration-200 space-y-4">
+              {/* Top Summary & Search Toolbar */}
+              <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-100 p-2 rounded-xl border border-zinc-200">
+                <div className="flex items-center gap-2 px-2">
+                  <EyeOff size={15} className="text-zinc-600" />
+                  <span className="text-xs font-extrabold text-zinc-900 uppercase tracking-wider">
+                    Produtos Suspensos, Ocultos ou Descontinuados
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-zinc-900 text-white">
+                    {suspendedProducts.length}
+                  </span>
                 </div>
-                <button className="btn-secondary cursor-pointer" onClick={fetchSuspendedProducts} title="Recarregar dados">
-                  <RefreshCw size={16} />
-                </button>
+
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                    <input
+                      type="text"
+                      placeholder="Buscar por código ou descrição..."
+                      className="pl-8 pr-3 py-1.5 text-xs bg-white border border-zinc-300 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900 w-64"
+                      value={suspendedSearch}
+                      onChange={(e) => setSuspendedSearch(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    className="p-1.5 rounded-lg bg-white hover:bg-zinc-50 border border-zinc-300 text-zinc-700 cursor-pointer"
+                    onClick={fetchSuspendedProducts}
+                    title="Recarregar produtos suspensos"
+                  >
+                    <RefreshCw size={14} className={suspendedLoading ? 'animate-spin' : ''} />
+                  </button>
+                </div>
               </div>
 
-              <div className="table-card text-left" style={{ marginTop: '1.5rem', padding: '1.5rem' }}>
+              {/* HSL Zinc Table Card */}
+              <div className="bg-white rounded-xl border border-zinc-200 shadow-xs overflow-hidden flex flex-col w-full text-xs">
                 {suspendedLoading ? (
-                  <div style={{ padding: '4rem', textAlign: 'center', color: 'hsl(var(--text-secondary-hsl))', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
-                    <RefreshCw className="animate-spin" size={32} />
-                    <span>Carregando produtos suspensos...</span>
+                  <div className="py-16 flex flex-col items-center justify-center gap-3 text-zinc-400">
+                    <RefreshCw className="animate-spin" size={28} />
+                    <span className="font-medium">Carregando produtos suspensos...</span>
                   </div>
                 ) : suspendedProducts.length === 0 ? (
-                  <div style={{ padding: '4rem', textAlign: 'center', color: 'hsl(var(--text-secondary-hsl))', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
-                    <HelpCircle size={48} style={{ opacity: 0.3 }} />
-                    <span>Nenhum produto suspenso encontrado.</span>
+                  <div className="py-16 flex flex-col items-center justify-center gap-3 text-zinc-400">
+                    <HelpCircle size={40} className="opacity-40" />
+                    <span className="font-medium">Nenhum produto suspenso ou oculto encontrado.</span>
                   </div>
                 ) : (
-                  <div className="table-wrapper">
-                    <table>
-                      <thead>
+                  <div className="overflow-x-auto w-full">
+                    <table className="w-full text-left text-xs whitespace-nowrap border-collapse">
+                      <thead className="bg-zinc-50 border-b border-zinc-200">
                         <tr>
-                          <th style={{ width: '15%' }}>REF</th>
-                          <th style={{ width: '45%' }}>Descrição</th>
-                          <th style={{ width: '15%' }}>Linha</th>
-                          <th style={{ width: '15%' }}>Status</th>
-                          <th style={{ width: '10%', textAlign: 'center' }}>Ações</th>
+                          <th className="px-4 py-3 font-bold text-zinc-700 uppercase tracking-wider text-[10px]" style={{ width: '12%' }}>REF</th>
+                          <th className="px-4 py-3 font-bold text-zinc-700 uppercase tracking-wider text-[10px]" style={{ width: '42%' }}>Descrição</th>
+                          <th className="px-4 py-3 font-bold text-zinc-700 uppercase tracking-wider text-[10px]" style={{ width: '16%' }}>Linha</th>
+                          <th className="px-4 py-3 font-bold text-zinc-700 uppercase tracking-wider text-[10px] text-right" style={{ width: '10%' }}>Estoque</th>
+                          <th className="px-4 py-3 font-bold text-zinc-700 uppercase tracking-wider text-[10px]" style={{ width: '10%' }}>Status</th>
+                          <th className="px-4 py-3 font-bold text-zinc-700 uppercase tracking-wider text-[10px] text-center" style={{ width: '10%' }}>Ações</th>
                         </tr>
                       </thead>
-                      <tbody>
-                        {suspendedProducts.map((p) => (
-                          <tr 
-                            key={p.codigo} 
-                            className="hover:bg-zinc-50/50 transition-colors cursor-pointer"
-                          >
-                            <td 
-                              onClick={() => fetchProductDetails(p.codigo)} 
-                              className="font-mono text-zinc-650 font-bold hover:underline"
+                      <tbody className="divide-y divide-zinc-100">
+                        {suspendedProducts.map((p) => {
+                          const statusStr = p.visivel === 0 && (!p.status_produto || p.status_produto === 'ativo')
+                            ? 'oculto manual'
+                            : (p.status_produto || 'suspenso');
+                          return (
+                            <tr
+                              key={p.codigo}
+                              className="hover:bg-zinc-50/70 transition-colors cursor-pointer"
+                              onClick={() => fetchProductDetails(p.codigo)}
                             >
-                              {p.codigo}
-                            </td>
-                            <td 
-                              onClick={() => fetchProductDetails(p.codigo)} 
-                              className="font-semibold text-zinc-800 hover:underline"
-                            >
-                              {p.descricao}
-                            </td>
-                            <td 
-                              onClick={() => fetchProductDetails(p.codigo)} 
-                              className="text-zinc-550 font-medium"
-                            >
-                              {p.nome_linha}
-                            </td>
-                            <td onClick={() => fetchProductDetails(p.codigo)}>
-                              <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[10px] font-bold uppercase">
-                                {p.status_produto || 'suspenso'}
-                              </span>
-                            </td>
-                            <td style={{ textAlign: 'center' }}>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleUnsuspendProduct(p.codigo);
-                                }}
-                                className="px-3 py-1 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-[10px] font-bold shadow-sm cursor-pointer transition-all border border-zinc-950"
-                              >
-                                Reativar
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                              <td className="px-4 py-2.5 font-mono font-bold text-zinc-800 hover:underline">
+                                {p.codigo}
+                              </td>
+                              <td className="px-4 py-2.5 font-semibold text-zinc-900 hover:underline">
+                                {p.descricao}
+                                {p.observacao && (
+                                  <div className="text-[10px] text-zinc-500 font-normal mt-0.5">
+                                    Obs: {p.observacao}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-4 py-2.5 text-zinc-600 font-medium">
+                                <span className="px-2 py-0.5 rounded bg-zinc-100 text-zinc-700 text-[10px] font-semibold">
+                                  {p.nome_linha}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5 text-right font-mono font-bold text-zinc-700">
+                                {p.estoque ?? 0} un
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-full text-[10px] font-bold uppercase">
+                                  {statusStr}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditModal(p)}
+                                    className="px-2 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[10px] font-bold transition-colors cursor-pointer"
+                                    title="Editar regras do produto"
+                                  >
+                                    Regras
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUnsuspendProduct(p.codigo)}
+                                    className="px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-[10px] font-bold shadow-2xs cursor-pointer transition-all"
+                                  >
+                                    Reativar
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -1854,212 +1890,279 @@ export default function ProducaoView({
           )}
 
 
-      {/* Manual Override Dialog Modal */}
-      {editingProduct && (
-        <div className="modal-backdrop">
-          <div className="modal-content">
-            <div className="modal-header">
-              <h3>Ajustar Manualmente - REF {editingProduct.codigo}</h3>
-              <button className="action-btn cursor-pointer" onClick={() => setEditingProduct(null)}>
-                <X size={18} />
-              </button>
+      {/* Canonical Drawer for Manual Overrides & Regimes */}
+      <Drawer
+        isOpen={Boolean(editingProduct)}
+        onClose={() => setEditingProduct(null)}
+        badge="Regras & Parâmetros PCP"
+        title={editingProduct ? editingProduct.descricao : ''}
+        subtitle={editingProduct ? `REF: ${editingProduct.codigo} · Linha: ${editingProduct.nome_linha || '—'}` : ''}
+        size="md"
+        footer={
+          <>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-lg bg-white hover:bg-zinc-100 text-zinc-700 border border-zinc-300 text-xs font-bold transition-colors cursor-pointer"
+              onClick={() => setEditingProduct(null)}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition-colors shadow-xs cursor-pointer"
+              onClick={handleSaveOverrides}
+            >
+              Salvar Alterações
+            </button>
+          </>
+        }
+      >
+        {editingProduct && (
+          <div className="space-y-5 text-xs">
+            {/* Resumo Rápido de Estoque */}
+            <div className="grid grid-cols-3 gap-2.5 bg-zinc-50 p-3.5 rounded-xl border border-zinc-200">
+              <div>
+                <span className="text-[10px] font-bold uppercase text-zinc-400 block">Estoque Físico</span>
+                <span className="font-mono font-extrabold text-sm text-zinc-900">{editingProduct.estoque} un</span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase text-zinc-400 block">Em Produção</span>
+                <span className="font-mono font-extrabold text-sm text-zinc-900">{editingProduct.producao} un</span>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold uppercase text-zinc-400 block">Pedidos Aberto</span>
+                <span className="font-mono font-extrabold text-sm text-zinc-900">{editingProduct.pedidos_aberto} un</span>
+              </div>
             </div>
-            <div className="modal-body text-left">
-              <p className="modal-subtitle">
-                Defina valores manuais para ignorar temporariamente os cálculos automáticos das planilhas ERP para este produto.
-              </p>
-              
-              <div className="modal-info-box">
-                <div className="modal-info-title">
-                  <strong>{editingProduct.descricao}</strong>
-                  <div className="modal-info-sub">
-                    Estoque: {editingProduct.estoque} | Produção: {editingProduct.producao} | Pedidos Original: {editingProduct.pedidos_aberto}
-                  </div>
+
+            {/* Bloco 1: Sobrescritas Manuais de Cálculo */}
+            <div className="space-y-3 bg-white p-4 rounded-xl border border-zinc-200">
+              <h4 className="font-extrabold text-xs text-zinc-900 uppercase tracking-wider border-b border-zinc-100 pb-2">
+                1. Ajustes Manuais de Demanda e Estoque
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">
+                    Pedidos Manual (un)
+                  </label>
+                  <input
+                    type="number"
+                    className="w-full px-2.5 py-1.5 text-xs font-mono border border-zinc-300 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    placeholder={`ERP: ${editingProduct.pedidos_aberto}`}
+                    value={overridePedidos}
+                    onChange={(e) => setOverridePedidos(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">
+                    Média Vendas/Mês
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    className="w-full px-2.5 py-1.5 text-xs font-mono border border-zinc-300 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    placeholder={`ERP: ${editingProduct.media_vendas?.toFixed(1) || 0}`}
+                    value={overrideMedia}
+                    onChange={(e) => setOverrideMedia(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">
+                    Estoque Ideal Fixo
+                  </label>
+                  <input
+                    type="number"
+                    className="w-full px-2.5 py-1.5 text-xs font-mono border border-zinc-300 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    placeholder={`Auto: ${editingProduct.estoque_ideal_qtd?.toFixed(0) || 0}`}
+                    value={overrideIdeal}
+                    onChange={(e) => setOverrideIdeal(e.target.value)}
+                  />
                 </div>
               </div>
+            </div>
 
-              <div className="form-group">
-                <label>Pedidos em Aberto Manual (Sobrescrever valor original)</label>
-                <input 
-                  type="number" 
-                  className="form-control text-zinc-900" 
-                  placeholder={`Planilha original: ${editingProduct.pedidos_aberto}`}
-                  value={overridePedidos}
-                  onChange={(e) => setOverridePedidos(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group" style={{ marginTop: '0.75rem' }}>
-                <label>Média Mensal de Vendas Manual (Sobrescrever)</label>
-                <input 
-                  type="number" 
-                  step="0.1"
-                  className="form-control text-zinc-900" 
-                  placeholder={`Planilha original: ${editingProduct.media_vendas.toFixed(1)}`}
-                  value={overrideMedia}
-                  onChange={(e) => setOverrideMedia(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group" style={{ marginTop: '0.75rem' }}>
-                <label>Estoque Ideal Fixo (Unidades de Produto - Sobrescrever meses)</label>
-                <input 
-                  type="number" 
-                  className="form-control text-zinc-900" 
-                  placeholder={`Automático atual: ${editingProduct.estoque_ideal_qtd.toFixed(0)}`}
-                  value={overrideIdeal}
-                  onChange={(e) => setOverrideIdeal(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group" style={{ marginTop: '0.75rem' }}>
-                <label>Etiqueta de lançamento</label>
-                <select 
-                  className="form-control text-zinc-900"
+            {/* Bloco 2: Regime Fixo / Metas */}
+            <div className="space-y-3 bg-white p-4 rounded-xl border border-zinc-200">
+              <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
+                <h4 className="font-extrabold text-xs text-zinc-900 uppercase tracking-wider">
+                  2. Regime de Produção Fixa / Metas
+                </h4>
+                <select
+                  className="px-2 py-1 text-[11px] font-semibold border border-zinc-300 rounded-lg bg-zinc-50 text-zinc-900"
                   value={overrideLaunch}
                   onChange={(e) => setOverrideLaunch(e.target.value)}
                 >
-                  <option value="AUTO">Automático (Baseado no faturamento)</option>
-                  <option value="LAUNCH">Lançamento</option>
-                  <option value="REGULAR">Linha regular</option>
-                </select>
-                <p className="text-[11px] text-zinc-500 mt-1">A etiqueta só identifica o item. O regime de produção fixa é o gatilho e o estoque máximo.</p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label>Gatilho fixo</label>
-                  <input type="number" className="form-control text-zinc-900 mt-1" placeholder="Estoque mínimo" value={overrideLancamentoGatilho} onChange={(e) => setOverrideLancamentoGatilho(e.target.value)} />
-                </div>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label>Estoque máximo</label>
-                  <input type="number" className="form-control text-zinc-900 mt-1" placeholder="Teto de produção" value={overrideLancamentoMaximo} onChange={(e) => setOverrideLancamentoMaximo(e.target.value)} />
-                </div>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label>Em estoque fixo desde</label>
-                  <input type="date" className="form-control text-zinc-900 mt-1" value={overrideDataFixo} onChange={(e) => setOverrideDataFixo(e.target.value)} />
-                </div>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label>Família</label>
-                  <input className="form-control text-zinc-900 mt-1" placeholder="Cachos, Mandioca, Cronograma…" value={overrideFamilia} onChange={(e) => setOverrideFamilia(e.target.value)} />
-                </div>
-              </div>
-
-              <div className="form-group" style={{ marginTop: '0.75rem' }}>
-                <label>Linha de Produto (Prefixo de Cálculo)</label>
-                <select 
-                  className="form-control text-zinc-900"
-                  value={overrideLine}
-                  onChange={(e) => setOverrideLine(e.target.value)}
-                >
-                  <option value="AUTO">Automático (Detecção automática pelo código)</option>
-                  {configs.map((c) => (
-                    <option key={c.linha_prefix} value={c.linha_prefix}>
-                      {c.nome_linha} ({c.linha_prefix})
-                    </option>
-                  ))}
+                  <option value="AUTO">Automático</option>
+                  <option value="LAUNCH">Ativar Fixa / Meta</option>
+                  <option value="REGULAR">Linha Regular</option>
                 </select>
               </div>
-
-              <div className="form-group" style={{ marginTop: '0.75rem' }}>
-                <label>Visibilidade do Produto</label>
-                <select 
-                  className="form-control text-zinc-900"
-                  value={overrideVisible}
-                  onChange={(e) => setOverrideVisible(e.target.value)}
-                >
-                  <option value="VISIBLE">Visível (Aparecer nas listagens normais)</option>
-                  <option value="HIDDEN">Oculto (Ocultar de listagens e alertas)</option>
-                </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">
+                    Gatilho Mínimo (un)
+                  </label>
+                  <input
+                    type="number"
+                    className="w-full px-2.5 py-1.5 text-xs font-mono border border-zinc-300 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    placeholder="Estoque mínimo p/ disparo"
+                    value={overrideLancamentoGatilho}
+                    onChange={(e) => setOverrideLancamentoGatilho(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">
+                    Estoque Máximo / Teto (un)
+                  </label>
+                  <input
+                    type="number"
+                    className="w-full px-2.5 py-1.5 text-xs font-mono border border-zinc-300 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    placeholder="Teto de recomposição"
+                    value={overrideLancamentoMaximo}
+                    onChange={(e) => setOverrideLancamentoMaximo(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">
+                    Em Estoque Fixo Desde
+                  </label>
+                  <input
+                    type="date"
+                    className="w-full px-2.5 py-1.5 text-xs border border-zinc-300 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    value={overrideDataFixo}
+                    onChange={(e) => setOverrideDataFixo(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">
+                    Família Comercial
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full px-2.5 py-1.5 text-xs border border-zinc-300 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    placeholder="Cachos, Mandioca, Cronograma…"
+                    value={overrideFamilia}
+                    onChange={(e) => setOverrideFamilia(e.target.value)}
+                  />
+                </div>
               </div>
+            </div>
 
-              <div className="form-group" style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <input 
+            {/* Bloco 3: Regime de Produção Programada */}
+            <div className="space-y-3 bg-zinc-50 p-4 rounded-xl border border-zinc-200">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
                   type="checkbox"
-                  id="produzir_apenas_kit"
+                  checked={overrideIsProgramada === 1}
+                  onChange={(e) => setOverrideIsProgramada(e.target.checked ? 1 : 0)}
+                  className="w-4 h-4 rounded border-zinc-300"
+                />
+                <span className="font-extrabold text-xs text-zinc-900 uppercase tracking-wider">
+                  3. Habilitar Produção Programada (Gatilho e Lote Objetivo)
+                </span>
+              </label>
+              <p className="text-[11px] text-zinc-500">
+                Quando habilitado, o item é acompanhado na pílula <strong>Programadas</strong> e dispara lote fixo quando EFP ≤ Gatilho.
+              </p>
+
+              {overrideIsProgramada === 1 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-zinc-200">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">
+                      Estoque de Disparo (Gatilho)
+                    </label>
+                    <input
+                      type="number"
+                      className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-zinc-300 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900"
+                      placeholder="Ex: 500"
+                      value={overrideProgramadaDisparo}
+                      onChange={(e) => setOverrideProgramadaDisparo(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">
+                      Quantidade Objetivo (Lote)
+                    </label>
+                    <input
+                      type="number"
+                      className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-zinc-300 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900"
+                      placeholder="Ex: 1000"
+                      value={overrideProgramadaObjetivo}
+                      onChange={(e) => setOverrideProgramadaObjetivo(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Bloco 4: Linha, Visibilidade / Suspensão, Kit e Observações */}
+            <div className="space-y-3 bg-white p-4 rounded-xl border border-zinc-200">
+              <h4 className="font-extrabold text-xs text-zinc-900 uppercase tracking-wider border-b border-zinc-100 pb-2">
+                4. Classificação, Kits e Visibilidade
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">
+                    Linha de Produto (Prefixo)
+                  </label>
+                  <select
+                    className="w-full px-2.5 py-1.5 text-xs border border-zinc-300 rounded-lg bg-white text-zinc-900"
+                    value={overrideLine}
+                    onChange={(e) => setOverrideLine(e.target.value)}
+                  >
+                    <option value="AUTO">Automático pelo código</option>
+                    {configs.map((c) => (
+                      <option key={c.linha_prefix} value={c.linha_prefix}>
+                        {c.nome_linha} ({c.linha_prefix})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">
+                    Visibilidade / Suspensão
+                  </label>
+                  <select
+                    className="w-full px-2.5 py-1.5 text-xs border border-zinc-300 rounded-lg bg-white text-zinc-900"
+                    value={overrideVisible}
+                    onChange={(e) => setOverrideVisible(e.target.value)}
+                  >
+                    <option value="VISIBLE">Ativo / Visível nas Demandas</option>
+                    <option value="HIDDEN">Suspenso / Oculto (Enviar p/ Suspensos)</option>
+                  </select>
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 pt-1 cursor-pointer select-none">
+                <input
+                  type="checkbox"
                   checked={overrideApenasKit === 1}
                   onChange={(e) => setOverrideApenasKit(e.target.checked ? 1 : 0)}
-                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                  className="w-4 h-4 rounded border-zinc-300"
                 />
-                <label htmlFor="produzir_apenas_kit" style={{ cursor: 'pointer', margin: 0, fontWeight: '500' }}>
-                  Produzir apenas se houver demanda no Kit (Zera recomendação se kits estão OK)
+                <span className="text-xs font-semibold text-zinc-800">
+                  Produzir somente quando houver demanda no Kit (Somente Kit)
+                </span>
+              </label>
+
+              <div className="pt-1">
+                <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">
+                  Observação Operacional do PCP
                 </label>
-              </div>
-
-              {/* Seção Produção Programada */}
-              <div className="bg-blue-50/60 border border-blue-200 rounded-lg p-3 my-3">
-                <div className="flex items-center gap-2">
-                  <input 
-                    type="checkbox"
-                    id="is_producao_programada"
-                    checked={overrideIsProgramada === 1}
-                    onChange={(e) => setOverrideIsProgramada(e.target.checked ? 1 : 0)}
-                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                  />
-                  <label htmlFor="is_producao_programada" className="cursor-pointer font-bold text-blue-900 text-xs select-none">
-                    Habilitar Produção Programada (Gatilho e Objetivo)
-                  </label>
-                </div>
-                <p className="text-[11px] text-blue-700/80 mt-1">
-                  Ao marcar como Produção Programada, o item sairá da listagem de Gerenciamento de Produção e será gerenciado exclusivamente na aba <strong>Produções Programadas</strong>.
-                </p>
-
-                {overrideIsProgramada === 1 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 pt-3 border-t border-blue-200/60">
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="text-xs font-semibold text-zinc-700">
-                        Estoque de Disparo (Gatilho)
-                      </label>
-                      <input 
-                        type="number" 
-                        className="form-control text-zinc-900 mt-1" 
-                        placeholder="Ex: 500 (Dispara se EFP ≤ valor)"
-                        value={overrideProgramadaDisparo}
-                        onChange={(e) => setOverrideProgramadaDisparo(e.target.value)}
-                      />
-                      <span className="text-[10px] text-zinc-500 mt-0.5 block">
-                        Dispara sugestão quando EFP for menor ou igual a este valor.
-                      </span>
-                    </div>
-
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="text-xs font-semibold text-zinc-700">
-                        Quantidade Objetivo (Lote)
-                      </label>
-                      <input 
-                        type="number" 
-                        className="form-control text-zinc-900 mt-1" 
-                        placeholder="Ex: 1000 (Lote a produzir)"
-                        value={overrideProgramadaObjetivo}
-                        onChange={(e) => setOverrideProgramadaObjetivo(e.target.value)}
-                      />
-                      <span className="text-[10px] text-zinc-500 mt-0.5 block">
-                        Quantidade fixa sugerida a cada ciclo de produção.
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="form-group" style={{ marginTop: '0.75rem' }}>
-                <label>Observação de Produção</label>
-                <textarea 
-                  className="form-control text-zinc-900" 
+                <textarea
+                  className="w-full px-2.5 py-1.5 text-xs border border-zinc-300 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900"
                   placeholder="Ex: produzir somente sob encomenda/pedido..."
                   value={overrideObs}
                   onChange={(e) => setOverrideObs(e.target.value)}
                   rows={2}
-                  style={{ resize: 'vertical', minHeight: '60px' }}
                 />
               </div>
             </div>
-            <div className="modal-footer">
-              <button className="btn-secondary cursor-pointer" onClick={() => setEditingProduct(null)}>Cancelar</button>
-              <button className="btn-primary cursor-pointer" onClick={handleSaveOverrides}>Salvar Alterações</button>
-            </div>
           </div>
-        </div>
-      )}
+        )}
+      </Drawer>
 
       {/* Launch Production Modal */}
       {launchingProduct && (
@@ -2219,105 +2322,27 @@ export default function ProducaoView({
         </div>
       )}
 
-      {/* Product Details Drawer */}
-      <AnimatePresence>
-        {detailsDrawerOpen && (
+      {/* Canonical Product Details Drawer */}
+      <Drawer
+        isOpen={detailsDrawerOpen}
+        onClose={() => setDetailsDrawerOpen(false)}
+        badge="Detalhes do Produto"
+        title={detailsDrawerLoading ? 'Carregando...' : (selectedProductDetails?.description || 'Produto')}
+        subtitle={detailsDrawerLoading ? '...' : `REF: ${selectedProductDetails?.code || ''}`}
+        size="lg"
+        loading={detailsDrawerLoading}
+        loadingText="Carregando ficha e estatísticas..."
+        tabs={[
+          { id: 'geral', label: 'Geral', icon: TrendingUp },
+          { id: 'formula', label: 'Fórmula & Ingredientes', icon: Layers },
+          { id: 'lotes', label: 'Lotes de Produção', icon: ClipboardList, badge: selectedProductDetails?.lastLots?.length || 0 },
+          { id: 'pedidos', label: 'Pedidos', icon: Package, badge: productPendingOrders?.pending_sales_orders?.length || 0 },
+        ]}
+        activeTab={detailsDrawerActiveTab}
+        onTabChange={(id) => setDetailsDrawerActiveTab(id)}
+      >
+        {selectedProductDetails ? (
           <>
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0.5 }}
-              exit={{ opacity: 0 }}
-              className="modal-backdrop"
-              style={{ zIndex: 190 }}
-              onClick={() => setDetailsDrawerOpen(false)}
-            />
-            {/* Drawer container */}
-            <motion.div
-              initial={{ x: '100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed right-0 top-0 h-screen w-full max-w-2xl bg-white shadow-2xl border-l border-zinc-200 flex flex-col text-left text-zinc-800"
-              style={{ zIndex: 200 }}
-            >
-              {/* Header */}
-              <div className="p-6 border-b border-zinc-150 flex items-center justify-between bg-zinc-50 shrink-0">
-                <div className="min-w-0 flex-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Detalhes do Produto</span>
-                  <h3 className="font-extrabold text-zinc-900 text-lg mt-0.5 truncate">
-                    {detailsDrawerLoading ? 'Carregando...' : selectedProductDetails?.description}
-                  </h3>
-                  <p className="text-xs text-zinc-500 font-mono mt-0.5">
-                    Ref: {detailsDrawerLoading ? '...' : selectedProductDetails?.code}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setDetailsDrawerOpen(false)}
-                  className="p-1 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-650 transition-colors cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Tab Navigation */}
-              {!detailsDrawerLoading && selectedProductDetails && (
-                <div className="flex border-b border-zinc-150 bg-zinc-50 px-6 shrink-0">
-                  <button
-                    onClick={() => setDetailsDrawerActiveTab('geral')}
-                    className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer focus:outline-none ${
-                      detailsDrawerActiveTab === 'geral' 
-                        ? 'border-zinc-900 text-zinc-900 font-extrabold' 
-                        : 'border-transparent text-zinc-450 hover:text-zinc-650'
-                    }`}
-                  >
-                    Geral
-                  </button>
-                  <button
-                    onClick={() => setDetailsDrawerActiveTab('formula')}
-                    className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer focus:outline-none ${
-                      detailsDrawerActiveTab === 'formula' 
-                        ? 'border-zinc-900 text-zinc-900 font-extrabold' 
-                        : 'border-transparent text-zinc-450 hover:text-zinc-650'
-                    }`}
-                  >
-                    Fórmula & Ingredientes
-                  </button>
-                  <button
-                    onClick={() => setDetailsDrawerActiveTab('lotes')}
-                    className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer focus:outline-none ${
-                  detailsDrawerActiveTab === 'lotes' 
-                        ? 'border-zinc-900 text-zinc-900 font-extrabold' 
-                        : 'border-transparent text-zinc-450 hover:text-zinc-650'
-                    }`}
-                  >
-                    Lotes de Produção
-                  </button>
-                  <button
-                    onClick={() => setDetailsDrawerActiveTab('pedidos')}
-                    className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer focus:outline-none ${
-                      detailsDrawerActiveTab === 'pedidos'
-                        ? 'border-zinc-900 text-zinc-900 font-extrabold'
-                        : 'border-transparent text-zinc-450 hover:text-zinc-650'
-                    }`}
-                  >
-                    Pedidos
-                    {productPendingOrders?.pending_sales_orders?.length
-                      ? ` (${productPendingOrders.pending_sales_orders.length})`
-                      : ''}
-                  </button>
-                </div>
-              )}
-
-              {/* Body */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                {detailsDrawerLoading ? (
-                  <div className="flex flex-col items-center justify-center h-64 gap-3 text-zinc-400">
-                    <RefreshCw className="h-8 w-8 animate-spin text-zinc-500" />
-                    <span className="font-medium">Carregando ficha e estatísticas...</span>
-                  </div>
-                ) : selectedProductDetails ? (
-                  <>
                     {/* TAB: GERAL */}
                     {detailsDrawerActiveTab === 'geral' && (
                       <div className="space-y-6 animate-in fade-in duration-150 text-left">
@@ -2781,17 +2806,13 @@ export default function ProducaoView({
                         )}
                       </div>
                     )}
-                  </>
-                ) : (
-                  <div className="flex-1 flex items-center justify-center text-zinc-400">
-                    Ocorreu um erro ao carregar os dados.
-                  </div>
-                )}
-              </div>
-            </motion.div>
-            </>
-          )}
-        </AnimatePresence>
+          </>
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-zinc-400">
+            Ocorreu um erro ao carregar os dados.
+          </div>
+        )}
+      </Drawer>
 
         <LoteDetailsDrawer
           open={loteDetailsDrawerOpen}
