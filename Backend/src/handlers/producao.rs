@@ -5470,7 +5470,7 @@ pub async fn get_bases_resumo(
     let _ = ensure_fila_demandas_table(pool).await;
 
     // Map of items in fila_demandas: code -> (id, qty, qty_kg)
-    let mut fila_map: StdHashMap<String, (String, f64, f64)> = StdHashMap::new();
+    let mut fila_map: HashMap<String, (String, f64, f64)> = HashMap::new();
     if let Ok(rows) = sqlx::query(
         "SELECT id, codigo_produto, quantidade::float8, COALESCE(quantidade_kg::float8, 0.0) FROM producao_fila_demandas",
     )
@@ -5487,7 +5487,7 @@ pub async fn get_bases_resumo(
         }
     }
 
-    let mut planejado_map: StdHashMap<String, f64> = StdHashMap::new();
+    let mut planejado_map: HashMap<String, f64> = HashMap::new();
     if let Ok(rows) = sqlx::query(
         "SELECT codigo_produto, SUM(quantidade_planejada::float8) FROM producao_planejamento_semanal WHERE ordem_status IN ('planejado', 'em_producao', 'aguardando') GROUP BY codigo_produto",
     )
@@ -5503,8 +5503,8 @@ pub async fn get_bases_resumo(
     }
 
     // Load formulations for all products/bases
-    let mut formulations_by_prod: StdHashMap<String, Vec<serde_json::Value>> = StdHashMap::new();
-    let mut insumo_stock_map: StdHashMap<String, f64> = StdHashMap::new();
+    let mut formulations_by_prod: HashMap<String, Vec<serde_json::Value>> = HashMap::new();
+    let mut insumo_stock_map: HashMap<String, f64> = HashMap::new();
     if let Ok(rows) = sqlx::query("SELECT codigo, COALESCE(estoque, 0.0)::float8 FROM insumos")
         .fetch_all(pool)
         .await
@@ -5548,7 +5548,7 @@ pub async fn get_bases_resumo(
     }
 
     // Recent base production in stock_movements or historico_producao
-    let mut base_lote_info: StdHashMap<String, (f64, Option<String>, Option<String>)> = StdHashMap::new();
+    let mut base_lote_info: HashMap<String, (f64, Option<String>, Option<String>)> = HashMap::new();
     if let Ok(rows) = sqlx::query(
         r#"
         SELECT item_code, COALESCE(quantity, 0.0)::float8, date::text, document_number
@@ -5582,7 +5582,7 @@ pub async fn get_bases_resumo(
             || p.codigo.starts_with("60.36.");
         if is_base {
             base_items.push(p);
-        } else if p.visivel != 0 {
+        } else if p.visivel != Some(0) {
             let st = p.status_produto.as_deref().unwrap_or("ativo");
             if st != "descontinuado" && st != "suspenso" && st != "ignorado" {
                 finished_items.push(p);
@@ -5591,8 +5591,8 @@ pub async fn get_bases_resumo(
     }
 
     // Map base key -> index in base_items
-    let mut key_to_base_idx: StdHashMap<String, usize> = StdHashMap::new();
-    let mut code_to_base_idx: StdHashMap<String, usize> = StdHashMap::new();
+    let mut key_to_base_idx: HashMap<String, usize> = HashMap::new();
+    let mut code_to_base_idx: HashMap<String, usize> = HashMap::new();
     for (idx, b) in base_items.iter().enumerate() {
         key_to_base_idx.insert(normalize_base_key(&b.descricao), idx);
         code_to_base_idx.insert(b.codigo.trim().to_string(), idx);
@@ -5720,7 +5720,7 @@ pub async fn get_bases_resumo(
             .copied()
             .unwrap_or(0.0);
 
-        let lote_padrao_kg = b.estoque_ideal_manual.unwrap_or(200.0).max(50.0);
+        let lote_padrao_kg = (b.estoque_ideal_manual.unwrap_or(200) as f64).max(50.0);
         let sugestao_base_kg = if demanda_total_kg > 0.0 {
             demanda_total_kg
         } else {
