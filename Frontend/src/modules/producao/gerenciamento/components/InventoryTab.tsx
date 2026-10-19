@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Search, RefreshCw, HelpCircle, 
   AlertTriangle, ChevronLeft, ChevronRight, Edit3, Plus,
-  Zap, Package, FlaskConical, Calendar, Layers, Target, Check, Trash2, X, Save
+  Zap, Package, FlaskConical, Calendar, Layers, Target, Check, X, Trash2
 } from 'lucide-react';
 import { apiFetch } from '../../../geral/lib/http';
 import { parseProductUnitWeightKg, formatUnitsToKg } from '../../lib/unitConversion';
@@ -75,7 +75,6 @@ export function InventoryTab({
   const segment: InventorySegment = controlledSegment || internalSegment;
 
   const handleSegmentClick = (newSeg: InventorySegment) => {
-    setShowBindForm(false);
     if (onSegmentChange) {
       onSegmentChange(newSeg);
     } else {
@@ -94,23 +93,6 @@ export function InventoryTab({
 
   const [batchModalProduct, setBatchModalProduct] = useState<any | null>(null);
   const [enqueuingBulk, setEnqueuingBulk] = useState(false);
-
-  // State for inline regime editing (Programadas & Fixas)
-  const [inlineDrafts, setInlineDrafts] = useState<Record<string, {
-    gatilho: string;
-    objetivo: string;
-    familia: string;
-  }>>({});
-  const [savingInlineCode, setSavingInlineCode] = useState<string | null>(null);
-
-  // State for Quick Bind Product bar in Programadas / Fixas
-  const [showBindForm, setShowBindForm] = useState(false);
-  const [bindSearch, setBindSearch] = useState('');
-  const [bindSelectedCode, setBindSelectedCode] = useState('');
-  const [bindGatilho, setBindGatilho] = useState('150');
-  const [bindObjetivo, setBindObjetivo] = useState('400');
-  const [bindFamilia, setBindFamilia] = useState('');
-  const [bindingSaving, setBindingSaving] = useState(false);
 
   // Fetch current queue from Postgres
   const fetchQueue = useCallback(async () => {
@@ -230,187 +212,6 @@ export function InventoryTab({
       return true;
     });
   }, [products, segment, hideQueued, queuedMap, selectedFamily]);
-
-  // Candidate products for Quick Bind selector
-  const bindCandidates = useMemo(() => {
-    const source = allProducts && allProducts.length > 0 ? allProducts : products;
-    const q = bindSearch.trim().toLowerCase();
-    return source
-      .filter((p: any) => {
-        if (segment === 'programadas' && p.is_producao_programada === 1) return false;
-        if (segment === 'fixas' && (p.is_lancamento_manual === 1 || (p.lancamento_gatilho ?? 0) > 0 || (p.lancamento_estoque_maximo ?? 0) > 0)) return false;
-        if (!q) return true;
-        return String(p.codigo || '').toLowerCase().includes(q) || String(p.descricao || '').toLowerCase().includes(q);
-      })
-      .slice(0, 40);
-  }, [allProducts, products, bindSearch, segment]);
-
-  // Helper to build full override payload preserving existing product fields
-  const buildOverridePayload = (p: any, patch: Record<string, any>) => {
-    return {
-      codigo: p.codigo,
-      estoque_ideal_manual: p.estoque_ideal_manual ?? null,
-      pedidos_manual: p.pedidos_manual ?? null,
-      media_manual: p.media_manual ?? null,
-      is_lancamento_manual: p.is_lancamento_manual ?? null,
-      visivel: p.visivel ?? 1,
-      linha_prefix_manual: p.linha_prefix_manual ?? null,
-      observacao: p.observacao ?? null,
-      produzir_apenas_kit: p.produzir_apenas_kit ?? 0,
-      is_producao_programada: p.is_producao_programada ?? 0,
-      producao_programada_disparo: p.producao_programada_disparo ?? null,
-      producao_programada_objetivo: p.producao_programada_objetivo ?? null,
-      lancamento_gatilho: p.lancamento_gatilho ?? null,
-      lancamento_estoque_maximo: p.lancamento_estoque_maximo ?? null,
-      lancamento_data_inicio: p.lancamento_data_inicio ?? null,
-      familia_produto: p.familia_produto ?? '-',
-      ...patch,
-    };
-  };
-
-  const getDraft = (p: any) => {
-    if (inlineDrafts[p.codigo]) return inlineDrafts[p.codigo];
-    if (segment === 'programadas') {
-      return {
-        gatilho: String(p.producao_programada_disparo ?? p.programada_gatilho ?? 0),
-        objetivo: String(p.producao_programada_objetivo ?? p.programada_objetivo ?? 0),
-        familia: p.familia_produto || '-',
-      };
-    }
-    return {
-      gatilho: String(p.lancamento_gatilho ?? 0),
-      objetivo: String(p.lancamento_estoque_maximo ?? 0),
-      familia: inferFamily(p),
-    };
-  };
-
-  const updateDraft = (p: any, field: 'gatilho' | 'objetivo' | 'familia', value: string) => {
-    const current = getDraft(p);
-    setInlineDrafts((prev) => ({
-      ...prev,
-      [p.codigo]: {
-        ...current,
-        [field]: value,
-      },
-    }));
-  };
-
-  const handleSaveInlineRegime = async (p: any) => {
-    const draft = getDraft(p);
-    const gat = Math.max(0, parseInt(draft.gatilho, 10) || 0);
-    const obj = Math.max(0, parseInt(draft.objetivo, 10) || 0);
-
-    setSavingInlineCode(p.codigo);
-    try {
-      const payload =
-        segment === 'programadas'
-          ? buildOverridePayload(p, {
-              is_producao_programada: 1,
-              producao_programada_disparo: gat,
-              producao_programada_objetivo: obj,
-            })
-          : buildOverridePayload(p, {
-              is_lancamento_manual: 1,
-              lancamento_gatilho: gat,
-              lancamento_estoque_maximo: obj,
-              familia_produto: draft.familia.trim() || '-',
-            });
-
-      const res = await apiFetch('/overrides', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok && onRefresh) {
-        onRefresh();
-      }
-    } catch (err) {
-      console.error('Erro ao salvar regime inline:', err);
-    } finally {
-      setSavingInlineCode(null);
-    }
-  };
-
-  const handleRemoveFromRegime = async (p: any) => {
-    const label = segment === 'programadas' ? 'Produção Programada' : 'Produção Fixa / Meta';
-    if (!window.confirm(`Remover ${p.codigo} (${p.descricao}) do regime de ${label} e devolver para a Linha Normal?`)) {
-      return;
-    }
-
-    setSavingInlineCode(p.codigo);
-    try {
-      const payload =
-        segment === 'programadas'
-          ? buildOverridePayload(p, {
-              is_producao_programada: 0,
-              producao_programada_disparo: null,
-              producao_programada_objetivo: null,
-            })
-          : buildOverridePayload(p, {
-              is_lancamento_manual: 0,
-              lancamento_gatilho: null,
-              lancamento_estoque_maximo: null,
-            });
-
-      const res = await apiFetch('/overrides', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok && onRefresh) {
-        onRefresh();
-      }
-    } catch (err) {
-      console.error('Erro ao remover produto do regime:', err);
-    } finally {
-      setSavingInlineCode(null);
-    }
-  };
-
-  const handleQuickBindSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const source = allProducts && allProducts.length > 0 ? allProducts : products;
-    const target = source.find((p: any) => p.codigo === bindSelectedCode);
-    if (!target) return;
-
-    const gat = Math.max(0, parseInt(bindGatilho, 10) || 0);
-    const obj = Math.max(1, parseInt(bindObjetivo, 10) || 100);
-
-    setBindingSaving(true);
-    try {
-      const todayIso = new Date().toISOString().slice(0, 10);
-      const payload =
-        segment === 'programadas'
-          ? buildOverridePayload(target, {
-              is_producao_programada: 1,
-              producao_programada_disparo: gat,
-              producao_programada_objetivo: obj,
-            })
-          : buildOverridePayload(target, {
-              is_lancamento_manual: 1,
-              lancamento_gatilho: gat,
-              lancamento_estoque_maximo: obj,
-              lancamento_data_inicio: target.lancamento_data_inicio || todayIso,
-              familia_produto: bindFamilia.trim() || inferFamily(target),
-            });
-
-      const res = await apiFetch('/overrides', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
-        setShowBindForm(false);
-        setBindSelectedCode('');
-        setBindSearch('');
-        if (onRefresh) onRefresh();
-      }
-    } catch (err) {
-      console.error('Erro ao vincular produto ao regime:', err);
-    } finally {
-      setBindingSaving(false);
-    }
-  };
 
   // Handle single enqueue
   const handleEnqueue = async (p: any, customQty?: number) => {
@@ -663,16 +464,6 @@ export function InventoryTab({
 
         {/* Action: Enviar Sugeridos para a Fila */}
         <div className="flex items-center gap-2">
-          {(segment === 'programadas' || segment === 'fixas') && (
-            <button
-              type="button"
-              onClick={() => setShowBindForm((v) => !v)}
-              className="px-3 py-1.5 rounded-lg bg-white hover:bg-zinc-50 text-zinc-900 border border-zinc-300 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
-            >
-              <Plus size={13} />
-              <span>{segment === 'programadas' ? 'Vincular Produto à Programada' : 'Vincular Produto à Fixa / Meta'}</span>
-            </button>
-          )}
           <button
             onClick={handleBulkEnqueue}
             disabled={enqueuingBulk || loading}
@@ -688,119 +479,6 @@ export function InventoryTab({
           </button>
         </div>
       </div>
-
-      {/* Quick Bind Drawer/Bar for Programadas or Fixas */}
-      {showBindForm && (segment === 'programadas' || segment === 'fixas') && (
-        <form
-          onSubmit={handleQuickBindSubmit}
-          className="mb-4 bg-white border border-zinc-200 rounded-xl p-4 shadow-xs animate-in fade-in duration-150"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h4 className="text-xs font-extrabold text-zinc-900 uppercase tracking-wider">
-                {segment === 'programadas'
-                  ? 'Adicionar Produto ao Regime de Produção Programada'
-                  : 'Adicionar Produto ao Regime de Produção Fixa / Metas'}
-              </h4>
-              <p className="text-[11px] text-zinc-500 mt-0.5">
-                {segment === 'programadas'
-                  ? 'Quando o EFP atingir ou ficar abaixo do Gatilho, o sistema recomendará automaticamente o Lote Objetivo.'
-                  : 'Quando o EFP atingir ou ficar abaixo do Gatilho Mínimo, o sistema recomendará recompor até o Estoque Máximo.'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowBindForm(false)}
-              className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg cursor-pointer"
-            >
-              <X size={16} />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-            <div className="md:col-span-5">
-              <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">
-                1. Filtrar e Selecionar Produto do Catálogo
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Digite código ou nome..."
-                  value={bindSearch}
-                  onChange={(e) => setBindSearch(e.target.value)}
-                  className="w-40 px-2.5 py-1.5 text-xs border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900"
-                />
-                <select
-                  value={bindSelectedCode}
-                  onChange={(e) => setBindSelectedCode(e.target.value)}
-                  required
-                  className="flex-1 px-2.5 py-1.5 text-xs border border-zinc-300 rounded-lg bg-white text-zinc-900 focus:outline-none focus:border-zinc-900"
-                >
-                  <option value="">Selecione um produto ({bindCandidates.length} listados)...</option>
-                  {bindCandidates.map((c: any) => (
-                    <option key={c.codigo} value={c.codigo}>
-                      {c.codigo} — {c.descricao} (EFP: {c.estoque_futuro_com_producao})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">
-                {segment === 'programadas' ? 'Gatilho Disparo (un)' : 'Gatilho Mín. (un)'}
-              </label>
-              <input
-                type="number"
-                min="0"
-                required
-                value={bindGatilho}
-                onChange={(e) => setBindGatilho(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-xs font-mono font-bold border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">
-                {segment === 'programadas' ? 'Lote Objetivo (un)' : 'Estoque Máx. (un)'}
-              </label>
-              <input
-                type="number"
-                min="1"
-                required
-                value={bindObjetivo}
-                onChange={(e) => setBindObjetivo(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-xs font-mono font-bold border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900"
-              />
-            </div>
-
-            {segment === 'fixas' && (
-              <div className="md:col-span-2">
-                <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">
-                  Família Comercial
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ex: Cachos, Mandioca..."
-                  value={bindFamilia}
-                  onChange={(e) => setBindFamilia(e.target.value)}
-                  className="w-full px-2.5 py-1.5 text-xs border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-900"
-                />
-              </div>
-            )}
-
-            <div className={segment === 'fixas' ? 'md:col-span-1' : 'md:col-span-3'}>
-              <button
-                type="submit"
-                disabled={bindingSaving || !bindSelectedCode}
-                className="w-full px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-              >
-                {bindingSaving ? 'Salvando...' : 'Vincular'}
-              </button>
-            </div>
-          </div>
-        </form>
-      )}
 
       {/* Tabs Nav (Linhas de Produtos) */}
       <div className="tabs-container">
@@ -942,24 +620,14 @@ export function InventoryTab({
                     </div>
                   </th>
                   <th 
-                    style={{ width: '21%', cursor: segment === 'programadas' || segment === 'fixas' ? 'default' : 'pointer' }}
-                    onClick={() => {
-                      if (segment !== 'programadas' && segment !== 'fixas') {
-                        toggleSort('duracao_meses', sortField, setSortField, sortDir, setSortDir);
-                      }
-                    }}
+                    style={{ width: '21%', cursor: 'pointer' }}
+                    onClick={() => toggleSort('duracao_meses', sortField, setSortField, sortDir, setSortDir)}
                     className="px-4 py-3 font-bold text-zinc-700 uppercase tracking-wider text-[10px] select-none hover:bg-zinc-100 transition-colors"
                   >
-                    {segment === 'programadas' ? (
-                      <span>Regime Programado (Gatilho / Lote)</span>
-                    ) : segment === 'fixas' ? (
-                      <span>Regime Fixo (Gatilho / Máx / Família)</span>
-                    ) : (
-                      <div className="flex items-center gap-1">
-                        Duração
-                        <SortIcon field="duracao_meses" activeField={sortField} activeDir={sortDir} />
-                      </div>
-                    )}
+                    <div className="flex items-center gap-1">
+                      Duração
+                      <SortIcon field="duracao_meses" activeField={sortField} activeDir={sortDir} />
+                    </div>
                   </th>
                   <th 
                     style={{ width: '10%', cursor: 'pointer' }}
@@ -1002,8 +670,6 @@ export function InventoryTab({
                   const inPlan = p.planejado_semana;
                   const isPopOpen = editingQueueCode === p.codigo;
                   const isBusyQueue = savingQueueCode === p.codigo;
-
-                  const draft = getDraft(p);
 
                   return (
                     <tr key={p.codigo} className="hover:bg-zinc-50/50 transition-colors">
@@ -1093,117 +759,22 @@ export function InventoryTab({
                         </div>
                       </td>
 
-                      {/* Dynamic Column: Duração OR Inline Regime Controls */}
                       <td className="px-4 py-2.5 border-b border-zinc-100 align-middle">
-                        {segment === 'programadas' ? (
-                          <div className="flex items-center gap-1.5">
-                            <div className="flex flex-col">
-                              <span className="text-[9px] font-bold uppercase text-zinc-400">Gatilho</span>
-                              <input
-                                type="number"
-                                value={draft.gatilho}
-                                onChange={(e) => updateDraft(p, 'gatilho', e.target.value)}
-                                onKeyDown={(e) => { if (e.key === 'Enter') handleSaveInlineRegime(p); }}
-                                className="w-16 px-1.5 py-1 text-xs font-mono font-bold text-zinc-900 border border-zinc-200 rounded bg-zinc-50 focus:bg-white focus:border-zinc-900 focus:outline-none"
-                              />
-                            </div>
-                            <div className="flex flex-col">
-                              <span className="text-[9px] font-bold uppercase text-zinc-400">Lote Obj.</span>
-                              <input
-                                type="number"
-                                value={draft.objetivo}
-                                onChange={(e) => updateDraft(p, 'objetivo', e.target.value)}
-                                onKeyDown={(e) => { if (e.key === 'Enter') handleSaveInlineRegime(p); }}
-                                className="w-16 px-1.5 py-1 text-xs font-mono font-bold text-zinc-900 border border-zinc-200 rounded bg-zinc-50 focus:bg-white focus:border-zinc-900 focus:outline-none"
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleSaveInlineRegime(p)}
-                              disabled={savingInlineCode === p.codigo}
-                              className="mt-3.5 p-1.5 rounded bg-zinc-900 text-white hover:bg-zinc-800 cursor-pointer disabled:opacity-50"
-                              title="Salvar Gatilho e Lote Objetivo"
-                            >
-                              <Save size={12} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveFromRegime(p)}
-                              disabled={savingInlineCode === p.codigo}
-                              className="mt-3.5 p-1.5 rounded text-zinc-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
-                              title="Remover da Produção Programada"
-                            >
-                              <Trash2 size={12} />
-                            </button>
+                        <div className="flex flex-col gap-1">
+                          <div className="flex justify-between font-semibold font-mono text-zinc-700 text-[10px]">
+                            <span>{p.duracao_meses.toFixed(1)}m</span>
+                            <span>{duracaoDiasCalculada.toFixed(0)}d</span>
                           </div>
-                        ) : segment === 'fixas' ? (
-                          <div className="flex items-center gap-1.5">
-                            <div className="flex flex-col">
-                              <span className="text-[9px] font-bold uppercase text-zinc-400">Gatilho</span>
-                              <input
-                                type="number"
-                                value={draft.gatilho}
-                                onChange={(e) => updateDraft(p, 'gatilho', e.target.value)}
-                                onKeyDown={(e) => { if (e.key === 'Enter') handleSaveInlineRegime(p); }}
-                                className="w-15 px-1.5 py-1 text-xs font-mono font-bold text-zinc-900 border border-zinc-200 rounded bg-zinc-50 focus:bg-white focus:border-zinc-900 focus:outline-none"
-                              />
-                            </div>
-                            <div className="flex flex-col">
-                              <span className="text-[9px] font-bold uppercase text-zinc-400">Teto Máx</span>
-                              <input
-                                type="number"
-                                value={draft.objetivo}
-                                onChange={(e) => updateDraft(p, 'objetivo', e.target.value)}
-                                onKeyDown={(e) => { if (e.key === 'Enter') handleSaveInlineRegime(p); }}
-                                className="w-16 px-1.5 py-1 text-xs font-mono font-bold text-zinc-900 border border-zinc-200 rounded bg-zinc-50 focus:bg-white focus:border-zinc-900 focus:outline-none"
-                              />
-                            </div>
-                            <div className="flex flex-col">
-                              <span className="text-[9px] font-bold uppercase text-zinc-400">Família</span>
-                              <input
-                                type="text"
-                                value={draft.familia}
-                                onChange={(e) => updateDraft(p, 'familia', e.target.value)}
-                                onKeyDown={(e) => { if (e.key === 'Enter') handleSaveInlineRegime(p); }}
-                                className="w-22 px-1.5 py-1 text-[11px] font-semibold text-zinc-800 border border-zinc-200 rounded bg-zinc-50 focus:bg-white focus:border-zinc-900 focus:outline-none"
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleSaveInlineRegime(p)}
-                              disabled={savingInlineCode === p.codigo}
-                              className="mt-3.5 p-1.5 rounded bg-zinc-900 text-white hover:bg-zinc-800 cursor-pointer disabled:opacity-50"
-                              title="Salvar Gatilho, Estoque Máximo e Família"
-                            >
-                              <Save size={12} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveFromRegime(p)}
-                              disabled={savingInlineCode === p.codigo}
-                              className="mt-3.5 p-1.5 rounded text-zinc-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
-                              title="Tirar da Produção Fixa e devolver para Linha Normal"
-                            >
-                              <Trash2 size={12} />
-                            </button>
+                          <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full ${p.status === 'critico' ? 'bg-rose-500' : p.status === 'ordem' ? 'bg-amber-500' : 'bg-emerald-500'}`} 
+                              style={{ width: `${pct}%` }}
+                            ></div>
                           </div>
-                        ) : (
-                          <div className="flex flex-col gap-1">
-                            <div className="flex justify-between font-semibold font-mono text-zinc-700 text-[10px]">
-                              <span>{p.duracao_meses.toFixed(1)}m</span>
-                              <span>{duracaoDiasCalculada.toFixed(0)}d</span>
-                            </div>
-                            <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
-                              <div 
-                                className={`h-full rounded-full ${p.status === 'critico' ? 'bg-rose-500' : p.status === 'ordem' ? 'bg-amber-500' : 'bg-emerald-500'}`} 
-                                style={{ width: `${pct}%` }}
-                              ></div>
-                            </div>
-                            <div className="flex justify-between text-[10px] text-zinc-400 font-mono mt-0.5">
-                              <span>Vendas: {p.demanda_ajustada.toFixed(1)}/m</span>
-                            </div>
+                          <div className="flex justify-between text-[10px] text-zinc-400 font-mono mt-0.5">
+                            <span>Vendas: {p.demanda_ajustada.toFixed(1)}/m</span>
                           </div>
-                        )}
+                        </div>
                       </td>
 
                       <td className="px-4 py-2.5 border-b border-zinc-100 align-middle">
