@@ -165,7 +165,8 @@ export function KitsTab({
     setSavingQueue(true);
     try {
       const item = queuedMap.get(code);
-      const targetId = item?.id || code;
+      const targetId = item?.id;
+      if (!targetId) return;
       const res = await apiFetch(`/producao/fila-demandas/${encodeURIComponent(targetId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -189,7 +190,8 @@ export function KitsTab({
     setSavingQueue(true);
     try {
       const item = queuedMap.get(code);
-      const targetId = item?.id || code;
+      const targetId = item?.id;
+      if (!targetId) return;
       const res = await apiFetch(`/producao/fila-demandas/${encodeURIComponent(targetId)}`, {
         method: 'DELETE',
       });

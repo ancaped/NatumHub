@@ -4,7 +4,7 @@ import {
   ArrowUpDown, ArrowUp, ArrowDown, LayoutDashboard, Table, Layers, History,
   Settings, ArrowLeft, ClipboardList, User, TrendingUp, BarChart3,
   Scale, Package, FileText, EyeOff, HelpCircle, Info, Search, ClipboardCheck, Calendar, Boxes,
-  CalendarClock, Target
+  Target
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import AppLayout from '../../geral/components/layout/AppLayout';
@@ -24,7 +24,6 @@ import { HistoryTab } from './components/HistoryTab';
 import { SettingsTab } from './components/SettingsTab';
 import { LotesTab } from './components/LotesTab';
 import { LotesCalendarTab } from './components/LotesCalendarTab';
-import { PlanejamentoSemanalTab } from './components/PlanejamentoSemanalTab';
 import { LoteDetailsDrawer } from './components/LoteDetailsDrawer';
 import KitCompositionDrawer from '../components/KitCompositionDrawer';
 import Drawer from '../../geral/components/ui/Drawer';
@@ -46,7 +45,6 @@ export default function ProducaoView({
       inventory: 'Demandas de Produção',
       kits: 'Central de Kits',
       bases: 'Bases (Granel)',
-      aprovacao: 'Planejamento Semanal',
       history: 'Histórico de Lotes',
       ignored_items: 'Produtos Suspensos',
       programadas: 'Produções Programadas',
@@ -1416,7 +1414,6 @@ export default function ProducaoView({
     { id: 'inventory', label: 'Demandas de Produção', icon: Table },
     { id: 'kits', label: 'Central de Kits', icon: Package },
     { id: 'bases', label: 'Bases (Granel)', icon: Scale },
-    { id: 'aprovacao', label: 'Planejamento Semanal', icon: CalendarClock },
     { id: 'history', label: 'Histórico de Lotes', icon: History },
     { id: 'ignored_items', label: 'Produtos Suspensos', icon: EyeOff },
   ];
@@ -1442,8 +1439,6 @@ export default function ProducaoView({
       setProgramadasSelectedStatus('ALL');
       setProgramadasPage(1);
       fetchProgramadas();
-    } else if (tabId === 'aprovacao') {
-      setCurrentView('aprovacao');
     } else if (tabId === 'acompanhamento') {
       setCurrentView('acompanhamento');
     } else if (tabId === 'calendar') {
@@ -1598,24 +1593,6 @@ export default function ProducaoView({
               onToggleApprovalList={handleToggleApprovalList}
             />
           )}
-
-          {/* VIEW: PLANEJAMENTO SEMANAL DE ORDENS (REATORES & HEURÍSTICA) */}
-          {currentView === 'aprovacao' && (
-            <PlanejamentoSemanalTab
-              active={currentView === 'aprovacao'}
-              productionApprovalList={productionApprovalList}
-              onToggleApprovalList={handleToggleApprovalList}
-              diasComerciais={diasComerciais}
-              configs={configs}
-              onShowDetails={fetchProductDetails}
-              onLaunchSuccess={() => {
-                fetchProducts();
-                fetchKits();
-              }}
-            />
-          )}
-
-
 
           {/* VIEW: BASES MANAGEMENT */}
           {currentView === 'bases' && (

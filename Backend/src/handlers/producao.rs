@@ -607,7 +607,7 @@ pub async fn list_products(
 
     let mut planejado_set = std::collections::HashSet::new();
     if let Ok(rows) = sqlx::query(
-        "SELECT codigo_produto FROM producao_planejamento_semanal WHERE ordem_status IN ('planejado', 'em_producao', 'aguardando')"
+        "SELECT codigo_produto FROM producao_planejamento_semanal pp WHERE pp.ordem_status IN ('planejado', 'aprovado') AND NOT EXISTS (SELECT 1 FROM lote_custom_status c WHERE c.lote_number = COALESCE(NULLIF(TRIM(pp.lote_erp), ''), pp.id) AND c.custom_status IN ('Finalizada', 'Ordem Finalizada')) AND NOT EXISTS (SELECT 1 FROM stock_movements sm WHERE pp.lote_erp IS NOT NULL AND TRIM(pp.lote_erp) <> '' AND sm.document_number = TRIM(pp.lote_erp) AND sm.item_type = 'produto' AND sm.movement_type = 'entrada')"
     )
     .fetch_all(pool)
     .await
@@ -2689,7 +2689,7 @@ pub async fn check_lote_errors(
 
     if base_code.is_none() {
         if let Ok(Some(bc)) = sqlx::query_scalar::<_, String>(
-            "SELECT base_codigo FROM producao_planejamento_semanal WHERE (lote = $1 OR ordem_producao = $1) AND base_codigo IS NOT NULL AND base_codigo != '' LIMIT 1",
+            "SELECT base_codigo FROM producao_planejamento_semanal WHERE (lote_erp = $1 OR id = $1) AND base_codigo IS NOT NULL AND base_codigo != '' LIMIT 1",
         )
         .bind(lote_number)
         .fetch_optional(pool)
@@ -3402,7 +3402,7 @@ pub async fn get_lote_detalhes(
 
     if base_code.is_none() {
         if let Ok(Some(bc)) = sqlx::query_scalar::<_, String>(
-            "SELECT base_codigo FROM producao_planejamento_semanal WHERE (lote = $1 OR ordem_producao = $1) AND base_codigo IS NOT NULL AND base_codigo != '' LIMIT 1",
+            "SELECT base_codigo FROM producao_planejamento_semanal WHERE (lote_erp = $1 OR id = $1) AND base_codigo IS NOT NULL AND base_codigo != '' LIMIT 1",
         )
         .bind(&lote_number)
         .fetch_optional(pool)
@@ -4185,6 +4185,8 @@ pub struct PlanejamentoItemDto {
     pub processo_termico: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+    #[serde(default)]
+    pub batch_id: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -4269,7 +4271,7 @@ pub async fn list_planejamento_semanal(
                    observacoes, ordem_status, lote_erp, fisico_confirmado_massa,
                    fisico_confirmado_embalagem, fisico_confirmado_rotulo,
                    recipiente_detalhe, cor_tag, COALESCE(ordem_sequencia, 1), processo_termico,
-                   created_at::text, updated_at::text
+                   created_at::text, updated_at::text, batch_id
             FROM producao_planejamento_semanal
             WHERE week_key = $1
             ORDER BY data_planejada ASC, COALESCE(ordem_sequencia, 1) ASC, reator_id ASC
@@ -4282,7 +4284,7 @@ pub async fn list_planejamento_semanal(
                    observacoes, ordem_status, lote_erp, fisico_confirmado_massa,
                    fisico_confirmado_embalagem, fisico_confirmado_rotulo,
                    recipiente_detalhe, cor_tag, COALESCE(ordem_sequencia, 1), processo_termico,
-                   created_at::text, updated_at::text
+                   created_at::text, updated_at::text, batch_id
             FROM producao_planejamento_semanal
             WHERE data_planejada >= $1::date AND data_planejada <= $2::date
             ORDER BY data_planejada ASC, COALESCE(ordem_sequencia, 1) ASC, reator_id ASC
@@ -4295,7 +4297,7 @@ pub async fn list_planejamento_semanal(
                    observacoes, ordem_status, lote_erp, fisico_confirmado_massa,
                    fisico_confirmado_embalagem, fisico_confirmado_rotulo,
                    recipiente_detalhe, cor_tag, COALESCE(ordem_sequencia, 1), processo_termico,
-                   created_at::text, updated_at::text
+                   created_at::text, updated_at::text, batch_id
             FROM producao_planejamento_semanal
             ORDER BY data_planejada DESC LIMIT 200
         "#;
@@ -4329,6 +4331,7 @@ pub async fn list_planejamento_semanal(
                     processo_termico: r.get(20),
                     created_at: r.get(21),
                     updated_at: r.get(22),
+                    batch_id: r.get(23),
                 }
             }).collect();
             (StatusCode::OK, Json(json!(items))).into_response()
@@ -4348,10 +4351,10 @@ pub async fn save_planejamento_item(
             quantidade_planejada, unidade, base_codigo, base_nome, linha_envase,
             observacoes, ordem_status, lote_erp, fisico_confirmado_massa,
             fisico_confirmado_embalagem, fisico_confirmado_rotulo,
-            recipiente_detalhe, cor_tag, ordem_sequencia, processo_termico, updated_at
+            recipiente_detalhe, cor_tag, ordem_sequencia, processo_termico, batch_id, updated_at
         ) VALUES (
             $1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-            $18, $19, $20, $21, CURRENT_TIMESTAMP
+            $18, $19, $20, $21, $22, CURRENT_TIMESTAMP
         )
         ON CONFLICT (id) DO UPDATE SET
             week_key = EXCLUDED.week_key,
@@ -4374,6 +4377,7 @@ pub async fn save_planejamento_item(
             cor_tag = EXCLUDED.cor_tag,
             ordem_sequencia = EXCLUDED.ordem_sequencia,
             processo_termico = EXCLUDED.processo_termico,
+            batch_id = EXCLUDED.batch_id,
             updated_at = CURRENT_TIMESTAMP
     "#;
 
@@ -4399,6 +4403,7 @@ pub async fn save_planejamento_item(
         .bind(&item.cor_tag)
         .bind(item.ordem_sequencia.unwrap_or(1))
         .bind(&item.processo_termico)
+        .bind(&item.batch_id)
         .execute(pool)
         .await
     {
@@ -4519,10 +4524,10 @@ pub async fn bulk_save_planejamento(
                 quantidade_planejada, unidade, base_codigo, base_nome, linha_envase,
                 observacoes, ordem_status, lote_erp, fisico_confirmado_massa,
                 fisico_confirmado_embalagem, fisico_confirmado_rotulo,
-                recipiente_detalhe, cor_tag, ordem_sequencia, processo_termico, updated_at
+                recipiente_detalhe, cor_tag, ordem_sequencia, processo_termico, batch_id, updated_at
             ) VALUES (
                 $1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                $18, $19, $20, $21, CURRENT_TIMESTAMP
+                $18, $19, $20, $21, $22, CURRENT_TIMESTAMP
             )
             ON CONFLICT (id) DO UPDATE SET
                 week_key = EXCLUDED.week_key,
@@ -4545,6 +4550,7 @@ pub async fn bulk_save_planejamento(
                 cor_tag = EXCLUDED.cor_tag,
                 ordem_sequencia = EXCLUDED.ordem_sequencia,
                 processo_termico = EXCLUDED.processo_termico,
+                batch_id = EXCLUDED.batch_id,
                 updated_at = CURRENT_TIMESTAMP
         "#;
         if let Err(e) = sqlx::query(q)
@@ -4569,6 +4575,7 @@ pub async fn bulk_save_planejamento(
             .bind(&item.cor_tag)
             .bind(item.ordem_sequencia.unwrap_or(1))
             .bind(&item.processo_termico)
+            .bind(&item.batch_id)
             .execute(pool)
             .await
         {
@@ -4677,6 +4684,82 @@ pub async fn bulk_save_planejamento(
     (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
 }
 
+async fn motivo_bloqueio_exclusao_planejamento(
+    pool: &sqlx::PgPool,
+    id: &str,
+    lote_erp: Option<&str>,
+) -> Option<String> {
+    let lote = lote_erp.map(str::trim).filter(|s| !s.is_empty());
+    let programado: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1 FROM programacao_envase
+            WHERE lote_number = $1 OR ($2::text IS NOT NULL AND lote_number = $2)
+        ) OR EXISTS (
+            SELECT 1 FROM programacao_rotulagem
+            WHERE lote_number = $1 OR ($2::text IS NOT NULL AND lote_number = $2)
+        )
+        "#,
+    )
+    .bind(id)
+    .bind(lote)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(false);
+
+    if programado {
+        return Some(
+            "Esta ordem já está na programação de envase ou rotulagem. Remova de lá antes de tirar do planejamento."
+                .to_string(),
+        );
+    }
+
+    let status: Option<String> = sqlx::query_scalar(
+        r#"
+        SELECT custom_status FROM lote_custom_status
+        WHERE lote_number = $1 OR ($2::text IS NOT NULL AND lote_number = $2)
+        ORDER BY CASE WHEN lote_number = $2 THEN 0 ELSE 1 END
+        LIMIT 1
+        "#,
+    )
+    .bind(id)
+    .bind(lote)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
+    if let Some(ref s) = status {
+        let cedo = matches!(s.as_str(), "Pesagem" | "Aberto" | "Pendente" | "");
+        if !cedo {
+            return Some(format!(
+                "A ordem já avançou nos quadros ({s}). Ela permanece com quem está executando."
+            ));
+        }
+    }
+    None
+}
+
+async fn limpar_status_planejamento(pool: &sqlx::PgPool, id: &str, lote_erp: Option<&str>) {
+    let _ = sqlx::query("DELETE FROM lote_custom_status WHERE lote_number = $1")
+        .bind(id)
+        .execute(pool)
+        .await;
+    if let Some(lote) = lote_erp.map(str::trim).filter(|s| !s.is_empty() && !s.starts_with("PLAN_") && !s.starts_with("PL-")) {
+        let _ = sqlx::query(
+            r#"
+            DELETE FROM lote_custom_status
+            WHERE lote_number = $1
+              AND custom_status IN ('Pesagem', 'Aberto', 'Pendente')
+              AND (etapas_status IS NULL OR etapas_status = '{}'::jsonb)
+            "#,
+        )
+        .bind(lote)
+        .execute(pool)
+        .await;
+    }
+}
+
 pub async fn delete_planejamento_item(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -4688,25 +4771,23 @@ pub async fn delete_planejamento_item(
         .await
         .unwrap_or(None);
 
-    let _ = sqlx::query("DELETE FROM producao_planejamento_semanal WHERE id = $1")
-        .bind(&id)
-        .execute(pool)
-        .await;
-
-    let _ = sqlx::query("DELETE FROM lote_custom_status WHERE lote_number = $1")
-        .bind(&id)
-        .execute(pool)
-        .await;
-
-    if let Some((Some(ref lote),)) = row {
-        let clean = lote.trim();
-        if !clean.is_empty() {
-            let _ = sqlx::query("DELETE FROM lote_custom_status WHERE lote_number = $1")
-                .bind(clean)
-                .execute(pool)
-                .await;
-        }
+    if row.is_none() {
+        return (StatusCode::NOT_FOUND, Json(json!({ "error": "Item não encontrado" }))).into_response();
     }
+    let lote = row.and_then(|r| r.0);
+
+    if let Some(motivo) = motivo_bloqueio_exclusao_planejamento(pool, &id, lote.as_deref()).await {
+        return (StatusCode::CONFLICT, Json(json!({ "error": motivo }))).into_response();
+    }
+
+    if let Err(e) = sqlx::query("DELETE FROM producao_planejamento_semanal WHERE id = $1")
+        .bind(&id)
+        .execute(pool)
+        .await
+    {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response();
+    }
+    limpar_status_planejamento(pool, &id, lote.as_deref()).await;
     (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
 }
 
@@ -4735,68 +4816,7 @@ pub async fn confirm_fisico_planejamento(
         .fetch_optional(pool)
         .await
     {
-        Ok(Some(row)) => {
-            let data_planejada: String = row.try_get(0).unwrap_or_default();
-            let lote_erp: Option<String> = row.try_get(1).ok();
-            let ordem_status: String = row.try_get(2).unwrap_or_default();
-            if ordem_status == "aprovado" {
-                let target_lote = match lote_erp {
-                    Some(ref l) if !l.trim().is_empty() => l.trim().to_string(),
-                    _ => id.clone(),
-                };
-                let _ = sqlx::query(r#"
-                    INSERT INTO lote_custom_status (
-                        lote_number, custom_status, data_pesagem, data_producao, data_previsao, updated_at
-                    ) VALUES (
-                        $1, 'Pesagem', ($2 || ' 08:00:00-03')::timestamptz, ($2 || ' 08:00:00-03')::timestamptz, ($2 || ' 08:00:00-03')::timestamptz, CURRENT_TIMESTAMP
-                    )
-                    ON CONFLICT (lote_number) DO UPDATE SET
-                        custom_status = CASE 
-                            WHEN lote_custom_status.custom_status IN ('Finalizada', 'Ordem Finalizada', 'Produzido', 'Aberto', 'Pendente') THEN 'Pesagem'
-                            ELSE lote_custom_status.custom_status
-                        END,
-                        data_pesagem = CASE
-                            WHEN lote_custom_status.etapas_status->'pesagem'->>'status' IN ('concluido', 'Concluído') THEN lote_custom_status.data_pesagem
-                            ELSE ($2 || ' 08:00:00-03')::timestamptz
-                        END,
-                        historico_reagendamentos = CASE
-                            WHEN lote_custom_status.data_producao IS NOT NULL 
-                                 AND TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') <> $2
-                            THEN COALESCE(lote_custom_status.historico_reagendamentos, '[]'::jsonb) || jsonb_build_array(
-                                jsonb_build_object(
-                                    'tipo', CASE
-                                        WHEN TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') < $2 THEN 'adiamento'
-                                        ELSE 'retorno'
-                                    END,
-                                    'etapa', 'producao',
-                                    'motivo', 'Reagendado de ' || TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') || ' para ' || $2,
-                                    'dataAnterior', TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD'),
-                                    'novaData', $2,
-                                    'alteradoEm', CURRENT_TIMESTAMP,
-                                    'alteradoPor', 'Planejamento Semanal'
-                                )
-                            )
-                            ELSE lote_custom_status.historico_reagendamentos
-                        END,
-                        data_producao = ($2 || ' 08:00:00-03')::timestamptz,
-                        data_previsao = ($2 || ' 08:00:00-03')::timestamptz,
-                        updated_at = CURRENT_TIMESTAMP
-                "#)
-                .bind(&target_lote)
-                .bind(&data_planejada)
-                .execute(pool)
-                .await;
-            } else {
-                let target_lote = match lote_erp {
-                    Some(ref l) if !l.trim().is_empty() => l.trim().to_string(),
-                    _ => id.clone(),
-                };
-                let _ = sqlx::query("DELETE FROM lote_custom_status WHERE lote_number = $1 OR lote_number = $2")
-                    .bind(&id)
-                    .bind(&target_lote)
-                    .execute(pool)
-                    .await;
-            }
+        Ok(Some(_row)) => {
             (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
         }
         Ok(None) => (StatusCode::NOT_FOUND, Json(json!({ "error": "Item não encontrado" }))).into_response(),
@@ -4814,14 +4834,59 @@ pub async fn clear_planejamento_semana(
     Query(params): Query<ClearWeekParams>,
 ) -> impl IntoResponse {
     let pool = state.db.pool();
-    match sqlx::query("DELETE FROM producao_planejamento_semanal WHERE week_key = $1")
-        .bind(&params.week)
-        .execute(pool)
-        .await
+    let rows = match sqlx::query(
+        r#"
+        SELECT id, lote_erp, codigo_produto, descricao, quantidade_planejada::float8, unidade, base_codigo, base_nome
+        FROM producao_planejamento_semanal
+        WHERE week_key = $1
+        "#,
+    )
+    .bind(&params.week)
+    .fetch_all(pool)
+    .await
     {
-        Ok(res) => (StatusCode::OK, Json(json!({ "ok": true, "rows_deleted": res.rows_affected() }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response()
+        Ok(rows) => rows,
+        Err(e) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response();
+        }
+    };
+
+    let mut deleted = Vec::new();
+    let mut blocked = 0i64;
+    for row in rows {
+        let id: String = row.get(0);
+        let lote_erp: Option<String> = row.get(1);
+        if motivo_bloqueio_exclusao_planejamento(pool, &id, lote_erp.as_deref()).await.is_some() {
+            blocked += 1;
+            continue;
+        }
+        if sqlx::query("DELETE FROM producao_planejamento_semanal WHERE id = $1")
+            .bind(&id)
+            .execute(pool)
+            .await
+            .is_err()
+        {
+            blocked += 1;
+            continue;
+        }
+        limpar_status_planejamento(pool, &id, lote_erp.as_deref()).await;
+        let quantidade: f64 = row.get(4);
+        deleted.push(json!({
+            "id": id,
+            "codigoProduto": row.get::<String, _>(2),
+            "descricao": row.get::<Option<String>, _>(3),
+            "quantidadePlanejada": quantidade,
+            "unidade": row.get::<Option<String>, _>(5),
+            "baseCodigo": row.get::<Option<String>, _>(6),
+            "baseNome": row.get::<Option<String>, _>(7),
+        }));
     }
+
+    (
+        StatusCode::OK,
+        Json(json!({ "ok": true, "deleted": deleted, "blocked": blocked, "rows_deleted": deleted.len() })),
+    )
+        .into_response()
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -5122,6 +5187,9 @@ pub struct CreateFilaDemandaItem {
     pub base_nome: Option<String>,
     pub observacoes: Option<String>,
     pub prioridade: Option<i32>,
+    /// `somar` acumula na demanda existente do SKU. Ausente ou `substituir` troca a quantidade.
+    #[serde(default)]
+    pub modo: Option<String>,
 }
 
 fn default_fila_unidade() -> String { "un".to_string() }
@@ -5233,29 +5301,49 @@ pub async fn create_fila_demandas(
         .flatten();
 
         if let Some(eid) = existing_id {
-            let uq = r#"
-                UPDATE producao_fila_demandas
-                SET quantidade = $1,
-                    unidade = $2,
-                    quantidade_kg = $3,
-                    origem_demanda = $4,
-                    base_codigo = COALESCE($5, base_codigo),
-                    base_nome = COALESCE($6, base_nome),
-                    observacoes = COALESCE($7, observacoes),
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = $8
-            "#;
-            let _ = sqlx::query(uq)
-                .bind(it.quantidade)
-                .bind(&it.unidade)
-                .bind(it.quantidade_kg)
-                .bind(&it.origem_demanda)
-                .bind(&it.base_codigo)
-                .bind(&it.base_nome)
-                .bind(&it.observacoes)
-                .bind(&eid)
-                .execute(pool)
-                .await;
+            if it.modo.as_deref() == Some("somar") {
+                let uq = r#"
+                    UPDATE producao_fila_demandas
+                    SET quantidade = quantidade + $1,
+                        quantidade_kg = COALESCE(quantidade_kg, 0) + COALESCE($2, 0),
+                        unidade = COALESCE(NULLIF($3, ''), unidade),
+                        observacoes = COALESCE($4, observacoes),
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = $5
+                "#;
+                let _ = sqlx::query(uq)
+                    .bind(it.quantidade)
+                    .bind(it.quantidade_kg)
+                    .bind(&it.unidade)
+                    .bind(&it.observacoes)
+                    .bind(&eid)
+                    .execute(pool)
+                    .await;
+            } else {
+                let uq = r#"
+                    UPDATE producao_fila_demandas
+                    SET quantidade = $1,
+                        unidade = $2,
+                        quantidade_kg = $3,
+                        origem_demanda = $4,
+                        base_codigo = COALESCE($5, base_codigo),
+                        base_nome = COALESCE($6, base_nome),
+                        observacoes = COALESCE($7, observacoes),
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = $8
+                "#;
+                let _ = sqlx::query(uq)
+                    .bind(it.quantidade)
+                    .bind(&it.unidade)
+                    .bind(it.quantidade_kg)
+                    .bind(&it.origem_demanda)
+                    .bind(&it.base_codigo)
+                    .bind(&it.base_nome)
+                    .bind(&it.observacoes)
+                    .bind(&eid)
+                    .execute(pool)
+                    .await;
+            }
             inserted_ids.push(eid);
             continue;
         }
@@ -5329,7 +5417,7 @@ pub async fn update_fila_demanda(
             observacoes = COALESCE($4, observacoes),
             prioridade = COALESCE($5, prioridade),
             updated_at = CURRENT_TIMESTAMP
-        WHERE id = $6 OR codigo_produto = $6
+        WHERE id = $6
     "#;
 
     match sqlx::query(q)
@@ -5368,7 +5456,7 @@ pub async fn delete_fila_demanda(
             .into_response();
     }
 
-    match sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1 OR codigo_produto = $1")
+    match sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1")
         .bind(&id)
         .execute(pool)
         .await
@@ -5489,7 +5577,7 @@ pub async fn get_bases_resumo(
 
     let mut planejado_map: HashMap<String, f64> = HashMap::new();
     if let Ok(rows) = sqlx::query(
-        "SELECT codigo_produto, SUM(quantidade_planejada::float8) FROM producao_planejamento_semanal WHERE ordem_status IN ('planejado', 'em_producao', 'aguardando') GROUP BY codigo_produto",
+        "SELECT codigo_produto, SUM(quantidade_planejada::float8) FROM producao_planejamento_semanal pp WHERE pp.ordem_status IN ('planejado', 'aprovado') AND NOT EXISTS (SELECT 1 FROM lote_custom_status c WHERE c.lote_number = COALESCE(NULLIF(TRIM(pp.lote_erp), ''), pp.id) AND c.custom_status IN ('Finalizada', 'Ordem Finalizada')) AND NOT EXISTS (SELECT 1 FROM stock_movements sm WHERE pp.lote_erp IS NOT NULL AND TRIM(pp.lote_erp) <> '' AND sm.document_number = TRIM(pp.lote_erp) AND sm.item_type = 'produto' AND sm.movement_type = 'entrada') GROUP BY codigo_produto",
     )
     .fetch_all(pool)
     .await

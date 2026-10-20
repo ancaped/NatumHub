@@ -104,7 +104,8 @@ export function BasesTab({
     if (editingQueueKg <= 0) return;
     setSavingQueue(true);
     try {
-      const targetId = b.fila_id || b.codigo;
+      const targetId = b.fila_id;
+      if (!targetId) return;
       const res = await apiFetch(`/producao/fila-demandas/${encodeURIComponent(targetId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -129,7 +130,8 @@ export function BasesTab({
   const handleRemoveFromQueue = async (b: any) => {
     setSavingQueue(true);
     try {
-      const targetId = b.fila_id || b.codigo;
+      const targetId = b.fila_id;
+      if (!targetId) return;
       const res = await apiFetch(`/producao/fila-demandas/${encodeURIComponent(targetId)}`, {
         method: 'DELETE',
       });

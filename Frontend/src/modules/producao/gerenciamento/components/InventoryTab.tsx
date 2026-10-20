@@ -282,7 +282,8 @@ export function InventoryTab({
   // Handle remove from queue
   const handleRemoveFromQueue = async (p: any) => {
     const item = queuedMap.get(String(p.codigo).trim());
-    const targetId = item?.id || p.codigo;
+    const targetId = item?.id;
+    if (!targetId) return;
 
     setSavingQueueCode(p.codigo);
     try {

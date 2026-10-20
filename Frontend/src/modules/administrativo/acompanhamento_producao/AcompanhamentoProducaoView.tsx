@@ -2965,6 +2965,23 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   }, [fetchLotes]);
 
   useEffect(() => {
+    const refreshBoards = () => {
+      if (document.visibilityState !== 'visible') return;
+      fetchLotes();
+      fetchProgramacaoEnvase('TODOS');
+      fetchProgramacaoRotulagem('TODOS');
+    };
+    window.addEventListener('focus', refreshBoards);
+    document.addEventListener('visibilitychange', refreshBoards);
+    const timer = window.setInterval(refreshBoards, 60000);
+    return () => {
+      window.removeEventListener('focus', refreshBoards);
+      document.removeEventListener('visibilitychange', refreshBoards);
+      window.clearInterval(timer);
+    };
+  }, [fetchLotes, fetchProgramacaoEnvase, fetchProgramacaoRotulagem]);
+
+  useEffect(() => {
     if (currentTab === 'quadro_envase') {
       fetchProgramacaoEnvase('TODOS');
     } else if (currentTab === 'calendar' && calendarViewMode === 'quadro_envase') {
