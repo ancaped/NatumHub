@@ -4,7 +4,8 @@ set -euo pipefail
 
 export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
 
-ZIMAOS_HOST="${ZIMAOS_HOST:-192.168.122.196}"
+ZIMAOS_HOST="${ZIMAOS_HOST:-192.168.1.105}"
+ZIMAOS_USER="${ZIMAOS_USER:-edson}"
 ZIMAOS_APP_DIR="${ZIMAOS_APP_DIR:-/DATA/AppData/nexus}"
 TARGET_SERVICE="${1:-nexus-prod}" # default: nexus-prod (:3001) conforme Single-Stack ZimaOS.
 
@@ -29,7 +30,7 @@ fi
 echo "============================================================"
 echo "  Nexus - Deploy / Atualização no ZimaOS                   "
 echo "============================================================"
-echo "Alvo:    root@$ZIMAOS_HOST"
+echo "Alvo:    $ZIMAOS_USER@$ZIMAOS_HOST"
 echo "Serviço: $TARGET_SERVICE ($IMAGE_TAG -> :$PORT)"
 echo "Versão:  v$APP_VERSION"
 echo "------------------------------------------------------------"
@@ -40,13 +41,13 @@ tar -czf - \
     --exclude='./.git' \
     --exclude='./Frontend/node_modules' \
     --exclude='./Backend/target' \
-    . | ssh "root@$ZIMAOS_HOST" "mkdir -p $ZIMAOS_APP_DIR/repo && tar -xzf - -C $ZIMAOS_APP_DIR/repo"
+    . | ssh "$ZIMAOS_USER@$ZIMAOS_HOST" "sudo mkdir -p $ZIMAOS_APP_DIR/repo && sudo chown -R $ZIMAOS_USER:samba $ZIMAOS_APP_DIR/repo && tar -xzf - -C $ZIMAOS_APP_DIR/repo"
 
 echo ">> [2/3] Compilando imagem Docker ($IMAGE_TAG) v$APP_VERSION com cache BuildKit..."
-ssh "root@$ZIMAOS_HOST" "cd $ZIMAOS_APP_DIR/repo && DOCKER_BUILDKIT=1 docker build --build-arg APP_VERSION=\"$APP_VERSION\" -t $IMAGE_TAG -f docker/Dockerfile ."
+ssh "$ZIMAOS_USER@$ZIMAOS_HOST" "cd $ZIMAOS_APP_DIR/repo && sudo DOCKER_BUILDKIT=1 docker build --build-arg APP_VERSION=\"$APP_VERSION\" -t $IMAGE_TAG -f docker/Dockerfile ."
 
 echo ">> [3/3] Recriando container $TARGET_SERVICE no ZimaOS..."
-ssh "root@$ZIMAOS_HOST" "docker compose -f /var/lib/casaos/apps/$ZIMA_APP/docker-compose.yml up -d --force-recreate"
+ssh "$ZIMAOS_USER@$ZIMAOS_HOST" "sudo docker compose -f /var/lib/casaos/apps/$ZIMA_APP/docker-compose.yml up -d --force-recreate"
 
 echo ">> Verificando healthcheck em http://$ZIMAOS_HOST:$PORT/api/health..."
 sleep 2
