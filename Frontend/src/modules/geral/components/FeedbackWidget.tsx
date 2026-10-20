@@ -3,7 +3,7 @@ import {
   Bug, MessageSquare, X, Upload, Camera, Lock,
   Send, Sparkles, Check, Mic, Square, Trash2,
   ArrowLeft, Search, Users, Hash, MessageCircle, ListFilter, Plus,
-  User, ShieldCheck, UserCheck, Layers
+  User, ShieldCheck, UserCheck, Layers, Crosshair, Target, ChevronDown, Clock, RotateCcw
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import { api } from '../lib/api';
@@ -115,10 +115,57 @@ const STATUS_LABELS: Record<string, string> = {
   pending: 'Pendente',
   queued: 'Na Fila',
   in_progress: 'Em Andamento',
-  awaiting_review: 'Aguardando Revisão',
+  awaiting_review: 'Aguardando Aprovação',
   resolved: 'Resolvido',
   wont_fix: 'Não será feito',
 };
+
+function getElementDescription(el: HTMLElement): { label: string; selector: string; textSnippet?: string } {
+  const aria = el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('placeholder');
+  const text = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 50);
+  
+  const tag = el.tagName.toLowerCase();
+  let typeDesc = tag;
+  if (tag === 'button') typeDesc = 'Botão';
+  else if (tag === 'input') typeDesc = `Campo (${el.getAttribute('type') || 'texto'})`;
+  else if (tag === 'select') typeDesc = 'Seleção';
+  else if (tag === 'img') typeDesc = 'Imagem / Logo';
+  else if (tag === 'table' || el.closest('table')) typeDesc = 'Tabela';
+  else if (tag === 'header' || el.closest('header')) typeDesc = 'Cabeçalho / TopBar';
+  else if (tag === 'nav' || el.closest('nav')) typeDesc = 'Navegação / Menu';
+  else if (tag === 'a') typeDesc = 'Link / Menu';
+  else if (tag === 'h1' || tag === 'h2' || tag === 'h3') typeDesc = 'Título';
+  else if (el.closest('[role="dialog"]')) typeDesc = 'Modal / Gaveta';
+
+  let context = '';
+  if (el.closest('.topbar') || el.closest('header')) context = 'Menu Superior';
+  else if (el.closest('aside') || el.closest('.sidebar')) context = 'Barra Lateral';
+  else if (el.closest('.table-container') || el.closest('table')) context = 'Tabela de Dados';
+  else if (el.closest('.drawer-panel') || el.closest('[data-drawer]')) context = 'Gaveta Lateral (Drawer)';
+
+  let label = aria || text;
+  if (!label && tag === 'img') {
+    label = el.getAttribute('alt') || 'Logo';
+  }
+  if (!label) {
+    label = el.className && typeof el.className === 'string' ? `.${el.className.split(' ')[0]}` : tag;
+  }
+
+  const finalLabel = context ? `${context} > ${typeDesc} "${label}"` : `${typeDesc} "${label}"`;
+
+  let selector = tag;
+  if (el.id) selector = `#${el.id}`;
+  else if (el.className && typeof el.className === 'string') {
+    const firstClass = el.className.split(' ').filter(c => c && !c.includes(':') && !c.includes('/') && !c.includes('[')).slice(0, 2).join('.');
+    if (firstClass) selector = `${tag}.${firstClass}`;
+  }
+
+  return {
+    label: finalLabel,
+    selector,
+    textSnippet: text || undefined,
+  };
+}
 
 export function FeedbackWidget({ currentView, visible = false, currentUser }: FeedbackWidgetProps) {
   const isSupervisor = currentUser?.role === 'admin' || currentUser?.role === 'supervisor';
@@ -127,8 +174,12 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
   const [collapsed, setCollapsed] = useState(true);
   const [activeTab, setActiveTab] = useState<WidgetTab>('feedback');
 
-  // Auto-ocultação do botão flutuante para a borda após inatividade
+  // Auto-ocultação do botão flutuante para a borda após inatividade (apenas quando fechado)
   useEffect(() => {
+    if (isOpen) {
+      setCollapsed(false);
+      return;
+    }
     let timeout: any;
     const handleActivity = () => {
       setCollapsed(false);
@@ -147,7 +198,7 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
       window.removeEventListener('keydown', handleActivity);
       clearTimeout(timeout);
     };
-  }, []);
+  }, [isOpen]);
 
   // Estado Feedback/Bug
   const [feedbackMode, setFeedbackMode] = useState<'form' | 'list' | 'detail'>('form');
@@ -162,6 +213,105 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
 
+  // Dropdown customizado de módulos (com filtro e sem fechar inesperadamente)
+  const [isModuleDropdownOpen, setIsModuleDropdownOpen] = useState(false);
+  const [moduleSearchFilter, setModuleSearchFilter] = useState('');
+  const moduleDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Modo Inspetor / Apontar Elemento na Tela
+  const [isInspecting, setIsInspecting] = useState(false);
+  const [inspectedElement, setInspectedElement] = useState<{
+    label: string;
+    selector: string;
+    textSnippet?: string;
+  } | null>(null);
+  const [hoveredRect, setHoveredRect] = useState<DOMRect | null>(null);
+  const [hoveredLabel, setHoveredLabel] = useState<string>('');
+
+  // Fechar dropdown de módulo ao clicar fora
+  useEffect(() => {
+    if (!isModuleDropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (moduleDropdownRef.current && !moduleDropdownRef.current.contains(e.target as Node)) {
+        setIsModuleDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isModuleDropdownOpen]);
+
+  // Lógica do Modo Inspetor de Elementos
+  useEffect(() => {
+    if (!isInspecting) {
+      setHoveredRect(null);
+      setHoveredLabel('');
+      return;
+    }
+
+    const handlePointerMove = (e: MouseEvent) => {
+      const target = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+      if (!target) return;
+      if (
+        target.closest('.feedback-widget-container') ||
+        target.closest('.feedback-widget-trigger') ||
+        target.closest('#inspector-banner')
+      ) {
+        setHoveredRect(null);
+        setHoveredLabel('');
+        return;
+      }
+      const rect = target.getBoundingClientRect();
+      setHoveredRect(rect);
+      const info = getElementDescription(target);
+      setHoveredLabel(info.label);
+    };
+
+    const handleClick = (e: MouseEvent) => {
+      const target = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+      if (!target) return;
+      if (
+        target.closest('.feedback-widget-container') ||
+        target.closest('.feedback-widget-trigger') ||
+        target.closest('#inspector-banner')
+      ) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+
+      const info = getElementDescription(target);
+      setInspectedElement(info);
+
+      setDescription((prev) => {
+        const tag = `[Elemento apontado: ${info.label}]`;
+        if (prev.includes(tag)) return prev;
+        return prev ? `${prev}\n\n${tag}` : tag;
+      });
+
+      setIsInspecting(false);
+      setHoveredRect(null);
+      setHoveredLabel('');
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsInspecting(false);
+        setHoveredRect(null);
+        setHoveredLabel('');
+      }
+    };
+
+    window.addEventListener('mousemove', handlePointerMove, true);
+    window.addEventListener('click', handleClick, true);
+    window.addEventListener('keydown', handleKeyDown, true);
+
+    return () => {
+      window.removeEventListener('mousemove', handlePointerMove, true);
+      window.removeEventListener('click', handleClick, true);
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [isInspecting]);
+
   const catalogGroups = useMemo(() => {
     const acc: Record<string, ModuleCatalogItem[]> = {};
     for (const item of MODULE_CATALOG) {
@@ -170,6 +320,18 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
     }
     return acc;
   }, []);
+
+  const filteredCatalogGroups = useMemo(() => {
+    const q = moduleSearchFilter.trim().toLowerCase();
+    const acc: Record<string, ModuleCatalogItem[]> = {};
+    for (const item of MODULE_CATALOG) {
+      if (!q || item.label.toLowerCase().includes(q) || item.group.toLowerCase().includes(q) || item.key.toLowerCase().includes(q)) {
+        if (!acc[item.group]) acc[item.group] = [];
+        acc[item.group].push(item);
+      }
+    }
+    return Object.entries(acc);
+  }, [moduleSearchFilter]);
 
   const currentCatalogItem = useMemo(() => {
     return MODULE_CATALOG.find((m) => m.key === selectedModuleKey);
@@ -617,11 +779,13 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
         setDescription('');
         setScreenshot('');
         setIncludeScreenshot(false);
+        setInspectedElement(null);
         setFeedbackMode('list');
       }, 1200);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to send feedback:', err);
-      alert('Erro ao enviar feedback. Tente novamente.');
+      const msg = err?.message || (typeof err === 'string' ? err : 'Tente novamente.');
+      alert(`Erro ao enviar feedback: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -723,6 +887,19 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
   };
 
   // Filtros de feedbacks
+  const openCount = useMemo(
+    () => feedbacksList.filter((f) => ['pending', 'queued', 'in_progress'].includes(f.status)).length,
+    [feedbacksList]
+  );
+  const awaitingCount = useMemo(
+    () => feedbacksList.filter((f) => f.status === 'awaiting_review').length,
+    [feedbacksList]
+  );
+  const resolvedCount = useMemo(
+    () => feedbacksList.filter((f) => f.status === 'resolved' || f.status === 'wont_fix').length,
+    [feedbacksList]
+  );
+
   const filteredFeedbacks = feedbacksList.filter((fb) => {
     const matchesSearch =
       fb.description.toLowerCase().includes(feedbackSearch.toLowerCase()) ||
@@ -731,8 +908,9 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
 
     if (!matchesSearch) return false;
     if (feedbackFilterStatus === 'ALL') return true;
-    if (feedbackFilterStatus === 'OPEN') return ['pending', 'queued', 'in_progress', 'awaiting_review'].includes(fb.status);
-    if (feedbackFilterStatus === 'RESOLVED') return fb.status === 'resolved';
+    if (feedbackFilterStatus === 'OPEN') return ['pending', 'queued', 'in_progress'].includes(fb.status);
+    if (feedbackFilterStatus === 'AWAITING_REVIEW') return fb.status === 'awaiting_review';
+    if (feedbackFilterStatus === 'RESOLVED') return fb.status === 'resolved' || fb.status === 'wont_fix';
     return fb.status === feedbackFilterStatus;
   });
 
@@ -772,9 +950,71 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
         </button>
       </div>
 
+      {/* Banner Superior do Modo Inspetor (DevTools style) */}
+      {isInspecting && (
+        <div
+          id="inspector-banner"
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] bg-zinc-950/95 text-white px-5 py-2.5 rounded-2xl shadow-2xl border border-zinc-700 flex items-center gap-4 text-xs font-medium backdrop-blur-md"
+        >
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            </span>
+            <span className="font-bold text-zinc-100 flex items-center gap-1.5">
+              <Crosshair className="w-3.5 h-3.5 text-emerald-400" />
+              Modo Inspetor Ativo
+            </span>
+          </div>
+          <span className="text-zinc-400 hidden sm:inline">
+            Clique em qualquer elemento na tela (botão, logo, tabela, menu...) para apontá-lo.
+          </span>
+          {hoveredLabel && (
+            <span className="bg-zinc-800 text-zinc-200 px-2.5 py-1 rounded-lg border border-zinc-700 font-mono text-[11px] truncate max-w-xs">
+              {hoveredLabel}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setIsInspecting(false);
+              setHoveredRect(null);
+            }}
+            className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer border border-zinc-700"
+          >
+            Cancelar (Esc)
+          </button>
+        </div>
+      )}
+
+      {/* Caixa de Destaque Visual sobre o Elemento sob o Mouse */}
+      {isInspecting && hoveredRect && (
+        <div
+          style={{
+            position: 'fixed',
+            top: hoveredRect.top,
+            left: hoveredRect.left,
+            width: hoveredRect.width,
+            height: hoveredRect.height,
+            pointerEvents: 'none',
+            zIndex: 9998,
+            border: '2px solid #18181b',
+            boxShadow: '0 0 0 4px rgba(24, 24, 27, 0.2)',
+            borderRadius: '4px',
+            backgroundColor: 'rgba(24, 24, 27, 0.08)',
+            transition: 'all 0.05s ease-out',
+          }}
+        >
+          <div className="absolute -top-6 left-0 bg-zinc-900 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow whitespace-nowrap border border-zinc-700 pointer-events-none flex items-center gap-1">
+            <Target className="w-2.5 h-2.5 text-zinc-300" />
+            <span>{hoveredLabel}</span>
+          </div>
+        </div>
+      )}
+
       {/* Janela Flutuante Monocromática e Coesa com NatumHub (bg-white, border-zinc-200) */}
       <AnimatePresence>
-        {isOpen && (
+        {isOpen && !isInspecting && (
           <motion.div
             initial={{ opacity: 0, y: 12, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -933,35 +1173,82 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
                                 </span>
                               )}
                             </div>
-                            <select
-                              value={selectedModuleKey}
-                              onChange={(e) => {
-                                const key = e.target.value;
-                                setSelectedModuleKey(key);
-                                setDetectedFromView(false);
-                                const found = MODULE_CATALOG.find((m) => m.key === key);
-                                if (found) {
-                                  setModule(found.label);
-                                  if (found.subPages.length > 0 && (!subPage || !found.subPages.includes(subPage))) {
-                                    setSubPage(found.subPages[0]);
-                                  }
-                                } else {
-                                  setModule(key);
-                                }
-                              }}
-                              className="w-full px-3 py-2 text-xs bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-medium text-zinc-800"
-                            >
-                              <option value="">Selecione um módulo...</option>
-                              {Object.entries(catalogGroups).map(([group, items]) => (
-                                <optgroup key={group} label={group}>
-                                  {items.map((item) => (
-                                    <option key={item.key} value={item.key}>
-                                      {item.label}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              ))}
-                            </select>
+
+                            {/* Dropdown Customizado de Módulos (com pesquisa e sem fechar ao clicar) */}
+                            <div className="relative" ref={moduleDropdownRef}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsModuleDropdownOpen((prev) => !prev);
+                                  setModuleSearchFilter('');
+                                }}
+                                className="w-full flex items-center justify-between px-3 py-2 text-xs bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-medium text-zinc-800 cursor-pointer shadow-2xs hover:bg-zinc-50"
+                              >
+                                <span className={cn('truncate', !selectedModuleKey && 'text-zinc-400')}>
+                                  {currentCatalogItem?.label || (selectedModuleKey ? selectedModuleKey : 'Selecione um módulo...')}
+                                </span>
+                                <ChevronDown className={cn('w-4 h-4 text-zinc-400 transition-transform shrink-0', isModuleDropdownOpen && 'rotate-180')} />
+                              </button>
+
+                              {isModuleDropdownOpen && (
+                                <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-white border border-zinc-200 rounded-xl shadow-xl max-h-60 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-100">
+                                  <div className="p-2 border-b border-zinc-100 bg-zinc-50">
+                                    <div className="relative">
+                                      <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                                      <input
+                                        type="text"
+                                        autoFocus
+                                        value={moduleSearchFilter}
+                                        onChange={(e) => setModuleSearchFilter(e.target.value)}
+                                        placeholder="Buscar módulo..."
+                                        className="w-full pl-8 pr-2.5 py-1 text-xs bg-white border border-zinc-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-zinc-900 placeholder-zinc-400"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="overflow-y-auto flex-1 p-1 space-y-1">
+                                    {filteredCatalogGroups.length === 0 ? (
+                                      <div className="p-3 text-center text-zinc-400 text-xs">
+                                        Nenhum módulo encontrado.
+                                      </div>
+                                    ) : (
+                                      filteredCatalogGroups.map(([group, items]) => (
+                                        <div key={group} className="space-y-0.5">
+                                          <div className="px-2 py-1 text-[10px] font-bold text-zinc-400 uppercase tracking-wider bg-zinc-50/50 rounded">
+                                            {group}
+                                          </div>
+                                          {items.map((item) => (
+                                            <button
+                                              key={item.key}
+                                              type="button"
+                                              onClick={() => {
+                                                setSelectedModuleKey(item.key);
+                                                setModule(item.label);
+                                                setDetectedFromView(false);
+                                                if (item.subPages.length > 0 && (!subPage || !item.subPages.includes(subPage))) {
+                                                  setSubPage(item.subPages[0]);
+                                                }
+                                                setIsModuleDropdownOpen(false);
+                                              }}
+                                              className={cn(
+                                                'w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center justify-between cursor-pointer',
+                                                selectedModuleKey === item.key
+                                                  ? 'bg-zinc-900 text-white font-bold'
+                                                  : 'text-zinc-700 hover:bg-zinc-100'
+                                              )}
+                                            >
+                                              <span className="truncate">{item.label}</span>
+                                              {selectedModuleKey === item.key && (
+                                                <Check className="w-3.5 h-3.5 text-white shrink-0 ml-1" />
+                                              )}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      ))
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           </div>
 
                           <div>
@@ -982,35 +1269,44 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
                               onChange={(e) => setSubPage(e.target.value)}
                               className="w-full px-3 py-2 text-xs bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-medium text-zinc-800 placeholder-zinc-400"
                             />
-                            {currentCatalogItem?.subPages && currentCatalogItem.subPages.length > 0 && (
-                              <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mr-1">
-                                  Atalhos:
-                                </span>
-                                {currentCatalogItem.subPages.map((sp) => (
-                                  <button
-                                    key={sp}
-                                    type="button"
-                                    onClick={() => setSubPage(sp)}
-                                    className={cn(
-                                      'text-[10px] px-2 py-0.5 rounded-md border font-medium transition-colors cursor-pointer',
-                                      subPage === sp
-                                        ? 'bg-zinc-900 text-white border-zinc-900 shadow-2xs'
-                                        : 'bg-zinc-50 hover:bg-zinc-100 text-zinc-600 border-zinc-200'
-                                    )}
-                                  >
-                                    {sp}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
                           </div>
                         </div>
 
                         <div>
-                          <label className="block text-[11px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
-                            Descrição
-                          </label>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-[11px] font-bold text-zinc-500 uppercase tracking-wider">
+                              Descrição
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => setIsInspecting(true)}
+                              className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-700 transition-colors cursor-pointer shadow-2xs"
+                              title="Clique para apontar qualquer botão, menu ou card na tela"
+                            >
+                              <Crosshair className="w-3 h-3 text-zinc-600" />
+                              <span>Apontar na tela</span>
+                            </button>
+                          </div>
+
+                          {inspectedElement && (
+                            <div className="flex items-center justify-between gap-2 p-2 mb-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs text-zinc-700">
+                              <div className="flex items-center gap-1.5 truncate">
+                                <Target className="w-3.5 h-3.5 text-zinc-900 shrink-0" />
+                                <span className="font-bold text-zinc-900 truncate">
+                                  {inspectedElement.label}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setInspectedElement(null)}
+                                className="p-1 hover:bg-zinc-200 rounded text-zinc-400 hover:text-zinc-600 cursor-pointer"
+                                title="Remover elemento apontado"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+
                           <textarea
                             rows={3}
                             value={description}
@@ -1103,20 +1399,82 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
                         />
                       </div>
 
-                      <div className="flex items-center gap-1.5 overflow-x-auto text-[11px]">
-                        {['ALL', 'OPEN', 'RESOLVED'].map((st) => (
-                          <button
-                            key={st}
-                            type="button"
-                            onClick={() => setFeedbackFilterStatus(st)}
+                      <div className="flex items-center gap-1.5 overflow-x-auto text-[11px] pb-1">
+                        <button
+                          type="button"
+                          onClick={() => setFeedbackFilterStatus('ALL')}
+                          className={cn(
+                            'px-2.5 py-1 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5',
+                            feedbackFilterStatus === 'ALL'
+                              ? 'bg-white text-zinc-900 shadow-xs border border-zinc-200'
+                              : 'text-zinc-500 hover:text-zinc-800'
+                          )}
+                        >
+                          <span>Todos</span>
+                          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-zinc-100 text-zinc-600 font-semibold">
+                            {feedbacksList.length}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setFeedbackFilterStatus('OPEN')}
+                          className={cn(
+                            'px-2.5 py-1 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5',
+                            feedbackFilterStatus === 'OPEN'
+                              ? 'bg-white text-zinc-900 shadow-xs border border-zinc-200'
+                              : 'text-zinc-500 hover:text-zinc-800'
+                          )}
+                        >
+                          <span>Abertos</span>
+                          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-zinc-100 text-zinc-600 font-semibold">
+                            {openCount}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setFeedbackFilterStatus('AWAITING_REVIEW')}
+                          className={cn(
+                            'px-2.5 py-1 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5',
+                            feedbackFilterStatus === 'AWAITING_REVIEW'
+                              ? 'bg-amber-500 text-white shadow-xs border border-amber-600'
+                              : awaitingCount > 0
+                                ? 'text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 font-extrabold'
+                                : 'text-zinc-500 hover:text-zinc-800'
+                          )}
+                        >
+                          <Clock className="w-3 h-3" />
+                          <span>Aguardando Aprovação</span>
+                          <span
                             className={cn(
-                              'px-2.5 py-1 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer',
-                              feedbackFilterStatus === st ? 'bg-white text-zinc-900 shadow-xs border border-zinc-200' : 'text-zinc-500 hover:text-zinc-800'
+                              'text-[10px] px-1.5 py-0.2 rounded-full font-bold',
+                              feedbackFilterStatus === 'AWAITING_REVIEW'
+                                ? 'bg-amber-600 text-white'
+                                : awaitingCount > 0
+                                  ? 'bg-amber-200 text-amber-900'
+                                  : 'bg-zinc-100 text-zinc-600'
                             )}
                           >
-                            {st === 'ALL' ? 'Todos' : st === 'OPEN' ? 'Abertos' : 'Finalizados'}
-                          </button>
-                        ))}
+                            {awaitingCount}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setFeedbackFilterStatus('RESOLVED')}
+                          className={cn(
+                            'px-2.5 py-1 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5',
+                            feedbackFilterStatus === 'RESOLVED'
+                              ? 'bg-white text-zinc-900 shadow-xs border border-zinc-200'
+                              : 'text-zinc-500 hover:text-zinc-800'
+                          )}
+                        >
+                          <span>Finalizados</span>
+                          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-zinc-100 text-zinc-600 font-semibold">
+                            {resolvedCount}
+                          </span>
+                        </button>
                       </div>
                     </div>
 
@@ -1135,9 +1493,21 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
                               className="p-3 bg-white hover:bg-zinc-50 border border-zinc-200 rounded-xl transition-all cursor-pointer space-y-2 shadow-2xs hover:shadow-xs group"
                             >
                               <div className="flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-zinc-100 text-zinc-800 border-zinc-200">
-                                  {label}
-                                </span>
+                                {fb.status === 'awaiting_review' ? (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-amber-50 text-amber-800 border-amber-200 flex items-center gap-1 shadow-2xs">
+                                    <Clock className="w-2.5 h-2.5 text-amber-600" />
+                                    Aguardando Aprovação
+                                  </span>
+                                ) : fb.status === 'resolved' ? (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-emerald-50 text-emerald-800 border-emerald-200 flex items-center gap-1">
+                                    <Check className="w-2.5 h-2.5 text-emerald-600" />
+                                    Finalizado
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-zinc-100 text-zinc-800 border-zinc-200">
+                                    {label}
+                                  </span>
+                                )}
                                 <span className="text-[10px] text-zinc-400 font-mono">
                                   {fb.requestedBy ? `@${fb.requestedBy}` : 'Operador'}
                                 </span>
@@ -1187,7 +1557,7 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
                               <option value="pending">Pendente</option>
                               <option value="queued">Na Fila</option>
                               <option value="in_progress">Em Andamento</option>
-                              <option value="awaiting_review">Aguardando Revisão</option>
+                              <option value="awaiting_review">Aguardando Aprovação</option>
                               <option value="resolved">Resolvido</option>
                               <option value="wont_fix">Não será feito</option>
                             </select>
@@ -1206,6 +1576,38 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
                       {selectedFeedback.screenshot && (
                         <div className="rounded-xl overflow-hidden border border-zinc-200 max-h-24 bg-zinc-100">
                           <img src={selectedFeedback.screenshot} alt="Anexo" className="w-full h-auto object-contain max-h-24" />
+                        </div>
+                      )}
+
+                      {selectedFeedback.status === 'awaiting_review' && (
+                        <div className="flex items-center justify-between gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-xl shadow-2xs">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                            <div className="text-[11px] text-amber-900 truncate">
+                              <span className="font-bold block">Aguardando sua Aprovação</span>
+                              <span className="text-zinc-600 truncate block text-[10px]">Ajuste realizado. Aprove ou reabra para ajustes.</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              disabled={updatingStatus}
+                              onClick={() => handleUpdateStatus('resolved')}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer flex items-center gap-1"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Aprovar</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={updatingStatus}
+                              onClick={() => handleUpdateStatus('in_progress')}
+                              className="px-2 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-medium text-xs transition-colors cursor-pointer flex items-center gap-1 border border-zinc-200"
+                            >
+                              <RotateCcw className="w-3 h-3 text-zinc-500" />
+                              <span>Reabrir</span>
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>

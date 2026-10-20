@@ -6644,13 +6644,18 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     const activeProgramacao = programacaoEnvase.filter(it => {
       const realLote = getRealLote(it.loteNumber, it.productCode);
       if (realLote && (isLoteConcluido(realLote) || isLoteOcultoNoQuadro(realLote, 'envase'))) return false;
+      // Exclui ordens em espera dos quadros operacionais diários de execução
+      if (it.statusEnvase === 'EM_ESPERA') return false;
+      if (realLote) {
+        const esp = getLoteEsperaDetails(realLote, programacaoEnvase, programacaoRotulagem);
+        if (esp.isEmEspera || realLote.customStatus === 'Em Espera' || Boolean(realLote.motivoEspera) || realLote.erpStatus === 'ES') return false;
+      }
       return true;
     });
 
     const dateFiltered = (envaseShowAllDates || envaseSearch.trim().length > 0)
       ? activeProgramacao
       : activeProgramacao.filter(it => {
-          if (it.statusEnvase === 'EM_ESPERA') return true;
           const itDate = it.dataProgramada ? parseLoteDateToIso(it.dataProgramada) : (it.createdAt ? parseLoteDateToIso(it.createdAt) : null);
           return itDate === envaseSelectedDate;
         });
@@ -6789,12 +6794,9 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         if (isAlreadyScheduled) return false;
 
         const esperaDetails = getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem);
-        // REGRA REQUISITADA: Lotes em espera NUNCA são filtrados por data! Continuam aparecendo todos os dias
-        if (esperaDetails.isEmEspera) {
-          if (encaixeOnlyProblemas && !hasLoteProblemaOuPausa(l, null, 'envase')) {
-            return false;
-          }
-          return true;
+        // REGRA REQUISITADA: Lotes em espera não aparecem nos quadros diários de execução (remanejados para PCP / Fila de Demandas)
+        if (esperaDetails.isEmEspera || l.customStatus === 'Em Espera' || Boolean(l.motivoEspera) || l.erpStatus === 'ES') {
+          return false;
         }
 
         if (encaixeOnlyProblemas && !hasLoteProblemaOuPausa(l, null, 'envase')) {
@@ -7200,8 +7202,9 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         if (isLoteConcluido(l) || isLoteOcultoNoQuadro(l, 'pesagem')) return false;
 
         const etapaStatus = getLoteEtapaStatus(l, 'pesagem');
-        // Não inclui lotes em espera na pesagem (isolado)
-        if (etapaStatus.isEspera) return false;
+        const esperaDetails = getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem);
+        // Não inclui lotes em espera na pesagem (isolado ou global)
+        if (etapaStatus.isEspera || esperaDetails.isEmEspera || l.customStatus === 'Em Espera' || Boolean(l.motivoEspera) || l.erpStatus === 'ES') return false;
 
         const isPlanned = Boolean(l.details?.includes('Planejamento Semanal'));
         // Lotes ativamente na balança ou concluídos nesta data
@@ -7307,8 +7310,13 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         // REQUISITO: Se o lote for do Planejamento Semanal / PCP, ele vai DIRETO para o Quadro de Pesagem, NÃO aparece na fila!
         const isPlanned = Boolean(l.details?.includes('Planejamento Semanal'));
         const esperaDetails = getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem);
+        // REGRA REQUISITADA: Lotes em espera não aparecem na execução da fábrica (vão para PCP / Fila de Demandas)
+        if (esperaDetails.isEmEspera || etapaStatus.isEspera || l.customStatus === 'Em Espera' || Boolean(l.motivoEspera) || l.erpStatus === 'ES') {
+          return false;
+        }
+
         const isFilaExplicit = etapaStatus.status === 'fila' || l.customStatus === 'Fila Pesagem';
-        const isOrdemParada = esperaDetails.isEmEspera || etapaStatus.isEspera || l.customStatus === 'Em Espera' || isFilaExplicit || !!l.motivoEspera;
+        const isOrdemParada = isFilaExplicit;
 
         // Se for planejado e NÃO for ordem parada/espera/fila e NÃO for manual, NÃO entra na fila!
         if (isPlanned && !isOrdemParada && !isManual) {
@@ -7357,8 +7365,9 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         if (isLoteConcluido(l) || isLoteOcultoNoQuadro(l, 'producao')) return false;
 
         const etapaStatus = getLoteEtapaStatus(l, 'producao');
-        // Não inclui se estiver em espera na produção
-        if (etapaStatus.isEspera) return false;
+        const esperaDetails = getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem);
+        // Não inclui se estiver em espera na produção ou globalmente
+        if (etapaStatus.isEspera || esperaDetails.isEmEspera || l.customStatus === 'Em Espera' || Boolean(l.motivoEspera) || l.erpStatus === 'ES') return false;
 
         // Permite coexistência: se estiver em produção ou alocado nos reatores, ou concluído na data
         // ou aprovado / lote vinculado do planejamento semanal na data selecionada
@@ -7440,8 +7449,13 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         const isPlanned = Boolean(l.details?.includes('Planejamento Semanal'));
         const esperaDetails = getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem);
         const etapaStatus = getLoteEtapaStatus(l, 'producao');
+        // REGRA REQUISITADA: Lotes em espera não aparecem na execução da fábrica (vão para PCP / Fila de Demandas)
+        if (esperaDetails.isEmEspera || etapaStatus.isEspera || l.customStatus === 'Em Espera' || Boolean(l.motivoEspera) || l.erpStatus === 'ES') {
+          return false;
+        }
+
         const isFilaExplicit = etapaStatus.status === 'fila' || l.customStatus === 'Fila Produção';
-        const isOrdemParada = esperaDetails.isEmEspera || etapaStatus.isEspera || l.customStatus === 'Em Espera' || isFilaExplicit || !!l.motivoEspera;
+        const isOrdemParada = isFilaExplicit;
         const isManual = (manualFilasAdicionados.producao || []).includes(l.loteNumber);
         const isParcial = isLoteParcial(l);
 
@@ -7544,7 +7558,12 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         const realLote = getRealLote(it.loteNumber, it.productCode);
         // REGRA GERAL: Ordem concluída ou removida da rotulagem não aparece
         if (realLote && (isLoteConcluido(realLote) || isLoteOcultoNoQuadro(realLote, 'rotulagem'))) return false;
-        if (it.statusRotulagem === 'EM_ESPERA') return true;
+        // Exclui ordens em espera dos quadros operacionais diários
+        if (it.statusRotulagem === 'EM_ESPERA') return false;
+        if (realLote) {
+          const esp = getLoteEsperaDetails(realLote, programacaoEnvase, programacaoRotulagem);
+          if (esp.isEmEspera || realLote.customStatus === 'Em Espera' || Boolean(realLote.motivoEspera) || realLote.erpStatus === 'ES') return false;
+        }
         if (rotulagemShowAllDates || rotulagemSearch.trim().length > 0) return true;
         const itemDate = it.dataProgramada ? parseLoteDateToIso(it.dataProgramada) : (realLote ? getLoteScheduleDateIso(realLote, 'rotulagem') : null);
         return itemDate === rotulagemSelectedDate;
@@ -7560,7 +7579,12 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         const realLote = getRealLote(it.loteNumber, it.productCode);
         // REGRA GERAL: Ordem concluída ou removida da rotulagem não aparece
         if (realLote && (isLoteConcluido(realLote) || isLoteOcultoNoQuadro(realLote, 'rotulagem'))) return false;
-        if (it.statusRotulagem === 'EM_ESPERA') return true;
+        // Exclui ordens em espera dos quadros operacionais diários
+        if (it.statusRotulagem === 'EM_ESPERA') return false;
+        if (realLote) {
+          const esp = getLoteEsperaDetails(realLote, programacaoEnvase, programacaoRotulagem);
+          if (esp.isEmEspera || realLote.customStatus === 'Em Espera' || Boolean(realLote.motivoEspera) || realLote.erpStatus === 'ES') return false;
+        }
         if (rotulagemShowAllDates || rotulagemSearch.trim().length > 0) return true;
         const itemDate = it.dataProgramada ? parseLoteDateToIso(it.dataProgramada) : (realLote ? getLoteScheduleDateIso(realLote, 'rotulagem') : null);
         return itemDate === rotulagemSelectedDate;
@@ -7597,10 +7621,9 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       if (isAlreadyInRotulagemBoard) return false;
 
       const esperaDetails = getLoteEsperaDetails(l, programacaoEnvase, programacaoRotulagem);
-      // REGRA REQUISITADA: Lotes em espera NUNCA são filtrados por data!
-      if (esperaDetails.isEmEspera) {
-        if (rotulagemOnlyProblemas && !hasLoteProblemaOuPausa(l, null, 'rotulagem')) return false;
-        return true;
+      // REGRA REQUISITADA: Lotes em espera não aparecem na execução da fábrica (vão para PCP / Fila de Demandas)
+      if (esperaDetails.isEmEspera || l.customStatus === 'Em Espera' || Boolean(l.motivoEspera) || l.erpStatus === 'ES') {
+        return false;
       }
 
       if (rotulagemOnlyProblemas) return false;

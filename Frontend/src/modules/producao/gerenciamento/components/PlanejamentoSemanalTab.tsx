@@ -12,6 +12,7 @@ import { apiFetch } from '../../../geral/lib/http';
 import { printHtmlViaIframe } from '../../../geral/lib/printCleanup';
 import { loadNatumLogoDataUrl } from '../../../geral/lib/logoUtils';
 import { getHoliday, getBrazilHolidaysForYear, HolidayInfo } from '../../../geral/lib/brazilHolidays';
+import { ProductDetailsDrawer } from './ProductDetailsDrawer';
 
 export interface InsumoConsumoItem {
   code: string;
@@ -547,6 +548,8 @@ export function PlanejamentoSemanalTab({
   const [demandBankOpen, setDemandBankOpen] = useState(true);
   const [demandSearch, setDemandSearch] = useState('');
   const [filaDemandas, setFilaDemandas] = useState<any[]>([]);
+  const [lotesEmEspera, setLotesEmEspera] = useState<any[]>([]);
+  const [demandTabFilter, setDemandTabFilter] = useState<'ALL' | 'ESPERA' | 'DEMANDAS'>('ALL');
   const [demandFilter, setDemandFilter] = useState<'FILA' | 'ALL' | 'CRITICOS' | 'PROGRAMADAS' | 'KITS' | 'BASES'>('FILA');
 
   const fetchFila = useCallback(async () => {
@@ -558,6 +561,27 @@ export function PlanejamentoSemanalTab({
       }
     } catch (e) {
       console.warn('Erro ao buscar fila de demandas:', e);
+    }
+
+    try {
+      const resAcomp = await apiFetch('/administrativo/acompanhamento-producao');
+      if (resAcomp.ok) {
+        const acompData = await resAcomp.json();
+        if (Array.isArray(acompData)) {
+          const emEspera = acompData.filter((l: any) => {
+            const isFinished = l.customStatus === 'Finalizada' || l.customStatus === 'Ordem Finalizada' || l.erpStatus === 'FI' || l.erpStatus === 'CA';
+            if (isFinished) return false;
+            const hasMotivo = Boolean(l.motivoEspera || l.motivo_espera);
+            const isStatusEspera = l.customStatus === 'Em Espera' || l.custom_status === 'Em Espera' || l.erpStatus === 'ES';
+            const etapas = l.etapasStatus || l.etapas_status || {};
+            const anyEtapaEspera = Object.values(etapas).some((e: any) => e && ((e as any).status === 'Em Espera' || (e as any).motivoEspera));
+            return isStatusEspera || hasMotivo || anyEtapaEspera;
+          });
+          setLotesEmEspera(emEspera);
+        }
+      }
+    } catch (e) {
+      console.warn('Erro ao buscar lotes em espera para fila de demandas:', e);
     }
   }, []);
   const [selectedLineFilter, setSelectedLineFilter] = useState<string>('ALL');
@@ -640,6 +664,20 @@ export function PlanejamentoSemanalTab({
   const [materialsList, setMaterialsList] = useState<InsumoConsumoItem[]>([]);
   const [materialsFilterTab, setMaterialsFilterTab] = useState<'ALL' | 'FALTAS' | 'MP' | 'EMB'>('ALL');
   const [materialsSearch, setMaterialsSearch] = useState('');
+  const [hideAgua, setHideAgua] = useState(true);
+
+  // Drawer autônomo de Detalhes do Produto
+  const [internalDrawerCode, setInternalDrawerCode] = useState<string | null>(null);
+  const [internalDrawerOpen, setInternalDrawerOpen] = useState(false);
+
+  const handleShowProductDetails = useCallback((code: string) => {
+    if (onShowDetails) {
+      onShowDetails(code);
+    } else {
+      setInternalDrawerCode(code);
+      setInternalDrawerOpen(true);
+    }
+  }, [onShowDetails]);
 
   // Modal de Otimização Automática (Heurística)
   const [heuristicModalOpen, setHeuristicModalOpen] = useState(false);
@@ -774,6 +812,16 @@ export function PlanejamentoSemanalTab({
     }
   }, [active, fetchPlanejamento]);
 
+  useEffect(() => {
+    const handleRefresh = () => {
+      fetchFila();
+    };
+    window.addEventListener('natum:refresh-acompanhamento', handleRefresh);
+    return () => {
+      window.removeEventListener('natum:refresh-acompanhamento', handleRefresh);
+    };
+  }, [fetchFila]);
+
   // Navegação de Semanas
   const handlePrevWeek = () => {
     const prev = new Date(currentDate);
@@ -828,11 +876,13 @@ export function PlanejamentoSemanalTab({
     return { all, criticos, programadas, kits, bases };
   }, [products, selectedLineFilter]);
 
-  // Itens elegíveis para o Banco de Demandas (Exclusivo Fila de Demandas)
+  // Itens elegíveis para o Banco de Demandas (Fila de Demandas PCP + Lotes Em Espera para Reagendamento)
   const demandCandidates = useMemo(() => {
     const prodMap = new Map(products.map(p => [p.codigo, p]));
-    const mapped = filaDemandas
+
+    const mappedFila = filaDemandas
       .filter(f => {
+        if (demandTabFilter === 'ESPERA') return false;
         if (!demandSearch.trim()) return true;
         const q = demandSearch.toLowerCase().trim();
         const code = (f.codigoProduto || f.codigo_produto || '').toLowerCase();
@@ -862,13 +912,49 @@ export function PlanejamentoSemanalTab({
         };
       });
 
+    const mappedEspera = lotesEmEspera
+      .filter(l => {
+        if (demandTabFilter === 'DEMANDAS') return false;
+        if (!demandSearch.trim()) return true;
+        const q = demandSearch.toLowerCase().trim();
+        const num = (l.loteNumber || '').toLowerCase();
+        const code = (l.productCode || '').toLowerCase();
+        const desc = (l.productDescription || '').toLowerCase();
+        const mot = (l.motivoEspera || '').toLowerCase();
+        return num.includes(q) || code.includes(q) || desc.includes(q) || mot.includes(q);
+      })
+      .map(l => {
+        const code = l.productCode;
+        const p = prodMap.get(code) || {};
+        const massKg = Number(l.quantidadeKg || l.quantidade_kg) || Number(l.quantidade) || 0;
+        return {
+          ...p,
+          _isEmEspera: true,
+          _loteNumber: l.loteNumber,
+          _motivoEspera: l.motivoEspera || 'Em Espera',
+          _origemEtapa: l.dataLiberadoEnvase ? 'Envase' : (l.dataProducao ? 'Produção' : 'Pesagem'),
+          codigo: code || l.productCode,
+          descricao: l.productDescription || p.descricao || `Lote ${l.loteNumber}`,
+          producao_recomendada: l.quantidade || p.producao_recomendada || 0,
+          quantidade: l.quantidade,
+          quantidade_kg: massKg,
+          origem_demanda: 'espera',
+          base_codigo: p.base || null,
+          base: p.base || null,
+          unidade: l.unidade || p.unidade || 'un',
+          observacoes: `Lote ${l.loteNumber} (Em Espera: ${l.motivoEspera || 'Aguardando'})`
+        };
+      });
+
+    const combined = [...mappedEspera, ...mappedFila];
+
     const grouped: any[] = [];
     const seenGroups = new Set<string>();
-    for (const item of mapped) {
+    for (const item of combined) {
       if (item._batchGroupId) {
         if (seenGroups.has(item._batchGroupId)) continue;
         seenGroups.add(item._batchGroupId);
-        const siblings = mapped.filter(m => m._batchGroupId === item._batchGroupId);
+        const siblings = combined.filter(m => m._batchGroupId === item._batchGroupId);
         const totalBatchKg = Number(siblings.reduce((acc, s) => acc + (Number(s.quantidade_kg) || 0), 0).toFixed(1));
         grouped.push({
           ...item,
@@ -880,7 +966,7 @@ export function PlanejamentoSemanalTab({
       }
     }
     return grouped;
-  }, [products, filaDemandas, demandSearch]);
+  }, [products, filaDemandas, lotesEmEspera, demandSearch, demandTabFilter]);
 
   // Mapeamento de Itens Agendados na Grade (por Reator e por Dia)
   const matrixItemsMap = useMemo(() => {
@@ -955,31 +1041,11 @@ export function PlanejamentoSemanalTab({
     }
   };
 
-  // Excluir Item do Planejamento (e retornar para a Fila se não concluído)
+  // Excluir Item do Planejamento
   const handleDeleteItem = async (id: string) => {
-    if (!window.confirm("Deseja remover esta batelada do planejamento semanal? Ela retornará para a Fila de Demandas.")) return;
-    const itemToRemove = plannedItems.find(i => i.id === id);
+    if (!window.confirm("Deseja remover esta batelada do planejamento semanal?")) return;
     try {
       await apiFetch(`/producao/planejamento-semanal/${id}`, { method: 'DELETE' });
-      if (itemToRemove && itemToRemove.ordem_status !== 'concluido') {
-        const uW = parseProductUnitWeightKg(itemToRemove.descricao);
-        const estUn = Math.max(1, Math.round((Number(itemToRemove.quantidade_planejada) || 0) / (uW || 1)));
-        await apiFetch('/producao/fila-demandas', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            codigoProduto: itemToRemove.codigo_produto,
-            descricao: itemToRemove.descricao,
-            quantidade: estUn,
-            unidade: 'un',
-            quantidadeKg: Number(itemToRemove.quantidade_planejada) || 0,
-            origemDemanda: 'retorno_pcp',
-            baseCodigo: itemToRemove.base_codigo,
-            baseNome: itemToRemove.base_nome
-          })
-        });
-        await fetchFila();
-      }
     } catch (e) {
       console.warn('Erro ao deletar no servidor:', e);
     }
@@ -1216,40 +1282,11 @@ export function PlanejamentoSemanalTab({
       return next;
     });
 
-    const returnPayload: any[] = [];
-    const batchGroupTag = batchItems.length > 1 ? `[batch:BAT_${Date.now()}]` : undefined;
     for (const it of batchItems) {
       try {
-        await apiFetch(`/producao/planejamento/${it.id}`, { method: 'DELETE' });
-        if (it.ordem_status !== 'concluido') {
-          const uW = parseProductUnitWeightKg(it.descricao);
-          const estUn = Math.max(1, Math.round((Number(it.quantidade_planejada) || 0) / (uW || 1)));
-          returnPayload.push({
-            codigoProduto: it.codigo_produto,
-            descricao: it.descricao,
-            quantidade: estUn,
-            unidade: 'un',
-            quantidadeKg: Number(it.quantidade_planejada) || 0,
-            origemDemanda: 'retorno_pcp',
-            baseCodigo: it.base_codigo,
-            baseNome: it.base_nome,
-            observacoes: batchGroupTag
-          });
-        }
+        await apiFetch(`/producao/planejamento-semanal/${it.id}`, { method: 'DELETE' });
       } catch (e) {
-        console.error(e);
-      }
-    }
-    if (returnPayload.length > 0) {
-      try {
-        await apiFetch('/producao/fila-demandas', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(returnPayload)
-        });
-        await fetchFila();
-      } catch (e) {
-        console.warn('Erro ao devolver itens à fila:', e);
+        console.error('Erro ao deletar item do planejamento:', e);
       }
     }
     window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
@@ -1642,6 +1679,22 @@ export function PlanejamentoSemanalTab({
           console.warn('Erro ao remover item da fila:', e);
         }
       }
+
+      // Se era um lote em espera reagendado, remove a pausa do lote no acompanhamento
+      if (prod._isEmEspera && prod._loteNumber) {
+        try {
+          await apiFetch('/administrativo/lote-status', {
+            method: 'POST',
+            body: JSON.stringify({
+              loteNumber: prod._loteNumber,
+              customStatus: 'Pesagem',
+              motivoEspera: null,
+            }),
+          });
+        } catch (e) {
+          console.warn('Erro ao atualizar status do lote em espera após reagendamento:', e);
+        }
+      }
     }
     fetchFila();
 
@@ -1768,13 +1821,52 @@ export function PlanejamentoSemanalTab({
           if (!ingCode) continue;
           const descUpper = (ing.description || '').toUpperCase();
 
-          // Identificar se é Embalagem ou Matéria-Prima
-          const isEmbalagem = 
+          // Identificar com precisão industrial se é Embalagem ou Matéria-Prima Química
+          // No ERP da fábrica:
+          // - MPs Químicas: códigos 9.15.*, 9.16.*, 9.17.*, 9.18.*, 9.20.* ou category_id = cat_mp
+          // - Embalagens: códigos 9.02.*, 9.04.*, 9.06.*, 9.09.*, 9.11.*, 9.29.*, 9.30.*, 9.31.*, 9.32.* ou category_id = cat_emb
+          const isExplicitMp = 
+            ing.category_id === 'cat_mp' ||
+            ing.category_id === 'materia_prima' ||
+            ingCode.startsWith('9.15.') ||
+            ingCode.startsWith('9.16.') ||
+            ingCode.startsWith('9.17.') ||
+            ingCode.startsWith('9.18.') ||
+            ingCode.startsWith('9.20.') ||
+            descUpper.includes('ACIDO') ||
+            descUpper.includes('ÁCIDO') ||
+            descUpper.includes('ALCOOL') ||
+            descUpper.includes('ÁLCOOL') ||
+            descUpper.includes('EXTRATO') ||
+            descUpper.includes('OLEO') ||
+            descUpper.includes('ÓLEO') ||
+            descUpper.includes('ESSENCIA') ||
+            descUpper.includes('ESSÊNCIA') ||
+            descUpper.includes('FRAGRANCIA') ||
+            descUpper.includes('FRAGRÂNCIA') ||
+            descUpper.includes('CORANTE') ||
+            descUpper.includes('CONSERVANTE') ||
+            descUpper.includes('LAURIL') ||
+            descUpper.includes('SILICONE') ||
+            descUpper.includes('QUATERNARIO') ||
+            descUpper.includes('QUATERNÁRIO') ||
+            descUpper.includes('GLICERINA') ||
+            descUpper.includes('MANTEIGA') ||
+            descUpper.includes('AGUA') ||
+            descUpper.includes('ÁGUA');
+
+          const isEmbalagem = !isExplicitMp && (
             ing.category_id === 'cat_emb' ||
-            (ing.unit && ing.unit.toUpperCase() === 'UN') ||
-            ingCode.startsWith('9.') ||
-            ingCode.startsWith('2.') ||
-            ingCode.startsWith('3.') ||
+            ing.category_id === 'embalagem' ||
+            ingCode.startsWith('9.02.') ||
+            ingCode.startsWith('9.04.') ||
+            ingCode.startsWith('9.06.') ||
+            ingCode.startsWith('9.09.') ||
+            ingCode.startsWith('9.11.') ||
+            ingCode.startsWith('9.29.') ||
+            ingCode.startsWith('9.30.') ||
+            ingCode.startsWith('9.31.') ||
+            ingCode.startsWith('9.32.') ||
             descUpper.startsWith('PT ') ||
             descUpper.startsWith('FR ') ||
             descUpper.startsWith('TP ') ||
@@ -1799,10 +1891,12 @@ export function PlanejamentoSemanalTab({
             descUpper.includes('PALLET') ||
             descUpper.includes('DISPENSER') ||
             descUpper.includes('PUMP') ||
-            descUpper.includes('BORRIFADOR');
+            descUpper.includes('BORRIFADOR') ||
+            (ing.unit && ing.unit.toUpperCase() === 'UN')
+          );
 
           const category: 'materia_prima' | 'embalagem' = isEmbalagem ? 'embalagem' : 'materia_prima';
-          const unit = ing.unit ? ing.unit.toUpperCase() : (isEmbalagem ? 'UN' : 'KG');
+          const unit = isEmbalagem ? (ing.unit ? ing.unit.toUpperCase() : 'UN') : (ing.unit ? ing.unit.toUpperCase() : 'KG');
           const reqQty = Number(ing.total_required || 0);
 
           const existing = aggregatedMap.get(ingCode);
@@ -1876,7 +1970,10 @@ export function PlanejamentoSemanalTab({
       return;
     }
 
-    const mpData = materialsList
+    const isAguaItem = (item: InsumoConsumoItem) => item.code === '9.15.064' || item.description.toUpperCase().includes('AGUA DESMINERALIZADA') || item.description.toUpperCase().includes('ÁGUA DESMINERALIZADA');
+    const activeMaterials = materialsList.filter(m => !hideAgua || !isAguaItem(m));
+
+    const mpData = activeMaterials
       .filter(m => m.category === 'materia_prima')
       .map(m => ({
         'Código': m.code,
@@ -1891,7 +1988,7 @@ export function PlanejamentoSemanalTab({
         'Produtos que Consomem': m.productsUsedIn.map(p => `${p.description} (${p.batchKg}kg)`).join('; ')
       }));
 
-    const embData = materialsList
+    const embData = activeMaterials
       .filter(m => m.category === 'embalagem')
       .map(m => ({
         'Código': m.code,
@@ -2824,78 +2921,6 @@ export function PlanejamentoSemanalTab({
     }
   };
 
-  // Agrupar itens de uma célula em bateladas consolidadas (mesmo lote_erp ou batchId compartilhado)
-  const groupCellItems = useCallback((items: PlanejamentoItem[]) => {
-    const groups: {
-      key: string;
-      items: PlanejamentoItem[];
-      primaryItem: PlanejamentoItem;
-      isMulti: boolean;
-      totalKg: number;
-      isQuente: boolean;
-      isAprovado: boolean;
-      loteErp?: string;
-    }[] = [];
-
-    const processed = new Set<string>();
-
-    for (const item of items) {
-      if (processed.has(item.id)) continue;
-
-      const batchMatch = item.observacoes?.match(/\[batch:([^\]]+)\]/i);
-      const batchId = batchMatch ? batchMatch[1].trim() : null;
-      const loteErp = item.lote_erp?.trim();
-
-      const siblings = items.filter(other => {
-        if (other.id === item.id) return true;
-        if (batchId) {
-          const otherBatch = other.observacoes?.match(/\[batch:([^\]]+)\]/i);
-          if (otherBatch && otherBatch[1].trim() === batchId) return true;
-        }
-        if (loteErp && other.lote_erp?.trim() === loteErp) {
-          return true;
-        }
-        const tsMatch = item.id.match(/_(\d{10,14})_\d+$/);
-        const otherTsMatch = other.id.match(/_(\d{10,14})_\d+$/);
-        if (tsMatch && otherTsMatch && tsMatch[1] === otherTsMatch[1]) {
-          return true;
-        }
-        return false;
-      });
-
-      siblings.forEach(s => processed.add(s.id));
-
-      const totalKg = Number(siblings.reduce((sum, s) => sum + (Number(s.quantidade_planejada) || 0), 0).toFixed(1));
-      const isQuente = siblings.some(s => 
-        s.processo_termico === 'resistencia' || 
-        s.processo_termico === 'agua_caldeira' || 
-        s.processo_termico === 'caldeira' ||
-        s.processo_termico === 'quente' ||
-        s.reator_id === 'R_40' || 
-        s.recipiente_detalhe === 'Reator 40kg' || 
-        (s.observacoes || '').includes('Caldeira')
-      );
-      const isAprovado = siblings.every(s => 
-        s.ordem_status === 'aprovado' || 
-        (s.fisico_confirmado_massa && s.fisico_confirmado_embalagem && s.fisico_confirmado_rotulo) ||
-        isPastEndOfDay(s.data_planejada)
-      );
-
-      groups.push({
-        key: batchId || (loteErp ? `LOTE_${loteErp}` : item.id),
-        items: siblings,
-        primaryItem: siblings[0],
-        isMulti: siblings.length > 1,
-        totalKg,
-        isQuente,
-        isAprovado,
-        loteErp: siblings.find(s => s.lote_erp)?.lote_erp,
-      });
-    }
-
-    return groups;
-  }, []);
-
   return (
     <div className="flex flex-col gap-4 w-full">
       {/* BARRA SUPERIOR DE COMANDOS */}
@@ -3510,6 +3535,42 @@ export function PlanejamentoSemanalTab({
                 </span>
               </div>
 
+              {/* Filtro Rápido de Origem: Todos / Em Espera / Fila PCP */}
+              <div className="grid grid-cols-3 gap-1 bg-zinc-100 p-0.5 rounded-lg text-[10px] font-semibold text-zinc-600">
+                <button
+                  type="button"
+                  onClick={() => setDemandTabFilter('ALL')}
+                  className={`py-1 rounded-md transition-all text-center ${
+                    demandTabFilter === 'ALL' ? 'bg-white text-zinc-900 shadow-2xs font-bold' : 'hover:text-zinc-900'
+                  }`}
+                >
+                  Todos ({lotesEmEspera.length + filaDemandas.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDemandTabFilter('ESPERA')}
+                  className={`py-1 rounded-md transition-all text-center flex items-center justify-center gap-1 ${
+                    demandTabFilter === 'ESPERA' ? 'bg-amber-100 text-amber-900 shadow-2xs font-bold border border-amber-300' : 'hover:text-zinc-900'
+                  }`}
+                >
+                  <span>⏸️ Em Espera</span>
+                  {lotesEmEspera.length > 0 && (
+                    <span className="bg-amber-200 text-amber-950 px-1 py-0.2 rounded-full text-[9px] font-bold">
+                      {lotesEmEspera.length}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDemandTabFilter('DEMANDAS')}
+                  className={`py-1 rounded-md transition-all text-center ${
+                    demandTabFilter === 'DEMANDAS' ? 'bg-white text-zinc-900 shadow-2xs font-bold' : 'hover:text-zinc-900'
+                  }`}
+                >
+                  Fila PCP ({filaDemandas.length})
+                </button>
+              </div>
+
               {/* Campo de Busca */}
               <div className="relative">
                 <Search size={13} className="absolute left-2.5 top-2.5 text-zinc-400" />
@@ -3551,7 +3612,7 @@ export function PlanejamentoSemanalTab({
 
                   return (
                     <div 
-                      key={prod.codigo} 
+                      key={prod._loteNumber ? `espera_${prod._loteNumber}` : (prod._filaId ? `fila_${prod._filaId}` : prod.codigo)} 
                       draggable={true}
                       onDragStart={(e) => {
                         e.dataTransfer.setData('text/plain', prod.codigo);
@@ -3563,17 +3624,33 @@ export function PlanejamentoSemanalTab({
                         setDragOverCell(null);
                       }}
                       className={`py-2.5 px-2 flex flex-col gap-2 hover:bg-zinc-50 border-b border-zinc-100 transition-colors cursor-grab active:cursor-grabbing select-none ${
-                        isBase ? 'bg-amber-50/20' : ''
+                        prod._isEmEspera ? 'bg-amber-50/40 border-l-4 border-l-amber-500' : (isBase ? 'bg-amber-50/20' : '')
                       }`}
-                      title="Arraste este produto para uma célula do quadro para agendar"
+                      title={prod._isEmEspera ? `Lote #${prod._loteNumber} em espera. Arraste para agendar ou clique em Reagendar` : "Arraste este produto para uma célula do quadro para agendar"}
                     >
+                      {/* Badge de Lote Em Espera para Reagendamento */}
+                      {prod._isEmEspera && (
+                        <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-100/70 border border-amber-200 rounded-md text-amber-900 text-[11px] font-bold">
+                          <span className="shrink-0">⏸️</span>
+                          <span className="font-mono bg-amber-200/90 text-amber-950 px-1.5 py-0.2 rounded text-[10px]">
+                            Lote #{prod._loteNumber}
+                          </span>
+                          <span className="truncate" title={`Motivo: ${prod._motivoEspera}`}>
+                            {prod._motivoEspera || 'Em Espera'}
+                          </span>
+                          <span className="ml-auto text-[9px] text-amber-800 bg-amber-200/80 px-1.5 py-0.2 rounded font-extrabold uppercase shrink-0">
+                            {prod._origemEtapa || 'Pausa'}
+                          </span>
+                        </div>
+                      )}
+
                       {/* 1. Descrição e Código com visualização de detalhes */}
                       <div className="flex items-start justify-between gap-1.5">
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            onShowDetails?.(prod.codigo);
+                            handleShowProductDetails(prod.codigo);
                           }}
                           className="font-bold text-zinc-900 text-xs leading-snug line-clamp-2 text-left hover:underline hover:text-zinc-700 cursor-pointer bg-transparent border-none p-0"
                           title={`Ver detalhes de ${prod.descricao}`}
@@ -3584,7 +3661,7 @@ export function PlanejamentoSemanalTab({
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            onShowDetails?.(prod.codigo);
+                            handleShowProductDetails(prod.codigo);
                           }}
                           className="font-mono text-[10px] text-zinc-600 font-semibold bg-zinc-100 hover:bg-zinc-200 hover:text-zinc-900 px-1 py-0.5 rounded shrink-0 cursor-pointer transition-colors"
                           title={`Ver detalhes do produto ${prod.codigo}`}
@@ -3668,26 +3745,28 @@ export function PlanejamentoSemanalTab({
 
                       {/* 5. Ação de Agendamento e Ver Detalhes */}
                       <div className="flex items-center justify-between pt-1 border-t border-zinc-100">
-                        {onShowDetails ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onShowDetails(prod.codigo);
-                            }}
-                            className="flex items-center gap-1 text-[11px] font-semibold text-zinc-600 hover:text-zinc-900 transition-colors cursor-pointer py-1 px-1.5 rounded hover:bg-zinc-100"
-                            title="Ver detalhes completos do produto"
-                          >
-                            <Info size={13} className="text-zinc-500" />
-                            <span>Ver Detalhes</span>
-                          </button>
-                        ) : <div />}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleShowProductDetails(prod.codigo);
+                          }}
+                          className="flex items-center gap-1 text-[11px] font-semibold text-zinc-600 hover:text-zinc-900 transition-colors cursor-pointer py-1 px-1.5 rounded hover:bg-zinc-100"
+                          title="Ver detalhes completos do produto"
+                        >
+                          <Info size={13} className="text-zinc-500" />
+                          <span>Ver Detalhes</span>
+                        </button>
                         <button
                           onClick={() => handleOpenScheduleModal(prod)}
-                          className="flex items-center gap-1 px-3 py-1 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold rounded-lg transition-all cursor-pointer shadow-xs"
+                          className={`flex items-center gap-1 px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer shadow-xs ${
+                            prod._isEmEspera
+                              ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                              : 'bg-zinc-900 hover:bg-zinc-800 text-white'
+                          }`}
                         >
                           <Plus size={13} />
-                          <span>Agendar</span>
+                          <span>{prod._isEmEspera ? 'Reagendar' : 'Agendar'}</span>
                         </button>
                       </div>
                     </div>
@@ -3699,14 +3778,14 @@ export function PlanejamentoSemanalTab({
         )}
       </div>
 
-      {/* MODAL: CONFIGURAÇÃO DE REATORES COM TIPO QUENTE / FRIO */}
+      {/* MODAL: CONFIGURAÇÃO DE REATORES E REGRAS DE CAPACIDADE */}
       {reatoresModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-5 flex flex-col gap-4 border border-zinc-200">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-2xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-5 flex flex-col gap-4 border border-zinc-200 max-h-[90vh]">
             <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
               <div className="flex items-center gap-2">
                 <Settings size={18} className="text-zinc-700" />
-                <h3 className="font-bold text-zinc-900 text-sm">Configuração de Reatores da Produção</h3>
+                <h3 className="font-bold text-zinc-900 text-sm">Configuração de Reatores & Regras de Produção</h3>
               </div>
               <button 
                 onClick={() => setReatoresModalOpen(false)}
@@ -3717,57 +3796,85 @@ export function PlanejamentoSemanalTab({
             </div>
 
             <p className="text-xs text-zinc-500">
-              Configure os reatores fabris e o tipo de processo térmico (Quente para caldeira, Frio para agitação simples ou Misto).
+              Configure os reatores fabris, capacidades nominais em kg e as regras de processo (Shampoo exclusivo, Caldeira mista quente/frio, Resistência térmica ou Bombonas móveis).
             </p>
 
-            <div className="flex flex-col gap-2 max-h-72 overflow-y-auto pr-1">
+            <div className="flex flex-col gap-2.5 overflow-y-auto pr-1 max-h-[55vh]">
               {reatores.map((r, idx) => (
-                <div key={r.id} className="flex flex-col gap-2 p-3 bg-zinc-50 rounded-lg border border-zinc-200 text-xs">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-zinc-700">{idx + 1}.</span>
-                      <strong className="text-zinc-900">{r.nome}</strong>
-                    </div>
-                    <label className="flex items-center gap-1.5 cursor-pointer text-xs">
-                      <input 
-                        type="checkbox"
-                        checked={r.ativo}
+                <div key={r.id || idx} className="flex flex-col gap-2 p-3 bg-zinc-50 rounded-lg border border-zinc-200 text-xs">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 flex-1">
+                      <span className="font-mono font-bold text-zinc-400 text-[11px]">{idx + 1}.</span>
+                      <input
+                        type="text"
+                        value={r.nome}
                         onChange={(e) => {
-                          const updated = reatores.map(item => item.id === r.id ? { ...item, ativo: e.target.checked } : item);
-                          setReatores(updated);
+                          const val = e.target.value;
+                          setReatores(reatores.map(item => item.id === r.id ? { ...item, nome: val } : item));
                         }}
-                        className="rounded text-blue-600"
+                        className="flex-1 font-bold text-zinc-900 bg-white border border-zinc-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-zinc-400"
+                        placeholder="Nome do Reator/Equipamento"
                       />
-                      <span className="text-zinc-650">Ativo</span>
-                    </label>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <label className="flex items-center gap-1.5 cursor-pointer text-xs font-semibold text-zinc-700 select-none">
+                        <input 
+                          type="checkbox"
+                          checked={r.ativo}
+                          onChange={(e) => {
+                            const updated = reatores.map(item => item.id === r.id ? { ...item, ativo: e.target.checked } : item);
+                            setReatores(updated);
+                          }}
+                          className="rounded text-blue-600 border-zinc-300"
+                        />
+                        <span>Ativo</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm(`Remover "${r.nome}" da configuração?`)) {
+                            setReatores(reatores.filter(item => item.id !== r.id));
+                          }
+                        }}
+                        className="text-zinc-400 hover:text-red-600 p-1 rounded transition-colors cursor-pointer"
+                        title="Remover este equipamento"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="grid grid-cols-2 gap-3 text-[11px] pt-1 border-t border-zinc-150">
                     <div>
-                      <span className="text-zinc-500 block mb-0.5">Capacidade (kg):</span>
+                      <span className="text-zinc-500 font-medium block mb-1">Capacidade Nominal (kg):</span>
                       <input
                         type="number"
+                        min={1}
                         value={r.capacidade_kg}
                         onChange={(e) => {
-                          const val = Number(e.target.value);
+                          const val = Number(e.target.value) || 0;
                           setReatores(reatores.map(item => item.id === r.id ? { ...item, capacidade_kg: val } : item));
                         }}
-                        className="w-full p-1 bg-white border border-zinc-300 rounded text-xs"
+                        className="w-full px-2 py-1 bg-white border border-zinc-300 rounded text-xs font-mono font-bold text-zinc-800"
                       />
                     </div>
                     <div>
-                      <span className="text-zinc-500 block mb-0.5">Processo Térmico:</span>
+                      <span className="text-zinc-500 font-medium block mb-1">Regra / Processo Térmico:</span>
                       <select
                         value={r.tipo}
                         onChange={(e) => {
                           const val = e.target.value;
                           setReatores(reatores.map(item => item.id === r.id ? { ...item, tipo: val } : item));
                         }}
-                        className="w-full p-1 bg-white border border-zinc-300 rounded text-xs font-semibold"
+                        className="w-full px-2 py-1 bg-white border border-zinc-300 rounded text-xs font-semibold text-zinc-800 cursor-pointer"
                       >
-                        <option value="quente">Quente (Requer Caldeira)</option>
-                        <option value="frio">A Frio (Mistura)</option>
-                        <option value="misto">Misto (Quente ou Frio)</option>
+                        <option value="caldeira_shampoo">🧴 Reator Exclusivo Shampoo (A Frio / Agitação)</option>
+                        <option value="caldeira">🔥 Caldeira (Produção Mista Quente/Frio)</option>
+                        <option value="resistencia">⚡ Resistência Elétrica (Máx 1 batelada/dia)</option>
+                        <option value="quente">♨️ Produção Quente (R-40 / Pomadas / Ceras)</option>
+                        <option value="bombona">🛢️ Bombonas Móveis (50kg, 100kg, 200kg)</option>
+                        <option value="frio">❄️ A Frio Simples</option>
+                        <option value="misto">⚖️ Misto Geral</option>
                       </select>
                     </div>
                   </div>
@@ -3775,32 +3882,59 @@ export function PlanejamentoSemanalTab({
               ))}
             </div>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-zinc-200">
+            <div className="flex items-center justify-between pt-3 border-t border-zinc-200">
               <button
-                onClick={() => setReatoresModalOpen(false)}
-                className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
-              >
-                Fechar
-              </button>
-              <button
-                onClick={async () => {
-                  try {
-                    await apiFetch('/producao/reatores', {
-                      method: 'PUT',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify(reatores)
-                    });
-                    setReatoresModalOpen(false);
-                    alert("Reatores atualizados com sucesso!");
-                  } catch (e) {
-                    console.error(e);
-                    setReatoresModalOpen(false);
-                  }
+                type="button"
+                onClick={() => {
+                  const newId = `R_NOVO_${Date.now()}`;
+                  setReatores([
+                    ...reatores,
+                    {
+                      id: newId,
+                      nome: `Novo Reator (${reatores.length + 1})`,
+                      capacidade_kg: 200,
+                      tipo: 'caldeira',
+                      ordem: reatores.length + 1,
+                      ativo: true
+                    }
+                  ]);
                 }}
-                className="px-4 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer"
+                className="px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-dashed border-zinc-300 flex items-center gap-1.5 cursor-pointer transition-colors"
               >
-                Salvar Reatores
+                <Plus size={14} />
+                <span>Adicionar Reator / Equipamento</span>
               </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setReatoresModalOpen(false)}
+                  className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await apiFetch('/producao/reatores', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(reatores)
+                      });
+                      setReatoresModalOpen(false);
+                      alert("Reatores e regras atualizados com sucesso!");
+                      fetchReatores();
+                    } catch (e) {
+                      console.error(e);
+                      alert("Erro ao salvar configuração de reatores.");
+                    }
+                  }}
+                  className="px-4 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer"
+                >
+                  Salvar Reatores
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -3813,7 +3947,9 @@ export function PlanejamentoSemanalTab({
             <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
               <div className="flex items-center gap-2">
                 <CalendarClock size={18} className="text-blue-600" />
-                <h3 className="font-bold text-zinc-900 text-sm">Agendar Batelada no Quadro</h3>
+                <h3 className="font-bold text-zinc-900 text-sm">
+                  {scheduleModalItem?.product?._isEmEspera ? 'Reagendar Lote no Quadro' : 'Agendar Batelada no Quadro'}
+                </h3>
               </div>
               <button 
                 onClick={() => {
@@ -3826,6 +3962,24 @@ export function PlanejamentoSemanalTab({
                 <X size={16} />
               </button>
             </div>
+
+            {/* Aviso de Lote Em Espera */}
+            {scheduleModalItem?.product?._isEmEspera && (
+              <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between text-xs text-amber-900">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">⏸️</span>
+                  <div>
+                    <span className="font-bold">Reagendando Lote #{scheduleModalItem.product._loteNumber}</span>
+                    <span className="block text-[11px] text-amber-800">
+                      Motivo: {scheduleModalItem.product._motivoEspera || 'Em Espera'}
+                    </span>
+                  </div>
+                </div>
+                <span className="text-[10px] font-semibold bg-amber-200/70 text-amber-950 px-2 py-0.5 rounded">
+                  Retorna para Produção Ativa
+                </span>
+              </div>
+            )}
 
             {/* Barra de Pesquisa de Produtos */}
             <div className="space-y-1.5">
@@ -5033,8 +5187,10 @@ export function PlanejamentoSemanalTab({
 
             {/* Resumo Métrico */}
             {(() => {
-              const mpItems = materialsList.filter(m => m.category === 'materia_prima');
-              const embItems = materialsList.filter(m => m.category === 'embalagem');
+              const isAguaItem = (item: InsumoConsumoItem) => item.code === '9.15.064' || item.description.toUpperCase().includes('AGUA DESMINERALIZADA') || item.description.toUpperCase().includes('ÁGUA DESMINERALIZADA');
+              const activeMaterials = materialsList.filter(m => !hideAgua || !isAguaItem(m));
+              const mpItems = activeMaterials.filter(m => m.category === 'materia_prima');
+              const embItems = activeMaterials.filter(m => m.category === 'embalagem');
               const missingMp = mpItems.filter(m => m.isMissing);
               const missingEmb = embItems.filter(m => m.isMissing);
               const totalMissing = missingMp.length + missingEmb.length;
@@ -5042,7 +5198,7 @@ export function PlanejamentoSemanalTab({
               return (
                 <div className="grid grid-cols-4 gap-2.5 p-3 bg-zinc-50/50 border-b border-zinc-200 text-xs">
                   <div className="p-2.5 bg-white border border-zinc-200 rounded-lg">
-                    <span className="text-zinc-500 text-[11px] block">Matérias-Primas</span>
+                    <span className="text-zinc-500 text-[11px] block">Matérias-Primas Químicas</span>
                     <strong className="text-zinc-900 text-sm font-bold block">{mpItems.length} itens</strong>
                     <span className={`text-[10px] font-medium mt-0.5 block ${missingMp.length > 0 ? 'text-rose-600 font-semibold' : 'text-zinc-500'}`}>
                       {missingMp.length > 0 ? `${missingMp.length} com déficit` : 'Estoque regular'}
@@ -5050,7 +5206,7 @@ export function PlanejamentoSemanalTab({
                   </div>
 
                   <div className="p-2.5 bg-white border border-zinc-200 rounded-lg">
-                    <span className="text-zinc-500 text-[11px] block">Embalagens</span>
+                    <span className="text-zinc-500 text-[11px] block">Embalagens & Rótulos</span>
                     <strong className="text-zinc-900 text-sm font-bold block">{embItems.length} itens</strong>
                     <span className={`text-[10px] font-medium mt-0.5 block ${missingEmb.length > 0 ? 'text-rose-600 font-semibold' : 'text-zinc-500'}`}>
                       {missingEmb.length > 0 ? `${missingEmb.length} com déficit` : 'Estoque regular'}
@@ -5079,19 +5235,21 @@ export function PlanejamentoSemanalTab({
             {/* Barra de Filtros e Busca */}
             <div className="p-3 border-b border-zinc-200 flex flex-wrap items-center justify-between gap-3 bg-white">
               {(() => {
-                const mpCount = materialsList.filter(m => m.category === 'materia_prima').length;
-                const embCount = materialsList.filter(m => m.category === 'embalagem').length;
-                const missingCount = materialsList.filter(m => m.isMissing).length;
+                const isAguaItem = (item: InsumoConsumoItem) => item.code === '9.15.064' || item.description.toUpperCase().includes('AGUA DESMINERALIZADA') || item.description.toUpperCase().includes('ÁGUA DESMINERALIZADA');
+                const activeMaterials = materialsList.filter(m => !hideAgua || !isAguaItem(m));
+                const mpCount = activeMaterials.filter(m => m.category === 'materia_prima').length;
+                const embCount = activeMaterials.filter(m => m.category === 'embalagem').length;
+                const missingCount = activeMaterials.filter(m => m.isMissing).length;
 
                 return (
-                  <div className="flex items-center gap-1.5 text-xs">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
                     <button
                       onClick={() => setMaterialsFilterTab('ALL')}
                       className={`px-3 py-1 rounded-md font-medium cursor-pointer transition-colors ${
                         materialsFilterTab === 'ALL' ? 'bg-zinc-800 text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
                       }`}
                     >
-                      Todos ({materialsList.length})
+                      Todos ({activeMaterials.length})
                     </button>
                     <button
                       onClick={() => setMaterialsFilterTab('FALTAS')}
@@ -5117,6 +5275,16 @@ export function PlanejamentoSemanalTab({
                     >
                       Embalagens ({embCount})
                     </button>
+
+                    <label className="flex items-center gap-1.5 ml-2 text-[11px] font-semibold text-zinc-650 cursor-pointer select-none border-l border-zinc-200 pl-3">
+                      <input
+                        type="checkbox"
+                        checked={hideAgua}
+                        onChange={(e) => setHideAgua(e.target.checked)}
+                        className="rounded text-zinc-900 border-zinc-300 focus:ring-0"
+                      />
+                      <span>Ocultar Água Desmineralizada (Poço)</span>
+                    </label>
                   </div>
                 );
               })()}
@@ -5145,7 +5313,9 @@ export function PlanejamentoSemanalTab({
                   Nenhum insumo ou embalagem encontrado para as ordens agendadas.
                 </div>
               ) : (() => {
+                const isAguaItem = (item: InsumoConsumoItem) => item.code === '9.15.064' || item.description.toUpperCase().includes('AGUA DESMINERALIZADA') || item.description.toUpperCase().includes('ÁGUA DESMINERALIZADA');
                 const filtered = materialsList.filter(item => {
+                  if (hideAgua && isAguaItem(item)) return false;
                   if (materialsFilterTab === 'FALTAS' && !item.isMissing) return false;
                   if (materialsFilterTab === 'MP' && item.category !== 'materia_prima') return false;
                   if (materialsFilterTab === 'EMB' && item.category !== 'embalagem') return false;
@@ -5278,6 +5448,18 @@ export function PlanejamentoSemanalTab({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Drawer autônomo de Detalhes do Produto */}
+      {internalDrawerOpen && internalDrawerCode && (
+        <ProductDetailsDrawer
+          productCode={internalDrawerCode}
+          isOpen={internalDrawerOpen}
+          onClose={() => {
+            setInternalDrawerOpen(false);
+            setInternalDrawerCode(null);
+          }}
+        />
       )}
     </div>
   );

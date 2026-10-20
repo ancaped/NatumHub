@@ -51,8 +51,25 @@ ssh "$ZIMAOS_USER@$ZIMAOS_HOST" "sudo docker compose -f /var/lib/casaos/apps/$ZI
 
 echo ">> Verificando healthcheck em http://$ZIMAOS_HOST:$PORT/api/health..."
 sleep 2
-curl -s "http://$ZIMAOS_HOST:$PORT/api/health" && echo ""
+HEALTH_RESP=$(curl -s "http://$ZIMAOS_HOST:$PORT/api/health" || echo "")
+echo "$HEALTH_RESP"
+
+# Envia notificação ao sino do Nexus (hub_notifications)
+NOTIF_ID="notif_$(date +%s%N | cut -b1-13)"
+NOW=$(date -u "+%Y-%m-%d %H:%M:%S")
+RELEASE_NOTES=$(git log -1 --format="• %s" HEAD 2>/dev/null || echo "• Atualização do sistema")
+SUCCESS_MSG="Deploy realizado com sucesso no ZimaOS físico (nexus.local).
+
+Notas da versão:
+${RELEASE_NOTES}"
+
+ssh "$ZIMAOS_USER@$ZIMAOS_HOST" "sudo docker exec -i nexus-postgres-prod psql -U postgres -d natumhub -c \"
+INSERT INTO hub_notifications (id, module_key, kind, title, message, created_at)
+VALUES ('$NOTIF_ID', 'desenvolvimento', 'success', 'Nexus Atualizado (v${APP_VERSION})', \\\$\\\$$SUCCESS_MSG\\\$\\\$, '$NOW')
+ON CONFLICT DO NOTHING;\"" 2>/dev/null || true
+
+echo ">> Notificação enviada para o sino do sistema (hub_notifications)."
 echo "============================================================"
-echo "✓ Deploy de $TARGET_SERVICE concluído com sucesso!"
+echo "✓ Deploy de $TARGET_SERVICE (v$APP_VERSION) concluído com sucesso!"
 echo "============================================================"
 

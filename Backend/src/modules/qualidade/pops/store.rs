@@ -806,10 +806,50 @@ pub async fn save_logo(
     .await
     .map_err(|e| e.to_string())?;
 
+    // Salva também no banco em base64 para persistência total em pg_dump
+    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes);
+    let mime = if rel.ends_with(".svg") {
+        "image/svg+xml"
+    } else if rel.ends_with(".png") {
+        "image/png"
+    } else if rel.ends_with(".webp") {
+        "image/webp"
+    } else if rel.ends_with(".gif") {
+        "image/gif"
+    } else {
+        "image/jpeg"
+    };
+    let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('report_logo_base64', $1) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value")
+        .bind(&b64)
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('report_logo_mime', $1) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value")
+        .bind(mime)
+        .execute(pool)
+        .await;
+
     get_settings(pool).await
 }
 
 pub async fn logo_bytes(pool: &PgPool) -> Result<(Vec<u8>, String), String> {
+    // 1. Tenta servir direto do PostgreSQL (persistência atômica no banco)
+    let row: Option<(String, String)> = sqlx::query_as(
+        "SELECT s1.value, COALESCE(s2.value, 'image/png') FROM settings s1 LEFT JOIN settings s2 ON s2.key = 'report_logo_mime' WHERE s1.key = 'report_logo_base64'"
+    )
+    .fetch_optional(pool)
+    .await
+    .unwrap_or(None);
+
+    if let Some((b64, mime)) = row {
+        let trimmed = b64.trim();
+        if !trimmed.is_empty() {
+            if let Ok(bytes) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, trimmed) {
+                return Ok((bytes, mime));
+            }
+        }
+    }
+
+    // 2. Fallback para arquivo em disco (Saves/)
     let settings = get_settings(pool).await?;
     let rel = settings
         .logo_rel_path
@@ -827,6 +867,18 @@ pub async fn logo_bytes(pool: &PgPool) -> Result<(Vec<u8>, String), String> {
     } else {
         "image/jpeg"
     };
+
+    // Backfill no banco
+    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+    let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('report_logo_base64', $1) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value")
+        .bind(&b64)
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("INSERT INTO settings (key, value) VALUES ('report_logo_mime', $1) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value")
+        .bind(mime)
+        .execute(pool)
+        .await;
+
     Ok((bytes, mime.into()))
 }
 

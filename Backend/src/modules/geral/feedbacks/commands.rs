@@ -359,6 +359,10 @@ pub async fn save_feedback_from_user_query(
     input: &FeedbackSubmitInput,
     requested_by: &str,
 ) -> Result<(), String> {
+    let _ = sqlx::query("ALTER TABLE feedbacks ADD COLUMN IF NOT EXISTS module_key TEXT")
+        .execute(&pool)
+        .await;
+
     let max_prio: i32 = sqlx::query_scalar(
         "SELECT COALESCE(MAX(priority), 99) FROM feedbacks WHERE status IN ('pending','queued','in_progress')",
     )

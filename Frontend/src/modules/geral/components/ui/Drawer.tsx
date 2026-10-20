@@ -191,3 +191,5 @@ export default function Drawer({
     </div>
   );
 }
+
+export { Drawer };

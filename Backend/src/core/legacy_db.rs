@@ -781,6 +781,35 @@ async fn env_or_setting(pool: &PgPool, env_key: &str, setting_key: &str, default
     default.to_string()
 }
 
+async fn try_connect_tiberius(
+    host: &str,
+    port: u16,
+    user: &str,
+    password: &str,
+    database: &str,
+    timeout_secs: u64,
+) -> anyhow::Result<Client<tokio_util::compat::Compat<TcpStream>>> {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_secs),
+        async {
+            let mut config = Config::new();
+            config.host(host);
+            config.port(port);
+            config.authentication(tiberius::AuthMethod::sql_server(user, password));
+            config.database(database);
+            config.trust_cert();
+
+            let tcp = TcpStream::connect(config.get_addr()).await?;
+            tcp.set_nodelay(true)?;
+
+            let client = Client::connect(config, tcp.compat_write()).await?;
+            Ok(client)
+        },
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("Timeout ({timeout_secs}s) ao conectar em {host}:{port}"))?
+}
+
 pub async fn connect_sql_server(pool: &PgPool) -> anyhow::Result<Client<tokio_util::compat::Compat<TcpStream>>> {
     // Defaults neutros — nunca embutir senhas reais no binário.
     // Credenciais devem vir de settings (UI) ou variáveis de ambiente NATUM_SQL_*.
@@ -789,6 +818,7 @@ pub async fn connect_sql_server(pool: &PgPool) -> anyhow::Result<Client<tokio_ut
     let user = env_or_setting(pool, "NATUM_SQL_USER", "sql_user", "").await;
     let password = env_or_setting(pool, "NATUM_SQL_PASSWORD", "sql_password", "").await;
     let database = env_or_setting(pool, "NATUM_SQL_DATABASE", "sql_database", "").await;
+    let fallback_host = env_or_setting(pool, "NATUM_SQL_FALLBACK_HOST", "sql_fallback_host", "100.120.161.52").await;
 
     if host.trim().is_empty() || user.trim().is_empty() || password.is_empty() || database.trim().is_empty() {
         anyhow::bail!(
@@ -799,18 +829,32 @@ pub async fn connect_sql_server(pool: &PgPool) -> anyhow::Result<Client<tokio_ut
     
     let port: u16 = port_str.parse().unwrap_or(1433);
 
-    let mut config = Config::new();
-    config.host(&host);
-    config.port(port);
-    config.authentication(tiberius::AuthMethod::sql_server(&user, &password));
-    config.database(&database);
-    config.trust_cert(); // trust local SQL Server certs
+    // 1. Tenta host principal (rede local da fábrica) com timeout rápido de 3s
+    match try_connect_tiberius(&host, port, &user, &password, &database, 3).await {
+        Ok(client) => return Ok(client),
+        Err(e) => {
+            eprintln!("[ERP SQL Server] Host principal ({host}:{port}) inacessível: {e}");
+        }
+    }
 
-    let tcp = TcpStream::connect(config.get_addr()).await?;
-    tcp.set_nodelay(true)?;
+    // 2. Se falhar e fallback estiver configurado (ex: Tailscale PC Qualidade), tenta fallback
+    let trimmed_fallback = fallback_host.trim();
+    if !trimmed_fallback.is_empty() && trimmed_fallback != host.trim() {
+        eprintln!("[ERP SQL Server] Tentando host fallback ({trimmed_fallback}:{port})...");
+        match try_connect_tiberius(trimmed_fallback, port, &user, &password, &database, 5).await {
+            Ok(client) => {
+                eprintln!("[ERP SQL Server] Conectado com sucesso via host fallback ({trimmed_fallback}:{port})!");
+                return Ok(client);
+            }
+            Err(e) => {
+                eprintln!("[ERP SQL Server] Host fallback ({trimmed_fallback}:{port}) também falhou: {e}");
+            }
+        }
+    }
 
-    let client = Client::connect(config, tcp.compat_write()).await?;
-    Ok(client)
+    anyhow::bail!(
+        "Não foi possível conectar ao SQL Server do ERP ({host}:{port}). Verifique se está na rede da fábrica ou com ponte ativa."
+    );
 }
 
 pub async fn sync_from_sql_server(pool: &PgPool, requested: SyncMode) -> anyhow::Result<SyncResult> {

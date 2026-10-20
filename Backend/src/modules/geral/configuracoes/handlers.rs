@@ -140,6 +140,8 @@ pub async fn save_erp_sync_schedule_handler(
 
 const REPORT_LOGO_KEY: &str = "report_logo_rel_path";
 const POPS_LOGO_KEY: &str = "pops_logo_rel_path";
+const REPORT_LOGO_BASE64_KEY: &str = "report_logo_base64";
+const REPORT_LOGO_MIME_KEY: &str = "report_logo_mime";
 
 fn logo_mime(rel: &str) -> &'static str {
     if rel.ends_with(".svg") {
@@ -170,6 +172,35 @@ async fn logo_rel(state: &AppState) -> Result<Option<String>, String> {
 }
 
 pub async fn get_report_logo(State(state): State<Arc<AppState>>) -> Response {
+    // 1. Tenta servir direto do PostgreSQL (persistência no banco/backup)
+    if let Ok(Some(b64)) = state.db.get_setting(REPORT_LOGO_BASE64_KEY).await {
+        let trimmed = b64.trim();
+        if !trimmed.is_empty() {
+            if let Ok(bytes) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, trimmed) {
+                let mime = state
+                    .db
+                    .get_setting(REPORT_LOGO_MIME_KEY)
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| "image/png".to_string());
+                return Response::builder()
+                    .status(StatusCode::OK)
+                    .header(header::CONTENT_TYPE, mime)
+                    .header(header::CACHE_CONTROL, "no-store")
+                    .body(Body::from(bytes))
+                    .unwrap_or_else(|_| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(json!({ "error": "Falha ao ler a logo" })),
+                        )
+                            .into_response()
+                    });
+            }
+        }
+    }
+
+    // 2. Fallback: tenta ler do disco (Saves/)
     let rel = match logo_rel(&state).await {
         Ok(Some(rel)) => rel,
         Ok(None) => {
@@ -189,18 +220,26 @@ pub async fn get_report_logo(State(state): State<Arc<AppState>>) -> Response {
     };
     let abs = crate::core::app_config::saves_dir().join(&rel);
     match std::fs::read(&abs) {
-        Ok(bytes) => Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, logo_mime(&rel))
-            .header(header::CACHE_CONTROL, "no-store")
-            .body(Body::from(bytes))
-            .unwrap_or_else(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({ "error": "Falha ao ler a logo" })),
-                )
-                    .into_response()
-            }),
+        Ok(bytes) => {
+            // Backfill no PostgreSQL para backups futuros
+            let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+            let mime = logo_mime(&rel);
+            let _ = state.db.save_setting(REPORT_LOGO_BASE64_KEY, &b64).await;
+            let _ = state.db.save_setting(REPORT_LOGO_MIME_KEY, mime).await;
+
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, mime)
+                .header(header::CACHE_CONTROL, "no-store")
+                .body(Body::from(bytes))
+                .unwrap_or_else(|_| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({ "error": "Falha ao ler a logo" })),
+                    )
+                        .into_response()
+                })
+        }
         Err(_) => (
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "Arquivo da logo não encontrado" })),
@@ -282,5 +321,11 @@ pub async fn upload_report_logo(
         )
             .into_response();
     }
+    // Salva também no banco em base64 para persistência total em pg_dump
+    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data);
+    let mime = logo_mime(&rel);
+    let _ = state.db.save_setting(REPORT_LOGO_BASE64_KEY, &b64).await;
+    let _ = state.db.save_setting(REPORT_LOGO_MIME_KEY, mime).await;
+
     (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
 }

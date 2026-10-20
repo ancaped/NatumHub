@@ -1268,6 +1268,8 @@ pub fn is_public_path(path: &str) -> bool {
             | "/api/auth/session"
             | "/api/auth/setup-status"
             | "/api/auth/setup-supervisor"
+            | "/api/settings/report-logo"
+            | "/api/qualidade/pops/settings/logo"
     ) || path.starts_with("/api/hub/client-config")
         || path == "/api/hub/public-config"
         || path.starts_with("/api/hub/feedbacks")
@@ -1316,7 +1318,7 @@ pub fn requires_supervisor(path: &str, method: &str) -> bool {
     if path.starts_with("/api/auth/devices/manage") {
         return matches!(method, "GET" | "PUT");
     }
-    if path == "/api/settings/report-logo" {
+    if path == "/api/settings/report-logo" || path == "/api/qualidade/pops/settings/logo" {
         return matches!(method, "POST" | "PUT" | "DELETE");
     }
     if !matches!(method, "POST" | "PUT" | "DELETE" | "PATCH") {
