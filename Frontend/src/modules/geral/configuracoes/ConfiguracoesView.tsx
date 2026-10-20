@@ -341,7 +341,7 @@ export default function ConfiguracoesView({
         text:
           (donePayload.repaired ?? 0) > 0
             ? `Estoque: ${donePayload.checked} conferidos, ${donePayload.repaired} divergências corrigidas${bySrc}. Recarregue Compras.`
-            : `0 divergências de estoque: ${donePayload.checked} itens batem com o estoque recalculado do ERP.`,
+            : `0 divergências de estoque: ${donePayload.checked} itens batem com nQtdeEstoque do ERP.`,
         type: 'success',
       });
     } catch (e: unknown) {
@@ -407,7 +407,7 @@ export default function ConfiguracoesView({
       });
       setMessage({
         text: data.match
-          ? `${code}: Hub bate com o estoque recalculado do ERP.`
+          ? `${code}: Hub bate com nQtdeEstoque do ERP.`
           : `${code}: divergência Hub × ERP — use Corrigir do ERP se o recálculo estiver certo.`,
         type: data.match ? 'success' : 'error',
       });

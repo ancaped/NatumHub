@@ -1061,9 +1061,9 @@ WHERE cReferencia IS NOT NULL AND cReferencia <> '';
         });
     }
 
-    // D. Posição de estoque dos insumos: recálculo dos movimentos (não o cache nQtdeEstoque).
+    // D. Posição de estoque dos insumos: nQtdeEstoque da tela do ERP.
     let query_stocks = d1_insumos_stock_sql(false);
-    println!("Step D1: Querying Insumos Stocks (recálculo de movimentos)");
+    println!("Step D1: Querying Insumos Stocks (nQtdeEstoque)");
     let stream = client.query(query_stocks.as_str(), &[]).await?;
     let db_rows_stocks = stream.into_first_result().await?;
     let mut stocks_list = Vec::new();
@@ -2374,7 +2374,7 @@ WHERE {so2_date_filter};
             .await?;
         }
         eprintln!(
-            "[ERP Sync] Snapshots gravados: {count_snapshots} (insumos via recálculo de movimentos)"
+            "[ERP Sync] Snapshots gravados: {count_snapshots} (insumos via nQtdeEstoque)"
         );
     }
 
@@ -3577,12 +3577,12 @@ pub async fn create_database_dump(pool: &PgPool) -> anyhow::Result<crate::models
 pub struct ErpStockLive {
     pub source: String,
     pub code: String,
-    /// Saldo usado pelo Hub. Insumos: recálculo dos movimentos. Materiais e produtos: `nQtdeEstoque`.
+    /// Saldo usado pelo Hub. Insumos, materiais e produtos: `nQtdeEstoque` da tela do ERP.
     pub stock_qty: f64,
     pub reserved_qty: f64,
     pub in_production: f64,
     pub in_orders: f64,
-    /// Só insumos: cache `nQtdeEstoque` (pode divergir da tela).
+    /// Só insumos: mesma coluna `nQtdeEstoque` da tela, repetida para a conferência.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stock_qty_raw: Option<f64>,
     /// Só insumos: `nQtdeEstoqueA` (diagnóstico).
@@ -3597,11 +3597,15 @@ pub async fn fetch_erp_stock_live(pool: &PgPool, code: &str) -> anyhow::Result<O
     }
     let mut client = connect_sql_server(pool).await?;
 
-    // Recálculo dos movimentos. Coluna 5 = cache nQtdeEstoque; coluna 6 = nQtdeEstoqueA.
+    // Coluna 1 = nQtdeEstoque da tela. Coluna 5 repete o cache. Coluna 6 = nQtdeEstoqueA.
     let query_insumo = d1_insumos_stock_sql(true);
     let stream = client.query(query_insumo.as_str(), &[&code]).await?;
     let rows = stream.into_first_result().await?;
-    if let Some(row) = rows.first() {
+    let matched = rows.iter().find(|row| {
+        let row_code: &str = row.get(0).unwrap_or("");
+        row_code.trim().eq_ignore_ascii_case(code)
+    });
+    if let Some(row) = matched {
         return Ok(Some(ErpStockLive {
             source: "Insumos".into(),
             code: code.to_string(),
