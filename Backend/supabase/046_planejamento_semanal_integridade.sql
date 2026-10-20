@@ -39,7 +39,8 @@ SELECT
             'Item planejado aparece em Pesagem e Produção sem aprovação prévia',
             'Reator 100kg: no máximo 1 ordem por dia',
             'Bombona: até 200 kg',
-            'Sem ordenação automática por cor'
+            'Sem ordenação automática por cor',
+            'Os quadros leem reatorId do planejamento'
         )
     )
 FROM mapa_modules

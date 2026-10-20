@@ -124,6 +124,8 @@ export interface AcompanhamentoLote {
   etapas_status?: any | null;
   planningOrdem?: number | null;
   planning_ordem?: number | null;
+  reatorId?: string | null;
+  reator_id?: string | null;
 }
 
 export function getLotePlanningOrdem(lote: AcompanhamentoLote): number {
@@ -140,6 +142,13 @@ export function getLotePlanningOrdem(lote: AcompanhamentoLote): number {
     }
   }
   return 999999;
+}
+
+export function getLoteReator(lote: { reatorId?: string | null; reator_id?: string | null; details?: string | null }): string | null {
+  const direct = (lote.reatorId || lote.reator_id || '').trim();
+  if (direct) return direct;
+  const match = lote.details?.match(/Reator:\s*([^\s|]+)/i);
+  return match?.[1] || null;
 }
 
 export interface LoteAdiadoRegistro {
@@ -4776,8 +4785,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     options?: { isConsolidatedBatch?: boolean }
   ) => {
     if (!lote || !lote.loteNumber) return null;
-    const reatorMatch = (lote as any).details?.match(/Reator:\s*([^\s|]+)/i);
-    const reatorVal = reatorMatch ? reatorMatch[1] : null;
+    const reatorVal = getLoteReator(lote as AcompanhamentoLote);
 
     // Multi-produto consolidado apenas em Pesagem e Produção quando o lote foi consolidado com múltiplos itens
     const isMultiBatch = Boolean(

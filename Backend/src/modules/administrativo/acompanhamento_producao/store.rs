@@ -151,7 +151,8 @@ pub async fn list_acompanhamento(
                 sm.details,
                 'Produção' AS default_category,
                 NULL::text AS planning_descricao,
-                NULL::int4 AS planning_ordem
+                NULL::int4 AS planning_ordem,
+                NULL::text AS reator_id
             FROM stock_movements sm
             WHERE sm.item_type = 'produto' AND sm.movement_type = 'entrada'
               AND NOT EXISTS (
@@ -174,7 +175,8 @@ pub async fn list_acompanhamento(
                 'Laudo ERP',
                 'Produção' AS default_category,
                 p_ell.descricao AS planning_descricao,
-                NULL::int4 AS planning_ordem
+                NULL::int4 AS planning_ordem,
+                NULL::text AS reator_id
             FROM erp_lotes_laudos ell
             LEFT JOIN produtos p_ell ON ell.product_code = p_ell.codigo
             WHERE NOT EXISTS (
@@ -201,6 +203,7 @@ pub async fn list_acompanhamento(
             m.date,
             m.details,
             m.planning_ordem,
+            m.reator_id,
             CASE 
                 WHEN m.planning_id IS NOT NULL AND (c.custom_status IS NULL OR c.custom_status IN ('Aberto', 'Pendente', 'Produzido', 'Finalizada', 'Ordem Finalizada')) THEN 'Pesagem'
                 ELSE COALESCE(c.custom_status, 'Pesagem')
@@ -292,7 +295,8 @@ pub async fn list_acompanhamento(
                     ELSE 'Produção'
                 END AS default_category,
                 COALESCE(sm.item_descricao, pp.descricao) AS planning_descricao,
-                COALESCE(pp.ordem_sequencia, 1)::int4 AS planning_ordem
+                COALESCE(pp.ordem_sequencia, 1)::int4 AS planning_ordem,
+                NULLIF(TRIM(pp.reator_id), '') AS reator_id
             FROM producao_planejamento_semanal pp
             LEFT JOIN produtos p_calc ON pp.codigo_produto = p_calc.codigo
             LEFT JOIN erp_lotes_laudos ell ON (pp.lote_erp IS NOT NULL AND TRIM(pp.lote_erp) != '' AND ell.lote = TRIM(pp.lote_erp) AND (ell.product_code = pp.codigo_produto OR ell.product_code IS NULL))
@@ -316,7 +320,8 @@ pub async fn list_acompanhamento(
                 COALESCE(sm.details, 'Status: PG') AS details,
                 COALESCE(c.category, 'Produção') AS default_category,
                 COALESCE(sm.item_descricao, p_ell.descricao) AS planning_descricao,
-                NULL::int4 AS planning_ordem
+                NULL::int4 AS planning_ordem,
+                NULL::text AS reator_id
             FROM lote_custom_status c
             LEFT JOIN (
                 SELECT sm2.document_number, sm2.item_code, sm2.quantity, sm2.date, sm2.details, p2.descricao AS item_descricao
@@ -474,6 +479,9 @@ pub async fn list_acompanhamento(
         let quadros_ocultos: Option<serde_json::Value> = row.try_get::<Option<serde_json::Value>, _>("quadros_ocultos").ok().flatten();
         let etapas_status: Option<serde_json::Value> = row.try_get::<Option<serde_json::Value>, _>("etapas_status").ok().flatten();
         let planning_ordem: Option<i32> = row.try_get::<Option<i32>, _>("planning_ordem").ok().flatten();
+        let reator_id: Option<String> = row.try_get::<Option<String>, _>("reator_id").ok().flatten()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
 
         // Extrai Unidades de details (se presente)
         let mut unidades: Option<f64> = None;
@@ -557,6 +565,7 @@ pub async fn list_acompanhamento(
             quadros_ocultos,
             etapas_status,
             planning_ordem,
+            reator_id,
         });
     }
 

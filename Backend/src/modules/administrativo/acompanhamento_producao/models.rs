@@ -102,6 +102,8 @@ pub struct AcompanhamentoLoteItem {
     pub quadros_ocultos: Option<serde_json::Value>,
     pub etapas_status: Option<serde_json::Value>,
     pub planning_ordem: Option<i32>,
+    #[serde(default)]
+    pub reator_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
