@@ -18,7 +18,8 @@ RUN npm run build
 FROM rust:slim-bookworm AS backend-builder
 ARG APP_VERSION=0.2.0
 ENV APP_VERSION=$APP_VERSION
-ENV CARGO_BUILD_JOBS=2
+# 1 job: o rustc fica serial e o pico de memória cai (o servidor tem ~3,7 GB de RAM compartilhados com Postgres e ai-memory)
+ENV CARGO_BUILD_JOBS=1
 ENV RUST_BACKTRACE=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
