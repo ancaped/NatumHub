@@ -14,6 +14,7 @@ import { printHtmlViaIframe } from '../../../geral/lib/printCleanup';
 import { loadNatumLogoDataUrl } from '../../../geral/lib/logoUtils';
 import { getHoliday, getBrazilHolidaysForYear, HolidayInfo } from '../../../geral/lib/brazilHolidays';
 import { ProductDetailsDrawer } from './ProductDetailsDrawer';
+import CoberturaInsumosDrawer from './CoberturaInsumosDrawer';
 
 export interface InsumoConsumoItem {
   code: string;
@@ -664,6 +665,7 @@ export function PlanejamentoSemanalTab({
 
   // Modal Relatório de Consumo de Insumos & Embalagens da Semana
   const [materialsReportOpen, setMaterialsReportOpen] = useState(false);
+  const [coberturaAberta, setCoberturaAberta] = useState(false);
   const [loadingMaterialsReport, setLoadingMaterialsReport] = useState(false);
   const [materialsList, setMaterialsList] = useState<InsumoConsumoItem[]>([]);
   const [materialsFilterTab, setMaterialsFilterTab] = useState<'ALL' | 'FALTAS' | 'MP' | 'EMB'>('ALL');
@@ -1481,6 +1483,25 @@ export function PlanejamentoSemanalTab({
     } catch {
       setTechnicalModalItem(prev => prev ? { ...prev, loadingUltimoLote: false } : null);
     }
+  };
+
+  // Abre o modal "Vincular lote ERP" já com o número que a cobertura de insumos sugeriu.
+  const handleVincularSugerido = async (ordemId: string, lote: string) => {
+    const item = plannedItems.find(i => i.id === ordemId);
+    if (!item) return;
+    setCoberturaAberta(false);
+    const mesmaCelula = plannedItems.filter(i => i.reator_id === item.reator_id && i.data_planejada === item.data_planejada);
+    const grupo = groupCellItems(mesmaCelula).find(g => g.items.some(i => i.id === item.id));
+    await handleOpenLinkLoteModal(item, grupo && grupo.items.length > 1 ? grupo.items : undefined);
+    setLinkLoteModalItem(prev => (prev ? { ...prev, lote } : prev));
+  };
+
+  // Texto curto de uma ordem (produto, data, kg) para o Drawer de cobertura.
+  const descreverOrdem = (id: string): string => {
+    const it = plannedItems.find(i => i.id === id);
+    if (!it) return id;
+    const data = (it.data_planejada || '').split('T')[0].split('-').reverse().join('/');
+    return `${it.codigo_produto} — ${it.descricao || 'sem descrição'} · ${data} · ${it.quantidade_planejada} kg`;
   };
 
   const handleSaveTechnicalModal = async () => {
@@ -3106,6 +3127,15 @@ export function PlanejamentoSemanalTab({
           >
             <Boxes size={14} className="text-zinc-500" />
             <span>Insumos da Semana</span>
+          </button>
+
+          <button
+            onClick={() => setCoberturaAberta(true)}
+            className="bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+            title="Os insumos cobrem cada produção no dia planejado? Considera reserva do ERP, chegadas de pedidos e ordens manuais"
+          >
+            <ShieldCheck size={14} className="text-zinc-500" />
+            <span>Cobertura de Insumos</span>
           </button>
 
           <button
@@ -5186,6 +5216,14 @@ export function PlanejamentoSemanalTab({
 
 
       {/* MODAL: RELATÓRIO DE CONSUMO DE MATÉRIAS-PRIMAS E EMBALAGENS */}
+      <CoberturaInsumosDrawer
+        isOpen={coberturaAberta}
+        onClose={() => setCoberturaAberta(false)}
+        semana={currentWeekKey}
+        descreverOrdem={descreverOrdem}
+        onVincular={handleVincularSugerido}
+      />
+
       {materialsReportOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-5xl w-full flex flex-col max-h-[90vh] border border-zinc-200 overflow-hidden">
