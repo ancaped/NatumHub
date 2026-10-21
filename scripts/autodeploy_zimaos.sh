@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # scripts/autodeploy_zimaos.sh - GitOps autônomo do Nexus no ZimaOS (roda a cada 2 min pelo systemd).
 #
+# O servidor NUNCA compila. O GitHub Actions (.github/workflows/build-image.yml) testa, compila e publica
+# a imagem em ghcr.io/ancaped/nexus:sha-<7 do commit>; este script só puxa a imagem pronta, troca o
+# container, roda o smoke test e notifica no sino do Nexus. Compilar aqui derrubou a produção em 20/10/2026
+# (3,7 GB de RAM compartilhados com Postgres e ai-memory).
+#
 # Garantias:
-#  - O estado é um arquivo (last_deployed), nunca o HEAD do clone: um build morto no meio é refeito.
-#  - O build usa uma cópia do commit (git archive); o clone só avança depois do Gate 2 aprovado.
-#  - Gate 1 tem tempo máximo próprio, menor que o do systemd, e deixa log e notificação ao falhar.
-#  - Falhas repetidas do mesmo commit têm espera e limite de tentativas.
-#  - Gate 2 reprovado volta a imagem anterior (nexus:prod-prev).
-#  - O build roda num cgroup próprio (docker build --cgroup-parent nexus-build.slice) com CPUWeight/IOWeight
-#    baixos e memory.high, para não sufocar Postgres, ai-memory e nexus-prod. Os passos do build NÃO
-#    ficam sob docker.service (testado), então limitar o docker.service não adiantaria.
+#  - O estado é um arquivo (last_deployed), nunca o HEAD do clone: só avança depois do Gate 2 aprovado.
+#  - Imagem ainda não publicada (CI rodando ou falhou): espera em silêncio e avisa uma vez após 60 min.
+#  - Falhas do mesmo commit têm espera e limite de tentativas.
+#  - Gate 2 reprovado restaura a imagem anterior (nexus:prod-prev).
+#  - Se o script for morto (systemd, stop manual), registra e notifica em vez de ficar mudo.
 #
 # Instalação: sudo install -m 755 scripts/autodeploy_zimaos.sh /DATA/AppData/nexus/scripts/autodeploy.sh
 # Retentar um commit que esgotou as tentativas: sudo rm /DATA/AppData/nexus/saves-prod/.autodeploy/failed
@@ -19,7 +21,6 @@ set -uo pipefail
 export PATH="${EXTRA_PATH:+$EXTRA_PATH:}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 REPO_DIR="${REPO_DIR:-/DATA/AppData/nexus/repo}"
-BUILD_DIR="${BUILD_DIR:-/DATA/AppData/nexus/build-src}"
 COMPOSE_FILE="${COMPOSE_FILE:-/var/lib/casaos/apps/custom__nexusprod/docker-compose.yml}"
 DATA_DIR="${DATA_DIR:-/DATA/AppData/nexus/saves-prod}"
 STATE_DIR="${STATE_DIR:-$DATA_DIR/.autodeploy}"
@@ -28,19 +29,20 @@ LOCK_FILE="${LOCK_FILE:-/run/nexus-autodeploy.lock}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3001/api/health}"
 REPO_URL="${REPO_URL:-https://github.com/ancaped/NatumHub.git}"
 BRANCH="${BRANCH:-main}"
-IMAGE_TAG="nexus:prod"
+IMAGE_REPO="${IMAGE_REPO:-ghcr.io/ancaped/nexus}"
+IMAGE_TAG="nexus:prod"                    # tag local usada pelo docker-compose (pull_policy: never)
+ACTIONS_URL="https://github.com/ancaped/NatumHub/actions"
 
-GATE1_TIMEOUT="${GATE1_TIMEOUT:-3600}"   # segundos; precisa ser menor que TimeoutStartSec da unidade
-RETRY_WAIT="${RETRY_WAIT:-1800}"         # espera entre tentativas do mesmo commit
-MAX_ATTEMPTS="${MAX_ATTEMPTS:-3}"        # tentativas por commit antes de desistir
-BUILD_CGROUP_PARENT="${BUILD_CGROUP_PARENT:-nexus-build.slice}"     # vazio desliga o limite
-BUILD_CGROUP_DIR="${BUILD_CGROUP_DIR:-/sys/fs/cgroup/$BUILD_CGROUP_PARENT}"
-BUILD_CPU_WEIGHT="${BUILD_CPU_WEIGHT:-20}"      # padrão do sistema é 100
-BUILD_IO_WEIGHT="${BUILD_IO_WEIGHT:-20}"
-BUILD_MEMORY_HIGH="${BUILD_MEMORY_HIGH:-2200M}" # acima disso o kernel reclama/swapa só o build (não mata)
+PULL_TIMEOUT="${PULL_TIMEOUT:-900}"       # segundos para baixar a imagem
+RETRY_WAIT="${RETRY_WAIT:-1800}"          # espera entre tentativas do mesmo commit
+MAX_ATTEMPTS="${MAX_ATTEMPTS:-3}"         # tentativas por commit antes de desistir
+CI_WAIT_NOTIFY="${CI_WAIT_NOTIFY:-3600}"  # sem imagem após isso: avisa (uma vez) que o CI não publicou
+CI_LOG_EVERY="${CI_LOG_EVERY:-1800}"      # no máximo uma linha de log "aguardando CI" por esse intervalo
 
 DEPLOYED_FILE="$STATE_DIR/last_deployed"
 FAILED_FILE="$STATE_DIR/failed"
+CI_NOTIFIED_FILE="$STATE_DIR/ci_wait_notified"
+CI_LOGGED_FILE="$STATE_DIR/ci_wait_logged"
 
 log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE"; }
 
@@ -63,23 +65,8 @@ send_hub_notification() {
     rm -f "$sql_file"
 }
 
-# --- Limites de recurso do build: escreve direto nos arquivos do cgroup v2 ---
-BUILD_CGROUP_ARG=""
-set_build_limits() {
-    [ -n "$BUILD_CGROUP_PARENT" ] || return 0
-    if mkdir -p "$BUILD_CGROUP_DIR" 2>/dev/null \
-        && echo "$BUILD_CPU_WEIGHT" > "$BUILD_CGROUP_DIR/cpu.weight" 2>/dev/null \
-        && echo "$BUILD_MEMORY_HIGH" > "$BUILD_CGROUP_DIR/memory.high" 2>/dev/null; then
-        echo "default $BUILD_IO_WEIGHT" > "$BUILD_CGROUP_DIR/io.weight" 2>/dev/null || true
-        BUILD_CGROUP_ARG="$BUILD_CGROUP_PARENT"
-        log "[GITOPS] Limites do build aplicados (cpu.weight=$BUILD_CPU_WEIGHT io.weight=$BUILD_IO_WEIGHT memory.high=$BUILD_MEMORY_HIGH)."
-    else
-        BUILD_CGROUP_ARG=""
-        log "[GITOPS] Aviso: não consegui preparar o cgroup de limites; o build seguirá sem eles."
-    fi
-}
-
 # --- Estado de falhas: "<hash> <epoch> <tentativas>" ---
+FAIL_ATTEMPTS=0
 record_failure() {
     local hash="$1" attempts=1 prev_hash prev_at prev_n
     if [ -f "$FAILED_FILE" ] && read -r prev_hash prev_at prev_n < "$FAILED_FILE" && [ "$prev_hash" = "$hash" ]; then
@@ -130,15 +117,84 @@ fi
 [ "$REMOTE" = "$DEPLOYED" ] && exit 0
 
 SHORT_HASH="${REMOTE:0:7}"
+IMAGE_REF="$IMAGE_REPO:sha-$SHORT_HASH"
 
-# Espera e limite de tentativas para o mesmo commit.
-FAIL_ATTEMPTS=0
+# Espera e limite de tentativas para o mesmo commit (falhas reais, não "CI ainda não terminou").
 if [ -f "$FAILED_FILE" ] && read -r F_HASH F_AT F_N < "$FAILED_FILE" && [ "$F_HASH" = "$REMOTE" ]; then
     if [ "${F_N:-0}" -ge "$MAX_ATTEMPTS" ]; then exit 0; fi
     if [ $(( $(date +%s) - ${F_AT:-0} )) -lt "$RETRY_WAIT" ]; then exit 0; fi
 fi
 
-APP_VERSION="0.2.$(git rev-list --count "$REMOTE")"
+PHASE="pull"
+on_exit() {
+    local rc=$?
+    trap - EXIT
+    if [ "$PHASE" = "pull" ] || [ "$PHASE" = "gate2" ]; then
+        log "❌ [GITOPS] Execução INTERROMPIDA na fase '$PHASE' (commit $SHORT_HASH)."
+        record_failure "$REMOTE"
+        send_hub_notification "error" "Deploy interrompido" \
+"O deploy do commit ${SHORT_HASH} foi interrompido na fase '${PHASE}' (tentativa ${FAIL_ATTEMPTS}/${MAX_ATTEMPTS}).
+Confira se a versão em execução está correta no Nexus."
+    fi
+    exit "$rc"
+}
+trap on_exit EXIT
+trap 'exit 143' TERM INT
+
+# --- Gate 1: puxar a imagem que o CI publicou ---
+PULL_LOG="$STATE_DIR/pull_${SHORT_HASH}.log"
+timeout --kill-after=30 "$PULL_TIMEOUT" docker pull "$IMAGE_REF" > "$PULL_LOG" 2>&1
+PULL_RC=$?
+
+if [ "$PULL_RC" -ne 0 ]; then
+    PHASE="espera"
+    if grep -qiE "manifest unknown|not found|name unknown" "$PULL_LOG"; then
+        # O CI ainda está compilando (ou falhou): não é falha do deploy.
+        NOW=$(date +%s)
+        COMMIT_TS=$(git log -1 --format=%ct "$REMOTE" 2>/dev/null || echo "$NOW")
+        AGE=$(( NOW - COMMIT_TS ))
+        LAST_LOG=$(cat "$CI_LOGGED_FILE" 2>/dev/null || echo 0)
+        if [ $(( NOW - LAST_LOG )) -ge "$CI_LOG_EVERY" ]; then
+            log "[GITOPS] Aguardando o CI publicar a imagem de $SHORT_HASH ($(( AGE / 60 )) min desde o commit)."
+            echo "$NOW" > "$CI_LOGGED_FILE"
+        fi
+        if [ "$AGE" -ge "$CI_WAIT_NOTIFY" ] && [ "$(cat "$CI_NOTIFIED_FILE" 2>/dev/null)" != "$REMOTE" ]; then
+            echo "$REMOTE" > "$CI_NOTIFIED_FILE"
+            send_hub_notification "warning" "Imagem não publicada pelo CI" \
+"Passaram $(( AGE / 60 )) min desde o commit ${SHORT_HASH} e o GitHub Actions ainda não publicou a imagem.
+Veja o resultado em ${ACTIONS_URL}. A versão anterior continua no ar."
+        fi
+        rm -f "$PULL_LOG"
+        exit 0
+    fi
+    PHASE="falha"
+    record_failure "$REMOTE"
+    tail -n 20 "$PULL_LOG" >> "$LOG_FILE"
+    if grep -qiE "denied|unauthorized" "$PULL_LOG"; then
+        REASON="o GHCR negou acesso (pacote privado). Torne o pacote público em Package settings ou faça docker login ghcr.io no servidor"
+    elif [ "$PULL_RC" -eq 124 ] || [ "$PULL_RC" -eq 137 ]; then
+        REASON="tempo esgotado ao baixar a imagem (mais de ${PULL_TIMEOUT}s)"
+    else
+        REASON="não foi possível baixar a imagem (código $PULL_RC)"
+    fi
+    log "❌ [GITOPS] FALHA AO PUXAR A IMAGEM: $REASON. Produção mantida."
+    if [ "$FAIL_ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
+        NEXT="Desisti deste commit após ${FAIL_ATTEMPTS} tentativas; só tento de novo com um commit novo."
+    else
+        NEXT="Nova tentativa automática em $(( RETRY_WAIT / 60 )) min (tentativa ${FAIL_ATTEMPTS}/${MAX_ATTEMPTS})."
+    fi
+    send_hub_notification "error" "Falha ao puxar a imagem" \
+"Commit ${SHORT_HASH}: ${REASON}.
+
+A versão anterior foi mantida ativa. ${NEXT}"
+    rm -f "$PULL_LOG"
+    exit 1
+fi
+rm -f "$PULL_LOG"
+
+APP_VERSION=$(docker image inspect "$IMAGE_REF" --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' 2>/dev/null || true)
+case "$APP_VERSION" in ""|"<no value>") APP_VERSION="0.2.$(git rev-list --count "$REMOTE")" ;; esac
+
 RELEASE_NOTES=""
 if [ -n "$DEPLOYED" ] && git cat-file -e "${DEPLOYED}^{commit}" 2>/dev/null; then
     RELEASE_NOTES=$(git log --format="• %s" "${DEPLOYED}..${REMOTE}" 2>/dev/null | head -n 6 || true)
@@ -146,91 +202,18 @@ fi
 [ -n "$RELEASE_NOTES" ] || RELEASE_NOTES=$(git log -1 --format="• %s" "$REMOTE" 2>/dev/null || true)
 
 log "=========================================================="
-log "[GITOPS] Novo commit detectado: $REMOTE (versão $APP_VERSION)"
+log "[GITOPS] Imagem $IMAGE_REF baixada (versão $APP_VERSION)."
 log ">> Em produção: ${DEPLOYED:-desconhecido} -> Novo: $REMOTE"
-
-PHASE="gate1"
-BUILD_PID=""
-BUILD_LOG="$STATE_DIR/gate1_${SHORT_HASH}.log"
-
-# Se o script for morto (systemd, stop manual), registra e libera os limites.
-on_exit() {
-    local rc=$?
-    trap - EXIT
-    if [ -n "$BUILD_PID" ] && kill -0 "$BUILD_PID" 2>/dev/null; then
-        kill -TERM "$BUILD_PID" 2>/dev/null || true
-        wait "$BUILD_PID" 2>/dev/null || true
-    fi
-    if [ "$PHASE" = "gate1" ]; then
-        log "❌ [GITOPS] Gate 1 INTERROMPIDO antes de terminar (commit $SHORT_HASH). Produção mantida."
-        record_failure "$REMOTE"
-        send_hub_notification "error" "Deploy interrompido (Gate 1)" \
-"O build do commit ${SHORT_HASH} foi interrompido antes de terminar (tentativa ${FAIL_ATTEMPTS}/${MAX_ATTEMPTS}).
-A versão anterior continua no ar."
-    fi
-    exit "$rc"
-}
-trap on_exit EXIT
-trap 'exit 143' TERM INT
-
-# --- Gate 1: cópia limpa do commit + docker build com tempo máximo ---
-rm -rf "$BUILD_DIR" && mkdir -p "$BUILD_DIR"
-if ! git archive "$REMOTE" | tar -x -C "$BUILD_DIR"; then
-    PHASE="falha"
-    log "❌ [GITOPS] Não consegui extrair o commit $SHORT_HASH para o build."
-    record_failure "$REMOTE"
-    send_hub_notification "error" "Deploy não iniciado" "Não foi possível extrair o commit ${SHORT_HASH} para o build."
-    exit 1
-fi
-
-log ">> [1/4] Gate 1: compilação Docker (limite de ${GATE1_TIMEOUT}s)..."
-set_build_limits
-( cd "$BUILD_DIR" && exec timeout --kill-after=60 "$GATE1_TIMEOUT" \
-    env DOCKER_BUILDKIT=1 docker build ${BUILD_CGROUP_ARG:+--cgroup-parent "$BUILD_CGROUP_ARG"} \
-    --build-arg APP_VERSION="$APP_VERSION" -t "${IMAGE_TAG}-next" -f docker/Dockerfile . ) \
-    > "$BUILD_LOG" 2>&1 &
-BUILD_PID=$!
-wait "$BUILD_PID"
-BUILD_RC=$?
-BUILD_PID=""
-
-if [ "$BUILD_RC" -ne 0 ]; then
-    PHASE="falha"
-    tail -n 120 "$BUILD_LOG" >> "$LOG_FILE"
-    record_failure "$REMOTE"
-    if [ "$BUILD_RC" -eq 124 ] || [ "$BUILD_RC" -eq 137 ]; then
-        REASON="TEMPO ESGOTADO (mais de ${GATE1_TIMEOUT}s)"
-        log "❌ [GITOPS] FALHA NO GATE 1: $REASON. Produção mantida."
-    else
-        REASON="Compilação/testes quebrados (código $BUILD_RC)"
-        log "❌ [GITOPS] FALHA NO GATE 1: $REASON. Produção mantida."
-    fi
-    ERR_SNIPPET=$(grep -E "error(\[|:)|Error:|failed to compile|Failed to compile" "$BUILD_LOG" | head -n 2 || true)
-    [ -n "$ERR_SNIPPET" ] || ERR_SNIPPET=$(tail -n 2 "$BUILD_LOG")
-    if [ "$FAIL_ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
-        NEXT="Desisti deste commit após ${FAIL_ATTEMPTS} tentativas; só tento de novo com um commit novo."
-    else
-        NEXT="Nova tentativa automática em $(( RETRY_WAIT / 60 )) min (tentativa ${FAIL_ATTEMPTS}/${MAX_ATTEMPTS})."
-    fi
-    send_hub_notification "error" "Falha no Gate 1: $REASON" \
-"Commit ${SHORT_HASH}: ${REASON}.
-${ERR_SNIPPET}
-
-A versão anterior foi mantida ativa. ${NEXT}"
-    exit 1
-fi
-tail -n 5 "$BUILD_LOG" >> "$LOG_FILE"
-rm -f "$BUILD_LOG"
 
 # --- Troca segura: guarda a imagem atual, publica a nova, valida ---
 PHASE="gate2"
-log ">> [2/4] Gate 1 APROVADO! Recriando container de Produção..."
+log ">> [1/3] Recriando container de Produção..."
 PREV_ID=$(docker image inspect "$IMAGE_TAG" --format '{{.Id}}' 2>/dev/null || true)
 [ -n "$PREV_ID" ] && docker tag "$PREV_ID" "${IMAGE_TAG}-prev" >> "$LOG_FILE" 2>&1
-docker tag "${IMAGE_TAG}-next" "$IMAGE_TAG" >> "$LOG_FILE" 2>&1
+docker tag "$IMAGE_REF" "$IMAGE_TAG" >> "$LOG_FILE" 2>&1
 docker compose -f "$COMPOSE_FILE" up -d --force-recreate >> "$LOG_FILE" 2>&1
 
-log ">> [3/4] Gate 2: smoke tests de produção..."
+log ">> [2/3] Gate 2: smoke tests de produção..."
 sleep "${GATE2_START_DELAY:-3}"
 TEST_PASSED=false
 for _ in $(seq 1 "${GATE2_TRIES:-30}"); do
@@ -241,11 +224,10 @@ done
 if [ "$TEST_PASSED" = true ]; then
     PHASE="done"
     echo "$REMOTE" > "$DEPLOYED_FILE"
-    rm -f "$FAILED_FILE"
+    rm -f "$FAILED_FILE" "$CI_NOTIFIED_FILE" "$CI_LOGGED_FILE"
     git reset --hard "$REMOTE" >> "$LOG_FILE" 2>&1 || true
-    docker rmi "${IMAGE_TAG}-next" >> "$LOG_FILE" 2>&1 || true
     docker image prune -f >> "$LOG_FILE" 2>&1 || true
-    log "✓ [4/4] GATE 2 APROVADO! Nexus atualizado para v$APP_VERSION com sucesso!"
+    log "✓ [3/3] GATE 2 APROVADO! Nexus atualizado para v$APP_VERSION com sucesso!"
     log "=========================================================="
     send_hub_notification "success" "Nexus Atualizado (v${APP_VERSION})" \
 "Deploy autônomo (commit ${SHORT_HASH}) aprovado nos testes.
@@ -266,7 +248,7 @@ if [ -n "$PREV_ID" ]; then
 fi
 log "❌ [GITOPS] FALHA NO GATE 2: o health não respondeu. $ROLLBACK_MSG"
 send_hub_notification "error" "Falha no Gate 2: Smoke Tests" \
-"O container do commit ${SHORT_HASH} não respondeu ao health. ${ROLLBACK_MSG}
+"O container do commit ${SHORT_HASH} (v${APP_VERSION}) não respondeu ao health. ${ROLLBACK_MSG}
 
 Notas da versão:
 ${RELEASE_NOTES}"
