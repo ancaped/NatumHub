@@ -63,7 +63,6 @@ import { getHoliday, isWeekend, HolidayInfo } from '../../geral/lib/brazilHolida
 import { api } from '../../geral/lib/api';
 import { FiscoQuimicaAnalysis } from '../../geral/lib/types';
 import { PlanejamentoSemanalTab } from '../../producao/gerenciamento/components/PlanejamentoSemanalTab';
-import AuditoriaLotesDrawer from './AuditoriaLotesDrawer';
 
 export interface StatusHistoryEntry {
   id: number;
@@ -1805,7 +1804,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   const [savingKitOrder, setSavingKitOrder] = useState(false);
 
   // Notificação Toast
-  const [auditoriaLotesAberta, setAuditoriaLotesAberta] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Feedback visual imediato ao alterar Status Nosso
@@ -8283,22 +8281,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           </div>
         </div>
       )}
-
-      {/* Auditoria de lotes (somente leitura): possíveis duplicatas e vínculos suspeitos */}
-      {mode === 'planejamento' && (
-        <div className="flex justify-end mb-2">
-          <button
-            type="button"
-            onClick={() => setAuditoriaLotesAberta(true)}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 shadow-2xs cursor-pointer"
-            title="Lista lotes que podem estar duplicados ou com vínculo suspeito"
-          >
-            <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
-            Auditoria de lotes
-          </button>
-        </div>
-      )}
-      <AuditoriaLotesDrawer isOpen={auditoriaLotesAberta} onClose={() => setAuditoriaLotesAberta(false)} />
 
       {/* VIEW: PLANEJAMENTO SEMANAL (PCP) */}
       {currentTab === 'planejamento_semanal' && (
