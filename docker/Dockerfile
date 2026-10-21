@@ -18,8 +18,10 @@ RUN npm run build
 FROM rust:slim-bookworm AS backend-builder
 ARG APP_VERSION=0.2.0
 ENV APP_VERSION=$APP_VERSION
-# 1 job: o rustc fica serial e o pico de memória cai (o servidor tem ~3,7 GB de RAM compartilhados com Postgres e ai-memory)
-ENV CARGO_BUILD_JOBS=1
+# Paralelismo do rustc. Esta imagem é compilada pelo GitHub Actions (runner de 4 vCPU / 16 GB).
+# NUNCA compile no servidor ZimaOS (3,7 GB de RAM): o build derrubou a produção em 20/10/2026.
+ARG CARGO_JOBS=4
+ENV CARGO_BUILD_JOBS=$CARGO_JOBS
 ENV RUST_BACKTRACE=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
@@ -61,6 +63,14 @@ COPY --from=frontend-builder /app/Frontend/dist /opt/nexus/Frontend/dist
 
 # Permissão de execução
 RUN chmod +x /opt/nexus/nexus-server
+
+# Metadados OCI: o autodeploy lê a versão daqui e o GHCR liga o pacote ao repositório (visibilidade pública).
+ARG APP_VERSION=0.2.0
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.title="Nexus" \
+      org.opencontainers.image.source="https://github.com/ancaped/NatumHub" \
+      org.opencontainers.image.version="$APP_VERSION" \
+      org.opencontainers.image.revision="$VCS_REF"
 
 EXPOSE 3001
 
