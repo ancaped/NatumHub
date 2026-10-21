@@ -22,6 +22,7 @@ pub mod modules {
         }
         pub mod proc;
         pub mod cobertura;
+        pub mod decisoes;
     }
     pub mod compras;
     pub mod estoque;

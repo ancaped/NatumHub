@@ -7,8 +7,8 @@ use sqlx::{PgPool, Row};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::calc::{
-    alocar_nfs, necessidades_do_produto, Chegada, EntradaSimulacao, EstoqueItem, LinhaFormula, LinhaPedido,
-    LoteErp, Manual, Necessidade, OrdemEntrada, FRACAO_RECEBIDO,
+    alocar_nfs, necessidades_do_produto, BaseFonte, BaseRef, Chegada, EntradaSimulacao, EstoqueItem, LinhaFormula,
+    LinhaPedido, LoteErp, Manual, Necessidade, OrdemEntrada, FRACAO_RECEBIDO,
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -179,9 +179,15 @@ pub async fn carregar_formulas(pool: &PgPool, produtos: &[String]) -> Result<For
 }
 
 impl Formulas {
+    /// Necessidade com a base explodida em matérias-primas (como o ERP reserva).
     pub fn necessidades(&self, produto: &str, kg: f64) -> Option<Vec<Necessidade>> {
+        self.necessidades_com(produto, kg, BaseFonte::Explodir)
+    }
+
+    /// Necessidade respeitando a origem declarada da base (estoque/ordem da base não baixam os insumos dela).
+    pub fn necessidades_com(&self, produto: &str, kg: f64, fonte: BaseFonte) -> Option<Vec<Necessidade>> {
         let f = self.por_produto.get(&canon(produto))?;
-        let mut n = necessidades_do_produto(f, kg, &self.bases)?;
+        let mut n = necessidades_do_produto(f, kg, &self.bases, fonte)?;
         for x in n.iter_mut() {
             if x.descricao.is_empty() {
                 if let Some((d, u)) = self.itens.get(&x.codigo) {
@@ -195,10 +201,15 @@ impl Formulas {
         Some(n)
     }
 
-    pub fn bases_usadas(&self, produto: &str) -> Vec<String> {
+    pub fn bases_usadas(&self, produto: &str) -> Vec<BaseRef> {
         self.por_produto
             .get(&canon(produto))
-            .map(|f| f.iter().filter(|l| self.bases.contains_key(&l.codigo)).map(|l| l.codigo.clone()).collect())
+            .map(|f| {
+                f.iter()
+                    .filter(|l| self.bases.contains_key(&l.codigo))
+                    .map(|l| BaseRef { codigo: l.codigo.clone(), descricao: l.descricao.clone() })
+                    .collect()
+            })
             .unwrap_or_default()
     }
 }
@@ -217,6 +228,7 @@ pub struct OrdemBanco {
     pub kg: f64,
     pub lote_erp: Option<String>,
     pub batch_id: Option<String>,
+    pub base_fonte: BaseFonte,
 }
 
 pub async fn carregar_ordens(pool: &PgPool, ini: NaiveDate, fim: NaiveDate) -> Result<Vec<OrdemBanco>, String> {
@@ -225,7 +237,8 @@ pub async fn carregar_ordens(pool: &PgPool, ini: NaiveDate, fim: NaiveDate) -> R
         SELECT id, to_char(data_planejada, 'YYYY-MM-DD') AS data, COALESCE(ordem_sequencia, 1) AS seq,
                codigo_produto, descricao, quantidade_planejada::float8 AS kg,
                NULLIF(TRIM(COALESCE(lote_erp, '')), '') AS lote_erp,
-               NULLIF(TRIM(COALESCE(batch_id, '')), '') AS batch_id
+               NULLIF(TRIM(COALESCE(batch_id, '')), '') AS batch_id,
+               COALESCE(NULLIF(TRIM(base_fonte), ''), 'explodir') AS base_fonte
         FROM producao_planejamento_semanal
         WHERE (ordem_status IS NULL OR ordem_status <> 'cancelado')
           AND data_planejada >= $1 AND data_planejada <= $2
@@ -248,6 +261,10 @@ pub async fn carregar_ordens(pool: &PgPool, ini: NaiveDate, fim: NaiveDate) -> R
             kg: r.get::<Option<f64>, _>("kg").unwrap_or(0.0),
             lote_erp: r.get::<Option<String>, _>("lote_erp"),
             batch_id: r.get::<Option<String>, _>("batch_id"),
+            base_fonte: r
+                .get::<Option<String>, _>("base_fonte")
+                .and_then(|f| BaseFonte::parse(&f))
+                .unwrap_or_default(),
         });
     }
     Ok(out)
@@ -604,9 +621,19 @@ async fn lotes_existentes_no_erp(pool: &PgPool, numeros: &[String]) -> Result<Ha
 // Montagem da entrada
 // ---------------------------------------------------------------------------------------------
 
+/// Última escolha do Edson sobre a origem da base, por produto (código canônico).
+pub async fn carregar_decisoes_base(pool: &PgPool) -> Result<HashMap<String, BaseFonte>, String> {
+    Ok(crate::modules::producao::decisoes::listar(pool, crate::modules::producao::decisoes::TIPO_BASE_FONTE)
+        .await?
+        .into_iter()
+        .filter_map(|d| BaseFonte::parse(&d.valor).map(|f| (canon(&d.chave), f)))
+        .collect())
+}
+
 pub struct Contexto {
     pub entrada: EntradaSimulacao,
     pub formulas: Formulas,
+    pub decisoes_base: HashMap<String, BaseFonte>,
     pub inicio_semana: NaiveDate,
     pub fim_semana: NaiveDate,
 }
@@ -659,6 +686,7 @@ pub async fn montar_contexto(pool: &PgPool, semana: &str, extras: &[String]) -> 
     let digitados: Vec<String> = ordens_banco.iter().filter_map(|o| o.lote_erp.clone()).collect();
     let existentes = lotes_existentes_no_erp(pool, &digitados).await?;
 
+    let decisoes_base = carregar_decisoes_base(pool).await?;
     let ordens: Vec<OrdemEntrada> = ordens_banco
         .iter()
         .map(|o| OrdemEntrada {
@@ -671,8 +699,10 @@ pub async fn montar_contexto(pool: &PgPool, semana: &str, extras: &[String]) -> 
             lote_erp: o.lote_erp.clone(),
             lote_no_erp: o.lote_erp.as_ref().map(|l| existentes.contains(l)).unwrap_or(false),
             grupo: chave_grupo(o),
-            necessidades: formulas.necessidades(&o.codigo, o.kg),
+            necessidades: formulas.necessidades_com(&o.codigo, o.kg, o.base_fonte),
             bases_usadas: formulas.bases_usadas(&o.codigo),
+            base_fonte: o.base_fonte,
+            sugestao_base: decisoes_base.get(&o.codigo).copied().filter(|d| *d != o.base_fonte),
             da_semana: o.data >= seg && o.data <= dom,
         })
         .collect();
@@ -695,6 +725,7 @@ pub async fn montar_contexto(pool: &PgPool, semana: &str, extras: &[String]) -> 
     Ok(Contexto {
         entrada: EntradaSimulacao { hoje, estoque, chegadas, manuais, ordens, lotes_erp },
         formulas,
+        decisoes_base,
         inicio_semana: seg,
         fim_semana: dom,
     })
@@ -911,5 +942,88 @@ mod tests {
         assert_eq!(percentil(&[], 0.5), None);
         assert_eq!(percentil(&[1.0, 2.0, 3.0], 0.5), Some(2.0));
         assert_eq!(percentil(&[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9], 0.9), Some(0.8));
+    }
+
+    /// Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn base_fonte_da_ordem_muda_as_necessidades_no_banco() {
+        use super::super::calc::simular;
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        let limpar = || async {
+            sqlx::query("DELETE FROM producao_planejamento_semanal WHERE id = 'T-ORD-1'").execute(&pool).await.unwrap();
+            sqlx::query("DELETE FROM formulations WHERE product_code IN ('T-PROD', 'T-BASE')").execute(&pool).await.unwrap();
+            sqlx::query("DELETE FROM items WHERE code LIKE 'T-%'").execute(&pool).await.unwrap();
+            sqlx::query("DELETE FROM produtos WHERE codigo LIKE 'T-%'").execute(&pool).await.unwrap();
+            sqlx::query("DELETE FROM config_linhas WHERE linha_prefix = 'T-LINHA'").execute(&pool).await.unwrap();
+            sqlx::query("DELETE FROM producao_decisoes WHERE chave = 'T-PROD'").execute(&pool).await.unwrap();
+        };
+        limpar().await;
+        for (code, desc) in [("T-AGUA", "AGUA"), ("T-TENSO", "TENSO"), ("T-FRAG", "FRAGRANCIA"), ("T-BASE", "BASE PEROLADA")] {
+            sqlx::query("INSERT INTO items (code, description, unit) VALUES ($1, $2, 'kg')")
+                .bind(code)
+                .bind(desc)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        sqlx::query("INSERT INTO config_linhas (linha_prefix, nome_linha) VALUES ('T-LINHA', 'TESTE')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        for codigo in ["T-PROD", "T-BASE"] {
+            sqlx::query("INSERT INTO produtos (codigo, descricao, linha_prefix) VALUES ($1, 'TESTE', 'T-LINHA')")
+                .bind(codigo)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        for (prod, ing, q) in [
+            ("T-PROD", "T-BASE", 80.0),
+            ("T-PROD", "T-FRAG", 20.0),
+            ("T-BASE", "T-AGUA", 0.7),
+            ("T-BASE", "T-TENSO", 0.3),
+        ] {
+            sqlx::query("INSERT INTO formulations (product_code, ingredient_code, quantity) VALUES ($1, $2, $3)")
+                .bind(prod)
+                .bind(ing)
+                .bind(q)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let hoje = hoje_brasil();
+        sqlx::query(
+            "INSERT INTO producao_planejamento_semanal (id, week_key, data_planejada, reator_id, codigo_produto, quantidade_planejada, base_fonte) \
+             VALUES ('T-ORD-1', $1, $2, 'R_500', 'T-PROD', 100, 'estoque')",
+        )
+        .bind(semana_de(hoje))
+        .bind(hoje)
+        .execute(&pool)
+        .await
+        .unwrap();
+        crate::modules::producao::decisoes::registrar(&pool, "base_fonte", "T-PROD", "ordem_base", "teste").await.unwrap();
+
+        let ctx = montar_contexto(&pool, &semana_de(hoje), &[]).await.unwrap();
+        let o = ctx.entrada.ordens.iter().find(|o| o.id == "T-ORD-1").expect("ordem carregada");
+        assert_eq!(o.base_fonte, BaseFonte::Estoque);
+        let cods: Vec<&str> = o.necessidades.as_ref().unwrap().iter().map(|n| n.codigo.as_str()).collect();
+        assert_eq!(cods, vec!["T-FRAG"], "base de estoque não baixa água nem tensoativo");
+        assert_eq!(o.bases_usadas.len(), 1);
+        assert_eq!(o.sugestao_base, Some(BaseFonte::OrdemBase), "a memória difere da escolha atual");
+        let saida = simular(&ctx.entrada);
+        assert!(saida.ordens.iter().any(|r| r.id == "T-ORD-1" && r.base_fonte == BaseFonte::Estoque));
+
+        sqlx::query("UPDATE producao_planejamento_semanal SET base_fonte = 'explodir' WHERE id = 'T-ORD-1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let ctx = montar_contexto(&pool, &semana_de(hoje), &[]).await.unwrap();
+        let o = ctx.entrada.ordens.iter().find(|o| o.id == "T-ORD-1").unwrap();
+        let mut cods: Vec<&str> = o.necessidades.as_ref().unwrap().iter().map(|n| n.codigo.as_str()).collect();
+        cods.sort();
+        assert_eq!(cods, vec!["T-AGUA", "T-FRAG", "T-TENSO"], "explodir volta a baixar a base");
+        limpar().await;
     }
 }

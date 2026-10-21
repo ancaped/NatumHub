@@ -10,7 +10,7 @@
 //! Por isso o livre é `estoque - reserva`, e só as ordens que ainda NÃO estão abertas no ERP consomem.
 
 use chrono::NaiveDate;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub const EPS: f64 = 1e-6;
@@ -59,6 +59,51 @@ pub fn massa_quimica(formula: &[LinhaFormula]) -> f64 {
         .sum()
 }
 
+/// De onde sai a base de um produto que a usa. A base é cadastrada como PRODUTO: quando o Edson abre a ordem
+/// da base, é ela que baixa os insumos; o produto final só consome o restante (ex.: fragrância).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BaseFonte {
+    /// Padrão: a base é explodida em matérias-primas, como o ERP reserva.
+    #[default]
+    Explodir,
+    /// Base já pronta em estoque: o produto não consome os insumos da base.
+    Estoque,
+    /// Há (ou haverá) ordem da base: ela consome os insumos da base.
+    OrdemBase,
+}
+
+impl BaseFonte {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim() {
+            "explodir" => Some(Self::Explodir),
+            "estoque" => Some(Self::Estoque),
+            "ordem_base" => Some(Self::OrdemBase),
+            _ => None,
+        }
+    }
+    pub fn como_texto(self) -> &'static str {
+        match self {
+            Self::Explodir => "explodir",
+            Self::Estoque => "estoque",
+            Self::OrdemBase => "ordem_base",
+        }
+    }
+    fn rotulo(self) -> &'static str {
+        match self {
+            Self::Explodir => "explodir a base em matérias-primas",
+            Self::Estoque => "tirar da base em estoque",
+            Self::OrdemBase => "usar a ordem da base",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BaseRef {
+    pub codigo: String,
+    pub descricao: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Necessidade {
     pub codigo: String,
@@ -75,6 +120,7 @@ pub fn necessidades_do_produto(
     formula: &[LinhaFormula],
     kg: f64,
     bases: &HashMap<String, Vec<LinhaFormula>>,
+    fonte: BaseFonte,
 ) -> Option<Vec<Necessidade>> {
     let massa = massa_quimica(formula);
     if massa <= 0.0001 || kg <= 0.0 {
@@ -94,15 +140,17 @@ pub fn necessidades_do_produto(
         if req <= 0.0 {
             continue;
         }
-        match bases.get(l.codigo.trim()) {
-            Some(sub) if !sub.is_empty() => {
+        match bases.get(l.codigo.trim()).filter(|sub| !sub.is_empty()) {
+            // Base que sai de estoque ou de uma ordem da base: não baixa os insumos dela neste produto.
+            Some(_) if fonte != BaseFonte::Explodir => {}
+            Some(sub) => {
                 let soma: f64 = sub.iter().map(|s| s.quantidade).sum();
                 let fator = if soma > 0.0 && (soma - 1.0).abs() > 0.05 { 1.0 / soma } else { 1.0 };
                 for s in sub {
                     somar(&s.codigo, &s.descricao, &s.unidade, req * s.quantidade * fator);
                 }
             }
-            _ => somar(&l.codigo, &l.descricao, &l.unidade, req),
+            None => somar(&l.codigo, &l.descricao, &l.unidade, req),
         }
     }
     Some(
@@ -167,8 +215,12 @@ pub struct OrdemEntrada {
     pub grupo: String,
     /// `None` = sem fórmula.
     pub necessidades: Option<Vec<Necessidade>>,
-    /// Códigos de bases explodidas nesta ordem (para o aviso de base também planejada).
-    pub bases_usadas: Vec<String>,
+    /// Bases (ingredientes com fórmula própria) deste produto.
+    pub bases_usadas: Vec<BaseRef>,
+    /// Origem declarada da base; as necessidades já foram calculadas com ela.
+    pub base_fonte: BaseFonte,
+    /// Última escolha do Edson para este produto, quando difere da atual (só sugere).
+    pub sugestao_base: Option<BaseFonte>,
     /// Faz parte da semana pedida (as anteriores entram só pelo consumo).
     pub da_semana: bool,
 }
@@ -420,6 +472,17 @@ pub enum TipoAviso {
     RecebimentoParcial,
     BaseTambemPlanejada,
     ManualAntigo,
+    /// Informativo: a última escolha do Edson para a base deste produto.
+    SugestaoBase,
+    /// A ordem diz que a base vem de uma ordem da base, mas não há nenhuma.
+    BaseSemOrdem,
+}
+
+impl TipoAviso {
+    /// Aviso que só informa/sugere: não deixa a ordem em "atenção".
+    pub fn informativo(self) -> bool {
+        matches!(self, TipoAviso::SugestaoBase)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -474,6 +537,9 @@ pub struct ResultadoOrdem {
     pub status: StatusCobertura,
     /// A ordem entra no consumo previsto? (false = já reservada/baixada no ERP)
     pub consome: bool,
+    pub base_fonte: BaseFonte,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub bases: Vec<BaseRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub motivo_sem_consumo: Option<String>,
     pub avisos: Vec<Aviso>,
@@ -699,13 +765,45 @@ pub fn simular(e: &EntradaSimulacao) -> SaidaSimulacao {
             avisos.push(a);
         }
         for base in &o.bases_usadas {
-            if e.ordens.iter().any(|x| x.id != o.id && x.codigo_produto.trim() == base.trim()) {
+            let ha_ordem_da_base = e.ordens.iter().any(|x| x.id != o.id && x.codigo_produto.trim() == base.codigo.trim())
+                || e.lotes_erp.iter().any(|l| l.produtos.iter().any(|p| p.0.trim() == base.codigo.trim()));
+            match o.base_fonte {
+                BaseFonte::Explodir if ha_ordem_da_base => {
+                    let mut a = Aviso::novo(
+                        TipoAviso::BaseTambemPlanejada,
+                        format!(
+                            "A base {} ({}) também está planejada em outra ordem; a matéria-prima pode estar contada em dobro. Se a ordem da base é quem baixa os insumos, marque a origem da base.",
+                            base.descricao, base.codigo
+                        ),
+                    );
+                    a.ordem_id = Some(o.id.clone());
+                    a.insumo = Some(base.codigo.clone());
+                    a.candidatos = vec![BaseFonte::OrdemBase.como_texto().to_string()];
+                    avisos.push(a);
+                }
+                BaseFonte::OrdemBase if !ha_ordem_da_base => {
+                    let mut a = Aviso::novo(
+                        TipoAviso::BaseSemOrdem,
+                        format!(
+                            "A base {} ({}) está marcada como \"ordem da base\", mas não há ordem dela planejada. Planeje a ordem da base ou mude a origem.",
+                            base.descricao, base.codigo
+                        ),
+                    );
+                    a.ordem_id = Some(o.id.clone());
+                    a.insumo = Some(base.codigo.clone());
+                    avisos.push(a);
+                }
+                _ => {}
+            }
+        }
+        if let Some(sug) = o.sugestao_base {
+            if !o.bases_usadas.is_empty() && sug != o.base_fonte {
                 let mut a = Aviso::novo(
-                    TipoAviso::BaseTambemPlanejada,
-                    format!("A base {base} também está planejada em outra ordem; a matéria-prima pode estar contada em dobro. Verifique."),
+                    TipoAviso::SugestaoBase,
+                    format!("Da última vez este produto foi para {}.", sug.rotulo()),
                 );
                 a.ordem_id = Some(o.id.clone());
-                a.insumo = Some(base.clone());
+                a.candidatos = vec![sug.como_texto().to_string()];
                 avisos.push(a);
             }
         }
@@ -715,6 +813,8 @@ pub fn simular(e: &EntradaSimulacao) -> SaidaSimulacao {
                 id: o.id.clone(),
                 status: StatusCobertura::SemFormula,
                 consome: false,
+                base_fonte: o.base_fonte,
+                bases: o.bases_usadas.clone(),
                 motivo_sem_consumo: l.motivo.clone(),
                 avisos,
                 insumos: Vec::new(),
@@ -813,13 +913,15 @@ pub fn simular(e: &EntradaSimulacao) -> SaidaSimulacao {
             1 => StatusCobertura::Atencao,
             _ => StatusCobertura::Ok,
         };
-        if status == StatusCobertura::Ok && !avisos.is_empty() {
+        if status == StatusCobertura::Ok && avisos.iter().any(|a| !a.tipo.informativo()) {
             status = StatusCobertura::Atencao;
         }
         resultados.push(ResultadoOrdem {
             id: o.id.clone(),
             status,
             consome: l.consome,
+            base_fonte: o.base_fonte,
+            bases: o.bases_usadas.clone(),
             motivo_sem_consumo: l.motivo.clone(),
             avisos,
             insumos,
@@ -960,6 +1062,8 @@ mod tests {
             grupo: id.into(),
             necessidades: Some(necs),
             bases_usadas: Vec::new(),
+            base_fonte: BaseFonte::Explodir,
+            sugestao_base: None,
             da_semana: true,
         }
     }
@@ -1296,7 +1400,7 @@ mod tests {
         let mut e = base_entrada();
         e.estoque.insert("A".into(), est(1000.0, 0.0));
         let mut o = ordem("o1", "2026-10-21", 1, "P1", 100.0, vec![nec("A", 10.0)]);
-        o.bases_usadas = vec!["1.36.001".into()];
+        o.bases_usadas = vec![BaseRef { codigo: "1.36.001".into(), descricao: "BASE PEROLADA".into() }];
         e.ordens.push(o);
         e.ordens.push(ordem("o2", "2026-10-21", 2, "1.36.001", 200.0, vec![nec("A", 10.0)]));
         let s = simular(&e);
@@ -1329,7 +1433,7 @@ mod tests {
     #[test]
     fn necessidade_escala_pela_massa_quimica_e_ignora_embalagem_no_denominador() {
         let f = vec![lf("1", "AGUA", 80.0), lf("2", "ATIVO", 20.0), lf("9.02.1", "FRASCO 300ML", 500.0)];
-        let n = necessidades_do_produto(&f, 200.0, &HashMap::new()).unwrap();
+        let n = necessidades_do_produto(&f, 200.0, &HashMap::new(), BaseFonte::Explodir).unwrap();
         let g = |c: &str| n.iter().find(|x| x.codigo == c).unwrap().quantidade;
         assert!((g("1") - 160.0).abs() < 1e-9);
         assert!((g("2") - 40.0).abs() < 1e-9);
@@ -1339,8 +1443,8 @@ mod tests {
     #[test]
     fn sem_massa_quimica_nao_tem_formula() {
         let f = vec![lf("9.02.1", "FRASCO", 500.0)];
-        assert!(necessidades_do_produto(&f, 100.0, &HashMap::new()).is_none());
-        assert!(necessidades_do_produto(&[], 100.0, &HashMap::new()).is_none());
+        assert!(necessidades_do_produto(&f, 100.0, &HashMap::new(), BaseFonte::Explodir).is_none());
+        assert!(necessidades_do_produto(&[], 100.0, &HashMap::new(), BaseFonte::Explodir).is_none());
     }
 
     #[test]
@@ -1348,7 +1452,7 @@ mod tests {
         let f = vec![lf("B", "BASE X", 50.0), lf("2", "ATIVO", 50.0)];
         let mut bases = HashMap::new();
         bases.insert("B".to_string(), vec![lf("10", "AGUA", 0.7), lf("11", "TENSO", 0.3)]); // soma 1 = por unidade
-        let n = necessidades_do_produto(&f, 100.0, &bases).unwrap();
+        let n = necessidades_do_produto(&f, 100.0, &bases, BaseFonte::Explodir).unwrap();
         let g = |c: &str| n.iter().find(|x| x.codigo == c).map(|x| x.quantidade).unwrap_or(0.0);
         assert!((g("10") - 35.0).abs() < 1e-9);
         assert!((g("11") - 15.0).abs() < 1e-9);
@@ -1361,7 +1465,7 @@ mod tests {
         let f = vec![lf("B", "BASE X", 100.0)];
         let mut bases = HashMap::new();
         bases.insert("B".to_string(), vec![lf("10", "AGUA", 70.0), lf("11", "TENSO", 30.0)]); // soma 100 = lote
-        let n = necessidades_do_produto(&f, 100.0, &bases).unwrap();
+        let n = necessidades_do_produto(&f, 100.0, &bases, BaseFonte::Explodir).unwrap();
         let g = |c: &str| n.iter().find(|x| x.codigo == c).unwrap().quantidade;
         assert!((g("10") - 70.0).abs() < 1e-9, "100 kg de base => 70 kg de água, não 7000");
         assert!((g("11") - 30.0).abs() < 1e-9);
@@ -1372,8 +1476,130 @@ mod tests {
         let f = vec![lf("B", "BASE", 50.0), lf("10", "AGUA", 50.0)];
         let mut bases = HashMap::new();
         bases.insert("B".to_string(), vec![lf("10", "AGUA", 1.0)]);
-        let n = necessidades_do_produto(&f, 100.0, &bases).unwrap();
+        let n = necessidades_do_produto(&f, 100.0, &bases, BaseFonte::Explodir).unwrap();
         assert_eq!(n.len(), 1);
         assert!((n[0].quantidade - 100.0).abs() < 1e-9);
+    }
+
+    // ---- origem da base (base_fonte) ----
+
+    fn base_perolada() -> Vec<BaseRef> {
+        vec![BaseRef { codigo: "B".into(), descricao: "BASE PEROLADA".into() }]
+    }
+
+    #[test]
+    fn base_de_estoque_ou_de_ordem_nao_baixa_os_insumos_da_base() {
+        let f = vec![lf("B", "BASE PEROLADA", 80.0), lf("F", "FRAGRANCIA", 20.0)];
+        let mut bases = HashMap::new();
+        bases.insert("B".to_string(), vec![lf("10", "AGUA", 0.7), lf("11", "TENSO", 0.3)]);
+        for fonte in [BaseFonte::Estoque, BaseFonte::OrdemBase] {
+            let n = necessidades_do_produto(&f, 100.0, &bases, fonte).unwrap();
+            assert_eq!(n.len(), 1, "só a fragrância sobra");
+            assert_eq!(n[0].codigo, "F");
+            assert!((n[0].quantidade - 20.0).abs() < 1e-9, "a massa da base continua no denominador");
+        }
+    }
+
+    #[test]
+    fn base_fonte_reconhece_os_valores_do_banco() {
+        assert_eq!(BaseFonte::parse("estoque"), Some(BaseFonte::Estoque));
+        assert_eq!(BaseFonte::parse(" ordem_base "), Some(BaseFonte::OrdemBase));
+        assert_eq!(BaseFonte::parse("explodir"), Some(BaseFonte::Explodir));
+        assert_eq!(BaseFonte::parse("outra"), None);
+        assert_eq!(BaseFonte::OrdemBase.como_texto(), "ordem_base");
+    }
+
+    #[test]
+    fn ordem_base_sem_ordem_da_base_avisa() {
+        let mut e = base_entrada();
+        e.estoque.insert("F".into(), est(100.0, 0.0));
+        let mut o = ordem("o1", "2026-10-21", 1, "P1", 100.0, vec![nec("F", 20.0)]);
+        o.bases_usadas = base_perolada();
+        o.base_fonte = BaseFonte::OrdemBase;
+        e.ordens.push(o);
+        let s = simular(&e);
+        assert!(res(&s, "o1").avisos.iter().any(|a| a.tipo == TipoAviso::BaseSemOrdem));
+        assert_eq!(res(&s, "o1").status, StatusCobertura::Atencao);
+    }
+
+    #[test]
+    fn ordem_base_com_ordem_da_base_planejada_nao_avisa() {
+        let mut e = base_entrada();
+        e.estoque.insert("F".into(), est(100.0, 0.0));
+        let mut o = ordem("o1", "2026-10-21", 1, "P1", 100.0, vec![nec("F", 20.0)]);
+        o.bases_usadas = base_perolada();
+        o.base_fonte = BaseFonte::OrdemBase;
+        e.ordens.push(o);
+        e.ordens.push(ordem("o2", "2026-10-20", 1, "B", 80.0, vec![nec("F", 1.0)]));
+        let s = simular(&e);
+        assert!(res(&s, "o1").avisos.iter().all(|a| a.tipo != TipoAviso::BaseSemOrdem));
+        assert_eq!(res(&s, "o1").status, StatusCobertura::Ok);
+    }
+
+    #[test]
+    fn ordem_base_aceita_lote_da_base_aberto_no_erp() {
+        let mut e = base_entrada();
+        e.estoque.insert("F".into(), est(100.0, 0.0));
+        let mut o = ordem("o1", "2026-10-21", 1, "P1", 100.0, vec![nec("F", 20.0)]);
+        o.bases_usadas = base_perolada();
+        o.base_fonte = BaseFonte::OrdemBase;
+        e.ordens.push(o);
+        e.lotes_erp.push(LoteErp { numero: "900".into(), data: d("2026-10-20"), produtos: vec![("B".into(), 80.0)], reserva: HashMap::new() });
+        let s = simular(&e);
+        assert!(res(&s, "o1").avisos.iter().all(|a| a.tipo != TipoAviso::BaseSemOrdem));
+    }
+
+    #[test]
+    fn base_planejada_em_outra_ordem_sugere_marcar_ordem_da_base() {
+        let mut e = base_entrada();
+        e.estoque.insert("A".into(), est(1000.0, 0.0));
+        let mut o = ordem("o1", "2026-10-21", 1, "P1", 100.0, vec![nec("A", 10.0)]);
+        o.bases_usadas = base_perolada();
+        e.ordens.push(o);
+        e.ordens.push(ordem("o2", "2026-10-21", 2, "B", 80.0, vec![nec("A", 10.0)]));
+        let s = simular(&e);
+        let a = res(&s, "o1").avisos.iter().find(|a| a.tipo == TipoAviso::BaseTambemPlanejada).unwrap();
+        assert_eq!(a.candidatos, vec!["ordem_base".to_string()]);
+    }
+
+    #[test]
+    fn marcada_como_estoque_nao_avisa_de_base_em_dobro() {
+        let mut e = base_entrada();
+        e.estoque.insert("A".into(), est(1000.0, 0.0));
+        let mut o = ordem("o1", "2026-10-21", 1, "P1", 100.0, vec![nec("A", 10.0)]);
+        o.bases_usadas = base_perolada();
+        o.base_fonte = BaseFonte::Estoque;
+        e.ordens.push(o);
+        e.ordens.push(ordem("o2", "2026-10-21", 2, "B", 80.0, vec![nec("A", 10.0)]));
+        let s = simular(&e);
+        assert!(res(&s, "o1").avisos.is_empty());
+    }
+
+    #[test]
+    fn sugestao_da_ultima_escolha_informa_sem_pedir_atencao() {
+        let mut e = base_entrada();
+        e.estoque.insert("A".into(), est(1000.0, 0.0));
+        let mut o = ordem("o1", "2026-10-21", 1, "P1", 100.0, vec![nec("A", 10.0)]);
+        o.bases_usadas = base_perolada();
+        o.sugestao_base = Some(BaseFonte::Estoque);
+        e.ordens.push(o);
+        let s = simular(&e);
+        let r = res(&s, "o1");
+        let a = r.avisos.iter().find(|a| a.tipo == TipoAviso::SugestaoBase).unwrap();
+        assert_eq!(a.candidatos, vec!["estoque".to_string()]);
+        assert_eq!(r.status, StatusCobertura::Ok, "sugestão é informativa");
+    }
+
+    #[test]
+    fn sugestao_igual_a_escolha_atual_some() {
+        let mut e = base_entrada();
+        e.estoque.insert("A".into(), est(1000.0, 0.0));
+        let mut o = ordem("o1", "2026-10-21", 1, "P1", 100.0, vec![nec("A", 10.0)]);
+        o.bases_usadas = base_perolada();
+        o.base_fonte = BaseFonte::Estoque;
+        o.sugestao_base = Some(BaseFonte::Estoque);
+        e.ordens.push(o);
+        let s = simular(&e);
+        assert!(res(&s, "o1").avisos.is_empty());
     }
 }

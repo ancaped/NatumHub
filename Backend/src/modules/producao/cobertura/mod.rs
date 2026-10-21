@@ -5,11 +5,11 @@ pub mod calc;
 pub mod store;
 
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
-    Json, Router,
+    routing::{get, post, put},
+    Extension, Json, Router,
 };
 use chrono::{NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -18,13 +18,16 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::handlers::AppState;
-use calc::{simular, Aviso, OrdemEntrada, ResultadoOrdem, ResumoInsumo};
+use crate::modules::geral::auth::models::AuthContext;
+use crate::modules::producao::decisoes;
+use calc::{simular, Aviso, BaseFonte, OrdemEntrada, ResultadoOrdem, ResumoInsumo};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/producao/cobertura", get(get_cobertura))
         .route("/api/producao/cobertura/simular", post(post_simular))
         .route("/api/producao/cobertura/validacao", get(get_validacao))
+        .route("/api/producao/cobertura/ordens/:id/base-fonte", put(put_base_fonte))
 }
 
 fn erro(status: StatusCode, msg: impl Into<String>) -> axum::response::Response {
@@ -126,6 +129,8 @@ async fn post_simular(State(state): State<Arc<AppState>>, Json(body): Json<Simul
         let codigo = store::canon(&c.codigo);
         let data = c.data.as_deref().and_then(store::parse_data).unwrap_or_else(|| hoje.max(ctx.inicio_semana));
         let id = format!("cand:{i}");
+        // Candidato ainda não é ordem: usa a última escolha do Edson para a base (a ordem real só sugere).
+        let fonte = ctx.decisoes_base.get(&codigo).copied().unwrap_or_default();
         let mut entrada = ctx.entrada.clone();
         entrada.ordens.push(OrdemEntrada {
             id: id.clone(),
@@ -137,8 +142,10 @@ async fn post_simular(State(state): State<Arc<AppState>>, Json(body): Json<Simul
             lote_erp: None,
             lote_no_erp: false,
             grupo: id.clone(),
-            necessidades: ctx.formulas.necessidades(&codigo, c.kg),
+            necessidades: ctx.formulas.necessidades_com(&codigo, c.kg, fonte),
             bases_usadas: ctx.formulas.bases_usadas(&codigo),
+            base_fonte: fonte,
+            sugestao_base: None,
             da_semana: true,
         });
         let saida = simular(&entrada);
@@ -147,6 +154,42 @@ async fn post_simular(State(state): State<Arc<AppState>>, Json(body): Json<Simul
         }
     }
     (StatusCode::OK, Json(json!({ "semana": semana, "candidatos": out }))).into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BaseFonteBody {
+    pub fonte: String,
+}
+
+/// O Edson declara de onde sai a base desta ordem; a escolha fica na ordem e na memória de decisões.
+async fn put_base_fonte(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<String>,
+    Json(body): Json<BaseFonteBody>,
+) -> impl IntoResponse {
+    let Some(fonte) = BaseFonte::parse(&body.fonte) else {
+        return erro(StatusCode::BAD_REQUEST, "Origem da base inválida. Use explodir, estoque ou ordem_base.");
+    };
+    let pool = state.db.pool();
+    let codigo: Option<String> = match sqlx::query_scalar(
+        "UPDATE producao_planejamento_semanal SET base_fonte = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING codigo_produto",
+    )
+    .bind(&id)
+    .bind(fonte.como_texto())
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(c) => c,
+        Err(e) => return erro(StatusCode::INTERNAL_SERVER_ERROR, format!("Erro ao gravar a origem da base: {e}")),
+    };
+    let Some(codigo) = codigo else {
+        return erro(StatusCode::NOT_FOUND, "Ordem não encontrada no planejamento.");
+    };
+    if let Err(e) = decisoes::registrar(pool, decisoes::TIPO_BASE_FONTE, &store::canon(&codigo), fonte.como_texto(), &ctx.display_name).await {
+        return erro(StatusCode::INTERNAL_SERVER_ERROR, e);
+    }
+    (StatusCode::OK, Json(json!({ "ok": true, "id": id, "fonte": fonte }))).into_response()
 }
 
 #[derive(Debug, Deserialize)]

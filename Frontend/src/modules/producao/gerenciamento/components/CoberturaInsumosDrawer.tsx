@@ -3,7 +3,8 @@ import { RefreshCw, Copy, Link2, Printer } from 'lucide-react';
 import Drawer, { DrawerTab } from '../../../geral/components/ui/Drawer';
 import { apiJson } from '../../../geral/lib/http';
 
-import { fmt, fmtData, textoInsumo } from './cobertura';
+import { BASE_FONTE_ROTULO, fmt, fmtData, textoInsumo } from './cobertura';
+import type { BaseFonte } from './cobertura';
 import type { Aviso, Cobertura, ResumoInsumo, ResultadoOrdem, StatusCobertura } from './cobertura';
 
 interface DesvioItem {
@@ -37,6 +38,8 @@ interface Props {
   onVincular: (ordemId: string, lote: string) => void;
   /** Abre o relatório imprimível de matérias-primas e embalagens da semana. */
   onImprimirRelatorio?: () => void;
+  /** Avisa o quadro que uma decisão mudou (para atualizar os selos). */
+  onMudou?: () => void;
 }
 
 const TITULO_AVISO: Record<string, string> = {
@@ -47,6 +50,7 @@ const TITULO_AVISO: Record<string, string> = {
   pedido_atrasado: 'Pedido atrasado / previsão vencida — verificar',
   pedido_sem_previsao: 'Pedido sem previsão — ajustar no ERP',
   base_tambem_planejada: 'Base também planejada em outra ordem — verificar',
+  base_sem_ordem: 'Base marcada como "ordem da base" sem ordem planejada — verificar',
   manual_antigo: 'Ordem manual aberta há muito tempo — verificar',
 };
 const ORDEM_AVISOS = Object.keys(TITULO_AVISO);
@@ -78,7 +82,7 @@ function textoSemConsumo(m?: string): string | null {
  * Cobertura de insumos da semana (somente leitura; só avisa, nunca bloqueia).
  * Regras e raciocínio no backend: Backend/src/modules/producao/cobertura/calc.rs.
  */
-export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descreverOrdem, onVincular, onImprimirRelatorio }: Props) {
+export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descreverOrdem, onVincular, onImprimirRelatorio, onMudou }: Props) {
   const [dados, setDados] = useState<Cobertura | null>(null);
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -118,6 +122,28 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
     }
   }, []);
 
+  const [salvando, setSalvando] = useState<string | null>(null);
+
+  const definirBaseFonte = useCallback(
+    async (ordemId: string, fonte: BaseFonte) => {
+      setSalvando(ordemId);
+      setErro(null);
+      try {
+        await apiJson(`/api/producao/cobertura/ordens/${encodeURIComponent(ordemId)}/base-fonte`, {
+          method: 'PUT',
+          body: JSON.stringify({ fonte }),
+        });
+        await carregar();
+        onMudou?.();
+      } catch (e) {
+        setErro(e instanceof Error ? e.message : 'Não foi possível gravar a origem da base.');
+      } finally {
+        setSalvando(null);
+      }
+    },
+    [carregar, onMudou]
+  );
+
   const ordens = dados?.ordens ?? [];
   const insumos = dados?.insumos ?? [];
   const avisos = dados?.avisos ?? [];
@@ -132,6 +158,7 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
     () => ordens.filter((o) => o.status !== 'ok' || (o.avisos ?? []).length > 0),
     [ordens]
   );
+  const ordensComBase = useMemo(() => ordens.filter((o) => (o.bases ?? []).length > 0), [ordens]);
   const avisosGerais = useMemo(() => avisos.filter((a) => !a.ordemId), [avisos]);
 
   const insumosCriticos = useMemo(
@@ -247,6 +274,16 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
                     {(o.avisos ?? []).map((a, idx) => (
                       <div key={idx} className="flex items-center justify-between gap-2">
                         <p className="text-[11px] text-amber-800">⚠ {a.mensagem}</p>
+                        {(a.tipo === 'sugestao_base' || a.tipo === 'base_tambem_planejada') && a.candidatos?.[0] && (
+                          <button
+                            type="button"
+                            disabled={salvando === o.id}
+                            onClick={() => definirBaseFonte(o.id, a.candidatos?.[0] as BaseFonte)}
+                            className="shrink-0 px-2 py-1 text-[11px] font-bold rounded-lg border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 cursor-pointer"
+                          >
+                            {a.tipo === 'sugestao_base' ? 'Aplicar' : 'Usar ordem da base'}
+                          </button>
+                        )}
                         {a.tipo === 'lote_erp_sem_vinculo' && a.lote && (
                           <button
                             type="button"
@@ -262,6 +299,41 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
                   </li>
                 ))}
               </ul>
+            )}
+
+            {ordensComBase.length > 0 && (
+              <details className="border border-zinc-200 rounded-xl bg-white">
+                <summary className="px-3 py-2 text-xs font-bold text-zinc-900 cursor-pointer">
+                  Origem das bases ({ordensComBase.length})
+                </summary>
+                <ul className="divide-y divide-zinc-100 border-t border-zinc-100">
+                  {ordensComBase.map((o) => (
+                    <li key={o.id} className="px-3 py-2 space-y-1.5">
+                      <div className="text-[11px] font-bold text-zinc-900">{descreverOrdem(o.id)}</div>
+                      <div className="text-[11px] text-zinc-500">
+                        Base: {(o.bases ?? []).map((b) => b.descricao || b.codigo).join(', ')}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(Object.keys(BASE_FONTE_ROTULO) as BaseFonte[]).map((f) => (
+                          <button
+                            key={f}
+                            type="button"
+                            disabled={salvando === o.id}
+                            onClick={() => (o.baseFonte ?? 'explodir') !== f && definirBaseFonte(o.id, f)}
+                            className={`px-2 py-1 text-[11px] font-bold rounded-lg border cursor-pointer disabled:opacity-50 ${
+                              (o.baseFonte ?? 'explodir') === f
+                                ? 'bg-zinc-900 text-white border-zinc-900'
+                                : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
+                            }`}
+                          >
+                            {BASE_FONTE_ROTULO[f]}
+                          </button>
+                        ))}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </details>
             )}
 
             {ORDEM_AVISOS.filter((t) => (avisosGeraisPorTipo[t] ?? []).length > 0).map((tipo) => (

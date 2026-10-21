@@ -1490,7 +1490,7 @@ export function PlanejamentoSemanalTab({
   const versaoPlano = plannedItems
     .map(i => `${i.id}:${i.data_planejada}:${i.quantidade_planejada}:${i.lote_erp || ''}:${i.ordem_sequencia ?? ''}`)
     .join('|');
-  const { porOrdem: coberturaPorOrdem } = useCoberturaSemana(currentWeekKey, active, versaoPlano);
+  const { porOrdem: coberturaPorOrdem, recarregar: recarregarCobertura } = useCoberturaSemana(currentWeekKey, active, versaoPlano);
   const candidatosFila = useMemo(
     () =>
       demandBankOpen
@@ -5238,6 +5238,7 @@ export function PlanejamentoSemanalTab({
         semana={currentWeekKey}
         descreverOrdem={descreverOrdem}
         onVincular={handleVincularSugerido}
+        onMudou={recarregarCobertura}
         onImprimirRelatorio={() => {
           setCoberturaAberta(false);
           handleOpenMaterialsReport();

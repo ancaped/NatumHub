@@ -29,10 +29,25 @@ export interface InsumoOrdem {
   fornecedor?: string;
 }
 
+export type BaseFonte = 'explodir' | 'estoque' | 'ordem_base';
+
+export const BASE_FONTE_ROTULO: Record<BaseFonte, string> = {
+  explodir: 'Explodir em insumos',
+  estoque: 'Base pronta (estoque)',
+  ordem_base: 'Ordem da base',
+};
+
+export interface BaseRef {
+  codigo: string;
+  descricao: string;
+}
+
 export interface ResultadoOrdem {
   id: string;
   status: StatusCobertura;
   consome: boolean;
+  baseFonte?: BaseFonte;
+  bases?: BaseRef[];
   motivoSemConsumo?: string;
   avisos: Aviso[];
   insumos: InsumoOrdem[];
