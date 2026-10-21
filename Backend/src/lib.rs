@@ -21,6 +21,7 @@ pub mod modules {
             pub mod watcher;
         }
         pub mod proc;
+        pub mod cobertura;
     }
     pub mod compras;
     pub mod estoque;

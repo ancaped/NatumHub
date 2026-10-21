@@ -4012,17 +4012,10 @@ pub async fn get_insumos_status(
         let ing: String = r.get(0);
         let desc: String = r.get(1);
         let qty: f64 = r.get(2);
-        let desc_up = desc.to_uppercase();
-        let is_emb = ing.starts_with("9.02.") || ing.starts_with("9.04.") || ing.starts_with("9.06.") 
-            || ing.starts_with("9.09.") || ing.starts_with("9.11.") || ing.starts_with("9.29.") 
-            || ing.starts_with("9.32.") || ing.starts_with("9.30.") || ing.starts_with("9.31.")
-            || desc_up.contains("FRASCO") || desc_up.contains("POTE") || desc_up.contains("TAMPA") 
-            || desc_up.contains("BISNAGA") || desc_up.contains("VALVULA") || desc_up.contains("CAIXA")
-            || desc_up.contains("ROTULO") || desc_up.contains("RÓTULO");
-        if !is_emb {
-            Some(qty)
-        } else {
+        if crate::modules::producao::cobertura::calc::is_embalagem(&ing, &desc) {
             None
+        } else {
+            Some(qty)
         }
     }).sum();
 

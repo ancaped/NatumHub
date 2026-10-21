@@ -282,6 +282,7 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
             get(handlers::get_ultimo_lote_produto),
         )
         .merge(modules::producao::proc::router())
+        .merge(modules::producao::cobertura::router())
         .merge(modules::compras::router())
         .merge(modules::estoque::router())
         .merge(modules::financeiro::router())
