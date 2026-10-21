@@ -16,6 +16,10 @@ pub fn router() -> Router<Arc<AppState>> {
             get(handlers::get_acompanhamento_producao),
         )
         .route(
+            "/api/administrativo/acompanhamento-producao/auditoria",
+            get(handlers::get_auditoria_lotes),
+        )
+        .route(
             "/api/administrativo/lote-status",
             post(handlers::save_lote_custom_status),
         )

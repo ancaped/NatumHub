@@ -104,6 +104,9 @@ pub struct AcompanhamentoLoteItem {
     pub planning_ordem: Option<i32>,
     #[serde(default)]
     pub reator_id: Option<String>,
+    /// Id da ordem em `producao_planejamento_semanal` (None para lotes que só existem no ERP/status).
+    #[serde(default)]
+    pub planning_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

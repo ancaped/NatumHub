@@ -41,6 +41,17 @@ pub async fn get_acompanhamento_producao(
     }
 }
 
+/// Auditoria somente leitura: possíveis lotes duplicados e vínculos suspeitos.
+pub async fn get_auditoria_lotes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match store::auditoria_lotes(state.db.pool()).await {
+        Ok(v) => (StatusCode::OK, Json(v)).into_response(),
+        Err(e) => {
+            eprintln!("[AcompanhamentoProducao] Erro na auditoria de lotes: {e}");
+            err(StatusCode::INTERNAL_SERVER_ERROR, e)
+        }
+    }
+}
+
 pub async fn save_lote_custom_status(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,

@@ -63,6 +63,7 @@ import { getHoliday, isWeekend, HolidayInfo } from '../../geral/lib/brazilHolida
 import { api } from '../../geral/lib/api';
 import { FiscoQuimicaAnalysis } from '../../geral/lib/types';
 import { PlanejamentoSemanalTab } from '../../producao/gerenciamento/components/PlanejamentoSemanalTab';
+import AuditoriaLotesDrawer from './AuditoriaLotesDrawer';
 
 export interface StatusHistoryEntry {
   id: number;
@@ -125,6 +126,8 @@ export interface AcompanhamentoLote {
   planningOrdem?: number | null;
   planning_ordem?: number | null;
   reatorId?: string | null;
+  /** Id da ordem em producao_planejamento_semanal (nulo para lotes que só existem no ERP/status). */
+  planningId?: string | null;
   reator_id?: string | null;
 }
 
@@ -337,6 +340,24 @@ export function parseProductUnitWeightKg(descricao?: string): number {
   return 1.0;
 }
 
+/** Data de hoje no fuso local, em YYYY-MM-DD (mesmo formato usado pelos seletores de data dos quadros). */
+function getTodayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Validade da busca remota repetida (resposta vazia) e dos lotes que ela trouxe. */
+const REMOTE_LOOKUP_TTL_MS = 60_000;
+const REMOTE_LOTES_TTL_MS = 10 * 60_000;
+
+/** Chave React estável de uma linha de lote: lote + produto + ordem do planejamento (evita colisão em listas sem dedupe). */
+export const loteRowKey = (l: { loteNumber?: string | null; productCode?: string | null; planningId?: string | null }): string =>
+  `${l.loteNumber || ''}__${l.productCode || ''}__${l.planningId || ''}`;
+
+/** Chave de fusão entre a lista do servidor e os lotes achados pela busca remota: lote + produto. */
+const loteMergeKey = (l: { loteNumber?: string | null; productCode?: string | null }): string =>
+  `${(l.loteNumber || '').trim().toLowerCase()}__${(l.productCode || '').trim().toLowerCase()}`;
+
 /**
  * Comparador estrito de número de lote.
  * 1. Prioriza correspondência exata (com ou sem # e zeros à esquerda).
@@ -359,15 +380,26 @@ export function matchLoteStrict(loteNum: string | undefined | null, searchStr: s
 }
 
 /**
+ * Remove o prefixo textual de um número de lote digitado ("lote 123", "ordem: 45", "op 77", "nº 5", "n: 9", "#12").
+ * "lote", "ordem", "nº" e "n°" saem mesmo coladas ao número; "op" e "n" só saem com espaço ou ":" / "#" depois.
+ * Assim lotes cujo número começa com essas letras ("N1234", "OP-77") não são amputados.
+ */
+export function stripLotePrefix(raw: string): string {
+  return (raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^(?:(?:lote|ordem|nº|n°)\s*[:#-]?\s*|(?:op|n)(?:\s*[:#]\s*|\s+))/i, '')
+    .replace(/^#/, '')
+    .trim();
+}
+
+/**
  * Normaliza strings de pesquisa de lote removendo prefixos como 'lote ', 'op ', 'ordem ', '#', etc.
  */
 export function normalizeLoteSearch(raw: string): { clean: string; cleanNoZero: string; isNumeric: boolean; originalClean: string } {
   if (!raw) return { clean: '', cleanNoZero: '', isNumeric: false, originalClean: '' };
   const originalClean = raw.trim().toLowerCase();
-  const clean = originalClean
-    .replace(/^(lote|op|ordem|nº|n°|n)\s*[:#-]?\s*/i, '')
-    .replace(/^#/, '')
-    .trim();
+  const clean = stripLotePrefix(raw);
   const cleanNoZero = clean.replace(/^0+/, '');
   const isNumeric = /^\d+$/.test(clean) && clean.length > 0;
   return { clean, cleanNoZero, isNumeric, originalClean };
@@ -386,8 +418,7 @@ export function findExactLoteMatch<T extends { loteNumber?: string | null }>(
   if (!clean) return null;
 
   for (const item of items) {
-    const rawTarget = (item.loteNumber || '').trim().toLowerCase();
-    const target = rawTarget.replace(/^(lote|op|ordem|nº|n°|n)\s*[:#-]?\s*/i, '').replace(/^#/, '').trim();
+    const target = stripLotePrefix(item.loteNumber || '');
     const targetNoZero = target.replace(/^0+/, '');
     if (target === clean || (isNumeric && cleanNoZero !== '' && targetNoZero === cleanNoZero)) {
       return item;
@@ -409,8 +440,7 @@ export function findAllExactLoteMatches<T extends { loteNumber?: string | null }
 
   const matches: T[] = [];
   for (const item of items) {
-    const rawTarget = (item.loteNumber || '').trim().toLowerCase();
-    const target = rawTarget.replace(/^(lote|op|ordem|nº|n°|n)\s*[:#-]?\s*/i, '').replace(/^#/, '').trim();
+    const target = stripLotePrefix(item.loteNumber || '');
     const targetNoZero = target.replace(/^0+/, '');
     if (target === clean || (isNumeric && cleanNoZero !== '' && targetNoZero === cleanNoZero)) {
       matches.push(item);
@@ -505,8 +535,7 @@ export function filterLotesBySearch<T extends { loteNumber?: string | null }>(
   // 1. Verificar correspondência exata primeiro (prioridade absoluta)
   if (clean) {
     const exact = items.filter(item => {
-      const rawTarget = (item.loteNumber || '').trim().toLowerCase();
-      const target = rawTarget.replace(/^(lote|op|ordem|nº|n°|n)\s*[:#-]?\s*/i, '').replace(/^#/, '').trim();
+      const target = stripLotePrefix(item.loteNumber || '');
       const targetNoZero = target.replace(/^0+/, '');
       return target === clean || (isNumeric && cleanNoZero !== '' && targetNoZero === cleanNoZero);
     });
@@ -516,16 +545,14 @@ export function filterLotesBySearch<T extends { loteNumber?: string | null }>(
   // 2. Se for numérico, buscar por início (startsWith) ou substring em loteNumber
   if (isNumeric && clean) {
     const startsWith = items.filter(item => {
-      const rawTarget = (item.loteNumber || '').trim().toLowerCase();
-      const target = rawTarget.replace(/^(lote|op|ordem|nº|n°|n)\s*[:#-]?\s*/i, '').replace(/^#/, '').trim();
+      const target = stripLotePrefix(item.loteNumber || '');
       const targetNoZero = target.replace(/^0+/, '');
       return target.startsWith(clean) || (cleanNoZero !== '' && targetNoZero.startsWith(cleanNoZero));
     });
     if (startsWith.length > 0) return startsWith;
 
     const containsLote = items.filter(item => {
-      const rawTarget = (item.loteNumber || '').trim().toLowerCase();
-      const target = rawTarget.replace(/^(lote|op|ordem|nº|n°|n)\s*[:#-]?\s*/i, '').replace(/^#/, '').trim();
+      const target = stripLotePrefix(item.loteNumber || '');
       return target.includes(clean);
     });
     if (containsLote.length > 0) return containsLote;
@@ -1778,6 +1805,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   const [savingKitOrder, setSavingKitOrder] = useState(false);
 
   // Notificação Toast
+  const [auditoriaLotesAberta, setAuditoriaLotesAberta] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Feedback visual imediato ao alterar Status Nosso
@@ -1796,7 +1824,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   const [encaixeSearch, setEncaixeSearch] = useState<string>('');
   const [envaseSearch, setEnvaseSearch] = useState<string>('');
   const [encaixeStatusFilter, setEncaixeStatusFilter] = useState<string>('TODOS');
-  const [encaixeOnlyProblemas, setEncaixeOnlyProblemas] = useState<boolean>(false);
   const [encaixeCategoryOverrides, setEncaixeCategoryOverrides] = useState<Record<string, string>>({});
   const [showAddManualModal, setShowAddManualModal] = useState(false);
 
@@ -1877,7 +1904,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   const [rotulagemSearch, setRotulagemSearch] = useState<string>('');
   const [rotulagemFilaSearch, setRotulagemFilaSearch] = useState<string>('');
   const [rotulagemStatusFilter, setRotulagemStatusFilter] = useState<'TODOS' | 'PROGRAMADO' | 'EM_ROTULAGEM' | 'CONCLUIDO'>('TODOS');
-  const [rotulagemOnlyProblemas, setRotulagemOnlyProblemas] = useState<boolean>(false);
 
   // Modal / Localizador Facilitado de Datas dos Lotes
   const [showLocalizarDataModal, setShowLocalizarDataModal] = useState<boolean>(false);
@@ -2050,8 +2076,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   }, [currentUser]);
 
   // Filtros de Problemas / Falta para Pesagem e Produção
-  const [pesagemOnlyProblemas, setPesagemOnlyProblemas] = useState<boolean>(false);
-  const [producaoOnlyProblemas, setProducaoOnlyProblemas] = useState<boolean>(false);
 
   // Quadro de Caldeira (Processamento Térmico em Produção)
   interface CaldeiraRegistro {
@@ -2135,13 +2159,24 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     setTimeout(() => setToastMessage(null), 3000);
   };
 
+  // Lotes trazidos pela busca remota (chave lote+produto -> lote e instante), mantidos entre refreshes
+  const remoteLotesRef = useRef<Map<string, { lote: AcompanhamentoLote; at: number }>>(new Map());
+
   // Carregar lotes da API (sincronizando diretamente com a fonte única de verdade do servidor)
   const fetchLotes = useCallback(async () => {
     setLoading(true);
     try {
       const data = await apiJson<AcompanhamentoLote[]>('/api/administrativo/acompanhamento-producao');
       const freshList = Array.isArray(data) ? data : [];
-      setLotes(freshList);
+      // Lotes trazidos pela busca remota continuam visíveis por alguns minutos; sem isso somem no próximo refresh.
+      const now = Date.now();
+      const known = new Set(freshList.map(loteMergeKey));
+      const kept: AcompanhamentoLote[] = [];
+      for (const [k, v] of Array.from(remoteLotesRef.current.entries())) {
+        if (now - v.at > REMOTE_LOTES_TTL_MS) remoteLotesRef.current.delete(k);
+        else if (!known.has(k)) kept.push(v.lote);
+      }
+      setLotes(kept.length > 0 ? [...kept, ...freshList] : freshList);
     } catch (err) {
       console.error("Erro ao carregar lotes de acompanhamento:", err);
       showToast("Não foi possível carregar os lotes de produção.", "error");
@@ -2151,7 +2186,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   }, []);
 
   // Cache de buscas remotas para evitar requisições redundantes
-  const remoteLookupCache = useRef<Set<string>>(new Set());
+  // chave da busca -> instante da última consulta; uma falha libera a chave, uma resposta vazia vale por 60 s
+  const remoteLookupCache = useRef<Map<string, number>>(new Map());
 
   // Busca remota de fallback: caso o operador pesquise um lote não presente na memória inicial
   const performRemoteLookup = useCallback(async (query: string) => {
@@ -2160,27 +2196,28 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
     // Se já estiver em memória com correspondência exata, não precisa consultar o servidor
     const localExact = lotes.find(l => {
-      const rawTarget = (l.loteNumber || '').trim().toLowerCase();
-      const target = rawTarget.replace(/^(lote|op|ordem|nº|n°|n)\s*[:#-]?\s*/i, '').replace(/^#/, '').trim();
+      const target = stripLotePrefix(l.loteNumber || '');
       const targetNoZero = target.replace(/^0+/, '');
       return target === clean || (isNumeric && targetNoZero === clean.replace(/^0+/, ''));
     });
     if (localExact) return;
 
     const cacheKey = clean.toLowerCase();
-    if (remoteLookupCache.current.has(cacheKey)) return;
-    remoteLookupCache.current.add(cacheKey);
+    const lastLookup = remoteLookupCache.current.get(cacheKey);
+    if (lastLookup !== undefined && Date.now() - lastLookup < REMOTE_LOOKUP_TTL_MS) return;
+    remoteLookupCache.current.set(cacheKey, Date.now());
 
     try {
       const data = await apiJson<AcompanhamentoLote[]>(`/api/administrativo/acompanhamento-producao?search=${encodeURIComponent(clean)}`);
       if (Array.isArray(data) && data.length > 0) {
+        const at = Date.now();
+        for (const item of data) remoteLotesRef.current.set(loteMergeKey(item), { lote: item, at });
         setLotes(prev => {
-          const getKey = (l: AcompanhamentoLote) => `${(l.loteNumber || '').trim().toLowerCase()}__${(l.productCode || '').trim().toLowerCase()}`;
-          const existingKeys = new Set(prev.map(getKey));
+          const existingKeys = new Set(prev.map(loteMergeKey));
           let added = false;
           const next = [...prev];
           for (const item of data) {
-            const k = getKey(item);
+            const k = loteMergeKey(item);
             if (!existingKeys.has(k)) {
               next.unshift(item);
               existingKeys.add(k);
@@ -2191,6 +2228,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         });
       }
     } catch (err) {
+      remoteLookupCache.current.delete(cacheKey);
       console.warn('[RemoteLookup] Erro ao consultar lote no backend:', err);
     }
   }, [lotes]);
@@ -6824,9 +6862,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           return false;
         }
 
-        if (encaixeOnlyProblemas && !hasLoteProblemaOuPausa(l, null, 'envase')) {
-          return false;
-        }
 
         // Se o usuário selecionou visualização explícita de "Todas as Ordens Abertas"
         if (envaseScopeFilter === 'TODOS') {
@@ -6854,7 +6889,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         isAlreadyScheduled: false,
         scheduledItem: undefined
       }));
-  }, [lotes, encaixeSearch, programacaoEnvase, programacaoRotulagem, encaixeOnlyProblemas, envaseScopeFilter, encaixeStatusFilter, fiscoAnalysesByBatch, manualLiberadosEnvase]);
+  }, [lotes, encaixeSearch, programacaoEnvase, programacaoRotulagem, envaseScopeFilter, encaixeStatusFilter, fiscoAnalysesByBatch, manualLiberadosEnvase]);
 
   const lotesParaEncaixe = useMemo(() => {
     return deduplicateLotesByNumber(filterLotesBySearch(baseLotesParaEncaixe, encaixeSearch));
@@ -7651,7 +7686,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         return false;
       }
 
-      if (rotulagemOnlyProblemas) return false;
 
       // Se foi adicionado manualmente à fila de rotulagem
       const isManual = (manualFilasAdicionados.rotulagem || []).includes(l.loteNumber);
@@ -7668,7 +7702,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
       return true;
     });
-  }, [lotes, rotulagemFilaSearch, programacaoRotulagem, rotulagemOnlyProblemas, manualFilasAdicionados, rotulagemScopeFilter, rotulagemSelectedDate, programacaoEnvase]);
+  }, [lotes, rotulagemFilaSearch, programacaoRotulagem, manualFilasAdicionados, rotulagemScopeFilter, rotulagemSelectedDate, programacaoEnvase]);
 
   const lotesParaRotulagem = useMemo(() => {
     return deduplicateLotesByNumber(filterLotesBySearch(baseLotesParaRotulagem, rotulagemFilaSearch));
@@ -7771,13 +7805,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     };
   }, [rotulagemMaquinaItems, rotulagemManualItems]);
 
-  const countEncaixeProblemas = useMemo(() => {
-    return baseLotesParaEncaixe.filter(l => hasLoteProblemaOuPausa(l, null, 'envase')).length;
-  }, [baseLotesParaEncaixe]);
 
-  const countRotulagemProblemas = useMemo(() => {
-    return baseLotesParaRotulagem.filter(l => hasLoteProblemaOuPausa(l, null, 'rotulagem')).length;
-  }, [baseLotesParaRotulagem]);
 
   const handleEncaixarRotulagem = async (lote: AcompanhamentoLote, tipo: 'MAQUINA' | 'MANUAL') => {
     const targetDate = rotulagemSelectedDate || new Date().toISOString().split('T')[0];
@@ -8255,6 +8283,22 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           </div>
         </div>
       )}
+
+      {/* Auditoria de lotes (somente leitura): possíveis duplicatas e vínculos suspeitos */}
+      {mode === 'planejamento' && (
+        <div className="flex justify-end mb-2">
+          <button
+            type="button"
+            onClick={() => setAuditoriaLotesAberta(true)}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 shadow-2xs cursor-pointer"
+            title="Lista lotes que podem estar duplicados ou com vínculo suspeito"
+          >
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+            Auditoria de lotes
+          </button>
+        </div>
+      )}
+      <AuditoriaLotesDrawer isOpen={auditoriaLotesAberta} onClose={() => setAuditoriaLotesAberta(false)} />
 
       {/* VIEW: PLANEJAMENTO SEMANAL (PCP) */}
       {currentTab === 'planejamento_semanal' && (
@@ -9074,7 +9118,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                       return (
                         <tr
-                          key={`${lote.loteNumber}_${lote.productCode || ''}`}
+                          key={loteRowKey(lote)}
                           className={cn(
                             "hover:bg-zinc-50/80 transition-colors",
                             selectedLotes.has(lote.loteNumber) ? "bg-blue-50/40" : isConcluido ? "bg-zinc-50/40" : isEspera ? "bg-orange-50/20" : "bg-white"
@@ -9883,7 +9927,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                     return (
                       <div
-                        key={`${lote.loteNumber}_${lote.productCode || idx}`}
+                        key={loteRowKey(lote)}
                         draggable
                         onDragStart={(e) => {
                           const payload = {
@@ -10236,7 +10280,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                     return (
                       <div
-                        key={`${lote.loteNumber}_${lote.productCode || idx}`}
+                        key={loteRowKey(lote)}
                         draggable
                         onDragStart={(e) => {
                           const payload = {
@@ -10537,7 +10581,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                     return (
                       <div
-                        key={`${lote.loteNumber}_${lote.productCode || idx}`}
+                        key={loteRowKey(lote)}
                         draggable
                         onDragStart={(e) => {
                           setDragCardInfo({ board: 'producao', id: lote.loteNumber, index: idx });
@@ -10818,7 +10862,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                     return (
                       <div
-                        key={`${lote.loteNumber}_${lote.productCode || idx}`}
+                        key={loteRowKey(lote)}
                         draggable
                         onDragStart={(e) => {
                           setDragCardInfo({ board: 'producao', id: lote.loteNumber, index: idx });
@@ -11148,7 +11192,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                     return (
                       <div
-                        key={`${lote.loteNumber}_${lote.productCode || idx}`}
+                        key={loteRowKey(lote)}
                         draggable
                         onDragStart={(e) => {
                           setDragCardInfo({ board: 'producao', id: lote.loteNumber, index: idx });
@@ -11997,10 +12041,10 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 <div className="flex items-center gap-1 pt-0.5 flex-wrap">
                   <button
                     type="button"
-                    onClick={() => { setRotulagemScopeFilter('LIBERADOS'); setRotulagemOnlyProblemas(false); }}
+                    onClick={() => { setRotulagemScopeFilter('LIBERADOS'); }}
                     className={cn(
                       "px-2 py-0.5 text-[11px] font-bold rounded cursor-pointer transition-colors",
-                      rotulagemScopeFilter === 'LIBERADOS' && !rotulagemOnlyProblemas ? "bg-white text-zinc-900 shadow-2xs border border-zinc-300" : "text-zinc-500 hover:text-zinc-800"
+                      rotulagemScopeFilter === 'LIBERADOS' ? "bg-white text-zinc-900 shadow-2xs border border-zinc-300" : "text-zinc-500 hover:text-zinc-800"
                     )}
                     title="Lotes já produzidos e liberados para rotulagem"
                   >
@@ -12008,25 +12052,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setRotulagemScopeFilter('TODOS'); setRotulagemOnlyProblemas(false); }}
+                    onClick={() => { setRotulagemScopeFilter('TODOS'); }}
                     className={cn(
                       "px-2 py-0.5 text-[11px] font-bold rounded cursor-pointer transition-colors",
-                      rotulagemScopeFilter === 'TODOS' && !rotulagemOnlyProblemas ? "bg-white text-zinc-900 shadow-2xs border border-zinc-300" : "text-zinc-500 hover:text-zinc-800"
+                      rotulagemScopeFilter === 'TODOS' ? "bg-white text-zinc-900 shadow-2xs border border-zinc-300" : "text-zinc-500 hover:text-zinc-800"
                     )}
                     title="Todas as ordens abertas da fábrica no Hub"
                   >
                     Todas Abertas ({todasOrdensAbertasFabrica.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRotulagemOnlyProblemas(true)}
-                    className={cn(
-                      "px-2 py-0.5 text-[11px] font-bold rounded cursor-pointer transition-colors flex items-center gap-1",
-                      rotulagemOnlyProblemas ? "bg-amber-500 text-white shadow-2xs" : "text-amber-700 hover:bg-amber-100/80"
-                    )}
-                  >
-                    <AlertTriangle className="h-3 w-3" />
-                    <span>Falta / Problemas ({countRotulagemProblemas})</span>
                   </button>
                 </div>
               </div>
@@ -12057,7 +12090,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                     return (
                       <div
-                        key={`${lote.loteNumber}_${lote.productCode || idx}`}
+                        key={loteRowKey(lote)}
                         draggable
                         onDragStart={(e) => {
                           const payload = {
@@ -13189,10 +13222,10 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 <div className="flex items-center gap-1 pt-0.5 flex-wrap">
                   <button
                     type="button"
-                    onClick={() => { setEnvaseScopeFilter('LIBERADOS'); setEncaixeOnlyProblemas(false); }}
+                    onClick={() => { setEnvaseScopeFilter('LIBERADOS'); }}
                     className={cn(
                       "px-2 py-0.5 text-[11px] font-bold rounded cursor-pointer transition-colors",
-                      envaseScopeFilter === 'LIBERADOS' && !encaixeOnlyProblemas ? "bg-white text-zinc-900 shadow-2xs border border-zinc-300" : "text-zinc-500 hover:text-zinc-800"
+                      envaseScopeFilter === 'LIBERADOS' ? "bg-white text-zinc-900 shadow-2xs border border-zinc-300" : "text-zinc-500 hover:text-zinc-800"
                     )}
                     title="Lotes já produzidos e liberados para envase"
                   >
@@ -13200,25 +13233,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setEnvaseScopeFilter('TODOS'); setEncaixeOnlyProblemas(false); }}
+                    onClick={() => { setEnvaseScopeFilter('TODOS'); }}
                     className={cn(
                       "px-2 py-0.5 text-[11px] font-bold rounded cursor-pointer transition-colors",
-                      envaseScopeFilter === 'TODOS' && !encaixeOnlyProblemas ? "bg-white text-zinc-900 shadow-2xs border border-zinc-300" : "text-zinc-500 hover:text-zinc-800"
+                      envaseScopeFilter === 'TODOS' ? "bg-white text-zinc-900 shadow-2xs border border-zinc-300" : "text-zinc-500 hover:text-zinc-800"
                     )}
                     title="Todas as ordens abertas da fábrica no Hub"
                   >
                     Todas Abertas ({todasOrdensAbertasFabrica.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEncaixeOnlyProblemas(true)}
-                    className={cn(
-                      "px-2 py-0.5 text-[11px] font-bold rounded cursor-pointer transition-colors flex items-center gap-1",
-                      encaixeOnlyProblemas ? "bg-amber-500 text-white shadow-2xs" : "text-amber-700 hover:bg-amber-100/80"
-                    )}
-                  >
-                    <AlertTriangle className="h-3 w-3" />
-                    <span>Falta / Problemas ({countEncaixeProblemas})</span>
                   </button>
                 </div>
               </div>
@@ -13244,7 +13266,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                     return (
                       <div
-                        key={`${lote.loteNumber}_${lote.productCode || idx}`}
+                        key={loteRowKey(lote)}
                         draggable
                         onDragStart={(e) => {
                           const payload = {
@@ -13571,7 +13593,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     const isMulti = multiProductLoteNumbers.has(lote.loteNumber);
                     return (
                       <div
-                        key={`${lote.loteNumber}_${lote.productCode || idx}`}
+                        key={loteRowKey(lote)}
                         className="bg-white border border-emerald-200 rounded-xl p-3.5 shadow-2xs hover:shadow-xs transition-all space-y-2.5"
                       >
                         <div className="flex items-center justify-between gap-1 pb-2 border-b border-zinc-100">
@@ -13712,7 +13734,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                     return (
                       <div
-                        key={`${lote.loteNumber}_${lote.productCode || idx}`}
+                        key={loteRowKey(lote)}
                         className="bg-white border border-purple-200 rounded-xl p-3.5 shadow-2xs hover:shadow-xs transition-all space-y-2.5"
                       >
                         <div className="flex items-center justify-between gap-1 pb-2 border-b border-zinc-100">
@@ -13876,7 +13898,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     const isMulti = multiProductLoteNumbers.has(lote.loteNumber);
                     return (
                       <div
-                        key={`${lote.loteNumber}_${lote.productCode || idx}`}
+                        key={loteRowKey(lote)}
                         className="bg-white border border-zinc-200 rounded-xl p-3 shadow-2xs hover:shadow-xs transition-all space-y-2"
                       >
                         <div className="flex items-center justify-between gap-1 pb-1.5 border-b border-zinc-100">
@@ -14201,7 +14223,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         const isFinal = item.customStatus === 'Finalizada';
                         return (
                           <div
-                            key={item.loteNumber}
+                            key={loteRowKey(item)}
                             className={cn(
                               "text-[10px] px-1.5 py-0.5 rounded-md truncate font-medium border flex items-center justify-between gap-1",
                               isEa || isFinal
@@ -14275,7 +14297,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       const isBusy = savingLote === item.loteNumber;
 
                       return (
-                        <tr key={item.loteNumber} className="hover:bg-zinc-50/80">
+                        <tr key={loteRowKey(item)} className="hover:bg-zinc-50/80">
                           <td className="py-2.5 px-3 font-mono font-bold text-zinc-900 select-all">
                             #{item.loteNumber}
                           </td>
@@ -14847,7 +14869,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                 return candidates.map(candidate => (
                   <div
-                    key={`${candidate.loteNumber}_${candidate.productCode}`}
+                    key={loteRowKey(candidate)}
                     className="p-3 bg-white border border-zinc-200 rounded-xl hover:border-zinc-400 hover:shadow-2xs transition-all flex items-center justify-between gap-3"
                   >
                     <div className="min-w-0 flex-1">
@@ -15971,7 +15993,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       const isSelected = vincularLoteInput === l.loteNumber;
                       return (
                         <button
-                          key={l.loteNumber}
+                          key={loteRowKey(l)}
                           type="button"
                           onClick={() => setVincularLoteInput(l.loteNumber)}
                           className={cn(

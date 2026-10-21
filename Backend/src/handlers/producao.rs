@@ -3113,6 +3113,7 @@ pub async fn get_lote_lookup(
     Path(lote_number): Path<String>,
 ) -> impl IntoResponse {
     let pool = state.db.pool();
+    let lote_number = lote_number.trim().to_string();
 
     let rows = match sqlx::query(
         "SELECT m.item_code, COALESCE(p.descricao, ''), m.quantity, m.date, COALESCE(m.details, '')
@@ -3272,6 +3273,7 @@ pub async fn get_lote_detalhes(
     Path(lote_number): Path<String>,
 ) -> impl IntoResponse {
     let pool = state.db.pool();
+    let lote_number = lote_number.trim().to_string();
 
     let rows = match sqlx::query(
         "SELECT m.item_code, p.descricao, m.quantity, m.date, m.details

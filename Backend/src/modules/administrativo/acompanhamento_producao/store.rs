@@ -204,7 +204,8 @@ pub async fn list_acompanhamento(
             m.details,
             m.planning_ordem,
             m.reator_id,
-            CASE 
+            m.planning_id,
+            CASE
                 WHEN m.planning_id IS NOT NULL AND (c.custom_status IS NULL OR c.custom_status IN ('Aberto', 'Pendente', 'Produzido', 'Finalizada', 'Ordem Finalizada')) THEN 'Pesagem'
                 ELSE COALESCE(c.custom_status, 'Pesagem')
             END AS custom_status,
@@ -482,6 +483,7 @@ pub async fn list_acompanhamento(
         let reator_id: Option<String> = row.try_get::<Option<String>, _>("reator_id").ok().flatten()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
+        let planning_id: Option<String> = row.try_get::<Option<String>, _>("planning_id").ok().flatten();
 
         // Extrai Unidades de details (se presente)
         let mut unidades: Option<f64> = None;
@@ -566,6 +568,7 @@ pub async fn list_acompanhamento(
             etapas_status,
             planning_ordem,
             reator_id,
+            planning_id,
         });
     }
 
@@ -2690,4 +2693,132 @@ pub fn parse_product_unit_weight_kg(descricao: &str) -> f64 {
         return 0.03;
     }
     1.0
+}
+
+/// Auditoria somente leitura dos lotes: aponta onde a mesma ordem pode estar aparecendo duas vezes
+/// (planejamento sem lote ERP x lote ERP já mexido nos quadros), lotes ERP digitados que não existem
+/// e o mesmo lote + produto em mais de uma ordem do planejamento. Não corrige nada.
+pub async fn auditoria_lotes(pool: &PgPool) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+
+    let pares = sqlx::query(
+        r#"
+        SELECT DISTINCT
+            c.lote_number AS lote_erp,
+            pp.id AS planning_id,
+            pp.codigo_produto,
+            pp.descricao,
+            to_char(pp.data_planejada, 'YYYY-MM-DD') AS data_planejada,
+            pp.quantidade_planejada::float8 AS kg,
+            to_char((COALESCE(c.data_producao, c.updated_at) AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD') AS data_lote
+        FROM lote_custom_status c
+        JOIN stock_movements sm
+          ON sm.document_number = c.lote_number AND sm.item_type = 'produto' AND sm.movement_type = 'entrada'
+        JOIN producao_planejamento_semanal pp ON pp.codigo_produto = sm.item_code
+        WHERE c.lote_number !~* '^(PLAN_|PL-)'
+          AND (pp.lote_erp IS NULL OR TRIM(pp.lote_erp) = '')
+          AND (pp.ordem_status IS NULL OR pp.ordem_status <> 'cancelado')
+          AND NOT EXISTS (
+              SELECT 1 FROM producao_planejamento_semanal pq WHERE TRIM(pq.lote_erp) = c.lote_number
+          )
+          AND ABS(pp.data_planejada - (COALESCE(c.data_producao, c.updated_at) AT TIME ZONE 'America/Sao_Paulo')::date) <= 7
+        ORDER BY data_planejada DESC
+        LIMIT 200
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Erro na auditoria (pares PLAN x ERP): {e}"))?;
+
+    let inexistentes = sqlx::query(
+        r#"
+        SELECT pp.id AS planning_id,
+               TRIM(pp.lote_erp) AS lote_erp,
+               pp.codigo_produto,
+               pp.descricao,
+               to_char(pp.data_planejada, 'YYYY-MM-DD') AS data_planejada
+        FROM producao_planejamento_semanal pp
+        WHERE pp.lote_erp IS NOT NULL AND TRIM(pp.lote_erp) <> ''
+          AND (pp.ordem_status IS NULL OR pp.ordem_status <> 'cancelado')
+          AND pp.updated_at < NOW() - INTERVAL '6 hours'
+          AND NOT EXISTS (SELECT 1 FROM stock_movements sm WHERE sm.document_number = TRIM(pp.lote_erp))
+          AND NOT EXISTS (SELECT 1 FROM erp_lotes_laudos ell WHERE ell.lote = TRIM(pp.lote_erp))
+        ORDER BY pp.data_planejada DESC
+        LIMIT 200
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Erro na auditoria (lote ERP inexistente): {e}"))?;
+
+    let repetidos = sqlx::query(
+        r#"
+        SELECT TRIM(pp.lote_erp) AS lote_erp,
+               pp.codigo_produto,
+               COUNT(*)::int8 AS ordens,
+               array_agg(pp.id ORDER BY pp.created_at) AS planning_ids,
+               SUM(pp.quantidade_planejada)::float8 AS kg_total
+        FROM producao_planejamento_semanal pp
+        WHERE pp.lote_erp IS NOT NULL AND TRIM(pp.lote_erp) <> ''
+          AND (pp.ordem_status IS NULL OR pp.ordem_status <> 'cancelado')
+        GROUP BY TRIM(pp.lote_erp), pp.codigo_produto
+        HAVING COUNT(*) > 1
+        ORDER BY COUNT(*) DESC
+        LIMIT 200
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Erro na auditoria (lote repetido): {e}"))?;
+
+    let txt = |r: &sqlx::postgres::PgRow, c: &str| r.try_get::<Option<String>, _>(c).ok().flatten();
+    let num = |r: &sqlx::postgres::PgRow, c: &str| r.try_get::<Option<f64>, _>(c).ok().flatten();
+
+    let pares_json: Vec<serde_json::Value> = pares
+        .iter()
+        .map(|r| {
+            json!({
+                "loteErp": txt(r, "lote_erp"),
+                "planningId": txt(r, "planning_id"),
+                "codigoProduto": txt(r, "codigo_produto"),
+                "descricao": txt(r, "descricao"),
+                "dataPlanejada": txt(r, "data_planejada"),
+                "dataLote": txt(r, "data_lote"),
+                "kg": num(r, "kg"),
+            })
+        })
+        .collect();
+
+    let inexistentes_json: Vec<serde_json::Value> = inexistentes
+        .iter()
+        .map(|r| {
+            json!({
+                "planningId": txt(r, "planning_id"),
+                "loteErp": txt(r, "lote_erp"),
+                "codigoProduto": txt(r, "codigo_produto"),
+                "descricao": txt(r, "descricao"),
+                "dataPlanejada": txt(r, "data_planejada"),
+            })
+        })
+        .collect();
+
+    let repetidos_json: Vec<serde_json::Value> = repetidos
+        .iter()
+        .map(|r| {
+            json!({
+                "loteErp": txt(r, "lote_erp"),
+                "codigoProduto": txt(r, "codigo_produto"),
+                "ordens": r.try_get::<Option<i64>, _>("ordens").ok().flatten().unwrap_or(0),
+                "planningIds": r.try_get::<Option<Vec<String>>, _>("planning_ids").ok().flatten().unwrap_or_default(),
+                "kgTotal": num(r, "kg_total"),
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "paresPlanErp": pares_json,
+        "loteErpInexistente": inexistentes_json,
+        "loteRepetido": repetidos_json,
+        "total": pares_json.len() + inexistentes_json.len() + repetidos_json.len(),
+    }))
 }
