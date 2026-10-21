@@ -15,6 +15,7 @@ import { loadNatumLogoDataUrl } from '../../../geral/lib/logoUtils';
 import { getHoliday, getBrazilHolidaysForYear, HolidayInfo } from '../../../geral/lib/brazilHolidays';
 import { ProductDetailsDrawer } from './ProductDetailsDrawer';
 import CoberturaInsumosDrawer from './CoberturaInsumosDrawer';
+import { SeloCobertura, piorResultado, useCoberturaSemana, useCoberturaFila, chaveCandidato } from './cobertura';
 
 export interface InsumoConsumoItem {
   code: string;
@@ -1484,6 +1485,22 @@ export function PlanejamentoSemanalTab({
       setTechnicalModalItem(prev => prev ? { ...prev, loadingUltimoLote: false } : null);
     }
   };
+
+  // Selos de cobertura de insumos nos cartões (quadro e Banco de Demandas); só avisam.
+  const versaoPlano = plannedItems
+    .map(i => `${i.id}:${i.data_planejada}:${i.quantidade_planejada}:${i.lote_erp || ''}:${i.ordem_sequencia ?? ''}`)
+    .join('|');
+  const { porOrdem: coberturaPorOrdem } = useCoberturaSemana(currentWeekKey, active, versaoPlano);
+  const candidatosFila = useMemo(
+    () =>
+      demandBankOpen
+        ? demandCandidates
+            .map((p: any) => ({ codigo: String(p.codigo || ''), kg: Number(p.quantidade_kg) || 0 }))
+            .filter(c => c.codigo && c.kg > 0)
+        : [],
+    [demandBankOpen, demandCandidates]
+  );
+  const coberturaPorCandidato = useCoberturaFila(currentWeekKey, demandBankOpen, candidatosFila);
 
   // Abre o modal "Vincular lote ERP" já com o número que a cobertura de insumos sugeriu.
   const handleVincularSugerido = async (ordemId: string, lote: string) => {
@@ -3121,21 +3138,12 @@ export function PlanejamentoSemanalTab({
           </button>
 
           <button
-            onClick={handleOpenMaterialsReport}
-            className="bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
-            title="Relatório consolidado de matérias-primas e embalagens necessárias na semana planejada"
-          >
-            <Boxes size={14} className="text-zinc-500" />
-            <span>Insumos da Semana</span>
-          </button>
-
-          <button
             onClick={() => setCoberturaAberta(true)}
             className="bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
-            title="Os insumos cobrem cada produção no dia planejado? Considera reserva do ERP, chegadas de pedidos e ordens manuais"
+            title="Insumos da semana: o que falta, o que chega e o que precisa de decisão (reserva do ERP, pedidos, notas e ordens manuais)"
           >
             <ShieldCheck size={14} className="text-zinc-500" />
-            <span>Cobertura de Insumos</span>
+            <span>Insumos da Semana</span>
           </button>
 
           <button
@@ -3609,6 +3617,10 @@ export function PlanejamentoSemanalTab({
                                                   <span>+ Vincular Lote</span>
                                                 </button>
                                               )}
+                                              <SeloCobertura
+                                                resultado={piorResultado(batch.items.map(it => coberturaPorOrdem[it.id]))}
+                                                onClick={() => setCoberturaAberta(true)}
+                                              />
                                             </div>
 
                                             {/* Botão de Aprovação: APENAS O ÍCONE (Sem texto) */}
@@ -3887,6 +3899,10 @@ export function PlanejamentoSemanalTab({
                             </>
                           )}
                         </div>
+                        <SeloCobertura
+                          resultado={coberturaPorCandidato[chaveCandidato({ codigo: String(prod.codigo || ''), kg: Number(prod.quantidade_kg) || 0 })]}
+                          onClick={() => setCoberturaAberta(true)}
+                        />
                       </div>
 
                       {/* 5. Ação de Agendamento e Ver Detalhes */}
@@ -5222,6 +5238,10 @@ export function PlanejamentoSemanalTab({
         semana={currentWeekKey}
         descreverOrdem={descreverOrdem}
         onVincular={handleVincularSugerido}
+        onImprimirRelatorio={() => {
+          setCoberturaAberta(false);
+          handleOpenMaterialsReport();
+        }}
       />
 
       {materialsReportOpen && (

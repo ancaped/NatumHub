@@ -1,74 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Copy, Link2 } from 'lucide-react';
+import { RefreshCw, Copy, Link2, Printer } from 'lucide-react';
 import Drawer, { DrawerTab } from '../../../geral/components/ui/Drawer';
 import { apiJson } from '../../../geral/lib/http';
 
-type StatusCobertura = 'ok' | 'atencao' | 'falta' | 'sem_formula';
-type StatusInsumo = 'ok' | 'depende_atrasado' | 'chega_depois' | 'chega_sem_data' | 'falta';
-
-interface Aviso {
-  tipo: string;
-  mensagem: string;
-  ordemId?: string;
-  lote?: string;
-  candidatos?: string[];
-  insumo?: string;
-  pedido?: number;
-  fornecedor?: string;
-  dias?: number;
-}
-
-interface InsumoOrdem {
-  codigo: string;
-  descricao: string;
-  unidade?: string | null;
-  necessario: number;
-  livreNaData: number;
-  falta: number;
-  status: StatusInsumo;
-  chegaEm?: string;
-  pedido?: number;
-  fornecedor?: string;
-}
-
-interface ResultadoOrdem {
-  id: string;
-  status: StatusCobertura;
-  consome: boolean;
-  motivoSemConsumo?: string;
-  avisos: Aviso[];
-  insumos: InsumoOrdem[];
-}
-
-interface ChegadaInfo {
-  pedido: number;
-  fornecedor: string;
-  data?: string | null;
-  quantidade: number;
-  quantidadePedido: number;
-  atrasado: boolean;
-}
-
-interface ResumoInsumo {
-  codigo: string;
-  descricao: string;
-  unidade?: string | null;
-  estoque: number;
-  reserva: number;
-  livre: number;
-  calibrado: boolean;
-  consumoPrevisto: number;
-  chegadas: ChegadaInfo[];
-}
-
-interface Cobertura {
-  semana: string;
-  hoje: string;
-  geradoEm: string;
-  ordens: ResultadoOrdem[];
-  insumos: ResumoInsumo[];
-  avisos: Aviso[];
-}
+import { fmt, fmtData, textoInsumo } from './cobertura';
+import type { Aviso, Cobertura, ResumoInsumo, ResultadoOrdem, StatusCobertura } from './cobertura';
 
 interface DesvioItem {
   lote: string;
@@ -99,6 +35,8 @@ interface Props {
   descreverOrdem: (id: string) => string;
   /** Abre o modal "Vincular lote ERP" já com o número sugerido. */
   onVincular: (ordemId: string, lote: string) => void;
+  /** Abre o relatório imprimível de matérias-primas e embalagens da semana. */
+  onImprimirRelatorio?: () => void;
 }
 
 const TITULO_AVISO: Record<string, string> = {
@@ -126,27 +64,7 @@ const ROTULO_STATUS: Record<StatusCobertura, string> = {
   sem_formula: 'Sem fórmula',
 };
 
-const fmt = (n?: number | null) =>
-  n == null || Number.isNaN(Number(n)) ? '—' : Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
 const fmtPct = (n?: number | null) => (n == null ? '—' : `${(Number(n) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`);
-const fmtData = (d?: string | null) => (d ? d.slice(0, 10).split('-').reverse().join('/') : '—');
-
-function textoInsumo(i: InsumoOrdem): string {
-  const un = i.unidade ? ` ${i.unidade}` : '';
-  const base = `${i.descricao || i.codigo} (${i.codigo}): precisa ${fmt(i.necessario)}${un}, livre ${fmt(i.livreNaData)}${un}`;
-  switch (i.status) {
-    case 'falta':
-      return `${base}. Faltam ${fmt(i.falta)}${un}, sem chegada prevista.`;
-    case 'chega_depois':
-      return `${base}. Faltam ${fmt(i.falta)}${un}; chega em ${fmtData(i.chegaEm)}${i.pedido ? ` pelo pedido ${i.pedido}` : ''}${i.fornecedor ? ` (${i.fornecedor})` : ''}.`;
-    case 'chega_sem_data':
-      return `${base}. Faltam ${fmt(i.falta)}${un}; só cobre com pedido sem previsão${i.pedido ? ` (${i.pedido})` : ''}.`;
-    case 'depende_atrasado':
-      return `${base}. Cobre apenas contando um pedido atrasado${i.pedido ? ` (${i.pedido}${i.fornecedor ? `, ${i.fornecedor}` : ''})` : ''}.`;
-    default:
-      return base;
-  }
-}
 
 function textoSemConsumo(m?: string): string | null {
   if (!m) return null;
@@ -160,11 +78,11 @@ function textoSemConsumo(m?: string): string | null {
  * Cobertura de insumos da semana (somente leitura; só avisa, nunca bloqueia).
  * Regras e raciocínio no backend: Backend/src/modules/producao/cobertura/calc.rs.
  */
-export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descreverOrdem, onVincular }: Props) {
+export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descreverOrdem, onVincular, onImprimirRelatorio }: Props) {
   const [dados, setDados] = useState<Cobertura | null>(null);
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const [aba, setAba] = useState<string>('resumo');
+  const [aba, setAba] = useState<string>('decisoes');
   const [validacao, setValidacao] = useState<Validacao | null>(null);
   const [validando, setValidando] = useState(false);
   const [erroValidacao, setErroValidacao] = useState<string | null>(null);
@@ -210,7 +128,11 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
     return c;
   }, [ordens]);
 
-  const precisamAtencao = useMemo(() => ordens.filter((o) => o.status !== 'ok'), [ordens]);
+  const precisamAtencao = useMemo(
+    () => ordens.filter((o) => o.status !== 'ok' || (o.avisos ?? []).length > 0),
+    [ordens]
+  );
+  const avisosGerais = useMemo(() => avisos.filter((a) => !a.ordemId), [avisos]);
 
   const insumosCriticos = useMemo(
     () =>
@@ -220,16 +142,16 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
     [insumos]
   );
 
-  const avisosPorTipo = useMemo(() => {
+  const avisosGeraisPorTipo = useMemo(() => {
     const m: Record<string, Aviso[]> = {};
-    for (const a of avisos) (m[a.tipo] ??= []).push(a);
+    for (const a of avisosGerais) (m[a.tipo] ??= []).push(a);
     return m;
-  }, [avisos]);
+  }, [avisosGerais]);
 
   const abas: DrawerTab[] = [
-    { id: 'resumo', label: 'Resumo' },
-    { id: 'revisar', label: 'Revisar', badge: avisos.length > 0 ? avisos.length : undefined },
-    { id: 'validacao', label: 'Validação do cálculo' },
+    { id: 'decisoes', label: 'Decisões', badge: precisamAtencao.length + avisosGerais.length || undefined },
+    { id: 'insumos', label: 'Insumos' },
+    { id: 'validacao', label: 'Calibração' },
   ];
 
   if (!isOpen) return null;
@@ -247,7 +169,7 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
   return (
     <Drawer
       onClose={onClose}
-      title="Cobertura de insumos"
+      title="Insumos da semana"
       subtitle={`Semana ${semana.split('-W')[1] ?? semana} · só avisa, não bloqueia`}
       tabs={abas}
       activeTab={aba}
@@ -256,6 +178,18 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
       loading={loading && !dados}
       loadingText="Calculando a cobertura..."
       headerActions={
+        <div className="flex items-center gap-1.5">
+        {onImprimirRelatorio && (
+          <button
+            type="button"
+            onClick={onImprimirRelatorio}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
+            title="Relatório de matérias-primas e embalagens da semana, para imprimir"
+          >
+            <Printer className="h-3.5 w-3.5" />
+            Relatório
+          </button>
+        )}
         <button
           type="button"
           onClick={carregar}
@@ -265,57 +199,90 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
           <RefreshCw className={loading ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
           Atualizar
         </button>
+        </div>
       }
     >
       <div className="space-y-5 p-4">
         {erro && <p className="text-xs font-semibold text-rose-700">{erro}</p>}
 
-        {aba === 'resumo' && dados && (
+        {aba === 'decisoes' && dados && (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {(['ok', 'atencao', 'falta', 'sem_formula'] as StatusCobertura[]).map((s) => (
-                <div key={s} className={`rounded-xl border px-3 py-2 ${COR_STATUS[s]}`}>
-                  <div className="text-lg font-bold">{contagem[s] ?? 0}</div>
-                  <div className="text-[11px] font-semibold">{ROTULO_STATUS[s]}</div>
-                </div>
+            <div className="flex flex-wrap gap-2">
+              {(['ok', 'atencao', 'falta'] as StatusCobertura[]).map((st) => (
+                <span key={st} className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${COR_STATUS[st]}`}>
+                  {contagem[st] ?? 0} {ROTULO_STATUS[st]}
+                </span>
               ))}
+              {(contagem.sem_formula ?? 0) > 0 && (
+                <span className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${COR_STATUS.sem_formula}`}>
+                  {contagem.sem_formula} {ROTULO_STATUS.sem_formula}
+                </span>
+              )}
             </div>
 
-            <section className="space-y-2">
-              <h3 className="text-xs font-bold text-zinc-900">Ordens que precisam de atenção ({precisamAtencao.length})</h3>
-              {precisamAtencao.length === 0 ? (
-                <p className="text-[11px] text-zinc-500">Nenhuma. Todas as ordens da semana estão cobertas.</p>
-              ) : (
-                <ul className="divide-y divide-zinc-100 border border-zinc-200 rounded-xl bg-white">
-                  {precisamAtencao.map((o) => (
-                    <li key={o.id} className="p-3 space-y-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="text-[11px] font-bold text-zinc-900">{descreverOrdem(o.id)}</span>
-                        <span className={`shrink-0 px-1.5 py-0.5 text-[10px] font-bold rounded border ${COR_STATUS[o.status]}`}>
-                          {ROTULO_STATUS[o.status]}
-                        </span>
-                      </div>
-                      {textoSemConsumo(o.motivoSemConsumo) && (
-                        <p className="text-[11px] text-zinc-500">{textoSemConsumo(o.motivoSemConsumo)}</p>
-                      )}
-                      {(o.insumos ?? [])
-                        .filter((i) => i.status !== 'ok')
-                        .map((i) => (
-                          <p key={i.codigo} className="text-[11px] text-zinc-700">
-                            • {textoInsumo(i)}
-                          </p>
-                        ))}
-                      {(o.avisos ?? []).map((a, idx) => (
-                        <p key={idx} className="text-[11px] text-amber-800">
-                          ⚠ {a.mensagem}
+            {precisamAtencao.length === 0 && avisosGerais.length === 0 && (
+              <p className="text-xs text-zinc-600">Nada para decidir. Todas as ordens da semana estão cobertas.</p>
+            )}
+
+            {precisamAtencao.length > 0 && (
+              <ul className="divide-y divide-zinc-100 border border-zinc-200 rounded-xl bg-white">
+                {precisamAtencao.map((o) => (
+                  <li key={o.id} className="p-3 space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-[11px] font-bold text-zinc-900">{descreverOrdem(o.id)}</span>
+                      <span className={`shrink-0 px-1.5 py-0.5 text-[10px] font-bold rounded border ${COR_STATUS[o.status]}`}>
+                        {ROTULO_STATUS[o.status]}
+                      </span>
+                    </div>
+                    {textoSemConsumo(o.motivoSemConsumo) && (
+                      <p className="text-[11px] text-zinc-500">{textoSemConsumo(o.motivoSemConsumo)}</p>
+                    )}
+                    {(o.insumos ?? [])
+                      .filter((i) => i.status !== 'ok')
+                      .map((i) => (
+                        <p key={i.codigo} className="text-[11px] text-zinc-700">
+                          • {textoInsumo(i)}
                         </p>
                       ))}
+                    {(o.avisos ?? []).map((a, idx) => (
+                      <div key={idx} className="flex items-center justify-between gap-2">
+                        <p className="text-[11px] text-amber-800">⚠ {a.mensagem}</p>
+                        {a.tipo === 'lote_erp_sem_vinculo' && a.lote && (
+                          <button
+                            type="button"
+                            onClick={() => onVincular(o.id, a.lote as string)}
+                            className="shrink-0 inline-flex items-center gap-1.5 px-2 py-1 text-[11px] font-bold rounded-lg border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50 cursor-pointer"
+                          >
+                            <Link2 className="h-3.5 w-3.5" />
+                            Vincular #{a.lote}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {ORDEM_AVISOS.filter((t) => (avisosGeraisPorTipo[t] ?? []).length > 0).map((tipo) => (
+              <section key={tipo} className="space-y-1.5">
+                <h3 className="text-xs font-bold text-zinc-900">
+                  {TITULO_AVISO[tipo]} ({avisosGeraisPorTipo[tipo].length})
+                </h3>
+                <ul className="divide-y divide-zinc-100 border border-zinc-200 rounded-xl bg-white">
+                  {avisosGeraisPorTipo[tipo].map((a, idx) => (
+                    <li key={`${tipo}-${idx}`} className="px-3 py-2 text-[11px] text-zinc-700">
+                      {a.mensagem}
                     </li>
                   ))}
                 </ul>
-              )}
-            </section>
+              </section>
+            ))}
+          </>
+        )}
 
+        {aba === 'insumos' && dados && (
+          <>
             <section className="space-y-2">
               <h3 className="text-xs font-bold text-zinc-900">Insumos mais apertados</h3>
               <p className="text-[11px] text-zinc-500">
@@ -363,37 +330,6 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
                 </table>
               </div>
             </section>
-          </>
-        )}
-
-        {aba === 'revisar' && dados && (
-          <>
-            {avisos.length === 0 && <p className="text-xs text-zinc-600">Nada para revisar agora.</p>}
-            {ORDEM_AVISOS.filter((t) => (avisosPorTipo[t] ?? []).length > 0).map((tipo) => (
-              <section key={tipo} className="space-y-2">
-                <h3 className="text-xs font-bold text-zinc-900">
-                  {TITULO_AVISO[tipo]} ({avisosPorTipo[tipo].length})
-                </h3>
-                <ul className="divide-y divide-zinc-100 border border-zinc-200 rounded-xl bg-white">
-                  {avisosPorTipo[tipo].map((a, idx) => (
-                    <li key={`${tipo}-${idx}`} className="p-3 text-[11px] text-zinc-700 space-y-1">
-                      {a.ordemId && <div className="font-bold text-zinc-900">{descreverOrdem(a.ordemId)}</div>}
-                      <div>{a.mensagem}</div>
-                      {tipo === 'lote_erp_sem_vinculo' && a.ordemId && a.lote && (
-                        <button
-                          type="button"
-                          onClick={() => onVincular(a.ordemId as string, a.lote as string)}
-                          className="inline-flex items-center gap-1.5 px-2 py-1 text-[11px] font-bold rounded-lg border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50 cursor-pointer"
-                        >
-                          <Link2 className="h-3.5 w-3.5" />
-                          Vincular lote #{a.lote}
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
           </>
         )}
 
