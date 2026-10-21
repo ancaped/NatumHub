@@ -12,18 +12,32 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 mkdir -p /DATA/AppData/nexus/saves-prod
 
-# Função para enviar notificação para o sino do Nexus (hub_notifications) com suporte a multiline
+# Grava no sino (hub_notifications). module_key hub_settings é o módulo Configurações.
+sql_quote() {
+    printf "%s" "$1" | sed "s/'/''/g"
+}
+
 send_hub_notification() {
     local kind="$1"
     local title="$2"
     local message="$3"
     local notif_id="notif_$(date +%s%N | cut -b1-13)"
-    local now=$(date -u "+%Y-%m-%d %H:%M:%S")
-
-    docker exec -i nexus-postgres-prod psql -U postgres -d natumhub -c \
-      "INSERT INTO hub_notifications (id, module_key, kind, title, message, created_at) \
-       VALUES ('$notif_id', 'desenvolvimento', '$kind', \$\$$title\$\$, \$\$$message\$\$, '$now') \
-       ON CONFLICT DO NOTHING;" >/dev/null 2>&1 || true
+    local now sql_file
+    now=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
+    sql_file=$(mktemp)
+    {
+        printf "INSERT INTO hub_notifications (id, module_key, kind, title, message, created_at) VALUES ("
+        printf "'%s', 'hub_settings', '%s', '%s', '%s', '%s');\n" \
+            "$(sql_quote "$notif_id")" \
+            "$(sql_quote "$kind")" \
+            "$(sql_quote "$title")" \
+            "$(sql_quote "$message")" \
+            "$(sql_quote "$now")"
+    } > "$sql_file"
+    if ! docker exec -i nexus-postgres-prod psql -U postgres -d natumhub -v ON_ERROR_STOP=1 < "$sql_file" >> "$LOG_FILE" 2>&1; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [GITOPS] Falha ao gravar notificação no sino." >> "$LOG_FILE"
+    fi
+    rm -f "$sql_file"
 }
 
 # Se o repo não for um git clone válido, inicializa o clone oficial

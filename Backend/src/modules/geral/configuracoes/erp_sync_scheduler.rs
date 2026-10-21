@@ -144,6 +144,13 @@ pub async fn start_erp_sync_scheduler(state: Arc<AppState>) {
             Err(e) if e == crate::core::pg_db::SYNC_ALREADY_RUNNING => {}
             Err(e) => {
                 eprintln!("[ERP Sync Scheduler] Falha no sync automático: {}", e);
+                crate::modules::geral::notifications::notify_config(
+                    &state,
+                    "error",
+                    "Falha no sync ERP",
+                    &e,
+                    None,
+                );
             }
         }
     }
