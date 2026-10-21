@@ -82,6 +82,15 @@ Rota HTTP           → natumhub-api
 - **Acesso:** 100% Web no Navegador via `http://nexus.local:3001` ou IP Tailscale.
 - **Banco de Dados:** **PostgreSQL 17** (`Saves/postgres.env`). O database se chama `natumhub`.
 
+## Fluxo de Deploy (GitHub Actions + GHCR)
+
+- **O servidor ZimaOS nunca compila.** Compilar o Rust lá (3,7 GB de RAM) derrubou a produção em 20/10/2026.
+- Push na `main` → GitHub Actions (`.github/workflows/build-image.yml`) roda os testes (`npm run build` + `cargo test`), compila e publica `ghcr.io/ancaped/nexus:0.2.N` e `:sha-<7 do commit>`. Pull requests e `workflow_dispatch` só testam.
+- O timer `nexus-autodeploy` (a cada 2 min) roda `scripts/autodeploy_zimaos.sh`, instalado por cópia manual em `/DATA/AppData/nexus/scripts/autodeploy.sh`: puxa a imagem do commit mais novo, troca o container, roda o smoke test (`/api/health`) e notifica no sino do Nexus; volta a imagem anterior (`nexus:prod-prev`) se falhar. A imagem leva alguns minutos para existir; até lá ele só espera.
+- Trocar ou voltar de versão à mão: `scripts/deploy_zimaos.sh [0.2.N | sha-XXXXXXX]`. Para segurar um rollback, pare antes o timer (`sudo systemctl stop nexus-autodeploy.timer`).
+- Estado e logs: `/DATA/AppData/nexus/saves-prod/.autodeploy/` e `autodeploy.log`. Retentar um commit que esgotou as tentativas: apagar `.autodeploy/failed`.
+- Antes do push, valide localmente com `cargo check --bin nexus-server --no-default-features` e `npm run build`; o CI repete isso e roda `cargo test`. Funciona igual de qualquer máquina: não depende de Docker nem de nada instalado no servidor.
+
 <!-- ai-memory:start -->
 ## Long-term memory (ai-memory)
 
