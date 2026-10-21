@@ -160,6 +160,39 @@ pub fn necessidades_do_produto(
     )
 }
 
+/// Troca de insumo decidida pelo Edson. Não altera o ERP nem a fórmula: só a previsão de consumo.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Troca {
+    pub de: String,
+    pub para: String,
+    /// `None` = vale para todos os produtos; a troca de um produto específico vence a geral.
+    pub produto: Option<String>,
+}
+
+/// Aplica as trocas à necessidade já explodida. Uma etapa só (X->Y, sem encadear Y->Z); insumos que passam a
+/// ser o mesmo código se somam. Descrição/unidade do substituto ficam vazias para o chamador preencher.
+pub fn aplicar_trocas(necessidades: Vec<Necessidade>, produto: &str, trocas: &[Troca]) -> Vec<Necessidade> {
+    if trocas.is_empty() {
+        return necessidades;
+    }
+    let produto = produto.trim();
+    let mut acc: BTreeMap<String, Necessidade> = BTreeMap::new();
+    for n in necessidades {
+        let troca = trocas
+            .iter()
+            .find(|t| t.de == n.codigo && t.produto.as_deref().map(str::trim) == Some(produto))
+            .or_else(|| trocas.iter().find(|t| t.de == n.codigo && t.produto.is_none()));
+        let n = match troca {
+            Some(t) => Necessidade { codigo: t.para.clone(), descricao: String::new(), unidade: None, quantidade: n.quantidade },
+            None => n,
+        };
+        acc.entry(n.codigo.clone())
+            .and_modify(|e| e.quantidade += n.quantidade)
+            .or_insert(n);
+    }
+    acc.into_values().collect()
+}
+
 // ---------------------------------------------------------------------------------------------
 // Entradas
 // ---------------------------------------------------------------------------------------------
@@ -243,6 +276,8 @@ pub struct EntradaSimulacao {
     pub manuais: HashMap<String, Vec<Manual>>,
     pub ordens: Vec<OrdemEntrada>,
     pub lotes_erp: Vec<LoteErp>,
+    /// Insumo -> equivalentes (similar_items), para sugerir o substituto de quem falta.
+    pub equivalentes: HashMap<String, Vec<String>>,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -512,6 +547,18 @@ impl Aviso {
     }
 }
 
+/// Substituto possível de um insumo que falta, com o que ele tem livre na data da ordem.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Equivalente {
+    pub codigo: String,
+    pub descricao: String,
+    pub unidade: Option<String>,
+    pub livre: f64,
+    /// O livre do substituto cobre a necessidade inteira.
+    pub cobre_tudo: bool,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct InsumoOrdem {
@@ -528,12 +575,15 @@ pub struct InsumoOrdem {
     pub pedido: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fornecedor: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub equivalentes: Vec<Equivalente>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ResultadoOrdem {
     pub id: String,
+    pub produto: String,
     pub status: StatusCobertura,
     /// A ordem entra no consumo previsto? (false = já reservada/baixada no ERP)
     pub consome: bool,
@@ -811,6 +861,7 @@ pub fn simular(e: &EntradaSimulacao) -> SaidaSimulacao {
         if o.necessidades.is_none() {
             resultados.push(ResultadoOrdem {
                 id: o.id.clone(),
+                produto: o.codigo_produto.clone(),
                 status: StatusCobertura::SemFormula,
                 consome: false,
                 base_fonte: o.base_fonte,
@@ -891,6 +942,27 @@ pub fn simular(e: &EntradaSimulacao) -> SaidaSimulacao {
                 .map(|s| s.descricao.clone())
                 .filter(|d| !d.is_empty())
                 .unwrap_or_else(|| n.descricao.clone());
+            // Quem falta ou só cobre com pedido atrasado/futuro recebe a lista de equivalentes com saldo.
+            let mut equivalentes: Vec<Equivalente> = Vec::new();
+            if status != StatusInsumo::Ok {
+                for eq in e.equivalentes.get(&n.codigo).into_iter().flatten() {
+                    if eq == &n.codigo {
+                        continue;
+                    }
+                    let livre = disponivel(eq, d_eval, false, e, &consumido);
+                    if livre > EPS {
+                        let est = e.estoque.get(eq);
+                        equivalentes.push(Equivalente {
+                            codigo: eq.clone(),
+                            descricao: est.map(|s| s.descricao.clone()).unwrap_or_default(),
+                            unidade: est.and_then(|s| s.unidade.clone()),
+                            livre,
+                            cobre_tudo: livre + EPS >= n.quantidade,
+                        });
+                    }
+                }
+                equivalentes.sort_by(|a, b| b.livre.partial_cmp(&a.livre).unwrap_or(std::cmp::Ordering::Equal));
+            }
             insumos.push(InsumoOrdem {
                 codigo: n.codigo.clone(),
                 descricao: desc,
@@ -902,6 +974,7 @@ pub fn simular(e: &EntradaSimulacao) -> SaidaSimulacao {
                 chega_em,
                 pedido,
                 fornecedor,
+                equivalentes,
             });
             *consumido.entry(n.codigo.clone()).or_insert(0.0) += n.quantidade;
             *consumo_previsto.entry(n.codigo.clone()).or_insert(0.0) += n.quantidade;
@@ -918,6 +991,7 @@ pub fn simular(e: &EntradaSimulacao) -> SaidaSimulacao {
         }
         resultados.push(ResultadoOrdem {
             id: o.id.clone(),
+            produto: o.codigo_produto.clone(),
             status,
             consome: l.consome,
             base_fonte: o.base_fonte,
@@ -1076,6 +1150,7 @@ mod tests {
             manuais: HashMap::new(),
             ordens: Vec::new(),
             lotes_erp: Vec::new(),
+            equivalentes: HashMap::new(),
         }
     }
 
@@ -1601,5 +1676,102 @@ mod tests {
         e.ordens.push(o);
         let s = simular(&e);
         assert!(res(&s, "o1").avisos.is_empty());
+    }
+
+    // ---- trocas de insumo e equivalentes ----
+
+    fn troca(de: &str, para: &str, produto: Option<&str>) -> Troca {
+        Troca { de: de.into(), para: para.into(), produto: produto.map(String::from) }
+    }
+
+    #[test]
+    fn troca_geral_vale_para_qualquer_produto() {
+        let n = aplicar_trocas(vec![nec("245", 2.0), nec("X", 1.0)], "P1", &[troca("245", "242", None)]);
+        let cods: Vec<&str> = n.iter().map(|x| x.codigo.as_str()).collect();
+        assert_eq!(cods, vec!["242", "X"]);
+        assert!((n[0].quantidade - 2.0).abs() < 1e-9);
+        assert!(n[0].descricao.is_empty(), "o chamador preenche a descrição do substituto");
+    }
+
+    #[test]
+    fn troca_de_um_produto_nao_vale_para_outro_e_vence_a_geral() {
+        let trocas = [troca("245", "242", Some("P1")), troca("245", "300", None)];
+        let p1 = aplicar_trocas(vec![nec("245", 2.0)], "P1", &trocas);
+        assert_eq!(p1[0].codigo, "242", "a troca do produto vence a geral");
+        let p2 = aplicar_trocas(vec![nec("245", 2.0)], "P2", &trocas);
+        assert_eq!(p2[0].codigo, "300");
+        let so_produto = aplicar_trocas(vec![nec("245", 2.0)], "P2", &[troca("245", "242", Some("P1"))]);
+        assert_eq!(so_produto[0].codigo, "245", "sem troca geral, outro produto fica como está");
+    }
+
+    #[test]
+    fn troca_soma_quando_o_substituto_ja_esta_na_formula() {
+        let n = aplicar_trocas(vec![nec("242", 1.0), nec("245", 2.0)], "P1", &[troca("245", "242", None)]);
+        assert_eq!(n.len(), 1);
+        assert!((n[0].quantidade - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn troca_nao_encadeia() {
+        let n = aplicar_trocas(vec![nec("A", 1.0)], "P1", &[troca("A", "B", None), troca("B", "C", None)]);
+        assert_eq!(n[0].codigo, "B", "A->B e B->C não viram A->C");
+    }
+
+    #[test]
+    fn sem_trocas_nada_muda() {
+        let n = aplicar_trocas(vec![nec("A", 1.0)], "P1", &[]);
+        assert_eq!(n[0].codigo, "A");
+    }
+
+    #[test]
+    fn insumo_que_falta_lista_equivalente_com_saldo() {
+        let mut e = base_entrada();
+        e.estoque.insert("245".into(), est(1.0, 0.0));
+        e.estoque.insert("242".into(), est(1.0, 0.0));
+        e.estoque.insert("999".into(), est(0.0, 0.0));
+        e.equivalentes.insert("245".into(), vec!["242".into(), "999".into()]);
+        e.ordens.push(ordem("o1", "2026-10-21", 1, "P1", 100.0, vec![nec("245", 2.0)]));
+        let s = simular(&e);
+        let i = &res(&s, "o1").insumos[0];
+        assert_eq!(i.status, StatusInsumo::Falta);
+        assert_eq!(i.equivalentes.len(), 1, "o equivalente sem saldo não entra");
+        assert_eq!(i.equivalentes[0].codigo, "242");
+        assert!(!i.equivalentes[0].cobre_tudo, "tem 1 de 2");
+        assert!((i.equivalentes[0].livre - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn equivalente_que_cobre_tudo_e_marcado() {
+        let mut e = base_entrada();
+        e.estoque.insert("245".into(), est(0.0, 0.0));
+        e.estoque.insert("242".into(), est(10.0, 0.0));
+        e.equivalentes.insert("245".into(), vec!["242".into()]);
+        e.ordens.push(ordem("o1", "2026-10-21", 1, "P1", 100.0, vec![nec("245", 2.0)]));
+        let s = simular(&e);
+        assert!(res(&s, "o1").insumos[0].equivalentes[0].cobre_tudo);
+    }
+
+    #[test]
+    fn insumo_ok_nao_lista_equivalentes() {
+        let mut e = base_entrada();
+        e.estoque.insert("245".into(), est(10.0, 0.0));
+        e.estoque.insert("242".into(), est(10.0, 0.0));
+        e.equivalentes.insert("245".into(), vec!["242".into()]);
+        e.ordens.push(ordem("o1", "2026-10-21", 1, "P1", 100.0, vec![nec("245", 2.0)]));
+        assert!(res(&simular(&e), "o1").insumos[0].equivalentes.is_empty());
+    }
+
+    #[test]
+    fn equivalente_ja_consumido_por_ordem_anterior_nao_aparece_cheio() {
+        let mut e = base_entrada();
+        e.estoque.insert("245".into(), est(0.0, 0.0));
+        e.estoque.insert("242".into(), est(10.0, 0.0));
+        e.equivalentes.insert("245".into(), vec!["242".into()]);
+        e.ordens.push(ordem("o0", "2026-10-21", 1, "P0", 100.0, vec![nec("242", 9.0)]));
+        e.ordens.push(ordem("o1", "2026-10-21", 2, "P1", 100.0, vec![nec("245", 2.0)]));
+        let s = simular(&e);
+        let eq = &res(&s, "o1").insumos[0].equivalentes[0];
+        assert!((eq.livre - 1.0).abs() < 1e-9, "o 242 já foi consumido pela ordem anterior");
+        assert!(!eq.cobre_tudo);
     }
 }

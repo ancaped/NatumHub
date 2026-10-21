@@ -16,6 +16,28 @@ export interface Aviso {
   dias?: number;
 }
 
+export interface Equivalente {
+  codigo: string;
+  descricao: string;
+  unidade?: string | null;
+  livre: number;
+  cobreTudo: boolean;
+}
+
+export interface TrocaInfo {
+  id: number;
+  insumoDe: string;
+  descricaoDe: string;
+  insumoPara: string;
+  descricaoPara: string;
+  produto?: string | null;
+  descricaoProduto?: string | null;
+  composicoesAfetadas: number;
+  formulaCorrigida: boolean;
+  criadoPor?: string | null;
+  criadoEm: string;
+}
+
 export interface InsumoOrdem {
   codigo: string;
   descricao: string;
@@ -27,6 +49,7 @@ export interface InsumoOrdem {
   chegaEm?: string;
   pedido?: number;
   fornecedor?: string;
+  equivalentes?: Equivalente[];
 }
 
 export type BaseFonte = 'explodir' | 'estoque' | 'ordem_base';
@@ -44,6 +67,7 @@ export interface BaseRef {
 
 export interface ResultadoOrdem {
   id: string;
+  produto?: string;
   status: StatusCobertura;
   consome: boolean;
   baseFonte?: BaseFonte;

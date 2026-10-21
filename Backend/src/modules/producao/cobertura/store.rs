@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::calc::{
     alocar_nfs, necessidades_do_produto, BaseFonte, BaseRef, Chegada, EntradaSimulacao, EstoqueItem, LinhaFormula,
-    LinhaPedido, LoteErp, Manual, Necessidade, OrdemEntrada, FRACAO_RECEBIDO,
+    LinhaPedido, LoteErp, Manual, Necessidade, OrdemEntrada, Troca, aplicar_trocas, FRACAO_RECEBIDO,
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -71,6 +71,8 @@ pub struct Formulas {
     pub bases: HashMap<String, Vec<LinhaFormula>>,
     /// código canônico do insumo -> (descrição, unidade)
     pub itens: HashMap<String, (String, Option<String>)>,
+    /// Trocas de insumo ativas (não mexem no ERP nem na fórmula; só na previsão).
+    pub trocas: Vec<Troca>,
 }
 
 fn variantes_codigo(c: &str) -> Vec<String> {
@@ -157,37 +159,60 @@ pub async fn carregar_formulas(pool: &PgPool, produtos: &[String]) -> Result<For
     for l in bases.values().flatten() {
         codigos.insert(l.codigo.clone());
     }
+    let trocas = crate::modules::producao::trocas::carregar(pool).await?;
+    // O substituto de uma troca também precisa de descrição/unidade.
+    codigos.extend(trocas.iter().map(|t| t.para.clone()));
     let codigos: Vec<String> = codigos.into_iter().collect();
-    let mut itens: HashMap<String, (String, Option<String>)> = HashMap::new();
-    if !codigos.is_empty() {
+    let mut f = Formulas { por_produto, bases, itens: HashMap::new(), trocas };
+    f.completar_itens(pool, &codigos).await?;
+    Ok(f)
+}
+
+impl Formulas {
+    /// Descrição/unidade de itens ainda desconhecidos (insumos extras, equivalentes, substitutos).
+    pub async fn completar_itens(&mut self, pool: &PgPool, codigos: &[String]) -> Result<(), String> {
+        let faltam: Vec<String> = codigos.iter().filter(|c| !self.itens.contains_key(*c)).cloned().collect();
+        if faltam.is_empty() {
+            return Ok(());
+        }
         let rows = sqlx::query(
             "SELECT TRIM(REPLACE(code, '\"', '')) AS code, COALESCE(description, '') AS description, unit FROM items \
              WHERE TRIM(REPLACE(code, '\"', '')) = ANY($1)",
         )
-        .bind(&codigos)
+        .bind(&faltam)
         .fetch_all(pool)
         .await
         .map_err(|e| format!("Erro ao ler itens: {e}"))?;
         for r in rows {
-            itens.insert(
+            self.itens.insert(
                 r.get::<Option<String>, _>("code").unwrap_or_default(),
                 (r.get::<Option<String>, _>("description").unwrap_or_default(), r.get::<Option<String>, _>("unit")),
             );
         }
+        Ok(())
     }
-    Ok(Formulas { por_produto, bases, itens })
-}
 
-impl Formulas {
-    /// Necessidade com a base explodida em matérias-primas (como o ERP reserva).
+    /// Necessidade com a base explodida em matérias-primas e as trocas de insumo aplicadas.
     pub fn necessidades(&self, produto: &str, kg: f64) -> Option<Vec<Necessidade>> {
         self.necessidades_com(produto, kg, BaseFonte::Explodir)
     }
 
-    /// Necessidade respeitando a origem declarada da base (estoque/ordem da base não baixam os insumos dela).
+    /// Como o ERP reserva: base explodida e SEM as trocas (o ERP ainda tem a fórmula original).
+    pub fn necessidades_erp(&self, produto: &str, kg: f64) -> Option<Vec<Necessidade>> {
+        self.calcular(produto, kg, BaseFonte::Explodir, false)
+    }
+
+    /// Necessidade respeitando a origem declarada da base e as trocas de insumo.
     pub fn necessidades_com(&self, produto: &str, kg: f64, fonte: BaseFonte) -> Option<Vec<Necessidade>> {
+        self.calcular(produto, kg, fonte, true)
+    }
+
+    fn calcular(&self, produto: &str, kg: f64, fonte: BaseFonte, com_trocas: bool) -> Option<Vec<Necessidade>> {
         let f = self.por_produto.get(&canon(produto))?;
         let mut n = necessidades_do_produto(f, kg, &self.bases, fonte)?;
+        if com_trocas {
+            n = aplicar_trocas(n, &canon(produto), &self.trocas);
+        }
         for x in n.iter_mut() {
             if x.descricao.is_empty() {
                 if let Some((d, u)) = self.itens.get(&x.codigo) {
@@ -621,6 +646,38 @@ async fn lotes_existentes_no_erp(pool: &PgPool, numeros: &[String]) -> Result<Ha
 // Montagem da entrada
 // ---------------------------------------------------------------------------------------------
 
+/// Insumo -> equivalentes cadastrados em `similar_items` (a relação vale nos dois sentidos).
+async fn carregar_equivalentes(pool: &PgPool, codigos: &[String]) -> Result<HashMap<String, Vec<String>>, String> {
+    if codigos.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = sqlx::query(
+        "SELECT TRIM(REPLACE(item_code_a, '\"', '')) AS a, TRIM(REPLACE(item_code_b, '\"', '')) AS b FROM similar_items \
+         WHERE TRIM(REPLACE(item_code_a, '\"', '')) = ANY($1) OR TRIM(REPLACE(item_code_b, '\"', '')) = ANY($1)",
+    )
+    .bind(codigos)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Erro ao ler itens equivalentes: {e}"))?;
+    let alvo: HashSet<&String> = codigos.iter().collect();
+    let mut m: HashMap<String, Vec<String>> = HashMap::new();
+    for r in rows {
+        let a = r.get::<Option<String>, _>("a").unwrap_or_default();
+        let b = r.get::<Option<String>, _>("b").unwrap_or_default();
+        if alvo.contains(&a) {
+            m.entry(a.clone()).or_default().push(b.clone());
+        }
+        if alvo.contains(&b) {
+            m.entry(b).or_default().push(a);
+        }
+    }
+    for v in m.values_mut() {
+        v.sort();
+        v.dedup();
+    }
+    Ok(m)
+}
+
 /// Última escolha do Edson sobre a origem da base, por produto (código canônico).
 pub async fn carregar_decisoes_base(pool: &PgPool) -> Result<HashMap<String, BaseFonte>, String> {
     Ok(crate::modules::producao::decisoes::listar(pool, crate::modules::producao::decisoes::TIPO_BASE_FONTE)
@@ -668,9 +725,9 @@ pub async fn montar_contexto(pool: &PgPool, semana: &str, extras: &[String]) -> 
     produtos.sort();
     produtos.dedup();
 
-    let formulas = carregar_formulas(pool, &produtos).await?;
+    let mut formulas = carregar_formulas(pool, &produtos).await?;
 
-    // Insumos envolvidos (depois da explosão).
+    // Insumos envolvidos (depois da explosão e das trocas).
     let mut insumos: HashSet<String> = HashSet::new();
     for p in &produtos {
         if let Some(n) = formulas.necessidades(p, 1.0) {
@@ -679,9 +736,17 @@ pub async fn montar_contexto(pool: &PgPool, semana: &str, extras: &[String]) -> 
     }
     let insumos: Vec<String> = insumos.into_iter().collect();
 
-    let estoque = carregar_estoque(pool, &insumos, &formulas).await?;
-    let chegadas = carregar_chegadas(pool, &insumos).await?;
-    let manuais = carregar_manuais(pool, &insumos).await?;
+    // Equivalentes (similar_items) também precisam de estoque e chegadas para sugerir o substituto.
+    let equivalentes = carregar_equivalentes(pool, &insumos).await?;
+    let mut todos: Vec<String> = insumos.clone();
+    todos.extend(equivalentes.values().flatten().cloned());
+    todos.sort();
+    todos.dedup();
+    formulas.completar_itens(pool, &todos).await?;
+
+    let estoque = carregar_estoque(pool, &todos, &formulas).await?;
+    let chegadas = carregar_chegadas(pool, &todos).await?;
+    let manuais = carregar_manuais(pool, &todos).await?;
 
     let digitados: Vec<String> = ordens_banco.iter().filter_map(|o| o.lote_erp.clone()).collect();
     let existentes = lotes_existentes_no_erp(pool, &digitados).await?;
@@ -712,7 +777,7 @@ pub async fn montar_contexto(pool: &PgPool, semana: &str, extras: &[String]) -> 
         .map(|l| {
             let mut reserva: HashMap<String, f64> = HashMap::new();
             for (prod, kg) in &l.produtos {
-                if let Some(n) = formulas.necessidades(prod, *kg) {
+                if let Some(n) = formulas.necessidades_erp(prod, *kg) {
                     for x in n {
                         *reserva.entry(x.codigo).or_insert(0.0) += x.quantidade;
                     }
@@ -723,7 +788,7 @@ pub async fn montar_contexto(pool: &PgPool, semana: &str, extras: &[String]) -> 
         .collect();
 
     Ok(Contexto {
-        entrada: EntradaSimulacao { hoje, estoque, chegadas, manuais, ordens, lotes_erp },
+        entrada: EntradaSimulacao { hoje, estoque, chegadas, manuais, ordens, lotes_erp, equivalentes },
         formulas,
         decisoes_base,
         inicio_semana: seg,
@@ -944,38 +1009,48 @@ mod tests {
         assert_eq!(percentil(&[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9], 0.9), Some(0.8));
     }
 
-    /// Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.
-    #[tokio::test]
-    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
-    async fn base_fonte_da_ordem_muda_as_necessidades_no_banco() {
-        use super::super::calc::simular;
-        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
-        let pool = PgPool::connect(&url).await.unwrap();
-        let limpar = || async {
-            sqlx::query("DELETE FROM producao_planejamento_semanal WHERE id = 'T-ORD-1'").execute(&pool).await.unwrap();
-            sqlx::query("DELETE FROM formulations WHERE product_code IN ('T-PROD', 'T-BASE')").execute(&pool).await.unwrap();
-            sqlx::query("DELETE FROM items WHERE code LIKE 'T-%'").execute(&pool).await.unwrap();
-            sqlx::query("DELETE FROM produtos WHERE codigo LIKE 'T-%'").execute(&pool).await.unwrap();
-            sqlx::query("DELETE FROM config_linhas WHERE linha_prefix = 'T-LINHA'").execute(&pool).await.unwrap();
-            sqlx::query("DELETE FROM producao_decisoes WHERE chave = 'T-PROD'").execute(&pool).await.unwrap();
-        };
-        limpar().await;
-        for (code, desc) in [("T-AGUA", "AGUA"), ("T-TENSO", "TENSO"), ("T-FRAG", "FRAGRANCIA"), ("T-BASE", "BASE PEROLADA")] {
+    async fn limpar_teste(pool: &PgPool) {
+        for q in [
+            "DELETE FROM producao_planejamento_semanal WHERE id LIKE 'T-ORD-%'",
+            "DELETE FROM producao_trocas_insumo WHERE insumo_de LIKE 'T-%'",
+            "DELETE FROM similar_items WHERE item_code_a LIKE 'T-%'",
+            "DELETE FROM formulations WHERE product_code IN ('T-PROD', 'T-BASE')",
+            "DELETE FROM stock_snapshots WHERE id = 'T-SNAP'",
+            "DELETE FROM stock_imports WHERE id = 'T-IMP'",
+            "DELETE FROM items WHERE code LIKE 'T-%'",
+            "DELETE FROM produtos WHERE codigo LIKE 'T-%'",
+            "DELETE FROM config_linhas WHERE linha_prefix = 'T-LINHA'",
+            "DELETE FROM producao_decisoes WHERE chave = 'T-PROD'",
+        ] {
+            sqlx::query(q).execute(pool).await.unwrap();
+        }
+    }
+
+    /// Produto T-PROD = 80% da base T-BASE (água 70% + tensoativo 30%) + 20% de fragrância; mais T-FRAG2 de reserva.
+    async fn semear_teste(pool: &PgPool) {
+        limpar_teste(pool).await;
+        for (code, desc) in [
+            ("T-AGUA", "AGUA"),
+            ("T-TENSO", "TENSO"),
+            ("T-FRAG", "FRAGRANCIA"),
+            ("T-FRAG2", "FRAGRANCIA ALTERNATIVA"),
+            ("T-BASE", "BASE PEROLADA"),
+        ] {
             sqlx::query("INSERT INTO items (code, description, unit) VALUES ($1, $2, 'kg')")
                 .bind(code)
                 .bind(desc)
-                .execute(&pool)
+                .execute(pool)
                 .await
                 .unwrap();
         }
         sqlx::query("INSERT INTO config_linhas (linha_prefix, nome_linha) VALUES ('T-LINHA', 'TESTE')")
-            .execute(&pool)
+            .execute(pool)
             .await
             .unwrap();
         for codigo in ["T-PROD", "T-BASE"] {
             sqlx::query("INSERT INTO produtos (codigo, descricao, linha_prefix) VALUES ($1, 'TESTE', 'T-LINHA')")
                 .bind(codigo)
-                .execute(&pool)
+                .execute(pool)
                 .await
                 .unwrap();
         }
@@ -989,7 +1064,7 @@ mod tests {
                 .bind(prod)
                 .bind(ing)
                 .bind(q)
-                .execute(&pool)
+                .execute(pool)
                 .await
                 .unwrap();
         }
@@ -1000,10 +1075,28 @@ mod tests {
         )
         .bind(semana_de(hoje))
         .bind(hoje)
-        .execute(&pool)
+        .execute(pool)
         .await
         .unwrap();
+    }
+
+    /// Os testes de banco compartilham a mesma fixture (T-*): rodam um por vez.
+    static TRAVA: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    fn url_teste() -> String {
+        std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL")
+    }
+
+    /// Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn base_fonte_da_ordem_muda_as_necessidades_no_banco() {
+        use super::super::calc::simular;
+        let _trava = TRAVA.lock().await;
+        let pool = PgPool::connect(&url_teste()).await.unwrap();
+        semear_teste(&pool).await;
         crate::modules::producao::decisoes::registrar(&pool, "base_fonte", "T-PROD", "ordem_base", "teste").await.unwrap();
+        let hoje = hoje_brasil();
 
         let ctx = montar_contexto(&pool, &semana_de(hoje), &[]).await.unwrap();
         let o = ctx.entrada.ordens.iter().find(|o| o.id == "T-ORD-1").expect("ordem carregada");
@@ -1024,6 +1117,65 @@ mod tests {
         let mut cods: Vec<&str> = o.necessidades.as_ref().unwrap().iter().map(|n| n.codigo.as_str()).collect();
         cods.sort();
         assert_eq!(cods, vec!["T-AGUA", "T-FRAG", "T-TENSO"], "explodir volta a baixar a base");
-        limpar().await;
+        limpar_teste(&pool).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn troca_e_equivalentes_entram_na_cobertura_no_banco() {
+        use super::super::calc::{simular, StatusInsumo};
+        let _trava = TRAVA.lock().await;
+        let pool = PgPool::connect(&url_teste()).await.unwrap();
+        semear_teste(&pool).await;
+        let hoje = hoje_brasil();
+        // equivalência cadastrada (um sentido só: a relação vale nos dois)
+        sqlx::query("INSERT INTO similar_items (item_code_a, item_code_b) VALUES ('T-FRAG', 'T-FRAG2')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO stock_imports (id) VALUES ('T-IMP')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO stock_snapshots (id, import_id, item_code, snapshot_date, stock_qty, reserved_qty) \
+             VALUES ('T-SNAP', 'T-IMP', 'T-FRAG2', CURRENT_TIMESTAMP::text, 5, 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE producao_planejamento_semanal SET base_fonte = 'estoque' WHERE id = 'T-ORD-1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // sem troca: falta fragrância (20 kg para 100 kg) e o equivalente aparece com saldo
+        let ctx = montar_contexto(&pool, &semana_de(hoje), &[]).await.unwrap();
+        assert_eq!(ctx.entrada.equivalentes.get("T-FRAG").map(|v| v.as_slice()), Some(&["T-FRAG2".to_string()][..]));
+        let saida = simular(&ctx.entrada);
+        let r = saida.ordens.iter().find(|r| r.id == "T-ORD-1").unwrap();
+        let i = r.insumos.iter().find(|i| i.codigo == "T-FRAG").unwrap();
+        assert_eq!(i.status, StatusInsumo::Falta);
+        assert_eq!(i.equivalentes.first().map(|e| e.codigo.as_str()), Some("T-FRAG2"));
+        assert_eq!(i.equivalentes[0].descricao, "FRAGRANCIA ALTERNATIVA");
+
+        // com a troca (todos os produtos), a ordem passa a consumir o substituto
+        crate::modules::producao::trocas::criar(
+            &pool,
+            &crate::modules::producao::trocas::NovaTroca { insumo_de: "T-FRAG".into(), insumo_para: "T-FRAG2".into(), produto: None },
+            "teste",
+        )
+        .await
+        .unwrap();
+        let ctx = montar_contexto(&pool, &semana_de(hoje), &[]).await.unwrap();
+        let o = ctx.entrada.ordens.iter().find(|o| o.id == "T-ORD-1").unwrap();
+        let n = o.necessidades.as_ref().unwrap();
+        assert_eq!(n.len(), 1);
+        assert_eq!(n[0].codigo, "T-FRAG2");
+        assert_eq!(n[0].descricao, "FRAGRANCIA ALTERNATIVA", "descrição do substituto preenchida");
+        assert!((n[0].quantidade - 20.0).abs() < 1e-6);
+        // o ERP ainda reserva pela fórmula original
+        assert_eq!(ctx.formulas.necessidades_erp("T-PROD", 100.0).unwrap().iter().find(|n| n.codigo == "T-FRAG").map(|n| n.quantidade.round()), Some(20.0));
+        limpar_teste(&pool).await;
     }
 }
