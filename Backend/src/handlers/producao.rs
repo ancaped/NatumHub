@@ -2,7 +2,7 @@ use axum::{
     extract::{Query, State, Path},
     http::StatusCode,
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,6 +16,7 @@ use crate::models::{
 };
 use crate::modules::producao::gerenciamento::calculations::calculate_products;
 use crate::handlers::AppState;
+use crate::modules::geral::auth::models::AuthContext;
 
 // Helper cross-imports
 use crate::handlers::imports::clean_product_code;
@@ -4231,8 +4232,22 @@ pub async fn save_reatores(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<Vec<ReatorConfigDto>>,
 ) -> impl IntoResponse {
-    let pool = state.db.pool();
-    for reator in payload {
+    for reator in &payload {
+        if reator.id.trim().is_empty() || reator.nome.trim().is_empty() {
+            return planejamento_json_err(StatusCode::UNPROCESSABLE_ENTITY, "Reator sem identificador ou nome.");
+        }
+        if !reator.capacidade_kg.is_finite() || reator.capacidade_kg <= 0.0 {
+            return planejamento_json_err(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                format!("A capacidade do reator {} precisa ser maior que zero.", reator.nome),
+            );
+        }
+    }
+    let mut tx = match state.db.pool().begin().await {
+        Ok(tx) => tx,
+        Err(e) => return planejamento_json_err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    for reator in &payload {
         let q = r#"
             INSERT INTO producao_reatores_config (id, nome, capacidade_kg, tipo, ordem, ativo)
             VALUES ($1, $2, $3, $4, $5, $6)
@@ -4250,11 +4265,14 @@ pub async fn save_reatores(
             .bind(&reator.tipo)
             .bind(reator.ordem)
             .bind(reator.ativo)
-            .execute(pool)
+            .execute(&mut *tx)
             .await
         {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response();
+            return planejamento_json_err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
         }
+    }
+    if let Err(e) = tx.commit().await {
+        return planejamento_json_err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
     }
     (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
 }
@@ -4340,11 +4358,177 @@ pub async fn list_planejamento_semanal(
     }
 }
 
-pub async fn save_planejamento_item(
-    State(state): State<Arc<AppState>>,
-    Json(item): Json<PlanejamentoItemDto>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
+const ORDEM_STATUS_VALIDOS: [&str; 3] = ["planejado", "aprovado", "cancelado"];
+
+fn planejamento_json_err(status: StatusCode, msg: impl Into<String>) -> axum::response::Response {
+    (status, Json(json!({ "error": msg.into() }))).into_response()
+}
+
+enum PlanejamentoErr {
+    /// Regra de negócio violada (HTTP 422).
+    Regra(String),
+    Db(sqlx::Error),
+}
+
+impl From<sqlx::Error> for PlanejamentoErr {
+    fn from(e: sqlx::Error) -> Self {
+        PlanejamentoErr::Db(e)
+    }
+}
+
+impl PlanejamentoErr {
+    fn resposta(self) -> axum::response::Response {
+        match self {
+            PlanejamentoErr::Regra(msg) => planejamento_json_err(StatusCode::UNPROCESSABLE_ENTITY, msg),
+            PlanejamentoErr::Db(e) => planejamento_json_err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        }
+    }
+}
+
+/// Normaliza data e semana: o servidor é a fonte da `week_key` (ISO `YYYY-Www`), derivada da data.
+fn normalizar_planejamento_item(item: &mut PlanejamentoItemDto) -> Result<(), PlanejamentoErr> {
+    use chrono::Datelike;
+    if item.id.trim().is_empty() {
+        return Err(PlanejamentoErr::Regra("Ordem sem identificador.".to_string()));
+    }
+    let dia = item.data_planejada.split('T').next().unwrap_or("").trim().to_string();
+    let data = chrono::NaiveDate::parse_from_str(&dia, "%Y-%m-%d").map_err(|_| {
+        PlanejamentoErr::Regra(format!("Data planejada inválida: {}.", item.data_planejada))
+    })?;
+    let iso = data.iso_week();
+    item.week_key = format!("{}-W{:02}", iso.year(), iso.week());
+    item.data_planejada = dia;
+    Ok(())
+}
+
+/// Aceita um status fora da lista só se a linha já o tem gravado (legado); não deixa criar novos.
+async fn validar_status_planejamento(
+    conn: &mut sqlx::PgConnection,
+    item: &PlanejamentoItemDto,
+) -> Result<(), PlanejamentoErr> {
+    let status = item
+        .ordem_status
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("planejado");
+    if ORDEM_STATUS_VALIDOS.contains(&status) {
+        return Ok(());
+    }
+    let atual: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT ordem_status FROM producao_planejamento_semanal WHERE id = $1",
+    )
+    .bind(&item.id)
+    .fetch_optional(&mut *conn)
+    .await?
+    .flatten();
+    if atual.as_deref() == Some(status) {
+        return Ok(());
+    }
+    Err(PlanejamentoErr::Regra(format!(
+        "Status de ordem inválido: {status}. Use planejado, aprovado ou cancelado."
+    )))
+}
+
+/// Mesma chave de agrupamento do quadro (`groupCellItems` no front): batelada, lote ERP ou a própria linha.
+fn chave_grupo_planejamento(id: &str, batch_id: Option<&str>, lote_erp: Option<&str>) -> String {
+    if let Some(b) = batch_id.map(str::trim).filter(|s| !s.is_empty()) {
+        return format!("BATCH_{b}");
+    }
+    if let Some(l) = lote_erp.map(str::trim).filter(|s| !s.is_empty()) {
+        let up = l.to_uppercase();
+        if !up.starts_with("PLAN_") && !up.starts_with("PL-") {
+            return format!("LOTE_{l}");
+        }
+    }
+    format!("ITEM_{id}")
+}
+
+/// Regras duras do chão de fábrica, as mesmas de `validarAlocacao` no front, aplicadas depois do upsert
+/// (dentro da transação) para enxergar a batelada inteira: massa do grupo <= capacidade do reator e
+/// R-100 com no máximo 1 produção por dia.
+async fn validar_alocacoes_planejamento(
+    conn: &mut sqlx::PgConnection,
+    itens: &[PlanejamentoItemDto],
+) -> Result<(), PlanejamentoErr> {
+    let mut celulas: std::collections::BTreeSet<(String, String)> = Default::default();
+    let mut tocados: std::collections::HashSet<&str> = Default::default();
+    for it in itens {
+        if it.ordem_status.as_deref().map(str::trim) == Some("cancelado") {
+            continue;
+        }
+        celulas.insert((it.reator_id.clone(), it.data_planejada.clone()));
+        tocados.insert(it.id.as_str());
+    }
+
+    for (reator_id, dia) in celulas {
+        let reator: Option<(String, f64, bool)> = sqlx::query_as(
+            "SELECT nome, capacidade_kg::float8, COALESCE(ativo, TRUE) FROM producao_reatores_config WHERE id = $1",
+        )
+        .bind(&reator_id)
+        .fetch_optional(&mut *conn)
+        .await?;
+        let Some((nome, capacidade, ativo)) = reator else {
+            return Err(PlanejamentoErr::Regra(format!(
+                "O reator {reator_id} não existe na configuração de reatores."
+            )));
+        };
+        if !ativo {
+            return Err(PlanejamentoErr::Regra(format!("O reator {nome} está inativo.")));
+        }
+
+        let rows = sqlx::query(
+            r#"
+            SELECT id, batch_id, lote_erp, quantidade_planejada::float8
+            FROM producao_planejamento_semanal
+            WHERE reator_id = $1 AND data_planejada = $2::date
+              AND COALESCE(ordem_status, 'planejado') <> 'cancelado'
+            "#,
+        )
+        .bind(&reator_id)
+        .bind(&dia)
+        .fetch_all(&mut *conn)
+        .await?;
+
+        // chave do grupo -> (massa total em kg, tem alguma linha desta requisição)
+        let mut grupos: std::collections::HashMap<String, (f64, bool)> = std::collections::HashMap::new();
+        for r in rows {
+            let id: String = r.get(0);
+            let batch: Option<String> = r.get(1);
+            let lote: Option<String> = r.get(2);
+            let kg: f64 = r.get(3);
+            let chave = chave_grupo_planejamento(&id, batch.as_deref(), lote.as_deref());
+            let g = grupos.entry(chave).or_insert((0.0, false));
+            g.0 += kg;
+            g.1 |= tocados.contains(id.as_str());
+        }
+
+        for (kg, tocado) in grupos.values() {
+            if *tocado && *kg > capacidade + 0.05 {
+                let msg = if reator_id == "BOMBONAS" {
+                    format!("Bombona comporta até {capacidade} kg. Esta ordem tem {kg:.1} kg.")
+                } else {
+                    format!("A massa de {kg:.1} kg passa da capacidade de {capacidade} kg deste reator.")
+                };
+                return Err(PlanejamentoErr::Regra(msg));
+            }
+        }
+        if reator_id == "R_100" && grupos.len() > 1 && grupos.values().any(|g| g.1) {
+            return Err(PlanejamentoErr::Regra(
+                "O Reator 100kg funciona por resistência e aceita no máximo 1 produção por dia.".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Upsert da ordem + migração do status do lote temporário para o lote ERP + agenda em `lote_custom_status`.
+/// Roda dentro da transação do chamador: qualquer erro desfaz tudo.
+async fn upsert_planejamento_item(
+    conn: &mut sqlx::PgConnection,
+    item: &PlanejamentoItemDto,
+    usuario: &str,
+) -> Result<(), sqlx::Error> {
     let q = r#"
         INSERT INTO producao_planejamento_semanal (
             id, week_key, data_planejada, reator_id, codigo_produto, descricao,
@@ -4353,7 +4537,8 @@ pub async fn save_planejamento_item(
             fisico_confirmado_embalagem, fisico_confirmado_rotulo,
             recipiente_detalhe, cor_tag, ordem_sequencia, processo_termico, batch_id, updated_at
         ) VALUES (
-            $1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+            $1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+            COALESCE($15::boolean, FALSE), COALESCE($16::boolean, FALSE), COALESCE($17::boolean, FALSE),
             $18, $19, $20, $21, $22, CURRENT_TIMESTAMP
         )
         ON CONFLICT (id) DO UPDATE SET
@@ -4370,9 +4555,9 @@ pub async fn save_planejamento_item(
             observacoes = EXCLUDED.observacoes,
             ordem_status = EXCLUDED.ordem_status,
             lote_erp = EXCLUDED.lote_erp,
-            fisico_confirmado_massa = COALESCE(EXCLUDED.fisico_confirmado_massa, producao_planejamento_semanal.fisico_confirmado_massa),
-            fisico_confirmado_embalagem = COALESCE(EXCLUDED.fisico_confirmado_embalagem, producao_planejamento_semanal.fisico_confirmado_embalagem),
-            fisico_confirmado_rotulo = COALESCE(EXCLUDED.fisico_confirmado_rotulo, producao_planejamento_semanal.fisico_confirmado_rotulo),
+            fisico_confirmado_massa = COALESCE($15::boolean, producao_planejamento_semanal.fisico_confirmado_massa),
+            fisico_confirmado_embalagem = COALESCE($16::boolean, producao_planejamento_semanal.fisico_confirmado_embalagem),
+            fisico_confirmado_rotulo = COALESCE($17::boolean, producao_planejamento_semanal.fisico_confirmado_rotulo),
             recipiente_detalhe = EXCLUDED.recipiente_detalhe,
             cor_tag = EXCLUDED.cor_tag,
             ordem_sequencia = EXCLUDED.ordem_sequencia,
@@ -4381,7 +4566,7 @@ pub async fn save_planejamento_item(
             updated_at = CURRENT_TIMESTAMP
     "#;
 
-    match sqlx::query(q)
+    sqlx::query(q)
         .bind(&item.id)
         .bind(&item.week_key)
         .bind(&item.data_planejada)
@@ -4396,299 +4581,163 @@ pub async fn save_planejamento_item(
         .bind(&item.observacoes)
         .bind(item.ordem_status.as_deref().unwrap_or("planejado"))
         .bind(&item.lote_erp)
-        .bind(item.fisico_confirmado_massa.unwrap_or(false))
-        .bind(item.fisico_confirmado_embalagem.unwrap_or(false))
-        .bind(item.fisico_confirmado_rotulo.unwrap_or(false))
+        .bind(item.fisico_confirmado_massa)
+        .bind(item.fisico_confirmado_embalagem)
+        .bind(item.fisico_confirmado_rotulo)
         .bind(item.recipiente_detalhe.as_deref().unwrap_or("Reator"))
         .bind(&item.cor_tag)
         .bind(item.ordem_sequencia.unwrap_or(1))
         .bind(&item.processo_termico)
         .bind(&item.batch_id)
-        .execute(pool)
-        .await
-    {
-        Ok(_) => {
-            if let Some(ref l) = item.lote_erp {
-                let clean = l.trim();
-                if !clean.is_empty() {
-                    // Migra todos os dados customizados (etapas_status, quadros_ocultos, datas) do ID temporário para o lote ERP real
-                    let _ = sqlx::query(r#"
-                        INSERT INTO lote_custom_status (
-                            lote_number, custom_status, category, notes, motivo_espera,
-                            data_pesagem, data_producao, data_rotulagem, data_envase, data_previsao,
-                            etapas_status, quadros_ocultos, historico_reagendamentos, updated_at
-                        )
-                        SELECT 
-                            $2, custom_status, category, notes, motivo_espera,
-                            data_pesagem, data_producao, data_rotulagem, data_envase, data_previsao,
-                            etapas_status, quadros_ocultos, historico_reagendamentos, NOW()
-                        FROM lote_custom_status
-                        WHERE lote_number = $1
-                        ON CONFLICT (lote_number) DO UPDATE SET
-                            custom_status = COALESCE(EXCLUDED.custom_status, lote_custom_status.custom_status),
-                            etapas_status = COALESCE(lote_custom_status.etapas_status, '{}'::jsonb) || COALESCE(EXCLUDED.etapas_status, '{}'::jsonb),
-                            quadros_ocultos = COALESCE(EXCLUDED.quadros_ocultos, lote_custom_status.quadros_ocultos),
-                            data_pesagem = COALESCE(lote_custom_status.data_pesagem, EXCLUDED.data_pesagem),
-                            data_producao = COALESCE(lote_custom_status.data_producao, EXCLUDED.data_producao),
-                            updated_at = NOW()
-                    "#)
-                    .bind(&item.id)
-                    .bind(clean)
-                    .execute(pool)
-                    .await;
+        .execute(&mut *conn)
+        .await?;
 
-                    // Atualiza programacao_rotulagem e programacao_envase que usavam o ID temporário
-                    let _ = sqlx::query("UPDATE programacao_rotulagem SET lote_number = $2 WHERE lote_number = $1")
-                        .bind(&item.id)
-                        .bind(clean)
-                        .execute(pool)
-                        .await;
+    let lote_limpo = item.lote_erp.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    if let Some(clean) = lote_limpo {
+        // Migra todos os dados customizados (etapas_status, quadros_ocultos, datas) do ID temporário para o lote ERP real
+        sqlx::query(
+            r#"
+            INSERT INTO lote_custom_status (
+                lote_number, custom_status, category, notes, motivo_espera,
+                data_pesagem, data_producao, data_rotulagem, data_envase, data_previsao,
+                etapas_status, quadros_ocultos, historico_reagendamentos, updated_at
+            )
+            SELECT
+                $2, custom_status, category, notes, motivo_espera,
+                data_pesagem, data_producao, data_rotulagem, data_envase, data_previsao,
+                etapas_status, quadros_ocultos, historico_reagendamentos, NOW()
+            FROM lote_custom_status
+            WHERE lote_number = $1
+            ON CONFLICT (lote_number) DO UPDATE SET
+                custom_status = COALESCE(EXCLUDED.custom_status, lote_custom_status.custom_status),
+                etapas_status = COALESCE(lote_custom_status.etapas_status, '{}'::jsonb) || COALESCE(EXCLUDED.etapas_status, '{}'::jsonb),
+                quadros_ocultos = COALESCE(EXCLUDED.quadros_ocultos, lote_custom_status.quadros_ocultos),
+                data_pesagem = COALESCE(lote_custom_status.data_pesagem, EXCLUDED.data_pesagem),
+                data_producao = COALESCE(lote_custom_status.data_producao, EXCLUDED.data_producao),
+                updated_at = NOW()
+            "#,
+        )
+        .bind(&item.id)
+        .bind(clean)
+        .execute(&mut *conn)
+        .await?;
 
-                    let _ = sqlx::query("UPDATE programacao_envase SET lote_number = $2 WHERE lote_number = $1")
-                        .bind(&item.id)
-                        .bind(clean)
-                        .execute(pool)
-                        .await;
+        // Atualiza programacao_rotulagem e programacao_envase que usavam o ID temporário
+        sqlx::query("UPDATE programacao_rotulagem SET lote_number = $2 WHERE lote_number = $1")
+            .bind(&item.id)
+            .bind(clean)
+            .execute(&mut *conn)
+            .await?;
+        sqlx::query("UPDATE programacao_envase SET lote_number = $2 WHERE lote_number = $1")
+            .bind(&item.id)
+            .bind(clean)
+            .execute(&mut *conn)
+            .await?;
+        sqlx::query("DELETE FROM lote_custom_status WHERE lote_number = $1")
+            .bind(&item.id)
+            .execute(&mut *conn)
+            .await?;
+    }
 
-                    let _ = sqlx::query("DELETE FROM lote_custom_status WHERE lote_number = $1")
-                        .bind(&item.id)
-                        .execute(pool)
-                        .await;
-                }
-            }
-
-            let doc_num = match &item.lote_erp {
-                Some(l) if !l.trim().is_empty() => Some(l.trim().to_string()),
-                _ => Some(item.id.clone()),
-            };
-            if let Some(clean) = doc_num {
-                let _ = sqlx::query(r#"
-                    INSERT INTO lote_custom_status (
-                        lote_number, custom_status, data_pesagem, data_producao, data_previsao, updated_at
-                    ) VALUES (
-                        $1, 'Pesagem', ($2 || ' 08:00:00-03')::timestamptz, ($2 || ' 08:00:00-03')::timestamptz, ($2 || ' 08:00:00-03')::timestamptz, CURRENT_TIMESTAMP
+    let doc_num = lote_limpo.map(str::to_string).unwrap_or_else(|| item.id.clone());
+    sqlx::query(
+        r#"
+        INSERT INTO lote_custom_status (
+            lote_number, custom_status, data_pesagem, data_producao, data_previsao, updated_at
+        ) VALUES (
+            $1, 'Pesagem', ($2 || ' 08:00:00-03')::timestamptz, ($2 || ' 08:00:00-03')::timestamptz, ($2 || ' 08:00:00-03')::timestamptz, CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (lote_number) DO UPDATE SET
+            custom_status = CASE
+                WHEN lote_custom_status.custom_status IN ('Finalizada', 'Ordem Finalizada', 'Produzido', 'Aberto', 'Pendente') THEN 'Pesagem'
+                ELSE lote_custom_status.custom_status
+            END,
+            data_pesagem = CASE
+                WHEN lote_custom_status.etapas_status->'pesagem'->>'status' IN ('concluido', 'Concluído', 'ativo', 'fila', 'Em Espera') THEN lote_custom_status.data_pesagem
+                WHEN lote_custom_status.data_pesagem IS NOT NULL AND lote_custom_status.data_pesagem <> lote_custom_status.data_producao THEN lote_custom_status.data_pesagem
+                ELSE ($2 || ' 08:00:00-03')::timestamptz
+            END,
+            historico_reagendamentos = CASE
+                WHEN lote_custom_status.data_producao IS NOT NULL
+                     AND TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') <> $2
+                THEN COALESCE(lote_custom_status.historico_reagendamentos, '[]'::jsonb) || jsonb_build_array(
+                    jsonb_build_object(
+                        'tipo', CASE
+                            WHEN TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') < $2 THEN 'adiamento'
+                            ELSE 'retorno'
+                        END,
+                        'etapa', 'producao',
+                        'motivo', 'Reagendado de ' || TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') || ' para ' || $2,
+                        'dataAnterior', TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD'),
+                        'novaData', $2,
+                        'alteradoEm', CURRENT_TIMESTAMP,
+                        'alteradoPor', $3::text
                     )
-                    ON CONFLICT (lote_number) DO UPDATE SET
-                        custom_status = CASE 
-                            WHEN lote_custom_status.custom_status IN ('Finalizada', 'Ordem Finalizada', 'Produzido', 'Aberto', 'Pendente') THEN 'Pesagem'
-                            ELSE lote_custom_status.custom_status
-                        END,
-                        data_pesagem = CASE
-                            WHEN lote_custom_status.etapas_status->'pesagem'->>'status' IN ('concluido', 'Concluído', 'ativo', 'fila', 'Em Espera') THEN lote_custom_status.data_pesagem
-                            WHEN lote_custom_status.data_pesagem IS NOT NULL AND lote_custom_status.data_pesagem <> lote_custom_status.data_producao THEN lote_custom_status.data_pesagem
-                            ELSE ($2 || ' 08:00:00-03')::timestamptz
-                        END,
-                        historico_reagendamentos = CASE
-                            WHEN lote_custom_status.data_producao IS NOT NULL 
-                                 AND TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') <> $2
-                            THEN COALESCE(lote_custom_status.historico_reagendamentos, '[]'::jsonb) || jsonb_build_array(
-                                jsonb_build_object(
-                                    'tipo', CASE
-                                        WHEN TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') < $2 THEN 'adiamento'
-                                        ELSE 'retorno'
-                                    END,
-                                    'etapa', 'producao',
-                                    'motivo', 'Reagendado de ' || TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') || ' para ' || $2,
-                                    'dataAnterior', TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD'),
-                                    'novaData', $2,
-                                    'alteradoEm', CURRENT_TIMESTAMP,
-                                    'alteradoPor', 'Planejamento Semanal'
-                                )
-                            )
-                            ELSE lote_custom_status.historico_reagendamentos
-                        END,
-                        data_producao = ($2 || ' 08:00:00-03')::timestamptz,
-                        data_previsao = ($2 || ' 08:00:00-03')::timestamptz,
-                        updated_at = CURRENT_TIMESTAMP
-                "#)
-                .bind(&clean)
-                .bind(&item.data_planejada)
-                .execute(pool)
-                .await;
-            }
-            (StatusCode::OK, Json(json!({ "ok": true, "id": item.id }))).into_response()
-        },
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response()
+                )
+                ELSE lote_custom_status.historico_reagendamentos
+            END,
+            data_producao = ($2 || ' 08:00:00-03')::timestamptz,
+            data_previsao = ($2 || ' 08:00:00-03')::timestamptz,
+            updated_at = CURRENT_TIMESTAMP
+        "#,
+    )
+    .bind(&doc_num)
+    .bind(&item.data_planejada)
+    .bind(usuario)
+    .execute(&mut *conn)
+    .await?;
+
+    Ok(())
+}
+
+/// Grava uma ou várias ordens numa única transação: se qualquer uma falhar ou violar regra, nada é gravado.
+async fn gravar_planejamento(
+    pool: &PgPool,
+    itens: &mut [PlanejamentoItemDto],
+    usuario: &str,
+) -> Result<(), PlanejamentoErr> {
+    for it in itens.iter_mut() {
+        normalizar_planejamento_item(it)?;
+    }
+    let mut tx = pool.begin().await?;
+    for it in itens.iter() {
+        validar_status_planejamento(&mut tx, it).await?;
+        upsert_planejamento_item(&mut tx, it, usuario).await?;
+    }
+    validar_alocacoes_planejamento(&mut tx, itens).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn save_planejamento_item(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Json(item): Json<PlanejamentoItemDto>,
+) -> impl IntoResponse {
+    let id = item.id.clone();
+    let mut itens = vec![item];
+    match gravar_planejamento(state.db.pool(), &mut itens, &ctx.display_name).await {
+        Ok(()) => (StatusCode::OK, Json(json!({ "ok": true, "id": id }))).into_response(),
+        Err(e) => e.resposta(),
     }
 }
 
 pub async fn bulk_save_planejamento(
     State(state): State<Arc<AppState>>,
-    Json(items): Json<Vec<PlanejamentoItemDto>>,
+    Extension(ctx): Extension<AuthContext>,
+    Json(mut itens): Json<Vec<PlanejamentoItemDto>>,
 ) -> impl IntoResponse {
-    let pool = state.db.pool();
-    for item in items {
-        let q = r#"
-            INSERT INTO producao_planejamento_semanal (
-                id, week_key, data_planejada, reator_id, codigo_produto, descricao,
-                quantidade_planejada, unidade, base_codigo, base_nome, linha_envase,
-                observacoes, ordem_status, lote_erp, fisico_confirmado_massa,
-                fisico_confirmado_embalagem, fisico_confirmado_rotulo,
-                recipiente_detalhe, cor_tag, ordem_sequencia, processo_termico, batch_id, updated_at
-            ) VALUES (
-                $1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                $18, $19, $20, $21, $22, CURRENT_TIMESTAMP
-            )
-            ON CONFLICT (id) DO UPDATE SET
-                week_key = EXCLUDED.week_key,
-                data_planejada = EXCLUDED.data_planejada,
-                reator_id = EXCLUDED.reator_id,
-                codigo_produto = EXCLUDED.codigo_produto,
-                descricao = EXCLUDED.descricao,
-                quantidade_planejada = EXCLUDED.quantidade_planejada,
-                unidade = EXCLUDED.unidade,
-                base_codigo = EXCLUDED.base_codigo,
-                base_nome = EXCLUDED.base_nome,
-                linha_envase = EXCLUDED.linha_envase,
-                observacoes = EXCLUDED.observacoes,
-                ordem_status = EXCLUDED.ordem_status,
-                lote_erp = EXCLUDED.lote_erp,
-                fisico_confirmado_massa = COALESCE(EXCLUDED.fisico_confirmado_massa, producao_planejamento_semanal.fisico_confirmado_massa),
-                fisico_confirmado_embalagem = COALESCE(EXCLUDED.fisico_confirmado_embalagem, producao_planejamento_semanal.fisico_confirmado_embalagem),
-                fisico_confirmado_rotulo = COALESCE(EXCLUDED.fisico_confirmado_rotulo, producao_planejamento_semanal.fisico_confirmado_rotulo),
-                recipiente_detalhe = EXCLUDED.recipiente_detalhe,
-                cor_tag = EXCLUDED.cor_tag,
-                ordem_sequencia = EXCLUDED.ordem_sequencia,
-                processo_termico = EXCLUDED.processo_termico,
-                batch_id = EXCLUDED.batch_id,
-                updated_at = CURRENT_TIMESTAMP
-        "#;
-        if let Err(e) = sqlx::query(q)
-            .bind(&item.id)
-            .bind(&item.week_key)
-            .bind(&item.data_planejada)
-            .bind(&item.reator_id)
-            .bind(&item.codigo_produto)
-            .bind(&item.descricao)
-            .bind(item.quantidade_planejada)
-            .bind(&item.unidade)
-            .bind(&item.base_codigo)
-            .bind(&item.base_nome)
-            .bind(&item.linha_envase)
-            .bind(&item.observacoes)
-            .bind(item.ordem_status.as_deref().unwrap_or("planejado"))
-            .bind(&item.lote_erp)
-            .bind(item.fisico_confirmado_massa.unwrap_or(false))
-            .bind(item.fisico_confirmado_embalagem.unwrap_or(false))
-            .bind(item.fisico_confirmado_rotulo.unwrap_or(false))
-            .bind(item.recipiente_detalhe.as_deref().unwrap_or("Reator"))
-            .bind(&item.cor_tag)
-            .bind(item.ordem_sequencia.unwrap_or(1))
-            .bind(&item.processo_termico)
-            .bind(&item.batch_id)
-            .execute(pool)
-            .await
-        {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response();
-        }
-
-        if let Some(ref l) = item.lote_erp {
-            let clean = l.trim();
-            if !clean.is_empty() {
-                // Migra todos os dados customizados (etapas_status, quadros_ocultos, datas) do ID temporário para o lote ERP real
-                let _ = sqlx::query(r#"
-                    INSERT INTO lote_custom_status (
-                        lote_number, custom_status, category, notes, motivo_espera,
-                        data_pesagem, data_producao, data_rotulagem, data_envase, data_previsao,
-                        etapas_status, quadros_ocultos, historico_reagendamentos, updated_at
-                    )
-                    SELECT 
-                        $2, custom_status, category, notes, motivo_espera,
-                        data_pesagem, data_producao, data_rotulagem, data_envase, data_previsao,
-                        etapas_status, quadros_ocultos, historico_reagendamentos, NOW()
-                    FROM lote_custom_status
-                    WHERE lote_number = $1
-                    ON CONFLICT (lote_number) DO UPDATE SET
-                        custom_status = COALESCE(EXCLUDED.custom_status, lote_custom_status.custom_status),
-                        etapas_status = COALESCE(lote_custom_status.etapas_status, '{}'::jsonb) || COALESCE(EXCLUDED.etapas_status, '{}'::jsonb),
-                        quadros_ocultos = COALESCE(EXCLUDED.quadros_ocultos, lote_custom_status.quadros_ocultos),
-                        data_pesagem = COALESCE(lote_custom_status.data_pesagem, EXCLUDED.data_pesagem),
-                        data_producao = COALESCE(lote_custom_status.data_producao, EXCLUDED.data_producao),
-                        updated_at = NOW()
-                "#)
-                .bind(&item.id)
-                .bind(clean)
-                .execute(pool)
-                .await;
-
-                // Atualiza programacao_rotulagem e programacao_envase que usavam o ID temporário
-                let _ = sqlx::query("UPDATE programacao_rotulagem SET lote_number = $2 WHERE lote_number = $1")
-                    .bind(&item.id)
-                    .bind(clean)
-                    .execute(pool)
-                    .await;
-
-                let _ = sqlx::query("UPDATE programacao_envase SET lote_number = $2 WHERE lote_number = $1")
-                    .bind(&item.id)
-                    .bind(clean)
-                    .execute(pool)
-                    .await;
-
-                let _ = sqlx::query("DELETE FROM lote_custom_status WHERE lote_number = $1")
-                    .bind(&item.id)
-                    .execute(pool)
-                    .await;
-            }
-        }
-
-        let doc_num = match &item.lote_erp {
-            Some(l) if !l.trim().is_empty() => Some(l.trim().to_string()),
-            _ => Some(item.id.clone()),
-        };
-        if let Some(clean) = doc_num {
-            let _ = sqlx::query(r#"
-                INSERT INTO lote_custom_status (
-                    lote_number, custom_status, data_pesagem, data_producao, data_previsao, updated_at
-                ) VALUES (
-                    $1, 'Pesagem', ($2 || ' 08:00:00-03')::timestamptz, ($2 || ' 08:00:00-03')::timestamptz, ($2 || ' 08:00:00-03')::timestamptz, CURRENT_TIMESTAMP
-                )
-                ON CONFLICT (lote_number) DO UPDATE SET
-                    custom_status = CASE 
-                        WHEN lote_custom_status.custom_status IN ('Finalizada', 'Ordem Finalizada', 'Produzido', 'Aberto', 'Pendente') THEN 'Pesagem'
-                        ELSE lote_custom_status.custom_status
-                    END,
-                    data_pesagem = CASE
-                        WHEN lote_custom_status.etapas_status->'pesagem'->>'status' IN ('concluido', 'Concluído', 'ativo', 'fila', 'Em Espera') THEN lote_custom_status.data_pesagem
-                        WHEN lote_custom_status.data_pesagem IS NOT NULL AND lote_custom_status.data_pesagem <> lote_custom_status.data_producao THEN lote_custom_status.data_pesagem
-                        ELSE ($2 || ' 08:00:00-03')::timestamptz
-                    END,
-                    historico_reagendamentos = CASE
-                        WHEN lote_custom_status.data_producao IS NOT NULL
-                             AND TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') <> $2
-                        THEN COALESCE(lote_custom_status.historico_reagendamentos, '[]'::jsonb) || jsonb_build_array(
-                            jsonb_build_object(
-                                'tipo', CASE
-                                    WHEN TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') < $2 THEN 'adiamento'
-                                    ELSE 'retorno'
-                                END,
-                                'etapa', 'producao',
-                                'motivo', 'Reagendado de ' || TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') || ' para ' || $2,
-                                'dataAnterior', TO_CHAR(lote_custom_status.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD'),
-                                'novaData', $2,
-                                'alteradoEm', CURRENT_TIMESTAMP,
-                                'alteradoPor', 'Planejamento Semanal'
-                            )
-                        )
-                        ELSE lote_custom_status.historico_reagendamentos
-                    END,
-                    data_producao = ($2 || ' 08:00:00-03')::timestamptz,
-                    data_previsao = ($2 || ' 08:00:00-03')::timestamptz,
-                    updated_at = CURRENT_TIMESTAMP
-            "#)
-            .bind(&clean)
-            .bind(&item.data_planejada)
-            .execute(pool)
-            .await;
-        }
+    match gravar_planejamento(state.db.pool(), &mut itens, &ctx.display_name).await {
+        Ok(()) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+        Err(e) => e.resposta(),
     }
-    (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
 }
 
 async fn motivo_bloqueio_exclusao_planejamento(
-    pool: &sqlx::PgPool,
+    conn: &mut sqlx::PgConnection,
     id: &str,
     lote_erp: Option<&str>,
-) -> Option<String> {
+) -> Result<Option<String>, sqlx::Error> {
     let lote = lote_erp.map(str::trim).filter(|s| !s.is_empty());
     let programado: bool = sqlx::query_scalar(
         r#"
@@ -4703,18 +4752,17 @@ async fn motivo_bloqueio_exclusao_planejamento(
     )
     .bind(id)
     .bind(lote)
-    .fetch_one(pool)
-    .await
-    .unwrap_or(false);
+    .fetch_one(&mut *conn)
+    .await?;
 
     if programado {
-        return Some(
+        return Ok(Some(
             "Esta ordem já está na programação de envase ou rotulagem. Remova de lá antes de tirar do planejamento."
                 .to_string(),
-        );
+        ));
     }
 
-    let status: Option<String> = sqlx::query_scalar(
+    let status: Option<String> = sqlx::query_scalar::<_, Option<String>>(
         r#"
         SELECT custom_status FROM lote_custom_status
         WHERE lote_number = $1 OR ($2::text IS NOT NULL AND lote_number = $2)
@@ -4724,29 +4772,35 @@ async fn motivo_bloqueio_exclusao_planejamento(
     )
     .bind(id)
     .bind(lote)
-    .fetch_optional(pool)
-    .await
-    .ok()
+    .fetch_optional(&mut *conn)
+    .await?
     .flatten();
 
     if let Some(ref s) = status {
         let cedo = matches!(s.as_str(), "Pesagem" | "Aberto" | "Pendente" | "");
         if !cedo {
-            return Some(format!(
+            return Ok(Some(format!(
                 "A ordem já avançou nos quadros ({s}). Ela permanece com quem está executando."
-            ));
+            )));
         }
     }
-    None
+    Ok(None)
 }
 
-async fn limpar_status_planejamento(pool: &sqlx::PgPool, id: &str, lote_erp: Option<&str>) {
-    let _ = sqlx::query("DELETE FROM lote_custom_status WHERE lote_number = $1")
+async fn limpar_status_planejamento(
+    conn: &mut sqlx::PgConnection,
+    id: &str,
+    lote_erp: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM lote_custom_status WHERE lote_number = $1")
         .bind(id)
-        .execute(pool)
-        .await;
-    if let Some(lote) = lote_erp.map(str::trim).filter(|s| !s.is_empty() && !s.starts_with("PLAN_") && !s.starts_with("PL-")) {
-        let _ = sqlx::query(
+        .execute(&mut *conn)
+        .await?;
+    if let Some(lote) = lote_erp
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !s.starts_with("PLAN_") && !s.starts_with("PL-"))
+    {
+        sqlx::query(
             r#"
             DELETE FROM lote_custom_status
             WHERE lote_number = $1
@@ -4755,40 +4809,53 @@ async fn limpar_status_planejamento(pool: &sqlx::PgPool, id: &str, lote_erp: Opt
             "#,
         )
         .bind(lote)
-        .execute(pool)
-        .await;
+        .execute(&mut *conn)
+        .await?;
     }
+    Ok(())
+}
+
+enum ResultadoExclusao {
+    Excluido,
+    NaoEncontrado,
+    Bloqueado(String),
+}
+
+/// Verifica o bloqueio e exclui na mesma transação, com a linha travada (`FOR UPDATE`).
+async fn excluir_planejamento_item(pool: &PgPool, id: &str) -> Result<ResultadoExclusao, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let row: Option<(Option<String>,)> =
+        sqlx::query_as("SELECT lote_erp FROM producao_planejamento_semanal WHERE id = $1 FOR UPDATE")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let Some((lote,)) = row else {
+        return Ok(ResultadoExclusao::NaoEncontrado);
+    };
+    if let Some(motivo) = motivo_bloqueio_exclusao_planejamento(&mut tx, id, lote.as_deref()).await? {
+        return Ok(ResultadoExclusao::Bloqueado(motivo));
+    }
+    sqlx::query("DELETE FROM producao_planejamento_semanal WHERE id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    limpar_status_planejamento(&mut tx, id, lote.as_deref()).await?;
+    tx.commit().await?;
+    Ok(ResultadoExclusao::Excluido)
 }
 
 pub async fn delete_planejamento_item(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let pool = state.db.pool();
-    let row: Option<(Option<String>,)> = sqlx::query_as("SELECT lote_erp FROM producao_planejamento_semanal WHERE id = $1")
-        .bind(&id)
-        .fetch_optional(pool)
-        .await
-        .unwrap_or(None);
-
-    if row.is_none() {
-        return (StatusCode::NOT_FOUND, Json(json!({ "error": "Item não encontrado" }))).into_response();
+    match excluir_planejamento_item(state.db.pool(), &id).await {
+        Ok(ResultadoExclusao::Excluido) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+        Ok(ResultadoExclusao::NaoEncontrado) => {
+            planejamento_json_err(StatusCode::NOT_FOUND, "Item não encontrado")
+        }
+        Ok(ResultadoExclusao::Bloqueado(motivo)) => planejamento_json_err(StatusCode::CONFLICT, motivo),
+        Err(e) => planejamento_json_err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
-    let lote = row.and_then(|r| r.0);
-
-    if let Some(motivo) = motivo_bloqueio_exclusao_planejamento(pool, &id, lote.as_deref()).await {
-        return (StatusCode::CONFLICT, Json(json!({ "error": motivo }))).into_response();
-    }
-
-    if let Err(e) = sqlx::query("DELETE FROM producao_planejamento_semanal WHERE id = $1")
-        .bind(&id)
-        .execute(pool)
-        .await
-    {
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response();
-    }
-    limpar_status_planejamento(pool, &id, lote.as_deref()).await;
-    (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
 }
 
 pub async fn confirm_fisico_planejamento(
@@ -4797,6 +4864,14 @@ pub async fn confirm_fisico_planejamento(
     Json(payload): Json<ConfirmFisicoPayload>,
 ) -> impl IntoResponse {
     let pool = state.db.pool();
+    if let Some(ref s) = payload.ordem_status {
+        if !ORDEM_STATUS_VALIDOS.contains(&s.trim()) {
+            return planejamento_json_err(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                format!("Status de ordem inválido: {s}. Use planejado, aprovado ou cancelado."),
+            );
+        }
+    }
     let q = r#"
         UPDATE producao_planejamento_semanal
         SET fisico_confirmado_massa = COALESCE($2, fisico_confirmado_massa),
@@ -4812,15 +4887,13 @@ pub async fn confirm_fisico_planejamento(
         .bind(payload.massa)
         .bind(payload.embalagem)
         .bind(payload.rotulo)
-        .bind(payload.ordem_status)
+        .bind(payload.ordem_status.as_deref().map(str::trim))
         .fetch_optional(pool)
         .await
     {
-        Ok(Some(_row)) => {
-            (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
-        }
-        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({ "error": "Item não encontrado" }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response()
+        Ok(Some(_row)) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+        Ok(None) => planejamento_json_err(StatusCode::NOT_FOUND, "Item não encontrado"),
+        Err(e) => planejamento_json_err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
 
@@ -4829,47 +4902,41 @@ pub struct ClearWeekParams {
     pub week: String,
 }
 
-pub async fn clear_planejamento_semana(
-    State(state): State<Arc<AppState>>,
-    Query(params): Query<ClearWeekParams>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
-    let rows = match sqlx::query(
+/// Limpa a semana numa transação. Ordens bloqueadas (já em envase/rotulagem ou adiante nos quadros) ficam.
+async fn limpar_semana_planejamento(
+    pool: &PgPool,
+    week: &str,
+) -> Result<(Vec<serde_json::Value>, i64), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let rows = sqlx::query(
         r#"
         SELECT id, lote_erp, codigo_produto, descricao, quantidade_planejada::float8, unidade, base_codigo, base_nome
         FROM producao_planejamento_semanal
         WHERE week_key = $1
+        FOR UPDATE
         "#,
     )
-    .bind(&params.week)
-    .fetch_all(pool)
-    .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response();
-        }
-    };
+    .bind(week)
+    .fetch_all(&mut *tx)
+    .await?;
 
     let mut deleted = Vec::new();
     let mut blocked = 0i64;
     for row in rows {
         let id: String = row.get(0);
         let lote_erp: Option<String> = row.get(1);
-        if motivo_bloqueio_exclusao_planejamento(pool, &id, lote_erp.as_deref()).await.is_some() {
-            blocked += 1;
-            continue;
-        }
-        if sqlx::query("DELETE FROM producao_planejamento_semanal WHERE id = $1")
-            .bind(&id)
-            .execute(pool)
-            .await
-            .is_err()
+        if motivo_bloqueio_exclusao_planejamento(&mut tx, &id, lote_erp.as_deref())
+            .await?
+            .is_some()
         {
             blocked += 1;
             continue;
         }
-        limpar_status_planejamento(pool, &id, lote_erp.as_deref()).await;
+        sqlx::query("DELETE FROM producao_planejamento_semanal WHERE id = $1")
+            .bind(&id)
+            .execute(&mut *tx)
+            .await?;
+        limpar_status_planejamento(&mut tx, &id, lote_erp.as_deref()).await?;
         let quantidade: f64 = row.get(4);
         deleted.push(json!({
             "id": id,
@@ -4881,12 +4948,22 @@ pub async fn clear_planejamento_semana(
             "baseNome": row.get::<Option<String>, _>(7),
         }));
     }
+    tx.commit().await?;
+    Ok((deleted, blocked))
+}
 
-    (
-        StatusCode::OK,
-        Json(json!({ "ok": true, "deleted": deleted, "blocked": blocked, "rows_deleted": deleted.len() })),
-    )
-        .into_response()
+pub async fn clear_planejamento_semana(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ClearWeekParams>,
+) -> impl IntoResponse {
+    match limpar_semana_planejamento(state.db.pool(), &params.week).await {
+        Ok((deleted, blocked)) => (
+            StatusCode::OK,
+            Json(json!({ "ok": true, "deleted": deleted, "blocked": blocked, "rows_deleted": deleted.len() })),
+        )
+            .into_response(),
+        Err(e) => planejamento_json_err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -5245,14 +5322,6 @@ pub async fn list_fila_demandas(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     let pool = state.db.pool();
-    if let Err(e) = ensure_fila_demandas_table(pool).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao inicializar tabela de fila: {}", e) })),
-        )
-            .into_response();
-    }
-
     let sql = r#"
         SELECT id, codigo_produto, descricao, quantidade::float8, unidade,
                quantidade_kg::float8, origem_demanda, linha_envase, base_codigo,
@@ -5276,33 +5345,50 @@ pub async fn create_fila_demandas(
     Json(payload): Json<CreateFilaDemandaPayload>,
 ) -> impl IntoResponse {
     let pool = state.db.pool();
-    if let Err(e) = ensure_fila_demandas_table(pool).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao inicializar tabela de fila: {}", e) })),
-        )
-            .into_response();
-    }
-
     let items = match payload {
         CreateFilaDemandaPayload::Batch(list) => list,
         CreateFilaDemandaPayload::Single(item) => vec![item],
     };
 
-    let mut inserted_ids = Vec::new();
+    match gravar_fila_demandas(pool, items).await {
+        Ok(ids) => (
+            StatusCode::OK,
+            Json(json!({ "ok": true, "count": ids.len(), "ids": ids })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Erro ao gravar a fila de demandas: {}", e) })),
+        )
+            .into_response(),
+    }
+}
+
+/// Grava todos os itens numa transação. A fila tem uma linha por SKU, mas sem constraint única;
+/// o advisory lock por código impede que dois POST simultâneos dupliquem o SKU.
+async fn gravar_fila_demandas(
+    pool: &PgPool,
+    items: Vec<CreateFilaDemandaItem>,
+) -> Result<Vec<String>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let mut ids = Vec::new();
     for it in items {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+            .bind(&it.codigo_produto)
+            .execute(&mut *tx)
+            .await?;
+
         let existing_id: Option<String> = sqlx::query_scalar(
             "SELECT id FROM producao_fila_demandas WHERE codigo_produto = $1 LIMIT 1",
         )
         .bind(&it.codigo_produto)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten();
+        .fetch_optional(&mut *tx)
+        .await?;
 
         if let Some(eid) = existing_id {
             if it.modo.as_deref() == Some("somar") {
-                let uq = r#"
+                sqlx::query(
+                    r#"
                     UPDATE producao_fila_demandas
                     SET quantidade = quantidade + $1,
                         quantidade_kg = COALESCE(quantidade_kg, 0) + COALESCE($2, 0),
@@ -5310,17 +5396,18 @@ pub async fn create_fila_demandas(
                         observacoes = COALESCE($4, observacoes),
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = $5
-                "#;
-                let _ = sqlx::query(uq)
-                    .bind(it.quantidade)
-                    .bind(it.quantidade_kg)
-                    .bind(&it.unidade)
-                    .bind(&it.observacoes)
-                    .bind(&eid)
-                    .execute(pool)
-                    .await;
+                    "#,
+                )
+                .bind(it.quantidade)
+                .bind(it.quantidade_kg)
+                .bind(&it.unidade)
+                .bind(&it.observacoes)
+                .bind(&eid)
+                .execute(&mut *tx)
+                .await?;
             } else {
-                let uq = r#"
+                sqlx::query(
+                    r#"
                     UPDATE producao_fila_demandas
                     SET quantidade = $1,
                         unidade = $2,
@@ -5331,58 +5418,51 @@ pub async fn create_fila_demandas(
                         observacoes = COALESCE($7, observacoes),
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = $8
-                "#;
-                let _ = sqlx::query(uq)
-                    .bind(it.quantidade)
-                    .bind(&it.unidade)
-                    .bind(it.quantidade_kg)
-                    .bind(&it.origem_demanda)
-                    .bind(&it.base_codigo)
-                    .bind(&it.base_nome)
-                    .bind(&it.observacoes)
-                    .bind(&eid)
-                    .execute(pool)
-                    .await;
+                    "#,
+                )
+                .bind(it.quantidade)
+                .bind(&it.unidade)
+                .bind(it.quantidade_kg)
+                .bind(&it.origem_demanda)
+                .bind(&it.base_codigo)
+                .bind(&it.base_nome)
+                .bind(&it.observacoes)
+                .bind(&eid)
+                .execute(&mut *tx)
+                .await?;
             }
-            inserted_ids.push(eid);
+            ids.push(eid);
             continue;
         }
 
         let new_id = uuid::Uuid::new_v4().to_string();
-        let q = r#"
+        sqlx::query(
+            r#"
             INSERT INTO producao_fila_demandas (
                 id, codigo_produto, descricao, quantidade, unidade,
                 quantidade_kg, origem_demanda, linha_envase, base_codigo,
                 base_nome, observacoes, prioridade
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        "#;
-
-        let res = sqlx::query(q)
-            .bind(&new_id)
-            .bind(&it.codigo_produto)
-            .bind(&it.descricao)
-            .bind(it.quantidade)
-            .bind(&it.unidade)
-            .bind(it.quantidade_kg)
-            .bind(&it.origem_demanda)
-            .bind(&it.linha_envase)
-            .bind(&it.base_codigo)
-            .bind(&it.base_nome)
-            .bind(&it.observacoes)
-            .bind(it.prioridade.unwrap_or(1))
-            .execute(pool)
-            .await;
-
-        if res.is_ok() {
-            inserted_ids.push(new_id);
-        }
+            "#,
+        )
+        .bind(&new_id)
+        .bind(&it.codigo_produto)
+        .bind(&it.descricao)
+        .bind(it.quantidade)
+        .bind(&it.unidade)
+        .bind(it.quantidade_kg)
+        .bind(&it.origem_demanda)
+        .bind(&it.linha_envase)
+        .bind(&it.base_codigo)
+        .bind(&it.base_nome)
+        .bind(&it.observacoes)
+        .bind(it.prioridade.unwrap_or(1))
+        .execute(&mut *tx)
+        .await?;
+        ids.push(new_id);
     }
-
-    (
-        StatusCode::OK,
-        Json(json!({ "ok": true, "count": inserted_ids.len(), "ids": inserted_ids })),
-    )
-        .into_response()
+    tx.commit().await?;
+    Ok(ids)
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -5401,14 +5481,6 @@ pub async fn update_fila_demanda(
     Json(payload): Json<UpdateFilaDemandaPayload>,
 ) -> impl IntoResponse {
     let pool = state.db.pool();
-    if let Err(e) = ensure_fila_demandas_table(pool).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao inicializar tabela de fila: {}", e) })),
-        )
-            .into_response();
-    }
-
     let q = r#"
         UPDATE producao_fila_demandas
         SET quantidade = COALESCE($1, quantidade),
@@ -5430,6 +5502,11 @@ pub async fn update_fila_demanda(
         .execute(pool)
         .await
     {
+        Ok(res) if res.rows_affected() == 0 => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Item da fila não encontrado." })),
+        )
+            .into_response(),
         Ok(res) => (
             StatusCode::OK,
             Json(json!({ "ok": true, "updated": res.rows_affected() })),
@@ -5448,19 +5525,16 @@ pub async fn delete_fila_demanda(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     let pool = state.db.pool();
-    if let Err(e) = ensure_fila_demandas_table(pool).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao inicializar tabela de fila: {}", e) })),
-        )
-            .into_response();
-    }
-
     match sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1")
         .bind(&id)
         .execute(pool)
         .await
     {
+        Ok(res) if res.rows_affected() == 0 => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "Item da fila não encontrado." })),
+        )
+            .into_response(),
         Ok(res) => (
             StatusCode::OK,
             Json(json!({ "ok": true, "deleted": res.rows_affected() })),
@@ -5478,14 +5552,6 @@ pub async fn clear_fila_demandas(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     let pool = state.db.pool();
-    if let Err(e) = ensure_fila_demandas_table(pool).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao inicializar tabela de fila: {}", e) })),
-        )
-            .into_response();
-    }
-
     match sqlx::query("DELETE FROM producao_fila_demandas")
         .execute(pool)
         .await

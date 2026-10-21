@@ -47,7 +47,8 @@ CREATE INDEX IF NOT EXISTS idx_planejamento_week ON producao_planejamento_semana
 CREATE INDEX IF NOT EXISTS idx_planejamento_data ON producao_planejamento_semanal (data_planejada);
 CREATE INDEX IF NOT EXISTS idx_planejamento_reator ON producao_planejamento_semanal (reator_id);
 
--- Carga e atualização de reatores e bombonas oficiais da fábrica
+-- Carga inicial de reatores e bombonas da fábrica.
+-- DO NOTHING: este arquivo roda em todo boot (SCHEMA_FILES); ajustes feitos na tela de reatores não podem ser sobrescritos.
 DELETE FROM producao_reatores_config WHERE id IN ('R_250', 'R_1000');
 
 INSERT INTO producao_reatores_config (id, nome, capacidade_kg, tipo, ordem, ativo) VALUES
@@ -58,10 +59,5 @@ INSERT INTO producao_reatores_config (id, nome, capacidade_kg, tipo, ordem, ativ
     ('R_100', 'Reator 100kg (Resistência - Máx 1/dia)', 100.0, 'resistencia', 5, TRUE),
     ('R_40', 'Reator 40kg (Produção Quente)', 40.0, 'quente', 6, TRUE),
     ('BOMBONAS', 'Bombonas (50kg, 100kg, 200kg)', 200.0, 'bombona', 7, TRUE)
-ON CONFLICT (id) DO UPDATE SET
-    nome = EXCLUDED.nome,
-    capacidade_kg = EXCLUDED.capacidade_kg,
-    tipo = EXCLUDED.tipo,
-    ordem = EXCLUDED.ordem,
-    ativo = EXCLUDED.ativo;
+ON CONFLICT (id) DO NOTHING;
 

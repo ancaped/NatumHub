@@ -480,6 +480,15 @@ function getWeekKey(d: Date): string {
   return `${isoYear}-W${String(weekNum).padStart(2, '0')}`;
 }
 
+/** Lê `{ error }` da resposta do servidor (422/409/500) e cai no texto padrão se o corpo não vier. */
+async function mensagemErroServidor(res: Response, padrao: string): Promise<string> {
+  try {
+    const err = await res.json();
+    if (err?.error) return String(err.error);
+  } catch { /* corpo vazio */ }
+  return padrao;
+}
+
 /** Regras de chão de fábrica aplicadas no modal, no arraste e na sugestão. */
 export function validarAlocacao(opts: {
   reatorId: string;
@@ -501,6 +510,7 @@ export function validarAlocacao(opts: {
   if (opts.reatorId === 'R_100') {
     const ocupado = opts.plannedItems.some(i =>
       i.reator_id === 'R_100' &&
+      i.ordem_status !== 'cancelado' &&
       (i.data_planejada || '').split('T')[0] === date &&
       !opts.ignoreIds?.has(i.id)
     );
@@ -733,7 +743,8 @@ export function PlanejamentoSemanalTab({
       const res = await apiFetch(`/producao/planejamento-semanal?week=${currentWeekKey}`);
       if (res.ok) {
         const data: PlanejamentoItem[] = await res.json();
-        setPlannedItems(data);
+        // Ordem cancelada não ocupa reator, não entra nas estatísticas e não conta na validação.
+        setPlannedItems(data.filter(i => i.ordem_status !== 'cancelado'));
       } else {
         setPlannedItems([]);
       }
@@ -1043,12 +1054,7 @@ export function PlanejamentoSemanalTab({
         body: JSON.stringify(newItem)
       });
       if (!res.ok) {
-        let message = 'Não foi possível salvar o planejamento no servidor.';
-        try {
-          const err = await res.json();
-          if (err?.error) message = String(err.error);
-        } catch { /* corpo vazio */ }
-        alert(message);
+        alert(await mensagemErroServidor(res, 'Não foi possível salvar o planejamento no servidor.'));
         return false;
       }
       setPlannedItems(prev => {
@@ -1062,6 +1068,53 @@ export function PlanejamentoSemanalTab({
       console.warn('Falha ao salvar planejamento:', e);
       alert('Falha de conexão ao salvar o planejamento.');
       return false;
+    }
+  };
+
+  // Grava várias ordens de uma vez. O servidor usa uma transação: entram todas ou nenhuma.
+  const handleSaveItems = async (items: PlanejamentoItem[]): Promise<boolean> => {
+    if (items.length === 0) return true;
+    try {
+      const res = await apiFetch('/producao/planejamento-semanal/bulk', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(items)
+      });
+      if (!res.ok) {
+        alert(await mensagemErroServidor(res, 'Não foi possível salvar o planejamento no servidor.'));
+        return false;
+      }
+      const ids = new Set(items.map(i => i.id));
+      setPlannedItems(prev => [...prev.filter(i => !ids.has(i.id)), ...items]);
+      window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
+      onScheduleChanged?.();
+      return true;
+    } catch (e) {
+      console.warn('Falha ao salvar planejamento:', e);
+      alert('Falha de conexão ao salvar o planejamento.');
+      return false;
+    }
+  };
+
+  // Consome a demanda da fila pelo id. Agendamento parcial devolve o saldo (PATCH); total remove (DELETE).
+  const consumirFilaItem = async (fItem: any, descricao: string | undefined, scheduledKg: number) => {
+    if (!fItem?.id) return;
+    const filaKg = Number(fItem.quantidadeKg || fItem.quantidade_kg || 0);
+    try {
+      if (filaKg > 0 && scheduledKg > 0 && scheduledKg + 0.05 < filaKg) {
+        const remainKg = Number((filaKg - scheduledKg).toFixed(1));
+        const uW = parseProductUnitWeightKg(descricao);
+        const remainUn = Math.max(1, Math.round(remainKg / (uW || 1)));
+        await apiFetch(`/producao/fila-demandas/${encodeURIComponent(fItem.id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quantidade: remainUn, quantidadeKg: remainKg, unidade: 'un' })
+        });
+      } else {
+        await apiFetch(`/producao/fila-demandas/${encodeURIComponent(fItem.id)}`, { method: 'DELETE' });
+      }
+    } catch (e) {
+      console.warn('Erro ao atualizar item da fila:', e);
     }
   };
 
@@ -1107,47 +1160,44 @@ export function PlanejamentoSemanalTab({
     onScheduleChanged?.();
   };
 
-  // Toggle Aprovação da Produção: apenas o OK do PCP. Não mexe nos quadros.
-  const handleToggleAprovacao = async (item: PlanejamentoItem) => {
-    const isCurrentlyApproved = item.ordem_status === 'aprovado';
-    const newApproved = !isCurrentlyApproved;
-
-    const updated: PlanejamentoItem = {
-      ...item,
-      ordem_status: newApproved ? 'aprovado' : 'planejado',
-      fisico_confirmado_massa: newApproved,
-      fisico_confirmado_embalagem: newApproved,
-      fisico_confirmado_rotulo: newApproved,
-    };
-
-    setPlannedItems(prev => prev.map(p => p.id === item.id ? updated : p));
-
-    try {
-      const res = await apiFetch(`/producao/planejamento-semanal/${item.id}/confirmar-fisico`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          massa: newApproved,
-          embalagem: newApproved,
-          rotulo: newApproved,
-          ordem_status: newApproved ? 'aprovado' : 'planejado'
-        })
-      });
-      if (!res.ok) throw new Error('confirm');
-
-      const saved = await handleSaveItem(updated);
-      if (!saved) {
-        setPlannedItems(prev => prev.map(p => p.id === item.id ? item : p));
-        return;
+  // Aprovação da Produção: apenas o OK do PCP. Não mexe nos quadros.
+  // Único caminho para ordem avulsa e batelada: grava status e flags físicos em /confirmar-fisico.
+  const aplicarAprovacao = async (alvos: PlanejamentoItem[], aprovar: boolean) => {
+    const ordemStatus = aprovar ? 'aprovado' : 'planejado';
+    const atualizados: PlanejamentoItem[] = [];
+    for (const it of alvos) {
+      try {
+        const res = await apiFetch(`/producao/planejamento-semanal/${encodeURIComponent(it.id)}/confirmar-fisico`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ massa: aprovar, embalagem: aprovar, rotulo: aprovar, ordem_status: ordemStatus })
+        });
+        if (!res.ok) {
+          alert(await mensagemErroServidor(res, 'Erro ao atualizar aprovação de produção no servidor.'));
+          break;
+        }
+        atualizados.push({
+          ...it,
+          ordem_status: ordemStatus,
+          fisico_confirmado_massa: aprovar,
+          fisico_confirmado_embalagem: aprovar,
+          fisico_confirmado_rotulo: aprovar,
+        });
+      } catch (e) {
+        console.error('Erro ao alternar aprovação de produção:', e);
+        alert('Erro ao atualizar aprovação de produção no servidor.');
+        break;
       }
-      window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
-      onScheduleChanged?.();
-    } catch (e) {
-      console.error('Erro ao alternar aprovação de produção:', e);
-      setPlannedItems(prev => prev.map(p => p.id === item.id ? item : p));
-      alert('Erro ao atualizar aprovação de produção no servidor.');
     }
+    if (atualizados.length === 0) return;
+    const porId = new Map(atualizados.map(u => [u.id, u]));
+    setPlannedItems(prev => prev.map(p => porId.get(p.id) || p));
+    window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
+    onScheduleChanged?.();
   };
+
+  const handleToggleAprovacao = (item: PlanejamentoItem) =>
+    aplicarAprovacao([item], item.ordem_status !== 'aprovado');
 
   // Carregar produtos com a EXATA mesma formulação química quando o 1º produto da batelada é selecionado
   useEffect(() => {
@@ -1370,32 +1420,8 @@ export function PlanejamentoSemanalTab({
   };
 
   // Alternar aprovação de todos os itens da batelada
-  const handleToggleBatchAprovacao = async (batchItems: PlanejamentoItem[]) => {
-    const allApproved = batchItems.every(i => i.ordem_status === 'aprovado');
-    const nextStatus = allApproved ? 'planejado' : 'aprovado';
-    const nextConfirmado = !allApproved;
-
-    const updatedItems: PlanejamentoItem[] = [];
-    for (const it of batchItems) {
-      const updated: PlanejamentoItem = {
-        ...it,
-        ordem_status: nextStatus,
-        fisico_confirmado_massa: nextConfirmado,
-        fisico_confirmado_embalagem: nextConfirmado,
-        fisico_confirmado_rotulo: nextConfirmado,
-      };
-      const ok = await handleSaveItem(updated);
-      if (ok) updatedItems.push(updated);
-    }
-    if (updatedItems.length === 0) return;
-
-    setPlannedItems(prev => {
-      const map = new Map(updatedItems.map(u => [u.id, u]));
-      return prev.map(p => map.get(p.id) || p);
-    });
-    window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
-    onScheduleChanged?.();
-  };
+  const handleToggleBatchAprovacao = (batchItems: PlanejamentoItem[]) =>
+    aplicarAprovacao(batchItems, !batchItems.every(i => i.ordem_status === 'aprovado'));
 
   // Abrir Modal de Configurações da Batelada (Parâmetros)
   const handleOpenTechnicalModal = async (item: PlanejamentoItem, batchItems?: PlanejamentoItem[]) => {
@@ -1484,6 +1510,22 @@ export function PlanejamentoSemanalTab({
     const targets = batchItems && batchItems.length > 1 ? batchItems : [item];
     const updatedTargets: PlanejamentoItem[] = [];
 
+    const totalKg = targets.length === 1
+      ? quantidadeKg
+      : Number(targets.reduce((acc, it) => acc + (Number(it.quantidade_planejada) || 0), 0).toFixed(1));
+    const alocacaoMsg = validarAlocacao({
+      reatorId,
+      dateStr: dataPlanejada,
+      kg: totalKg,
+      reatores,
+      plannedItems,
+      ignoreIds: new Set(targets.map(t => t.id)),
+    });
+    if (alocacaoMsg) {
+      alert(alocacaoMsg);
+      return;
+    }
+
     for (const it of targets) {
       const itQty = targets.length === 1 ? quantidadeKg : it.quantidade_planejada;
       const updated: PlanejamentoItem = {
@@ -1501,14 +1543,10 @@ export function PlanejamentoSemanalTab({
         ordem_status: cleanLote ? 'aprovado' : it.ordem_status,
       };
       updatedTargets.push(updated);
-      await handleSaveItem(updated);
     }
 
-    const targetMap = new Map(updatedTargets.map(u => [u.id, u]));
-    setPlannedItems(prev => prev.map(p => targetMap.get(p.id) || p));
+    if (!(await handleSaveItems(updatedTargets))) return;
     setTechnicalModalItem(null);
-    window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
-    onScheduleChanged?.();
   };
 
   // Adicionar e remover produtos da mesma ordem de produção (até 4 produtos por lote)
@@ -1701,6 +1739,7 @@ export function PlanejamentoSemanalTab({
     const sameDayItems = plannedItems.filter(i => i.data_planejada === scheduleDate);
     const batchTimestamp = Date.now();
     const batchId = numItems > 1 ? `BATCH_${batchTimestamp}` : '';
+    const novosItens: PlanejamentoItem[] = [];
 
     for (let i = 0; i < numItems; i++) {
       const prod = scheduleSelectedProducts[i];
@@ -1744,32 +1783,19 @@ export function PlanejamentoSemanalTab({
         batch_id: numItems > 1 ? batchId : undefined,
       };
 
-      await handleSaveItem(newItem);
+      novosItens.push(newItem);
     }
 
-    // Consome a demanda. Agendamento parcial deixa o saldo na fila.
+    // Se a ordem não gravou, a demanda continua intacta na fila.
+    if (!(await handleSaveItems(novosItens))) return;
+
+    // Consome a demanda pelo id. Agendamento parcial deixa o saldo na fila.
     for (const prod of scheduleSelectedProducts) {
       const code = prod.codigo;
-      const fItem = filaDemandas.find((f: any) => f.id === prod._filaId)
-        || filaDemandas.find((f: any) => (f.codigoProduto || f.codigo_produto) === code);
-      if (!fItem?.id) continue;
-      const scheduledKg = Number(scheduleItemMasses[code] > 0 ? scheduleItemMasses[code] : (numItems === 1 ? scheduleQty : 0));
-      const filaKg = Number(fItem.quantidadeKg || fItem.quantidade_kg || 0);
-      try {
-        if (filaKg > 0 && scheduledKg > 0 && scheduledKg + 0.05 < filaKg) {
-          const remainKg = Number((filaKg - scheduledKg).toFixed(1));
-          const uW = parseProductUnitWeightKg(prod.descricao);
-          const remainUn = Math.max(1, Math.round(remainKg / (uW || 1)));
-          await apiFetch(`/producao/fila-demandas/${encodeURIComponent(fItem.id)}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ quantidade: remainUn, quantidadeKg: remainKg, unidade: 'un' })
-          });
-        } else {
-          await apiFetch(`/producao/fila-demandas/${encodeURIComponent(fItem.id)}`, { method: 'DELETE' });
-        }
-      } catch (e) {
-        console.warn('Erro ao atualizar item da fila:', e);
+      const fItem = filaDemandas.find((f: any) => f.id === prod._filaId);
+      if (fItem?.id) {
+        const scheduledKg = Number(scheduleItemMasses[code] > 0 ? scheduleItemMasses[code] : (numItems === 1 ? scheduleQty : 0));
+        await consumirFilaItem(fItem, prod.descricao, scheduledKg);
       }
 
       // Se era um lote em espera reagendado, remove a pausa do lote no acompanhamento
@@ -2947,11 +2973,16 @@ export function PlanejamentoSemanalTab({
         alert('Não foi possível gravar a sugestão no servidor.');
         return;
       }
+      const kgPorFila = new Map<string, number>();
       for (const item of heuristicProposal) {
-        const fItem = filaDemandas.find((f: any) => (f.codigoProduto || f.codigo_produto) === item.codigo_produto);
-        if (fItem?.id) {
-          await apiFetch(`/producao/fila-demandas/${encodeURIComponent(fItem.id)}`, { method: 'DELETE' });
-        }
+        const cand = demandCandidates.find((c: any) => c.codigo === item.codigo_produto && c._filaId);
+        if (!cand) continue;
+        kgPorFila.set(cand._filaId, (kgPorFila.get(cand._filaId) || 0) + (Number(item.quantidade_planejada) || 0));
+      }
+      for (const [filaId, kg] of Array.from(kgPorFila.entries())) {
+        const fItem = filaDemandas.find((f: any) => f.id === filaId);
+        const cand = demandCandidates.find((c: any) => c._filaId === filaId);
+        await consumirFilaItem(fItem, cand?.descricao, kg);
       }
       await fetchPlanejamento();
       await fetchFila();
