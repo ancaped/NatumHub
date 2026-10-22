@@ -2,6 +2,7 @@
 //! Regras e raciocínio em `calc.rs`; leitura do banco em `store.rs`.
 
 pub mod calc;
+pub mod faltas;
 pub mod store;
 
 use axum::{
@@ -27,6 +28,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/producao/cobertura", get(get_cobertura))
         .route("/api/producao/cobertura/simular", post(post_simular))
         .route("/api/producao/cobertura/validacao", get(get_validacao))
+        .route("/api/producao/cobertura/faltas-por-linha", get(get_faltas_por_linha))
         .route("/api/producao/cobertura/ordens/:id/base-fonte", put(put_base_fonte))
 }
 
@@ -128,32 +130,42 @@ async fn post_simular(State(state): State<Arc<AppState>>, Json(body): Json<Simul
     for (i, c) in body.candidatos.iter().enumerate() {
         let codigo = store::canon(&c.codigo);
         let data = c.data.as_deref().and_then(store::parse_data).unwrap_or_else(|| hoje.max(ctx.inicio_semana));
-        let id = format!("cand:{i}");
-        // Candidato ainda não é ordem: usa a última escolha do Edson para a base (a ordem real só sugere).
-        let fonte = ctx.decisoes_base.get(&codigo).copied().unwrap_or_default();
-        let mut entrada = ctx.entrada.clone();
-        entrada.ordens.push(OrdemEntrada {
-            id: id.clone(),
-            data,
-            sequencia: i32::MAX,
-            codigo_produto: codigo.clone(),
-            descricao: None,
-            kg: c.kg,
-            lote_erp: None,
-            lote_no_erp: false,
-            grupo: id.clone(),
-            necessidades: ctx.formulas.necessidades_com(&codigo, c.kg, fonte),
-            bases_usadas: ctx.formulas.bases_usadas(&codigo),
-            base_fonte: fonte,
-            sugestao_base: None,
-            da_semana: true,
-        });
-        let saida = simular(&entrada);
-        if let Some(r) = saida.ordens.into_iter().find(|o| o.id == id) {
+        if let Some(r) = simular_candidato(&ctx, i, &codigo, c.kg, data) {
             out.push(ResultadoCandidato { codigo, kg: c.kg, data, resultado: r });
         }
     }
     (StatusCode::OK, Json(json!({ "semana": semana, "candidatos": out }))).into_response()
+}
+
+/// Avalia um candidato (ainda não é ordem) como se fosse a última ordem do dia, sem somar com outros candidatos.
+/// Usa a última escolha do Edson para a base (a ordem real só sugere).
+pub(crate) fn simular_candidato(
+    ctx: &store::Contexto,
+    indice: usize,
+    codigo: &str,
+    kg: f64,
+    data: NaiveDate,
+) -> Option<ResultadoOrdem> {
+    let id = format!("cand:{indice}");
+    let fonte = ctx.decisoes_base.get(codigo).copied().unwrap_or_default();
+    let mut entrada = ctx.entrada.clone();
+    entrada.ordens.push(OrdemEntrada {
+        id: id.clone(),
+        data,
+        sequencia: i32::MAX,
+        codigo_produto: codigo.to_string(),
+        descricao: None,
+        kg,
+        lote_erp: None,
+        lote_no_erp: false,
+        grupo: id.clone(),
+        necessidades: ctx.formulas.necessidades_com(codigo, kg, fonte),
+        bases_usadas: ctx.formulas.bases_usadas(codigo),
+        base_fonte: fonte,
+        sugestao_base: None,
+        da_semana: true,
+    });
+    simular(&entrada).ordens.into_iter().find(|o| o.id == id)
 }
 
 #[derive(Debug, Deserialize)]
@@ -249,6 +261,22 @@ async fn previa_base_fonte(
         "fonteAtual": atual, "fonteNova": fonte, "insumosQueMudam": mudancas,
         "confirmar": "repita com confirmar=true para gravar"
     }))
+}
+
+/// Relatório "Faltas de Insumos por Linha": ordens da semana e fila (Banco de Demandas), separadas.
+async fn get_faltas_por_linha(State(state): State<Arc<AppState>>, Query(q): Query<CoberturaQuery>) -> impl IntoResponse {
+    let semana = q
+        .week
+        .map(|w| w.trim().to_string())
+        .filter(|w| !w.is_empty())
+        .unwrap_or_else(|| store::semana_de(store::hoje_brasil()));
+    if store::intervalo_semana(&semana).is_none() {
+        return erro(StatusCode::BAD_REQUEST, format!("Semana inválida: {semana}. Use o formato 2026-W43."));
+    }
+    match faltas::gerar(state.db.pool(), &semana).await {
+        Ok(r) => (StatusCode::OK, Json(r)).into_response(),
+        Err(e) => erro(StatusCode::INTERNAL_SERVER_ERROR, e),
+    }
 }
 
 #[derive(Debug, Deserialize)]

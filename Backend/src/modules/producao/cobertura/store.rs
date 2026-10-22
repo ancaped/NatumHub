@@ -646,6 +646,76 @@ async fn lotes_existentes_no_erp(pool: &PgPool, numeros: &[String]) -> Result<Ha
 // Montagem da entrada
 // ---------------------------------------------------------------------------------------------
 
+/// Descrição e linha comercial de cada produto (código canônico -> (descrição, linha)).
+pub async fn carregar_meta_produtos(pool: &PgPool, produtos: &[String]) -> Result<HashMap<String, (String, String)>, String> {
+    let mut pedidos: Vec<String> = Vec::new();
+    for p in produtos {
+        pedidos.extend(variantes_codigo(p));
+    }
+    pedidos.sort();
+    pedidos.dedup();
+    if pedidos.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = sqlx::query(
+        "SELECT TRIM(p.codigo) AS codigo, COALESCE(p.descricao, '') AS descricao, \
+                COALESCE(NULLIF(TRIM(c.nome_linha), ''), p.linha_prefix, '') AS linha \
+         FROM produtos p LEFT JOIN config_linhas c ON c.linha_prefix = p.linha_prefix \
+         WHERE TRIM(p.codigo) = ANY($1)",
+    )
+    .bind(&pedidos)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Erro ao ler os produtos: {e}"))?;
+    let achados: HashMap<String, (String, String)> = rows
+        .into_iter()
+        .map(|r| {
+            (
+                r.get::<Option<String>, _>("codigo").unwrap_or_default(),
+                (r.get::<String, _>("descricao"), r.get::<String, _>("linha")),
+            )
+        })
+        .collect();
+    let mut out = HashMap::new();
+    for p in produtos {
+        for v in variantes_codigo(p) {
+            if let Some(m) = achados.get(&v) {
+                out.insert(canon(p), m.clone());
+                break;
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Item da fila de demandas (Banco de Demandas) com a massa em kg, quando existe.
+#[derive(Debug, Clone)]
+pub struct ItemFila {
+    pub id: String,
+    pub codigo: String,
+    pub descricao: String,
+    pub kg: Option<f64>,
+}
+
+pub async fn carregar_fila(pool: &PgPool) -> Result<Vec<ItemFila>, String> {
+    let rows = sqlx::query(
+        "SELECT id, codigo_produto, COALESCE(descricao, '') AS descricao, quantidade_kg::float8 AS kg \
+         FROM producao_fila_demandas ORDER BY prioridade NULLS LAST, created_at",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Erro ao ler a fila de demandas: {e}"))?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ItemFila {
+            id: r.get::<String, _>("id"),
+            codigo: canon(&r.get::<String, _>("codigo_produto")),
+            descricao: r.get::<String, _>("descricao"),
+            kg: r.get::<Option<f64>, _>("kg").filter(|k| *k > 0.0),
+        })
+        .collect())
+}
+
 /// Insumo -> equivalentes cadastrados em `similar_items` (a relação vale nos dois sentidos).
 async fn carregar_equivalentes(pool: &PgPool, codigos: &[String]) -> Result<HashMap<String, Vec<String>>, String> {
     if codigos.is_empty() {
@@ -1012,6 +1082,7 @@ mod tests {
     async fn limpar_teste(pool: &PgPool) {
         for q in [
             "DELETE FROM producao_planejamento_semanal WHERE id LIKE 'T-ORD-%'",
+            "DELETE FROM producao_fila_demandas WHERE id LIKE 'T-FILA-%'",
             "DELETE FROM producao_trocas_insumo WHERE insumo_de LIKE 'T-%'",
             "DELETE FROM similar_items WHERE item_code_a LIKE 'T-%'",
             "DELETE FROM formulations WHERE product_code IN ('T-PROD', 'T-BASE')",
@@ -1186,6 +1257,36 @@ mod tests {
         assert!((n[0].quantidade - 20.0).abs() < 1e-6);
         // o ERP ainda reserva pela fórmula original
         assert_eq!(ctx.formulas.necessidades_erp("T-PROD", 100.0).unwrap().iter().find(|n| n.codigo == "T-FRAG").map(|n| n.quantidade.round()), Some(20.0));
+        limpar_teste(&pool).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn relatorio_de_faltas_separa_ordens_e_fila_por_linha_no_banco() {
+        let _trava = TRAVA.lock().await;
+        let pool = PgPool::connect(&url_teste()).await.unwrap();
+        semear_teste(&pool).await;
+        sqlx::query(
+            "INSERT INTO producao_fila_demandas (id, codigo_produto, descricao, quantidade, quantidade_kg, origem_demanda) \
+             VALUES ('T-FILA-1', 'T-PROD', 'PRODUTO TESTE', 50, 50, 'teste'), ('T-FILA-2', 'T-BASE', 'SEM KG', 1, NULL, 'teste')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let r = super::super::faltas::gerar(&pool, &semana_de(hoje_brasil())).await.unwrap();
+        // ordem da semana: base de estoque => só a fragrância (20 kg para 100 kg) falta
+        let linha = r.ordens.iter().find(|l| l.linha == "TESTE").expect("linha da ordem");
+        let p = linha.produtos.iter().find(|p| p.produto == "T-PROD").unwrap();
+        assert_eq!(p.materia_prima.iter().map(|i| i.codigo.as_str()).collect::<Vec<_>>(), vec!["T-FRAG"]);
+        assert!(p.embalagem.is_empty());
+        assert!((p.materia_prima[0].falta - 20.0).abs() < 1e-6);
+        // fila: avaliada sozinha, com a base explodida (padrão) => água, tensoativo e fragrância
+        let linha = r.fila.iter().find(|l| l.linha == "TESTE").expect("linha da fila");
+        let mut cods: Vec<&str> = linha.produtos[0].materia_prima.iter().map(|i| i.codigo.as_str()).collect();
+        cods.sort();
+        assert_eq!(cods, vec!["T-AGUA", "T-FRAG", "T-TENSO"]);
+        assert!(r.fila_sem_kg.iter().any(|x| x.contains("SEM KG")));
         limpar_teste(&pool).await;
     }
 }

@@ -6,12 +6,13 @@ import {
 import AppLayout, { SidebarItem } from '../../geral/components/layout/AppLayout';
 import { StockHealthTab } from '../../producao/gerenciamento/components/StockHealthTab';
 import ProdutosAtivosRelatoriosView from '../produtos_ativos_relatorios/ProdutosAtivosRelatoriosView';
+import FaltasInsumosLinhaTab from './FaltasInsumosLinhaTab';
 import { apiFetch } from '../../geral/lib/http';
 
 interface RelatoriosViewProps {
   onBackToHub?: () => void;
   setView?: (view: string) => void;
-  initialTab?: 'saude_estoque' | 'produtos_ativos';
+  initialTab?: 'saude_estoque' | 'produtos_ativos' | 'faltas_linha';
 }
 
 export default function RelatoriosView({
@@ -19,7 +20,7 @@ export default function RelatoriosView({
   setView,
   initialTab = 'saude_estoque',
 }: RelatoriosViewProps) {
-  const [activeTab, setActiveTab] = useState<'saude_estoque' | 'produtos_ativos'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'saude_estoque' | 'produtos_ativos' | 'faltas_linha'>(initialTab);
 
   // Estados de dados para a Saúde do Estoque
   const [allProducts, setAllProducts] = useState<any[]>([]);
@@ -82,6 +83,11 @@ export default function RelatoriosView({
       label: 'Produtos Ativos & Performance',
       icon: FileSpreadsheet,
     },
+    {
+      id: 'faltas_linha',
+      label: 'Faltas de Insumos por Linha',
+      icon: Package,
+    },
   ];
 
   return (
@@ -112,6 +118,8 @@ export default function RelatoriosView({
           <ProdutosAtivosRelatoriosView onBackToHub={onBackToHub || (() => setView?.('hub'))} />
         </div>
       )}
+
+      {activeTab === 'faltas_linha' && <FaltasInsumosLinhaTab />}
     </AppLayout>
   );
 }

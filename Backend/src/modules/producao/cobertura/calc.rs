@@ -1112,6 +1112,109 @@ pub fn simular(e: &EntradaSimulacao) -> SaidaSimulacao {
     SaidaSimulacao { ordens: resultados, insumos: resumo, avisos: avisos_globais }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Relatório de faltas por linha (agrupa o resultado da simulação; não recalcula nada)
+// ---------------------------------------------------------------------------------------------
+
+/// Uma ordem (ou candidato da fila) já simulada, com o que o relatório precisa saber dela.
+pub struct ItemFalta<'a> {
+    pub produto: String,
+    pub descricao: String,
+    pub linha: String,
+    pub kg: f64,
+    pub data: Option<NaiveDate>,
+    pub resultado: &'a ResultadoOrdem,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FaltaInsumo {
+    pub codigo: String,
+    pub descricao: String,
+    pub unidade: Option<String>,
+    pub necessario: f64,
+    pub livre_na_data: f64,
+    pub falta: f64,
+    pub status: StatusInsumo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chega_em: Option<NaiveDate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pedido: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fornecedor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FaltasProduto {
+    pub produto: String,
+    pub descricao: String,
+    pub kg: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<NaiveDate>,
+    pub sem_formula: bool,
+    pub embalagem: Vec<FaltaInsumo>,
+    pub materia_prima: Vec<FaltaInsumo>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FaltasLinha {
+    pub linha: String,
+    pub produtos: Vec<FaltasProduto>,
+}
+
+/// Agrupa por linha → produto → embalagem / matéria-prima. Só entram insumos que não estão OK
+/// (falta, chega depois, pedido atrasado ou sem data) e produtos sem fórmula (não dá para avaliar).
+pub fn agrupar_faltas(itens: Vec<ItemFalta>) -> Vec<FaltasLinha> {
+    let mut por_linha: BTreeMap<String, Vec<FaltasProduto>> = BTreeMap::new();
+    for it in itens {
+        let r = it.resultado;
+        let sem_formula = r.status == StatusCobertura::SemFormula;
+        let mut embalagem = Vec::new();
+        let mut materia_prima = Vec::new();
+        for i in r.insumos.iter().filter(|i| i.status != StatusInsumo::Ok) {
+            let f = FaltaInsumo {
+                codigo: i.codigo.clone(),
+                descricao: i.descricao.clone(),
+                unidade: i.unidade.clone(),
+                necessario: i.necessario,
+                livre_na_data: i.livre_na_data,
+                falta: i.falta,
+                status: i.status,
+                chega_em: i.chega_em,
+                pedido: i.pedido,
+                fornecedor: i.fornecedor.clone(),
+            };
+            if is_embalagem(&i.codigo, &i.descricao) {
+                embalagem.push(f);
+            } else {
+                materia_prima.push(f);
+            }
+        }
+        if !sem_formula && embalagem.is_empty() && materia_prima.is_empty() {
+            continue;
+        }
+        let linha = if it.linha.trim().is_empty() { "Sem linha".to_string() } else { it.linha.trim().to_string() };
+        por_linha.entry(linha).or_default().push(FaltasProduto {
+            produto: it.produto,
+            descricao: it.descricao,
+            kg: it.kg,
+            data: it.data,
+            sem_formula,
+            embalagem,
+            materia_prima,
+        });
+    }
+    por_linha
+        .into_iter()
+        .map(|(linha, mut produtos)| {
+            produtos.sort_by(|a, b| a.data.cmp(&b.data).then(a.produto.cmp(&b.produto)));
+            FaltasLinha { linha, produtos }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1778,5 +1881,81 @@ mod tests {
         let eq = &res(&s, "o1").insumos[0].equivalentes[0];
         assert!((eq.livre - 1.0).abs() < 1e-9, "o 242 já foi consumido pela ordem anterior");
         assert!(!eq.cobre_tudo);
+    }
+
+    // ---- relatório de faltas por linha ----
+
+    fn insumo_ord(cod: &str, desc: &str, status: StatusInsumo, falta: f64) -> InsumoOrdem {
+        InsumoOrdem {
+            codigo: cod.into(),
+            descricao: desc.into(),
+            unidade: Some("kg".into()),
+            necessario: 10.0,
+            livre_na_data: 10.0 - falta,
+            falta,
+            status,
+            chega_em: None,
+            pedido: None,
+            fornecedor: None,
+            equivalentes: Vec::new(),
+        }
+    }
+
+    fn res_ord(id: &str, status: StatusCobertura, insumos: Vec<InsumoOrdem>) -> ResultadoOrdem {
+        ResultadoOrdem {
+            id: id.into(),
+            produto: String::new(),
+            status,
+            consome: true,
+            base_fonte: BaseFonte::Explodir,
+            bases: Vec::new(),
+            motivo_sem_consumo: None,
+            avisos: Vec::new(),
+            insumos,
+        }
+    }
+
+    fn item<'a>(p: &str, linha: &str, data: &str, r: &'a ResultadoOrdem) -> ItemFalta<'a> {
+        ItemFalta { produto: p.into(), descricao: format!("desc {p}"), linha: linha.into(), kg: 100.0, data: Some(d(data)), resultado: r }
+    }
+
+    #[test]
+    fn faltas_agrupam_por_linha_e_separam_embalagem_de_materia_prima() {
+        let r1 = res_ord(
+            "o1",
+            StatusCobertura::Falta,
+            vec![
+                insumo_ord("9.02.001", "FRASCO 300ML", StatusInsumo::Falta, 50.0),
+                insumo_ord("9.15.010", "LAURIL", StatusInsumo::ChegaDepois, 3.0),
+                insumo_ord("9.15.011", "AGUA", StatusInsumo::Ok, 0.0),
+            ],
+        );
+        let r2 = res_ord("o2", StatusCobertura::Ok, vec![insumo_ord("9.15.011", "AGUA", StatusInsumo::Ok, 0.0)]);
+        let r3 = res_ord("o3", StatusCobertura::Falta, vec![insumo_ord("9.15.020", "ATIVO", StatusInsumo::Falta, 2.0)]);
+        let g = agrupar_faltas(vec![item("P1", "Natum", "2026-10-21", &r1), item("P2", "Natum", "2026-10-21", &r2), item("P3", "Hair", "2026-10-22", &r3)]);
+        assert_eq!(g.iter().map(|l| l.linha.as_str()).collect::<Vec<_>>(), vec!["Hair", "Natum"], "linhas em ordem alfabética");
+        let natum = &g[1];
+        assert_eq!(natum.produtos.len(), 1, "P2 está OK e não entra");
+        assert_eq!(natum.produtos[0].embalagem.len(), 1);
+        assert_eq!(natum.produtos[0].embalagem[0].codigo, "9.02.001");
+        assert_eq!(natum.produtos[0].materia_prima.len(), 1, "a água OK não entra");
+        assert_eq!(natum.produtos[0].materia_prima[0].status, StatusInsumo::ChegaDepois);
+    }
+
+    #[test]
+    fn produto_sem_formula_aparece_para_nao_sumir() {
+        let r = res_ord("o1", StatusCobertura::SemFormula, Vec::new());
+        let g = agrupar_faltas(vec![item("P1", "Natum", "2026-10-21", &r)]);
+        assert!(g[0].produtos[0].sem_formula);
+    }
+
+    #[test]
+    fn linha_vazia_vira_sem_linha_e_ordena_por_data_e_produto() {
+        let r = res_ord("o", StatusCobertura::Falta, vec![insumo_ord("9.15.1", "X", StatusInsumo::Falta, 1.0)]);
+        let g = agrupar_faltas(vec![item("B", "", "2026-10-22", &r), item("A", " ", "2026-10-22", &r), item("Z", "", "2026-10-21", &r)]);
+        assert_eq!(g.len(), 1);
+        assert_eq!(g[0].linha, "Sem linha");
+        let ordem: Vec<&str> = g[0].produtos.iter().map(|p| p.produto.as_str()).collect();
+        assert_eq!(ordem, vec!["Z", "A", "B"]);
     }
 }
