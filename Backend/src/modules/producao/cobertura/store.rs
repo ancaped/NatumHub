@@ -822,6 +822,7 @@ pub async fn montar_contexto(pool: &PgPool, semana: &str, extras: &[String]) -> 
     let existentes = lotes_existentes_no_erp(pool, &digitados).await?;
 
     let decisoes_base = carregar_decisoes_base(pool).await?;
+    let sem_controle = crate::modules::producao::insumos_sem_controle::carregar_codigos(pool).await?;
     let ordens: Vec<OrdemEntrada> = ordens_banco
         .iter()
         .map(|o| OrdemEntrada {
@@ -858,7 +859,7 @@ pub async fn montar_contexto(pool: &PgPool, semana: &str, extras: &[String]) -> 
         .collect();
 
     Ok(Contexto {
-        entrada: EntradaSimulacao { hoje, estoque, chegadas, manuais, ordens, lotes_erp, equivalentes },
+        entrada: EntradaSimulacao { hoje, estoque, chegadas, manuais, ordens, lotes_erp, equivalentes, sem_controle },
         formulas,
         decisoes_base,
         inicio_semana: seg,

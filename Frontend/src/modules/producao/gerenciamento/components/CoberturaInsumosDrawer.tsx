@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeftRight, Copy, Link2, Printer, RefreshCw } from 'lucide-react';
+import { ArrowLeftRight, EyeOff, Copy, Link2, Printer, RefreshCw } from 'lucide-react';
 import Drawer, { DrawerTab } from '../../../geral/components/ui/Drawer';
 import { apiJson } from '../../../geral/lib/http';
 
 import { BASE_FONTE_ROTULO, fmt, fmtData } from './cobertura';
+import { SemControleConfirmar, TabelaSemControle } from './semControle';
 import { BotaoAcao, FilterBar, FiltroSelect, StatusBadge } from '../../../geral/components/ui/ReportKit';
 import type { VarianteBadge } from '../../../geral/components/ui/ReportKit';
 import type { BaseFonte, Equivalente, InsumoOrdem, TrocaInfo } from './cobertura';
@@ -113,6 +114,8 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
   const [erro, setErro] = useState<string | null>(null);
   const [aba, setAba] = useState<string>('faltas');
   const [busca, setBusca] = useState('');
+  const [semControle, setSemControle] = useState<{ codigo: string; descricao: string } | null>(null);
+  const [versaoSc, setVersaoSc] = useState(0);
   const [sit, setSit] = useState<'todas' | 'falta' | 'chega'>('todas');
   const [validacao, setValidacao] = useState<Validacao | null>(null);
   const [validando, setValidando] = useState(false);
@@ -244,6 +247,7 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
     { id: 'revisar', label: 'Revisar', badge: avisos.length || undefined },
     { id: 'bases', label: 'Bases', badge: ordensComBase.length || undefined },
     { id: 'trocas', label: 'Trocas', badge: trocas.length || undefined },
+    { id: 'sem_controle', label: 'Sem controle' },
     { id: 'insumos', label: 'Insumos' },
     { id: 'validacao', label: 'Calibração' },
   ];
@@ -356,7 +360,16 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
                             <StatusBadge variante={s.variante}>{s.rotulo}</StatusBadge>
                             {s.detalhe && <div style={{ fontSize: '0.62rem', color: 'hsl(var(--text-secondary-hsl))', marginTop: 2 }}>{s.detalhe}</div>}
                           </td>
-                          <td style={{ textAlign: 'center' }}>
+                          <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                            <button
+                              type="button"
+                              className="tab-btn"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', fontSize: '0.7rem', marginRight: 4 }}
+                              title="O ERP não controla o estoque deste insumo: parar de acusar falta"
+                              onClick={() => setSemControle({ codigo: i.codigo, descricao: i.descricao })}
+                            >
+                              <EyeOff size={12} /> Sem controle
+                            </button>
                             {eq && (
                               <button
                                 type="button"
@@ -498,6 +511,8 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
             </table>
           </div>
         )}
+
+        {aba === 'sem_controle' && <TabelaSemControle versao={versaoSc} onMudou={() => { carregar(); onMudou?.(); }} />}
 
         {aba === 'trocas' && dados && (
           <div className="panel-card" style={{ overflowX: 'auto', padding: 0 }}>
@@ -676,6 +691,20 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
           </section>
         )}
       </div>
+      {semControle && (
+        <SemControleConfirmar
+          codigo={semControle.codigo}
+          descricao={semControle.descricao}
+          marcar
+          onClose={() => setSemControle(null)}
+          onDone={() => {
+            setSemControle(null);
+            setVersaoSc((v) => v + 1);
+            carregar();
+            onMudou?.();
+          }}
+        />
+      )}
     </Drawer>
   );
 }

@@ -283,6 +283,8 @@ pub struct EntradaSimulacao {
     pub lotes_erp: Vec<LoteErp>,
     /// Insumo -> equivalentes (similar_items), para sugerir o substituto de quem falta.
     pub equivalentes: HashMap<String, Vec<String>>,
+    /// Insumos que o Edson marcou como "sem controle de estoque": nunca acusam falta.
+    pub sem_controle: HashSet<String>,
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -881,6 +883,9 @@ pub fn simular(e: &EntradaSimulacao) -> SaidaSimulacao {
         let d_eval = data_efetiva(o.data, e.hoje);
         let mut insumos: Vec<InsumoOrdem> = Vec::new();
         for n in &l.efetivas {
+            if e.sem_controle.contains(&n.codigo) {
+                continue;
+            }
             let sem_atrasados = disponivel(&n.codigo, d_eval, false, e, &consumido);
             let com_atrasados = disponivel(&n.codigo, d_eval, true, e, &consumido);
             let mut status = StatusInsumo::Ok;
@@ -1262,6 +1267,7 @@ mod tests {
             ordens: Vec::new(),
             lotes_erp: Vec::new(),
             equivalentes: HashMap::new(),
+            sem_controle: HashSet::new(),
         }
     }
 
@@ -1960,5 +1966,31 @@ mod tests {
         assert_eq!(g[0].linha, "Sem linha");
         let ordem: Vec<&str> = g[0].produtos.iter().map(|p| p.produto.as_str()).collect();
         assert_eq!(ordem, vec!["Z", "A", "B"]);
+    }
+
+    // ---- insumo sem controle de estoque (marcado só pelo Edson) ----
+
+    #[test]
+    fn insumo_sem_controle_nao_acusa_falta_nem_entra_no_consumo() {
+        let mut e = base_entrada();
+        e.estoque.insert("AGUA".into(), est(-14256.0, 13824.0)); // negativo no ERP
+        e.estoque.insert("ATIVO".into(), est(0.0, 0.0));
+        e.sem_controle.insert("AGUA".into());
+        e.ordens.push(ordem("o1", "2026-10-21", 1, "P1", 100.0, vec![nec("AGUA", 85.0), nec("ATIVO", 2.0)]));
+        let s = simular(&e);
+        let r = res(&s, "o1");
+        assert!(r.insumos.iter().all(|i| i.codigo != "AGUA"), "a água marcada some da avaliação");
+        assert_eq!(r.insumos.len(), 1);
+        assert_eq!(r.insumos[0].codigo, "ATIVO", "os demais continuam controlados");
+        assert_eq!(r.status, StatusCobertura::Falta);
+        assert!(s.insumos.iter().all(|i| i.codigo != "AGUA"));
+    }
+
+    #[test]
+    fn sem_marcacao_o_estoque_negativo_continua_acusando_falta() {
+        let mut e = base_entrada();
+        e.estoque.insert("AGUA".into(), est(-14256.0, 13824.0));
+        e.ordens.push(ordem("o1", "2026-10-21", 1, "P1", 100.0, vec![nec("AGUA", 85.0)]));
+        assert_eq!(res(&simular(&e), "o1").status, StatusCobertura::Falta, "nada é marcado sozinho");
     }
 }

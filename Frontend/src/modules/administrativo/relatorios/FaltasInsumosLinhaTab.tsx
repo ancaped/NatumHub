@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeftRight, ChevronLeft, ChevronRight, Filter, Layers, Printer, RefreshCw, ShoppingBag } from 'lucide-react';
+import { ArrowLeftRight, EyeOff, ChevronLeft, ChevronRight, Filter, Layers, Printer, RefreshCw, ShoppingBag } from 'lucide-react';
 import Drawer from '../../geral/components/ui/Drawer';
+import { SemControleConfirmar, TabelaSemControle } from '../../producao/gerenciamento/components/semControle';
 import { apiJson } from '../../geral/lib/http';
 import {
   AbaRelatorio,
@@ -223,7 +224,9 @@ export default function FaltasInsumosLinhaTab() {
   const [dados, setDados] = useState<Relatorio | null>(null);
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const [aba, setAba] = useState<'ordens' | 'fila'>('ordens');
+  const [aba, setAba] = useState<'ordens' | 'fila' | 'sem_controle'>('ordens');
+  const [semControle, setSemControle] = useState<{ codigo: string; descricao: string } | null>(null);
+  const [versaoSc, setVersaoSc] = useState(0);
   const [busca, setBusca] = useState('');
   const [linhaSel, setLinhaSel] = useState('todas');
   const [tipo, setTipo] = useState<'todos' | Tipo>('todos');
@@ -246,7 +249,7 @@ export default function FaltasInsumosLinhaTab() {
     carregar();
   }, [carregar]);
 
-  const todas = useMemo(() => achatar(aba === 'ordens' ? dados?.ordens ?? [] : dados?.fila ?? []), [dados, aba]);
+  const todas = useMemo(() => achatar(aba === 'fila' ? dados?.fila ?? [] : dados?.ordens ?? []), [dados, aba]);
   const nOrdens = useMemo(() => new Set(achatar(dados?.ordens ?? []).map((l) => l.chave)).size, [dados]);
   const nFila = useMemo(() => new Set(achatar(dados?.fila ?? []).map((l) => l.chave)).size, [dados]);
 
@@ -272,6 +275,7 @@ export default function FaltasInsumosLinhaTab() {
   const abas: AbaRelatorio[] = [
     { id: 'ordens', label: 'Ordens da semana', icone: <Layers size={14} />, contagem: nOrdens },
     { id: 'fila', label: 'Fila de demandas', icone: <ShoppingBag size={14} />, contagem: nFila },
+    { id: 'sem_controle', label: 'Sem controle de estoque', icone: <EyeOff size={14} /> },
   ];
 
   const limpar = () => {
@@ -322,7 +326,8 @@ export default function FaltasInsumosLinhaTab() {
       {erro && <p style={{ fontSize: '0.78rem', color: 'hsl(var(--danger-hsl))', marginBottom: 8 }}>{erro}</p>}
 
       <div className="faltas-no-print">
-        <ReportTabs abas={abas} ativa={aba} onChange={(id) => setAba(id as 'ordens' | 'fila')} />
+        <ReportTabs abas={abas} ativa={aba} onChange={(id) => setAba(id as 'ordens' | 'fila' | 'sem_controle')} />
+        {aba !== 'sem_controle' && (
         <FilterBar busca={busca} onBusca={setBusca} placeholder="Buscar produto, insumo ou linha...">
           <FiltroSelect
             icone={<Filter size={13} style={{ color: 'hsl(var(--text-secondary-hsl))' }} />}
@@ -349,8 +354,12 @@ export default function FaltasInsumosLinhaTab() {
             ]}
           />
         </FilterBar>
+        )}
       </div>
 
+      {aba === 'sem_controle' && <TabelaSemControle versao={versaoSc} onMudou={carregar} />}
+
+      {aba !== 'sem_controle' && (
       <TabelaPainel>
         <thead>
           <tr>
@@ -361,7 +370,7 @@ export default function FaltasInsumosLinhaTab() {
             <th className="numeric-col">Livre</th>
             <th className="numeric-col">Falta</th>
             <th>Situação</th>
-            <th className="faltas-no-print" style={{ textAlign: 'center' }}>Ação</th>
+            <th className="faltas-no-print" style={{ textAlign: 'center' }}>Ações</th>
           </tr>
         </thead>
         <tbody>
@@ -412,6 +421,17 @@ export default function FaltasInsumosLinhaTab() {
                   {s.detalhe && <div style={{ fontSize: '0.62rem', color: 'hsl(var(--text-secondary-hsl))', marginTop: 2 }}>{s.detalhe}</div>}
                 </td>
                 <td className="faltas-no-print" style={{ textAlign: 'center' }}>
+                  {!l.semFormula && l.insumo.codigo && (
+                    <button
+                      type="button"
+                      className="tab-btn"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', fontSize: '0.7rem', marginRight: 4 }}
+                      title="O ERP não controla o estoque deste insumo: parar de acusar falta"
+                      onClick={() => setSemControle({ codigo: l.insumo.codigo, descricao: l.insumo.descricao })}
+                    >
+                      <EyeOff size={12} /> Sem controle
+                    </button>
+                  )}
                   {eq && !l.semFormula && (
                     <button
                       type="button"
@@ -429,11 +449,26 @@ export default function FaltasInsumosLinhaTab() {
           })}
         </tbody>
       </TabelaPainel>
+      )}
 
       {dados && dados.filaSemKg.length > 0 && aba === 'fila' && (
         <p style={{ fontSize: '0.7rem', color: 'hsl(var(--text-secondary-hsl))', marginTop: 8 }}>
           Itens da fila sem massa em kg, não avaliados: {dados.filaSemKg.join('; ')}
         </p>
+      )}
+
+      {semControle && (
+        <SemControleConfirmar
+          codigo={semControle.codigo}
+          descricao={semControle.descricao}
+          marcar
+          onClose={() => setSemControle(null)}
+          onDone={() => {
+            setSemControle(null);
+            setVersaoSc((v) => v + 1);
+            carregar();
+          }}
+        />
       )}
 
       {troca && (
