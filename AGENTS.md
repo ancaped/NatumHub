@@ -99,6 +99,10 @@ Decisão do Edson (futuro conector MCP; não construir o MCP ainda). Ao criar ou
 - **Escritas em 2 passos**: sem `confirmar=true` a rota só devolve a prévia (o que mudaria); com `confirmar=true` grava.
 - **Auditoria**: toda gravação registra quem fez (`producao_auditoria` / `auditoria::registrar`), seja operador ou agente.
 
+## Regra fixa: conferir toda tela no navegador antes de dizer que terminou
+
+Decisão do Edson. Antes de declarar pronta qualquer tela: subir o app local (servidor + `Frontend/dist` contra um banco de teste), abrir no navegador (Playwright com `/usr/bin/brave-browser`, headless), tirar screenshot e **olhar a imagem**. Salvar em `.screens/` (na pasta do projeto, ignorada pelo git) e informar o caminho. Visual: seguir o ai-memory (`concepts/ui-design-hsl-zinc`, `concepts/ui-padroes-componentes`): **sem cards de KPI no topo**, tabela + abas + busca + badges, pouco texto, painéis laterais em `<Drawer>`; peças compartilhadas em `Frontend/src/modules/geral/components/ui/ReportKit.tsx`.
+
 <!-- ai-memory:start -->
 ## Long-term memory (ai-memory)
 
