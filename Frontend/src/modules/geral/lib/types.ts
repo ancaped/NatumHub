@@ -169,6 +169,9 @@ export interface CustomPurchaseConfigRow {
 export interface DemandResult {
   /** Marcado pelo Edson como sem controle de estoque: fica na tabela, mas não é recomendado para compra. */
   semControle?: boolean;
+  /** Classe decidida pelo Edson: sem_controle, nao_usado ou trocado (ausente = OK). */
+  classificacao?: 'sem_controle' | 'nao_usado' | 'trocado';
+  classificacaoDetalhe?: string;
   /** Primeira data (próximas 4 semanas, planejamento + fila) em que a cobertura não fecha (YYYY-MM-DD). */
   acabaEm?: string;
   /** Quando um pedido em aberto cobre depois dessa data (YYYY-MM-DD). */

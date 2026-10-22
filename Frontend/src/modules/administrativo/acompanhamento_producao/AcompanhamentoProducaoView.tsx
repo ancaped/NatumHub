@@ -10186,20 +10186,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       <span>Todos na Fila</span>
                       <span className="font-mono text-[10px] opacity-80">({baseLotesFilaPesagem.length})</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setPesagemFilaFilter('ESPERA')}
-                      className={cn(
-                        "px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer flex items-center gap-1",
-                        pesagemFilaFilter === 'ESPERA'
-                          ? "bg-amber-600 text-white shadow-2xs"
-                          : "text-amber-800 hover:text-amber-950 hover:bg-amber-50"
-                      )}
-                    >
-                      <PauseCircle className="h-3 w-3" />
-                      <span>Em Espera</span>
-                      <span className="font-mono text-[10px] opacity-80">({lotesEsperaPesagemCount})</span>
-                    </button>
                   </div>
 
                   {/* Filtro de Insumo Faltante */}
@@ -11091,20 +11077,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     >
                       <span>Todos na Fila</span>
                       <span className="font-mono text-[10px] opacity-80">({baseLotesFilaProducao.length})</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setProducaoFilaFilter('ESPERA')}
-                      className={cn(
-                        "px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer flex items-center gap-1",
-                        producaoFilaFilter === 'ESPERA'
-                          ? "bg-amber-600 text-white shadow-2xs"
-                          : "text-amber-800 hover:text-amber-950 hover:bg-amber-50"
-                      )}
-                    >
-                      <PauseCircle className="h-3 w-3" />
-                      <span>Em Espera</span>
-                      <span className="font-mono text-[10px] opacity-80">({lotesEsperaProducaoCount})</span>
                     </button>
                   </div>
 

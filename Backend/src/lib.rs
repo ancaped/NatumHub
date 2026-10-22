@@ -25,7 +25,7 @@ pub mod modules {
         pub mod decisoes;
         pub mod trocas;
         pub mod auditoria;
-        pub mod insumos_sem_controle;
+        pub mod insumos_classificacao;
     }
     pub mod compras;
     pub mod estoque;

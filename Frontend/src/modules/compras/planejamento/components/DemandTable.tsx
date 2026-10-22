@@ -1179,12 +1179,16 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       <td className="px-4 py-3">
                         <div className="font-mono text-xs text-zinc-500">{demand.itemCode}</div>
                         <div className="font-medium text-zinc-900" title={demand.description}>{demand.description}</div>
-                        {demand.semControle && (
+                        {demand.classificacao && (
                           <span
                             className="inline-flex mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-zinc-100 text-zinc-600 border border-zinc-200"
-                            title="O Edson marcou este insumo como sem controle de estoque: não entra na recomendação de compra"
+                            title={
+                              demand.classificacao === 'trocado'
+                                ? 'Classificado pelo Edson como trocado: o consumo vai para o substituto'
+                                : 'Classificado pelo Edson: não entra na recomendação de compra'
+                            }
                           >
-                            Sem controle
+                            {demand.classificacao === 'sem_controle' ? 'Sem controle' : demand.classificacao === 'nao_usado' ? 'Não usado mais' : `Trocado → ${demand.classificacaoDetalhe ?? ''}`}
                           </span>
                         )}
                         {(() => {

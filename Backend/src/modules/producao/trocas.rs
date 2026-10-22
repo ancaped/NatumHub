@@ -236,6 +236,25 @@ pub async fn criar(pool: &PgPool, t: &NovaTroca, usuario: &str) -> Result<(), (S
     Ok(())
 }
 
+/// Quantas trocas o insumo tem como origem (todos os escopos).
+pub async fn contar_do_insumo(pool: &PgPool, insumo_de: &str) -> Result<i64, String> {
+    sqlx::query_scalar("SELECT COUNT(*)::bigint FROM producao_trocas_insumo WHERE insumo_de = $1")
+        .bind(insumo_de)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| format!("Erro ao contar as trocas: {e}"))
+}
+
+/// Remove todas as trocas que saem deste insumo (usado ao voltar para OK ou ao classificar de outro jeito).
+pub async fn remover_do_insumo(pool: &PgPool, insumo_de: &str) -> Result<u64, String> {
+    sqlx::query("DELETE FROM producao_trocas_insumo WHERE insumo_de = $1")
+        .bind(insumo_de)
+        .execute(pool)
+        .await
+        .map(|r| r.rows_affected())
+        .map_err(|e| format!("Erro ao remover as trocas: {e}"))
+}
+
 pub async fn remover(pool: &PgPool, id: i64) -> Result<bool, String> {
     sqlx::query("DELETE FROM producao_trocas_insumo WHERE id = $1")
         .bind(id)

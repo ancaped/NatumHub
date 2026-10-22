@@ -962,7 +962,8 @@ export function PlanejamentoSemanalTab({
         };
       });
 
-    const combined = [...mappedEspera, ...mappedFila];
+    // Em Espera não entra no Banco de Demandas (o que entra é definido pelo planejamento, não por lote em espera)
+    const combined = [...mappedFila];
 
     const grouped: any[] = [];
     const seenGroups = new Set<string>();
@@ -3695,7 +3696,7 @@ export function PlanejamentoSemanalTab({
               </div>
 
               {/* Filtro Rápido de Origem: Todos / Em Espera / Fila PCP */}
-              <div className="grid grid-cols-3 gap-1 bg-zinc-100 p-0.5 rounded-lg text-[10px] font-semibold text-zinc-600">
+              <div className="grid grid-cols-2 gap-1 bg-zinc-100 p-0.5 rounded-lg text-[10px] font-semibold text-zinc-600">
                 <button
                   type="button"
                   onClick={() => setDemandTabFilter('ALL')}
@@ -3703,21 +3704,7 @@ export function PlanejamentoSemanalTab({
                     demandTabFilter === 'ALL' ? 'bg-white text-zinc-900 shadow-2xs font-bold' : 'hover:text-zinc-900'
                   }`}
                 >
-                  Todos ({lotesEmEspera.length + filaDemandas.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDemandTabFilter('ESPERA')}
-                  className={`py-1 rounded-md transition-all text-center flex items-center justify-center gap-1 ${
-                    demandTabFilter === 'ESPERA' ? 'bg-amber-100 text-amber-900 shadow-2xs font-bold border border-amber-300' : 'hover:text-zinc-900'
-                  }`}
-                >
-                  <span>⏸️ Em Espera</span>
-                  {lotesEmEspera.length > 0 && (
-                    <span className="bg-amber-200 text-amber-950 px-1 py-0.2 rounded-full text-[9px] font-bold">
-                      {lotesEmEspera.length}
-                    </span>
-                  )}
+                  Todos ({filaDemandas.length})
                 </button>
                 <button
                   type="button"

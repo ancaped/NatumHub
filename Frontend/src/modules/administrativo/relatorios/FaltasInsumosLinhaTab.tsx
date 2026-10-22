@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeftRight, EyeOff, ChevronLeft, ChevronRight, Filter, Layers, Printer, RefreshCw, ShoppingBag } from 'lucide-react';
-import Drawer from '../../geral/components/ui/Drawer';
-import { SemControleConfirmar, TabelaSemControle } from '../../producao/gerenciamento/components/semControle';
+import { Tags, ChevronLeft, ChevronRight, Filter, Layers, Printer, RefreshCw, ShoppingBag } from 'lucide-react';
+import { ClassificarInsumo, TabelaClassificacao } from '../../producao/gerenciamento/components/classificacao';
 import { apiJson } from '../../geral/lib/http';
 import {
   AbaRelatorio,
@@ -132,89 +131,6 @@ function situacao(i: FaltaInsumo): { variante: VarianteBadge; rotulo: string; de
   }
 }
 
-/** Confirmação de uma troca de insumo: prévia do impacto + OK (2 passos; não altera o ERP nem a fórmula). */
-function TrocaConfirmar({
-  linha,
-  para,
-  onClose,
-  onDone,
-}: {
-  linha: Linha;
-  para: Equivalente;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const [impacto, setImpacto] = useState<{ composicoesAfetadas: number; ordensPlanejadasAfetadas: number } | null>(null);
-  const [soEste, setSoEste] = useState(false);
-  const [salvando, setSalvando] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
-  const de = linha.insumo;
-
-  useEffect(() => {
-    apiJson<{ composicoesAfetadas: number; ordensPlanejadasAfetadas: number }>('/api/producao/trocas', {
-      method: 'POST',
-      body: JSON.stringify({ insumoDe: de.codigo, insumoPara: para.codigo, produto: null }),
-    })
-      .then(setImpacto)
-      .catch(() => undefined);
-  }, [de.codigo, para.codigo]);
-
-  const confirmar = async () => {
-    setSalvando(true);
-    setErro(null);
-    try {
-      await apiJson('/api/producao/trocas', {
-        method: 'POST',
-        body: JSON.stringify({ insumoDe: de.codigo, insumoPara: para.codigo, produto: soEste ? linha.produto : null, confirmar: true }),
-      });
-      onDone();
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Não foi possível gravar a troca.');
-      setSalvando(false);
-    }
-  };
-
-  return (
-    <Drawer
-      onClose={onClose}
-      title="Trocar insumo"
-      subtitle={`${de.descricao} → ${para.descricao || para.codigo}`}
-      size="md"
-      footer={
-        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', padding: 12 }}>
-          <BotaoAcao onClick={onClose}>Cancelar</BotaoAcao>
-          <BotaoAcao primario onClick={confirmar} disabled={salvando}>
-            OK, trocar
-          </BotaoAcao>
-        </div>
-      }
-    >
-      <div style={{ padding: 16 }}>
-        {!para.cobreTudo && (
-          <p style={{ fontSize: '0.72rem', color: 'hsl(var(--warning-hsl))', marginBottom: 8 }}>
-            O substituto tem só {fmt(para.livre)} livre: ainda vai faltar.
-          </p>
-        )}
-        {impacto && (
-          <p style={{ fontSize: '0.72rem', color: 'hsl(var(--text-secondary-hsl))', marginBottom: 8 }}>
-            {impacto.composicoesAfetadas} composição(ões) e {impacto.ordensPlanejadasAfetadas} ordem(ns) planejada(s) usam este insumo.
-          </p>
-        )}
-        <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: '0.78rem', marginBottom: 4 }}>
-          <input type="radio" checked={!soEste} onChange={() => setSoEste(false)} /> Todos os produtos
-        </label>
-        <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: '0.78rem', marginBottom: 10 }}>
-          <input type="radio" checked={soEste} onChange={() => setSoEste(true)} /> Só {linha.produto}
-        </label>
-        <p style={{ fontSize: '0.65rem', color: 'hsl(var(--text-secondary-hsl))' }}>
-          Não altera o ERP nem a fórmula; muda a previsão de consumo (cobertura e Compras).
-        </p>
-        {erro && <p style={{ fontSize: '0.72rem', color: 'hsl(var(--danger-hsl))', marginTop: 8 }}>{erro}</p>}
-      </div>
-    </Drawer>
-  );
-}
-
 /**
  * Faltas de insumos por linha, no padrão da Saúde do Estoque (KPIs, abas, filtros, tabela com badges).
  * Usa a mesma cobertura do Planejamento (Backend: cobertura/faltas.rs).
@@ -224,14 +140,13 @@ export default function FaltasInsumosLinhaTab() {
   const [dados, setDados] = useState<Relatorio | null>(null);
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const [aba, setAba] = useState<'ordens' | 'fila' | 'sem_controle'>('ordens');
-  const [semControle, setSemControle] = useState<{ codigo: string; descricao: string } | null>(null);
+  const [aba, setAba] = useState<'ordens' | 'fila' | 'classificacao'>('ordens');
+  const [classificar, setClassificar] = useState<Linha | null>(null);
   const [versaoSc, setVersaoSc] = useState(0);
   const [busca, setBusca] = useState('');
   const [linhaSel, setLinhaSel] = useState('todas');
   const [tipo, setTipo] = useState<'todos' | Tipo>('todos');
   const [sit, setSit] = useState<'todas' | 'falta' | 'chega'>('todas');
-  const [troca, setTroca] = useState<{ linha: Linha; para: Equivalente } | null>(null);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -275,7 +190,7 @@ export default function FaltasInsumosLinhaTab() {
   const abas: AbaRelatorio[] = [
     { id: 'ordens', label: 'Ordens da semana', icone: <Layers size={14} />, contagem: nOrdens },
     { id: 'fila', label: 'Fila de demandas', icone: <ShoppingBag size={14} />, contagem: nFila },
-    { id: 'sem_controle', label: 'Sem controle de estoque', icone: <EyeOff size={14} /> },
+    { id: 'classificacao', label: 'Classificação', icone: <Tags size={14} /> },
   ];
 
   const limpar = () => {
@@ -326,8 +241,8 @@ export default function FaltasInsumosLinhaTab() {
       {erro && <p style={{ fontSize: '0.78rem', color: 'hsl(var(--danger-hsl))', marginBottom: 8 }}>{erro}</p>}
 
       <div className="faltas-no-print">
-        <ReportTabs abas={abas} ativa={aba} onChange={(id) => setAba(id as 'ordens' | 'fila' | 'sem_controle')} />
-        {aba !== 'sem_controle' && (
+        <ReportTabs abas={abas} ativa={aba} onChange={(id) => setAba(id as 'ordens' | 'fila' | 'classificacao')} />
+        {aba !== 'classificacao' && (
         <FilterBar busca={busca} onBusca={setBusca} placeholder="Buscar produto, insumo ou linha...">
           <FiltroSelect
             icone={<Filter size={13} style={{ color: 'hsl(var(--text-secondary-hsl))' }} />}
@@ -357,9 +272,9 @@ export default function FaltasInsumosLinhaTab() {
         )}
       </div>
 
-      {aba === 'sem_controle' && <TabelaSemControle versao={versaoSc} onMudou={carregar} />}
+      {aba === 'classificacao' && <TabelaClassificacao versao={versaoSc} onMudou={carregar} />}
 
-      {aba !== 'sem_controle' && (
+      {aba !== 'classificacao' && (
       <TabelaPainel>
         <thead>
           <tr>
@@ -390,8 +305,7 @@ export default function FaltasInsumosLinhaTab() {
             const primeira = idx === 0 || visiveis[idx - 1].chave !== l.chave;
             const s = situacao(l.insumo);
             const un = l.insumo.unidade ? ` ${l.insumo.unidade}` : '';
-            const eq = l.insumo.equivalentes?.[0];
-            return (
+                        return (
               <tr key={`${l.chave}-${l.insumo.codigo}-${idx}`} style={primeira && idx > 0 ? { borderTop: '2px solid hsl(var(--card-border-hsl))' } : undefined}>
                 <td>
                   {primeira && (
@@ -425,22 +339,11 @@ export default function FaltasInsumosLinhaTab() {
                     <button
                       type="button"
                       className="tab-btn"
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', fontSize: '0.7rem', marginRight: 4 }}
-                      title="O ERP não controla o estoque deste insumo: parar de acusar falta"
-                      onClick={() => setSemControle({ codigo: l.insumo.codigo, descricao: l.insumo.descricao })}
-                    >
-                      <EyeOff size={12} /> Sem controle
-                    </button>
-                  )}
-                  {eq && !l.semFormula && (
-                    <button
-                      type="button"
-                      className="tab-btn"
                       style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', fontSize: '0.7rem' }}
-                      title={`Trocar por ${eq.descricao || eq.codigo} (livre ${fmt(eq.livre)})`}
-                      onClick={() => setTroca({ linha: l, para: eq })}
+                      title="Sem controle, não usado mais ou trocado por outro insumo"
+                      onClick={() => setClassificar(l)}
                     >
-                      <ArrowLeftRight size={12} /> {eq.descricao || eq.codigo}
+                      <Tags size={12} /> Classificar
                     </button>
                   )}
                 </td>
@@ -457,27 +360,16 @@ export default function FaltasInsumosLinhaTab() {
         </p>
       )}
 
-      {semControle && (
-        <SemControleConfirmar
-          codigo={semControle.codigo}
-          descricao={semControle.descricao}
-          marcar
-          onClose={() => setSemControle(null)}
+      {classificar && (
+        <ClassificarInsumo
+          codigo={classificar.insumo.codigo}
+          descricao={classificar.insumo.descricao}
+          produto={classificar.produto}
+          sugestoes={(classificar.insumo.equivalentes ?? []).map((e) => ({ codigo: e.codigo, descricao: e.descricao, livre: e.livre }))}
+          onClose={() => setClassificar(null)}
           onDone={() => {
-            setSemControle(null);
+            setClassificar(null);
             setVersaoSc((v) => v + 1);
-            carregar();
-          }}
-        />
-      )}
-
-      {troca && (
-        <TrocaConfirmar
-          linha={troca.linha}
-          para={troca.para}
-          onClose={() => setTroca(null)}
-          onDone={() => {
-            setTroca(null);
             carregar();
           }}
         />

@@ -50,6 +50,12 @@ export interface InsumoOrdem {
   pedido?: number;
   fornecedor?: string;
   equivalentes?: Equivalente[];
+  /** livreNaData = estoque - reserva + chegadas + manuais - consumoAnterior. */
+  estoque?: number;
+  reserva?: number;
+  chegadas?: number;
+  manuais?: number;
+  consumoAnterior?: number;
 }
 
 export type BaseFonte = 'explodir' | 'estoque' | 'ordem_base';

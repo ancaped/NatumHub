@@ -5,11 +5,10 @@
 //! Itens da fila ainda não têm dia: entram no fim da semana atual, depois das ordens planejadas.
 
 use chrono::{Duration, NaiveDate};
-use serde::Serialize;
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use std::collections::{HashMap, HashSet};
 
-use super::calc::{simular, InsumoOrdem, OrdemEntrada, SaidaSimulacao};
+use super::calc::{simular, OrdemEntrada, SaidaSimulacao};
 use super::store::{self, Contexto};
 
 pub const SEMANAS_HORIZONTE: i64 = 4;
@@ -70,68 +69,4 @@ pub async fn acaba_em(pool: &PgPool) -> Result<HashMap<String, AcabaEm>, String>
         .iter()
         .filter_map(|i| i.acaba_em.map(|d| (store::canon(&i.codigo), AcabaEm { data: d, chega_em: i.chega_em })))
         .collect())
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BaseAberta {
-    pub ordem_id: String,
-    pub produto: String,
-    pub descricao: String,
-    pub kg: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<NaiveDate>,
-    /// "ordem" (planejamento) ou "fila".
-    pub origem: &'static str,
-    pub consome: bool,
-    pub insumos: Vec<InsumoOrdem>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BasesAbertas {
-    pub gerado_em: String,
-    pub semanas: i64,
-    pub bases: Vec<BaseAberta>,
-}
-
-/// Produtos entre `codigos` que são ingrediente de alguma fórmula (ou seja, são bases).
-async fn quais_sao_bases(pool: &PgPool, codigos: &[String]) -> Result<HashSet<String>, String> {
-    if codigos.is_empty() {
-        return Ok(HashSet::new());
-    }
-    let rows = sqlx::query(
-        "SELECT DISTINCT TRIM(REPLACE(ingredient_code, '\"', '')) AS c FROM formulations \
-         WHERE TRIM(REPLACE(ingredient_code, '\"', '')) = ANY($1)",
-    )
-    .bind(codigos)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("Erro ao identificar as bases: {e}"))?;
-    Ok(rows.into_iter().filter_map(|r| r.get::<Option<String>, _>("c")).collect())
-}
-
-/// Ordens (planejamento e fila) cujo produto é uma base, com o que cada uma consome de matéria-prima.
-pub async fn bases_abertas(pool: &PgPool) -> Result<BasesAbertas, String> {
-    let h = calcular(pool).await?;
-    let codigos: Vec<String> = h.ctx.entrada.ordens.iter().map(|o| o.codigo_produto.clone()).collect::<HashSet<_>>().into_iter().collect();
-    let bases = quais_sao_bases(pool, &codigos).await?;
-    let resultados: HashMap<&str, &super::calc::ResultadoOrdem> = h.saida.ordens.iter().map(|r| (r.id.as_str(), r)).collect();
-    let mut out: Vec<BaseAberta> = Vec::new();
-    for o in h.ctx.entrada.ordens.iter().filter(|o| bases.contains(&o.codigo_produto)) {
-        let Some(r) = resultados.get(o.id.as_str()) else { continue };
-        let fila = h.fila_ids.contains(&o.id);
-        out.push(BaseAberta {
-            ordem_id: o.id.clone(),
-            produto: o.codigo_produto.clone(),
-            descricao: o.descricao.clone().unwrap_or_default(),
-            kg: o.kg,
-            data: if fila { None } else { Some(o.data) },
-            origem: if fila { "fila" } else { "ordem" },
-            consome: r.consome,
-            insumos: r.insumos.clone(),
-        });
-    }
-    out.sort_by(|a, b| a.data.cmp(&b.data).then(a.produto.cmp(&b.produto)));
-    Ok(BasesAbertas { gerado_em: chrono::Utc::now().to_rfc3339(), semanas: SEMANAS_HORIZONTE, bases: out })
 }

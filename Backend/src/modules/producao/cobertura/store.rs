@@ -828,7 +828,7 @@ pub async fn montar_contexto_ate(pool: &PgPool, semana: &str, extras: &[String],
     let existentes = lotes_existentes_no_erp(pool, &digitados).await?;
 
     let decisoes_base = carregar_decisoes_base(pool).await?;
-    let sem_controle = crate::modules::producao::insumos_sem_controle::carregar_codigos(pool).await?;
+    let sem_controle = crate::modules::producao::insumos_classificacao::carregar_codigos(pool).await?;
     let ordens: Vec<OrdemEntrada> = ordens_banco
         .iter()
         .map(|o| OrdemEntrada {
@@ -1299,14 +1299,14 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
-    async fn horizonte_acaba_em_e_bases_abertas_no_banco() {
-        use crate::modules::producao::insumos_sem_controle::{alterar, Alteracao};
+    async fn horizonte_acaba_em_no_banco() {
+        use crate::modules::producao::insumos_classificacao::{alterar, Alteracao};
         let _trava = TRAVA.lock().await;
         let pool = PgPool::connect(&url_teste()).await.unwrap();
         semear_teste(&pool).await;
         sqlx::query("DELETE FROM producao_insumos_sem_controle WHERE codigo LIKE 'T-%'").execute(&pool).await.unwrap();
         let hoje = hoje_brasil();
-        // ordem da base (produto T-BASE é ingrediente de T-PROD => é base) 2 semanas à frente
+        // ordem da base 2 semanas à frente (dentro do horizonte de 4 semanas)
         sqlx::query(
             "INSERT INTO producao_planejamento_semanal (id, week_key, data_planejada, reator_id, codigo_produto, quantidade_planejada) \
              VALUES ('T-ORD-2', $1, $2, 'R_500', 'T-BASE', 80)",
@@ -1321,16 +1321,8 @@ mod tests {
         assert_eq!(a.get("T-FRAG").map(|x| x.data), Some(hoje), "a fragrância sem estoque acaba já na ordem de hoje");
         assert!(a.contains_key("T-AGUA"), "a ordem da base (14 dias à frente) entra no horizonte de 4 semanas");
 
-        let b = super::super::horizonte::bases_abertas(&pool).await.unwrap();
-        let base = b.bases.iter().find(|x| x.produto == "T-BASE").expect("base aberta");
-        assert_eq!(base.origem, "ordem");
-        let mut cods: Vec<&str> = base.insumos.iter().map(|i| i.codigo.as_str()).collect();
-        cods.sort();
-        assert_eq!(cods, vec!["T-AGUA", "T-TENSO"]);
-        assert!(b.bases.iter().all(|x| x.produto != "T-PROD"), "produto final não é base");
-
         // sem controle: sai do "acaba em" (e continua existindo no cadastro)
-        alterar(&pool, &Alteracao { codigo: "T-FRAG".into(), marcado: true, confirmar: true }, "teste").await.unwrap();
+        alterar(&pool, &Alteracao { codigo: "T-FRAG".into(), tipo: "sem_controle".into(), para: None, produto: None, confirmar: true }, "teste").await.unwrap();
         let a = super::super::horizonte::acaba_em(&pool).await.unwrap();
         assert!(!a.contains_key("T-FRAG"), "insumo sem controle não acusa");
         sqlx::query("DELETE FROM producao_insumos_sem_controle WHERE codigo LIKE 'T-%'").execute(&pool).await.unwrap();

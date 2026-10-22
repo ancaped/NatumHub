@@ -584,6 +584,12 @@ pub struct InsumoOrdem {
     pub fornecedor: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub equivalentes: Vec<Equivalente>,
+    /// De onde vem o livre: livre_na_data = estoque - reserva + chegadas + manuais - consumo_anterior.
+    pub estoque: f64,
+    pub reserva: f64,
+    pub chegadas: f64,
+    pub manuais: f64,
+    pub consumo_anterior: f64,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -675,14 +681,14 @@ fn montar_grupos(ordens: &[OrdemEntrada]) -> Vec<Grupo> {
     m.into_values().collect()
 }
 
-/// Quanto está disponível do insumo na data `d`: livre hoje + chegadas + manuais - consumo já acumulado.
-fn disponivel(
+/// Partes do disponível na data `d`: (livre hoje, chegadas, manuais, consumo já acumulado).
+fn componentes(
     codigo: &str,
     d: NaiveDate,
     com_atrasados: bool,
     e: &EntradaSimulacao,
     consumido: &HashMap<String, f64>,
-) -> f64 {
+) -> (f64, f64, f64, f64) {
     let livre0 = e.estoque.get(codigo).map(|s| s.livre()).unwrap_or(0.0);
     let chegadas: f64 = e
         .chegadas
@@ -709,7 +715,19 @@ fn disponivel(
         .get(codigo)
         .map(|v| v.iter().filter(|m| data_efetiva(m.data, e.hoje) <= d).map(|m| m.delta).sum())
         .unwrap_or(0.0);
-    livre0 + chegadas + manuais - consumido.get(codigo).copied().unwrap_or(0.0)
+    (livre0, chegadas, manuais, consumido.get(codigo).copied().unwrap_or(0.0))
+}
+
+/// Quanto está disponível do insumo na data `d`: livre hoje + chegadas + manuais - consumo já acumulado.
+fn disponivel(
+    codigo: &str,
+    d: NaiveDate,
+    com_atrasados: bool,
+    e: &EntradaSimulacao,
+    consumido: &HashMap<String, f64>,
+) -> f64 {
+    let (livre0, chegadas, manuais, gasto) = componentes(codigo, d, com_atrasados, e, consumido);
+    livre0 + chegadas + manuais - gasto
 }
 
 pub fn simular(e: &EntradaSimulacao) -> SaidaSimulacao {
@@ -980,6 +998,7 @@ pub fn simular(e: &EntradaSimulacao) -> SaidaSimulacao {
                 }
                 equivalentes.sort_by(|a, b| b.livre.partial_cmp(&a.livre).unwrap_or(std::cmp::Ordering::Equal));
             }
+            let (_, chegadas_ate, manuais_ate, gasto_antes) = componentes(&n.codigo, d_eval, true, e, &consumido);
             if status != StatusInsumo::Ok {
                 ruptura.entry(n.codigo.clone()).or_insert((d_eval, chega_em));
             }
@@ -995,6 +1014,11 @@ pub fn simular(e: &EntradaSimulacao) -> SaidaSimulacao {
                 pedido,
                 fornecedor,
                 equivalentes,
+                estoque: e.estoque.get(&n.codigo).map(|s| s.estoque).unwrap_or(0.0),
+                reserva: e.estoque.get(&n.codigo).map(|s| s.reserva).unwrap_or(0.0),
+                chegadas: chegadas_ate,
+                manuais: manuais_ate,
+                consumo_anterior: gasto_antes,
             });
             *consumido.entry(n.codigo.clone()).or_insert(0.0) += n.quantidade;
             *consumo_previsto.entry(n.codigo.clone()).or_insert(0.0) += n.quantidade;
@@ -1919,6 +1943,11 @@ mod tests {
             pedido: None,
             fornecedor: None,
             equivalentes: Vec::new(),
+            estoque: 0.0,
+            reserva: 0.0,
+            chegadas: 0.0,
+            manuais: 0.0,
+            consumo_anterior: 0.0,
         }
     }
 
@@ -2040,5 +2069,23 @@ mod tests {
         e.estoque.insert("A".into(), est(500.0, 0.0));
         e.ordens.push(ordem("o1", "2026-10-22", 1, "P1", 100.0, vec![nec("A", 80.0)]));
         assert_eq!(simular(&e).insumos[0].acaba_em, None);
+    }
+
+    #[test]
+    fn insumo_explica_de_onde_vem_o_livre() {
+        let mut e = base_entrada();
+        e.estoque.insert("A".into(), est(100.0, 30.0)); // livre hoje 70
+        e.chegadas.insert(
+            "A".into(),
+            vec![Chegada { pedido: 1, fornecedor: "F".into(), data: Some(d("2026-10-22")), quantidade: 20.0, quantidade_pedido: 20.0, nfs: Vec::new() }],
+        );
+        e.ordens.push(ordem("o1", "2026-10-21", 1, "P1", 100.0, vec![nec("A", 50.0)]));
+        e.ordens.push(ordem("o2", "2026-10-23", 1, "P1", 100.0, vec![nec("A", 50.0)]));
+        let s = simular(&e);
+        let i2 = &res(&s, "o2").insumos[0];
+        assert_eq!((i2.estoque, i2.reserva, i2.chegadas, i2.consumo_anterior), (100.0, 30.0, 20.0, 50.0));
+        let conta = i2.estoque - i2.reserva + i2.chegadas + i2.manuais - i2.consumo_anterior;
+        assert!((conta - i2.livre_na_data).abs() < 1e-9, "a conta explicada bate com o livre mostrado");
+        assert!((i2.livre_na_data - 40.0).abs() < 1e-9);
     }
 }
