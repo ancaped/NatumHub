@@ -7,6 +7,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import ItemRegistry from './components/ItemRegistry';
 import { ProdutosCompraTab } from './components/ProdutosCompraTab';
 import { PrintListTab } from './components/PrintListTab';
+import { BasesAbertasTab } from './components/BasesAbertasTab';
 import { ListasAcompanhamentoTab } from './components/ListasAcompanhamentoTab';
 import { SolicitationTab } from './components/SolicitationTab';
 import { SimulationTab } from './components/SimulationTab';
@@ -80,6 +81,7 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
         items = [
           { id: 'materia_prima', label: 'Matéria-Prima', icon: Boxes },
           { id: 'itens_semelhantes', label: 'Itens Semelhantes', icon: Layers },
+          { id: 'bases_abertas', label: 'Bases abertas', icon: Package },
           ...getSubcategoryNavItems('cat_mp'),
           { id: 'solicitation', label: 'Solicitação', icon: ClipboardList },
           { id: 'ignored_items', label: 'Itens Suspensos', icon: EyeOff },
@@ -211,6 +213,12 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
           <SimulationTab active={true} activeTab={activeTab} />
         )}
         
+        {navItems.some(i => i.id === 'bases_abertas') && (
+          <div className={activeTab !== 'bases_abertas' ? 'hidden' : ''}>
+            <BasesAbertasTab active={activeTab === 'bases_abertas'} />
+          </div>
+        )}
+
         {navItems.some(i => i.id === 'print_list') && (
           <div className={activeTab !== 'print_list' ? 'hidden' : ''}>
             <PrintListTab active={activeTab === 'print_list'} mode={mode} />

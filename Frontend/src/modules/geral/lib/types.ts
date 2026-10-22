@@ -167,6 +167,12 @@ export interface CustomPurchaseConfigRow {
 }
 
 export interface DemandResult {
+  /** Marcado pelo Edson como sem controle de estoque: fica na tabela, mas não é recomendado para compra. */
+  semControle?: boolean;
+  /** Primeira data (próximas 4 semanas, planejamento + fila) em que a cobertura não fecha (YYYY-MM-DD). */
+  acabaEm?: string;
+  /** Quando um pedido em aberto cobre depois dessa data (YYYY-MM-DD). */
+  acabaChegaEm?: string;
   itemCode: string;
   description: string;
   unit: string;

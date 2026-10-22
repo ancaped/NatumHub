@@ -331,6 +331,24 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
     window.dispatchEvent(new Event('storage'));
   };
 
+  // Solicitar = colocar na aba Lista (a que já existe), em 2 passos: prévia dos recomendados e confirmação.
+  const [listaPrevia, setListaPrevia] = useState<DemandResult[] | null>(null);
+  const [listaSel, setListaSel] = useState<Set<string>>(new Set());
+  const abrirPreviaLista = () => {
+    const cand = filteredDemands.filter((d) => d.recommendedQty > 0 && !d.semControle);
+    setListaPrevia(cand);
+    setListaSel(new Set(cand.filter((d) => !isInPrintList(d.itemCode)).map((d) => d.itemCode)));
+  };
+  const confirmarPreviaLista = () => {
+    const existing = new Set(printList.map((c) => (c || '').replace(/\./g, '')));
+    const novos = Array.from(listaSel).filter((c) => !existing.has((c || '').replace(/\./g, '')));
+    const novaLista = [...printList, ...novos];
+    setPrintList(novaLista);
+    localStorage.setItem('natum_hub_print_list', JSON.stringify(novaLista));
+    window.dispatchEvent(new Event('storage'));
+    setListaPrevia(null);
+  };
+
   const handleAddSelectedToPrintList = () => {
     if (selectedItems.size === 0) return;
     const toAdd = Array.from(selectedItems);
@@ -1093,6 +1111,14 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                   <span>Adicionar à Lista ({selectedItems.size})</span>
                 </button>
               )}
+              <button
+                onClick={abrirPreviaLista}
+                className="text-xs bg-zinc-900 hover:bg-zinc-800 text-white px-3 py-1.5 rounded-md font-medium flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                title="Revise os itens recomendados e confirme para colocá-los na aba Lista"
+              >
+                <PlusCircle className="h-3.5 w-3.5" />
+                <span>Recomendados → Lista</span>
+              </button>
               <button 
                 onClick={() => {
                   const neededCount = filteredDemands.filter(d => d.recommendedQty > 0).length;
@@ -1137,6 +1163,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                     </th>
                     <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-right cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('futureStockForecast')}><span className="flex items-center justify-end gap-1">Prev. Futura <SortIcon col="futureStockForecast" /></span></th>
                     <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-center cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('estimatedDurationDays')}><span className="flex items-center justify-center gap-1">Duração Est. <SortIcon col="estimatedDurationDays" /></span></th>
+                    <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-center" title="Primeira data, nas próximas 4 semanas (planejamento + fila), em que o estoque livre não cobre o consumo">Acaba em</th>
                     <th className="px-4 py-3 font-semibold text-zinc-900 border-b border-zinc-200 text-right cursor-pointer hover:text-zinc-900" onClick={() => toggleSort('recommendedQty')}><span className="flex items-center justify-end gap-1">Qtd Recom. <SortIcon col="recommendedQty" /></span></th>
                     <th className="px-4 py-3 font-semibold text-zinc-700 border-b border-zinc-200 text-center w-12">Lista</th>
                   </tr>
@@ -1152,6 +1179,14 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                       <td className="px-4 py-3">
                         <div className="font-mono text-xs text-zinc-500">{demand.itemCode}</div>
                         <div className="font-medium text-zinc-900" title={demand.description}>{demand.description}</div>
+                        {demand.semControle && (
+                          <span
+                            className="inline-flex mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-zinc-100 text-zinc-600 border border-zinc-200"
+                            title="O Edson marcou este insumo como sem controle de estoque: não entra na recomendação de compra"
+                          >
+                            Sem controle
+                          </span>
+                        )}
                         {(() => {
                           const cleanCode = (demand.itemCode || '').replace(/\./g, '');
                           const activeReq = activeRequests[cleanCode] || activeRequests[demand.itemCode];
@@ -1228,9 +1263,30 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                           {demand.estimatedDurationDays === 9999 ? '∞' : `${demand.estimatedDurationDays} dias`}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-center">
+                        {(() => {
+                          if (demand.semControle) return <span className="text-zinc-300">—</span>;
+                          if (!demand.acabaEm) return <span className="text-zinc-300" title="Sem falta prevista nas próximas 4 semanas">—</span>;
+                          const dias = Math.round((new Date(demand.acabaEm + 'T00:00:00').getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
+                          const cor = dias <= 7 ? 'bg-red-50 text-red-700 border-red-200' : dias <= 14 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                          const fmtD = (d: string) => d.split('-').reverse().slice(0, 2).join('/');
+                          return (
+                            <div title={demand.acabaChegaEm ? `Pedido em aberto cobre a partir de ${fmtD(demand.acabaChegaEm)}` : 'Sem pedido que cubra'}>
+                              <span className={cn('inline-flex px-1.5 py-0.5 rounded text-[11px] font-bold border', cor)}>{fmtD(demand.acabaEm)}</span>
+                              {demand.acabaChegaEm && <div className="text-[10px] text-zinc-500 mt-0.5">pedido {fmtD(demand.acabaChegaEm)}</div>}
+                            </div>
+                          );
+                        })()}
+                      </td>
                       <td className="px-4 py-3 text-right">
-                        <span className="font-bold text-zinc-900 text-base">{demand.recommendedQty.toLocaleString('pt-BR')}</span>
-                        <span className="text-xs text-zinc-500 ml-1">{demand.unit}</span>
+                        {demand.semControle ? (
+                          <span className="text-zinc-300" title="Sem controle de estoque: não recomendado para compra">-</span>
+                        ) : (
+                          <>
+                            <span className="font-bold text-zinc-900 text-base">{demand.recommendedQty.toLocaleString('pt-BR')}</span>
+                            <span className="text-xs text-zinc-500 ml-1">{demand.unit}</span>
+                          </>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                         <button
@@ -2533,6 +2589,86 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
             </div>
           </div>
         </div>
+      )}
+
+      {listaPrevia && (
+        <Drawer
+          onClose={() => setListaPrevia(null)}
+          title="Recomendados para a Lista"
+          subtitle="Prévia: nada entra na Lista até você confirmar"
+          size="xl"
+          footer={
+            <div className="flex items-center justify-end gap-2 p-3">
+              <button onClick={() => setListaPrevia(null)} className="px-3 py-1.5 border border-zinc-200 bg-white rounded-lg text-xs text-zinc-700 hover:bg-zinc-50 cursor-pointer">
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarPreviaLista}
+                disabled={listaSel.size === 0}
+                className="px-3 py-1.5 bg-zinc-900 text-white rounded-lg text-xs font-bold hover:bg-zinc-800 disabled:opacity-40 cursor-pointer"
+              >
+                OK, adicionar {listaSel.size} à Lista
+              </button>
+            </div>
+          }
+        >
+          <div className="p-4 space-y-2">
+            <p className="text-[11px] text-zinc-500">
+              Só itens com quantidade recomendada. Insumos "sem controle" ficam de fora. A Lista é a aba que você já usa para pedir.
+            </p>
+            <div className="border border-zinc-200 rounded-xl overflow-hidden bg-white">
+              <table className="w-full text-xs">
+                <thead className="bg-zinc-50 text-zinc-500">
+                  <tr>
+                    <th className="px-3 py-2 w-8"></th>
+                    <th className="px-3 py-2 text-left">Insumo</th>
+                    <th className="px-3 py-2 text-right">Recomendado</th>
+                    <th className="px-3 py-2 text-center">Acaba em</th>
+                    <th className="px-3 py-2 text-left">Situação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  {listaPrevia.length === 0 && (
+                    <tr><td colSpan={5} className="px-3 py-6 text-center text-zinc-400">Nenhum item com quantidade recomendada neste filtro.</td></tr>
+                  )}
+                  {listaPrevia.map((d) => {
+                    const clean = (d.itemCode || '').replace(/\./g, '');
+                    const ativo = activeRequests[clean] || activeRequests[d.itemCode];
+                    const jaNaLista = isInPrintList(d.itemCode);
+                    return (
+                      <tr key={d.itemCode}>
+                        <td className="px-3 py-2">
+                          <input
+                            type="checkbox"
+                            disabled={jaNaLista}
+                            checked={listaSel.has(d.itemCode)}
+                            onChange={() => {
+                              const n = new Set(listaSel);
+                              if (n.has(d.itemCode)) n.delete(d.itemCode); else n.add(d.itemCode);
+                              setListaSel(n);
+                            }}
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="font-medium text-zinc-900">{d.description}</div>
+                          <div className="font-mono text-[10px] text-zinc-500">{d.itemCode}</div>
+                        </td>
+                        <td className="px-3 py-2 text-right font-bold">{d.recommendedQty.toLocaleString('pt-BR')} {d.unit}</td>
+                        <td className="px-3 py-2 text-center">{d.acabaEm ? d.acabaEm.split('-').reverse().slice(0, 2).join('/') : '—'}</td>
+                        <td className="px-3 py-2">
+                          {jaNaLista && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">Já na Lista</span>}
+                          {!jaNaLista && ativo && ativo.status !== 'entregue' && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200" title={`Solicitado no ${ativo.loteNumero}`}>Já solicitado</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </Drawer>
       )}
 
       <LoteDetailsDrawer

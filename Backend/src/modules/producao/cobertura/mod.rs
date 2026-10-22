@@ -3,6 +3,7 @@
 
 pub mod calc;
 pub mod faltas;
+pub mod horizonte;
 pub mod store;
 
 use axum::{
@@ -29,6 +30,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/producao/cobertura/simular", post(post_simular))
         .route("/api/producao/cobertura/validacao", get(get_validacao))
         .route("/api/producao/cobertura/faltas-por-linha", get(get_faltas_por_linha))
+        .route("/api/producao/cobertura/bases-abertas", get(get_bases_abertas))
         .route("/api/producao/cobertura/ordens/:id/base-fonte", put(put_base_fonte))
 }
 
@@ -274,6 +276,14 @@ async fn get_faltas_por_linha(State(state): State<Arc<AppState>>, Query(q): Quer
         return erro(StatusCode::BAD_REQUEST, format!("Semana inválida: {semana}. Use o formato 2026-W43."));
     }
     match faltas::gerar(state.db.pool(), &semana).await {
+        Ok(r) => (StatusCode::OK, Json(r)).into_response(),
+        Err(e) => erro(StatusCode::INTERNAL_SERVER_ERROR, e),
+    }
+}
+
+/// Bases (produtos que viram matéria-prima de outros) com ordem aberta nas próximas 4 semanas, e o que cada uma consome.
+async fn get_bases_abertas(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match horizonte::bases_abertas(state.db.pool()).await {
         Ok(r) => (StatusCode::OK, Json(r)).into_response(),
         Err(e) => erro(StatusCode::INTERNAL_SERVER_ERROR, e),
     }

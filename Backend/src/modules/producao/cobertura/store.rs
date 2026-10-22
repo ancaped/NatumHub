@@ -781,10 +781,16 @@ fn chave_grupo(o: &OrdemBanco) -> String {
 /// Carrega tudo o que a simulação precisa para a semana pedida. `extras` = códigos de produto adicionais
 /// (candidatos da fila) cujas fórmulas também precisam ser lidas.
 pub async fn montar_contexto(pool: &PgPool, semana: &str, extras: &[String]) -> Result<Contexto, String> {
+    montar_contexto_ate(pool, semana, extras, 0).await
+}
+
+/// Como `montar_contexto`, mas carrega também as ordens dos `dias_extra` dias depois do fim da semana
+/// (horizonte das próximas semanas para Compras). `da_semana` continua valendo só para a semana pedida.
+pub async fn montar_contexto_ate(pool: &PgPool, semana: &str, extras: &[String], dias_extra: i64) -> Result<Contexto, String> {
     let hoje = hoje_brasil();
     let (seg, dom) = intervalo_semana(semana).ok_or_else(|| format!("Semana inválida: {semana}"))?;
     let ini = seg.min(hoje - Duration::days(14));
-    let fim = dom;
+    let fim = dom + Duration::days(dias_extra);
 
     let ordens_banco = carregar_ordens(pool, ini, fim).await?;
     let mut produtos: Vec<String> = ordens_banco.iter().map(|o| o.codigo.clone()).collect();
@@ -1288,6 +1294,47 @@ mod tests {
         cods.sort();
         assert_eq!(cods, vec!["T-AGUA", "T-FRAG", "T-TENSO"]);
         assert!(r.fila_sem_kg.iter().any(|x| x.contains("SEM KG")));
+        limpar_teste(&pool).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn horizonte_acaba_em_e_bases_abertas_no_banco() {
+        use crate::modules::producao::insumos_sem_controle::{alterar, Alteracao};
+        let _trava = TRAVA.lock().await;
+        let pool = PgPool::connect(&url_teste()).await.unwrap();
+        semear_teste(&pool).await;
+        sqlx::query("DELETE FROM producao_insumos_sem_controle WHERE codigo LIKE 'T-%'").execute(&pool).await.unwrap();
+        let hoje = hoje_brasil();
+        // ordem da base (produto T-BASE é ingrediente de T-PROD => é base) 2 semanas à frente
+        sqlx::query(
+            "INSERT INTO producao_planejamento_semanal (id, week_key, data_planejada, reator_id, codigo_produto, quantidade_planejada) \
+             VALUES ('T-ORD-2', $1, $2, 'R_500', 'T-BASE', 80)",
+        )
+        .bind(semana_de(hoje + Duration::days(14)))
+        .bind(hoje + Duration::days(14))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let a = super::super::horizonte::acaba_em(&pool).await.unwrap();
+        assert_eq!(a.get("T-FRAG").map(|x| x.data), Some(hoje), "a fragrância sem estoque acaba já na ordem de hoje");
+        assert!(a.contains_key("T-AGUA"), "a ordem da base (14 dias à frente) entra no horizonte de 4 semanas");
+
+        let b = super::super::horizonte::bases_abertas(&pool).await.unwrap();
+        let base = b.bases.iter().find(|x| x.produto == "T-BASE").expect("base aberta");
+        assert_eq!(base.origem, "ordem");
+        let mut cods: Vec<&str> = base.insumos.iter().map(|i| i.codigo.as_str()).collect();
+        cods.sort();
+        assert_eq!(cods, vec!["T-AGUA", "T-TENSO"]);
+        assert!(b.bases.iter().all(|x| x.produto != "T-PROD"), "produto final não é base");
+
+        // sem controle: sai do "acaba em" (e continua existindo no cadastro)
+        alterar(&pool, &Alteracao { codigo: "T-FRAG".into(), marcado: true, confirmar: true }, "teste").await.unwrap();
+        let a = super::super::horizonte::acaba_em(&pool).await.unwrap();
+        assert!(!a.contains_key("T-FRAG"), "insumo sem controle não acusa");
+        sqlx::query("DELETE FROM producao_insumos_sem_controle WHERE codigo LIKE 'T-%'").execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM producao_planejamento_semanal WHERE id = 'T-ORD-2'").execute(&pool).await.unwrap();
         limpar_teste(&pool).await;
     }
 }

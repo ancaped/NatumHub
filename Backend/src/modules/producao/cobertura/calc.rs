@@ -626,6 +626,12 @@ pub struct ResumoInsumo {
     pub calibrado: bool,
     pub consumo_previsto: f64,
     pub chegadas: Vec<ChegadaInfo>,
+    /// Primeira data em que a necessidade não fecha só com o estoque livre (falta, chega depois, pedido atrasado ou sem data).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acaba_em: Option<NaiveDate>,
+    /// Quando um pedido cobre depois dessa data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chega_em: Option<NaiveDate>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -785,6 +791,7 @@ pub fn simular(e: &EntradaSimulacao) -> SaidaSimulacao {
     let mut resultados: Vec<ResultadoOrdem> = Vec::new();
     let mut consumo_previsto: HashMap<String, f64> = HashMap::new();
     let mut avisos_globais: Vec<Aviso> = Vec::new();
+    let mut ruptura: HashMap<String, (NaiveDate, Option<NaiveDate>)> = HashMap::new();
 
     for l in &linhas {
         let o = l.ordem;
@@ -973,6 +980,9 @@ pub fn simular(e: &EntradaSimulacao) -> SaidaSimulacao {
                 }
                 equivalentes.sort_by(|a, b| b.livre.partial_cmp(&a.livre).unwrap_or(std::cmp::Ordering::Equal));
             }
+            if status != StatusInsumo::Ok {
+                ruptura.entry(n.codigo.clone()).or_insert((d_eval, chega_em));
+            }
             insumos.push(InsumoOrdem {
                 codigo: n.codigo.clone(),
                 descricao: desc,
@@ -1095,6 +1105,8 @@ pub fn simular(e: &EntradaSimulacao) -> SaidaSimulacao {
             livre: est.map(|s| s.livre()).unwrap_or(0.0),
             calibrado: est.map(|s| s.calibrado).unwrap_or(false),
             consumo_previsto: consumo_previsto.get(codigo).copied().unwrap_or(0.0),
+            acaba_em: ruptura.get(codigo).map(|r| r.0),
+            chega_em: ruptura.get(codigo).and_then(|r| r.1),
             chegadas: e
                 .chegadas
                 .get(codigo)
@@ -1992,5 +2004,41 @@ mod tests {
         e.estoque.insert("AGUA".into(), est(-14256.0, 13824.0));
         e.ordens.push(ordem("o1", "2026-10-21", 1, "P1", 100.0, vec![nec("AGUA", 85.0)]));
         assert_eq!(res(&simular(&e), "o1").status, StatusCobertura::Falta, "nada é marcado sozinho");
+    }
+
+    #[test]
+    fn acaba_em_e_a_primeira_data_em_que_o_livre_nao_cobre() {
+        let mut e = base_entrada();
+        e.estoque.insert("A".into(), est(100.0, 0.0));
+        e.ordens.push(ordem("o1", "2026-10-21", 1, "P1", 100.0, vec![nec("A", 60.0)]));
+        e.ordens.push(ordem("o2", "2026-10-23", 1, "P1", 100.0, vec![nec("A", 60.0)]));
+        e.ordens.push(ordem("o3", "2026-10-26", 1, "P1", 100.0, vec![nec("A", 60.0)]));
+        let s = simular(&e);
+        let a = s.insumos.iter().find(|i| i.codigo == "A").unwrap();
+        assert_eq!(a.acaba_em, Some(d("2026-10-23")), "o2 já não encontra 60 (sobram 40)");
+        assert_eq!(a.chega_em, None);
+    }
+
+    #[test]
+    fn acaba_em_guarda_quando_o_pedido_chega() {
+        let mut e = base_entrada();
+        e.estoque.insert("A".into(), est(50.0, 0.0));
+        e.chegadas.insert(
+            "A".into(),
+            vec![Chegada { pedido: 7, fornecedor: "F".into(), data: Some(d("2026-10-25")), quantidade: 100.0, quantidade_pedido: 100.0, nfs: Vec::new() }],
+        );
+        e.ordens.push(ordem("o1", "2026-10-22", 1, "P1", 100.0, vec![nec("A", 80.0)]));
+        let s = simular(&e);
+        let a = s.insumos.iter().find(|i| i.codigo == "A").unwrap();
+        assert_eq!(a.acaba_em, Some(d("2026-10-22")));
+        assert_eq!(a.chega_em, Some(d("2026-10-25")));
+    }
+
+    #[test]
+    fn insumo_coberto_nao_tem_acaba_em() {
+        let mut e = base_entrada();
+        e.estoque.insert("A".into(), est(500.0, 0.0));
+        e.ordens.push(ordem("o1", "2026-10-22", 1, "P1", 100.0, vec![nec("A", 80.0)]));
+        assert_eq!(simular(&e).insumos[0].acaba_em, None);
     }
 }

@@ -9,7 +9,8 @@ SET detail = COALESCE(detail, '{}'::jsonb) || jsonb_build_object(
                 'GET /api/producao/cobertura?week=YYYY-Www',
                 'POST /api/producao/cobertura/simular',
                 'GET /api/producao/cobertura/validacao?limite=30',
-                'GET /api/producao/cobertura/faltas-por-linha?week=YYYY-Www'
+                'GET /api/producao/cobertura/faltas-por-linha?week=YYYY-Www',
+                'GET /api/producao/cobertura/bases-abertas'
             ),
             'regras', jsonb_build_array(
                 'Livre = estoque - reserva (calibração manual > último snapshot). Só avisa, nunca bloqueia',
@@ -19,6 +20,7 @@ SET detail = COALESCE(detail, '{}'::jsonb) || jsonb_build_object(
                 'NF já lançada abate o pedido por fornecedor + insumo (alocação FIFO, sem abater duas vezes); sem certeza vira aviso',
                 'Base é explodida em matérias-primas como o ERP; base também planejada em outra ordem gera aviso',
                 'Backtest em /validacao compara a fórmula com a baixa real dos lotes fechados',
+                'Compras (Matéria-Prima): coluna Acaba em = primeira data, nas próximas 4 semanas (planejamento + fila), em que o livre não cobre; insumo sem controle fica na tabela com etiqueta e sai da recomendação; aba Bases abertas',
                 'Relatório de faltas por linha (Administrativo > Relatórios): só agrupa o resultado da cobertura por linha > produto > embalagem/matéria-prima; ordens da semana e fila separadas'
             ),
             'arquivos', jsonb_build_array(

@@ -921,6 +921,9 @@ fn build_demand_result(
         trigger_days,
         target_days: target_days_val,
         config_level,
+        sem_controle: false,
+        acaba_em: None,
+        acaba_chega_em: None,
     })
 }
 
@@ -1203,6 +1206,9 @@ pub async fn get_demands_query(
 
     let auto_ignored = get_auto_ignored_ingredients_query(pool.clone()).await?;
     let sim_producao_map = compute_sim_producao_map(&pool).await;
+    // Decisões do Edson e cobertura das próximas 4 semanas (se falhar, a tabela segue sem esses campos).
+    let sem_controle = crate::modules::producao::insumos_sem_controle::carregar_codigos(&pool).await.unwrap_or_default();
+    let acaba_em = crate::modules::producao::cobertura::horizonte::acaba_em(&pool).await.unwrap_or_default();
 
     let mut results = Vec::with_capacity(rows.len());
     for row in rows {
@@ -1225,6 +1231,15 @@ pub async fn get_demands_query(
             &sim_producao_map,
         )?;
         if !auto_ignored.contains_key(&item.item_code) {
+            let mut item = item;
+            let chave = crate::modules::producao::cobertura::store::canon(&item.item_code);
+            if sem_controle.contains(&chave) {
+                item.sem_controle = true;
+                item.recommended_qty = 0.0;
+            } else if let Some(a) = acaba_em.get(&chave) {
+                item.acaba_em = Some(a.data.format("%Y-%m-%d").to_string());
+                item.acaba_chega_em = a.chega_em.map(|d| d.format("%Y-%m-%d").to_string());
+            }
             results.push(item);
         }
     }
