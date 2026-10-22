@@ -16,6 +16,7 @@ import { getHoliday, getBrazilHolidaysForYear, HolidayInfo } from '../../../gera
 import { ProductDetailsDrawer } from './ProductDetailsDrawer';
 import CoberturaInsumosDrawer from './CoberturaInsumosDrawer';
 import RetirarDaFilaDrawer from './RetirarDaFilaDrawer';
+import PreviaAcaoDrawer, { PreviaAcao } from './PreviaAcaoDrawer';
 import { canEdit, getAuthUser } from '../../../geral/lib/auth';
 import { SeloCobertura, piorResultado, useCoberturaSemana, useCoberturaFila, chaveCandidato } from './cobertura';
 
@@ -538,6 +539,7 @@ export function PlanejamentoSemanalTab({
   const [demandSearch, setDemandSearch] = useState('');
   const [filaDemandas, setFilaDemandas] = useState<any[]>([]);
   const [retirarFilaId, setRetirarFilaId] = useState<string | null>(null);
+  const [previaAcao, setPreviaAcao] = useState<PreviaAcao | null>(null);
   const [demandFilter, setDemandFilter] = useState<'FILA' | 'ALL' | 'CRITICOS' | 'PROGRAMADAS' | 'KITS' | 'BASES'>('FILA');
   const [selectedLineFilter, setSelectedLineFilter] = useState<string>('ALL');
 
@@ -1039,11 +1041,34 @@ export function PlanejamentoSemanalTab({
   // LIMPAR TODA A SEMANA — devolve à fila só o que o servidor realmente apagou
   const handleClearWeek = async () => {
     const weekLabel = `Semana ${currentWeekKey.split('-W')[1]} (${weekDays[0].dateStr.split('-').slice(1).reverse().join('/')} a ${weekDays[4].dateStr.split('-').slice(1).reverse().join('/')})`;
-    if (!window.confirm(`Deseja realmente limpar as bateladas agendadas para a ${weekLabel}? Ordens já em envase ou rotulagem permanecem.`)) {
-      return;
-    }
     try {
-      const res = await apiFetch(`/producao/planejamento-semanal/clear?week=${currentWeekKey}`, {
+      // Sem confirmar o servidor só devolve a prévia (o que sairia e o que fica).
+      const res = await apiFetch(`/producao/planejamento-semanal/clear?week=${currentWeekKey}`, { method: 'DELETE' });
+      if (!res.ok) {
+        alert(await mensagemErroServidor(res, 'Não foi possível ler a semana no servidor.'));
+        return;
+      }
+      const data = await res.json();
+      const apagaria: any[] = Array.isArray(data.deleted) ? data.deleted : [];
+      setPreviaAcao({
+        titulo: `Limpar ${weekLabel}`,
+        linhas: apagaria.map((r) => ({
+          titulo: r.descricao || r.codigoProduto,
+          detalhe: `${r.codigoProduto} • ${Number(r.quantidadePlanejada || 0).toLocaleString('pt-BR')} kg`,
+        })),
+        avisos: Number(data.blocked) > 0 ? [`${data.blocked} ordem(ns) ficam: já estão em envase, rotulagem ou avançaram nos quadros.`] : [],
+        confirmarRotulo: 'OK, limpar a semana',
+        executar: executarLimparSemana,
+      });
+    } catch (e) {
+      console.warn('Erro ao ler a semana no servidor:', e);
+      alert('Falha de conexão ao ler a semana.');
+    }
+  };
+
+  const executarLimparSemana = async () => {
+    try {
+      const res = await apiFetch(`/producao/planejamento-semanal/clear?week=${currentWeekKey}&confirmar=true`, {
         method: 'DELETE'
       });
       if (!res.ok) {
@@ -1301,16 +1326,41 @@ export function PlanejamentoSemanalTab({
 
   // Excluir batelada (remove todos os itens componentes)
   const handleDeleteBatch = async (batchItems: PlanejamentoItem[]) => {
-    const msg = batchItems.length > 1
-      ? `Deseja remover esta batelada conjunta com ${batchItems.length} itens do planejamento?`
-      : `Deseja remover este item do planejamento?`;
-    if (!window.confirm(msg)) return;
+    // Prévia do servidor para cada ordem: o que sairia e o que está bloqueado.
+    const linhas: PreviaAcao['linhas'] = [];
+    const avisos: string[] = [];
+    for (const it of batchItems) {
+      try {
+        const res = await apiFetch(`/producao/planejamento-semanal/${encodeURIComponent(it.id)}`, { method: 'DELETE' });
+        if (res.ok) {
+          const d = await res.json();
+          linhas.push({
+            titulo: d.item?.descricao || it.descricao || it.codigo_produto,
+            detalhe: `${d.item?.codigoProduto ?? it.codigo_produto} • ${Number(d.item?.quantidadePlanejada ?? it.quantidade_planejada ?? 0).toLocaleString('pt-BR')} kg`,
+          });
+        } else {
+          avisos.push(await mensagemErroServidor(res, `Não foi possível ler ${it.descricao || it.codigo_produto}.`));
+        }
+      } catch (e) {
+        console.error(e);
+        avisos.push('Falha de conexão ao ler a ordem.');
+      }
+    }
+    setPreviaAcao({
+      titulo: batchItems.length > 1 ? 'Remover batelada do planejamento' : 'Remover ordem do planejamento',
+      linhas,
+      avisos: [...new Set(avisos)],
+      confirmarRotulo: 'OK, remover',
+      executar: () => executarDeleteBatch(batchItems),
+    });
+  };
 
+  const executarDeleteBatch = async (batchItems: PlanejamentoItem[]) => {
     const removidos: PlanejamentoItem[] = [];
     let bloqueado = false;
     for (const it of batchItems) {
       try {
-        const res = await apiFetch(`/producao/planejamento-semanal/${it.id}`, { method: 'DELETE' });
+        const res = await apiFetch(`/producao/planejamento-semanal/${it.id}?confirmar=true`, { method: 'DELETE' });
         if (res.status === 409) {
           bloqueado = true;
           const err = await res.json().catch(() => ({}));
@@ -4538,6 +4588,7 @@ export function PlanejamentoSemanalTab({
 
 
       {/* MODAL: RELATÓRIO DE CONSUMO DE MATÉRIAS-PRIMAS E EMBALAGENS */}
+      {previaAcao && <PreviaAcaoDrawer previa={previaAcao} onClose={() => setPreviaAcao(null)} />}
       {retirarFilaId && (
         <RetirarDaFilaDrawer
           filaId={retirarFilaId}

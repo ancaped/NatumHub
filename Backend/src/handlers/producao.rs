@@ -4273,6 +4273,7 @@ pub async fn save_reatores(
     if let Err(e) = tx.commit().await {
         return planejamento_json_err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
     }
+    crate::modules::producao::auditoria::registrar(state.db.pool(), &ctx.display_name, "salvar_reatores", "reatores", json!({ "reatores": payload.iter().map(|r| json!({ "id": r.id, "capacidadeKg": r.capacidade_kg, "ativo": r.ativo })).collect::<Vec<_>>() })).await;
     (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
 }
 
@@ -4719,7 +4720,10 @@ pub async fn save_planejamento_item(
     let id = item.id.clone();
     let mut itens = vec![item];
     match gravar_planejamento(state.db.pool(), &mut itens, &ctx.display_name).await {
-        Ok(()) => (StatusCode::OK, Json(json!({ "ok": true, "id": id }))).into_response(),
+        Ok(()) => {
+            crate::modules::producao::auditoria::registrar(state.db.pool(), &ctx.display_name, "gravar_planejamento", &id, json!({ "itens": 1 })).await;
+            (StatusCode::OK, Json(json!({ "ok": true, "id": id }))).into_response()
+        }
         Err(e) => e.resposta(),
     }
 }
@@ -4732,8 +4736,12 @@ pub async fn bulk_save_planejamento(
     if let Err(r) = crate::modules::producao::permissao::exigir_edicao(&ctx) {
         return r;
     }
+    let ids: Vec<String> = itens.iter().map(|i| i.id.clone()).collect();
     match gravar_planejamento(state.db.pool(), &mut itens, &ctx.display_name).await {
-        Ok(()) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+        Ok(()) => {
+            crate::modules::producao::auditoria::registrar(state.db.pool(), &ctx.display_name, "gravar_planejamento", &format!("{} ordens", ids.len()), json!({ "ids": ids })).await;
+            (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
+        }
         Err(e) => e.resposta(),
     }
 }
@@ -4821,20 +4829,22 @@ async fn limpar_status_planejamento(
 }
 
 enum ResultadoExclusao {
-    Excluido,
+    Excluido(serde_json::Value),
     NaoEncontrado,
     Bloqueado(String),
 }
 
 /// Verifica o bloqueio e exclui na mesma transação, com a linha travada (`FOR UPDATE`).
-async fn excluir_planejamento_item(pool: &PgPool, id: &str) -> Result<ResultadoExclusao, sqlx::Error> {
+/// Sem `confirmar` roda a mesma exclusão e desfaz (rollback): a prévia é exatamente o que seria apagado.
+async fn excluir_planejamento_item(pool: &PgPool, id: &str, confirmar: bool) -> Result<ResultadoExclusao, sqlx::Error> {
     let mut tx = pool.begin().await?;
-    let row: Option<(Option<String>,)> =
-        sqlx::query_as("SELECT lote_erp FROM producao_planejamento_semanal WHERE id = $1 FOR UPDATE")
-            .bind(id)
-            .fetch_optional(&mut *tx)
-            .await?;
-    let Some((lote,)) = row else {
+    let row: Option<(Option<String>, String, Option<String>, f64)> = sqlx::query_as(
+        "SELECT lote_erp, codigo_produto, descricao, quantidade_planejada::float8 FROM producao_planejamento_semanal WHERE id = $1 FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((lote, codigo, descricao, kg)) = row else {
         return Ok(ResultadoExclusao::NaoEncontrado);
     };
     if let Some(motivo) = motivo_bloqueio_exclusao_planejamento(&mut tx, id, lote.as_deref()).await? {
@@ -4845,20 +4855,34 @@ async fn excluir_planejamento_item(pool: &PgPool, id: &str) -> Result<ResultadoE
         .execute(&mut *tx)
         .await?;
     limpar_status_planejamento(&mut tx, id, lote.as_deref()).await?;
-    tx.commit().await?;
-    Ok(ResultadoExclusao::Excluido)
+    if confirmar {
+        tx.commit().await?;
+    } else {
+        tx.rollback().await?;
+    }
+    Ok(ResultadoExclusao::Excluido(json!({
+        "id": id, "codigoProduto": codigo, "descricao": descricao, "quantidadePlanejada": kg, "loteErp": lote
+    })))
 }
 
 pub async fn delete_planejamento_item(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<String>,
+    Query(q): Query<ConfirmarParams>,
 ) -> impl IntoResponse {
     if let Err(r) = crate::modules::producao::permissao::exigir_edicao(&ctx) {
         return r;
     }
-    match excluir_planejamento_item(state.db.pool(), &id).await {
-        Ok(ResultadoExclusao::Excluido) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+    let confirmar = q.confirmar == Some(true);
+    match excluir_planejamento_item(state.db.pool(), &id, confirmar).await {
+        Ok(ResultadoExclusao::Excluido(item)) if !confirmar => {
+            (StatusCode::OK, Json(json!({ "previa": true, "acao": "excluir_planejamento", "item": item, "confirmar": "repita com confirmar=true para excluir" }))).into_response()
+        }
+        Ok(ResultadoExclusao::Excluido(item)) => {
+            crate::modules::producao::auditoria::registrar(state.db.pool(), &ctx.display_name, "excluir_planejamento", &id, item).await;
+            (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
+        }
         Ok(ResultadoExclusao::NaoEncontrado) => {
             planejamento_json_err(StatusCode::NOT_FOUND, "Item não encontrado")
         }
@@ -4904,7 +4928,10 @@ pub async fn confirm_fisico_planejamento(
         .fetch_optional(pool)
         .await
     {
-        Ok(Some(_row)) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+        Ok(Some(_row)) => {
+            crate::modules::producao::auditoria::registrar(pool, &ctx.display_name, "aprovar_planejamento", &id, json!({ "ordemStatus": payload.ordem_status })).await;
+            (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
+        }
         Ok(None) => planejamento_json_err(StatusCode::NOT_FOUND, "Item não encontrado"),
         Err(e) => planejamento_json_err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
@@ -4913,12 +4940,19 @@ pub async fn confirm_fisico_planejamento(
 #[derive(Debug, serde::Deserialize)]
 pub struct ClearWeekParams {
     pub week: String,
+    pub confirmar: Option<bool>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ConfirmarParams {
+    pub confirmar: Option<bool>,
 }
 
 /// Limpa a semana numa transação. Ordens bloqueadas (já em envase/rotulagem ou adiante nos quadros) ficam.
 async fn limpar_semana_planejamento(
     pool: &PgPool,
     week: &str,
+    confirmar: bool,
 ) -> Result<(Vec<serde_json::Value>, i64), sqlx::Error> {
     let mut tx = pool.begin().await?;
     let rows = sqlx::query(
@@ -4961,7 +4995,11 @@ async fn limpar_semana_planejamento(
             "baseNome": row.get::<Option<String>, _>(7),
         }));
     }
-    tx.commit().await?;
+    if confirmar {
+        tx.commit().await?;
+    } else {
+        tx.rollback().await?;
+    }
     Ok((deleted, blocked))
 }
 
@@ -4973,12 +5011,21 @@ pub async fn clear_planejamento_semana(
     if let Err(r) = crate::modules::producao::permissao::exigir_edicao(&ctx) {
         return r;
     }
-    match limpar_semana_planejamento(state.db.pool(), &params.week).await {
-        Ok((deleted, blocked)) => (
+    let confirmar = params.confirmar == Some(true);
+    match limpar_semana_planejamento(state.db.pool(), &params.week, confirmar).await {
+        Ok((deleted, blocked)) if !confirmar => (
             StatusCode::OK,
-            Json(json!({ "ok": true, "deleted": deleted, "blocked": blocked, "rows_deleted": deleted.len() })),
+            Json(json!({ "previa": true, "acao": "limpar_semana_planejamento", "semana": params.week, "deleted": deleted, "blocked": blocked, "confirmar": "repita com confirmar=true para limpar" })),
         )
             .into_response(),
+        Ok((deleted, blocked)) => {
+            crate::modules::producao::auditoria::registrar(state.db.pool(), &ctx.display_name, "limpar_semana_planejamento", &params.week, json!({ "apagados": deleted, "bloqueados": blocked })).await;
+            (
+                StatusCode::OK,
+                Json(json!({ "ok": true, "deleted": deleted, "blocked": blocked, "rows_deleted": deleted.len() })),
+            )
+                .into_response()
+        }
         Err(e) => planejamento_json_err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
@@ -5372,11 +5419,14 @@ pub async fn create_fila_demandas(
     };
 
     match gravar_fila_demandas(pool, items).await {
-        Ok(ids) => (
-            StatusCode::OK,
-            Json(json!({ "ok": true, "count": ids.len(), "ids": ids })),
-        )
-            .into_response(),
+        Ok(ids) => {
+            crate::modules::producao::auditoria::registrar(pool, &ctx.display_name, "enviar_para_fila", &format!("{} itens", ids.len()), json!({ "ids": ids })).await;
+            (
+                StatusCode::OK,
+                Json(json!({ "ok": true, "count": ids.len(), "ids": ids })),
+            )
+                .into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("Erro ao gravar a fila de demandas: {}", e) })),
@@ -5532,11 +5582,14 @@ pub async fn update_fila_demanda(
             Json(json!({ "error": "Item da fila não encontrado." })),
         )
             .into_response(),
-        Ok(res) => (
-            StatusCode::OK,
-            Json(json!({ "ok": true, "updated": res.rows_affected() })),
-        )
-            .into_response(),
+        Ok(res) => {
+            crate::modules::producao::auditoria::registrar(pool, &ctx.display_name, "atualizar_fila", &id, json!({})).await;
+            (
+                StatusCode::OK,
+                Json(json!({ "ok": true, "updated": res.rows_affected() })),
+            )
+                .into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("Erro ao atualizar item da fila: {}", e) })),
@@ -5564,11 +5617,14 @@ pub async fn delete_fila_demanda(
             Json(json!({ "error": "Item da fila não encontrado." })),
         )
             .into_response(),
-        Ok(res) => (
-            StatusCode::OK,
-            Json(json!({ "ok": true, "deleted": res.rows_affected() })),
-        )
-            .into_response(),
+        Ok(res) => {
+            crate::modules::producao::auditoria::registrar(pool, &ctx.display_name, "excluir_da_fila", &id, json!({})).await;
+            (
+                StatusCode::OK,
+                Json(json!({ "ok": true, "deleted": res.rows_affected() })),
+            )
+                .into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("Erro ao excluir item da fila: {}", e) })),
