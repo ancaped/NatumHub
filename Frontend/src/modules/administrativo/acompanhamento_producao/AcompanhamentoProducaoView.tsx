@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
+import TirarEsperaDrawer from './TirarEsperaDrawer';
 import {
   Table,
   Calendar as CalendarIcon,
@@ -5285,6 +5286,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   };
 
 
+  const [tirarEsperaLote, setTirarEsperaLote] = useState<string | null>(null);
+
   const handleOpenPauseModal = (
     lote: AcompanhamentoLote,
     etapa?: 'pesagem' | 'producao' | 'rotulagem' | 'envase'
@@ -8282,6 +8285,18 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         </div>
       )}
 
+      {tirarEsperaLote && (
+        <TirarEsperaDrawer
+          lote={tirarEsperaLote}
+          onClose={() => setTirarEsperaLote(null)}
+          onDone={() => {
+            setTirarEsperaLote(null);
+            fetchLotes();
+            window.dispatchEvent(new Event('natum:refresh-acompanhamento'));
+          }}
+        />
+      )}
+
       {/* VIEW: PLANEJAMENTO SEMANAL (PCP) */}
       {currentTab === 'planejamento_semanal' && (
         <div className="space-y-4">
@@ -9207,6 +9222,16 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   })()}
                                 </div>
                                 {lote.motivoEspera && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setTirarEsperaLote(lote.loteNumber)}
+                                    className="inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-md border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50 cursor-pointer"
+                                    title="Tirar a marca de Em Espera deste lote (mostra a prévia antes de gravar)"
+                                  >
+                                    Tirar Em Espera
+                                  </button>
+                                )}
+                                {lote.motivoEspera && (
                                   <div
                                     onClick={() => handleOpenPauseModal(lote)}
                                     className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-900 cursor-pointer hover:bg-amber-100 transition-colors line-clamp-1 max-w-[240px]"
@@ -9253,17 +9278,22 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                       </optgroup>
                                     </>
                                   )}
-                                  {lote.customStatus === 'Em Espera' && (
-                                    <optgroup label="Pausa">
-                                      <option value="Em Espera">⏸️ Em Espera (Pausado)</option>
-                                    </optgroup>
-                                  )}
                                   {lote.customStatus && (
                                     <optgroup label="Redefinir">
                                       <option value="">Restaurar Padrão ERP</option>
                                     </optgroup>
                                   )}
                                 </select>
+                                {lote.motivoEspera && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setTirarEsperaLote(lote.loteNumber)}
+                                    className="inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-md border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50 cursor-pointer whitespace-nowrap"
+                                    title="Tirar a marca de Em Espera deste lote (mostra a prévia antes de gravar)"
+                                  >
+                                    Tirar Em Espera
+                                  </button>
+                                )}
                               </div>
                             )}
                           </td>

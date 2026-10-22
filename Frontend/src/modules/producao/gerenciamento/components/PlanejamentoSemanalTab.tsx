@@ -559,8 +559,7 @@ export function PlanejamentoSemanalTab({
   const [demandBankOpen, setDemandBankOpen] = useState(true);
   const [demandSearch, setDemandSearch] = useState('');
   const [filaDemandas, setFilaDemandas] = useState<any[]>([]);
-  const [lotesEmEspera, setLotesEmEspera] = useState<any[]>([]);
-  const [demandTabFilter, setDemandTabFilter] = useState<'ALL' | 'ESPERA' | 'DEMANDAS'>('ALL');
+  const [demandTabFilter, setDemandTabFilter] = useState<'ALL' | 'DEMANDAS'>('ALL');
   const [demandFilter, setDemandFilter] = useState<'FILA' | 'ALL' | 'CRITICOS' | 'PROGRAMADAS' | 'KITS' | 'BASES'>('FILA');
   const [selectedLineFilter, setSelectedLineFilter] = useState<string>('ALL');
 
@@ -575,26 +574,6 @@ export function PlanejamentoSemanalTab({
       console.warn('Erro ao buscar fila de demandas:', e);
     }
 
-    try {
-      const resAcomp = await apiFetch('/administrativo/acompanhamento-producao');
-      if (resAcomp.ok) {
-        const acompData = await resAcomp.json();
-        if (Array.isArray(acompData)) {
-          const emEspera = acompData.filter((l: any) => {
-            const isFinished = l.customStatus === 'Finalizada' || l.customStatus === 'Ordem Finalizada' || l.erpStatus === 'FI' || l.erpStatus === 'CA';
-            if (isFinished) return false;
-            const hasMotivo = Boolean(l.motivoEspera || l.motivo_espera);
-            const isStatusEspera = l.customStatus === 'Em Espera' || l.custom_status === 'Em Espera' || l.erpStatus === 'ES';
-            const etapas = l.etapasStatus || l.etapas_status || {};
-            const anyEtapaEspera = Object.values(etapas).some((e: any) => e && ((e as any).status === 'Em Espera' || (e as any).motivoEspera));
-            return isStatusEspera || hasMotivo || anyEtapaEspera;
-          });
-          setLotesEmEspera(emEspera);
-        }
-      }
-    } catch (e) {
-      console.warn('Erro ao buscar lotes em espera para fila de demandas:', e);
-    }
   }, []);
 
   // Modais de Ação
@@ -898,7 +877,6 @@ export function PlanejamentoSemanalTab({
 
     const mappedFila = filaDemandas
       .filter(f => {
-        if (demandTabFilter === 'ESPERA') return false;
         if (!demandSearch.trim()) return true;
         const q = demandSearch.toLowerCase().trim();
         const code = (f.codigoProduto || f.codigo_produto || '').toLowerCase();
@@ -928,41 +906,6 @@ export function PlanejamentoSemanalTab({
         };
       });
 
-    const mappedEspera = lotesEmEspera
-      .filter(l => {
-        if (demandTabFilter === 'DEMANDAS') return false;
-        if (!demandSearch.trim()) return true;
-        const q = demandSearch.toLowerCase().trim();
-        const num = (l.loteNumber || '').toLowerCase();
-        const code = (l.productCode || '').toLowerCase();
-        const desc = (l.productDescription || '').toLowerCase();
-        const mot = (l.motivoEspera || '').toLowerCase();
-        return num.includes(q) || code.includes(q) || desc.includes(q) || mot.includes(q);
-      })
-      .map(l => {
-        const code = l.productCode;
-        const p = prodMap.get(code) || {};
-        const massKg = Number(l.quantidadeKg || l.quantidade_kg) || Number(l.quantidade) || 0;
-        return {
-          ...p,
-          _isEmEspera: true,
-          _loteNumber: l.loteNumber,
-          _motivoEspera: l.motivoEspera || 'Em Espera',
-          _origemEtapa: l.dataLiberadoEnvase ? 'Envase' : (l.dataProducao ? 'Produção' : 'Pesagem'),
-          codigo: code || l.productCode,
-          descricao: l.productDescription || p.descricao || `Lote ${l.loteNumber}`,
-          producao_recomendada: l.quantidade || p.producao_recomendada || 0,
-          quantidade: l.quantidade,
-          quantidade_kg: massKg,
-          origem_demanda: 'espera',
-          base_codigo: p.base || null,
-          base: p.base || null,
-          unidade: l.unidade || p.unidade || 'un',
-          observacoes: `Lote ${l.loteNumber} (Em Espera: ${l.motivoEspera || 'Aguardando'})`
-        };
-      });
-
-    // Em Espera não entra no Banco de Demandas (o que entra é definido pelo planejamento, não por lote em espera)
     const combined = [...mappedFila];
 
     const grouped: any[] = [];
@@ -983,7 +926,7 @@ export function PlanejamentoSemanalTab({
       }
     }
     return grouped;
-  }, [products, filaDemandas, lotesEmEspera, demandSearch, demandTabFilter]);
+  }, [products, filaDemandas, demandSearch, demandTabFilter]);
 
   // Mapeamento de Itens Agendados na Grade (por Reator e por Dia)
   const matrixItemsMap = useMemo(() => {
@@ -1837,21 +1780,6 @@ export function PlanejamentoSemanalTab({
         await consumirFilaItem(fItem, prod.descricao, scheduledKg);
       }
 
-      // Se era um lote em espera reagendado, remove a pausa do lote no acompanhamento
-      if (prod._isEmEspera && prod._loteNumber) {
-        try {
-          await apiFetch('/administrativo/lote-status', {
-            method: 'POST',
-            body: JSON.stringify({
-              loteNumber: prod._loteNumber,
-              customStatus: 'Pesagem',
-              motivoEspera: null,
-            }),
-          });
-        } catch (e) {
-          console.warn('Erro ao atualizar status do lote em espera após reagendamento:', e);
-        }
-      }
     }
     fetchFila();
 
@@ -3758,7 +3686,7 @@ export function PlanejamentoSemanalTab({
 
                   return (
                     <div 
-                      key={prod._loteNumber ? `espera_${prod._loteNumber}` : (prod._filaId ? `fila_${prod._filaId}` : prod.codigo)} 
+                      key={prod._filaId ? `fila_${prod._filaId}` : prod.codigo} 
                       draggable={true}
                       onDragStart={(e) => {
                         e.dataTransfer.setData('text/plain', prod.codigo);
@@ -3770,26 +3698,10 @@ export function PlanejamentoSemanalTab({
                         setDragOverCell(null);
                       }}
                       className={`py-2.5 px-2 flex flex-col gap-2 hover:bg-zinc-50 border-b border-zinc-100 transition-colors cursor-grab active:cursor-grabbing select-none ${
-                        prod._isEmEspera ? 'bg-amber-50/40 border-l-4 border-l-amber-500' : (isBase ? 'bg-amber-50/20' : '')
+                        isBase ? 'bg-amber-50/20' : ''
                       }`}
-                      title={prod._isEmEspera ? `Lote #${prod._loteNumber} em espera. Arraste para agendar ou clique em Reagendar` : "Arraste este produto para uma célula do quadro para agendar"}
+                      title="Arraste este produto para uma célula do quadro para agendar"
                     >
-                      {/* Badge de Lote Em Espera para Reagendamento */}
-                      {prod._isEmEspera && (
-                        <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-100/70 border border-amber-200 rounded-md text-amber-900 text-[11px] font-bold">
-                          <span className="shrink-0">⏸️</span>
-                          <span className="font-mono bg-amber-200/90 text-amber-950 px-1.5 py-0.2 rounded text-[10px]">
-                            Lote #{prod._loteNumber}
-                          </span>
-                          <span className="truncate" title={`Motivo: ${prod._motivoEspera}`}>
-                            {prod._motivoEspera || 'Em Espera'}
-                          </span>
-                          <span className="ml-auto text-[9px] text-amber-800 bg-amber-200/80 px-1.5 py-0.2 rounded font-extrabold uppercase shrink-0">
-                            {prod._origemEtapa || 'Pausa'}
-                          </span>
-                        </div>
-                      )}
-
                       {/* 1. Descrição e Código com visualização de detalhes */}
                       <div className="flex items-start justify-between gap-1.5">
                         <button
@@ -3909,14 +3821,10 @@ export function PlanejamentoSemanalTab({
                         </button>
                         <button
                           onClick={() => handleOpenScheduleModal(prod)}
-                          className={`flex items-center gap-1 px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer shadow-xs ${
-                            prod._isEmEspera
-                              ? 'bg-amber-600 hover:bg-amber-700 text-white'
-                              : 'bg-zinc-900 hover:bg-zinc-800 text-white'
-                          }`}
+                          className="flex items-center gap-1 px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer shadow-xs bg-zinc-900 hover:bg-zinc-800 text-white"
                         >
                           <Plus size={13} />
-                          <span>{prod._isEmEspera ? 'Reagendar' : 'Agendar'}</span>
+                          <span>Agendar</span>
                         </button>
                       </div>
                     </div>
@@ -4098,7 +4006,7 @@ export function PlanejamentoSemanalTab({
               <div className="flex items-center gap-2">
                 <CalendarClock size={18} className="text-blue-600" />
                 <h3 className="font-bold text-zinc-900 text-sm">
-                  {scheduleModalItem?.product?._isEmEspera ? 'Reagendar Lote no Quadro' : 'Agendar Batelada no Quadro'}
+                  Agendar Batelada no Quadro
                 </h3>
               </div>
               <button 
@@ -4112,24 +4020,6 @@ export function PlanejamentoSemanalTab({
                 <X size={16} />
               </button>
             </div>
-
-            {/* Aviso de Lote Em Espera */}
-            {scheduleModalItem?.product?._isEmEspera && (
-              <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between text-xs text-amber-900">
-                <div className="flex items-center gap-2">
-                  <span className="text-base">⏸️</span>
-                  <div>
-                    <span className="font-bold">Reagendando Lote #{scheduleModalItem.product._loteNumber}</span>
-                    <span className="block text-[11px] text-amber-800">
-                      Motivo: {scheduleModalItem.product._motivoEspera || 'Em Espera'}
-                    </span>
-                  </div>
-                </div>
-                <span className="text-[10px] font-semibold bg-amber-200/70 text-amber-950 px-2 py-0.5 rounded">
-                  Retorna para Produção Ativa
-                </span>
-              </div>
-            )}
 
             {/* Barra de Pesquisa de Produtos */}
             <div className="space-y-1.5">

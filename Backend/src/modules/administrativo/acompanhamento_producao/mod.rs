@@ -1,6 +1,7 @@
 pub mod models;
 pub mod store;
 pub mod handlers;
+pub mod espera;
 
 use std::sync::Arc;
 use axum::{
@@ -50,6 +51,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/api/administrativo/lote-status/:number/timestamps",
             post(handlers::save_lote_timestamps),
+        )
+        .route(
+            "/api/administrativo/lote-status/:number/limpar-espera",
+            post(espera::limpar_espera_rota),
         )
         .route(
             "/api/administrativo/lote-status/:number/ocultar-quadro",
