@@ -270,6 +270,8 @@ pub struct SimProducaoContribution {
     pub production_qty: f64,
     pub qty_per_unit: f64,
     pub insumo_qty: f64,
+    /// Insumo original quando a previsão foi trocada por decisão do Edson.
+    pub trocado_de: Option<String>,
 }
 
 /// Contribuições por produto×insumo da simulação automática (Produzir Urgente / Abrir Ordem).
@@ -437,6 +439,7 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
                     production_qty: comp_prod_qty,
                     qty_per_unit: effective_unit_qty,
                     insumo_qty: comp_prod_qty * effective_unit_qty,
+                    trocado_de: None,
                 });
             }
         } else {
@@ -450,6 +453,7 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
                 production_qty: comp_prod_qty,
                 qty_per_unit: unit_qty,
                 insumo_qty: comp_prod_qty * unit_qty,
+                trocado_de: None,
             });
         }
     };
@@ -523,6 +527,7 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
                         production_qty: prod_qty,
                         qty_per_unit: qty_comp,
                         insumo_qty: comp_prod_qty,
+                        trocado_de: None,
                     });
                 }
             }
@@ -560,6 +565,7 @@ pub fn aplicar_trocas_contribuicoes(
     use crate::modules::producao::cobertura::{calc::codigo_trocado, store::canon};
     for c in contribuicoes.iter_mut() {
         if let Some(novo) = codigo_trocado(trocas, &canon(&c.product_code), &canon(&c.ingredient_code)) {
+            c.trocado_de = Some(canon(&c.ingredient_code));
             c.ingredient_code = novo.to_string();
         }
     }
@@ -582,7 +588,12 @@ pub async fn get_insumo_simulation_breakdown(
     let target = ingredient_code.trim();
     let mut by_product: HashMap<String, crate::models::InsumoSimulationProduct> = HashMap::new();
 
+    let mut trocados: HashMap<String, f64> = HashMap::new();
     for c in collect_sim_producao_contributions(pool).await {
+        // o que saiu deste insumo por troca (o consumo aparece no substituto)
+        if c.trocado_de.as_deref() == Some(target) {
+            *trocados.entry(c.ingredient_code.clone()).or_default() += c.insumo_qty;
+        }
         if c.ingredient_code.trim() != target {
             continue;
         }
@@ -617,10 +628,32 @@ pub async fn get_insumo_simulation_breakdown(
     let total_insumo_qty: f64 = products.iter().map(|p| p.insumo_qty).sum();
     let product_count = products.len() as i32;
 
+    let mut trocas: Vec<crate::models::InsumoSimulationTroca> = Vec::new();
+    if !trocados.is_empty() {
+        let codigos: Vec<String> = trocados.keys().cloned().collect();
+        let descs: HashMap<String, String> = sqlx::query(
+            "SELECT TRIM(code), description FROM items WHERE TRIM(code) = ANY($1)",
+        )
+        .bind(&codigos)
+        .fetch_all(pool)
+        .await
+        .map(|rows| rows.into_iter().map(|r| (r.get::<String, _>(0), r.get::<String, _>(1))).collect())
+        .unwrap_or_default();
+        for (cod, quantidade) in trocados {
+            trocas.push(crate::models::InsumoSimulationTroca {
+                descricao_para: descs.get(&cod).cloned().unwrap_or_default(),
+                insumo_para: cod,
+                quantidade,
+            });
+        }
+        trocas.sort_by(|a, b| b.quantidade.partial_cmp(&a.quantidade).unwrap_or(std::cmp::Ordering::Equal));
+    }
+
     crate::models::InsumoSimulationBreakdown {
         total_insumo_qty,
         product_count,
         products,
+        trocas,
     }
 }
 
@@ -1213,6 +1246,7 @@ mod testes_trocas {
             production_qty: 1.0,
             qty_per_unit: qtd,
             insumo_qty: qtd,
+            trocado_de: None,
         }
     }
 
@@ -1227,6 +1261,8 @@ mod testes_trocas {
         let cods: Vec<&str> = v.iter().map(|c| c.ingredient_code.as_str()).collect();
         assert_eq!(cods, vec!["242", "242", "301", "300"], "a troca de produto só vale para P1");
         assert!((v[0].insumo_qty - 2.0).abs() < 1e-9, "a quantidade não muda");
+        assert_eq!(v[0].trocado_de.as_deref(), Some("245"), "guarda o insumo original para a nota do MRP");
+        assert_eq!(v[3].trocado_de, None);
     }
 
     #[test]

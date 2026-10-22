@@ -105,6 +105,7 @@ interface InsumoDetalhes {
       qtyPerUnit: number;
       insumoQty: number;
     }[];
+    trocas?: { insumoPara: string; descricaoPara: string; quantidade: number }[];
   };
 }
 
@@ -1821,6 +1822,16 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
                         <Calculator className="h-4 w-4 text-zinc-650" />
                         <h4 className="font-extrabold text-sm text-zinc-900">Simulação Automática (Produzir Urgente / Abrir Ordem)</h4>
                       </div>
+                      {(details.simulation?.trocas ?? []).map((t) => (
+                        <p
+                          key={t.insumoPara}
+                          className="mb-2 text-[11px] font-semibold text-sky-800 bg-sky-50 border border-sky-200 rounded-lg px-2.5 py-1.5"
+                          title="Troca decidida em Produção > Insumos da Semana. Não altera o ERP nem a fórmula."
+                        >
+                          {t.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })} {details.unit} trocados para{' '}
+                          {t.descricaoPara || t.insumoPara}
+                        </p>
+                      ))}
                       {!details.simulation || details.simulation.products.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-12 text-zinc-400">
                           <Calculator className="h-8 w-8 text-zinc-300 mb-2" />

@@ -550,6 +550,17 @@ pub struct InsumoSimulationBreakdown {
     pub total_insumo_qty: f64,
     pub product_count: i32,
     pub products: Vec<InsumoSimulationProduct>,
+    /// Quanto da previsão deste insumo foi trocado para outro por decisão do Edson.
+    #[serde(default)]
+    pub trocas: Vec<InsumoSimulationTroca>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct InsumoSimulationTroca {
+    pub insumo_para: String,
+    pub descricao_para: String,
+    pub quantidade: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

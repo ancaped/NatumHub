@@ -112,17 +112,28 @@ export function InventoryTab({
   }, [fetchQueue]);
 
   // Memória do Edson: produtos que ele tirou da fila. O envio em lote deixa de fora; "+ Fila" no item desfaz.
-  const [descartados, setDescartados] = useState<Set<string>>(new Set());
+  // código -> motivo: o motivo é a resposta do Edson ao tirar o item; o envio em lote não sugere de novo.
+  const MOTIVOS_FILA: Array<{ id: string; rotulo: string }> = [
+    { id: 'estoque_suficiente', rotulo: 'Estoque suficiente' },
+    { id: 'sem_demanda', rotulo: 'Sem demanda' },
+    { id: 'falta_insumo', rotulo: 'Falta insumo' },
+    { id: 'ja_planejado', rotulo: 'Já planejado/produzido' },
+  ];
+  const rotuloMotivo = (valor: string) =>
+    MOTIVOS_FILA.find((m) => m.id === valor)?.rotulo ?? (valor.startsWith('outro:') ? valor.slice(6).trim() || 'Outro' : valor);
+  const [descartados, setDescartados] = useState<Map<string, string>>(new Map());
+  const [motivoPara, setMotivoPara] = useState<string | null>(null);
+  const [motivoOutro, setMotivoOutro] = useState('');
   useEffect(() => {
-    apiJson<Array<{ chave: string }>>('/api/producao/decisoes?tipo=fila_descartada')
-      .then((l) => setDescartados(new Set((Array.isArray(l) ? l : []).map((d) => String(d.chave).trim()))))
+    apiJson<Array<{ chave: string; valor: string }>>('/api/producao/decisoes?tipo=fila_descartada')
+      .then((l) => setDescartados(new Map((Array.isArray(l) ? l : []).map((d) => [String(d.chave).trim(), String(d.valor ?? '')]))))
       .catch(() => undefined);
   }, []);
-  const lembrarDescarte = async (codigo: string) => {
+  const lembrarDescarte = async (codigo: string, motivo: string) => {
     const chave = String(codigo).trim();
-    setDescartados((prev) => new Set(prev).add(chave));
+    setDescartados((prev) => new Map(prev).set(chave, motivo));
     try {
-      await apiJson('/api/producao/decisoes', { method: 'PUT', body: JSON.stringify({ tipo: 'fila_descartada', chave, valor: '1', confirmar: true }) });
+      await apiJson('/api/producao/decisoes', { method: 'PUT', body: JSON.stringify({ tipo: 'fila_descartada', chave, valor: motivo, confirmar: true }) });
     } catch (err) {
       console.warn('Não foi possível lembrar o descarte:', err);
     }
@@ -131,7 +142,7 @@ export function InventoryTab({
     const chave = String(codigo).trim();
     if (!descartados.has(chave)) return;
     setDescartados((prev) => {
-      const n = new Set(prev);
+      const n = new Map(prev);
       n.delete(chave);
       return n;
     });
@@ -312,7 +323,7 @@ export function InventoryTab({
   };
 
   // Handle remove from queue
-  const handleRemoveFromQueue = async (p: any) => {
+  const handleRemoveFromQueue = async (p: any, motivo: string) => {
     const item = queuedMap.get(String(p.codigo).trim());
     const targetId = item?.id;
     if (!targetId) return;
@@ -323,7 +334,9 @@ export function InventoryTab({
         method: 'DELETE'
       });
       if (res.ok) {
-        await lembrarDescarte(p.codigo);
+        await lembrarDescarte(p.codigo, motivo);
+        setMotivoPara(null);
+        setMotivoOutro('');
         setEditingQueueCode(null);
         await fetchQueue();
         if (onRefresh) onRefresh();
@@ -911,15 +924,60 @@ export function InventoryTab({
                                     </button>
                                   ))}
                                 </div>
-                                <button
-                                  type="button"
-                                  disabled={isBusyQueue}
-                                  onClick={() => handleRemoveFromQueue(p)}
-                                  className="w-full py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer"
-                                >
-                                  <Trash2 size={11} />
-                                  Remover da Fila
-                                </button>
+                                {motivoPara === p.codigo ? (
+                                  <div className="space-y-1">
+                                    <div className="text-[10px] font-bold text-zinc-700">Por que tirar da fila?</div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {MOTIVOS_FILA.map((m) => (
+                                        <button
+                                          key={m.id}
+                                          type="button"
+                                          disabled={isBusyQueue}
+                                          onClick={() => handleRemoveFromQueue(p, m.id)}
+                                          className="px-1.5 py-0.5 text-[10px] font-bold rounded border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 cursor-pointer"
+                                        >
+                                          {m.rotulo}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <div className="flex gap-1">
+                                      <input
+                                        value={motivoOutro}
+                                        onChange={(e) => setMotivoOutro(e.target.value)}
+                                        placeholder="Outro motivo"
+                                        className="flex-1 min-w-0 px-1.5 py-0.5 text-[10px] border border-zinc-200 rounded"
+                                      />
+                                      <button
+                                        type="button"
+                                        disabled={isBusyQueue || !motivoOutro.trim()}
+                                        onClick={() => handleRemoveFromQueue(p, `outro: ${motivoOutro.trim()}`)}
+                                        className="px-1.5 py-0.5 text-[10px] font-bold rounded border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-50 cursor-pointer"
+                                      >
+                                        OK
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setMotivoPara(null)}
+                                        className="px-1.5 py-0.5 text-[10px] font-bold rounded border border-zinc-200 bg-white text-zinc-600 cursor-pointer"
+                                      >
+                                        Cancelar
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={isBusyQueue}
+                                    onClick={() => {
+                                      setMotivoPara(p.codigo);
+                                      setMotivoOutro('');
+                                    }}
+                                    className="w-full py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer"
+                                  >
+                                    <Trash2 size={11} />
+                                    Remover da Fila
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>
@@ -927,7 +985,7 @@ export function InventoryTab({
                           <div className="inline-flex items-center gap-1.5">
                           {descartados.has(String(p.codigo).trim()) && (
                             <span className="text-[10px] font-semibold text-amber-700" title="Você tirou este item da fila antes; o envio em lote o ignora">
-                              tirado antes
+                              tirado: {rotuloMotivo(descartados.get(String(p.codigo).trim()) ?? '')}
                             </span>
                           )}
                           <button

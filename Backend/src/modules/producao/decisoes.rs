@@ -46,6 +46,11 @@ fn tipo_valido(tipo: &str) -> bool {
     TIPOS.contains(&tipo)
 }
 
+/// Item tirado da fila exige o motivo (lista curta ou `outro: texto`); os demais tipos aceitam valor livre.
+pub fn valor_valido(tipo: &str, valor: &str) -> bool {
+    tipo != TIPO_FILA_DESCARTADA || !valor.trim().is_empty()
+}
+
 /// Grava (ou atualiza) a decisão. Repetir a mesma escolha só soma `vezes`.
 pub async fn registrar(pool: &PgPool, tipo: &str, chave: &str, valor: &str, usuario: &str) -> Result<(), String> {
     sqlx::query(
@@ -153,6 +158,9 @@ async fn registrar_rota(
     }
     let pool = state.db.pool();
     let valor = b.valor.trim();
+    if !valor_valido(&b.tipo, valor) {
+        return erro(StatusCode::BAD_REQUEST, "Informe o motivo de tirar o item da fila.");
+    }
     if !b.confirmar {
         return match atual(pool, &b.tipo, chave).await {
             Ok(a) => (
@@ -214,6 +222,14 @@ async fn remover_rota(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tirar_da_fila_exige_motivo() {
+        assert!(!valor_valido("fila_descartada", "  "));
+        assert!(valor_valido("fila_descartada", "sem_demanda"));
+        assert!(valor_valido("fila_descartada", "outro: cliente cancelou"));
+        assert!(valor_valido("base_fonte", ""));
+    }
 
     #[test]
     fn so_aceita_os_tipos_conhecidos() {
