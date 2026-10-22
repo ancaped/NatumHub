@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
+use crate::modules::producao::auditoria;
 
 /// Tipos aceitos; qualquer outro é recusado para a tabela não virar depósito de lixo.
 pub const TIPO_BASE_FONTE: &str = "base_fonte";
@@ -68,6 +69,17 @@ pub async fn registrar(pool: &PgPool, tipo: &str, chave: &str, valor: &str, usua
     .map_err(|e| format!("Erro ao gravar a decisão: {e}"))
 }
 
+/// Decisão atual de (tipo, chave): (valor, vezes).
+pub async fn atual(pool: &PgPool, tipo: &str, chave: &str) -> Result<Option<(String, i32)>, String> {
+    let r = sqlx::query("SELECT valor, vezes FROM producao_decisoes WHERE tipo = $1 AND chave = $2")
+        .bind(tipo)
+        .bind(chave)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("Erro ao ler a decisão: {e}"))?;
+    Ok(r.map(|r| (r.get::<String, _>("valor"), r.get::<i32, _>("vezes"))))
+}
+
 pub async fn remover(pool: &PgPool, tipo: &str, chave: &str) -> Result<(), String> {
     sqlx::query("DELETE FROM producao_decisoes WHERE tipo = $1 AND chave = $2")
         .bind(tipo)
@@ -103,6 +115,7 @@ pub async fn listar(pool: &PgPool, tipo: &str) -> Result<Vec<Decisao>, String> {
 pub struct TipoQuery {
     pub tipo: String,
     pub chave: Option<String>,
+    pub confirmar: Option<bool>,
 }
 
 async fn listar_rota(State(state): State<Arc<AppState>>, Query(q): Query<TipoQuery>) -> impl IntoResponse {
@@ -121,6 +134,9 @@ pub struct RegistrarBody {
     pub chave: String,
     #[serde(default)]
     pub valor: String,
+    /// Sem `true` a rota só devolve a prévia (nada é gravado).
+    #[serde(default)]
+    pub confirmar: bool,
 }
 
 async fn registrar_rota(
@@ -135,21 +151,62 @@ async fn registrar_rota(
     if chave.is_empty() {
         return erro(StatusCode::BAD_REQUEST, "Informe a chave da decisão.");
     }
-    match registrar(state.db.pool(), &b.tipo, chave, b.valor.trim(), &ctx.display_name).await {
-        Ok(()) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+    let pool = state.db.pool();
+    let valor = b.valor.trim();
+    if !b.confirmar {
+        return match atual(pool, &b.tipo, chave).await {
+            Ok(a) => (
+                StatusCode::OK,
+                Json(json!({
+                    "previa": true, "acao": "registrar_decisao", "tipo": b.tipo, "chave": chave,
+                    "valorAtual": a.as_ref().map(|x| x.0.clone()), "vezes": a.as_ref().map(|x| x.1),
+                    "valorNovo": valor, "confirmar": "repita com confirmar=true para gravar"
+                })),
+            )
+                .into_response(),
+            Err(e) => erro(StatusCode::INTERNAL_SERVER_ERROR, e),
+        };
+    }
+    match registrar(pool, &b.tipo, chave, valor, &ctx.display_name).await {
+        Ok(()) => {
+            auditoria::registrar(pool, &ctx.display_name, "registrar_decisao", &format!("{}:{chave}", b.tipo), json!({ "valor": valor })).await;
+            (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
+        }
         Err(e) => erro(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
 }
 
-async fn remover_rota(State(state): State<Arc<AppState>>, Query(q): Query<TipoQuery>) -> impl IntoResponse {
+async fn remover_rota(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(q): Query<TipoQuery>,
+) -> impl IntoResponse {
     if !tipo_valido(&q.tipo) {
         return erro(StatusCode::BAD_REQUEST, format!("Tipo de decisão inválido: {}", q.tipo));
     }
     let Some(chave) = q.chave.as_deref().map(str::trim).filter(|c| !c.is_empty()) else {
         return erro(StatusCode::BAD_REQUEST, "Informe a chave da decisão.");
     };
-    match remover(state.db.pool(), &q.tipo, chave).await {
-        Ok(()) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+    let pool = state.db.pool();
+    if q.confirmar != Some(true) {
+        return match atual(pool, &q.tipo, chave).await {
+            Ok(a) => (
+                StatusCode::OK,
+                Json(json!({
+                    "previa": true, "acao": "remover_decisao", "tipo": q.tipo, "chave": chave,
+                    "valorAtual": a.as_ref().map(|x| x.0.clone()), "existe": a.is_some(),
+                    "confirmar": "repita com confirmar=true para remover"
+                })),
+            )
+                .into_response(),
+            Err(e) => erro(StatusCode::INTERNAL_SERVER_ERROR, e),
+        };
+    }
+    match remover(pool, &q.tipo, chave).await {
+        Ok(()) => {
+            auditoria::registrar(pool, &ctx.display_name, "remover_decisao", &format!("{}:{chave}", q.tipo), json!({})).await;
+            (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
+        }
         Err(e) => erro(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
 }

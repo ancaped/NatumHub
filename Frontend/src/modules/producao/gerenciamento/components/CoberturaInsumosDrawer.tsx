@@ -91,7 +91,21 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
     de: InsumoOrdem;
     para: Equivalente;
     soEsteProduto: boolean;
+    impacto?: { composicoesAfetadas: number; ordensPlanejadasAfetadas: number; jaExiste: boolean };
   } | null>(null);
+  const abrirTroca = useCallback(async (ordemId: string, produto: string, de: InsumoOrdem, para: Equivalente) => {
+    setTrocaEmEdicao({ ordemId, produto, de, para, soEsteProduto: false });
+    try {
+      // 1º passo: prévia (nada é gravado)
+      const p = await apiJson<{ composicoesAfetadas: number; ordensPlanejadasAfetadas: number; jaExiste: boolean }>(
+        '/api/producao/trocas',
+        { method: 'POST', body: JSON.stringify({ insumoDe: de.codigo, insumoPara: para.codigo, produto: null }) }
+      );
+      setTrocaEmEdicao((t) => (t && t.de.codigo === de.codigo && t.para.codigo === para.codigo ? { ...t, impacto: p } : t));
+    } catch {
+      // a prévia é informativa; o OK continua disponível
+    }
+  }, []);
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [aba, setAba] = useState<string>('decisoes');
@@ -143,7 +157,7 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
       try {
         await apiJson(`/api/producao/cobertura/ordens/${encodeURIComponent(ordemId)}/base-fonte`, {
           method: 'PUT',
-          body: JSON.stringify({ fonte }),
+          body: JSON.stringify({ fonte, confirmar: true }),
         });
         await carregar();
         onMudou?.();
@@ -164,7 +178,7 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
     try {
       await apiJson('/api/producao/trocas', {
         method: 'POST',
-        body: JSON.stringify({ insumoDe: de.codigo, insumoPara: para.codigo, produto: soEsteProduto ? produto : null }),
+        body: JSON.stringify({ insumoDe: de.codigo, insumoPara: para.codigo, produto: soEsteProduto ? produto : null, confirmar: true }),
       });
       setTrocaEmEdicao(null);
       await carregar();
@@ -180,7 +194,7 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
     async (id: number) => {
       setErro(null);
       try {
-        await apiJson(`/api/producao/trocas/${id}`, { method: 'DELETE' });
+        await apiJson(`/api/producao/trocas/${id}?confirmar=true`, { method: 'DELETE' });
         await carregar();
         onMudou?.();
       } catch (e) {
@@ -357,9 +371,7 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
                                 <button
                                   key={eq.codigo}
                                   type="button"
-                                  onClick={() =>
-                                    setTrocaEmEdicao({ ordemId: o.id, produto: o.produto ?? '', de: i, para: eq, soEsteProduto: false })
-                                  }
+                                  onClick={() => abrirTroca(o.id, o.produto ?? '', i, eq)}
                                   className="px-2 py-1 text-[11px] font-bold rounded-lg border border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100 cursor-pointer"
                                   title="Trocar este insumo pelo equivalente (não altera o ERP nem a fórmula)"
                                 >
@@ -377,6 +389,13 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
                           Trocar {trocaEmEdicao.de.descricao || trocaEmEdicao.de.codigo} por{' '}
                           {trocaEmEdicao.para.descricao || trocaEmEdicao.para.codigo}
                         </div>
+                        {trocaEmEdicao.impacto && (
+                          <div className="text-zinc-600">
+                            Para todos os produtos: {trocaEmEdicao.impacto.composicoesAfetadas} composição(ões) e{' '}
+                            {trocaEmEdicao.impacto.ordensPlanejadasAfetadas} ordem(ns) planejada(s) usam este insumo.
+                            {trocaEmEdicao.impacto.jaExiste ? ' Já existe uma troca dele: a nova substitui o destino.' : ''}
+                          </div>
+                        )}
                         {!trocaEmEdicao.para.cobreTudo && (
                           <div className="text-amber-800">
                             O substituto tem só {fmt(trocaEmEdicao.para.livre)} livre: ainda vai faltar. A troca vale para a previsão inteira.

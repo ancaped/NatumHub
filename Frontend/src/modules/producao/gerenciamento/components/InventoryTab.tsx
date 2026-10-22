@@ -4,7 +4,7 @@ import {
   AlertTriangle, ChevronLeft, ChevronRight, Edit3, Plus,
   Zap, Package, FlaskConical, Calendar, Layers, Target, Check, X, Trash2
 } from 'lucide-react';
-import { apiFetch } from '../../../geral/lib/http';
+import { apiFetch, apiJson } from '../../../geral/lib/http';
 import { parseProductUnitWeightKg, formatUnitsToKg } from '../../lib/unitConversion';
 import { BatchOpportunityModal } from './BatchOpportunityModal';
 
@@ -110,6 +110,37 @@ export function InventoryTab({
   useEffect(() => {
     fetchQueue();
   }, [fetchQueue]);
+
+  // Memória do Edson: produtos que ele tirou da fila. O envio em lote deixa de fora; "+ Fila" no item desfaz.
+  const [descartados, setDescartados] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    apiJson<Array<{ chave: string }>>('/api/producao/decisoes?tipo=fila_descartada')
+      .then((l) => setDescartados(new Set((Array.isArray(l) ? l : []).map((d) => String(d.chave).trim()))))
+      .catch(() => undefined);
+  }, []);
+  const lembrarDescarte = async (codigo: string) => {
+    const chave = String(codigo).trim();
+    setDescartados((prev) => new Set(prev).add(chave));
+    try {
+      await apiJson('/api/producao/decisoes', { method: 'PUT', body: JSON.stringify({ tipo: 'fila_descartada', chave, valor: '1', confirmar: true }) });
+    } catch (err) {
+      console.warn('Não foi possível lembrar o descarte:', err);
+    }
+  };
+  const esquecerDescarte = async (codigo: string) => {
+    const chave = String(codigo).trim();
+    if (!descartados.has(chave)) return;
+    setDescartados((prev) => {
+      const n = new Set(prev);
+      n.delete(chave);
+      return n;
+    });
+    try {
+      await apiJson(`/api/producao/decisoes?tipo=fila_descartada&chave=${encodeURIComponent(chave)}&confirmar=true`, { method: 'DELETE' });
+    } catch (err) {
+      console.warn('Não foi possível desfazer o descarte:', err);
+    }
+  };
 
   const queuedMap = useMemo(() => {
     const map = new Map<string, any>();
@@ -240,6 +271,7 @@ export function InventoryTab({
       });
 
       if (res.ok) {
+        await esquecerDescarte(p.codigo);
         await fetchQueue();
         if (onRefresh) onRefresh();
       }
@@ -291,6 +323,7 @@ export function InventoryTab({
         method: 'DELETE'
       });
       if (res.ok) {
+        await lembrarDescarte(p.codigo);
         setEditingQueueCode(null);
         await fetchQueue();
         if (onRefresh) onRefresh();
@@ -324,7 +357,8 @@ export function InventoryTab({
     const toEnqueue = displayedProducts.filter((p: any) => {
       const inQueue = p.na_fila || queuedMap.has(p.codigo);
       const inPlan = p.planejado_semana;
-      return p.producao_recomendada > 0 && !inQueue && !inPlan;
+      // o que o Edson já tirou da fila fica de fora do envio em lote (o "+ Fila" individual continua valendo)
+      return p.producao_recomendada > 0 && !inQueue && !inPlan && !descartados.has(String(p.codigo).trim());
     });
 
     if (toEnqueue.length === 0) return;
@@ -890,6 +924,12 @@ export function InventoryTab({
                             )}
                           </div>
                         ) : (
+                          <div className="inline-flex items-center gap-1.5">
+                          {descartados.has(String(p.codigo).trim()) && (
+                            <span className="text-[10px] font-semibold text-amber-700" title="Você tirou este item da fila antes; o envio em lote o ignora">
+                              tirado antes
+                            </span>
+                          )}
                           <button
                             disabled={isBusyQueue}
                             onClick={() => handleEnqueue(p)}
@@ -899,6 +939,7 @@ export function InventoryTab({
                             <Plus size={12} />
                             + Fila
                           </button>
+                          </div>
                         )}
                       </td>
                       {/* Context Actions */}

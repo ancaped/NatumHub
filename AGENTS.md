@@ -91,6 +91,14 @@ Rota HTTP           → natumhub-api
 - Estado e logs: `/DATA/AppData/nexus/saves-prod/.autodeploy/` e `autodeploy.log`. Retentar um commit que esgotou as tentativas: apagar `.autodeploy/failed`.
 - Antes do push, valide localmente com `cargo check --bin nexus-server --no-default-features` e `npm run build`; o CI repete isso e roda `cargo test`. Funciona igual de qualquer máquina: não depende de Docker nem de nada instalado no servidor.
 
+## Regra fixa: toda função também serve a agentes de IA
+
+Decisão do Edson (futuro conector MCP; não construir o MCP ainda). Ao criar ou mexer em qualquer função do Nexus:
+- A lógica de negócio fica em **serviços reutilizáveis** (funções do módulo, sem depender da tela); o handler HTTP só valida e chama o serviço.
+- Exponha **endpoints de ação claros**, um por ação (ex.: `previa_fechamento_op` / `fechar_op`), com JSON enxuto.
+- **Escritas em 2 passos**: sem `confirmar=true` a rota só devolve a prévia (o que mudaria); com `confirmar=true` grava.
+- **Auditoria**: toda gravação registra quem fez (`producao_auditoria` / `auditoria::registrar`), seja operador ou agente.
+
 <!-- ai-memory:start -->
 ## Long-term memory (ai-memory)
 

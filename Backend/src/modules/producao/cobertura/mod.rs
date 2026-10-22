@@ -159,6 +159,9 @@ async fn post_simular(State(state): State<Arc<AppState>>, Json(body): Json<Simul
 #[derive(Debug, Deserialize)]
 pub struct BaseFonteBody {
     pub fonte: String,
+    /// Sem `true` a rota só devolve a prévia (nada é gravado).
+    #[serde(default)]
+    pub confirmar: bool,
 }
 
 /// O Edson declara de onde sai a base desta ordem; a escolha fica na ordem e na memória de decisões.
@@ -172,6 +175,12 @@ async fn put_base_fonte(
         return erro(StatusCode::BAD_REQUEST, "Origem da base inválida. Use explodir, estoque ou ordem_base.");
     };
     let pool = state.db.pool();
+    if !body.confirmar {
+        return match previa_base_fonte(pool, &id, fonte).await {
+            Ok(v) => (StatusCode::OK, Json(v)).into_response(),
+            Err((status, msg)) => erro(status, msg),
+        };
+    }
     let codigo: Option<String> = match sqlx::query_scalar(
         "UPDATE producao_planejamento_semanal SET base_fonte = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING codigo_produto",
     )
@@ -189,7 +198,57 @@ async fn put_base_fonte(
     if let Err(e) = decisoes::registrar(pool, decisoes::TIPO_BASE_FONTE, &store::canon(&codigo), fonte.como_texto(), &ctx.display_name).await {
         return erro(StatusCode::INTERNAL_SERVER_ERROR, e);
     }
+    crate::modules::producao::auditoria::registrar(
+        pool,
+        &ctx.display_name,
+        "definir_base_fonte",
+        &id,
+        json!({ "produto": codigo, "fonte": fonte }),
+    )
+    .await;
     (StatusCode::OK, Json(json!({ "ok": true, "id": id, "fonte": fonte }))).into_response()
+}
+
+/// Prévia: quais insumos passam a ser (ou deixam de ser) consumidos por esta ordem com a origem escolhida.
+async fn previa_base_fonte(
+    pool: &sqlx::PgPool,
+    id: &str,
+    fonte: BaseFonte,
+) -> Result<serde_json::Value, (StatusCode, String)> {
+    let interno = |e: String| (StatusCode::INTERNAL_SERVER_ERROR, e);
+    let row = sqlx::query(
+        "SELECT codigo_produto, quantidade_planejada::float8 AS kg, COALESCE(NULLIF(TRIM(base_fonte), ''), 'explodir') AS atual \
+         FROM producao_planejamento_semanal WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| interno(format!("Erro ao ler a ordem: {e}")))?
+    .ok_or((StatusCode::NOT_FOUND, "Ordem não encontrada no planejamento.".to_string()))?;
+    use sqlx::Row;
+    let produto = store::canon(&row.get::<String, _>("codigo_produto"));
+    let kg = row.get::<Option<f64>, _>("kg").unwrap_or(0.0);
+    let atual = BaseFonte::parse(&row.get::<String, _>("atual")).unwrap_or_default();
+    let formulas = store::carregar_formulas(pool, &[produto.clone()]).await.map_err(interno)?;
+    let antes = formulas.necessidades_com(&produto, kg, atual).unwrap_or_default();
+    let depois = formulas.necessidades_com(&produto, kg, fonte).unwrap_or_default();
+    let qtd = |v: &[calc::Necessidade], c: &str| v.iter().find(|n| n.codigo == c).map(|n| n.quantidade).unwrap_or(0.0);
+    let mut mudancas = Vec::new();
+    let mut codigos: Vec<&String> = antes.iter().chain(depois.iter()).map(|n| &n.codigo).collect();
+    codigos.sort();
+    codigos.dedup();
+    for c in codigos {
+        let (a, d) = (qtd(&antes, c), qtd(&depois, c));
+        if (a - d).abs() > 1e-6 {
+            let desc = antes.iter().chain(depois.iter()).find(|n| &n.codigo == c).map(|n| n.descricao.clone()).unwrap_or_default();
+            mudancas.push(json!({ "insumo": c, "descricao": desc, "antes": a, "depois": d }));
+        }
+    }
+    Ok(json!({
+        "previa": true, "acao": "definir_base_fonte", "ordem": id, "produto": produto,
+        "fonteAtual": atual, "fonteNova": fonte, "insumosQueMudam": mudancas,
+        "confirmar": "repita com confirmar=true para gravar"
+    }))
 }
 
 #[derive(Debug, Deserialize)]

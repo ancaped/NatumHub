@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
+use crate::modules::producao::auditoria;
 use crate::modules::producao::cobertura::calc::Troca;
 use crate::modules::producao::cobertura::store::canon;
 
@@ -111,10 +112,77 @@ pub struct NovaTroca {
     pub insumo_para: String,
     /// Ausente = vale para todos os produtos.
     pub produto: Option<String>,
+    /// Sem `true` a rota só devolve a prévia (nada é gravado).
+    #[serde(default)]
+    pub confirmar: bool,
 }
 
-/// Cria a troca (ou troca o destino de uma já existente no mesmo escopo).
-pub async fn criar(pool: &PgPool, t: &NovaTroca, usuario: &str) -> Result<(), (StatusCode, String)> {
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviaTroca {
+    pub previa: bool,
+    pub acao: &'static str,
+    pub insumo_de: String,
+    pub insumo_para: String,
+    pub produto: Option<String>,
+    /// Já existe troca deste insumo neste escopo (a nova substitui o destino).
+    pub ja_existe: bool,
+    /// Composições (produtos e bases) que hoje usam o insumo.
+    pub composicoes_afetadas: i64,
+    /// Ordens do planejamento (sem lote no ERP, dos últimos 14 dias em diante) cujo produto usa o insumo.
+    pub ordens_planejadas_afetadas: i64,
+    pub confirmar: &'static str,
+}
+
+/// Prévia da troca: o que ela alcançaria, sem gravar nada.
+pub async fn previa(pool: &PgPool, t: &NovaTroca) -> Result<PreviaTroca, (StatusCode, String)> {
+    let (de, para, produto) = validar(pool, t).await?;
+    let interno = |e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, format!("Erro ao calcular a prévia: {e}"));
+    let ja_existe: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM producao_trocas_insumo WHERE insumo_de = $1 AND COALESCE(produto_codigo, '') = COALESCE($2, ''))",
+    )
+    .bind(&de)
+    .bind(&produto)
+    .fetch_one(pool)
+    .await
+    .map_err(interno)?;
+    let composicoes: i64 = sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT f.product_code)::bigint FROM formulations f \
+         WHERE TRIM(REPLACE(f.ingredient_code, '\"', '')) = $1 AND ($2::text IS NULL OR TRIM(f.product_code) = $2)",
+    )
+    .bind(&de)
+    .bind(&produto)
+    .fetch_one(pool)
+    .await
+    .map_err(interno)?;
+    let ordens: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM producao_planejamento_semanal pp \
+         WHERE (pp.ordem_status IS NULL OR pp.ordem_status <> 'cancelado') \
+           AND COALESCE(TRIM(pp.lote_erp), '') = '' AND pp.data_planejada >= CURRENT_DATE - 14 \
+           AND ($2::text IS NULL OR TRIM(pp.codigo_produto) = $2) \
+           AND EXISTS (SELECT 1 FROM formulations f WHERE TRIM(f.product_code) = TRIM(pp.codigo_produto) \
+                         AND TRIM(REPLACE(f.ingredient_code, '\"', '')) = $1)",
+    )
+    .bind(&de)
+    .bind(&produto)
+    .fetch_one(pool)
+    .await
+    .map_err(interno)?;
+    Ok(PreviaTroca {
+        previa: true,
+        acao: "criar_troca",
+        insumo_de: de,
+        insumo_para: para,
+        produto,
+        ja_existe,
+        composicoes_afetadas: composicoes,
+        ordens_planejadas_afetadas: ordens,
+        confirmar: "repita com confirmar=true para gravar",
+    })
+}
+
+/// Valida a troca e devolve (de, para, produto) canônicos.
+async fn validar(pool: &PgPool, t: &NovaTroca) -> Result<(String, String, Option<String>), (StatusCode, String)> {
     let de = canon(&t.insumo_de);
     let para = canon(&t.insumo_para);
     let produto = t.produto.as_deref().map(canon).filter(|p| !p.is_empty());
@@ -134,6 +202,12 @@ pub async fn criar(pool: &PgPool, t: &NovaTroca, usuario: &str) -> Result<(), (S
     if existentes < 2 {
         return Err((StatusCode::BAD_REQUEST, "Um dos insumos não existe no cadastro de itens.".into()));
     }
+    Ok((de, para, produto))
+}
+
+/// Cria a troca (ou troca o destino de uma já existente no mesmo escopo).
+pub async fn criar(pool: &PgPool, t: &NovaTroca, usuario: &str) -> Result<(), (StatusCode, String)> {
+    let (de, para, produto) = validar(pool, t).await?;
     sqlx::query(
         r#"
         INSERT INTO producao_trocas_insumo (insumo_de, insumo_para, produto_codigo, criado_por)
@@ -150,8 +224,16 @@ pub async fn criar(pool: &PgPool, t: &NovaTroca, usuario: &str) -> Result<(), (S
     .bind(usuario)
     .execute(pool)
     .await
-    .map(|_| ())
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Erro ao gravar a troca: {e}")))
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Erro ao gravar a troca: {e}")))?;
+    auditoria::registrar(
+        pool,
+        usuario,
+        "criar_troca",
+        &format!("{de}->{para}"),
+        json!({ "de": de, "para": para, "produto": produto }),
+    )
+    .await;
+    Ok(())
 }
 
 pub async fn remover(pool: &PgPool, id: i64) -> Result<bool, String> {
@@ -175,15 +257,51 @@ async fn criar_rota(
     Extension(ctx): Extension<AuthContext>,
     Json(t): Json<NovaTroca>,
 ) -> impl IntoResponse {
+    if !t.confirmar {
+        return match previa(state.db.pool(), &t).await {
+            Ok(p) => (StatusCode::OK, Json(p)).into_response(),
+            Err((status, msg)) => erro(status, msg),
+        };
+    }
     match criar(state.db.pool(), &t, &ctx.display_name).await {
         Ok(()) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
         Err((status, msg)) => erro(status, msg),
     }
 }
 
-async fn remover_rota(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl IntoResponse {
-    match remover(state.db.pool(), id).await {
-        Ok(true) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+#[derive(Debug, Deserialize)]
+pub struct ConfirmarQuery {
+    pub confirmar: Option<bool>,
+}
+
+async fn remover_rota(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<i64>,
+    axum::extract::Query(q): axum::extract::Query<ConfirmarQuery>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    if q.confirmar != Some(true) {
+        let alvo = listar(pool).await.map(|l| l.into_iter().find(|t| t.id == id));
+        return match alvo {
+            Ok(Some(t)) => (
+                StatusCode::OK,
+                Json(json!({
+                    "previa": true, "acao": "remover_troca", "id": id, "insumoDe": t.insumo_de, "insumoPara": t.insumo_para,
+                    "produto": t.produto, "composicoesAfetadas": t.composicoes_afetadas,
+                    "confirmar": "repita com confirmar=true para remover"
+                })),
+            )
+                .into_response(),
+            Ok(None) => erro(StatusCode::NOT_FOUND, "Troca não encontrada."),
+            Err(e) => erro(StatusCode::INTERNAL_SERVER_ERROR, e),
+        };
+    }
+    match remover(pool, id).await {
+        Ok(true) => {
+            auditoria::registrar(pool, &ctx.display_name, "remover_troca", &id.to_string(), json!({})).await;
+            (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
+        }
         Ok(false) => erro(StatusCode::NOT_FOUND, "Troca não encontrada."),
         Err(e) => erro(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
@@ -212,8 +330,13 @@ mod tests {
                 .await
                 .unwrap();
         }
-        let nova = NovaTroca { insumo_de: "TT-245".into(), insumo_para: "TT-242".into(), produto: None };
+        let nova = NovaTroca { insumo_de: "TT-245".into(), insumo_para: "TT-242".into(), produto: None, confirmar: true };
+        // prévia não grava
+        let p = previa(&pool, &nova).await.unwrap();
+        assert!(p.previa && !p.ja_existe);
+        assert!(listar(&pool).await.unwrap().iter().all(|t| t.insumo_de != "TT-245"), "a prévia não gravou nada");
         criar(&pool, &nova, "teste").await.unwrap();
+        assert!(previa(&pool, &nova).await.unwrap().ja_existe);
         // repetir no mesmo escopo troca o destino, não duplica
         criar(&pool, &nova, "teste").await.unwrap();
         let l = listar(&pool).await.unwrap().into_iter().filter(|t| t.insumo_de == "TT-245").collect::<Vec<_>>();
@@ -223,7 +346,7 @@ mod tests {
         assert!(l[0].formula_corrigida, "nenhuma fórmula usa TT-245");
 
         // escopo de um produto convive com o geral
-        let so_um = NovaTroca { produto: Some("P-1".into()), ..nova };
+        let so_um = NovaTroca { produto: Some("P-1".into()), insumo_de: "TT-245".into(), insumo_para: "TT-242".into(), confirmar: true };
         criar(&pool, &so_um, "teste").await.unwrap();
         let l = listar(&pool).await.unwrap().into_iter().filter(|t| t.insumo_de == "TT-245").collect::<Vec<_>>();
         assert_eq!(l.len(), 2);
@@ -232,9 +355,9 @@ mod tests {
         assert!(ativas.iter().any(|t| t.de == "TT-245" && t.produto.as_deref() == Some("P-1")));
 
         // insumo inexistente e troca por si mesmo são recusados
-        let ruim = NovaTroca { insumo_de: "TT-245".into(), insumo_para: "NAO-EXISTE".into(), produto: None };
+        let ruim = NovaTroca { insumo_de: "TT-245".into(), insumo_para: "NAO-EXISTE".into(), produto: None, confirmar: true };
         assert!(criar(&pool, &ruim, "teste").await.is_err());
-        let igual = NovaTroca { insumo_de: "TT-245".into(), insumo_para: "TT-245".into(), produto: None };
+        let igual = NovaTroca { insumo_de: "TT-245".into(), insumo_para: "TT-245".into(), produto: None, confirmar: true };
         assert!(criar(&pool, &igual, "teste").await.is_err());
 
         for t in l {

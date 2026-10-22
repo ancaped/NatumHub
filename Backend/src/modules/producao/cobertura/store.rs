@@ -1108,6 +1108,16 @@ mod tests {
         let saida = simular(&ctx.entrada);
         assert!(saida.ordens.iter().any(|r| r.id == "T-ORD-1" && r.base_fonte == BaseFonte::Estoque));
 
+        // prévia: de 'estoque' para 'explodir' a água e o tensoativo passam a ser consumidos; nada é gravado
+        let p = super::super::previa_base_fonte(&pool, "T-ORD-1", BaseFonte::Explodir).await.unwrap();
+        let mudam: Vec<&str> = p["insumosQueMudam"].as_array().unwrap().iter().map(|m| m["insumo"].as_str().unwrap()).collect();
+        assert_eq!(mudam, vec!["T-AGUA", "T-TENSO"]);
+        let atual: String = sqlx::query_scalar("SELECT base_fonte FROM producao_planejamento_semanal WHERE id = 'T-ORD-1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(atual, "estoque", "a prévia não gravou");
+
         sqlx::query("UPDATE producao_planejamento_semanal SET base_fonte = 'explodir' WHERE id = 'T-ORD-1'")
             .execute(&pool)
             .await
@@ -1162,7 +1172,7 @@ mod tests {
         // com a troca (todos os produtos), a ordem passa a consumir o substituto
         crate::modules::producao::trocas::criar(
             &pool,
-            &crate::modules::producao::trocas::NovaTroca { insumo_de: "T-FRAG".into(), insumo_para: "T-FRAG2".into(), produto: None },
+            &crate::modules::producao::trocas::NovaTroca { insumo_de: "T-FRAG".into(), insumo_para: "T-FRAG2".into(), produto: None, confirmar: true },
             "teste",
         )
         .await

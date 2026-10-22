@@ -24,6 +24,7 @@ pub mod modules {
         pub mod cobertura;
         pub mod decisoes;
         pub mod trocas;
+        pub mod auditoria;
     }
     pub mod compras;
     pub mod estoque;
