@@ -545,7 +545,24 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
             }
         }
     }
+    // Trocas de insumo decididas pelo Edson (não alteram o ERP nem a fórmula): a previsão passa a pedir o substituto.
+    if let Ok(trocas) = crate::modules::producao::trocas::carregar(pool).await {
+        aplicar_trocas_contribuicoes(&mut out, &trocas);
+    }
     out
+}
+
+/// Troca o insumo das contribuições conforme as trocas ativas (a do produto vence a geral; uma etapa só).
+pub fn aplicar_trocas_contribuicoes(
+    contribuicoes: &mut [SimProducaoContribution],
+    trocas: &[crate::modules::producao::cobertura::calc::Troca],
+) {
+    use crate::modules::producao::cobertura::{calc::codigo_trocado, store::canon};
+    for c in contribuicoes.iter_mut() {
+        if let Some(novo) = codigo_trocado(trocas, &canon(&c.product_code), &canon(&c.ingredient_code)) {
+            c.ingredient_code = novo.to_string();
+        }
+    }
 }
 
 /// Demanda de insumos se produzir produtos critico/ordem (e saindo_de_linha com qty > 0).
@@ -1179,4 +1196,43 @@ pub async fn get_demands_query(
         }
     }
     Ok(results)
+}
+
+#[cfg(test)]
+mod testes_trocas {
+    use super::*;
+    use crate::modules::producao::cobertura::calc::Troca;
+
+    fn contrib(produto: &str, insumo: &str, qtd: f64) -> SimProducaoContribution {
+        SimProducaoContribution {
+            ingredient_code: insumo.into(),
+            product_code: produto.into(),
+            product_desc: String::new(),
+            status: String::new(),
+            status_label: String::new(),
+            production_qty: 1.0,
+            qty_per_unit: qtd,
+            insumo_qty: qtd,
+        }
+    }
+
+    #[test]
+    fn previsao_do_mrp_pede_o_substituto_da_troca() {
+        let trocas = vec![
+            Troca { de: "245".into(), para: "242".into(), produto: None },
+            Troca { de: "300".into(), para: "301".into(), produto: Some("P1".into()) },
+        ];
+        let mut v = vec![contrib("P1", "245", 2.0), contrib("P2", "245", 3.0), contrib("P1", "300", 1.0), contrib("P2", "300", 1.0)];
+        aplicar_trocas_contribuicoes(&mut v, &trocas);
+        let cods: Vec<&str> = v.iter().map(|c| c.ingredient_code.as_str()).collect();
+        assert_eq!(cods, vec!["242", "242", "301", "300"], "a troca de produto só vale para P1");
+        assert!((v[0].insumo_qty - 2.0).abs() < 1e-9, "a quantidade não muda");
+    }
+
+    #[test]
+    fn sem_trocas_a_previsao_nao_muda() {
+        let mut v = vec![contrib("P1", "245", 2.0)];
+        aplicar_trocas_contribuicoes(&mut v, &[]);
+        assert_eq!(v[0].ingredient_code, "245");
+    }
 }

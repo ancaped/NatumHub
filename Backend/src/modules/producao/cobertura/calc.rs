@@ -169,21 +169,26 @@ pub struct Troca {
     pub produto: Option<String>,
 }
 
+/// Insumo que substitui `insumo` no `produto`, se houver troca (a do produto vence a geral).
+pub fn codigo_trocado<'a>(trocas: &'a [Troca], produto: &str, insumo: &str) -> Option<&'a str> {
+    let produto = produto.trim();
+    trocas
+        .iter()
+        .find(|t| t.de == insumo && t.produto.as_deref().map(str::trim) == Some(produto))
+        .or_else(|| trocas.iter().find(|t| t.de == insumo && t.produto.is_none()))
+        .map(|t| t.para.as_str())
+}
+
 /// Aplica as trocas à necessidade já explodida. Uma etapa só (X->Y, sem encadear Y->Z); insumos que passam a
 /// ser o mesmo código se somam. Descrição/unidade do substituto ficam vazias para o chamador preencher.
 pub fn aplicar_trocas(necessidades: Vec<Necessidade>, produto: &str, trocas: &[Troca]) -> Vec<Necessidade> {
     if trocas.is_empty() {
         return necessidades;
     }
-    let produto = produto.trim();
     let mut acc: BTreeMap<String, Necessidade> = BTreeMap::new();
     for n in necessidades {
-        let troca = trocas
-            .iter()
-            .find(|t| t.de == n.codigo && t.produto.as_deref().map(str::trim) == Some(produto))
-            .or_else(|| trocas.iter().find(|t| t.de == n.codigo && t.produto.is_none()));
-        let n = match troca {
-            Some(t) => Necessidade { codigo: t.para.clone(), descricao: String::new(), unidade: None, quantidade: n.quantidade },
+        let n = match codigo_trocado(trocas, produto, &n.codigo) {
+            Some(para) => Necessidade { codigo: para.to_string(), descricao: String::new(), unidade: None, quantidade: n.quantidade },
             None => n,
         };
         acc.entry(n.codigo.clone())

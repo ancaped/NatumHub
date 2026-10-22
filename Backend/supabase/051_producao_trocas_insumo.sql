@@ -29,11 +29,13 @@ SET detail = COALESCE(detail, '{}'::jsonb) || jsonb_build_object(
                 'Troca de insumo NÃO altera o ERP nem a fórmula: muda a previsão de consumo (Cobertura e Compras/MRP)',
                 'Vale para todos os produtos por padrão; pode ser limitada a um produto (a troca do produto vence a geral)',
                 'Aviso persistente enquanto alguma composição ainda usa o insumo trocado: corrigir a fórmula (trocar o insumo, ou excluir e adicionar o correto)',
-                'Equivalentes vêm de similar_items; a troca é uma só etapa (X->Y, sem encadear)'
+                'Equivalentes vêm de similar_items; a troca é uma só etapa (X->Y, sem encadear)',
+                'Compras/MRP lê as mesmas trocas: collect_sim_producao_contributions troca o insumo da previsão de consumo (demands.rs)'
             ),
             'arquivos', jsonb_build_array(
                 'Backend/src/modules/producao/trocas.rs',
-                'Backend/src/modules/producao/cobertura/calc.rs (aplicar_trocas, equivalentes)'
+                'Backend/src/modules/producao/cobertura/calc.rs (aplicar_trocas, codigo_trocado, equivalentes)',
+                'Backend/src/modules/compras/planejamento/commands/demands.rs (aplicar_trocas_contribuicoes)'
             )
         )
     ),
