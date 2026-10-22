@@ -415,6 +415,12 @@ where
         repair_corrupted_data_if_needed(&pool_clone).await;
     });
 
+    // Sync interrompido por deploy/reinício deixa o lock `em_andamento`: no boot ele é sempre órfão.
+    match core::pg_db::reclaim_orphan_sync_locks(&pool).await {
+        Ok(n) if n > 0 => println!("[Sync] {n} lock(s) órfão(s) de sync interrompido liberado(s) no boot."),
+        Ok(_) => {}
+        Err(e) => eprintln!("[Sync] {e}"),
+    }
     let _ = modules::geral::auth::store::init_auth_tables(&pool).await;
     let _ = modules::geral::audit::store::ensure_tables(&pool).await;
     let _ = modules::geral::mapa::store::ensure_schema(&pool).await;

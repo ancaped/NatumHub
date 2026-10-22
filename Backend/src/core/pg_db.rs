@@ -189,6 +189,16 @@ async fn reclaim_stale_sync_locks(pool: &PgPool) -> Result<(), String> {
     Ok(())
 }
 
+/// No boot do servidor nenhum sync pode estar rodando (ele vive dentro deste processo): qualquer lock `em_andamento`
+/// que sobrou é órfão (reinício, deploy ou queda no meio do sync) e travaria o botão de sincronizar até 90 minutos.
+pub async fn reclaim_orphan_sync_locks(pool: &PgPool) -> Result<u64, String> {
+    sqlx::query("DELETE FROM sync_status WHERE status = 'em_andamento'")
+        .execute(pool)
+        .await
+        .map(|r| r.rows_affected())
+        .map_err(|e| format!("Erro ao limpar sync órfão: {e}"))
+}
+
 /// Snapshot do lock diário (painel supervisor / FE).
 pub async fn daily_sync_lock_status(pool: &PgPool) -> Result<serde_json::Value, String> {
     reclaim_stale_sync_locks(pool).await?;
@@ -377,5 +387,35 @@ fn bytes_pretty(bytes: i64) -> String {
         format!("{bytes} {}", UNITS[i])
     } else {
         format!("{v:.1} {}", UNITS[i])
+    }
+}
+
+#[cfg(test)]
+mod testes_sync_lock {
+    use super::*;
+
+    /// Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn boot_limpa_o_lock_orfao_do_sync() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        // mesma forma da tabela de produção (o banco de teste novo ainda não a tem)
+        sqlx::query("CREATE TABLE IF NOT EXISTS sync_status (data_sync DATE PRIMARY KEY, status TEXT NOT NULL, inicio TIMESTAMPTZ DEFAULT NOW())")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM sync_status WHERE data_sync = DATE '2099-01-01'").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO sync_status (data_sync, status, inicio) VALUES (DATE '2099-01-01', 'em_andamento', NOW())")
+            .execute(&pool)
+            .await
+            .unwrap();
+        // um lock recente (nem 90 min) NÃO sai pela regra antiga, mas sai no boot
+        reclaim_stale_sync_locks(&pool).await.unwrap();
+        let ainda: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sync_status WHERE data_sync = DATE '2099-01-01'").fetch_one(&pool).await.unwrap();
+        assert_eq!(ainda, 1, "a regra de 90 min não pega lock recente");
+        assert!(reclaim_orphan_sync_locks(&pool).await.unwrap() >= 1);
+        let depois: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sync_status WHERE data_sync = DATE '2099-01-01'").fetch_one(&pool).await.unwrap();
+        assert_eq!(depois, 0, "o boot limpa o lock órfão");
     }
 }
