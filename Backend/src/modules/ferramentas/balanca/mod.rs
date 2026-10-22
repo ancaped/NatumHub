@@ -346,4 +346,53 @@ mod tests {
         assert!(depois.itens.iter().filter(|i| i.codigo_erp.starts_with("9.15.ZT")).all(|i| !i.novo));
         limpar().await;
     }
+
+    /// Teste de ouro, byte a byte: a carga real que já está na balança (434 itens, 2 PLUs cada, 868 linhas)
+    /// tem de sair IDÊNTICA do código, a partir do mapeamento de códigos e das descrições do cadastro.
+    #[test]
+    fn carga_real_da_balanca_sai_identica_byte_a_byte() {
+        let csv = include_str!("testdata/de_para_pesagem.csv");
+        let ouro = include_str!("testdata/ITENSMGV.TXT").replace("\r\n", "\n");
+        // tipo (0 = kg, 1 = un) gravado na carga real, por PLU
+        let tipo_por_plu: HashMap<String, char> =
+            ouro.lines().map(|l| (l[3..9].to_string(), l.chars().nth(2).unwrap())).collect();
+
+        let mut itens = Vec::new();
+        let mut codigos = HashMap::new();
+        for l in csv.lines().skip(1) {
+            let p: Vec<&str> = l.splitn(3, ',').collect();
+            let (rapido, erp) = (p[0].trim(), p[1].trim());
+            // 9.15.057 e 9.15.133 são entradas velhas (itens que não existem mais) que repetiam o código de outros
+            if p.len() < 3 || p[2].trim().is_empty() {
+                continue;
+            }
+            // o CSV antigo trocou por espaço a vírgula do nome deste item (o cadastro real tem a vírgula)
+            let descricao = if erp == "9.15.292" { p[2].replace("1 4", "1,4") } else { p[2].to_string() };
+            let un = tipo_por_plu[&format!("{:0>6}", rapido)] == '1';
+            codigos.insert(erp.to_string(), rapido.parse::<i32>().unwrap());
+            itens.push(ItemInsumo {
+                codigo: erp.to_string(),
+                descricao,
+                unidade: if un { "UN".into() } else { "KG".into() },
+                categoria: None,
+                ignorado: false,
+                produtos_suspensos: Vec::new(),
+            });
+        }
+        assert_eq!(itens.len(), 434, "o cadastro de teste tem os 434 insumos da balança");
+
+        let plano = planejar(&itens, &codigos);
+        assert!(plano.novos.is_empty(), "todos já têm código rápido: nada novo para atribuir");
+        let gerado = itensmgv(&plano).replace("\r\n", "\n");
+        let esperado_linhas: Vec<&str> = ouro.lines().collect();
+        let gerado_linhas: Vec<&str> = gerado.lines().collect();
+        assert_eq!(gerado_linhas.len(), esperado_linhas.len(), "mesmo número de linhas (868)");
+        // PLU -> linha, para comparar sem depender da ordem dos itens
+        let por_plu = |ls: &[&str]| ls.iter().map(|l| (l[3..9].to_string(), l.to_string())).collect::<HashMap<_, _>>();
+        let (g, o) = (por_plu(&gerado_linhas), por_plu(&esperado_linhas));
+        let diferentes: Vec<String> = o.iter().filter(|(k, v)| g.get(*k) != Some(*v)).map(|(k, v)| format!("{k}: esperado {v:?} obtido {:?}", g.get(k))).collect();
+        assert!(diferentes.is_empty(), "{} linhas diferentes:\n{}", diferentes.len(), diferentes.iter().take(5).cloned().collect::<Vec<_>>().join("\n"));
+        // e o arquivo todo, na mesma ordem (itens por código do ERP, 2 PLUs cada), tem de bater byte a byte
+        assert_eq!(gerado, ouro, "arquivo idêntico ao da balança");
+    }
 }

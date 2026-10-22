@@ -257,33 +257,4 @@ mod tests {
         assert!(produto_suspenso("terceirizado", 1));
         assert!(!produto_suspenso("ativo", 1));
     }
-
-    /// Teste de ouro: a carga real da balança (434 itens, 2 PLUs cada) tem de sair igual do código.
-    #[test]
-    fn carga_real_da_balanca_sai_igual() {
-        let csv = include_str!("testdata/de_para_pesagem.csv");
-        let ouro = include_str!("testdata/ITENSMGV.TXT");
-        // PLU -> nome gravado na balança (posições 18..68, duas linhas de 25)
-        let mut nome_por_plu = std::collections::HashMap::new();
-        for l in ouro.lines().filter(|l| l.len() >= 68) {
-            nome_por_plu.insert(l[3..9].to_string(), l[18..68].to_string());
-        }
-        let (mut comparados, mut diferentes) = (0usize, Vec::new());
-        for l in csv.lines().skip(1) {
-            let p: Vec<&str> = l.splitn(3, ',').collect();
-            if p.len() < 3 || p[2].trim().is_empty() {
-                continue;
-            }
-            let plu_rapido = format!("{:0>6}", p[0].trim());
-            let Some(esperado) = nome_por_plu.get(&plu_rapido) else { continue };
-            let (l1, l2) = dividir(&sanitizar(&simplificar(p[2], None)));
-            comparados += 1;
-            if &format!("{l1}{l2}") != esperado {
-                diferentes.push(format!("{}: obtido {:?} / esperado {:?}", p[1], format!("{l1}{l2}"), esperado));
-            }
-        }
-        assert!(comparados > 400, "comparou só {comparados} itens");
-        // 433 de 434 saem idênticos; o 434º (9.15.292) difere só porque o CSV trocou a vírgula do nome por espaço
-        assert!(diferentes.len() <= 1, "{} diferenças em {comparados}:\n{}", diferentes.len(), diferentes.join("\n"));
-    }
 }

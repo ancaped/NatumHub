@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, Printer, RefreshCw, Scale, Search } from 'lucide-react';
+import { Download, Layers, Printer, RefreshCw, Scale } from 'lucide-react';
 import AppLayout, { type SidebarItem } from '../../geral/components/layout/AppLayout';
+import Drawer from '../../geral/components/ui/Drawer';
 import { apiFetch, apiJson } from '../../geral/lib/http';
+import { BotaoAcao, FilterBar, ReportHeader, ReportTabs, StatusBadge, TabelaPainel } from '../../geral/components/ui/ReportKit';
+import type { AbaRelatorio } from '../../geral/components/ui/ReportKit';
 
 type Grupo = 'ativos' | 'terceirizados' | 'inativos' | 'fragrancias';
 
@@ -28,22 +31,33 @@ interface NovoCodigo {
 }
 
 const GRUPOS: Array<{ id: Grupo; titulo: string }> = [
-  { id: 'ativos', titulo: 'Itens ativos' },
-  { id: 'terceirizados', titulo: 'Terceirizados / linhas suspensas' },
+  { id: 'ativos', titulo: 'Ativos' },
+  { id: 'terceirizados', titulo: 'Terceirizados' },
   { id: 'inativos', titulo: 'Inativos' },
-  { id: 'fragrancias', titulo: 'Fragrâncias e bouquets' },
+  { id: 'fragrancias', titulo: 'Fragrâncias' },
 ];
+
+const ROTULO_GRUPO: Record<Grupo, string> = {
+  ativos: 'Ativo',
+  terceirizados: 'Terceirizado',
+  inativos: 'Inativo',
+  fragrancias: 'Fragrância',
+};
 
 interface BalancaViewProps {
   onBackToHub?: () => void;
 }
 
+/**
+ * Carga da balança Toledo Prix 4 Due (MGV 7): tabela das matérias-primas, códigos rápidos novos em 2 passos
+ * (prévia + confirmação, com auditoria) e download do ITENSMGV.TXT. Padrão visual: tabela + abas + busca + badges.
+ */
 export default function BalancaView({ onBackToHub }: BalancaViewProps) {
   const [dados, setDados] = useState<Carga | null>(null);
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const [filtro, setFiltro] = useState('');
-  const [grupo, setGrupo] = useState<Grupo | 'todos'>('todos');
+  const [busca, setBusca] = useState('');
+  const [aba, setAba] = useState<Grupo | 'todos'>('todos');
   const [previa, setPrevia] = useState<NovoCodigo[] | null>(null);
   const [gravando, setGravando] = useState(false);
 
@@ -111,21 +125,25 @@ export default function BalancaView({ onBackToHub }: BalancaViewProps) {
     }
   };
 
-  const q = filtro.trim().toUpperCase();
-  const visiveis = useMemo(
-    () =>
-      GRUPOS.filter((g) => grupo === 'todos' || grupo === g.id).map((g) => ({
-        ...g,
-        itens: (dados?.grupos?.[g.id] ?? []).filter(
-          (i) =>
-            !q ||
-            `${i.nomeBalanca} ${i.nomeCompleto} ${i.codigoSistema} ${i.codigoRapido}`.toUpperCase().includes(q)
-        ),
-      })),
-    [dados, grupo, q]
-  );
+  const linhas = useMemo(() => {
+    const q = busca.trim().toUpperCase();
+    const out: Array<ItemCarga & { grupo: Grupo }> = [];
+    for (const g of GRUPOS) {
+      if (aba !== 'todos' && aba !== g.id) continue;
+      for (const i of dados?.grupos?.[g.id] ?? []) {
+        if (!q || `${i.nomeBalanca} ${i.nomeCompleto} ${i.codigoSistema} ${i.codigoRapido}`.toUpperCase().includes(q)) out.push({ ...i, grupo: g.id });
+      }
+    }
+    return out;
+  }, [dados, aba, busca]);
+
+  const abas: AbaRelatorio[] = [
+    { id: 'todos', label: 'Todos', icone: <Layers size={14} />, contagem: dados?.total ?? 0 },
+    ...GRUPOS.map((g) => ({ id: g.id, label: g.titulo, contagem: dados?.grupos?.[g.id]?.length ?? 0 })),
+  ];
 
   const sidebarItems: SidebarItem[] = [{ id: 'carga', label: 'Carga da Balança', icon: Scale }];
+  const novos = dados?.novosCodigos ?? 0;
 
   return (
     <AppLayout
@@ -136,161 +154,138 @@ export default function BalancaView({ onBackToHub }: BalancaViewProps) {
       activeTab="carga"
       onTabChange={() => undefined}
     >
-      <div className="p-6 space-y-5 balanca-print">
+      <div className="view-container balanca-print" style={{ padding: '1.5rem', paddingBottom: 30 }}>
         <style>{`
           @media print {
             body * { visibility: hidden; }
             .balanca-print, .balanca-print * { visibility: visible; }
-            .balanca-print { position: absolute; left: 0; top: 0; width: 100%; padding: 0 10mm; }
+            .balanca-print { position: absolute; left: 0; top: 0; width: 100%; padding: 0 10mm !important; }
             .balanca-no-print { display: none !important; }
             @page { size: A4; margin: 10mm; }
             tr { break-inside: avoid; }
           }
         `}</style>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 balanca-no-print">
-          <p className="text-xs text-zinc-600 max-w-xl">
-            Cada matéria-prima sai com dois códigos na balança: o <strong>rápido</strong> (permanente) e o do <strong>sistema</strong> (6 dígitos).
-            Depois de baixar o arquivo: MGV 7 → Importar Itens/TXT → Carga para Balanças (itens).
-          </p>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={carregar}
-              disabled={loading}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 cursor-pointer"
-            >
-              <RefreshCw className={loading ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
-              Atualizar
-            </button>
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
-            >
-              <Printer className="h-3.5 w-3.5" />
-              Imprimir
-            </button>
-            <button
-              type="button"
-              onClick={baixar}
-              disabled={!dados || dados.novosCodigos > 0}
-              title={dados && dados.novosCodigos > 0 ? 'Confirme os códigos novos antes de baixar' : 'Baixar ITENSMGV.TXT'}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-40 cursor-pointer"
-            >
-              <Download className="h-3.5 w-3.5" />
-              Baixar ITENSMGV.TXT
-            </button>
-          </div>
-        </div>
-
-        {erro && <p className="text-xs font-semibold text-rose-700">{erro}</p>}
-
-        {dados && dados.novosCodigos > 0 && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2 balanca-no-print">
-            <p className="text-xs font-bold text-amber-900">
-              {dados.novosCodigos} matéria(s)-prima(s) sem código rápido.
-            </p>
-            {!previa ? (
-              <button
-                type="button"
-                onClick={verPrevia}
-                className="px-3 py-1.5 text-[11px] font-bold rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 cursor-pointer"
+        <ReportHeader
+          titulo="Carga da Balança"
+          subtitulo={
+            dados
+              ? `${dados.total} matérias-primas · 2 códigos cada: rápido (permanente) e do sistema`
+              : 'Matérias-primas para a balança Toledo'
+          }
+          acoes={
+            <div className="balanca-no-print" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              {novos > 0 && (
+                <BotaoAcao onClick={verPrevia} title="Atribuir código rápido às matérias-primas novas">
+                  Atribuir {novos} código(s) novo(s)
+                </BotaoAcao>
+              )}
+              <BotaoAcao
+                primario
+                onClick={baixar}
+                disabled={!dados || novos > 0}
+                title={novos > 0 ? 'Confirme os códigos novos antes de baixar' : 'Baixar ITENSMGV.TXT para o MGV 7'}
               >
-                Ver os códigos que serão atribuídos
-              </button>
-            ) : (
-              <>
-                <ul className="text-[11px] text-zinc-800 space-y-0.5 max-h-40 overflow-y-auto">
-                  {previa.map((n) => (
-                    <li key={n.codigoErp}>
-                      <strong>{n.codigoRapido}</strong> → {n.nome} <span className="text-zinc-500">({n.codigoErp})</span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="flex gap-1.5">
-                  <button
-                    type="button"
-                    disabled={gravando}
-                    onClick={confirmar}
-                    className="px-3 py-1.5 text-[11px] font-bold rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
-                  >
-                    Confirmar códigos
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPrevia(null)}
-                    className="px-3 py-1.5 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 cursor-pointer"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
+                <Download size={15} /> Baixar ITENSMGV.TXT
+              </BotaoAcao>
+              <BotaoAcao onClick={() => window.print()}>
+                <Printer size={15} /> Imprimir
+              </BotaoAcao>
+              <BotaoAcao onClick={carregar} disabled={loading}>
+                <RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> Atualizar
+              </BotaoAcao>
+            </div>
+          }
+        />
 
-        <div className="flex flex-wrap items-center gap-2 balanca-no-print">
-          <div className="relative">
-            <Search className="h-3.5 w-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-zinc-400" />
-            <input
-              value={filtro}
-              onChange={(e) => setFiltro(e.target.value)}
-              placeholder="Buscar nome ou código"
-              className="pl-7 pr-2 py-1.5 text-xs border border-zinc-200 rounded-lg w-64"
-            />
-          </div>
-          {([{ id: 'todos', titulo: 'Todos' }, ...GRUPOS] as Array<{ id: Grupo | 'todos'; titulo: string }>).map((g) => (
-            <button
-              key={g.id}
-              type="button"
-              onClick={() => setGrupo(g.id)}
-              className={`px-2.5 py-1.5 text-[11px] font-bold rounded-lg border cursor-pointer ${
-                grupo === g.id ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
-              }`}
-            >
-              {g.titulo}
-              {g.id !== 'todos' && dados ? ` (${dados.grupos[g.id].length})` : ''}
-            </button>
-          ))}
+        {erro && <p style={{ fontSize: '0.78rem', color: 'hsl(var(--danger-hsl))', marginBottom: 8 }}>{erro}</p>}
+
+        <div className="balanca-no-print">
+          <ReportTabs abas={abas} ativa={aba} onChange={(id) => setAba(id as Grupo | 'todos')} />
+          <FilterBar busca={busca} onBusca={setBusca} placeholder="Buscar nome ou código..." />
         </div>
 
-        {loading && !dados && <p className="text-xs text-zinc-500">Carregando...</p>}
+        <TabelaPainel>
+          <thead>
+            <tr>
+              <th style={{ width: 90, textAlign: 'center' }}>Código 1</th>
+              <th style={{ width: 110, textAlign: 'center' }}>Sistema</th>
+              <th>Nome na balança</th>
+              <th>Nome completo</th>
+              <th>Grupo</th>
+              <th style={{ width: 50, textAlign: 'center' }}>Un.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && !dados && (
+              <tr>
+                <td colSpan={6} style={{ padding: 20, textAlign: 'center', color: 'hsl(var(--text-secondary-hsl))' }}>Carregando...</td>
+              </tr>
+            )}
+            {dados && linhas.length === 0 && (
+              <tr>
+                <td colSpan={6} style={{ padding: 20, textAlign: 'center', color: 'hsl(var(--text-secondary-hsl))' }}>Nenhuma matéria-prima com este filtro.</td>
+              </tr>
+            )}
+            {linhas.map((i) => (
+              <tr key={i.codigoErp}>
+                <td style={{ textAlign: 'center', fontWeight: 800 }}>
+                  {i.codigoRapido}
+                  {i.novo && <div><StatusBadge variante="ordem">Novo</StatusBadge></div>}
+                </td>
+                <td style={{ textAlign: 'center' }}><span className="product-code">{i.codigoSistema}</span></td>
+                <td style={{ fontWeight: 600 }}>{i.nomeBalanca}</td>
+                <td style={{ color: 'hsl(var(--text-secondary-hsl))', fontSize: '0.72rem' }}>{i.nomeCompleto}</td>
+                <td style={{ fontSize: '0.72rem', color: 'hsl(var(--text-secondary-hsl))' }}>{ROTULO_GRUPO[i.grupo]}</td>
+                <td style={{ textAlign: 'center' }}>{i.unidade}</td>
+              </tr>
+            ))}
+          </tbody>
+        </TabelaPainel>
 
-        {visiveis.map((g) => (
-          <section key={g.id} className="space-y-1.5">
-            <h2 className="text-sm font-extrabold text-zinc-900">
-              {g.titulo} <span className="text-xs font-medium text-zinc-500">({g.itens.length})</span>
-            </h2>
-            <div className="overflow-x-auto bg-white border border-zinc-200 rounded-xl">
-              <table className="w-full text-[11px]">
-                <thead className="bg-zinc-50 text-zinc-500">
-                  <tr>
-                    <th className="px-2 py-1.5 text-center w-24">Código 1 (rápido)</th>
-                    <th className="px-2 py-1.5 text-center w-28">Código sistema</th>
-                    <th className="px-2 py-1.5 text-left">Nome na balança</th>
-                    <th className="px-2 py-1.5 text-left">Nome completo</th>
-                    <th className="px-2 py-1.5 text-center w-12">Un.</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-100">
-                  {g.itens.map((i) => (
-                    <tr key={i.codigoErp}>
-                      <td className="px-2 py-1.5 text-center font-extrabold text-zinc-900">
-                        {i.codigoRapido}
-                        {i.novo && <span className="ml-1 text-[9px] font-bold text-amber-700">novo</span>}
-                      </td>
-                      <td className="px-2 py-1.5 text-center font-mono">{i.codigoSistema}</td>
-                      <td className="px-2 py-1.5 font-semibold text-zinc-900">{i.nomeBalanca}</td>
-                      <td className="px-2 py-1.5 text-zinc-600">{i.nomeCompleto}</td>
-                      <td className="px-2 py-1.5 text-center">{i.unidade}</td>
+        {previa && (
+          <Drawer
+            onClose={() => setPrevia(null)}
+            title="Códigos rápidos novos"
+            subtitle="Prévia: nada foi gravado ainda"
+            size="md"
+            footer={
+              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', padding: 12 }}>
+                <BotaoAcao onClick={() => setPrevia(null)}>Cancelar</BotaoAcao>
+                <BotaoAcao primario onClick={confirmar} disabled={gravando || previa.length === 0}>
+                  OK, gravar {previa.length} código(s)
+                </BotaoAcao>
+              </div>
+            }
+          >
+            <div style={{ padding: 16 }}>
+              <p style={{ fontSize: '0.72rem', color: 'hsl(var(--text-secondary-hsl))', marginBottom: 8 }}>
+                O código rápido é permanente: depois de gravado, nunca é reatribuído. A ação fica registrada com o seu nome.
+              </p>
+              <div className="panel-card" style={{ padding: 0, overflowX: 'auto' }}>
+                <table className="data-table compacta">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 70, textAlign: 'center' }}>Código</th>
+                      <th>Matéria-prima</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {previa.map((n) => (
+                      <tr key={n.codigoErp}>
+                        <td style={{ textAlign: 'center', fontWeight: 800 }}>{n.codigoRapido}</td>
+                        <td>
+                          <div style={{ fontWeight: 600 }}>{n.nome}</div>
+                          <span className="product-code" style={{ fontSize: '0.65rem' }}>{n.codigoErp}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </section>
-        ))}
+          </Drawer>
+        )}
       </div>
     </AppLayout>
   );
