@@ -53,3 +53,6 @@ _backup_wip_*/
 # Espelho opcional gerado pelo app (fonte = Postgres)
 Feedbacks/feedback_index.md
 
+
+# screenshots locais de conferência de tela
+.screens/

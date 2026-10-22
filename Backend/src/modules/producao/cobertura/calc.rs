@@ -1142,6 +1142,8 @@ pub struct FaltaInsumo {
     pub pedido: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fornecedor: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub equivalentes: Vec<Equivalente>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -1185,6 +1187,7 @@ pub fn agrupar_faltas(itens: Vec<ItemFalta>) -> Vec<FaltasLinha> {
                 chega_em: i.chega_em,
                 pedido: i.pedido,
                 fornecedor: i.fornecedor.clone(),
+                equivalentes: i.equivalentes.clone(),
             };
             if is_embalagem(&i.codigo, &i.descricao) {
                 embalagem.push(f);

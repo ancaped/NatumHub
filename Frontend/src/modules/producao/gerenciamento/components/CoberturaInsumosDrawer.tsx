@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Copy, Link2, Printer } from 'lucide-react';
+import { ArrowLeftRight, Copy, Link2, Printer, RefreshCw } from 'lucide-react';
 import Drawer, { DrawerTab } from '../../../geral/components/ui/Drawer';
 import { apiJson } from '../../../geral/lib/http';
 
-import { BASE_FONTE_ROTULO, fmt, fmtData, textoInsumo } from './cobertura';
+import { BASE_FONTE_ROTULO, fmt, fmtData } from './cobertura';
+import { BotaoAcao, FilterBar, FiltroSelect, StatusBadge } from '../../../geral/components/ui/ReportKit';
+import type { VarianteBadge } from '../../../geral/components/ui/ReportKit';
 import type { BaseFonte, Equivalente, InsumoOrdem, TrocaInfo } from './cobertura';
-import type { Aviso, Cobertura, ResumoInsumo, ResultadoOrdem, StatusCobertura } from './cobertura';
+import type { Cobertura } from './cobertura';
 
 interface DesvioItem {
   lote: string;
@@ -42,41 +44,42 @@ interface Props {
   onMudou?: () => void;
 }
 
-const TITULO_AVISO: Record<string, string> = {
-  lote_erp_sem_vinculo: 'Lote do ERP sem vínculo — vincular',
-  lote_nao_encontrado: 'Lote digitado não encontrado no ERP — verificar',
-  pedido_possivelmente_recebido: 'Pedido possivelmente já recebido — verificar',
-  recebimento_parcial: 'Recebimento parcial por NF — verificar',
-  pedido_atrasado: 'Pedido atrasado / previsão vencida — verificar',
-  pedido_sem_previsao: 'Pedido sem previsão — ajustar no ERP',
-  base_tambem_planejada: 'Base também planejada em outra ordem — verificar',
-  base_sem_ordem: 'Base marcada como "ordem da base" sem ordem planejada — verificar',
-  manual_antigo: 'Ordem manual aberta há muito tempo — verificar',
-};
-const ORDEM_AVISOS = Object.keys(TITULO_AVISO);
-
-const COR_STATUS: Record<StatusCobertura, string> = {
-  ok: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  atencao: 'bg-amber-50 text-amber-800 border-amber-200',
-  falta: 'bg-rose-50 text-rose-700 border-rose-200',
-  sem_formula: 'bg-zinc-100 text-zinc-600 border-zinc-200',
-};
-const ROTULO_STATUS: Record<StatusCobertura, string> = {
-  ok: 'OK',
-  atencao: 'Atenção',
-  falta: 'Falta',
-  sem_formula: 'Sem fórmula',
+const TITULO_AVISO: Record<string, { rotulo: string; variante: VarianteBadge }> = {
+  lote_erp_sem_vinculo: { rotulo: 'Lote sem vínculo', variante: 'ordem' },
+  lote_nao_encontrado: { rotulo: 'Lote não achado', variante: 'critico' },
+  pedido_possivelmente_recebido: { rotulo: 'Já recebido?', variante: 'ordem' },
+  recebimento_parcial: { rotulo: 'Recebimento parcial', variante: 'ordem' },
+  pedido_atrasado: { rotulo: 'Pedido atrasado', variante: 'ordem' },
+  pedido_sem_previsao: { rotulo: 'Sem previsão', variante: 'ordem' },
+  base_tambem_planejada: { rotulo: 'Base em dobro?', variante: 'ordem' },
+  base_sem_ordem: { rotulo: 'Base sem ordem', variante: 'critico' },
+  manual_antigo: { rotulo: 'Manual antigo', variante: 'ordem' },
+  sugestao_base: { rotulo: 'Sugestão', variante: 'descontinuado' },
 };
 
 const fmtPct = (n?: number | null) => (n == null ? '—' : `${(Number(n) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`);
 
-function textoSemConsumo(m?: string): string | null {
-  if (!m) return null;
-  if (m === 'lote_aberto_ou_fechado_no_erp') return 'Já reservada ou baixada no ERP: não conta de novo.';
-  if (m.startsWith('provavel_lote_')) return `Provável lote #${m.replace('provavel_lote_', '')} do ERP: contada uma vez só, pela reserva.`;
-  if (m === 'sem_formula') return 'Produto sem fórmula cadastrada.';
-  return null;
+function situacaoInsumo(i: InsumoOrdem): { variante: VarianteBadge; rotulo: string; detalhe?: string } {
+  const ped = i.pedido ? `Pedido ${i.pedido}${i.fornecedor ? ` · ${i.fornecedor}` : ''}` : undefined;
+  switch (i.status) {
+    case 'chega_depois':
+      return { variante: 'ordem', rotulo: `Chega ${fmtData(i.chegaEm).slice(0, 5)}`, detalhe: ped };
+    case 'chega_sem_data':
+      return { variante: 'aguardando', rotulo: 'Sem previsão', detalhe: ped };
+    case 'depende_atrasado':
+      return { variante: 'ordem', rotulo: 'Pedido atrasado', detalhe: ped };
+    default:
+      return { variante: 'critico', rotulo: 'Sem cobertura' };
+  }
 }
+
+/** "COD — descrição · data · kg" -> [produto, detalhe]. */
+function partesOrdem(texto: string): [string, string] {
+  const i = texto.indexOf(' · ');
+  return i < 0 ? [texto, ''] : [texto.slice(0, i), texto.slice(i + 3)];
+}
+
+const nowrap: React.CSSProperties = { whiteSpace: 'nowrap' };
 
 /**
  * Cobertura de insumos da semana (somente leitura; só avisa, nunca bloqueia).
@@ -108,7 +111,9 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
   }, []);
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const [aba, setAba] = useState<string>('decisoes');
+  const [aba, setAba] = useState<string>('faltas');
+  const [busca, setBusca] = useState('');
+  const [sit, setSit] = useState<'todas' | 'falta' | 'chega'>('todas');
   const [validacao, setValidacao] = useState<Validacao | null>(null);
   const [validando, setValidando] = useState(false);
   const [erroValidacao, setErroValidacao] = useState<string | null>(null);
@@ -208,18 +213,7 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
   const insumos = dados?.insumos ?? [];
   const avisos = dados?.avisos ?? [];
 
-  const contagem = useMemo(() => {
-    const c = { ok: 0, atencao: 0, falta: 0, sem_formula: 0 } as Record<StatusCobertura, number>;
-    for (const o of ordens) c[o.status] = (c[o.status] ?? 0) + 1;
-    return c;
-  }, [ordens]);
-
-  const precisamAtencao = useMemo(
-    () => ordens.filter((o) => o.status !== 'ok' || (o.avisos ?? []).length > 0),
-    [ordens]
-  );
   const ordensComBase = useMemo(() => ordens.filter((o) => (o.bases ?? []).length > 0), [ordens]);
-  const avisosGerais = useMemo(() => avisos.filter((a) => !a.ordemId), [avisos]);
 
   const insumosCriticos = useMemo(
     () =>
@@ -229,14 +223,27 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
     [insumos]
   );
 
-  const avisosGeraisPorTipo = useMemo(() => {
-    const m: Record<string, Aviso[]> = {};
-    for (const a of avisosGerais) (m[a.tipo] ??= []).push(a);
-    return m;
-  }, [avisosGerais]);
+
+
+  const faltas = useMemo(() => {
+    const rows: Array<{ o: (typeof ordens)[number]; i: InsumoOrdem }> = [];
+    for (const o of ordens) for (const i of o.insumos ?? []) if (i.status !== 'ok') rows.push({ o, i });
+    return rows;
+  }, [ordens]);
+  const faltasVisiveis = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    return faltas.filter(({ o, i }) => {
+      if (sit === 'falta' && i.status !== 'falta') return false;
+      if (sit === 'chega' && i.status === 'falta') return false;
+      return !q || `${descreverOrdem(o.id)} ${i.descricao} ${i.codigo}`.toLowerCase().includes(q);
+    });
+  }, [faltas, busca, sit, descreverOrdem]);
 
   const abas: DrawerTab[] = [
-    { id: 'decisoes', label: 'Decisões', badge: precisamAtencao.length + avisosGerais.length || undefined },
+    { id: 'faltas', label: 'Faltas', badge: faltas.length || undefined },
+    { id: 'revisar', label: 'Revisar', badge: avisos.length || undefined },
+    { id: 'bases', label: 'Bases', badge: ordensComBase.length || undefined },
+    { id: 'trocas', label: 'Trocas', badge: trocas.length || undefined },
     { id: 'insumos', label: 'Insumos' },
     { id: 'validacao', label: 'Calibração' },
   ];
@@ -253,6 +260,15 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
     }
   };
 
+  const vazio = (n: number, txt: string) =>
+    n === 0 ? (
+      <tr>
+        <td colSpan={8} style={{ padding: 20, textAlign: 'center', color: 'hsl(var(--text-secondary-hsl))' }}>
+          {txt}
+        </td>
+      </tr>
+    ) : null;
+
   return (
     <Drawer
       onClose={onClose}
@@ -265,257 +281,264 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
       loading={loading && !dados}
       loadingText="Calculando a cobertura..."
       headerActions={
-        <div className="flex items-center gap-1.5">
-        {onImprimirRelatorio && (
-          <button
-            type="button"
-            onClick={onImprimirRelatorio}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
-            title="Relatório de matérias-primas e embalagens da semana, para imprimir"
-          >
-            <Printer className="h-3.5 w-3.5" />
-            Relatório
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={carregar}
-          disabled={loading}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-        >
-          <RefreshCw className={loading ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
-          Atualizar
-        </button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {onImprimirRelatorio && (
+            <BotaoAcao onClick={onImprimirRelatorio} title="Relatório de matérias-primas e embalagens da semana, para imprimir">
+              <Printer size={14} /> Relatório
+            </BotaoAcao>
+          )}
+          <BotaoAcao onClick={carregar} disabled={loading}>
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Atualizar
+          </BotaoAcao>
         </div>
       }
     >
-      <div className="space-y-5 p-4">
-        {erro && <p className="text-xs font-semibold text-rose-700">{erro}</p>}
+      <div style={{ padding: 16 }}>
+        {erro && <p style={{ fontSize: '0.78rem', color: 'hsl(var(--danger-hsl))', marginBottom: 8 }}>{erro}</p>}
 
-        {aba === 'decisoes' && dados && (
+        {aba === 'faltas' && dados && (
           <>
-            <div className="flex flex-wrap gap-2">
-              {(['ok', 'atencao', 'falta'] as StatusCobertura[]).map((st) => (
-                <span key={st} className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${COR_STATUS[st]}`}>
-                  {contagem[st] ?? 0} {ROTULO_STATUS[st]}
-                </span>
-              ))}
-              {(contagem.sem_formula ?? 0) > 0 && (
-                <span className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold ${COR_STATUS.sem_formula}`}>
-                  {contagem.sem_formula} {ROTULO_STATUS.sem_formula}
-                </span>
-              )}
+            <FilterBar busca={busca} onBusca={setBusca} placeholder="Buscar ordem ou insumo...">
+              <FiltroSelect
+                value={sit}
+                onChange={(v) => setSit(v as 'todas' | 'falta' | 'chega')}
+                opcoes={[
+                  { valor: 'todas', rotulo: 'Todas as situações' },
+                  { valor: 'falta', rotulo: 'Sem cobertura' },
+                  { valor: 'chega', rotulo: 'Chega depois' },
+                ]}
+              />
+            </FilterBar>
+            <div className="panel-card" style={{ overflowX: 'auto', padding: 0 }}>
+              <table className="data-table compacta">
+                <thead>
+                  <tr>
+                    <th style={{ width: '34%' }}>Ordem</th>
+                    <th>Insumo</th>
+                    <th className="numeric-col">Necessário</th>
+                    <th className="numeric-col">Livre</th>
+                    <th className="numeric-col">Falta</th>
+                    <th>Situação</th>
+                    <th style={{ textAlign: 'center' }}>Ação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vazio(faltasVisiveis.length, 'Nenhuma falta de insumo. Todas as ordens da semana estão cobertas.')}
+                  {faltasVisiveis.map(({ o, i }, idx) => {
+                    const primeira = idx === 0 || faltasVisiveis[idx - 1].o.id !== o.id;
+                    const [prod, det] = partesOrdem(descreverOrdem(o.id));
+                    const s = situacaoInsumo(i);
+                    const un = i.unidade ? ` ${i.unidade}` : '';
+                    const eq = i.equivalentes?.[0];
+                    const editando = trocaEmEdicao?.ordemId === o.id && trocaEmEdicao.de.codigo === i.codigo;
+                    return (
+                      <React.Fragment key={`${o.id}-${i.codigo}`}>
+                        <tr style={primeira && idx > 0 ? { borderTop: '2px solid hsl(var(--card-border-hsl))' } : undefined}>
+                          <td>
+                            {primeira && (
+                              <>
+                                <span className="product-code">{prod.split(' — ')[0]}</span>
+                                <div style={{ fontWeight: 600, fontSize: '0.72rem' }}>{prod.split(' — ').slice(1).join(' — ')}</div>
+                                <div style={{ fontSize: '0.62rem', color: 'hsl(var(--text-secondary-hsl))' }}>{det.replace('/2026', '')}</div>
+                              </>
+                            )}
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600 }}>{i.descricao}</div>
+                            <span className="product-code" style={{ fontSize: '0.65rem' }}>{i.codigo}</span>
+                          </td>
+                          <td className="numeric-col" style={nowrap}>{fmt(i.necessario)}{un}</td>
+                          <td className="numeric-col" style={{ ...nowrap, color: 'hsl(var(--text-secondary-hsl))' }}>{fmt(i.livreNaData)}</td>
+                          <td className="numeric-col" style={{ ...nowrap, fontWeight: 700, color: i.falta > 0 ? 'hsl(var(--danger-hsl))' : undefined }}>
+                            {i.falta > 0 ? `${fmt(i.falta)}${un}` : '-'}
+                          </td>
+                          <td>
+                            <StatusBadge variante={s.variante}>{s.rotulo}</StatusBadge>
+                            {s.detalhe && <div style={{ fontSize: '0.62rem', color: 'hsl(var(--text-secondary-hsl))', marginTop: 2 }}>{s.detalhe}</div>}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            {eq && (
+                              <button
+                                type="button"
+                                className="tab-btn"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', fontSize: '0.7rem', whiteSpace: 'nowrap' }}
+                                title={eq.cobreTudo ? `Tem ${fmt(eq.livre)} livre` : `Cobre ${fmt(eq.livre)} de ${fmt(i.necessario)}`}
+                                onClick={() => abrirTroca(o.id, o.produto ?? '', i, eq)}
+                              >
+                                <ArrowLeftRight size={12} /> <span style={{ maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis' }}>{eq.descricao || eq.codigo}</span>
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                        {editando && trocaEmEdicao && (
+                          <tr>
+                            <td colSpan={7} style={{ background: 'hsl(var(--background-hsl))', padding: '10px 14px' }}>
+                              <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 4 }}>
+                                Trocar {trocaEmEdicao.de.descricao || trocaEmEdicao.de.codigo} por {trocaEmEdicao.para.descricao || trocaEmEdicao.para.codigo}
+                              </div>
+                              {!trocaEmEdicao.para.cobreTudo && (
+                                <div style={{ fontSize: '0.7rem', color: 'hsl(var(--warning-hsl))' }}>
+                                  O substituto tem só {fmt(trocaEmEdicao.para.livre)} livre: ainda vai faltar.
+                                </div>
+                              )}
+                              {trocaEmEdicao.impacto && (
+                                <div style={{ fontSize: '0.7rem', color: 'hsl(var(--text-secondary-hsl))' }}>
+                                  {trocaEmEdicao.impacto.composicoesAfetadas} composição(ões) e {trocaEmEdicao.impacto.ordensPlanejadasAfetadas} ordem(ns) usam este insumo.
+                                </div>
+                              )}
+                              <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
+                                <label style={{ display: 'flex', gap: 5, alignItems: 'center', fontSize: '0.75rem' }}>
+                                  <input type="radio" checked={!trocaEmEdicao.soEsteProduto} onChange={() => setTrocaEmEdicao({ ...trocaEmEdicao, soEsteProduto: false })} /> Todos os produtos
+                                </label>
+                                <label style={{ display: 'flex', gap: 5, alignItems: 'center', fontSize: '0.75rem' }}>
+                                  <input type="radio" checked={trocaEmEdicao.soEsteProduto} onChange={() => setTrocaEmEdicao({ ...trocaEmEdicao, soEsteProduto: true })} /> Só {trocaEmEdicao.produto}
+                                </label>
+                                <BotaoAcao primario onClick={gravarTroca} disabled={salvando === o.id}>OK, trocar</BotaoAcao>
+                                <BotaoAcao onClick={() => setTrocaEmEdicao(null)}>Cancelar</BotaoAcao>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
+          </>
+        )}
 
-            {trocas.length > 0 && (
-              <section className="space-y-1.5">
-                <h3 className="text-xs font-bold text-zinc-900">Trocas de insumo ativas ({trocas.length})</h3>
-                <ul className="divide-y divide-zinc-100 border border-zinc-200 rounded-xl bg-white">
-                  {trocas.map((t) => (
-                    <li key={t.id} className="px-3 py-2 space-y-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="text-[11px] font-bold text-zinc-900">
-                          {t.descricaoDe || t.insumoDe} → {t.descricaoPara || t.insumoPara}
-                          <span className="font-normal text-zinc-500">
-                            {' '}
-                            · {t.produto ? `só ${t.descricaoProduto || t.produto}` : 'todos os produtos'}
-                          </span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => removerTroca(t.id)}
-                          className="shrink-0 px-2 py-1 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
-                        >
-                          Remover troca
-                        </button>
-                      </div>
-                      {t.formulaCorrigida ? (
-                        <p className="text-[11px] text-emerald-700">Nenhuma fórmula usa mais o insumo antigo: a troca pode ser removida.</p>
-                      ) : (
-                        <p className="text-[11px] text-amber-800">
-                          ⚠ {t.composicoesAfetadas} composição(ões) ainda usam {t.descricaoDe || t.insumoDe}. Corrija a fórmula: troque o
-                          insumo, ou exclua o insumo e adicione o correto. A troca não altera o ERP.
-                        </p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
-            {precisamAtencao.length === 0 && avisosGerais.length === 0 && (
-              <p className="text-xs text-zinc-600">Nada para decidir. Todas as ordens da semana estão cobertas.</p>
-            )}
-
-            {precisamAtencao.length > 0 && (
-              <ul className="divide-y divide-zinc-100 border border-zinc-200 rounded-xl bg-white">
-                {precisamAtencao.map((o) => (
-                  <li key={o.id} className="p-3 space-y-1.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="text-[11px] font-bold text-zinc-900">{descreverOrdem(o.id)}</span>
-                      <span className={`shrink-0 px-1.5 py-0.5 text-[10px] font-bold rounded border ${COR_STATUS[o.status]}`}>
-                        {ROTULO_STATUS[o.status]}
-                      </span>
-                    </div>
-                    {textoSemConsumo(o.motivoSemConsumo) && (
-                      <p className="text-[11px] text-zinc-500">{textoSemConsumo(o.motivoSemConsumo)}</p>
-                    )}
-                    {(o.insumos ?? [])
-                      .filter((i) => i.status !== 'ok')
-                      .map((i) => (
-                        <div key={i.codigo} className="space-y-1">
-                          <p className="text-[11px] text-zinc-700">• {textoInsumo(i)}</p>
-                          {(i.equivalentes ?? []).length > 0 && (
-                            <div className="flex flex-wrap gap-1.5 pl-3">
-                              {(i.equivalentes ?? []).slice(0, 3).map((eq) => (
-                                <button
-                                  key={eq.codigo}
-                                  type="button"
-                                  onClick={() => abrirTroca(o.id, o.produto ?? '', i, eq)}
-                                  className="px-2 py-1 text-[11px] font-bold rounded-lg border border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100 cursor-pointer"
-                                  title="Trocar este insumo pelo equivalente (não altera o ERP nem a fórmula)"
-                                >
-                                  Usar {eq.descricao || eq.codigo}
-                                  {eq.cobreTudo ? ` (tem ${fmt(eq.livre)})` : ` (cobre ${fmt(eq.livre)} de ${fmt(i.necessario)})`}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    {trocaEmEdicao?.ordemId === o.id && (
-                      <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-2 space-y-1.5 text-[11px] text-zinc-800">
-                        <div className="font-bold">
-                          Trocar {trocaEmEdicao.de.descricao || trocaEmEdicao.de.codigo} por{' '}
-                          {trocaEmEdicao.para.descricao || trocaEmEdicao.para.codigo}
-                        </div>
-                        {trocaEmEdicao.impacto && (
-                          <div className="text-zinc-600">
-                            Para todos os produtos: {trocaEmEdicao.impacto.composicoesAfetadas} composição(ões) e{' '}
-                            {trocaEmEdicao.impacto.ordensPlanejadasAfetadas} ordem(ns) planejada(s) usam este insumo.
-                            {trocaEmEdicao.impacto.jaExiste ? ' Já existe uma troca dele: a nova substitui o destino.' : ''}
-                          </div>
-                        )}
-                        {!trocaEmEdicao.para.cobreTudo && (
-                          <div className="text-amber-800">
-                            O substituto tem só {fmt(trocaEmEdicao.para.livre)} livre: ainda vai faltar. A troca vale para a previsão inteira.
-                          </div>
-                        )}
-                        <label className="flex items-center gap-1.5 cursor-pointer">
-                          <input
-                            type="radio"
-                            checked={!trocaEmEdicao.soEsteProduto}
-                            onChange={() => setTrocaEmEdicao({ ...trocaEmEdicao, soEsteProduto: false })}
-                          />
-                          Todos os produtos
-                        </label>
-                        <label className="flex items-center gap-1.5 cursor-pointer">
-                          <input
-                            type="radio"
-                            checked={trocaEmEdicao.soEsteProduto}
-                            onChange={() => setTrocaEmEdicao({ ...trocaEmEdicao, soEsteProduto: true })}
-                          />
-                          Só este produto ({trocaEmEdicao.produto})
-                        </label>
-                        <div className="flex gap-1.5 pt-0.5">
-                          <button
-                            type="button"
-                            disabled={salvando === o.id}
-                            onClick={gravarTroca}
-                            className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
-                          >
-                            OK
+        {aba === 'revisar' && dados && (
+          <div className="panel-card" style={{ overflowX: 'auto', padding: 0 }}>
+            <table className="data-table compacta">
+              <thead>
+                <tr>
+                  <th style={{ width: '24%' }}>Ordem / Insumo</th>
+                  <th>Aviso</th>
+                  <th>O que fazer</th>
+                  <th style={{ textAlign: 'center' }}>Ação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vazio(avisos.length, 'Nada para revisar agora.')}
+                {avisos.map((a, idx) => {
+                  const t = TITULO_AVISO[a.tipo] ?? { rotulo: a.tipo, variante: 'ordem' as VarianteBadge };
+                  const [prod, det] = a.ordemId ? partesOrdem(descreverOrdem(a.ordemId)) : [a.insumo ?? 'Pedido', a.pedido ? `Pedido ${a.pedido}${a.fornecedor ? ` · ${a.fornecedor}` : ''}` : ''];
+                  const alvo = a.candidatos?.[0];
+                  return (
+                    <tr key={`${a.tipo}-${a.ordemId ?? a.insumo ?? ''}-${a.pedido ?? ''}-${idx}`}>
+                      <td>
+                        <div className="product-desc" style={{ fontWeight: 600 }}>{prod}</div>
+                        <div style={{ fontSize: '0.65rem', color: 'hsl(var(--text-secondary-hsl))' }}>{det}</div>
+                      </td>
+                      <td><StatusBadge variante={t.variante}>{t.rotulo}</StatusBadge></td>
+                      <td style={{ fontSize: '0.72rem', color: 'hsl(var(--text-secondary-hsl))' }}>{a.mensagem}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        {a.tipo === 'lote_erp_sem_vinculo' && a.ordemId && a.lote && (
+                          <button type="button" className="tab-btn" style={{ display: 'inline-flex', gap: 4, alignItems: 'center', padding: '3px 8px', fontSize: '0.7rem', whiteSpace: 'nowrap' }} onClick={() => onVincular(a.ordemId as string, a.lote as string)}>
+                            <Link2 size={12} /> Vincular #{a.lote}
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => setTrocaEmEdicao(null)}
-                            className="px-2.5 py-1 text-[11px] font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
-                          >
-                            Cancelar
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    {(o.avisos ?? []).map((a, idx) => (
-                      <div key={idx} className="flex items-center justify-between gap-2">
-                        <p className="text-[11px] text-amber-800">⚠ {a.mensagem}</p>
-                        {(a.tipo === 'sugestao_base' || a.tipo === 'base_tambem_planejada') && a.candidatos?.[0] && (
-                          <button
-                            type="button"
-                            disabled={salvando === o.id}
-                            onClick={() => definirBaseFonte(o.id, a.candidatos?.[0] as BaseFonte)}
-                            className="shrink-0 px-2 py-1 text-[11px] font-bold rounded-lg border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 cursor-pointer"
-                          >
+                        )}
+                        {(a.tipo === 'sugestao_base' || a.tipo === 'base_tambem_planejada') && a.ordemId && alvo && (
+                          <button type="button" className="tab-btn" disabled={salvando === a.ordemId} style={{ padding: '3px 8px', fontSize: '0.7rem', whiteSpace: 'nowrap' }} onClick={() => definirBaseFonte(a.ordemId as string, alvo as BaseFonte)}>
                             {a.tipo === 'sugestao_base' ? 'Aplicar' : 'Usar ordem da base'}
                           </button>
                         )}
-                        {a.tipo === 'lote_erp_sem_vinculo' && a.lote && (
-                          <button
-                            type="button"
-                            onClick={() => onVincular(o.id, a.lote as string)}
-                            className="shrink-0 inline-flex items-center gap-1.5 px-2 py-1 text-[11px] font-bold rounded-lg border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50 cursor-pointer"
-                          >
-                            <Link2 className="h-3.5 w-3.5" />
-                            Vincular #{a.lote}
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </li>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {aba === 'bases' && dados && (
+          <div className="panel-card" style={{ overflowX: 'auto', padding: 0 }}>
+            <table className="data-table compacta">
+              <thead>
+                <tr>
+                  <th style={{ width: '32%' }}>Ordem</th>
+                  <th>Base</th>
+                  <th>De onde sai</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vazio(ordensComBase.length, 'Nenhuma ordem da semana usa base.')}
+                {ordensComBase.map((o) => {
+                  const [prod, det] = partesOrdem(descreverOrdem(o.id));
+                  const atual = o.baseFonte ?? 'explodir';
+                  return (
+                    <tr key={o.id}>
+                      <td>
+                        <div className="product-desc" style={{ fontWeight: 600 }}>{prod}</div>
+                        <div style={{ fontSize: '0.65rem', color: 'hsl(var(--text-secondary-hsl))' }}>{det}</div>
+                      </td>
+                      <td style={{ fontSize: '0.75rem' }}>{(o.bases ?? []).map((b) => b.descricao || b.codigo).join(', ')}</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {(Object.keys(BASE_FONTE_ROTULO) as BaseFonte[]).map((f) => (
+                            <button
+                              key={f}
+                              type="button"
+                              className={`tab-btn ${atual === f ? 'active' : ''}`}
+                              disabled={salvando === o.id}
+                              style={{ padding: '3px 8px', fontSize: '0.7rem', whiteSpace: 'nowrap' }}
+                              onClick={() => atual !== f && definirBaseFonte(o.id, f)}
+                            >
+                              {BASE_FONTE_ROTULO[f]}
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {aba === 'trocas' && dados && (
+          <div className="panel-card" style={{ overflowX: 'auto', padding: 0 }}>
+            <table className="data-table compacta">
+              <thead>
+                <tr>
+                  <th>Troca</th>
+                  <th>Vale para</th>
+                  <th>Fórmula</th>
+                  <th style={{ textAlign: 'center' }}>Ação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vazio(trocas.length, 'Nenhuma troca de insumo ativa. As trocas nascem na aba Faltas, no botão ao lado do insumo.')}
+                {trocas.map((t) => (
+                  <tr key={t.id}>
+                    <td>
+                      <span style={{ fontWeight: 600 }}>{t.descricaoDe || t.insumoDe}</span>
+                      <span style={{ color: 'hsl(var(--text-secondary-hsl))' }}> → </span>
+                      <span style={{ fontWeight: 600 }}>{t.descricaoPara || t.insumoPara}</span>
+                    </td>
+                    <td style={{ fontSize: '0.75rem' }}>{t.produto ? `só ${t.descricaoProduto || t.produto}` : 'todos os produtos'}</td>
+                    <td>
+                      {t.formulaCorrigida ? (
+                        <StatusBadge variante="saudavel">Corrigida</StatusBadge>
+                      ) : (
+                        <StatusBadge variante="ordem" title="Troque o insumo na fórmula, ou exclua e adicione o correto. A troca não altera o ERP.">
+                          Corrigir em {t.composicoesAfetadas}
+                        </StatusBadge>
+                      )}
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <button type="button" className="tab-btn" style={{ padding: '3px 8px', fontSize: '0.7rem' }} onClick={() => removerTroca(t.id)}>
+                        Remover
+                      </button>
+                    </td>
+                  </tr>
                 ))}
-              </ul>
-            )}
-
-            {ordensComBase.length > 0 && (
-              <details className="border border-zinc-200 rounded-xl bg-white">
-                <summary className="px-3 py-2 text-xs font-bold text-zinc-900 cursor-pointer">
-                  Origem das bases ({ordensComBase.length})
-                </summary>
-                <ul className="divide-y divide-zinc-100 border-t border-zinc-100">
-                  {ordensComBase.map((o) => (
-                    <li key={o.id} className="px-3 py-2 space-y-1.5">
-                      <div className="text-[11px] font-bold text-zinc-900">{descreverOrdem(o.id)}</div>
-                      <div className="text-[11px] text-zinc-500">
-                        Base: {(o.bases ?? []).map((b) => b.descricao || b.codigo).join(', ')}
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {(Object.keys(BASE_FONTE_ROTULO) as BaseFonte[]).map((f) => (
-                          <button
-                            key={f}
-                            type="button"
-                            disabled={salvando === o.id}
-                            onClick={() => (o.baseFonte ?? 'explodir') !== f && definirBaseFonte(o.id, f)}
-                            className={`px-2 py-1 text-[11px] font-bold rounded-lg border cursor-pointer disabled:opacity-50 ${
-                              (o.baseFonte ?? 'explodir') === f
-                                ? 'bg-zinc-900 text-white border-zinc-900'
-                                : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
-                            }`}
-                          >
-                            {BASE_FONTE_ROTULO[f]}
-                          </button>
-                        ))}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            )}
-
-            {ORDEM_AVISOS.filter((t) => (avisosGeraisPorTipo[t] ?? []).length > 0).map((tipo) => (
-              <section key={tipo} className="space-y-1.5">
-                <h3 className="text-xs font-bold text-zinc-900">
-                  {TITULO_AVISO[tipo]} ({avisosGeraisPorTipo[tipo].length})
-                </h3>
-                <ul className="divide-y divide-zinc-100 border border-zinc-200 rounded-xl bg-white">
-                  {avisosGeraisPorTipo[tipo].map((a, idx) => (
-                    <li key={`${tipo}-${idx}`} className="px-3 py-2 text-[11px] text-zinc-700">
-                      {a.mensagem}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
-          </>
+              </tbody>
+            </table>
+          </div>
         )}
 
         {aba === 'insumos' && dados && (

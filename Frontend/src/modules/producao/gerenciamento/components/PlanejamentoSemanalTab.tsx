@@ -3620,6 +3620,7 @@ export function PlanejamentoSemanalTab({
                                               <SeloCobertura
                                                 resultado={piorResultado(batch.items.map(it => coberturaPorOrdem[it.id]))}
                                                 onClick={() => setCoberturaAberta(true)}
+                                                compacto
                                               />
                                             </div>
 

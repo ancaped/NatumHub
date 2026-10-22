@@ -149,13 +149,30 @@ const ESTILO: Record<StatusCobertura, { cls: string; rotulo: string }> = {
 };
 
 /** Selo pequeno de cobertura de insumos; o tooltip lista até 4 problemas. */
-export function SeloCobertura({ resultado, onClick }: { resultado?: ResultadoOrdem; onClick?: () => void }) {
+export function SeloCobertura({ resultado, onClick, compacto }: { resultado?: ResultadoOrdem; onClick?: () => void; compacto?: boolean }) {
   if (!resultado || !resultado.consome) return null;
   const { cls, rotulo } = ESTILO[resultado.status];
   const linhas = [
     ...(resultado.insumos ?? []).filter((i) => i.status !== 'ok').map(textoInsumo),
     ...(resultado.avisos ?? []).map((a) => a.mensagem),
   ].slice(0, 4);
+  const titulo = linhas.length > 0 ? linhas.join('\n') : 'Insumos cobrem esta produção no dia planejado';
+  if (compacto) {
+    // só um ponto colorido (cabe no cartão do quadro); o texto fica no tooltip e o clique abre os detalhes
+    const cor = resultado.status === 'falta' ? 'hsl(var(--danger-hsl))' : resultado.status === 'atencao' ? 'hsl(var(--warning-hsl))' : resultado.status === 'ok' ? 'hsl(var(--success-hsl))' : 'hsl(var(--text-secondary-hsl))';
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick?.();
+        }}
+        title={`${rotulo}${linhas.length > 0 ? '\n' + linhas.join('\n') : ''}`}
+        style={{ width: 10, height: 10, borderRadius: '50%', background: cor, border: 'none', padding: 0, flexShrink: 0, cursor: 'pointer' }}
+        aria-label={rotulo}
+      />
+    );
+  }
   return (
     <button
       type="button"
