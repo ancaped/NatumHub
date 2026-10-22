@@ -202,6 +202,12 @@ export const MODULE_CATALOG: ModuleCatalogItem[] = [
     group: 'Sistema & Ferramentas',
     subPages: ['Impressoras de Rede', 'Zebra / Argox', 'Status Spooler'],
   },
+  {
+    key: 'ferramentas_balanca',
+    label: 'Ferramentas > Carga da Balança',
+    group: 'Sistema & Ferramentas',
+    subPages: ['Códigos rápidos', 'ITENSMGV.TXT', 'Relatório'],
+  },
 ];
 
 /** Resolve o item de catálogo a partir de uma view ou chave */

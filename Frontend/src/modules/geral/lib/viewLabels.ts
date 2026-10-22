@@ -122,6 +122,8 @@ export function getModuleTitle(view: string): string {
       return 'Ferramentas > Editor de Etiquetas';
     case 'ferramentas_impressoras':
       return 'Ferramentas > Central de Impressoras';
+    case 'ferramentas_balanca':
+      return 'Ferramentas > Carga da Balança';
     case 'hub_settings':
       return 'Configurações Gerais';
     case 'hub_supervisor':

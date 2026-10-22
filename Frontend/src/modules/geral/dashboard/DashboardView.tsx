@@ -3,7 +3,7 @@ import {
   Boxes, ShoppingCart, Activity, FlaskConical, ArrowRight, ArrowLeft, GitCompare,
   Settings, Database, RefreshCw, Upload, Download, Loader2, Check, X, Globe,
   FileText, ClipboardList, CheckCircle2, Palette, Tag, Layers, TrendingUp, DollarSign,
-  ClipboardCheck, Briefcase, Truck, Warehouse, Calculator, Wrench, Printer
+  ClipboardCheck, Briefcase, Truck, Warehouse, Calculator, Wrench, Printer, Scale
 } from 'lucide-react';
 import { canAccessView } from '../lib/modules/permissions';
 import type { AuthUser } from '../lib/auth';
@@ -621,6 +621,26 @@ export default function DashboardView({
                 </div>
                 <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
                   Acessar Impressoras <ArrowRight className="h-3 w-3" />
+                </div>
+              </button>
+              )}
+
+              {allow('ferramentas_balanca') && (
+              <button 
+                onClick={() => setView('ferramentas_balanca')}
+                className="group bg-white border border-zinc-200 hover:border-zinc-400 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-left flex flex-col justify-between h-56 focus:outline-none w-full cursor-pointer"
+              >
+                <div className="space-y-4">
+                  <div className="bg-zinc-100 text-zinc-900 p-3 rounded-xl w-fit group-hover:bg-zinc-900 group-hover:text-white transition-colors">
+                    <Scale className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-zinc-900">Carga da Balança</h3>
+                    <p className="text-xs text-zinc-500 mt-1">Gere a carga de matérias-primas (ITENSMGV.TXT) para a balança Toledo, com código rápido permanente e relatório para imprimir.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 mt-4 group-hover:translate-x-1 transition-transform">
+                  Acessar Carga <ArrowRight className="h-3 w-3" />
                 </div>
               </button>
               )}

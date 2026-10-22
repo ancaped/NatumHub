@@ -75,6 +75,7 @@ export const MODULE_KEYS = {
   FERRAMENTAS_ETIQUETAS: 'ferramentas_etiquetas',
   FERRAMENTAS_EDITOR: 'ferramentas_editor',
   FERRAMENTAS_IMPRESSORAS: 'ferramentas_impressoras',
+  FERRAMENTAS_BALANCA: 'ferramentas_balanca',
   CONFIGURACOES: 'hub_settings',
   OPERADORES: 'hub_operadores',
 } as const;
@@ -202,6 +203,7 @@ export function moduleRegistry(): ModuleGroup[] {
         { key: MODULE_KEYS.FERRAMENTAS_ETIQUETAS, label: 'Etiquetas' },
         { key: MODULE_KEYS.FERRAMENTAS_EDITOR, label: 'Editor de Etiquetas' },
         { key: MODULE_KEYS.FERRAMENTAS_IMPRESSORAS, label: 'Central de Impressoras' },
+        { key: MODULE_KEYS.FERRAMENTAS_BALANCA, label: 'Carga da Balança' },
       ],
     },
     {
