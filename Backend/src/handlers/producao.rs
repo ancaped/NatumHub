@@ -5543,27 +5543,6 @@ pub async fn delete_fila_demanda(
     }
 }
 
-pub async fn clear_fila_demandas(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
-    match sqlx::query("DELETE FROM producao_fila_demandas")
-        .execute(pool)
-        .await
-    {
-        Ok(res) => (
-            StatusCode::OK,
-            Json(json!({ "ok": true, "deleted": res.rows_affected() })),
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao limpar fila de demandas: {}", e) })),
-        )
-            .into_response(),
-    }
-}
-
 fn normalize_base_key(raw: &str) -> String {
     let mut s = raw
         .to_uppercase()

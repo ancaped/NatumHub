@@ -240,8 +240,7 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
         .route(
             "/api/producao/fila-demandas",
             get(handlers::list_fila_demandas)
-                .post(handlers::create_fila_demandas)
-                .delete(handlers::clear_fila_demandas),
+                .post(handlers::create_fila_demandas),
         )
         .route(
             "/api/producao/fila-demandas/:id",
@@ -284,6 +283,7 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
         .merge(modules::producao::proc::router())
         .merge(modules::producao::cobertura::router())
         .merge(modules::producao::decisoes::router())
+        .merge(modules::producao::fila::router())
         .merge(modules::producao::trocas::router())
         .merge(modules::producao::auditoria::router())
         .merge(modules::producao::insumos_classificacao::router())

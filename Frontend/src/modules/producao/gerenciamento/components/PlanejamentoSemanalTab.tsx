@@ -15,6 +15,7 @@ import { loadNatumLogoDataUrl } from '../../../geral/lib/logoUtils';
 import { getHoliday, getBrazilHolidaysForYear, HolidayInfo } from '../../../geral/lib/brazilHolidays';
 import { ProductDetailsDrawer } from './ProductDetailsDrawer';
 import CoberturaInsumosDrawer from './CoberturaInsumosDrawer';
+import RetirarDaFilaDrawer from './RetirarDaFilaDrawer';
 import { SeloCobertura, piorResultado, useCoberturaSemana, useCoberturaFila, chaveCandidato } from './cobertura';
 
 export interface InsumoConsumoItem {
@@ -559,7 +560,7 @@ export function PlanejamentoSemanalTab({
   const [demandBankOpen, setDemandBankOpen] = useState(true);
   const [demandSearch, setDemandSearch] = useState('');
   const [filaDemandas, setFilaDemandas] = useState<any[]>([]);
-  const [demandTabFilter, setDemandTabFilter] = useState<'ALL' | 'DEMANDAS'>('ALL');
+  const [retirarFilaId, setRetirarFilaId] = useState<string | null>(null);
   const [demandFilter, setDemandFilter] = useState<'FILA' | 'ALL' | 'CRITICOS' | 'PROGRAMADAS' | 'KITS' | 'BASES'>('FILA');
   const [selectedLineFilter, setSelectedLineFilter] = useState<string>('ALL');
 
@@ -926,7 +927,7 @@ export function PlanejamentoSemanalTab({
       }
     }
     return grouped;
-  }, [products, filaDemandas, demandSearch, demandTabFilter]);
+  }, [products, filaDemandas, demandSearch]);
 
   // Mapeamento de Itens Agendados na Grade (por Reator e por Dia)
   const matrixItemsMap = useMemo(() => {
@@ -3623,28 +3624,6 @@ export function PlanejamentoSemanalTab({
                 </span>
               </div>
 
-              {/* Filtro Rápido de Origem: Todos / Em Espera / Fila PCP */}
-              <div className="grid grid-cols-2 gap-1 bg-zinc-100 p-0.5 rounded-lg text-[10px] font-semibold text-zinc-600">
-                <button
-                  type="button"
-                  onClick={() => setDemandTabFilter('ALL')}
-                  className={`py-1 rounded-md transition-all text-center ${
-                    demandTabFilter === 'ALL' ? 'bg-white text-zinc-900 shadow-2xs font-bold' : 'hover:text-zinc-900'
-                  }`}
-                >
-                  Todos ({filaDemandas.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDemandTabFilter('DEMANDAS')}
-                  className={`py-1 rounded-md transition-all text-center ${
-                    demandTabFilter === 'DEMANDAS' ? 'bg-white text-zinc-900 shadow-2xs font-bold' : 'hover:text-zinc-900'
-                  }`}
-                >
-                  Fila PCP ({filaDemandas.length})
-                </button>
-              </div>
-
               {/* Campo de Busca */}
               <div className="relative">
                 <Search size={13} className="absolute left-2.5 top-2.5 text-zinc-400" />
@@ -3819,6 +3798,17 @@ export function PlanejamentoSemanalTab({
                           <Info size={13} className="text-zinc-500" />
                           <span>Ver Detalhes</span>
                         </button>
+                        <div className="flex items-center gap-1.5">
+                        {(prod as any)._filaId && (
+                          <button
+                            type="button"
+                            onClick={() => setRetirarFilaId(String((prod as any)._filaId))}
+                            className="px-2.5 py-1 text-xs font-bold rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
+                            title="Tirar este item da fila"
+                          >
+                            Tirar
+                          </button>
+                        )}
                         <button
                           onClick={() => handleOpenScheduleModal(prod)}
                           className="flex items-center gap-1 px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer shadow-xs bg-zinc-900 hover:bg-zinc-800 text-white"
@@ -3826,6 +3816,7 @@ export function PlanejamentoSemanalTab({
                           <Plus size={13} />
                           <span>Agendar</span>
                         </button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -5110,6 +5101,16 @@ export function PlanejamentoSemanalTab({
 
 
       {/* MODAL: RELATÓRIO DE CONSUMO DE MATÉRIAS-PRIMAS E EMBALAGENS */}
+      {retirarFilaId && (
+        <RetirarDaFilaDrawer
+          filaId={retirarFilaId}
+          onClose={() => setRetirarFilaId(null)}
+          onRetirado={() => {
+            setRetirarFilaId(null);
+            fetchFila();
+          }}
+        />
+      )}
       <CoberturaInsumosDrawer
         isOpen={coberturaAberta}
         onClose={() => setCoberturaAberta(false)}

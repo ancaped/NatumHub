@@ -330,19 +330,19 @@ export function InventoryTab({
 
     setSavingQueueCode(p.codigo);
     try {
-      const res = await apiFetch(`/producao/fila-demandas/${encodeURIComponent(targetId)}`, {
-        method: 'DELETE'
+      await apiJson(`/api/producao/fila-demandas/${encodeURIComponent(targetId)}/retirar`, {
+        method: 'POST',
+        body: JSON.stringify({ motivo, confirmar: true }),
       });
-      if (res.ok) {
-        await lembrarDescarte(p.codigo, motivo);
-        setMotivoPara(null);
-        setMotivoOutro('');
-        setEditingQueueCode(null);
-        await fetchQueue();
-        if (onRefresh) onRefresh();
-      }
+      setDescartados((prev) => new Map(prev).set(String(p.codigo).trim(), motivo));
+      setMotivoPara(null);
+      setMotivoOutro('');
+      setEditingQueueCode(null);
+      await fetchQueue();
+      if (onRefresh) onRefresh();
     } catch (err) {
       console.error('Erro ao remover da fila de demandas:', err);
+      alert(err instanceof Error ? err.message : 'Não foi possível tirar da fila.');
     } finally {
       setSavingQueueCode(null);
     }
