@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Link2, Printer, RefreshCw, Tags } from 'lucide-react';
 import Drawer, { DrawerTab } from '../../../geral/components/ui/Drawer';
 import { apiJson } from '../../../geral/lib/http';
+import { printHtmlViaIframe } from '../../../geral/lib/printCleanup';
 import { BASE_FONTE_ROTULO, fmt, fmtData } from './cobertura';
 import type { BaseFonte, Cobertura, InsumoOrdem, ResultadoOrdem } from './cobertura';
 import { BotaoAcao, FilterBar, FiltroSelect, StatusBadge } from '../../../geral/components/ui/ReportKit';
@@ -17,8 +18,6 @@ interface Props {
   descreverOrdem: (id: string) => string;
   /** Abre o modal "Vincular lote ERP" já com o número sugerido. */
   onVincular: (ordemId: string, lote: string) => void;
-  /** Abre o relatório imprimível de matérias-primas e embalagens da semana. */
-  onImprimirRelatorio?: () => void;
   /** Avisa o quadro que uma decisão mudou (para atualizar os selos). */
   onMudou?: () => void;
 }
@@ -93,7 +92,7 @@ function ComoFoiCalculado({ i }: { i: InsumoOrdem }) {
  * Insumos da semana: faltas por ordem (expansíveis), o que revisar, origem das bases e a classificação dos
  * insumos. Só avisa, nunca bloqueia. Regras e raciocínio no backend: cobertura/calc.rs.
  */
-export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descreverOrdem, onVincular, onImprimirRelatorio, onMudou }: Props) {
+export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descreverOrdem, onVincular, onMudou }: Props) {
   const [dados, setDados] = useState<Cobertura | null>(null);
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -147,6 +146,22 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
   const avisos = dados?.avisos ?? [];
   const ordensComBase = useMemo(() => ordens.filter((o) => (o.bases ?? []).length > 0), [ordens]);
   const insumos = dados?.insumos ?? [];
+
+  // Mesma conta da aba Insumos (estoque, reserva, consumo previsto), pior saldo primeiro.
+  const imprimir = () => {
+    const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const linhas = [...insumos]
+      .sort((a, b) => a.livre - a.consumoPrevisto - (b.livre - b.consumoPrevisto))
+      .map((i) => {
+        const saldo = i.livre - i.consumoPrevisto;
+        const un = i.unidade ? ` ${esc(i.unidade)}` : '';
+        return `<tr><td>${esc(i.descricao || i.codigo)}<br><small>${esc(i.codigo)}</small></td><td>${fmt(i.estoque)}${un}</td><td>${fmt(i.reserva)}</td><td>${fmt(i.livre)}</td><td>${fmt(i.consumoPrevisto)}</td><td style="font-weight:700;color:${saldo < 0 ? '#b91c1c' : '#18181b'}">${fmt(saldo)}</td></tr>`;
+      })
+      .join('');
+    printHtmlViaIframe(
+      `<html><head><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;font-size:11px;margin:16px}h1{font-size:14px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #d4d4d8;padding:4px 6px;text-align:left}th{background:#f4f4f5}td:nth-child(n+2){text-align:right}small{color:#71717a}</style></head><body><h1>Insumos da semana ${esc(semana)}</h1><table><thead><tr><th>Insumo</th><th>Estoque</th><th>Reserva</th><th>Livre</th><th>Consumo previsto</th><th>Saldo</th></tr></thead><tbody>${linhas}</tbody></table></body></html>`
+    );
+  };
 
   // ordens com algum insumo que não está OK, já filtradas pela busca e pela situação
   const grupos = useMemo(() => {
@@ -209,11 +224,9 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
       loadingText="Calculando a cobertura..."
       headerActions={
         <div style={{ display: 'flex', gap: 6 }}>
-          {onImprimirRelatorio && (
-            <BotaoAcao onClick={onImprimirRelatorio} title="Relatório de matérias-primas e embalagens da semana, para imprimir">
-              <Printer size={14} /> Relatório
-            </BotaoAcao>
-          )}
+          <BotaoAcao onClick={imprimir} disabled={!dados} title="Imprime os insumos da semana com a mesma conta desta tela">
+            <Printer size={14} /> Imprimir
+          </BotaoAcao>
           <BotaoAcao onClick={carregar} disabled={loading}>
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Atualizar
           </BotaoAcao>

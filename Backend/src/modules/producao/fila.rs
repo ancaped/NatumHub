@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
-use crate::modules::producao::{auditoria, decisoes};
+use crate::modules::producao::{auditoria, decisoes, permissao};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new().route("/api/producao/fila-demandas/:id/retirar", post(retirar_rota))
@@ -139,6 +139,9 @@ async fn retirar_rota(
     Path(id): Path<String>,
     Json(b): Json<RetirarBody>,
 ) -> impl IntoResponse {
+    if let Err(r) = permissao::exigir_edicao(&ctx) {
+        return r;
+    }
     let pool = state.db.pool();
     let motivo = b.motivo.trim();
     if !decisoes::valor_valido(decisoes::TIPO_FILA_DESCARTADA, motivo) {

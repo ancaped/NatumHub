@@ -16,34 +16,8 @@ import { getHoliday, getBrazilHolidaysForYear, HolidayInfo } from '../../../gera
 import { ProductDetailsDrawer } from './ProductDetailsDrawer';
 import CoberturaInsumosDrawer from './CoberturaInsumosDrawer';
 import RetirarDaFilaDrawer from './RetirarDaFilaDrawer';
+import { canEdit, getAuthUser } from '../../../geral/lib/auth';
 import { SeloCobertura, piorResultado, useCoberturaSemana, useCoberturaFila, chaveCandidato } from './cobertura';
-
-export interface InsumoConsumoItem {
-  code: string;
-  description: string;
-  category: 'materia_prima' | 'embalagem';
-  unit: string;
-  totalRequired: number;
-  currentStock: number;
-  projectedBalance: number;
-  isMissing: boolean;
-  missingQty: number;
-  purchaseOrders: {
-    n_pedido: number;
-    c_nome_f?: string;
-    d_previsao?: string;
-    n_qtde: number;
-    n_chegou: number;
-    n_pendente: number;
-  }[];
-  nextDeliveryDate?: string;
-  productsUsedIn: {
-    productCode: string;
-    description: string;
-    batchKg: number;
-    requiredQty: number;
-  }[];
-}
 
 export interface ReatorConfig {
   id: string;
@@ -531,6 +505,9 @@ export function PlanejamentoSemanalTab({
   onCurrentDateChange,
   onShowDetails,
 }: PlanejamentoSemanalTabProps) {
+  // Só quem tem o módulo com nível "editar" (Configurações → Operadores) grava; o servidor também confere (403).
+  const podeEditar = useMemo(() => canEdit(getAuthUser(), 'planejamento_producao'), []);
+
   // Estado da semana atual selecionada (sincronizada com prop se fornecida)
   const [internalCurrentDate, setInternalCurrentDate] = useState<Date>(() => new Date());
   const currentDate = propCurrentDate || internalCurrentDate;
@@ -644,14 +621,7 @@ export function PlanejamentoSemanalTab({
   const [draggedDrawerProduct, setDraggedDrawerProduct] = useState<any | null>(null);
   const [dragOverCell, setDragOverCell] = useState<{ reatorId: string; dateStr: string } | null>(null);
 
-  // Modal Relatório de Consumo de Insumos & Embalagens da Semana
-  const [materialsReportOpen, setMaterialsReportOpen] = useState(false);
   const [coberturaAberta, setCoberturaAberta] = useState(false);
-  const [loadingMaterialsReport, setLoadingMaterialsReport] = useState(false);
-  const [materialsList, setMaterialsList] = useState<InsumoConsumoItem[]>([]);
-  const [materialsFilterTab, setMaterialsFilterTab] = useState<'ALL' | 'FALTAS' | 'MP' | 'EMB'>('ALL');
-  const [materialsSearch, setMaterialsSearch] = useState('');
-  const [hideAgua, setHideAgua] = useState(true);
 
   // Drawer autônomo de Detalhes do Produto
   const [internalDrawerCode, setInternalDrawerCode] = useState<string | null>(null);
@@ -1793,266 +1763,6 @@ export function PlanejamentoSemanalTab({
   };
 
   // ==========================================
-  // RELATÓRIO DE CONSUMO DE MATÉRIAS-PRIMAS E EMBALAGENS DA SEMANA
-  // ==========================================
-  const handleOpenMaterialsReport = async () => {
-    setMaterialsReportOpen(true);
-    setLoadingMaterialsReport(true);
-
-    try {
-      // 1. Agrupar produtos planejados na semana e somar massa total por código
-      const productBatchMap = new Map<string, { productCode: string; description: string; totalKg: number; totalUnits: number }>();
-      for (const item of plannedItems) {
-        const code = item.codigo_produto;
-        if (!code) continue;
-        const kg = Number(item.quantidade_planejada || 0);
-        const uWeight = parseProductUnitWeightKg(item.descricao);
-        const units = Math.max(1, Math.round(kg / (uWeight || 1.0)));
-
-        const existing = productBatchMap.get(code);
-        if (existing) {
-          existing.totalKg += kg;
-          existing.totalUnits += units;
-        } else {
-          productBatchMap.set(code, {
-            productCode: code,
-            description: item.descricao || code,
-            totalKg: kg,
-            totalUnits: units
-          });
-        }
-      }
-
-      const uniqueProducts = Array.from(productBatchMap.values());
-      if (uniqueProducts.length === 0) {
-        setMaterialsList([]);
-        setLoadingMaterialsReport(false);
-        return;
-      }
-
-      // 2. Buscar insumos de cada produto em paralelo via /producao/insumos-status/:code?bulk_kg=...&qty=...
-      const fetchPromises = uniqueProducts.map(async (prod) => {
-        try {
-          const cleanCode = encodeURIComponent(prod.productCode.trim());
-          const res = await apiFetch(`/producao/insumos-status/${cleanCode}?bulk_kg=${prod.totalKg}&qty=${prod.totalUnits}`);
-          if (res.ok) {
-            const data = await res.json();
-            return { prod, data };
-          }
-          return null;
-        } catch (e) {
-          console.warn(`Erro ao buscar insumos de ${prod.productCode}:`, e);
-          return null;
-        }
-      });
-
-      const results = await Promise.all(fetchPromises);
-
-      // 3. Consolidar e somar todos os insumos e embalagens
-      const aggregatedMap = new Map<string, InsumoConsumoItem>();
-
-      for (const resItem of results) {
-        if (!resItem || !resItem.data || !resItem.data.ingredients) continue;
-        const { prod, data } = resItem;
-
-        for (const ing of data.ingredients) {
-          const ingCode = (ing.ingredient_code || '').trim();
-          if (!ingCode) continue;
-          const descUpper = (ing.description || '').toUpperCase();
-
-          // Identificar com precisão industrial se é Embalagem ou Matéria-Prima Química
-          // No ERP da fábrica:
-          // - MPs Químicas: códigos 9.15.*, 9.16.*, 9.17.*, 9.18.*, 9.20.* ou category_id = cat_mp
-          // - Embalagens: códigos 9.02.*, 9.04.*, 9.06.*, 9.09.*, 9.11.*, 9.29.*, 9.30.*, 9.31.*, 9.32.* ou category_id = cat_emb
-          const isExplicitMp = 
-            ing.category_id === 'cat_mp' ||
-            ing.category_id === 'materia_prima' ||
-            ingCode.startsWith('9.15.') ||
-            ingCode.startsWith('9.16.') ||
-            ingCode.startsWith('9.17.') ||
-            ingCode.startsWith('9.18.') ||
-            ingCode.startsWith('9.20.') ||
-            descUpper.includes('ACIDO') ||
-            descUpper.includes('ÁCIDO') ||
-            descUpper.includes('ALCOOL') ||
-            descUpper.includes('ÁLCOOL') ||
-            descUpper.includes('EXTRATO') ||
-            descUpper.includes('OLEO') ||
-            descUpper.includes('ÓLEO') ||
-            descUpper.includes('ESSENCIA') ||
-            descUpper.includes('ESSÊNCIA') ||
-            descUpper.includes('FRAGRANCIA') ||
-            descUpper.includes('FRAGRÂNCIA') ||
-            descUpper.includes('CORANTE') ||
-            descUpper.includes('CONSERVANTE') ||
-            descUpper.includes('LAURIL') ||
-            descUpper.includes('SILICONE') ||
-            descUpper.includes('QUATERNARIO') ||
-            descUpper.includes('QUATERNÁRIO') ||
-            descUpper.includes('GLICERINA') ||
-            descUpper.includes('MANTEIGA') ||
-            descUpper.includes('AGUA') ||
-            descUpper.includes('ÁGUA');
-
-          const isEmbalagem = !isExplicitMp && (
-            ing.category_id === 'cat_emb' ||
-            ing.category_id === 'embalagem' ||
-            ingCode.startsWith('9.02.') ||
-            ingCode.startsWith('9.04.') ||
-            ingCode.startsWith('9.06.') ||
-            ingCode.startsWith('9.09.') ||
-            ingCode.startsWith('9.11.') ||
-            ingCode.startsWith('9.29.') ||
-            ingCode.startsWith('9.30.') ||
-            ingCode.startsWith('9.31.') ||
-            ingCode.startsWith('9.32.') ||
-            descUpper.startsWith('PT ') ||
-            descUpper.startsWith('FR ') ||
-            descUpper.startsWith('TP ') ||
-            descUpper.startsWith('CX ') ||
-            descUpper.startsWith('ROT ') ||
-            descUpper.startsWith('ETIQ ') ||
-            descUpper.includes('FRASCO') ||
-            descUpper.includes('TAMPA') ||
-            descUpper.includes('ROTULO') ||
-            descUpper.includes('RÓTULO') ||
-            descUpper.includes('CAIXA') ||
-            descUpper.includes('POTE') ||
-            descUpper.includes('VALVULA') ||
-            descUpper.includes('VÁLVULA') ||
-            descUpper.includes('BISNAGA') ||
-            descUpper.includes('CARTUCHO') ||
-            descUpper.includes('BICO') ||
-            descUpper.includes('SACHE') ||
-            descUpper.includes('SACHÊ') ||
-            descUpper.includes('ETIQUETA') ||
-            descUpper.includes('FITA') ||
-            descUpper.includes('PALLET') ||
-            descUpper.includes('DISPENSER') ||
-            descUpper.includes('PUMP') ||
-            descUpper.includes('BORRIFADOR') ||
-            (ing.unit && ing.unit.toUpperCase() === 'UN')
-          );
-
-          const category: 'materia_prima' | 'embalagem' = isEmbalagem ? 'embalagem' : 'materia_prima';
-          const unit = isEmbalagem ? (ing.unit ? ing.unit.toUpperCase() : 'UN') : (ing.unit ? ing.unit.toUpperCase() : 'KG');
-          const reqQty = Number(ing.total_required || 0);
-
-          const existing = aggregatedMap.get(ingCode);
-          if (existing) {
-            existing.totalRequired += reqQty;
-            existing.productsUsedIn.push({
-              productCode: prod.productCode,
-              description: prod.description,
-              batchKg: prod.totalKg,
-              requiredQty: reqQty
-            });
-            if (ing.purchase_orders && ing.purchase_orders.length > 0) {
-              existing.purchaseOrders.push(...ing.purchase_orders);
-            }
-            if (ing.next_delivery_date && !existing.nextDeliveryDate) {
-              existing.nextDeliveryDate = ing.next_delivery_date;
-            }
-          } else {
-            aggregatedMap.set(ingCode, {
-              code: ingCode,
-              description: ing.description || ingCode,
-              category,
-              unit,
-              totalRequired: reqQty,
-              currentStock: Number(ing.current_stock || 0),
-              projectedBalance: 0,
-              isMissing: false,
-              missingQty: 0,
-              purchaseOrders: ing.purchase_orders ? [...ing.purchase_orders] : [],
-              nextDeliveryDate: ing.next_delivery_date,
-              productsUsedIn: [{
-                productCode: prod.productCode,
-                description: prod.description,
-                batchKg: prod.totalKg,
-                requiredQty: reqQty
-              }]
-            });
-          }
-        }
-      }
-
-      // 4. Calcular saldos e faltas
-      const consolidatedList: InsumoConsumoItem[] = [];
-      for (const item of aggregatedMap.values()) {
-        item.projectedBalance = item.currentStock - item.totalRequired;
-        item.isMissing = item.projectedBalance < 0;
-        item.missingQty = item.isMissing ? Math.abs(item.projectedBalance) : 0;
-        consolidatedList.push(item);
-      }
-
-      // Ordenar: primeiro os que faltam (maior déficit), depois alfabético
-      consolidatedList.sort((a, b) => {
-        if (a.isMissing && !b.isMissing) return -1;
-        if (!a.isMissing && b.isMissing) return 1;
-        if (a.isMissing && b.isMissing) return a.projectedBalance - b.projectedBalance;
-        return a.description.localeCompare(b.description);
-      });
-
-      setMaterialsList(consolidatedList);
-    } catch (err) {
-      console.error('Erro ao gerar relatório de materiais:', err);
-      alert('Erro ao calcular explosão de materiais. Verifique a conexão com o servidor.');
-    } finally {
-      setLoadingMaterialsReport(false);
-    }
-  };
-
-  const handleExportMaterialsExcel = () => {
-    if (materialsList.length === 0) {
-      alert('Nenhum dado para exportar.');
-      return;
-    }
-
-    const isAguaItem = (item: InsumoConsumoItem) => item.code === '9.15.064' || item.description.toUpperCase().includes('AGUA DESMINERALIZADA') || item.description.toUpperCase().includes('ÁGUA DESMINERALIZADA');
-    const activeMaterials = materialsList.filter(m => !hideAgua || !isAguaItem(m));
-
-    const mpData = activeMaterials
-      .filter(m => m.category === 'materia_prima')
-      .map(m => ({
-        'Código': m.code,
-        'Descrição': m.description,
-        'Unidade': m.unit,
-        'Necessidade Semana': Math.round(m.totalRequired * 100) / 100,
-        'Estoque Atual': Math.round(m.currentStock * 100) / 100,
-        'Saldo Projetado': Math.round(m.projectedBalance * 100) / 100,
-        'Situação': m.isMissing ? 'RUPTURA / FALTA' : 'SUFICIENTE',
-        'Falta (Comprar)': m.missingQty > 0 ? Math.round(m.missingQty * 100) / 100 : 0,
-        'Previsão Chegada': m.nextDeliveryDate || '-',
-        'Produtos que Consomem': m.productsUsedIn.map(p => `${p.description} (${p.batchKg}kg)`).join('; ')
-      }));
-
-    const embData = activeMaterials
-      .filter(m => m.category === 'embalagem')
-      .map(m => ({
-        'Código': m.code,
-        'Descrição': m.description,
-        'Unidade': m.unit,
-        'Necessidade Semana': Math.round(m.totalRequired),
-        'Estoque Atual': Math.round(m.currentStock),
-        'Saldo Projetado': Math.round(m.projectedBalance),
-        'Situação': m.isMissing ? 'RUPTURA / FALTA' : 'SUFICIENTE',
-        'Falta (Comprar)': m.missingQty > 0 ? Math.round(m.missingQty) : 0,
-        'Previsão Chegada': m.nextDeliveryDate || '-',
-        'Produtos que Consomem': m.productsUsedIn.map(p => `${p.description} (${p.batchKg}kg)`).join('; ')
-      }));
-
-    const wb = XLSX.utils.book_new();
-    const wsMp = XLSX.utils.json_to_sheet(mpData);
-    const wsEmb = XLSX.utils.json_to_sheet(embData);
-
-    XLSX.utils.book_append_sheet(wb, wsMp, 'Matérias-Primas');
-    XLSX.utils.book_append_sheet(wb, wsEmb, 'Embalagens');
-
-    XLSX.writeFile(wb, `Consumo_Materiais_${currentWeekKey}.xlsx`);
-  };
-
-  // ==========================================
   // IMPRESSÕES PROFISSIONAIS PARA FÁBRICA (A4)
   // ==========================================
 
@@ -2276,293 +1986,6 @@ export function PlanejamentoSemanalTab({
   };
 
   // 2. IMPRESSÃO DO RELATÓRIO CONSOLIDADO DE MATÉRIAS-PRIMAS E EMBALAGENS (A4 RETRATO)
-  const handlePrintMaterialsReport = async () => {
-    if (materialsList.length === 0) {
-      alert("Nenhum dado de materiais carregado para impressão.");
-      return;
-    }
-
-    const logoUrl = await loadNatumLogoDataUrl();
-
-    const mpItems = materialsList.filter(m => m.category === 'materia_prima');
-    const embItems = materialsList.filter(m => m.category === 'embalagem');
-    const missingMp = mpItems.filter(m => m.isMissing);
-    const missingEmb = embItems.filter(m => m.isMissing);
-    const totalMissing = missingMp.length + missingEmb.length;
-
-    const renderTableRows = (items: InsumoConsumoItem[], isMp: boolean) => {
-      return items.map(mat => {
-        const reqStr = isMp 
-          ? `${(Math.round(mat.totalRequired * 100) / 100).toLocaleString('pt-BR')} ${mat.unit}`
-          : `${Math.round(mat.totalRequired).toLocaleString('pt-BR')} ${mat.unit}`;
-        const stockStr = isMp 
-          ? `${(Math.round(mat.currentStock * 100) / 100).toLocaleString('pt-BR')} ${mat.unit}`
-          : `${Math.round(mat.currentStock).toLocaleString('pt-BR')} ${mat.unit}`;
-        const balStr = isMp 
-          ? `${(Math.round(mat.projectedBalance * 100) / 100).toLocaleString('pt-BR')} ${mat.unit}`
-          : `${Math.round(mat.projectedBalance).toLocaleString('pt-BR')} ${mat.unit}`;
-
-        const poStr = mat.purchaseOrders && mat.purchaseOrders.length > 0
-          ? mat.purchaseOrders.slice(0, 2).map(po => `OC #${po.n_pedido}: ${po.n_pendente || po.n_qtde} ${mat.unit} (${po.d_previsao || 'sem data'})`).join('<br/>')
-          : '—';
-
-        const prodsStr = mat.productsUsedIn.length <= 2 
-          ? mat.productsUsedIn.map(p => `${p.description} (${p.batchKg}kg)`).join(', ')
-          : `${mat.productsUsedIn.length} produtos agendados`;
-
-        return `
-          <tr style="background: ${mat.isMissing ? '#fef2f2' : '#ffffff'};">
-            <td style="font-family: monospace; font-weight: bold; border: 1px solid #cbd5e1; padding: 4px; font-size: 8.5px;">${mat.code}</td>
-            <td style="border: 1px solid #cbd5e1; padding: 4px; font-size: 8.5px;">
-              <strong>${mat.description}</strong>
-            </td>
-            <td style="text-align: right; font-weight: bold; border: 1px solid #cbd5e1; padding: 4px; font-size: 8.5px;">${reqStr}</td>
-            <td style="text-align: right; border: 1px solid #cbd5e1; padding: 4px; font-size: 8.5px;">${stockStr}</td>
-            <td style="text-align: right; font-weight: bold; color: ${mat.isMissing ? '#dc2626' : '#15803d'}; border: 1px solid #cbd5e1; padding: 4px; font-size: 8.5px;">
-              ${mat.projectedBalance >= 0 ? '+' : ''}${balStr}
-            </td>
-            <td style="text-align: center; border: 1px solid #cbd5e1; padding: 4px; font-size: 8.5px;">
-              ${mat.isMissing ? `
-                <span style="background: #fee2e2; color: #991b1b; padding: 2px 4px; border-radius: 3px; font-weight: bold; font-size: 7.5px; border: 1px solid #fca5a5;">
-                  RUPTURA (${isMp ? `${Math.round(mat.missingQty * 10) / 10} kg` : `${Math.round(mat.missingQty)} un`})
-                </span>
-              ` : `
-                <span style="background: #dcfce7; color: #166534; padding: 2px 4px; border-radius: 3px; font-weight: bold; font-size: 7.5px; border: 1px solid #86efac;">
-                  OK
-                </span>
-              `}
-            </td>
-            <td style="border: 1px solid #cbd5e1; padding: 4px; font-size: 7.5px; color: #475569;">${poStr}</td>
-            <td style="border: 1px solid #cbd5e1; padding: 4px; font-size: 7.5px; color: #64748b;">${prodsStr}</td>
-          </tr>
-        `;
-      }).join('');
-    };
-
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Consumo de Insumos e Embalagens - ${currentWeekKey} - Natum Cosméticos</title>
-        <meta charset="utf-8" />
-        <style>
-          @page {
-            size: A4 portrait;
-            margin: 8mm;
-          }
-          * { box-sizing: border-box; }
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-            font-size: 9.5px;
-            color: #0f172a;
-            margin: 0;
-            padding: 8px;
-            background: #ffffff;
-          }
-          .header-box {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            border-bottom: 2px solid #0f172a;
-            padding-bottom: 6px;
-            margin-bottom: 10px;
-          }
-          .title-area h1 {
-            font-size: 14px;
-            font-weight: 800;
-            margin: 0;
-            color: #0f172a;
-            text-transform: uppercase;
-          }
-          .title-area .sub {
-            font-size: 10px;
-            color: #475569;
-            margin-top: 2px;
-            font-weight: 600;
-          }
-          .kpis {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 6px;
-            margin-bottom: 12px;
-          }
-          .kpi-card {
-            background: #f8fafc;
-            border: 1px solid #cbd5e1;
-            border-radius: 4px;
-            padding: 5px 6px;
-          }
-          .kpi-title {
-            font-size: 7.5px;
-            color: #64748b;
-            text-transform: uppercase;
-            font-weight: bold;
-          }
-          .kpi-val {
-            font-size: 12px;
-            font-weight: 800;
-            color: #0f172a;
-            margin-top: 1px;
-          }
-          .section-title {
-            font-size: 10px;
-            font-weight: 800;
-            color: #1e293b;
-            text-transform: uppercase;
-            margin: 14px 0 5px 0;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid #cbd5e1;
-            padding-bottom: 2px;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 8.5px;
-            margin-bottom: 10px;
-          }
-          th {
-            background: #f1f5f9;
-            color: #334155;
-            padding: 4px;
-            border: 1px solid #cbd5e1;
-            text-transform: uppercase;
-            font-size: 7.5px;
-          }
-          .signature-box {
-            margin-top: 20px;
-            display: flex;
-            justify-content: space-between;
-            gap: 30px;
-            page-break-inside: avoid;
-          }
-          .sign-line {
-            flex: 1;
-            border-top: 1px solid #475569;
-            text-align: center;
-            padding-top: 4px;
-            font-size: 8.5px;
-            color: #334155;
-          }
-          @media print {
-            body { padding: 0; }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header-box">
-          <div style="display: flex; align-items: center; gap: 14px;">
-            ${logoUrl ? `<img src="${logoUrl}" alt="Logo" style="max-height: 46px; max-width: 140px; object-fit: contain;" />` : ''}
-            <div class="title-area">
-              <h1>NATUM COSMÉTICOS · CONSUMO DE MATÉRIAS-PRIMAS E EMBALAGENS</h1>
-              <div class="sub">
-                Explosão Consolidada de Fórmulas · <strong>Semana ${currentWeekKey}</strong> (${weekDays[0].label} a ${weekDays[4].label})
-              </div>
-            </div>
-          </div>
-          <div style="text-align: right; font-size: 8.5px; color: #475569;">
-            <div><strong>Emissão:</strong> ${new Date().toLocaleString('pt-BR')}</div>
-            <div><strong>Total Bateladas:</strong> ${plannedItems.length} lotes</div>
-            <div><strong>Massa Programada:</strong> ${weekStats.totalKg.toLocaleString('pt-BR')} kg</div>
-          </div>
-        </div>
-
-        <div class="kpis">
-          <div class="kpi-card">
-            <div class="kpi-title">Matérias-Primas</div>
-            <div class="kpi-val">${mpItems.length} insumos</div>
-            <div style="font-size: 7.5px; font-weight: bold; margin-top: 1px; color: ${missingMp.length > 0 ? '#dc2626' : '#15803d'};">
-              ${missingMp.length > 0 ? `${missingMp.length} em ruptura` : 'Estoque OK'}
-            </div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-title">Embalagens & Rótulos</div>
-            <div class="kpi-val">${embItems.length} componentes</div>
-            <div style="font-size: 7.5px; font-weight: bold; margin-top: 1px; color: ${missingEmb.length > 0 ? '#dc2626' : '#15803d'};">
-              ${missingEmb.length > 0 ? `${missingEmb.length} em ruptura` : 'Estoque OK'}
-            </div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-title">Massa Granel Total</div>
-            <div class="kpi-val">${weekStats.totalKg.toLocaleString('pt-BR')} kg</div>
-            <div style="font-size: 7.5px; color: #64748b; margin-top: 1px;">Carga total a pesar</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-title">Status Suprimentos</div>
-            <div class="kpi-val" style="color: ${totalMissing > 0 ? '#dc2626' : '#15803d'};">
-              ${totalMissing > 0 ? `${totalMissing} Faltas no Galpão` : '100% Suprido'}
-            </div>
-            <div style="font-size: 7.5px; color: #64748b; margin-top: 1px;">
-              ${totalMissing > 0 ? 'Compras urgentes' : 'Liberado p/ pesagem'}
-            </div>
-          </div>
-        </div>
-
-        <!-- TABELA 1: MATÉRIAS-PRIMAS -->
-        <div class="section-title">
-          <span>1. Matérias-Primas (Pesagem e Granel)</span>
-          <span style="font-size: 8px; color: #64748b;">${mpItems.length} insumos</span>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th style="width: 75px; text-align: left;">Código</th>
-              <th style="text-align: left;">Insumo / Matéria-Prima</th>
-              <th style="width: 80px; text-align: right;">Necessidade</th>
-              <th style="width: 75px; text-align: right;">Estoque Galpão</th>
-              <th style="width: 75px; text-align: right;">Saldo Previsto</th>
-              <th style="width: 85px; text-align: center;">Situação</th>
-              <th style="width: 140px; text-align: left;">Pedidos de Compra (OC)</th>
-              <th style="width: 140px; text-align: left;">Produtos</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${renderTableRows(mpItems, true)}
-          </tbody>
-        </table>
-
-        <!-- TABELA 2: EMBALAGENS E RÓTULOS -->
-        <div class="section-title" style="page-break-before: auto;">
-          <span>2. Embalagens, Frascos, Potes e Rótulos (Envase)</span>
-          <span style="font-size: 8px; color: #64748b;">${embItems.length} itens</span>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th style="width: 75px; text-align: left;">Código</th>
-              <th style="text-align: left;">Componente / Embalagem</th>
-              <th style="width: 80px; text-align: right;">Necessidade</th>
-              <th style="width: 75px; text-align: right;">Estoque Galpão</th>
-              <th style="width: 75px; text-align: right;">Saldo Previsto</th>
-              <th style="width: 85px; text-align: center;">Situação</th>
-              <th style="width: 140px; text-align: left;">Pedidos de Compra (OC)</th>
-              <th style="width: 140px; text-align: left;">Produtos</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${renderTableRows(embItems, false)}
-          </tbody>
-        </table>
-
-        <div class="signature-box">
-          <div class="sign-line">
-            <strong>Responsável Almoxarifado / Suprimentos</strong><br />
-            Data: ____/____/________
-          </div>
-          <div class="sign-line">
-            <strong>Conferência e Liberação de Pesagem</strong><br />
-            Data: ____/____/________
-          </div>
-        </div>
-
-      </body>
-      </html>
-    `;
-
-    printHtmlViaIframe(html);
-  };
-  // HEURÍSTICA APRIMORADA: QUENTE / FRIO / CALDEIRA / SHAMPOOS / BOMBONAS / SEQUENCIAMENTO DE CORES
   const handleRunHeuristic = () => {
     // 1. Coleta apenas itens ATIVOS com necessidade ou programados
     const candidates = demandCandidates.filter(p => {
@@ -3032,6 +2455,9 @@ export function PlanejamentoSemanalTab({
 
         {/* Hierarquia de Ações (HSL Zinc) */}
         <div className="flex flex-wrap items-center gap-1.5">
+          {!podeEditar && (
+            <span className="px-2 py-1 rounded-md border border-zinc-200 bg-zinc-100 text-zinc-600 text-[10px] font-bold">Somente leitura</span>
+          )}
           <button
             onClick={() => setDemandBankOpen(!demandBankOpen)}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
@@ -3049,6 +2475,8 @@ export function PlanejamentoSemanalTab({
             </span>
           </button>
 
+{podeEditar && (
+          <>
           <button
             onClick={() => handleOpenScheduleModal(null, weekDays[0]?.dateStr, reatores[0]?.id || 'R_500')}
             className="bg-white hover:bg-zinc-50 text-zinc-900 border border-zinc-300 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
@@ -3067,7 +2495,10 @@ export function PlanejamentoSemanalTab({
             <span>Sugerir Sequência</span>
           </button>
 
-          <button
+          </>
+          )}
+
+                    <button
             onClick={() => setCoberturaAberta(true)}
             className="bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
             title="Insumos da semana: o que falta, o que chega e o que precisa de decisão (reserva do ERP, pedidos, notas e ordens manuais)"
@@ -3084,6 +2515,8 @@ export function PlanejamentoSemanalTab({
             <Printer size={15} />
           </button>
 
+          {podeEditar && (
+          <>
           <button
             onClick={() => setReatoresModalOpen(true)}
             className="p-1.5 bg-white hover:bg-zinc-50 text-zinc-600 hover:text-zinc-900 border border-zinc-200 rounded-lg transition-colors cursor-pointer"
@@ -3104,13 +2537,15 @@ export function PlanejamentoSemanalTab({
           >
             <Trash2 size={15} />
           </button>
+          </>
+          )}
         </div>
       </div>
 
       {/* ÁREA PRINCIPAL: GRADE DE REATORES + GAVETA LATERAL DE DEMANDAS */}
       <div className="flex gap-4 items-start w-full">
         {/* GRADE MATRIZ: REATORES (LINHAS) x SEGUNDA A SEXTA (COLUNAS) */}
-        <div className="flex-1 bg-white rounded-xl border border-zinc-200 shadow-xs overflow-hidden">
+        <div className={`flex-1 bg-white rounded-xl border border-zinc-200 shadow-xs overflow-hidden ${podeEditar ? '' : 'pointer-events-none'}`}>
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-left text-xs">
               <thead>
@@ -3586,7 +3021,7 @@ export function PlanejamentoSemanalTab({
                               })}
 
                               {/* Botão de Agendamento Rápido na Célula Vaga */}
-                              {cellItems.length === 0 && (
+                              {cellItems.length === 0 && podeEditar && (
                                 <button
                                   onClick={() => {
                                     handleOpenScheduleModal(null, day.dateStr, reator.id);
@@ -3666,7 +3101,7 @@ export function PlanejamentoSemanalTab({
                   return (
                     <div 
                       key={prod._filaId ? `fila_${prod._filaId}` : prod.codigo} 
-                      draggable={true}
+                      draggable={podeEditar}
                       onDragStart={(e) => {
                         e.dataTransfer.setData('text/plain', prod.codigo);
                         e.dataTransfer.effectAllowed = 'copy';
@@ -3799,7 +3234,7 @@ export function PlanejamentoSemanalTab({
                           <span>Ver Detalhes</span>
                         </button>
                         <div className="flex items-center gap-1.5">
-                        {(prod as any)._filaId && (
+                        {podeEditar && (prod as any)._filaId && (
                           <button
                             type="button"
                             onClick={() => setRetirarFilaId(String((prod as any)._filaId))}
@@ -3809,6 +3244,7 @@ export function PlanejamentoSemanalTab({
                             Tirar
                           </button>
                         )}
+                        {podeEditar && (
                         <button
                           onClick={() => handleOpenScheduleModal(prod)}
                           className="flex items-center gap-1 px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer shadow-xs bg-zinc-900 hover:bg-zinc-800 text-white"
@@ -3816,6 +3252,7 @@ export function PlanejamentoSemanalTab({
                           <Plus size={13} />
                           <span>Agendar</span>
                         </button>
+                        )}
                         </div>
                       </div>
                     </div>
@@ -5118,324 +4555,7 @@ export function PlanejamentoSemanalTab({
         descreverOrdem={descreverOrdem}
         onVincular={handleVincularSugerido}
         onMudou={recarregarCobertura}
-        onImprimirRelatorio={() => {
-          setCoberturaAberta(false);
-          handleOpenMaterialsReport();
-        }}
       />
-
-      {materialsReportOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-5xl w-full flex flex-col max-h-[90vh] border border-zinc-200 overflow-hidden">
-            {/* Header */}
-            <div className="p-4 border-b border-zinc-200 flex items-center justify-between bg-zinc-50">
-              <div className="flex items-center gap-2.5">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-zinc-900 text-sm">Consumo Semanal de Insumos & Embalagens</h3>
-                    <span className="px-2 py-0.5 bg-zinc-100 text-zinc-700 border border-zinc-200 font-mono text-[10px] font-semibold rounded">
-                      {currentWeekKey}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-zinc-500 mt-0.5">
-                    Necessidade de materiais para as {plannedItems.length} ordens de produção programadas ({weekStats.totalKg.toLocaleString('pt-BR')} kg).
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handlePrintMaterialsReport}
-                  disabled={loadingMaterialsReport || materialsList.length === 0}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-900 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer transition-colors"
-                  title="Imprimir relatório consolidado de insumos e embalagens em folha A4"
-                >
-                  <Printer size={14} />
-                  <span>Imprimir Relatório</span>
-                </button>
-
-                <button
-                  onClick={handleOpenMaterialsReport}
-                  disabled={loadingMaterialsReport}
-                  className="p-1.5 hover:bg-zinc-100 text-zinc-600 rounded-lg border border-zinc-200 cursor-pointer transition-colors"
-                  title="Recalcular Consumo"
-                >
-                  <RefreshCw size={14} className={loadingMaterialsReport ? "animate-spin" : ""} />
-                </button>
-
-                <button 
-                  onClick={() => setMaterialsReportOpen(false)}
-                  className="text-zinc-400 hover:text-zinc-600 p-1.5 rounded-lg cursor-pointer transition-colors"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-            </div>
-
-            {/* Resumo Métrico */}
-            {(() => {
-              const isAguaItem = (item: InsumoConsumoItem) => item.code === '9.15.064' || item.description.toUpperCase().includes('AGUA DESMINERALIZADA') || item.description.toUpperCase().includes('ÁGUA DESMINERALIZADA');
-              const activeMaterials = materialsList.filter(m => !hideAgua || !isAguaItem(m));
-              const mpItems = activeMaterials.filter(m => m.category === 'materia_prima');
-              const embItems = activeMaterials.filter(m => m.category === 'embalagem');
-              const missingMp = mpItems.filter(m => m.isMissing);
-              const missingEmb = embItems.filter(m => m.isMissing);
-              const totalMissing = missingMp.length + missingEmb.length;
-
-              return (
-                <div className="grid grid-cols-4 gap-2.5 p-3 bg-zinc-50/50 border-b border-zinc-200 text-xs">
-                  <div className="p-2.5 bg-white border border-zinc-200 rounded-lg">
-                    <span className="text-zinc-500 text-[11px] block">Matérias-Primas Químicas</span>
-                    <strong className="text-zinc-900 text-sm font-bold block">{mpItems.length} itens</strong>
-                    <span className={`text-[10px] font-medium mt-0.5 block ${missingMp.length > 0 ? 'text-rose-600 font-semibold' : 'text-zinc-500'}`}>
-                      {missingMp.length > 0 ? `${missingMp.length} com déficit` : 'Estoque regular'}
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 bg-white border border-zinc-200 rounded-lg">
-                    <span className="text-zinc-500 text-[11px] block">Embalagens & Rótulos</span>
-                    <strong className="text-zinc-900 text-sm font-bold block">{embItems.length} itens</strong>
-                    <span className={`text-[10px] font-medium mt-0.5 block ${missingEmb.length > 0 ? 'text-rose-600 font-semibold' : 'text-zinc-500'}`}>
-                      {missingEmb.length > 0 ? `${missingEmb.length} com déficit` : 'Estoque regular'}
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 bg-white border border-zinc-200 rounded-lg">
-                    <span className="text-zinc-500 text-[11px] block">Massa Programada</span>
-                    <strong className="text-zinc-900 text-sm font-bold block">{weekStats.totalKg.toLocaleString('pt-BR')} kg</strong>
-                    <span className="text-[10px] text-zinc-500 mt-0.5 block">em {plannedItems.length} ordens de produção</span>
-                  </div>
-
-                  <div className="p-2.5 bg-white border border-zinc-200 rounded-lg">
-                    <span className="text-zinc-500 text-[11px] block">Status Geral</span>
-                    <strong className={`text-sm font-bold block ${totalMissing > 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
-                      {totalMissing > 0 ? `${totalMissing} itens com déficit` : '100% Suprido'}
-                    </strong>
-                    <span className="text-[10px] text-zinc-500 mt-0.5 block">
-                      {totalMissing > 0 ? 'Requer pedidos de compra' : 'Liberado para pesagem'}
-                    </span>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Barra de Filtros e Busca */}
-            <div className="p-3 border-b border-zinc-200 flex flex-wrap items-center justify-between gap-3 bg-white">
-              {(() => {
-                const isAguaItem = (item: InsumoConsumoItem) => item.code === '9.15.064' || item.description.toUpperCase().includes('AGUA DESMINERALIZADA') || item.description.toUpperCase().includes('ÁGUA DESMINERALIZADA');
-                const activeMaterials = materialsList.filter(m => !hideAgua || !isAguaItem(m));
-                const mpCount = activeMaterials.filter(m => m.category === 'materia_prima').length;
-                const embCount = activeMaterials.filter(m => m.category === 'embalagem').length;
-                const missingCount = activeMaterials.filter(m => m.isMissing).length;
-
-                return (
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <button
-                      onClick={() => setMaterialsFilterTab('ALL')}
-                      className={`px-3 py-1 rounded-md font-medium cursor-pointer transition-colors ${
-                        materialsFilterTab === 'ALL' ? 'bg-zinc-800 text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-                      }`}
-                    >
-                      Todos ({activeMaterials.length})
-                    </button>
-                    <button
-                      onClick={() => setMaterialsFilterTab('FALTAS')}
-                      className={`px-3 py-1 rounded-md font-medium cursor-pointer transition-colors ${
-                        materialsFilterTab === 'FALTAS' ? 'bg-zinc-800 text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-                      }`}
-                    >
-                      Com Déficit ({missingCount})
-                    </button>
-                    <button
-                      onClick={() => setMaterialsFilterTab('MP')}
-                      className={`px-3 py-1 rounded-md font-medium cursor-pointer transition-colors ${
-                        materialsFilterTab === 'MP' ? 'bg-zinc-800 text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-                      }`}
-                    >
-                      Matérias-Primas ({mpCount})
-                    </button>
-                    <button
-                      onClick={() => setMaterialsFilterTab('EMB')}
-                      className={`px-3 py-1 rounded-md font-medium cursor-pointer transition-colors ${
-                        materialsFilterTab === 'EMB' ? 'bg-zinc-800 text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-                      }`}
-                    >
-                      Embalagens ({embCount})
-                    </button>
-
-                    <label className="flex items-center gap-1.5 ml-2 text-[11px] font-semibold text-zinc-650 cursor-pointer select-none border-l border-zinc-200 pl-3">
-                      <input
-                        type="checkbox"
-                        checked={hideAgua}
-                        onChange={(e) => setHideAgua(e.target.checked)}
-                        className="rounded text-zinc-900 border-zinc-300 focus:ring-0"
-                      />
-                      <span>Ocultar Água Desmineralizada (Poço)</span>
-                    </label>
-                  </div>
-                );
-              })()}
-
-              <div className="relative w-64">
-                <Search size={14} className="absolute left-2.5 top-2.5 text-zinc-400" />
-                <input
-                  type="text"
-                  placeholder="Filtrar por código ou descrição..."
-                  value={materialsSearch}
-                  onChange={(e) => setMaterialsSearch(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs focus:outline-hidden focus:ring-1 focus:ring-zinc-400"
-                />
-              </div>
-            </div>
-
-            {/* Conteúdo: Tabela com Scroll */}
-            <div className="flex-1 overflow-y-auto">
-              {loadingMaterialsReport ? (
-                <div className="py-20 flex flex-col items-center justify-center gap-2 text-zinc-500">
-                  <RefreshCw size={24} className="animate-spin text-zinc-600" />
-                  <span className="text-xs font-medium">Calculando insumos e consultando estoques...</span>
-                </div>
-              ) : materialsList.length === 0 ? (
-                <div className="py-20 text-center text-zinc-400 text-xs">
-                  Nenhum insumo ou embalagem encontrado para as ordens agendadas.
-                </div>
-              ) : (() => {
-                const isAguaItem = (item: InsumoConsumoItem) => item.code === '9.15.064' || item.description.toUpperCase().includes('AGUA DESMINERALIZADA') || item.description.toUpperCase().includes('ÁGUA DESMINERALIZADA');
-                const filtered = materialsList.filter(item => {
-                  if (hideAgua && isAguaItem(item)) return false;
-                  if (materialsFilterTab === 'FALTAS' && !item.isMissing) return false;
-                  if (materialsFilterTab === 'MP' && item.category !== 'materia_prima') return false;
-                  if (materialsFilterTab === 'EMB' && item.category !== 'embalagem') return false;
-                  if (materialsSearch.trim()) {
-                    const q = materialsSearch.toLowerCase().trim();
-                    const code = item.code.toLowerCase();
-                    const desc = item.description.toLowerCase();
-                    if (!code.includes(q) && !desc.includes(q)) return false;
-                  }
-                  return true;
-                });
-
-                if (filtered.length === 0) {
-                  return (
-                    <div className="py-16 text-center text-zinc-400 text-xs">
-                      Nenhum item corresponde ao filtro selecionado.
-                    </div>
-                  );
-                }
-
-                return (
-                  <table className="w-full border-collapse text-left text-xs">
-                    <thead className="sticky top-0 bg-zinc-100/95 backdrop-blur-xs border-b border-zinc-200 z-10 text-[11px] font-bold text-zinc-700">
-                      <tr>
-                        <th className="p-2.5">CÓDIGO</th>
-                        <th className="p-2.5">DESCRIÇÃO DO MATERIAL</th>
-                        <th className="p-2.5 text-center">TIPO</th>
-                        <th className="p-2.5 text-right">NECESSIDADE DA SEMANA</th>
-                        <th className="p-2.5 text-right">ESTOQUE ATUAL</th>
-                        <th className="p-2.5 text-right">SALDO PREVISTO</th>
-                        <th className="p-2.5 text-center">SITUAÇÃO</th>
-                        <th className="p-2.5">PEDIDOS DE COMPRA (OC)</th>
-                        <th className="p-2.5">PRODUTOS</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-100">
-                      {filtered.map(mat => {
-                        const isMp = mat.category === 'materia_prima';
-                        const reqFormatted = isMp
-                          ? `${(Math.round(mat.totalRequired * 100) / 100).toLocaleString('pt-BR')} ${mat.unit}`
-                          : `${Math.round(mat.totalRequired).toLocaleString('pt-BR')} ${mat.unit}`;
-                        const stockFormatted = isMp
-                          ? `${(Math.round(mat.currentStock * 100) / 100).toLocaleString('pt-BR')} ${mat.unit}`
-                          : `${Math.round(mat.currentStock).toLocaleString('pt-BR')} ${mat.unit}`;
-                        const balanceFormatted = isMp
-                          ? `${(Math.round(mat.projectedBalance * 100) / 100).toLocaleString('pt-BR')} ${mat.unit}`
-                          : `${Math.round(mat.projectedBalance).toLocaleString('pt-BR')} ${mat.unit}`;
-
-                        return (
-                          <tr key={mat.code} className={`hover:bg-zinc-50 transition-colors ${mat.isMissing ? 'bg-rose-50/20' : ''}`}>
-                            <td className="p-2.5 font-mono text-[11px] font-semibold text-zinc-900 whitespace-nowrap">
-                              {mat.code}
-                            </td>
-                            <td className="p-2.5">
-                              <span className="font-semibold text-zinc-900 block" title={mat.description}>
-                                {mat.description}
-                              </span>
-                            </td>
-                            <td className="p-2.5 text-center whitespace-nowrap">
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-zinc-100 text-zinc-700 border border-zinc-200">
-                                {isMp ? 'MP' : 'EMB'}
-                              </span>
-                            </td>
-                            <td className="p-2.5 text-right font-bold text-zinc-900 whitespace-nowrap">
-                              {reqFormatted}
-                            </td>
-                            <td className="p-2.5 text-right text-zinc-700 whitespace-nowrap">
-                              {stockFormatted}
-                            </td>
-                            <td className={`p-2.5 text-right font-bold whitespace-nowrap ${
-                              mat.isMissing ? 'text-rose-600' : 'text-emerald-700'
-                            }`}>
-                              {mat.projectedBalance >= 0 ? `+${balanceFormatted}` : balanceFormatted}
-                            </td>
-                            <td className="p-2.5 text-center whitespace-nowrap">
-                              {mat.isMissing ? (
-                                <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded font-medium text-[10px]">
-                                  Déficit ({isMp ? `${Math.round(mat.missingQty * 10) / 10} kg` : `${Math.round(mat.missingQty)} un`})
-                                </span>
-                              ) : (
-                                <span className="px-2 py-0.5 bg-zinc-100 text-zinc-700 border border-zinc-200 rounded font-medium text-[10px]">
-                                  Suficiente
-                                </span>
-                              )}
-                            </td>
-                            <td className="p-2.5 text-[11px] text-zinc-600 whitespace-nowrap">
-                              {mat.purchaseOrders && mat.purchaseOrders.length > 0 ? (
-                                <div className="flex flex-col gap-0.5">
-                                  {mat.purchaseOrders.slice(0, 2).map((po, idx) => (
-                                    <span key={idx} className="text-zinc-700 bg-zinc-100 px-1.5 py-0.5 rounded text-[10px] font-medium border border-zinc-200">
-                                      OC #{po.n_pedido}: {po.n_pendente || po.n_qtde} {mat.unit} {po.d_previsao ? `(${po.d_previsao})` : ''}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <span className="text-zinc-400 text-[10px]">-</span>
-                              )}
-                            </td>
-                            <td className="p-2.5 text-[10px] text-zinc-600 max-w-[200px]">
-                              <span title={mat.productsUsedIn.map(p => `${p.description}: ${p.batchKg}kg`).join(' | ')}>
-                                {mat.productsUsedIn.length === 1 ? (
-                                  <span className="truncate block">{mat.productsUsedIn[0].description}</span>
-                                ) : (
-                                  <span className="px-1.5 py-0.5 bg-zinc-100 rounded text-zinc-700 font-semibold">
-                                    {mat.productsUsedIn.length} produtos
-                                  </span>
-                                )}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                );
-              })()}
-            </div>
-
-            {/* Rodapé do Modal */}
-            <div className="p-3 border-t border-zinc-200 bg-zinc-50 flex items-center justify-between text-xs">
-              <span className="text-zinc-500">
-                Total de <strong>{materialsList.length}</strong> insumos e embalagens mapeados nas fórmulas.
-              </span>
-              <button
-                onClick={() => setMaterialsReportOpen(false)}
-                className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-900 text-white font-semibold rounded-lg shadow-xs cursor-pointer"
-              >
-                Fechar Relatório
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Drawer autônomo de Detalhes do Produto */}
       {internalDrawerOpen && internalDrawerCode && (
@@ -5449,13 +4569,5 @@ export function PlanejamentoSemanalTab({
         />
       )}
     </div>
-  );
-}
-
-function ScaleIcon(props: any) {
-  return (
-    <svg {...props} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v18m0-18l-8 4m8-4l8 4M4 7l3 6m-3-6l-3 6m14-6l3 6m-3-6l-3 6" />
-    </svg>
   );
 }

@@ -4225,8 +4225,12 @@ pub async fn list_reatores(
 
 pub async fn save_reatores(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Json(payload): Json<Vec<ReatorConfigDto>>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::modules::producao::permissao::exigir_edicao(&ctx) {
+        return r;
+    }
     for reator in &payload {
         if reator.id.trim().is_empty() || reator.nome.trim().is_empty() {
             return planejamento_json_err(StatusCode::UNPROCESSABLE_ENTITY, "Reator sem identificador ou nome.");
@@ -4709,6 +4713,9 @@ pub async fn save_planejamento_item(
     Extension(ctx): Extension<AuthContext>,
     Json(item): Json<PlanejamentoItemDto>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::modules::producao::permissao::exigir_edicao(&ctx) {
+        return r;
+    }
     let id = item.id.clone();
     let mut itens = vec![item];
     match gravar_planejamento(state.db.pool(), &mut itens, &ctx.display_name).await {
@@ -4722,6 +4729,9 @@ pub async fn bulk_save_planejamento(
     Extension(ctx): Extension<AuthContext>,
     Json(mut itens): Json<Vec<PlanejamentoItemDto>>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::modules::producao::permissao::exigir_edicao(&ctx) {
+        return r;
+    }
     match gravar_planejamento(state.db.pool(), &mut itens, &ctx.display_name).await {
         Ok(()) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
         Err(e) => e.resposta(),
@@ -4841,8 +4851,12 @@ async fn excluir_planejamento_item(pool: &PgPool, id: &str) -> Result<ResultadoE
 
 pub async fn delete_planejamento_item(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::modules::producao::permissao::exigir_edicao(&ctx) {
+        return r;
+    }
     match excluir_planejamento_item(state.db.pool(), &id).await {
         Ok(ResultadoExclusao::Excluido) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
         Ok(ResultadoExclusao::NaoEncontrado) => {
@@ -4855,9 +4869,13 @@ pub async fn delete_planejamento_item(
 
 pub async fn confirm_fisico_planejamento(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<String>,
     Json(payload): Json<ConfirmFisicoPayload>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::modules::producao::permissao::exigir_edicao(&ctx) {
+        return r;
+    }
     let pool = state.db.pool();
     if let Some(ref s) = payload.ordem_status {
         if !ORDEM_STATUS_VALIDOS.contains(&s.trim()) {
@@ -4949,8 +4967,12 @@ async fn limpar_semana_planejamento(
 
 pub async fn clear_planejamento_semana(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Query(params): Query<ClearWeekParams>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::modules::producao::permissao::exigir_edicao(&ctx) {
+        return r;
+    }
     match limpar_semana_planejamento(state.db.pool(), &params.week).await {
         Ok((deleted, blocked)) => (
             StatusCode::OK,
@@ -5337,8 +5359,12 @@ pub async fn list_fila_demandas(
 
 pub async fn create_fila_demandas(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Json(payload): Json<CreateFilaDemandaPayload>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::modules::producao::permissao::exigir_edicao(&ctx) {
+        return r;
+    }
     let pool = state.db.pool();
     let items = match payload {
         CreateFilaDemandaPayload::Batch(list) => list,
@@ -5472,9 +5498,13 @@ pub struct UpdateFilaDemandaPayload {
 
 pub async fn update_fila_demanda(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<String>,
     Json(payload): Json<UpdateFilaDemandaPayload>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::modules::producao::permissao::exigir_edicao(&ctx) {
+        return r;
+    }
     let pool = state.db.pool();
     let q = r#"
         UPDATE producao_fila_demandas
@@ -5517,8 +5547,12 @@ pub async fn update_fila_demanda(
 
 pub async fn delete_fila_demanda(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(r) = crate::modules::producao::permissao::exigir_edicao(&ctx) {
+        return r;
+    }
     let pool = state.db.pool();
     match sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1")
         .bind(&id)
