@@ -508,9 +508,9 @@ export default function AppTopBar({
                 ? 'bg-amber-500/10 text-amber-700 border border-amber-500/25 shadow-2xs'
                 : 'bg-zinc-100 text-zinc-600 border border-zinc-200'
             )}
-            title={appEnv === 'dev' ? 'Nexus DEV (:3002)' : 'Nexus PROD (:3001)'}
+            title={appEnv === 'dev' ? 'Nexus em ambiente de teste' : 'Versão do Nexus'}
           >
-            v{appVersion} · {appEnv.toUpperCase()}
+            v{appVersion}{appEnv === 'dev' && ' · DEV'}
           </span>
 
           {canQuickSync && (
