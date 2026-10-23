@@ -103,6 +103,12 @@ Decisão do Edson (futuro conector MCP; não construir o MCP ainda). Ao criar ou
 
 Decisão do Edson. Antes de declarar pronta qualquer tela: subir o app local (servidor + `Frontend/dist` contra um banco de teste), abrir no navegador (Playwright com `/usr/bin/brave-browser`, headless), tirar screenshot e **olhar a imagem**. Salvar em `.screens/` (na pasta do projeto, ignorada pelo git) e informar o caminho. Visual: seguir o ai-memory (`concepts/ui-design-hsl-zinc`, `concepts/ui-padroes-componentes`): **sem cards de KPI no topo**, tabela + abas + busca + badges, pouco texto, painéis laterais em `<Drawer>`; peças compartilhadas em `Frontend/src/modules/geral/components/ui/ReportKit.tsx`.
 
+## Regra fixa: sempre trabalhar com o ai-memory
+
+Decisão do Edson. O ai-memory roda no ZimaOS (`http://100.64.207.54:49374/mcp`, workspace `default`, projeto `nexus`, ver `.ai-memory.toml`) e é a memória oficial do projeto, compartilhada entre agentes. Em toda tarefa:
+- **Antes**: consultar o ai-memory (`memory_query` / `memory_read_page`) sobre o módulo ou tema antes de propor ou mexer em código.
+- **Depois**: registrar no ai-memory o que mudou ou foi descoberto (decisões, bugs achados, gotchas, regras de módulo), atualizando a página existente em vez de criar outra. Não usar a memória local do harness para fatos do projeto.
+
 <!-- ai-memory:start -->
 ## Long-term memory (ai-memory)
 
