@@ -73,9 +73,10 @@ Rota HTTP           → natumhub-api
 | Null Safety no Frontend | `gotchas/frontend-null-safety.md` |
 
 > [!IMPORTANT]
-> **Espelhamento Contínuo e Consulta Obrigatória (Desenvolvimento <-> ai-memory)**:
-> 1. **Consulta Prévia**: Antes de alterar ou criar código em qualquer módulo, consulte sempre a ficha técnica do módulo (`GET /api/mapa/modules/:key` ou central **Desenvolvimento**), seus caminhos (`frontend_path`, `backend_path`, `router_prefix`), suas conexões arquiteturais (`mapa_edges`) e o histórico de feedbacks anteriores (`feedbacks` com `module_key`).
-> 2. **Espelhamento Bidirecional**: A Central de Desenvolvimento e o `ai-memory` devem espelhar-se mutuamente. Sempre que alterar, criar ou descobrir qualquer detalhe sobre um módulo (menus laterais direitos/drawers, rotas, tabelas, regras de negócio ou telas), registre imediatamente na Ficha Técnica do módulo em Desenvolvimento E na página correspondente do `ai-memory` (`concepts/modulo-<key>.md`). Isso documenta o sistema com nível máximo de detalhe e economiza tokens nas próximas sessões.
+> **Consulta Obrigatória e Uma Fonte para Cada Coisa (Desenvolvimento / ai-memory)** — decisão do Edson (2026-10-23):
+> 1. **Consulta Prévia**: Antes de alterar ou criar código em qualquer módulo, consulte a ficha técnica do módulo (central **Desenvolvimento**, `GET /api/mapa/snapshot`), suas conexões (`mapa_edges`), os feedbacks com `module_key` e a página do módulo no `ai-memory`.
+> 2. **Fatos do módulo ficam na Ficha Técnica (Desenvolvimento)**: para que serve, regras de negócio, telas e drawers, conexões com outros módulos, pontos de atenção. Rotas, arquivos, tabelas e ações **não se escrevem à mão**: a ficha os gera do código (catálogo de ações / mapa de rotas). A parte escrita da ficha é atualizada por migração SQL aditiva (`UPDATE mapa_modules SET detail = detail || ...`), nunca gravando direto em produção pela API.
+> 3. **Histórico fica no ai-memory**: decisões, o que foi feito e quando, problemas encontrados, gotchas, a fila de trabalho. A página `concepts/modulo-<key>.md` é curta e aponta para a ficha; não repete os fatos da ficha.
 > 3. **Padronização Visual de Menus Direitos (Drawers)**: Todos os menus e abas abertos na lateral direita (detalhes de insumos, produtos, lotes, notas fiscais, ordens de compra/venda, cadastros) DEVEM utilizar obrigatoriamente o componente canônico `<Drawer>` (`Frontend/src/modules/geral/components/ui/Drawer.tsx`), mantendo o design system HSL Zinc unificado.
 
 
