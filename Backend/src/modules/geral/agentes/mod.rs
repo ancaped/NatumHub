@@ -456,4 +456,22 @@ mod tests {
         assert_eq!(e.modulos["compras"], "editar");
         assert!(exigir_supervisor(&ctx).is_err());
     }
+
+    #[test]
+    fn agente_nao_escreve_em_caminho_sem_modulo_mapeado() {
+        use crate::modules::geral::auth::store::has_write_access;
+        let mut ctx = AuthContext {
+            operator_id: "a1".into(),
+            display_name: "Agente".into(),
+            role: OperatorRole::Operador,
+            modules: vec!["vendas".into()],
+            permissions: HashMap::from([("vendas".into(), "view".into())]),
+            origem: Origem::Agente,
+        };
+        assert!(!has_write_access(&ctx, "/api/caminho-sem-modulo", "POST"));
+        assert!(!has_write_access(&ctx, "/api/vendas/pedidos", "POST"), "só 'ver' em vendas");
+        assert!(has_write_access(&ctx, "/api/vendas/pedidos", "GET"));
+        ctx.origem = Origem::Tela;
+        assert!(has_write_access(&ctx, "/api/caminho-sem-modulo", "POST"), "operador segue como antes");
+    }
 }

@@ -31,6 +31,12 @@ pub async fn ensure_tables(pool: &PgPool) -> Result<(), String> {
     .await
     .map_err(|e| e.to_string())?;
 
+    // Coluna da migração 056; garantida aqui também para a gravação nunca depender de a migração ter rodado.
+    sqlx::query("ALTER TABLE hub_audit_events ADD COLUMN IF NOT EXISTS origem TEXT NOT NULL DEFAULT 'tela'")
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
     for idx in [
         "CREATE INDEX IF NOT EXISTS idx_hub_audit_events_created ON hub_audit_events (created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_hub_audit_events_module ON hub_audit_events (module_key)",

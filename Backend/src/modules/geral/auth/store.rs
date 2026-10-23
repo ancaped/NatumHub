@@ -1440,5 +1440,6 @@ pub fn has_write_access(ctx: &AuthContext, path: &str, method: &str) -> bool {
     if path.starts_with("/api/vendas") {
         return ctx.can_edit_module(super::modules_registry::MODULE_VENDAS);
     }
-    true
+    // Caminho sem módulo mapeado: operador segue liberado (como sempre foi); agente de IA é negado.
+    !ctx.is_agente()
 }

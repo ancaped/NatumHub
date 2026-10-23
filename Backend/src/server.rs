@@ -421,6 +421,11 @@ where
         Ok(_) => {}
         Err(e) => eprintln!("[Sync] {e}"),
     }
+    // Migrações SQL (Backend/supabase, SCHEMA_FILES) em todo boot: idempotentes e com lock entre processos.
+    // Antes só rodavam no início de um sync do ERP, e colunas novas ficavam faltando até o próximo sync.
+    if let Err(e) = modules::geral::postgres_bootstrap::commands::run_schema_migrations(&pool).await {
+        eprintln!("[Database Migration] {e}");
+    }
     let _ = modules::geral::auth::store::init_auth_tables(&pool).await;
     let _ = modules::geral::audit::store::ensure_tables(&pool).await;
     let _ = modules::geral::mapa::store::ensure_schema(&pool).await;
