@@ -234,43 +234,8 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
             get(handlers::get_produtos_mesma_formulacao),
         )
         .route(
-            "/api/producao/reatores",
-            get(handlers::list_reatores).put(handlers::save_reatores),
-        )
-        .route(
-            "/api/producao/fila-demandas",
-            get(handlers::list_fila_demandas)
-                .post(handlers::create_fila_demandas),
-        )
-        .route(
-            "/api/producao/fila-demandas/:id",
-            delete(handlers::delete_fila_demanda)
-                .patch(handlers::update_fila_demanda)
-                .put(handlers::update_fila_demanda),
-        )
-        .route(
             "/api/producao/bases-resumo",
             get(handlers::get_bases_resumo),
-        )
-        .route(
-            "/api/producao/planejamento-semanal",
-            get(handlers::list_planejamento_semanal).post(handlers::save_planejamento_item),
-        )
-        .route(
-            "/api/producao/planejamento-semanal/bulk",
-            put(handlers::bulk_save_planejamento),
-        )
-        .route(
-            "/api/producao/planejamento-semanal/:id",
-            delete(handlers::delete_planejamento_item),
-        )
-        .route(
-            "/api/producao/planejamento-semanal/:id/confirmar-fisico",
-            post(handlers::confirm_fisico_planejamento),
-        )
-        .route(
-            "/api/producao/planejamento-semanal/clear",
-            delete(handlers::clear_planejamento_semana),
         )
         .route(
             "/api/producao/ultimo-lote",
@@ -284,6 +249,8 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
         .merge(modules::producao::cobertura::router())
         .merge(modules::producao::decisoes::router())
         .merge(modules::producao::fila::router())
+        .merge(modules::producao::planejamento::router())
+        .merge(modules::producao::reatores::router())
         .merge(modules::producao::trocas::router())
         .merge(modules::producao::auditoria::router())
         .merge(modules::producao::insumos_classificacao::router())
@@ -431,7 +398,7 @@ where
     let _ = modules::geral::mapa::store::ensure_schema(&pool).await;
     let _ = modules::administrativo::funcionarios::store::ensure_schema(&pool).await;
     let _ = modules::administrativo::acompanhamento_producao::store::ensure_schema(&pool).await;
-    let _ = handlers::ensure_fila_demandas_table(&pool).await;
+    let _ = modules::producao::fila::ensure_fila_demandas_table(&pool).await;
 
     let state = Arc::new(handlers::AppState { db });
 

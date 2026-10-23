@@ -25,6 +25,8 @@ pub mod modules {
         pub mod cobertura;
         pub mod decisoes;
         pub mod fila;
+        pub mod planejamento;
+        pub mod reatores;
         pub mod permissao;
         pub mod trocas;
         pub mod auditoria;

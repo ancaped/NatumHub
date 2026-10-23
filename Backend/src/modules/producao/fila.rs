@@ -7,7 +7,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::post,
+    routing::{delete, get, post},
     Extension, Json, Router,
 };
 use serde::Deserialize;
@@ -15,12 +15,19 @@ use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
 
+use crate::core::acao::ErroApi;
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
 use crate::modules::producao::{auditoria, decisoes, permissao};
 
 pub fn router() -> Router<Arc<AppState>> {
-    Router::new().route("/api/producao/fila-demandas/:id/retirar", post(retirar_rota))
+    Router::new()
+        .route("/api/producao/fila-demandas", get(list_fila_demandas).post(create_fila_demandas))
+        .route(
+            "/api/producao/fila-demandas/:id",
+            delete(delete_fila_demanda).patch(update_fila_demanda).put(update_fila_demanda),
+        )
+        .route("/api/producao/fila-demandas/:id/retirar", post(retirar_rota))
 }
 
 #[derive(Debug, Clone)]
@@ -175,6 +182,326 @@ async fn retirar_rota(
             (StatusCode::OK, Json(json!({ "ok": true, "retirados": itens.len() }))).into_response()
         }
         Err(e) => erro(StatusCode::INTERNAL_SERVER_ERROR, e),
+    }
+}
+
+// ==========================================
+// FILA DE DEMANDAS: listar, criar, atualizar e excluir
+// ==========================================
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct FilaDemandaRow {
+    pub id: String,
+    pub codigo_produto: String,
+    pub descricao: String,
+    pub quantidade: f64,
+    pub unidade: String,
+    pub quantidade_kg: Option<f64>,
+    pub origem_demanda: String,
+    pub linha_envase: Option<String>,
+    pub base_codigo: Option<String>,
+    pub base_nome: Option<String>,
+    pub observacoes: Option<String>,
+    pub prioridade: Option<i32>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateFilaDemandaItem {
+    pub codigo_produto: String,
+    pub descricao: String,
+    pub quantidade: f64,
+    #[serde(default = "default_fila_unidade")]
+    pub unidade: String,
+    pub quantidade_kg: Option<f64>,
+    #[serde(default = "default_origem_demanda")]
+    pub origem_demanda: String,
+    pub linha_envase: Option<String>,
+    pub base_codigo: Option<String>,
+    pub base_nome: Option<String>,
+    pub observacoes: Option<String>,
+    pub prioridade: Option<i32>,
+    /// `somar` acumula na demanda existente do SKU. Ausente ou `substituir` troca a quantidade.
+    #[serde(default)]
+    pub modo: Option<String>,
+}
+
+fn default_fila_unidade() -> String { "un".to_string() }
+fn default_origem_demanda() -> String { "sugestao_estoque".to_string() }
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(untagged)]
+pub enum CreateFilaDemandaPayload {
+    Batch(Vec<CreateFilaDemandaItem>),
+    Single(CreateFilaDemandaItem),
+}
+
+pub async fn ensure_fila_demandas_table(pool: &PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS producao_fila_demandas (
+            id TEXT PRIMARY KEY,
+            codigo_produto TEXT NOT NULL,
+            descricao TEXT NOT NULL,
+            quantidade NUMERIC(12, 3) NOT NULL,
+            unidade TEXT NOT NULL DEFAULT 'un',
+            quantidade_kg NUMERIC(12, 3),
+            origem_demanda TEXT NOT NULL,
+            linha_envase TEXT,
+            base_codigo TEXT,
+            base_nome TEXT,
+            observacoes TEXT,
+            prioridade INTEGER DEFAULT 1,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_fila_demandas_codigo ON producao_fila_demandas (codigo_produto)",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_fila_demandas_prioridade ON producao_fila_demandas (prioridade, created_at)",
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn list_fila_demandas(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let pool = state.db.pool();
+    let sql = r#"
+        SELECT id, codigo_produto, descricao, quantidade::float8, unidade,
+               quantidade_kg::float8, origem_demanda, linha_envase, base_codigo,
+               base_nome, observacoes, prioridade, created_at::text, updated_at::text
+        FROM producao_fila_demandas
+        ORDER BY COALESCE(prioridade, 1) ASC, created_at ASC
+    "#;
+
+    match sqlx::query_as::<_, FilaDemandaRow>(sql).fetch_all(pool).await {
+        Ok(items) => (StatusCode::OK, Json(json!({ "ok": true, "items": items }))).into_response(),
+        Err(e) => ErroApi::interno(format!("Erro ao listar fila de demandas: {}", e)).into_response(),
+    }
+}
+
+pub async fn create_fila_demandas(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Json(payload): Json<CreateFilaDemandaPayload>,
+) -> impl IntoResponse {
+    if let Err(r) = permissao::exigir_edicao(&ctx) {
+        return r;
+    }
+    let pool = state.db.pool();
+    let items = match payload {
+        CreateFilaDemandaPayload::Batch(list) => list,
+        CreateFilaDemandaPayload::Single(item) => vec![item],
+    };
+
+    match gravar_fila_demandas(pool, items).await {
+        Ok(ids) => {
+            auditoria::registrar(pool, &ctx.display_name, "enviar_para_fila", &format!("{} itens", ids.len()), json!({ "ids": ids })).await;
+            (
+                StatusCode::OK,
+                Json(json!({ "ok": true, "count": ids.len(), "ids": ids })),
+            )
+                .into_response()
+        }
+        Err(e) => ErroApi::interno(format!("Erro ao gravar a fila de demandas: {}", e)).into_response(),
+    }
+}
+
+/// Grava todos os itens numa transação. A fila tem uma linha por SKU, mas sem constraint única;
+/// o advisory lock por código impede que dois POST simultâneos dupliquem o SKU.
+async fn gravar_fila_demandas(
+    pool: &PgPool,
+    items: Vec<CreateFilaDemandaItem>,
+) -> Result<Vec<String>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let mut ids = Vec::new();
+    for it in items {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+            .bind(&it.codigo_produto)
+            .execute(&mut *tx)
+            .await?;
+
+        let existing_id: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM producao_fila_demandas WHERE codigo_produto = $1 LIMIT 1",
+        )
+        .bind(&it.codigo_produto)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(eid) = existing_id {
+            if it.modo.as_deref() == Some("somar") {
+                sqlx::query(
+                    r#"
+                    UPDATE producao_fila_demandas
+                    SET quantidade = quantidade + $1,
+                        quantidade_kg = COALESCE(quantidade_kg, 0) + COALESCE($2, 0),
+                        unidade = COALESCE(NULLIF($3, ''), unidade),
+                        observacoes = COALESCE($4, observacoes),
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = $5
+                    "#,
+                )
+                .bind(it.quantidade)
+                .bind(it.quantidade_kg)
+                .bind(&it.unidade)
+                .bind(&it.observacoes)
+                .bind(&eid)
+                .execute(&mut *tx)
+                .await?;
+            } else {
+                sqlx::query(
+                    r#"
+                    UPDATE producao_fila_demandas
+                    SET quantidade = $1,
+                        unidade = $2,
+                        quantidade_kg = $3,
+                        origem_demanda = $4,
+                        base_codigo = COALESCE($5, base_codigo),
+                        base_nome = COALESCE($6, base_nome),
+                        observacoes = COALESCE($7, observacoes),
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = $8
+                    "#,
+                )
+                .bind(it.quantidade)
+                .bind(&it.unidade)
+                .bind(it.quantidade_kg)
+                .bind(&it.origem_demanda)
+                .bind(&it.base_codigo)
+                .bind(&it.base_nome)
+                .bind(&it.observacoes)
+                .bind(&eid)
+                .execute(&mut *tx)
+                .await?;
+            }
+            ids.push(eid);
+            continue;
+        }
+
+        let new_id = uuid::Uuid::new_v4().to_string();
+        sqlx::query(
+            r#"
+            INSERT INTO producao_fila_demandas (
+                id, codigo_produto, descricao, quantidade, unidade,
+                quantidade_kg, origem_demanda, linha_envase, base_codigo,
+                base_nome, observacoes, prioridade
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            "#,
+        )
+        .bind(&new_id)
+        .bind(&it.codigo_produto)
+        .bind(&it.descricao)
+        .bind(it.quantidade)
+        .bind(&it.unidade)
+        .bind(it.quantidade_kg)
+        .bind(&it.origem_demanda)
+        .bind(&it.linha_envase)
+        .bind(&it.base_codigo)
+        .bind(&it.base_nome)
+        .bind(&it.observacoes)
+        .bind(it.prioridade.unwrap_or(1))
+        .execute(&mut *tx)
+        .await?;
+        ids.push(new_id);
+    }
+    tx.commit().await?;
+    Ok(ids)
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateFilaDemandaPayload {
+    pub quantidade: Option<f64>,
+    pub quantidade_kg: Option<f64>,
+    pub unidade: Option<String>,
+    pub observacoes: Option<String>,
+    pub prioridade: Option<i32>,
+}
+
+pub async fn update_fila_demanda(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<String>,
+    Json(payload): Json<UpdateFilaDemandaPayload>,
+) -> impl IntoResponse {
+    if let Err(r) = permissao::exigir_edicao(&ctx) {
+        return r;
+    }
+    let pool = state.db.pool();
+    let q = r#"
+        UPDATE producao_fila_demandas
+        SET quantidade = COALESCE($1, quantidade),
+            quantidade_kg = COALESCE($2, quantidade_kg),
+            unidade = COALESCE($3, unidade),
+            observacoes = COALESCE($4, observacoes),
+            prioridade = COALESCE($5, prioridade),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $6
+    "#;
+
+    match sqlx::query(q)
+        .bind(payload.quantidade)
+        .bind(payload.quantidade_kg)
+        .bind(payload.unidade)
+        .bind(payload.observacoes)
+        .bind(payload.prioridade)
+        .bind(&id)
+        .execute(pool)
+        .await
+    {
+        Ok(res) if res.rows_affected() == 0 => ErroApi::nao_encontrado("Item da fila não encontrado.").into_response(),
+        Ok(res) => {
+            auditoria::registrar(pool, &ctx.display_name, "atualizar_fila", &id, json!({})).await;
+            (
+                StatusCode::OK,
+                Json(json!({ "ok": true, "updated": res.rows_affected() })),
+            )
+                .into_response()
+        }
+        Err(e) => ErroApi::interno(format!("Erro ao atualizar item da fila: {}", e)).into_response(),
+    }
+}
+
+pub async fn delete_fila_demanda(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(r) = permissao::exigir_edicao(&ctx) {
+        return r;
+    }
+    let pool = state.db.pool();
+    match sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1")
+        .bind(&id)
+        .execute(pool)
+        .await
+    {
+        Ok(res) if res.rows_affected() == 0 => ErroApi::nao_encontrado("Item da fila não encontrado.").into_response(),
+        Ok(res) => {
+            auditoria::registrar(pool, &ctx.display_name, "excluir_da_fila", &id, json!({})).await;
+            (
+                StatusCode::OK,
+                Json(json!({ "ok": true, "deleted": res.rows_affected() })),
+            )
+                .into_response()
+        }
+        Err(e) => ErroApi::interno(format!("Erro ao excluir item da fila: {}", e)).into_response(),
     }
 }
 

@@ -55,6 +55,10 @@ impl ErroApi {
         Self::novo(StatusCode::CONFLICT, "conflito", mensagem)
     }
 
+    pub fn regra(mensagem: impl Into<String>) -> Self {
+        Self::novo(StatusCode::UNPROCESSABLE_ENTITY, "regra_violada", mensagem)
+    }
+
     pub fn interno(mensagem: impl Into<String>) -> Self {
         Self::novo(StatusCode::INTERNAL_SERVER_ERROR, "erro_interno", mensagem)
     }
@@ -149,6 +153,12 @@ mod tests {
         assert_eq!(c["erro"]["codigo"], "sem_permissao");
         assert_eq!(c["erro"]["detalhes"]["modulo"], "producao");
         assert_eq!(c["error"], "Sem permissão.");
+    }
+
+    #[test]
+    fn regra_violada_vira_422() {
+        let e = ErroApi::regra("Regra.");
+        assert_eq!((e.status, e.codigo), (StatusCode::UNPROCESSABLE_ENTITY, "regra_violada"));
     }
 
     #[test]
