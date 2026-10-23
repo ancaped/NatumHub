@@ -85,7 +85,7 @@ export function ProductSalesDrawer({
     };
   }, [open, productCode]);
 
-  const maxMonthly = Math.max(1, ...(details?.monthlySales.map((m) => m.qty) || [1]));
+  const maxMonthly = Math.max(1, ...(details?.monthlySales.slice(-12).map((m) => m.qty) || [1]));
 
   return (
     <Drawer
@@ -150,7 +150,7 @@ export function ProductSalesDrawer({
                 <h4 className="text-xs font-bold text-zinc-700 mb-3">Vendas mensais</h4>
                 <div className="flex items-end gap-1 h-28">
                   {details.monthlySales.slice(-12).map((m) => (
-                    <div key={m.month} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+                    <div key={m.month} className="flex-1 h-full flex flex-col items-center justify-end gap-1 min-w-0">
                       <div
                         className="w-full bg-zinc-800 rounded-t min-h-[2px]"
                         style={{ height: `${Math.max(4, (m.qty / maxMonthly) * 100)}%` }}

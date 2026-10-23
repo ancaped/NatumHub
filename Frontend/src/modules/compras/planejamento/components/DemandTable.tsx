@@ -1029,7 +1029,7 @@ export function DemandTable({ mode = 'all', initialCategoryFilter = null, active
               <span>
                 Estoque físico ERP — último sync:{' '}
                 <strong className="text-zinc-800">
-                  {new Date(lastErpStockSync.at.replace(' ', 'T')).toLocaleString('pt-BR')}
+                  {new Date(lastErpStockSync.at.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00')).toLocaleString('pt-BR')}
                 </strong>
                 {lastErpStockSync.count > 0 && ` (${lastErpStockSync.count.toLocaleString('pt-BR')} itens)`}
               </span>

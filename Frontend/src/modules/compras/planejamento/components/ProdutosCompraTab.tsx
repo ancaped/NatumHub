@@ -1205,7 +1205,7 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
             <span>
               Estoque ERP — último sync:{' '}
               <strong className="text-zinc-800">
-                {new Date(lastErpStockSync.at.replace(' ', 'T')).toLocaleString('pt-BR')}
+                {new Date(lastErpStockSync.at.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00')).toLocaleString('pt-BR')}
               </strong>
             </span>
             <span className="text-zinc-400 hidden sm:inline">
