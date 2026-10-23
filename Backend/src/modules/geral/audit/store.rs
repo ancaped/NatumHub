@@ -54,8 +54,8 @@ pub async fn record(
         "INSERT INTO hub_audit_events (
             id, actor_id, actor_name, device_id, module_key, action,
             entity_type, entity_id, summary, before_json, after_json,
-            request_method, request_path, provenance
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+            request_method, request_path, provenance, origem
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
     )
     .bind(&id)
     .bind(ctx.map(|c| c.operator_id.as_str()))
@@ -71,6 +71,7 @@ pub async fn record(
     .bind(input.request_method)
     .bind(input.request_path)
     .bind(input.provenance)
+    .bind(ctx.map(|c| c.origem.as_str()).unwrap_or("sistema"))
     .execute(pool)
     .await
     .map_err(|e| e.to_string())?;
@@ -158,10 +159,10 @@ pub async fn list_events(pool: &PgPool, q: AuditListQuery) -> Result<Vec<AuditEv
         .filter(|s| !s.is_empty())
         .map(|s| format!("%{s}%"));
 
-    let rows = sqlx::query_as::<_, (String, chrono::DateTime<chrono::Utc>, Option<String>, Option<String>, Option<String>, Option<String>, String, Option<String>, Option<String>, String, Option<Value>, Option<Value>, Option<String>, Option<String>, String)>(
+    let rows = sqlx::query_as::<_, (String, chrono::DateTime<chrono::Utc>, Option<String>, Option<String>, Option<String>, Option<String>, String, Option<String>, Option<String>, String, Option<Value>, Option<Value>, Option<String>, Option<String>, String, String)>(
         "SELECT id, created_at, actor_id, actor_name, device_id, module_key, action,
                 entity_type, entity_id, summary, before_json, after_json,
-                request_method, request_path, provenance
+                request_method, request_path, provenance, origem
          FROM hub_audit_events
          WHERE ($1::text IS NULL OR module_key = $1)
            AND ($2::text IS NULL OR actor_id = $2)
@@ -196,6 +197,7 @@ pub async fn list_events(pool: &PgPool, q: AuditListQuery) -> Result<Vec<AuditEv
                 request_method,
                 request_path,
                 provenance,
+                origem,
             )| AuditEvent {
                 id,
                 created_at: created_at.to_rfc3339(),
@@ -212,6 +214,7 @@ pub async fn list_events(pool: &PgPool, q: AuditListQuery) -> Result<Vec<AuditEv
                 request_method,
                 request_path,
                 provenance,
+                origem,
             },
         )
         .collect())

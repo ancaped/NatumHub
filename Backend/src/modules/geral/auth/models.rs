@@ -188,6 +188,22 @@ pub struct LoginResponse {
     pub expires_at: String,
 }
 
+/// De onde veio a sessão: operador logado na tela ou agente de IA com token próprio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origem {
+    Tela,
+    Agente,
+}
+
+impl Origem {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Tela => "tela",
+            Self::Agente => "agente",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AuthContext {
     pub operator_id: String,
@@ -195,9 +211,14 @@ pub struct AuthContext {
     pub role: OperatorRole,
     pub modules: Vec<String>,
     pub permissions: HashMap<String, String>,
+    pub origem: Origem,
 }
 
 impl AuthContext {
+    pub fn is_agente(&self) -> bool {
+        self.origem == Origem::Agente
+    }
+
     pub fn avatar_url(&self) -> String {
         let encoded: String = self
             .display_name

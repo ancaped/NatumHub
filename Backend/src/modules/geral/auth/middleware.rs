@@ -4,10 +4,11 @@ use axum::{
     http::{Request, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde_json::json;
 use std::sync::Arc;
+
+use crate::core::acao::ErroApi;
 
 use crate::handlers::AppState;
 use super::handlers::extract_bearer;
@@ -33,10 +34,7 @@ pub async fn auth_middleware(
     }
 
     let Some(token) = extract_bearer(req.headers()) else {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "Autenticação necessária. Faça login como operador." })),
-        )
+        return ErroApi::nao_autenticado("Autenticação necessária. Faça login como operador ou use o token do agente.")
             .into_response();
     };
 
@@ -47,18 +45,13 @@ pub async fn auth_middleware(
     match store::resolve_session(pool, &token).await {
         Ok(Some(ctx)) => {
             if store::requires_supervisor(&path, &method) && !ctx.role.is_supervisor() {
-                return (
-                    StatusCode::FORBIDDEN,
-                    Json(json!({ "error": "Apenas o supervisor pode executar esta ação." })),
-                )
+                return ErroApi::novo(StatusCode::FORBIDDEN, "apenas_supervisor", "Apenas o supervisor pode executar esta ação.")
                     .into_response();
             }
 
             if !store::has_write_access(&ctx, &path, &method) {
-                return (
-                    StatusCode::FORBIDDEN,
-                    Json(json!({ "error": "Sem permissão para alterar dados neste módulo." })),
-                )
+                return ErroApi::sem_permissao("Sem permissão para alterar dados neste módulo.")
+                    .com_detalhes(json!({ "metodo": method, "caminho": path }))
                     .into_response();
             }
 
@@ -82,16 +75,9 @@ pub async fn auth_middleware(
             req.extensions_mut().insert(ctx);
             next.run(req).await
         }
-        Ok(None) => (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "Sessão inválida ou expirada. Faça login novamente." })),
-        )
+        Ok(None) => ErroApi::novo(StatusCode::UNAUTHORIZED, "sessao_expirada", "Sessão inválida ou expirada. Faça login novamente.")
             .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
-        )
-            .into_response(),
+        Err(e) => ErroApi::interno(e).into_response(),
     }
 }
 

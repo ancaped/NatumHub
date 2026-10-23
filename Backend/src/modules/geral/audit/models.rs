@@ -19,6 +19,8 @@ pub struct AuditEvent {
     pub request_method: Option<String>,
     pub request_path: Option<String>,
     pub provenance: String,
+    /// `tela`, `agente` ou `sistema`.
+    pub origem: String,
 }
 
 #[derive(Debug, Deserialize)]

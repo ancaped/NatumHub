@@ -749,7 +749,9 @@ async fn resolve_modules_for_operator(
 
 pub async fn list_active_operators(pool: &PgPool) -> Result<Vec<OperatorPublic>, String> {
     let rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT display_name, role FROM hub_operators WHERE active = 1 ORDER BY LOWER(display_name)",
+        "SELECT display_name, role FROM hub_operators \
+         WHERE active = 1 AND COALESCE(to_jsonb(hub_operators) ->> 'kind', 'humano') <> 'agente' \
+         ORDER BY LOWER(display_name)",
     )
     .fetch_all(pool)
     .await
@@ -859,6 +861,17 @@ pub async fn create_session(
         .await?
         .ok_or_else(|| "Nome ou senha inválidos.".to_string())?;
 
+    // Agente de IA não entra por senha: só pelo token próprio (`nxa_...`).
+    // Sem a coluna `kind` (migração 056 não aplicada) não há agentes: o login segue normal.
+    let kind: Option<String> = sqlx::query_scalar("SELECT kind FROM hub_operators WHERE id = $1")
+        .bind(&operator.id)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None);
+    if kind.as_deref() == Some("agente") {
+        return Err("Nome ou senha inválidos.".to_string());
+    }
+
     let hash = operator_password_hash(pool, &operator.id).await?;
     match hash {
         Some(h) if !h.is_empty() => {
@@ -941,6 +954,7 @@ pub async fn build_auth_user(
             role: role.clone(),
             modules: final_modules.clone(),
             permissions: permissions.clone(),
+            origem: super::models::Origem::Tela,
         }
         .avatar_url(),
         modules: final_modules,
@@ -1187,6 +1201,9 @@ pub async fn revoke_session(pool: &PgPool, token: &str) -> Result<(), String> {
 }
 
 pub async fn resolve_session(pool: &PgPool, token: &str) -> Result<Option<AuthContext>, String> {
+    if token.starts_with(crate::modules::geral::agentes::PREFIXO_TOKEN) {
+        return crate::modules::geral::agentes::resolver_token(pool, token).await;
+    }
     let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     let row: Option<(String, String, String)> = sqlx::query_as(
@@ -1220,6 +1237,7 @@ pub async fn resolve_session(pool: &PgPool, token: &str) -> Result<Option<AuthCo
                 role,
                 modules,
                 permissions,
+                origem: super::models::Origem::Tela,
             }))
         }
         None => Ok(None),
@@ -1314,6 +1332,9 @@ pub fn requires_supervisor(path: &str, method: &str) -> bool {
     }
     if path.starts_with("/api/auth/operators/manage") {
         return matches!(method, "GET" | "POST" | "PUT" | "DELETE");
+    }
+    if path.starts_with("/api/admin/agentes") {
+        return true;
     }
     if path.starts_with("/api/auth/devices/manage") {
         return matches!(method, "GET" | "PUT");
