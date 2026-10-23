@@ -109,6 +109,10 @@ Decisão do Edson. O ai-memory roda no ZimaOS (`http://100.64.207.54:49374/mcp`,
 - **Antes**: consultar o ai-memory (`memory_query` / `memory_read_page`) sobre o módulo ou tema antes de propor ou mexer em código.
 - **Depois**: registrar no ai-memory o que mudou ou foi descoberto (decisões, bugs achados, gotchas, regras de módulo), atualizando a página existente em vez de criar outra. Não usar a memória local do harness para fatos do projeto.
 
+## Regra fixa: Opus planeja, Sonnet implementa
+
+Decisão do Edson. O agente principal (Opus) investiga, consulta o ai-memory, planeja, revisa o resultado, confere no navegador, commita e registra no ai-memory. A escrita do código vai para o subagente **`implementador`** (`.claude/agents/implementador.md`, `model: sonnet`), com um plano fechado: arquivos, passos e critério de pronto. Ajustes de uma ou duas linhas podem ser feitos direto pelo Opus.
+
 <!-- ai-memory:start -->
 ## Long-term memory (ai-memory)
 
