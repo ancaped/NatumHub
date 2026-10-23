@@ -1,64 +1,34 @@
 import React from 'react';
 import { RefreshCw, Check, Trash2, UploadCloud, Search } from 'lucide-react';
 
+interface SettingsTabProps {
+  diasComerciais?: number;
+  limitPerPage?: number;
+  tempDiasComerciais: any;
+  setTempDiasComerciais: any;
+  tempLimitPerPage: any;
+  setTempLimitPerPage: any;
+  onSaveGlobalSettings: any;
+  allProducts: any;
+  recalcProd: any;
+  setRecalcProd: any;
+  recalcIng: any;
+  setRecalcIng: any;
+  recalcIngredients: any;
+  recalcPreview: any;
+  setRecalcPreview: any;
+  recalcLoading: any;
+  onPreviewRecalc: any;
+  onApplyRecalc: any;
+}
+
 export function SettingsTab({
-  configs,
-  diasComerciais,
-  limitPerPage,
   tempDiasComerciais,
   setTempDiasComerciais,
   tempLimitPerPage,
   setTempLimitPerPage,
-  ignoredStatuses = [],
-  onSaveIgnoredStatuses = () => {},
   onSaveGlobalSettings,
-  onConfigChange,
-  onConfigToggleVisivel,
-  onConfigDelete,
-  onConfigCreate,
-  showAddLineForm,
-  setShowAddLineForm,
-  newLinePrefix,
-  setNewLinePrefix,
-  newLineName,
-  setNewLineName,
-  newLineIdeal,
-  setNewLineIdeal,
-  newLineOrdem,
-  setNewLineOrdem,
-  newLineProd,
-  setNewLineProd,
-  newLineZ,
-  setNewLineZ,
   allProducts,
-  bulkSearch,
-  setBulkSearch,
-  bulkSelected,
-  setBulkSelected,
-  bulkAction,
-  setBulkAction,
-  bulkValueStr,
-  setBulkValueStr,
-  bulkFilterLine,
-  setBulkFilterLine,
-  bulkFilterStatus,
-  setBulkFilterStatus,
-  bulkFilterVisibility,
-  setBulkFilterVisibility,
-  bulkFilterLaunch,
-  setBulkFilterLaunch,
-  onBulkApply,
-  kitComposicao,
-  kitCompNewKit,
-  setKitCompNewKit,
-  kitCompNewComp,
-  setKitCompNewComp,
-  kitCompSearch,
-  setKitCompSearch,
-  onAddKitComposicao,
-  onDeleteKitComposicao,
-  onUploadKitsConfig,
-  uploadingKitsConfig,
   recalcProd,
   setRecalcProd,
   recalcIng,
@@ -68,8 +38,8 @@ export function SettingsTab({
   setRecalcPreview,
   recalcLoading,
   onPreviewRecalc,
-  onApplyRecalc
-}) {  return (
+  onApplyRecalc,
+}: SettingsTabProps) {  return (
     <div className="view-container animate-in fade-in duration-200">
       <div className="settings-grid">
         

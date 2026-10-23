@@ -18,7 +18,6 @@ export function buildLaudoSingleCardHtml(laudo: LaudoItem, logoSrc?: string | nu
   if (ensaiosParaExibir.length === 0) {
     PADRAO_ENSAIOS_NOMES.forEach((nome) => {
       ensaiosParaExibir.push({
-        id: Math.random().toString(),
         ensaio: nome,
         especificacao: 'Conforme padrão',
         resultado: 'Conforme',

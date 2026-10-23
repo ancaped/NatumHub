@@ -45,8 +45,7 @@ function buildUrl(path: string): string {
 function buildHeaders(init?: RequestInit & { skipAuth?: boolean }): HeadersInit {
   const isJsonBody =
     init?.body != null &&
-    typeof init.body === 'string' &&
-    !(init.body instanceof FormData);
+    typeof init.body === 'string';
   const headers: Record<string, string> = {
     ...(isJsonBody ? { 'Content-Type': 'application/json' } : {}),
   };

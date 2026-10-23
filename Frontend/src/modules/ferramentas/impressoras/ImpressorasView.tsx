@@ -328,6 +328,7 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
           y_mm: 4,
           width_mm: (printer.default_width_mm || 100) - 8,
           height_mm: 8,
+          zIndex: 2,
           props: {
             text: 'NÁTUM COSMÉTICOS · TESTE 100% OK',
             fontSize: 12,
@@ -342,6 +343,7 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
           y_mm: 12,
           width_mm: (printer.default_width_mm || 100) - 8,
           height_mm: 6,
+          zIndex: 2,
           props: {
             text: `Dispositivo: ${printer.name} (${printer.default_width_mm}x${printer.default_height_mm}mm)`,
             fontSize: 9,
@@ -355,6 +357,7 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
           y_mm: 20,
           width_mm: (printer.default_width_mm || 100) - 30,
           height_mm: 16,
+          zIndex: 2,
           props: { value: '7898553231964', barcodeType: 'CODE128', showText: true },
         },
         {
@@ -364,6 +367,7 @@ export default function ImpressorasView({ onBackToHub }: ImpressorasViewProps) {
           y_mm: (printer.default_height_mm || 50) - 8,
           width_mm: (printer.default_width_mm || 100) - 8,
           height_mm: 5,
+          zIndex: 2,
           props: {
             text: `Data: ${new Date().toLocaleString('pt-BR')} · DPI: ${printer.dpi}`,
             fontSize: 8,

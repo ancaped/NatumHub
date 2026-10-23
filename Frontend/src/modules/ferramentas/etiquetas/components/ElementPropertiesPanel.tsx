@@ -73,6 +73,7 @@ export default function ElementPropertiesPanel({
   onAlignElement,
   onAlignGroup,
   onTemplateChange,
+  onOpenSystemVariablesModal,
 }: ElementPropertiesPanelProps) {
   const isPortrait = template.orientation === 'portrait';
   const labelWidth = isPortrait ? template.height_mm : template.width_mm;

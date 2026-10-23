@@ -111,8 +111,8 @@ export default function ProducaoView({
   });
 
   // Temp settings state for inputs
-  const [tempDiasComerciais, setTempDiasComerciais] = useState(diasComerciais);
-  const [tempLimitPerPage, setTempLimitPerPage] = useState(limitPerPage);
+  const [tempDiasComerciais, setTempDiasComerciais] = useState<number | string>(diasComerciais);
+  const [tempLimitPerPage, setTempLimitPerPage] = useState<number | string>(limitPerPage);
 
   // Loading & Action State
   const [loading, setLoading] = useState(false);
@@ -193,14 +193,14 @@ export default function ProducaoView({
     const dd = String(today.getDate()).padStart(2, '0');
     return `${yyyy}-${mm}-${dd}`;
   });
-  const [launchQty, setLaunchQty] = useState(100);
+  const [launchQty, setLaunchQty] = useState<number | string>(100);
   const [launchObs, setLaunchObs] = useState('');
 
   // Base control & Similar items states
   const [consumeBase, setConsumeBase] = useState(false);
   const [baseProduct, setBaseProduct] = useState(null);
   const [similarProducts, setSimilarProducts] = useState([]);
-  const [selectedSims, setSelectedSims] = useState({}); // code -> { checked: bool, qty: number }
+  const [selectedSims, setSelectedSims] = useState<Record<string, { checked: boolean; qty: number | string }>>({});
   const [similarLoading, setSimilarLoading] = useState(false);
 
   // Lotes State
@@ -875,7 +875,7 @@ export default function ProducaoView({
     if (e) e.preventDefault();
     if (!launchingProduct) return;
 
-    const qty = parseInt(launchQty, 10);
+    const qty = parseInt(String(launchQty), 10);
     if (isNaN(qty) || qty <= 0) {
       showToast("Por favor, preencha uma quantidade válida maior que zero.", "error");
       return;
@@ -895,7 +895,7 @@ export default function ProducaoView({
             simLaunches.push({
               data_producao: launchDate,
               codigo: simCode,
-              quantidade: parseInt(simInfo.qty, 10),
+              quantidade: parseInt(String(simInfo.qty), 10),
               observacoes: `Lançado em conjunto com ${launchingProduct.codigo}. ${launchObs.trim() === '' ? '' : launchObs.trim()}`.trim(),
               snap_estoque: simProd.product.estoque ?? null,
               snap_producao: simProd.product.producao ?? null,
@@ -1018,8 +1018,8 @@ export default function ProducaoView({
 
   const handleSaveGlobalSettings = (e) => {
     if (e) e.preventDefault();
-    const days = parseInt(tempDiasComerciais, 10) || 30;
-    const limit = parseInt(tempLimitPerPage, 10) || 30;
+    const days = parseInt(String(tempDiasComerciais), 10) || 30;
+    const limit = parseInt(String(tempLimitPerPage), 10) || 30;
     
     setDiasComerciais(days);
     setLimitPerPage(limit);

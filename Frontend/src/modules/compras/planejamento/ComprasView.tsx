@@ -179,7 +179,6 @@ export default function ComprasView({ onBackToHub, mode = 'all' }: ComprasViewPr
       case 'embalagens': return 'Embalagens';
       case 'coloracao': return 'Coloração';
       case 'apoio': return 'Material de Apoio';
-      case 'quotations': return 'Cotações';
       case 'simulation': return 'Simulador';
       default: return 'Insumos & MP';
     }

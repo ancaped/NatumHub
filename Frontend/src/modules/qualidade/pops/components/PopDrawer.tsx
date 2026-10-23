@@ -632,10 +632,10 @@ export default function PopDrawer({
                           </td>
                           <td style={{ border: '1px solid #000', padding: 6, textAlign: 'center', verticalAlign: 'middle' }}>
                             <div style={{ fontWeight: 700, fontSize: 13, textTransform: 'uppercase' }}>Procedimento Operacional Padrão</div>
-                            <div style={{ fontSize: 11, fontWeight: 700, marginTop: 3 }}>{title || document?.title}</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, marginTop: 3 }}>{title || popDoc?.title}</div>
                           </td>
                           <td style={{ width: '28%', border: '1px solid #000', padding: 6, fontSize: 10, verticalAlign: 'top', lineHeight: 1.3 }}>
-                            <div><strong>Código:</strong> {code || document?.code}</div>
+                            <div><strong>Código:</strong> {code || popDoc?.code}</div>
                             <div><strong>Revisão:</strong> {String(printVersion.revision).padStart(2, '0')}</div>
                             <div><strong>Data:</strong> {fmtDate(printVersion.effectiveDate)}</div>
                             <div><strong>Setor:</strong> {sectorName}</div>

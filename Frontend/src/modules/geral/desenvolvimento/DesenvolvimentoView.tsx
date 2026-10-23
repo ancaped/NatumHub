@@ -204,8 +204,8 @@ export default function DesenvolvimentoView({
     }
   };
 
-  const handleAddNote = async (id: string, body: string, author: string) => {
-    await api.addFeedbackNote(id, { body, author });
+  const handleAddNote = async (id: string, body: string, _author: string) => {
+    await api.addFeedbackNote(id, body);
     if (selectedFeedbackId === id) {
       await loadFeedbackDetail(id);
     }

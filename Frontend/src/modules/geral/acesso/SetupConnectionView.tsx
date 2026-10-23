@@ -51,7 +51,10 @@ export default function SetupConnectionView({ onComplete, reason }: SetupConnect
     setPgOk(null);
     setPgInstalling(true);
     try {
-      const result = await invoke<BootstrapPostgresResult>('hub_bootstrap_local_postgres');
+      // Instalação local do Postgres era do app desktop (Tauri); não existe na versão web.
+      const result: BootstrapPostgresResult = await Promise.reject(
+        new Error('Instalar o PostgreSQL por aqui só funcionava no app desktop.'),
+      );
       setPgOk(
         result.message ||
           `PostgreSQL pronto na porta ${result.port}. Env: ${result.postgresEnvPath}`

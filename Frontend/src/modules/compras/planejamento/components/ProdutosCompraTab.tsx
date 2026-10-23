@@ -411,8 +411,8 @@ export function ProdutosCompraTab({ statusFilter, title, active = false, initial
       const erp = history.find(
         (h) => h.source === 'ERP' || (h.filename || '').includes('SQL Server')
       );
-      if (erp?.imported_at) {
-        setLastErpStockSync({ at: erp.imported_at, count: erp.item_count ?? 0 });
+      if (erp?.importedAt) {
+        setLastErpStockSync({ at: erp.importedAt, count: erp.itemCount ?? 0 });
       } else {
         setLastErpStockSync(null);
       }

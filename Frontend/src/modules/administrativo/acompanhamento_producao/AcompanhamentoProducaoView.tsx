@@ -166,6 +166,8 @@ export interface LoteAdiadoRegistro {
   dataAcao: string;
   responsavel?: string;
   etapa?: string;
+  /** Registros antigos gravavam a etapa aqui. */
+  origem?: string;
 }
 
 export interface TerceirizadoSolicitacao {
@@ -207,6 +209,9 @@ export interface ProgramacaoEnvaseItem {
   cor?: string | null;
   statusEnvase: string; // 'PROGRAMADO' | 'EM_ENVASE' | 'CONCLUIDO' | 'CANCELADO'
   observacoes?: string | null;
+  // Campos legados lidos pela tela; a API de programação não envia mais.
+  observacaoEnvase?: string | null;
+  motivoEspera?: string | null;
   createdBy?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -222,7 +227,7 @@ export interface ProgramacaoRotulagemItem {
   productDescription: string;
   quantity: number;
   quantityKg: number;
-  statusRotulagem: 'PROGRAMADO' | 'EM_ROTULAGEM' | 'CONCLUIDO';
+  statusRotulagem: 'PROGRAMADO' | 'EM_ROTULAGEM' | 'CONCLUIDO' | 'EM_ESPERA'; // EM_ESPERA: dado legado
   observacoes?: string | null;
   createdBy?: string | null;
   createdAt: string;
@@ -1926,16 +1931,15 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
   // Detalhes do Item Contextual por Quadro
   const [selectedLoteDetails, setSelectedLoteDetails] = useState<{
-    lote: AcompanhamentoLote;
-    quadro: 'pesagem' | 'producao' | 'rotulagem' | 'envase' | 'ordens';
-    programacaoItem?: any;
+    lote: AcompanhamentoLote | ProgramacaoEnvaseItem | ProgramacaoRotulagemItem;
+    etapa: 'pesagem' | 'producao' | 'rotulagem' | 'envase' | 'ordens';
   } | null>(null);
 
   // Modal de Espera do Envase
   const [envaseEsperaItem, setEnvaseEsperaItem] = useState<ProgramacaoEnvaseItem | null>(null);
   const [envaseEsperaMotivo, setEnvaseEsperaMotivo] = useState<string>('Falta de Embalagem / Frasco');
   const [envaseEsperaCustom, setEnvaseEsperaCustom] = useState<string>('');
-  const [envaseEsperaParcialQtd, setEnvaseEsperaParcialQtd] = useState<string>('');
+  const [envaseEsperaParcialQtd, setEnvaseEsperaParcialQtd] = useState<number | null>(null);
   const [envaseEsperaMotivoRestante, setEnvaseEsperaMotivoRestante] = useState<string>('');
 
   // Histórico de Lotes Adiados
@@ -2084,6 +2088,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     operador: string;
     lotes: string[];
     observacoes?: string;
+    duracaoMinutos?: number;
   }
   const [caldeiraAtiva, setCaldeiraAtiva] = useState<{ ligouEm: string; operador: string; lotes: string[] } | null>(() => {
     try {
@@ -4504,7 +4509,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         rotulagem: 'Rotulagem',
         envase: 'Envase'
       };
-      showToast(`Lote #${loteNumber} removido do quadro de ${quadroNomeMap[quadro] || quadro}. (Permanece integralmente no Quadro de Ordens)`, 'info');
+      showToast(`Lote #${loteNumber} removido do quadro de ${quadroNomeMap[quadro] || quadro}. (Permanece integralmente no Quadro de Ordens)`, 'success');
       await fetchLotes();
       if (quadro === 'envase') {
         await fetchProgramacaoEnvase('TODOS');
@@ -4539,7 +4544,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           method: 'DELETE',
         }).catch(() => {});
       }
-      showToast(`Agendamento do lote #${loteNumber} removido da linha de envase.`, 'info');
+      showToast(`Agendamento do lote #${loteNumber} removido da linha de envase.`, 'success');
       await fetchProgramacaoEnvase('TODOS');
     } catch (e: any) {
       console.error("Erro ao remover item do quadro de envase:", e);
@@ -4826,7 +4831,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
     // Multi-produto consolidado apenas em Pesagem e Produção quando o lote foi consolidado com múltiplos itens
     const isMultiBatch = Boolean(
-      (options?.isConsolidatedBatch ?? (currentTab === 'pesagem' || currentTab === 'producao' || currentTab === 'quadro_pesagem' || currentTab === 'quadro_producao')) &&
+      (options?.isConsolidatedBatch ?? (currentTab === 'quadro_pesagem' || currentTab === 'quadro_producao')) &&
       ((lote as any).lotes && (lote as any).lotes.length > 1)
     );
 
@@ -10582,7 +10587,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         key={loteRowKey(lote)}
                         draggable
                         onDragStart={(e) => {
-                          setDragCardInfo({ board: 'producao', id: lote.loteNumber, index: idx });
+                          setDragCardInfo({ board: 'producao', source: 'ativa', id: lote.loteNumber, loteNumber: lote.loteNumber, index: idx });
                           e.dataTransfer.setData('application/json', JSON.stringify({
                             board: 'producao',
                             source: 'ativa',
@@ -10863,7 +10868,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         key={loteRowKey(lote)}
                         draggable
                         onDragStart={(e) => {
-                          setDragCardInfo({ board: 'producao', id: lote.loteNumber, index: idx });
+                          setDragCardInfo({ board: 'producao', source: 'caldeira', id: lote.loteNumber, loteNumber: lote.loteNumber, index: idx });
                           e.dataTransfer.setData('application/json', JSON.stringify({
                             board: 'producao',
                             source: 'caldeira',
@@ -11179,7 +11184,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         key={loteRowKey(lote)}
                         draggable
                         onDragStart={(e) => {
-                          setDragCardInfo({ board: 'producao', id: lote.loteNumber, index: idx });
+                          setDragCardInfo({ board: 'producao', source: 'fila', id: lote.loteNumber, loteNumber: lote.loteNumber, index: idx });
                           e.dataTransfer.setData('application/json', JSON.stringify({
                             board: 'producao',
                             source: 'fila',

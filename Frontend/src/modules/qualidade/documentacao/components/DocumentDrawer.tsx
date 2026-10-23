@@ -181,7 +181,7 @@ export default function DocumentDrawer({
     const res = await apiFetch(`/qualidade/documentacao/files/${fileId}`);
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = window.document.createElement('a');
     a.href = url;
     a.download = name;
     a.click();

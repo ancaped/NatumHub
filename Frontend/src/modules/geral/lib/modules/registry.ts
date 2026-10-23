@@ -118,7 +118,6 @@ export function moduleRegistry(): ModuleGroup[] {
         { key: MODULE_KEYS.ESTOQUE_ALMOX, label: 'Estoque' },
         { key: MODULE_KEYS.ESTOQUE_EQUIPAMENTOS, label: 'Equipamentos' },
         { key: MODULE_KEYS.ESTOQUE_MANUTENCOES, label: 'Manutenções' },
-        { key: MODULE_KEYS.COMPRAS_ALMOX, label: 'Compras' },
       ],
     },
     {
@@ -128,7 +127,6 @@ export function moduleRegistry(): ModuleGroup[] {
       children: [
         { key: MODULE_KEYS.PLANEJAMENTO_PRODUCAO, label: 'Planejamento de Produção' },
         { key: MODULE_KEYS.PRODUCAO, label: 'Gerenciamento' },
-        { key: MODULE_KEYS.PRODUCAO_ROTINA, label: 'Rotina de Produção' },
         { key: MODULE_KEYS.PRODUCAO_PROC, label: 'PROC (Processos)' },
         { key: MODULE_KEYS.MONTAGEM_KITS, label: 'Kits' },
         { key: MODULE_KEYS.MICROBIOLOGIA, label: 'Microbiologia' },
@@ -236,14 +234,12 @@ export function defaultModulesForRole(role: string): string[] {
         MODULE_KEYS.ESTOQUE_EQUIPAMENTOS,
         MODULE_KEYS.ESTOQUE_MANUTENCOES,
         MODULE_KEYS.ESTOQUE_MOVIMENTACOES,
-        MODULE_KEYS.COMPRAS_ALMOX,
         MODULE_KEYS.ESTOQUE_PRODUTOS,
       ];
     case 'producao':
     case 'produção':
       return [
         MODULE_KEYS.PRODUCAO,
-        MODULE_KEYS.PRODUCAO_ROTINA,
         MODULE_KEYS.PLANEJAMENTO_PRODUCAO,
         MODULE_KEYS.ADMIN_ACOMPANHAMENTO_PRODUCAO,
         MODULE_KEYS.PRODUCAO_LOTES,

@@ -85,6 +85,8 @@ export function ProductSalesDrawer({
     };
   }, [open, productCode]);
 
+  const maxMonthly = Math.max(1, ...(details?.monthlySales.map((m) => m.qty) || [1]));
+
   return (
     <Drawer
       isOpen={open}

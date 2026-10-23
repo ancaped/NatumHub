@@ -150,6 +150,7 @@ export interface Invoice {
   totalValue: number;
   supplierName: string;
   supplierId: string | null;
+  supplierCnpj?: string | null;
   invoiceDate: string;
 }
 
@@ -385,6 +386,7 @@ export interface ComprasAppConfig {
   autoSubcategories?: {
     subcategoryId: string;
     prefix: string;
+    type?: 'description' | 'supplier';
   }[];
   averagePeriodMonths?: number;
 }

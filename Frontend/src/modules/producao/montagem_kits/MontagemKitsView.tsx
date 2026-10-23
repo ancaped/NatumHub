@@ -71,7 +71,7 @@ export default function MontagemKitsView({ onBackToHub }) {
   // Form: Nova Ordem
   const [newOrderNumber, setNewOrderNumber] = useState('');
   const [selectedKitCode, setSelectedKitCode] = useState('');
-  const [newKitQty, setNewKitQty] = useState(10);
+  const [newKitQty, setNewKitQty] = useState<number | string>(10);
   const [newKitNotes, setNewKitNotes] = useState('');
   const [newComponentLotes, setNewComponentLotes] = useState({}); // code -> lote
   const [submittingNewOrder, setSubmittingNewOrder] = useState(false);
@@ -92,7 +92,7 @@ export default function MontagemKitsView({ onBackToHub }) {
   const [editNotes, setEditNotes] = useState('');
   const [editComponentLotes, setEditComponentLotes] = useState({});
   const [editComponentUsedQty, setEditComponentUsedQty] = useState({});
-  const [editQuantityAssembled, setEditQuantityAssembled] = useState(0);
+  const [editQuantityAssembled, setEditQuantityAssembled] = useState<number | string>(0);
   const [editErpLaunched, setEditErpLaunched] = useState(false);
   const [submittingEditOrder, setSubmittingEditOrder] = useState(false);
 
@@ -107,7 +107,7 @@ export default function MontagemKitsView({ onBackToHub }) {
   // Vira Composicao Form
   const [newViraDeCodigo, setNewViraDeCodigo] = useState('');
   const [newViraParaCodigo, setNewViraParaCodigo] = useState('');
-  const [newViraQuantidade, setNewViraQuantidade] = useState(1);
+  const [newViraQuantidade, setNewViraQuantidade] = useState<number | string>(1);
 
   // Nova Ordem de Vira Modal & Form
   const [showNewViraOrderModal, setShowNewViraOrderModal] = useState(false);
@@ -370,7 +370,7 @@ export default function MontagemKitsView({ onBackToHub }) {
         body: JSON.stringify({ 
           deProdutoCodigo: newViraDeCodigo.trim(), 
           paraProdutoCodigo: newViraParaCodigo.trim(),
-          quantidade: parseFloat(newViraQuantidade) || 1.0
+          quantidade: parseFloat(String(newViraQuantidade)) || 1.0
         })
       });
       if (res.ok) {
@@ -1038,7 +1038,7 @@ export default function MontagemKitsView({ onBackToHub }) {
             used_qty:
               editComponentUsedQty[item.code] !== undefined
                 ? parseFloat(editComponentUsedQty[item.code])
-                : kitOrderComponentNeed(item, parseFloat(editQuantityAssembled) || 0),
+                : kitOrderComponentNeed(item, parseFloat(String(editQuantityAssembled)) || 0),
             need_qty: kitOrderComponentNeed(item, parsedEditQty),
           }));
         }
@@ -1055,7 +1055,7 @@ export default function MontagemKitsView({ onBackToHub }) {
         observations: editNotes,
         erpLaunched: editErpLaunched ? 1 : 0,
         componentsLotes: list.length > 0 ? JSON.stringify(list) : null,
-        quantityAssembled: parseFloat(editQuantityAssembled) || 0
+        quantityAssembled: parseFloat(String(editQuantityAssembled)) || 0
       };
 
       const res = await apiFetch(`/kits/orders/${selectedOrder.id}`, {
@@ -1069,7 +1069,7 @@ export default function MontagemKitsView({ onBackToHub }) {
           ...selectedOrder,
           orderNumber: editOrderNumber || selectedOrder.orderNumber,
           quantity: parsedEditQty,
-          quantityAssembled: parseFloat(editQuantityAssembled) || 0,
+          quantityAssembled: parseFloat(String(editQuantityAssembled)) || 0,
           status: editStatus,
           assembledBy: editAssembledBy,
           checkedBy: editCheckedBy,
@@ -1478,7 +1478,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                         });
                       }
                     } catch (e) {
-                      return <tr><td colSpan="6" className="p-4 text-center text-rose-500 font-bold">Erro ao processar componentes</td></tr>;
+                      return <tr><td colSpan={6} className="p-4 text-center text-rose-500 font-bold">Erro ao processar componentes</td></tr>;
                     }
                   })()}
                 </tbody>
@@ -2844,7 +2844,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                   value={newKitNotes}
                   onChange={(e) => setNewKitNotes(e.target.value)}
                   placeholder="Instruções de expedição, montagem específica..."
-                  rows="3"
+                  rows={3}
                   className="w-full border border-zinc-300 rounded-xl p-3 text-xs focus:ring-1 focus:ring-zinc-900 focus:outline-none"
                 />
               </div>
@@ -2904,7 +2904,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                           used_qty:
                             editComponentUsedQty[item.code] !== undefined
                               ? parseFloat(editComponentUsedQty[item.code])
-                              : kitOrderComponentNeed(item, parseFloat(editQuantityAssembled) || 0),
+                              : kitOrderComponentNeed(item, parseFloat(String(editQuantityAssembled)) || 0),
                           need_qty: kitOrderComponentNeed(item, parsedEditQty),
                         }));
                       }
@@ -2913,7 +2913,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                       ...selectedOrder,
                       orderNumber: editOrderNumber || selectedOrder.orderNumber,
                       quantity: parsedEditQty,
-                      quantityAssembled: parseFloat(editQuantityAssembled) || 0,
+                      quantityAssembled: parseFloat(String(editQuantityAssembled)) || 0,
                       status: editStatus,
                       assembledBy: editAssembledBy,
                       checkedBy: editCheckedBy,
@@ -3071,7 +3071,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                                 ? editComponentUsedQty[item.code]
                                 : kitOrderComponentNeed(
                                     item,
-                                    parseFloat(editQuantityAssembled) || parsedPlannedKitQty || 0,
+                                    parseFloat(String(editQuantityAssembled)) || parsedPlannedKitQty || 0,
                                   );
                             return (
                             <div key={item.code} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-150 pb-2 last:border-none">
@@ -3110,7 +3110,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                                         ? editComponentUsedQty[item.code]
                                         : kitOrderComponentNeed(
                                             item,
-                                            parseFloat(editQuantityAssembled) || 0,
+                                            parseFloat(String(editQuantityAssembled)) || 0,
                                           )
                                     }
                                     onChange={(e) => setEditComponentUsedQty({ ...editComponentUsedQty, [item.code]: e.target.value })}
@@ -3139,7 +3139,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                   value={editNotes}
                   onChange={(e) => setEditNotes(e.target.value)}
                   placeholder="Ex: Danificou embalagem do item X, trocado por lote Y..."
-                  rows="3"
+                  rows={3}
                   className="w-full border border-zinc-300 rounded-xl p-3 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900"
                 />
               </div>

@@ -80,7 +80,7 @@ export function CorrectiveBatchesTab({ agents, onRefreshHistory }: CorrectiveBat
       await api.toggleFiscoCorrectiveBaixa({
         week_key: week.week_key,
         is_baixa: nextStatus,
-        usuario: currentUser?.display_name || 'Operador CQ',
+        usuario: currentUser?.displayName || 'Operador CQ',
         observacoes: nextStatus ? 'Baixa manual consolidada no ERP' : undefined,
       });
       await fetchWeeks();

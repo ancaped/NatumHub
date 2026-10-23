@@ -288,11 +288,12 @@ export const api = {
   deleteOnlineOrder(id: string): Promise<void> {
     return hubJson(`compras/online-orders/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
-  uploadOrderReceipt(id: string, filename: string, data: number[]): Promise<string> {
-    return invoke('upload_order_receipt', { id, filename, data });
+  // Comprovantes eram do app desktop (Tauri); a versão web ainda não tem rota para eles.
+  uploadOrderReceipt(_id: string, _filename: string, _data: number[]): Promise<string> {
+    return Promise.reject(new Error('Envio de comprovante indisponível na versão web.'));
   },
-  openReceiptFile(path: string): Promise<void> {
-    return invoke('open_receipt_file', { path });
+  openReceiptFile(_path: string): Promise<void> {
+    return Promise.reject(new Error('Abrir comprovante indisponível na versão web.'));
   },
   getOnlineStores(): Promise<OnlineStore[]> {
     return hubJson('compras/online-stores');
@@ -460,7 +461,6 @@ export const api = {
 
 import {
   getAuthUser,
-  loginOperator,
   logoutOperator,
   validateSession,
   type AuthUser,
@@ -470,9 +470,9 @@ export const localAuth = {
   getUser(): AuthUser | null {
     return getAuthUser();
   },
-  async signIn(displayName: string): Promise<AuthUser> {
-    const result = await loginOperator(displayName);
-    return result.user;
+  // O login exige senha; sem ela o servidor recusa. Trocar de operador é pela tela de login.
+  async signIn(_displayName: string): Promise<AuthUser> {
+    throw new Error('Trocar de operador exige senha: use a tela de login.');
   },
   async signOut(): Promise<void> {
     await logoutOperator();

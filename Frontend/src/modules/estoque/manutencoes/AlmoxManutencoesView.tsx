@@ -49,7 +49,7 @@ const STATUS = [
 ];
 
 type AgendaFaixa = 'atrasada' | 'esta_semana' | 'programada';
-type Aba = 'registro' | AgendaFaixa | 'concluidas';
+type Aba = 'registro' | 'atrasadas' | 'esta_semana' | 'programadas' | 'concluidas';
 
 function kindLabel(kind?: string) {
   const k = (kind || '').toLowerCase();

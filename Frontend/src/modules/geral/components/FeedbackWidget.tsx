@@ -481,7 +481,7 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
   const resolveChannelId = (conv: ConversationItem): string => {
     if (conv.is_group) return conv.id;
     // Conversa direta entre 2 operadores
-    const myId = currentUser?.displayName || currentUser?.username || 'operador';
+    const myId = currentUser?.displayName || 'operador';
     const otherId = conv.name;
     const pair = [myId.toLowerCase(), otherId.toLowerCase()].sort().join('_');
     return `dm_${pair}`;
@@ -560,7 +560,7 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
           name: newGroupName.trim(),
           description: newGroupDesc.trim() || undefined,
           password: newGroupPassword.trim() || undefined,
-          created_by: currentUser?.displayName || currentUser?.username || 'Operador',
+          created_by: currentUser?.displayName || 'Operador',
         }),
       });
 
@@ -590,7 +590,7 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
 
     const channelId = resolveChannelId(activeConversation);
     const encrypted = encryptContent(text);
-    const senderName = currentUser?.displayName || currentUser?.username || 'Operador';
+    const senderName = currentUser?.displayName || 'Operador';
     const senderRole = currentUser?.role || 'operador';
 
     try {
@@ -858,7 +858,7 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
         body: JSON.stringify({
           prompt: text,
           module_context: module,
-          user_name: currentUser?.displayName || currentUser?.username || 'Operador',
+          user_name: currentUser?.displayName || 'Operador',
         }),
       });
 
@@ -1620,7 +1620,7 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
 
                       {selectedFeedback.notes && selectedFeedback.notes.length > 0 ? (
                         selectedFeedback.notes.map((note) => {
-                          const isMe = note.author === (currentUser?.displayName || currentUser?.username);
+                          const isMe = note.author === (currentUser?.displayName);
                           return (
                             <div
                               key={note.id}
@@ -1835,7 +1835,7 @@ export function FeedbackWidget({ currentView, visible = false, currentUser }: Fe
                         </div>
                       ) : (
                         chatMessages.map((msg) => {
-                          const isMe = msg.sender_name === (currentUser?.displayName || currentUser?.username);
+                          const isMe = msg.sender_name === (currentUser?.displayName);
                           return (
                             <div key={msg.id} className={cn('flex flex-col', isMe ? 'items-end' : 'items-start')}>
                               <span className="text-[10px] text-zinc-400 px-1 mb-0.5 font-bold">

@@ -1,4 +1,4 @@
-import { FiscoQuimicaAnalysis, FiscoQuimicaPattern, FiscoQuimicaAgent, Product, FiscoTemplateConfig } from '../../../geral/lib/types';
+import { FiscoQuimicaAnalysis, FiscoQuimicaPattern, FiscoQuimicaAgent, Product, FiscoTemplateConfig, FiscoAppConfig } from '../../../geral/lib/types';
 import { LAB_NAME, DEPT_NAME, COMPANY_INFO } from '../../../geral/lib/microbioUtils';
 
 export const DENSITY_CUP_VOLUME = 51.645; // Volume do picnômetro / copo padrão em mL
@@ -499,7 +499,7 @@ export function checkAnalysisCompliance(
       isCompliant: organoOk,
       densMin: 0.98,
       densMax: 1.02,
-      overallStatus: (!organoOk ? 'FORA_PADRAO' : 'SEM_PADRAO') as const,
+      overallStatus: (!organoOk ? 'FORA_PADRAO' : 'SEM_PADRAO') as 'FORA_PADRAO' | 'SEM_PADRAO',
       statusLabel: !organoOk ? 'Não Conforme (Aspecto/Cor/Odor)' : 'Padrão não definido'
     };
   }
@@ -1032,7 +1032,7 @@ export function printFiscoSummaryReport(
         <td style="padding: 4px 6px; text-align: center; ${!comp.densityOk ? 'color:#b91c1c; font-weight:bold;' : ''}">
           ${a.densityMeasured > 0 ? a.densityMeasured.toFixed(3) : '—'}
         </td>
-        <td style="padding: 4px 6px; text-align: center;">${escapeHtml(a.aspect || 'Conforme')}</td>
+        <td style="padding: 4px 6px; text-align: center;">${escapeHtml(a.aspectResult || 'Conforme')}</td>
         <td style="padding: 4px 6px; text-align: center;">${statusBadge}</td>
         <td style="padding: 4px 6px; font-size: 7pt; color: #52525b; max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(a.technician || '—')}</td>
       </tr>

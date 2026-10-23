@@ -715,7 +715,7 @@ export default function AvariasView({ onBackToHub }: { onBackToHub: () => void }
             canEdit={canEdit}
             onClose={() => setFicha(null)}
             onSaved={(saved) => {
-              setFicha(saved);
+              setFicha(saved as Avaria);
               void loadList();
             }}
           />

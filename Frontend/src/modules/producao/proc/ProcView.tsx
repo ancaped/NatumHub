@@ -581,7 +581,7 @@ export const ProcView: React.FC<ProcViewProps> = ({ onBackToHub, onNavigate }) =
       <ProcGeneratorModal
         isOpen={generatorModalOpen}
         onClose={() => setGeneratorModalOpen(false)}
-        onProcSaved={fetchProcs}
+        onSaved={fetchProcs}
       />
 
     </AppLayout>

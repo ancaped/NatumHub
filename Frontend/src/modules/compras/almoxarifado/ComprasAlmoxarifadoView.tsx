@@ -497,6 +497,7 @@ export default function ComprasAlmoxarifadoView({ onBackToHub }: Props) {
   const taloesComprarCount = useMemo(() => taloesRows.filter((d) => d.status !== 'impresso' && isProntaComprar(d)).length, [taloesRows]);
   const taloesCompradosCount = useMemo(() => taloesRows.filter(isComprada).length, [taloesRows]);
   const taloesRecebidosCount = useMemo(() => taloesRows.filter(isRecebida).length, [taloesRows]);
+  const taloesCanceladosCount = useMemo(() => taloesRows.filter((d) => d.status === 'cancelada').length, [taloesRows]);
   // Contagens específicas de manutenções avulsas
   const manutencoesRows = useMemo(() => rows.filter(isManutencao), [rows]);
   const manutencoesAtivasCount = useMemo(
@@ -2429,7 +2430,7 @@ function DemandFormModal({
                           step="0.01"
                           value={it.unitCost}
                           onChange={(e) => {
-                            const val = e.target.value === '' ? '' : Number(e.target.value);
+                            const val: number | '' = e.target.value === '' ? '' : Number(e.target.value);
                             setDemandItems((prev) => {
                               const updated = prev.map((x, i) =>
                                 i === idx ? { ...x, unitCost: val } : x,

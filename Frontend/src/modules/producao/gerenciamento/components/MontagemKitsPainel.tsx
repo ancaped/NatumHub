@@ -57,6 +57,7 @@ function AcoesOrdem({
   setConcluirQtd,
   onMudar,
   onExcluir,
+  onImprimir,
 }: {
   ordem: any;
   busy: string | null;

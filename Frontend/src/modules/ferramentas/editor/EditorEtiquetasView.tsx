@@ -73,6 +73,7 @@ export default function EditorEtiquetasView({
   const [isSystemVariablesModalOpen, setIsSystemVariablesModalOpen] = useState(false);
   const [isProductSearchOpen, setIsProductSearchOpen] = useState(false);
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState(false);
+  const [savedTemplates, setSavedTemplates] = useState<LabelTemplate[]>(DEFAULT_LABEL_TEMPLATES);
 
   const [saveAsName, setSaveAsName] = useState('');
   const [saveAsCategory, setSaveAsCategory] = useState('custom');
@@ -537,6 +538,34 @@ export default function EditorEtiquetasView({
   };
 
   // Save as new template
+  // Modelos do banco por cima dos padrões (mesma regra da tela Etiquetas).
+  const loadSavedTemplates = useCallback(async () => {
+    try {
+      const apiList = await labelsApi.listTemplates();
+      const merged = [...DEFAULT_LABEL_TEMPLATES];
+      for (const t of apiList) {
+        const idx = merged.findIndex((m) => m.id === t.id);
+        if (idx >= 0) merged[idx] = t;
+        else merged.push(t);
+      }
+      setSavedTemplates(merged);
+    } catch (e) {
+      console.warn('Erro ao carregar modelos da API:', e);
+      setSavedTemplates(DEFAULT_LABEL_TEMPLATES);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isTemplatesModalOpen) void loadSavedTemplates();
+  }, [isTemplatesModalOpen, loadSavedTemplates]);
+
+  const saveTemplateCopy = async (tpl: LabelTemplate, name: string) => {
+    const { id: _id, ...rest } = tpl;
+    const saved = await labelsApi.saveTemplate({ ...rest, name, is_default: false });
+    await loadSavedTemplates();
+    return saved;
+  };
+
   const handleSaveAsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!saveAsName.trim()) return;
@@ -831,7 +860,12 @@ export default function EditorEtiquetasView({
         isOpen={isProductSearchOpen}
         onClose={() => setIsProductSearchOpen(false)}
         onSelectProduct={(prod) => {
-          setSelectedPreviewProduct(prod);
+          setSelectedPreviewProduct({
+            codigo: prod.code,
+            descricao: prod.name,
+            codigo_barras: prod.barcode ?? null,
+            categoria: prod.category ?? null,
+          });
           setIsProductSearchOpen(false);
         }}
       />
@@ -840,9 +874,34 @@ export default function EditorEtiquetasView({
       <TemplatesManagerModal
         isOpen={isTemplatesModalOpen}
         onClose={() => setIsTemplatesModalOpen(false)}
+        savedTemplates={savedTemplates}
+        activeTemplateId={template.id}
         onSelectTemplate={(tpl) => {
           setTemplate(tpl);
           setIsTemplatesModalOpen(false);
+        }}
+        onDeleteTemplate={async (id) => {
+          try {
+            await labelsApi.deleteTemplate(id);
+            await loadSavedTemplates();
+          } catch (err: any) {
+            alert(err.message || 'Erro ao excluir modelo.');
+          }
+        }}
+        onDuplicateTemplate={async (tpl) => {
+          try {
+            await saveTemplateCopy(tpl, `${tpl.name} (cópia)`);
+          } catch (err: any) {
+            alert(err.message || 'Erro ao duplicar modelo.');
+          }
+        }}
+        onImportTemplate={async (tpl) => {
+          try {
+            setTemplate(await saveTemplateCopy(tpl, tpl.name));
+            setIsTemplatesModalOpen(false);
+          } catch (err: any) {
+            alert(err.message || 'Erro ao importar modelo.');
+          }
         }}
       />
 

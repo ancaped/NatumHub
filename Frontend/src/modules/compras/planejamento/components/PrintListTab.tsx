@@ -421,7 +421,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
     const rowsHtml = selectedDemands.map(item => {
       const currentAvg = manualAvgs[item.itemCode] !== undefined ? manualAvgs[item.itemCode] : item.overallAvg;
       const daily = currentAvg / 30.0;
-      const itemTargetDays = item.target_days || 90;
+      const itemTargetDays = item.targetDays || 90;
       const calcTargetStock = itemTargetDays * daily;
       const futureStock = item.futureStockForecast || 0;
       const autoRec = Math.max(0, Math.round(calcTargetStock - futureStock));
@@ -438,7 +438,7 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
             <td style="font-family: monospace; font-size: 10px;">${item.itemCode || '-'}</td>
             <td style="text-align: left; font-weight: 500; font-size: 10px;">
               ${item.description || '-'}
-              ${item.category_name ? `<span style="font-size: 8px; color: #6b7280; display: block;">${item.category_name}</span>` : ''}
+              ${item.categoryName ? `<span style="font-size: 8px; color: #6b7280; display: block;">${item.categoryName}</span>` : ''}
             </td>
           `;
         }
@@ -463,22 +463,22 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
         }
         if (colKey === 'estimatedDurationDays') {
           return `
-            <td style="text-align: center; font-weight: ${currentDuration < (item.trigger_days || 30) ? 'bold' : 'normal'}; color: ${currentDuration < (item.trigger_days || 30) ? '#b91c1c' : '#374151'};">
+            <td style="text-align: center; font-weight: ${currentDuration < (item.triggerDays || 30) ? 'bold' : 'normal'}; color: ${currentDuration < (item.triggerDays || 30) ? '#b91c1c' : '#374151'};">
               ${currentDuration === 9999 ? '9999+' : `${currentDuration} dias`}
             </td>
           `;
         }
         if (colKey === 'triggerDays') {
-          return `<td style="text-align: center; font-size: 9px;">${item.trigger_days !== undefined ? `${item.trigger_days}d` : '-'}</td>`;
+          return `<td style="text-align: center; font-size: 9px;">${item.triggerDays !== undefined ? `${item.triggerDays}d` : '-'}</td>`;
         }
         if (colKey === 'targetDays') {
-          return `<td style="text-align: center; font-size: 9px; font-weight: bold;">${item.target_days !== undefined ? `${item.target_days}d` : '90d'}</td>`;
+          return `<td style="text-align: center; font-size: 9px; font-weight: bold;">${item.targetDays !== undefined ? `${item.targetDays}d` : '90d'}</td>`;
         }
         if (colKey === 'recommendedQty') {
           return `
             <td style="text-align: right; font-weight: bold; background-color: #f4f4f5;">
               <div>${qty > 0 ? `${qty.toLocaleString('pt-BR')} ${item.unit || ''}` : '-'}</div>
-              <div style="font-size: 8px; color: ${postDuration < (item.trigger_days || 30) ? '#b91c1c' : postDuration < itemTargetDays ? '#b45309' : '#047857'}; font-weight: normal; margin-top: 2px; text-align: right;">
+              <div style="font-size: 8px; color: ${postDuration < (item.triggerDays || 30) ? '#b91c1c' : postDuration < itemTargetDays ? '#b45309' : '#047857'}; font-weight: normal; margin-top: 2px; text-align: right;">
                 Pós: ${postDuration === 9999 ? '∞' : `${postDuration}d`}
               </div>
             </td>
@@ -696,8 +696,8 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
       const items = selectedDemands.map(item => {
         const currentAvg = manualAvgs[item.itemCode] !== undefined ? manualAvgs[item.itemCode] : item.overallAvg;
         const daily = currentAvg / 30.0;
-        const itemTargetDays = item.target_days || 90;
-        const itemTriggerDays = item.trigger_days || 30;
+        const itemTargetDays = item.targetDays || 90;
+        const itemTriggerDays = item.triggerDays || 30;
         const calcTargetStock = itemTargetDays * daily;
         const futureStock = item.futureStockForecast || 0;
         const autoRec = Math.max(0, Math.round(calcTargetStock - futureStock));
@@ -981,9 +981,9 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
                           <div className="min-w-0 flex-1 pr-2">
                             <span className="font-mono text-xs font-bold text-zinc-800 block">{d.itemCode}</span>
                             <span className="text-xs text-zinc-600 truncate block">{d.description}</span>
-                            {d.category_name && (
+                            {d.categoryName && (
                               <span className="text-[10px] text-zinc-400 block font-sans">
-                                Subcategoria: {d.category_name} ({d.target_days || 90}d meta)
+                                Subcategoria: {d.categoryName} ({d.targetDays || 90}d meta)
                               </span>
                             )}
                           </div>
@@ -1033,8 +1033,8 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
                   {selectedDemands.map(d => {
                     const currentAvg = manualAvgs[d.itemCode] !== undefined ? manualAvgs[d.itemCode] : d.overallAvg;
                     const daily = currentAvg / 30.0;
-                    const itemTargetDays = d.target_days || 90;
-                    const itemTriggerDays = d.trigger_days || 30;
+                    const itemTargetDays = d.targetDays || 90;
+                    const itemTriggerDays = d.triggerDays || 30;
                     const calcTargetStock = itemTargetDays * daily;
                     const futureStock = d.futureStockForecast || 0;
                     const autoRec = Math.max(0, Math.round(calcTargetStock - futureStock));
@@ -1055,9 +1055,9 @@ export function PrintListTab({ active = true, mode = 'all' }: { active?: boolean
                                 <div className="text-xs text-zinc-700 font-medium truncate max-w-xs sm:max-w-md" title={d.description}>
                                   {d.description}
                                 </div>
-                                {d.category_name && (
+                                {d.categoryName && (
                                   <span className="text-[10px] text-zinc-400 font-sans">
-                                    {d.category_name}
+                                    {d.categoryName}
                                   </span>
                                 )}
                               </td>

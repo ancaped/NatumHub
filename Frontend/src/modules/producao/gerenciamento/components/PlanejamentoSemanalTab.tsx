@@ -2634,19 +2634,19 @@ export function PlanejamentoSemanalTab({
                     <td className="p-3 font-semibold text-zinc-800 border-r border-zinc-200 bg-zinc-50/50 align-top w-56">
                       <div className="flex items-start gap-1.5">
                         {reator.id === 'BOMBONAS' ? (
-                          <Package size={16} className="text-zinc-500 mt-0.5" title="Bombonas Móveis de Mistura" />
+                          <Package size={16} className="text-zinc-500 mt-0.5"><title>Bombonas Móveis de Mistura</title></Package>
                         ) : reator.id === 'R_100' ? (
-                          <Zap size={16} className="text-zinc-500 mt-0.5" title="Aquecimento por Resistência (Máx 1/dia)" />
+                          <Zap size={16} className="text-zinc-500 mt-0.5"><title>Aquecimento por Resistência (Máx 1/dia)</title></Zap>
                         ) : reator.id === 'R_40' ? (
-                          <Flame size={16} className="text-zinc-500 mt-0.5" title="Reator 40kg (Produção Quente)" />
+                          <Flame size={16} className="text-zinc-500 mt-0.5"><title>Reator 40kg (Produção Quente)</title></Flame>
                         ) : (reator.id === 'R_1000_SHAMPOO' || reator.id === 'R_1000') ? (
-                          <Snowflake size={16} className="text-zinc-500 mt-0.5" title="Exclusivo Shampoos" />
+                          <Snowflake size={16} className="text-zinc-500 mt-0.5"><title>Exclusivo Shampoos</title></Snowflake>
                         ) : reator.id === 'R_1000_MISTO' ? (
-                          <Boxes size={16} className="text-zinc-500 mt-0.5" title="Caldeira - Produção Mista" />
+                          <Boxes size={16} className="text-zinc-500 mt-0.5"><title>Caldeira - Produção Mista</title></Boxes>
                         ) : reator.tipo === 'quente' ? (
-                          <Flame size={16} className="text-zinc-500 mt-0.5" title="Requer Caldeira" />
+                          <Flame size={16} className="text-zinc-500 mt-0.5"><title>Requer Caldeira</title></Flame>
                         ) : (
-                          <Boxes size={16} className="text-zinc-500 mt-0.5" title="Caldeira / Misto" />
+                          <Boxes size={16} className="text-zinc-500 mt-0.5"><title>Caldeira / Misto</title></Boxes>
                         )}
                         <div className="flex flex-col">
                           <span className="font-bold text-zinc-900 text-xs leading-tight">{reator.nome}</span>
@@ -2875,9 +2875,9 @@ export function PlanejamentoSemanalTab({
                                       <div className="flex items-center gap-1.5 min-w-0">
                                         {/* Ícone Minimalista de Quente ou Frio */}
                                         {batch.isQuente ? (
-                                          <Flame size={12} className="text-orange-500 shrink-0" title="Processo Quente" />
+                                          <Flame size={12} className="text-orange-500 shrink-0"><title>Processo Quente</title></Flame>
                                         ) : (
-                                          <Snowflake size={12} className="text-sky-400 shrink-0" title="Processo Frio" />
+                                          <Snowflake size={12} className="text-sky-400 shrink-0"><title>Processo Frio</title></Snowflake>
                                         )}
                                         {batch.isMulti ? (
                                           <div 
