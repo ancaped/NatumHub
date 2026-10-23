@@ -6,6 +6,10 @@ Memória de longo prazo, decisões arquiteturais e conceitos: consulte o **`ai-m
 
 Idioma: **pt-BR**. Escopo mínimo; `cargo check --bin nexus-server --no-default-features` + `npm run build`. Melhor parte = nenhuma parte.
 
+## Princípio: simples e confiável
+
+Decisão do Edson (2026-10-23). O Nexus faz três coisas: **importar corretamente os dados do ERP (SQL Server)**, **aplicar as regras de cada módulo num lugar só** e **mostrar isso de forma clara**. Antes de criar algo, pergunte se serve a uma dessas três; se não, não crie. Prefira apagar e unificar a acrescentar camadas. Confiabilidade vem antes de recurso novo: dado errado vindo do ERP invalida todo o resto.
+
 ## Skills (`.cursor/skills/`)
 
 | Skill | Quando |
