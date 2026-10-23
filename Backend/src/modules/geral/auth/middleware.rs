@@ -55,6 +55,12 @@ pub async fn auth_middleware(
                     .into_response();
             }
 
+            if !store::has_read_access(&ctx, &path, &method) {
+                return ErroApi::sem_permissao("Este agente não tem acesso ao módulo desta rota.")
+                    .com_detalhes(json!({ "metodo": method, "caminho": path }))
+                    .into_response();
+            }
+
             if matches!(method.as_str(), "POST" | "PUT" | "DELETE" | "PATCH") {
                 let _ = store::log_audit(pool, &ctx, &method, &path).await;
                 let device_id = req

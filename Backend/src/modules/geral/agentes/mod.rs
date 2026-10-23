@@ -474,4 +474,53 @@ mod tests {
         ctx.origem = Origem::Tela;
         assert!(has_write_access(&ctx, "/api/caminho-sem-modulo", "POST"), "operador segue como antes");
     }
+
+    fn agente_com(modulos: &[(&str, &str)]) -> AuthContext {
+        AuthContext {
+            operator_id: "a1".into(),
+            display_name: "Agente".into(),
+            role: OperatorRole::Operador,
+            modules: modulos.iter().map(|(m, _)| m.to_string()).collect(),
+            permissions: modulos.iter().map(|(m, n)| (m.to_string(), n.to_string())).collect(),
+            origem: Origem::Agente,
+        }
+    }
+
+    #[test]
+    fn agente_so_le_rotas_dos_seus_modulos() {
+        use crate::modules::geral::auth::store::has_read_access;
+        let ctx = agente_com(&[("vendas", "view")]);
+        assert!(has_read_access(&ctx, "/api/vendas/pedidos", "GET"));
+        assert!(has_read_access(&ctx, "/api/produtos/2.13.012/detalhes", "GET"), "cadastro de produtos serve a vendas");
+        assert!(has_read_access(&ctx, "/api/agentes/eu", "GET"));
+        assert!(has_read_access(&ctx, "/api/health", "GET"));
+        assert!(!has_read_access(&ctx, "/api/producao/auditoria", "GET"));
+        assert!(!has_read_access(&ctx, "/api/hub/compras/demands", "GET"));
+        assert!(!has_read_access(&ctx, "/api/notifications", "GET"), "rota sem módulo mapeado");
+        assert!(!has_read_access(&ctx, "/api/vendasx", "GET"), "prefixo casa por segmento");
+        let mut operador = ctx.clone();
+        operador.origem = Origem::Tela;
+        assert!(has_read_access(&operador, "/api/producao/auditoria", "GET"), "operador segue sem restrição de leitura");
+    }
+
+    #[test]
+    fn agente_com_editar_grava_em_rota_mapeada_sem_regra_propria() {
+        use crate::modules::geral::auth::store::has_write_access;
+        let pcp = agente_com(&[("planejamento_producao", "edit")]);
+        assert!(has_write_access(&pcp, "/api/producao/fila-demandas/1/retirar", "POST"));
+        assert!(!has_write_access(&pcp, "/api/kits/1", "POST"));
+        let leitor = agente_com(&[("planejamento_producao", "view")]);
+        assert!(!has_write_access(&leitor, "/api/producao/fila-demandas/1/retirar", "POST"));
+    }
+
+    #[test]
+    fn todo_modulo_do_mapa_existe_no_registro() {
+        use crate::modules::geral::auth::store::modulos_da_rota;
+        let validos = all_module_keys_vec();
+        for rota in ["/api/vendas", "/api/hub/compras", "/api/qualidade/pops", "/api/almox", "/api/estoque", "/api/producao", "/api/kits", "/api/administrativo", "/api/ferramentas/balanca", "/api/settings", "/api/expedicao", "/api/financeiro"] {
+            for m in modulos_da_rota(rota).unwrap() {
+                assert!(validos.iter().any(|v| v == m), "{rota}: módulo {m} fora do registro");
+            }
+        }
+    }
 }

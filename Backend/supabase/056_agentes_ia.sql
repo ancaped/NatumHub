@@ -34,6 +34,7 @@ SET detail = COALESCE(detail, '{}'::jsonb) || jsonb_build_object(
             'regras', jsonb_build_array(
                 'Agente = hub_operators.kind=agente; entra só com Bearer nxa_... (hash SHA-256 em hub_agent_tokens), nunca por senha',
                 'Nunca é supervisor e não herda módulos padrão do papel: só os marcados em hub_operator_modules',
+                'Lê e grava só rotas dos seus módulos (auth::store::modulos_da_rota); rota sem módulo mapeado é negada ao agente',
                 'Escritas em 2 passos (core::acao::executar_em_2_passos) e erro padrão {erro:{codigo,mensagem,detalhes}}',
                 'Auditoria geral hub_audit_events.origem = tela | agente | sistema'
             ),

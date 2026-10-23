@@ -1397,6 +1397,99 @@ pub fn requires_module(path: &str, method: &str) -> Option<&'static str> {
     None
 }
 
+/// Módulos que dão acesso a uma rota da API (qualquer um deles basta). Usado para limitar agentes de IA:
+/// sem módulo mapeado, o agente não lê nem grava. Operadores não passam por aqui.
+pub fn modulos_da_rota(path: &str) -> Option<&'static [&'static str]> {
+    use super::modules_registry::*;
+    const COMPRAS: &[&str] = &[
+        MODULE_COMPRAS_MP, MODULE_COMPRAS_EMB, MODULE_COMPRAS_COLOR, MODULE_COMPRAS_APOIO,
+        MODULE_COMPRAS_COT, MODULE_COMPRAS_ONLINE, MODULE_COMPRAS_PEDIDOS, MODULE_COMPRAS_NOTAS, MODULE_COMPRAS_SIMULATION,
+    ];
+    const PRODUCAO: &[&str] = &[
+        MODULE_PRODUCAO, MODULE_PLANEJAMENTO_PRODUCAO, MODULE_PRODUCAO_BASES, MODULE_PRODUCAO_LOTES, MODULE_PRODUCAO_PROC,
+    ];
+    const PLANEJAMENTO: &[&str] = &[MODULE_PLANEJAMENTO_PRODUCAO, MODULE_PRODUCAO];
+    const ACOMPANHAMENTO: &[&str] = &[MODULE_ADMIN_ACOMPANHAMENTO_PRODUCAO, MODULE_PRODUCAO, MODULE_PLANEJAMENTO_PRODUCAO];
+    const ALMOX: &[&str] = &[
+        MODULE_ESTOQUE_ITENS, MODULE_ESTOQUE_ALMOX, MODULE_ESTOQUE_SUPERMERCADO, MODULE_ESTOQUE_PECAS,
+        MODULE_ESTOQUE_EQUIPAMENTOS, MODULE_ESTOQUE_MANUTENCOES,
+    ];
+    const ESTOQUE: &[&str] = &[
+        MODULE_ESTOQUE_INSUMOS, MODULE_ESTOQUE_PRODUTOS, MODULE_ESTOQUE_MP, MODULE_ESTOQUE_EMB, MODULE_ESTOQUE_COLOR,
+        MODULE_ESTOQUE_APOIO, MODULE_ESTOQUE_ORDENS_MANUAIS, MODULE_ESTOQUE_ITENS, MODULE_ESTOQUE_ALMOX,
+    ];
+    const QUALIDADE: &[&str] = &[
+        MODULE_CONTROLE_QUALIDADE, MODULE_QUALIDADE_POPS, MODULE_QUALIDADE_TREINAMENTOS, MODULE_QUALIDADE_TEMPERATURA,
+        MODULE_QUALIDADE_LIMPEZA, MODULE_QUALIDADE_RECEBIMENTO_MP, MODULE_QUALIDADE_DOCUMENTACAO,
+        MODULE_QUALIDADE_DEVOLUCOES, MODULE_QUALIDADE_AVARIAS,
+    ];
+    // Cadastro de produtos: consultado por produção, vendas, compras e estoque.
+    const CADASTRO_PRODUTOS: &[&str] = &[
+        MODULE_PRODUCAO, MODULE_PLANEJAMENTO_PRODUCAO, MODULE_VENDAS, MODULE_COMPRAS_MP, MODULE_COMPRAS_EMB,
+        MODULE_COMPRAS_COLOR, MODULE_COMPRAS_APOIO, MODULE_ESTOQUE_PRODUTOS,
+        MODULE_ESTOQUE_INSUMOS, MODULE_ADMIN_LINHA_PRODUTOS,
+    ];
+    // Do mais específico para o mais geral: o primeiro prefixo que casar decide.
+    const MAPA: &[(&str, &[&str])] = &[
+        ("/api/vendas", &[MODULE_VENDAS, MODULE_VENDAS_ONLINE]),
+        ("/api/expedicao", &[MODULE_EXPEDICAO, MODULE_EXPEDICAO_ECOMMERCE, MODULE_EXPEDICAO_SEPARACAO]),
+        ("/api/financeiro", &[MODULE_FINANCEIRO]),
+        ("/api/hub/compras", COMPRAS),
+        ("/api/compras", COMPRAS),
+        ("/api/hub/microbio", &[MODULE_MICROBIOLOGIA]),
+        ("/api/hub/fisco", &[MODULE_FISCO_QUIMICA]),
+        ("/api/qualidade/recebimento-mp", &[MODULE_QUALIDADE_RECEBIMENTO_MP]),
+        ("/api/qualidade/avarias", &[MODULE_QUALIDADE_AVARIAS]),
+        ("/api/qualidade/devolucoes", &[MODULE_QUALIDADE_DEVOLUCOES]),
+        ("/api/qualidade/documentacao", &[MODULE_QUALIDADE_DOCUMENTACAO]),
+        ("/api/qualidade/pops", &[MODULE_QUALIDADE_POPS]),
+        ("/api/qualidade", QUALIDADE),
+        ("/api/almox/equipments", &[MODULE_ESTOQUE_EQUIPAMENTOS]),
+        ("/api/almox/maintenances", &[MODULE_ESTOQUE_MANUTENCOES]),
+        ("/api/almox", ALMOX),
+        ("/api/estoque/ordens-manuais", &[MODULE_ESTOQUE_ORDENS_MANUAIS]),
+        ("/api/estoque", ESTOQUE),
+        ("/api/producao/proc", &[MODULE_PRODUCAO_PROC]),
+        ("/api/producao/lotes", &[MODULE_PRODUCAO_LOTES, MODULE_PRODUCAO]),
+        ("/api/producao/planejamento-semanal", PLANEJAMENTO),
+        ("/api/producao/fila-demandas", PLANEJAMENTO),
+        ("/api/producao/reatores", PLANEJAMENTO),
+        ("/api/producao/cobertura", PLANEJAMENTO),
+        ("/api/producao", PRODUCAO),
+        ("/api/products", CADASTRO_PRODUTOS),
+        ("/api/produtos", CADASTRO_PRODUTOS),
+        ("/api/overrides", PRODUCAO),
+        ("/api/configs", PRODUCAO),
+        ("/api/historico", PRODUCAO),
+        ("/api/lotes", PRODUCAO),
+        ("/api/lancamento", PRODUCAO),
+        ("/api/kits", &[MODULE_MONTAGEM_KITS]),
+        ("/api/turnovers", &[MODULE_MONTAGEM_KITS]),
+        ("/api/administrativo/funcionarios", &[MODULE_ADMIN_FUNCIONARIOS]),
+        ("/api/administrativo", ACOMPANHAMENTO),
+        ("/api/admin/produtos-ativos", &[MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS, MODULE_ADMIN_LINHA_PRODUTOS]),
+        ("/api/ferramentas/etiquetas", &[MODULE_FERRAMENTAS_ETIQUETAS, MODULE_FERRAMENTAS_EDITOR]),
+        ("/api/ferramentas/impressoras", &[MODULE_FERRAMENTAS_IMPRESSORAS]),
+        ("/api/ferramentas/balanca", &[MODULE_FERRAMENTAS_BALANCA]),
+        ("/api/settings", &[MODULE_CONFIGURACOES]),
+        ("/api/import", &[MODULE_CONFIGURACOES]),
+    ];
+    MAPA.iter()
+        .find(|(prefixo, _)| path == *prefixo || path.starts_with(&format!("{prefixo}/")))
+        .map(|(_, modulos)| *modulos)
+}
+
+/// Leitura (GET/HEAD) de agente: só rotas de módulos que ele tem. Operador segue sem restrição de leitura.
+pub fn has_read_access(ctx: &AuthContext, path: &str, method: &str) -> bool {
+    if !ctx.is_agente() || !matches!(method, "GET" | "HEAD") {
+        return true;
+    }
+    if path == "/api/health" || path.starts_with("/api/agentes/") {
+        return true;
+    }
+    modulos_da_rota(path).is_some_and(|ms| ms.iter().any(|m| ctx.has_module(m)))
+}
+
 pub fn has_write_access(ctx: &AuthContext, path: &str, method: &str) -> bool {
     if ctx.role.is_supervisor() {
         return true;
@@ -1440,6 +1533,10 @@ pub fn has_write_access(ctx: &AuthContext, path: &str, method: &str) -> bool {
     if path.starts_with("/api/vendas") {
         return ctx.can_edit_module(super::modules_registry::MODULE_VENDAS);
     }
-    // Caminho sem módulo mapeado: operador segue liberado (como sempre foi); agente de IA é negado.
-    !ctx.is_agente()
+    // Caminho sem regra acima: operador segue liberado (como sempre foi); agente precisa de "editar"
+    // num módulo da rota (`modulos_da_rota`), e rota sem módulo mapeado é negada.
+    if ctx.is_agente() {
+        return modulos_da_rota(path).is_some_and(|ms| ms.iter().any(|m| ctx.can_edit_module(m)));
+    }
+    true
 }
