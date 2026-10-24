@@ -18,6 +18,7 @@ use std::sync::Arc;
 use crate::core::acao::{executar_em_2_passos, ErroApi};
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
+use crate::modules::producao::fila::{consumir_fila, ConsumoFila};
 use crate::modules::producao::{auditoria, permissao};
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -475,12 +476,34 @@ async fn upsert_planejamento_item(
     Ok(())
 }
 
+/// Demanda da Fila consumida junto com a gravação das ordens (`kg` agendados daquele item).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PedidoConsumoFila {
+    #[serde(alias = "filaId")]
+    pub fila_id: String,
+    pub kg: f64,
+}
+
+/// Corpo do `PUT /bulk`: lista simples (formato antigo) ou objeto com o consumo da fila.
+#[derive(Debug, serde::Deserialize)]
+#[serde(untagged)]
+pub enum BulkPlanejamentoPayload {
+    Lista(Vec<PlanejamentoItemDto>),
+    Completo {
+        itens: Vec<PlanejamentoItemDto>,
+        #[serde(default, alias = "consumirFila")]
+        consumir_fila: Vec<PedidoConsumoFila>,
+    },
+}
+
 /// Grava uma ou várias ordens numa única transação: se qualquer uma falhar ou violar regra, nada é gravado.
+/// O consumo da Fila de Demandas entra na mesma transação (ordem gravada e demanda consumida, ou nenhuma).
 async fn gravar_planejamento(
     pool: &PgPool,
     itens: &mut [PlanejamentoItemDto],
+    consumir: &[PedidoConsumoFila],
     usuario: &str,
-) -> Result<(), ErroApi> {
+) -> Result<Vec<ConsumoFila>, ErroApi> {
     for it in itens.iter_mut() {
         normalizar_planejamento_item(it)?;
     }
@@ -490,8 +513,12 @@ async fn gravar_planejamento(
         upsert_planejamento_item(&mut tx, it, usuario).await.map_err(db)?;
     }
     validar_alocacoes_planejamento(&mut tx, itens).await?;
+    let mut consumos = Vec::with_capacity(consumir.len());
+    for c in consumir {
+        consumos.push(consumir_fila(&mut tx, &c.fila_id, c.kg).await.map_err(db)?);
+    }
     tx.commit().await.map_err(db)?;
-    Ok(())
+    Ok(consumos)
 }
 
 pub async fn save_planejamento_item(
@@ -504,8 +531,8 @@ pub async fn save_planejamento_item(
     }
     let id = item.id.clone();
     let mut itens = vec![item];
-    match gravar_planejamento(state.db.pool(), &mut itens, &ctx.display_name).await {
-        Ok(()) => {
+    match gravar_planejamento(state.db.pool(), &mut itens, &[], &ctx.display_name).await {
+        Ok(_) => {
             auditoria::registrar(state.db.pool(), &ctx.display_name, "gravar_planejamento", &id, json!({ "itens": 1 })).await;
             (StatusCode::OK, Json(json!({ "ok": true, "id": id }))).into_response()
         }
@@ -516,16 +543,28 @@ pub async fn save_planejamento_item(
 pub async fn bulk_save_planejamento(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
-    Json(mut itens): Json<Vec<PlanejamentoItemDto>>,
+    Json(payload): Json<BulkPlanejamentoPayload>,
 ) -> impl IntoResponse {
     if let Err(r) = permissao::exigir_edicao(&ctx) {
         return r;
     }
+    let (mut itens, consumir) = match payload {
+        BulkPlanejamentoPayload::Lista(itens) => (itens, Vec::new()),
+        BulkPlanejamentoPayload::Completo { itens, consumir_fila } => (itens, consumir_fila),
+    };
     let ids: Vec<String> = itens.iter().map(|i| i.id.clone()).collect();
-    match gravar_planejamento(state.db.pool(), &mut itens, &ctx.display_name).await {
-        Ok(()) => {
-            auditoria::registrar(state.db.pool(), &ctx.display_name, "gravar_planejamento", &format!("{} ordens", ids.len()), json!({ "ids": ids })).await;
-            (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
+    match gravar_planejamento(state.db.pool(), &mut itens, &consumir, &ctx.display_name).await {
+        Ok(fila) => {
+            let fila_ids: Vec<&str> = fila.iter().map(|c| c.fila_id.as_str()).collect();
+            auditoria::registrar(
+                state.db.pool(),
+                &ctx.display_name,
+                "gravar_planejamento",
+                &format!("{} ordens", ids.len()),
+                json!({ "ids": ids, "filaConsumida": fila_ids }),
+            )
+            .await;
+            (StatusCode::OK, Json(json!({ "ok": true, "fila": fila }))).into_response()
         }
         Err(e) => e.into_response(),
     }
@@ -889,6 +928,17 @@ mod tests {
     async fn pool_teste() -> PgPool {
         let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
         let pool = PgPool::connect(&url).await.unwrap();
+        // lote_custom_status (agenda da ordem) nasce em runtime, e o banco de teste pode tê-la sem estas colunas
+        for col in [
+            "data_pesagem TIMESTAMPTZ", "data_producao TIMESTAMPTZ", "data_previsao TIMESTAMPTZ",
+            "historico_reagendamentos JSONB DEFAULT '[]'::jsonb", "quadros_ocultos JSONB DEFAULT '[]'::jsonb",
+            "etapas_status JSONB DEFAULT '{}'::jsonb",
+        ] {
+            sqlx::query(&format!("ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS {col}"))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
         // programacao_envase/rotulagem nascem em runtime (acompanhamento_producao::store), não nas migrações
         for tabela in ["programacao_envase", "programacao_rotulagem"] {
             sqlx::query(&format!("CREATE TABLE IF NOT EXISTS {tabela} (id BIGSERIAL PRIMARY KEY, lote_number TEXT NOT NULL)"))
@@ -968,6 +1018,84 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(e.codigo, "nao_encontrado");
+    }
+
+    async fn criar_fila_teste(pool: &PgPool, id: &str) {
+        sqlx::query(
+            "INSERT INTO producao_fila_demandas (id, codigo_produto, descricao, quantidade, unidade, quantidade_kg, origem_demanda) \
+             VALUES ($1, 'TESTE.P4', 'TESTE P4 SHAMPOO 500ML', 200, 'un', 100, 'teste')",
+        )
+        .bind(id)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn ler_fila(pool: &PgPool, id: &str) -> Option<(f64, f64)> {
+        sqlx::query_as("SELECT quantidade::float8, quantidade_kg::float8 FROM producao_fila_demandas WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn gravar_ordem_consome_a_fila_na_mesma_transacao() {
+        let pool = pool_teste().await;
+        let week = format!("teste-{}", uuid::Uuid::new_v4());
+        let fila_id = format!("{week}-fila");
+        criar_fila_teste(&pool, &fila_id).await;
+        sqlx::query("INSERT INTO producao_reatores_config (id, nome, capacidade_kg, ativo) VALUES ('R_100', 'R100', 100, TRUE) ON CONFLICT (id) DO NOTHING")
+            .execute(&pool)
+            .await
+            .ok();
+
+        // consumo parcial: 100 kg - 40 kg = 60 kg => 120 un (500 ml = 0,5 kg)
+        let mut a = vec![item(&format!("{week}-a"), "2026-10-23")];
+        a[0].week_key = week.clone();
+        let consumo = PedidoConsumoFila { fila_id: fila_id.clone(), kg: 40.0 };
+        let r = gravar_planejamento(&pool, &mut a, &[consumo], "teste").await.unwrap();
+        assert_eq!(r[0].resultado, crate::modules::producao::fila::ResultadoConsumo::Reduzido { restante_kg: 60.0, restante_un: 120 });
+        assert_eq!(ler_fila(&pool, &fila_id).await, Some((120.0, 60.0)));
+
+        // consumo do restante: a linha some
+        let mut b = vec![item(&format!("{week}-b"), "2026-10-24")];
+        let consumo = PedidoConsumoFila { fila_id: fila_id.clone(), kg: 60.0 };
+        gravar_planejamento(&pool, &mut b, &[consumo], "teste").await.unwrap();
+        assert_eq!(ler_fila(&pool, &fila_id).await, None);
+
+        // fila inexistente não é erro
+        let mut c = vec![item(&format!("{week}-c"), "2026-10-25")];
+        let consumo = PedidoConsumoFila { fila_id: fila_id.clone(), kg: 1.0 };
+        let r = gravar_planejamento(&pool, &mut c, &[consumo], "teste").await.unwrap();
+        assert_eq!(r[0].resultado, crate::modules::producao::fila::ResultadoConsumo::NaoEncontrado);
+
+        sqlx::query("DELETE FROM producao_planejamento_semanal WHERE id LIKE $1").bind(format!("{week}-%")).execute(&pool).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn gravacao_invalida_nao_consome_a_fila() {
+        let pool = pool_teste().await;
+        let id = format!("teste-{}", uuid::Uuid::new_v4());
+        let fila_id = format!("{id}-fila");
+        criar_fila_teste(&pool, &fila_id).await;
+
+        let mut itens = vec![item(&format!("{id}-a"), "23/10/2026")]; // data inválida
+        let consumo = PedidoConsumoFila { fila_id: fila_id.clone(), kg: 40.0 };
+        let e = gravar_planejamento(&pool, &mut itens, &[consumo], "teste").await.unwrap_err();
+        assert_eq!(e.codigo, "regra_violada");
+        assert_eq!(ler_fila(&pool, &fila_id).await, Some((200.0, 100.0)), "fila intacta");
+
+        // falha depois do upsert (reator inexistente): o rollback também desfaz o consumo
+        let mut itens = vec![item(&format!("{id}-b"), "2026-10-23")];
+        itens[0].reator_id = "REATOR_QUE_NAO_EXISTE".into();
+        let consumo = PedidoConsumoFila { fila_id: fila_id.clone(), kg: 40.0 };
+        assert!(gravar_planejamento(&pool, &mut itens, &[consumo], "teste").await.is_err());
+        assert_eq!(ler_fila(&pool, &fila_id).await, Some((200.0, 100.0)), "fila intacta após rollback");
+
+        sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1").bind(&fila_id).execute(&pool).await.unwrap();
     }
 
     #[tokio::test]

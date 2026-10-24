@@ -992,13 +992,14 @@ export function PlanejamentoSemanalTab({
   };
 
   // Grava várias ordens de uma vez. O servidor usa uma transação: entram todas ou nenhuma.
-  const handleSaveItems = async (items: PlanejamentoItem[]): Promise<boolean> => {
+  // Com `consumirFila`, o servidor também consome a demanda da fila na mesma transação.
+  const handleSaveItems = async (items: PlanejamentoItem[], consumirFila?: { filaId: string; kg: number }[]): Promise<boolean> => {
     if (items.length === 0) return true;
     try {
       const res = await apiFetch('/producao/planejamento-semanal/bulk', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(items)
+        body: JSON.stringify(consumirFila && consumirFila.length > 0 ? { itens: items, consumirFila } : items)
       });
       if (!res.ok) {
         alert(await mensagemErroServidor(res, 'Não foi possível salvar o planejamento no servidor.'));
@@ -1013,28 +1014,6 @@ export function PlanejamentoSemanalTab({
       console.warn('Falha ao salvar planejamento:', e);
       alert('Falha de conexão ao salvar o planejamento.');
       return false;
-    }
-  };
-
-  // Consome a demanda da fila pelo id. Agendamento parcial devolve o saldo (PATCH); total remove (DELETE).
-  const consumirFilaItem = async (fItem: any, descricao: string | undefined, scheduledKg: number) => {
-    if (!fItem?.id) return;
-    const filaKg = Number(fItem.quantidadeKg || fItem.quantidade_kg || 0);
-    try {
-      if (filaKg > 0 && scheduledKg > 0 && scheduledKg + 0.05 < filaKg) {
-        const remainKg = Number((filaKg - scheduledKg).toFixed(1));
-        const uW = parseProductUnitWeightKg(descricao);
-        const remainUn = Math.max(1, Math.round(remainKg / (uW || 1)));
-        await apiFetch(`/producao/fila-demandas/${encodeURIComponent(fItem.id)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ quantidade: remainUn, quantidadeKg: remainKg, unidade: 'un' })
-        });
-      } else {
-        await apiFetch(`/producao/fila-demandas/${encodeURIComponent(fItem.id)}`, { method: 'DELETE' });
-      }
-    } catch (e) {
-      console.warn('Erro ao atualizar item da fila:', e);
     }
   };
 
@@ -1789,19 +1768,17 @@ export function PlanejamentoSemanalTab({
       novosItens.push(newItem);
     }
 
-    // Se a ordem não gravou, a demanda continua intacta na fila.
-    if (!(await handleSaveItems(novosItens))) return;
-
-    // Consome a demanda pelo id. Agendamento parcial deixa o saldo na fila.
+    // O servidor grava as ordens e consome a demanda da fila na mesma transação (parcial deixa o saldo na fila).
+    const consumirFila: { filaId: string; kg: number }[] = [];
     for (const prod of scheduleSelectedProducts) {
       const code = prod.codigo;
       const fItem = filaDemandas.find((f: any) => f.id === prod._filaId);
       if (fItem?.id) {
         const scheduledKg = Number(scheduleItemMasses[code] > 0 ? scheduleItemMasses[code] : (numItems === 1 ? scheduleQty : 0));
-        await consumirFilaItem(fItem, prod.descricao, scheduledKg);
+        consumirFila.push({ filaId: fItem.id, kg: scheduledKg });
       }
-
     }
+    if (!(await handleSaveItems(novosItens, consumirFila))) return;
     fetchFila();
 
     setScheduleModalItem(null);
@@ -2405,25 +2382,24 @@ export function PlanejamentoSemanalTab({
   // Aplicar proposta da Heurística
   const handleApplyHeuristic = async () => {
     try {
-      const res = await apiFetch('/producao/planejamento-semanal/bulk', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(heuristicProposal)
-      });
-      if (!res.ok) {
-        alert('Não foi possível gravar a sugestão no servidor.');
-        return;
-      }
       const kgPorFila = new Map<string, number>();
       for (const item of heuristicProposal) {
         const cand = demandCandidates.find((c: any) => c.codigo === item.codigo_produto && c._filaId);
         if (!cand) continue;
         kgPorFila.set(cand._filaId, (kgPorFila.get(cand._filaId) || 0) + (Number(item.quantidade_planejada) || 0));
       }
-      for (const [filaId, kg] of Array.from(kgPorFila.entries())) {
-        const fItem = filaDemandas.find((f: any) => f.id === filaId);
-        const cand = demandCandidates.find((c: any) => c._filaId === filaId);
-        await consumirFilaItem(fItem, cand?.descricao, kg);
+      const consumirFila = Array.from(kgPorFila.entries())
+        .filter(([filaId]) => filaDemandas.some((f: any) => f.id === filaId))
+        .map(([filaId, kg]) => ({ filaId, kg }));
+      // Ordens e consumo da fila gravam juntos no servidor (mesma transação).
+      const res = await apiFetch('/producao/planejamento-semanal/bulk', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itens: heuristicProposal, consumirFila })
+      });
+      if (!res.ok) {
+        alert('Não foi possível gravar a sugestão no servidor.');
+        return;
       }
       await fetchPlanejamento();
       await fetchFila();

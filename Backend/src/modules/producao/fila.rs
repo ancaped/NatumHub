@@ -505,9 +505,100 @@ pub async fn delete_fila_demanda(
     }
 }
 
+/// Resultado de consumir um item da fila ao agendar ordens.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumoFila {
+    pub fila_id: String,
+    #[serde(flatten)]
+    pub resultado: ResultadoConsumo,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(tag = "resultado", rename_all = "snake_case")]
+pub enum ResultadoConsumo {
+    Removido,
+    #[serde(rename_all = "camelCase")]
+    Reduzido { restante_kg: f64, restante_un: i64 },
+    NaoEncontrado,
+}
+
+/// Peso (kg) de uma unidade, lido da descrição ("500ML" -> 0.5). Porta fiel de `parseProductUnitWeightKg`
+/// do front: sem medida (ou medida <= 0) vale 1.0.
+pub fn peso_unitario_kg(descricao: &str) -> f64 {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| regex::Regex::new(r"(\d+(?:[.,]\d+)?)\s*(ML|L|GR|G|KG)\b").unwrap());
+    let desc = descricao.to_uppercase();
+    let Some(m) = re.captures(&desc) else { return 1.0 };
+    let val: f64 = match m[1].replace(',', ".").parse() {
+        Ok(v) => v,
+        Err(_) => return 1.0,
+    };
+    if val <= 0.0 {
+        return 1.0;
+    }
+    match &m[2] {
+        "KG" | "L" => val,
+        "G" | "GR" | "ML" => val / 1000.0,
+        _ => 1.0,
+    }
+}
+
+/// Consome `kg` agendados de um item da fila, na transação de quem chama: agendamento parcial devolve o saldo à
+/// fila; total (ou sem kg) remove a linha. Item que não existe mais não é erro.
+pub async fn consumir_fila(
+    conn: &mut sqlx::PgConnection,
+    fila_id: &str,
+    kg: f64,
+) -> Result<ConsumoFila, sqlx::Error> {
+    let linha = sqlx::query(
+        "SELECT descricao, quantidade_kg::float8 AS kg FROM producao_fila_demandas WHERE id = $1 FOR UPDATE",
+    )
+    .bind(fila_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let fila_id = fila_id.to_string();
+    let Some(l) = linha else {
+        return Ok(ConsumoFila { fila_id, resultado: ResultadoConsumo::NaoEncontrado });
+    };
+    let descricao: String = l.get("descricao");
+    let fila_kg: f64 = l.get::<Option<f64>, _>("kg").unwrap_or(0.0);
+    if fila_kg > 0.0 && kg > 0.0 && kg + 0.05 < fila_kg {
+        let restante_kg = ((fila_kg - kg) * 10.0).round() / 10.0;
+        let peso = peso_unitario_kg(&descricao);
+        let restante_un = ((restante_kg / if peso != 0.0 { peso } else { 1.0 }).round() as i64).max(1);
+        sqlx::query(
+            "UPDATE producao_fila_demandas SET quantidade = $2::float8, quantidade_kg = $3::float8, unidade = 'un', \
+             updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+        )
+        .bind(&fila_id)
+        .bind(restante_un as f64)
+        .bind(restante_kg)
+        .execute(&mut *conn)
+        .await?;
+        Ok(ConsumoFila { fila_id, resultado: ResultadoConsumo::Reduzido { restante_kg, restante_un } })
+    } else {
+        sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1")
+            .bind(&fila_id)
+            .execute(&mut *conn)
+            .await?;
+        Ok(ConsumoFila { fila_id, resultado: ResultadoConsumo::Removido })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn peso_unitario_le_a_medida_da_descricao() {
+        assert_eq!(peso_unitario_kg("SHAMPOO 500ML"), 0.5);
+        assert_eq!(peso_unitario_kg("CREME 1,5KG"), 1.5);
+        assert_eq!(peso_unitario_kg("GEL 250 G"), 0.25);
+        assert_eq!(peso_unitario_kg("OLEO 1L"), 1.0);
+        assert_eq!(peso_unitario_kg("SEM MEDIDA"), 1.0);
+        assert_eq!(peso_unitario_kg("X 0ML"), 1.0);
+    }
 
     #[test]
     fn le_a_tag_de_batelada() {
