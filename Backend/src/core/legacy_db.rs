@@ -280,16 +280,6 @@ fn dedupe_lotes_baixas(rows: Vec<LoteBaixaRow>) -> Vec<LoteBaixaRow> {
     merged.into_values().collect()
 }
 
-/// Passo O — movimentos extras de insumos (acertos/inventário). Preencher SQL real via erp-import.
-struct ExtraInsumoMovRow {
-    ref_code: String,
-    qty: f64,
-    date_str: String,
-    mov_type: String,
-    document: String,
-    details: String,
-}
-
 struct VendaRow {
     venda: i32,
     prod_code: String,
@@ -1657,63 +1647,62 @@ WHERE b.dLog >= '{since_dt}'
         );
     }
 
-    // O. Movimentos extras de insumos (acertos / inventário) — query placeholder até discovery
-    // Ver erp-import/sql/O-movimentos-insumos.sql e MOVIMENTOS-INSUMOS.md
-    let query_extra_insumo = format!(
+    // O. Acertos/ajustes/saídas manuais de insumos (ENTDEVINS) -> erp_movimentos_insumos (gravado após o commit)
+    // Ver erp-import/sql/O-movimentos-insumos.sql
+    let since_compacto = since.replace('-', "");
+    let query_movs_insumos = format!(
         "
 SELECT
-    CAST(NULL AS varchar(40)) AS cReferencia,
-    CAST(0 AS FLOAT) AS nQtde,
-    CAST(NULL AS varchar(30)) AS dMov,
-    CAST(NULL AS varchar(40)) AS cTipo,
-    CAST(NULL AS varchar(40)) AS cDocumento,
-    CAST(NULL AS nvarchar(200)) AS cDetalhes
-WHERE 1 = 0 AND '{since_dt}' IS NOT NULL;
+    CAST(e.nRegistro AS BIGINT) AS nRegistro,
+    CAST(LTRIM(RTRIM(e.cReferencia)) AS NVARCHAR(60)) AS cReferencia,
+    CONVERT(VARCHAR(8), TRY_CONVERT(date, e.dRegistro), 112) AS dRegistro,
+    CAST(e.cHora AS NVARCHAR(10)) AS cHora,
+    CAST(e.cTipoES AS NVARCHAR(2)) AS cTipoES,
+    CAST(e.nQtde AS FLOAT) AS nQtde,
+    CAST(e.mObservac AS NVARCHAR(500)) AS mObservac,
+    CAST(e.cOperador AS NVARCHAR(60)) AS cOperador,
+    CAST(e.cLoteFornec AS NVARCHAR(100)) AS cLoteFornec
+FROM ENTDEVINS e WITH (NOLOCK)
+WHERE e.dRegistro >= '{since_compacto}'
+  AND e.cReferencia IS NOT NULL AND e.cReferencia <> '';
 "
     );
-    println!("Step O: Querying movimentos extras de insumos (placeholder até discovery)");
-    let mut extra_insumo_list: Vec<ExtraInsumoMovRow> = Vec::new();
-    match client.query(query_extra_insumo, &[]).await {
-        Ok(stream) => {
-            if let Ok(rows) = stream.into_first_result().await {
+    println!("Step O: Querying ENTDEVINS - acertos/ajustes de insumos (since {since})");
+    let mut movs_insumos: Vec<crate::modules::estoque::movimentos::MovimentoErp> = Vec::new();
+    match client.query(query_movs_insumos, &[]).await {
+        Ok(stream) => match stream.into_first_result().await {
+            Ok(rows) => {
+                let hoje = Local::now().date_naive();
                 for row in rows {
-                    let ref_code: &str = row.get(0).unwrap_or("");
-                    let d_mov: Option<&str> = row.get(2);
-                    let c_tipo: &str = row.get(3).unwrap_or("");
-                    if ref_code.is_empty() || d_mov.is_none() || c_tipo.is_empty() {
+                    let n_registro: i64 = row.get(0).unwrap_or(0);
+                    let ref_code: &str = row.get(1).unwrap_or("");
+                    let Some(data_mov) = row
+                        .get::<&str, _>(2)
+                        .and_then(|d| crate::modules::estoque::movimentos::converter_data_registro(d, hoje))
+                    else {
+                        continue;
+                    };
+                    if n_registro == 0 || ref_code.trim().is_empty() {
                         continue;
                     }
-                    let mut mov_type = c_tipo.trim().to_lowercase();
-                    if mov_type.contains("acerto") && mov_type.contains("entrada") {
-                        mov_type = "acerto_entrada".into();
-                    } else if mov_type.contains("acerto") {
-                        mov_type = "acerto_saida".into();
-                    } else if mov_type.contains("invent") && mov_type.contains("entrada") {
-                        mov_type = "inventario_entrada".into();
-                    } else if mov_type.contains("invent") {
-                        mov_type = "inventario_saida".into();
-                    } else if mov_type.contains("entrada") {
-                        mov_type = "entrada".into();
-                    } else {
-                        mov_type = "saida".into();
-                    }
-                    extra_insumo_list.push(ExtraInsumoMovRow {
-                        ref_code: ref_code.trim().to_string(),
-                        qty: row.get(1).unwrap_or(0.0),
-                        date_str: d_mov.unwrap().to_string(),
-                        mov_type,
-                        document: row.get::<&str, _>(4).unwrap_or("").trim().to_string(),
-                        details: row
-                            .get::<&str, _>(5)
-                            .unwrap_or("")
-                            .trim()
-                            .to_string(),
+                    let txt = |i: usize| row.get::<&str, _>(i).unwrap_or("").trim().to_string();
+                    movs_insumos.push(crate::modules::estoque::movimentos::MovimentoErp {
+                        n_registro,
+                        referencia: ref_code.trim().to_string(),
+                        data_mov,
+                        hora: txt(3),
+                        es: txt(4).to_uppercase(),
+                        qtde: row.get(5).unwrap_or(0.0),
+                        motivo: txt(6),
+                        operador: txt(7),
+                        lote_fornecedor: txt(8),
                     });
                 }
             }
-        }
+            Err(e) => eprintln!("[ERP Sync] Step O: falha lendo ENTDEVINS: {e}"),
+        },
         Err(e) => {
-            eprintln!("[ERP Sync] Step O skipped (esperado até mapear tabela): {e}");
+            eprintln!("[ERP Sync] Step O: falha consultando ENTDEVINS: {e}");
         }
     }
 
@@ -2699,8 +2688,7 @@ WHERE {so2_date_filter};
     let mov_total_est = invoices_list.len()
         + lotes_baixas_list.len()
         + lotes_list.len()
-        + vendas_list.len()
-        + extra_insumo_list.len();
+        + vendas_list.len();
     eprintln!(
         "[ERP Sync] Gravando movimentações (~{mov_total_est} linhas, mode={})...",
         mode.as_str()
@@ -2820,33 +2808,6 @@ WHERE {so2_date_filter};
         lb_just.push(b.just.clone());
         lb_prod.push(b.prod_code.clone());
         lb_qref.push(b.n_qtde_ref);
-    }
-
-    for x in &extra_insumo_list {
-        let item_type = if x.ref_code.starts_with("9.15.") {
-            "insumo"
-        } else {
-            "material"
-        };
-        let details = if x.details.is_empty() {
-            format!("[ERP-O] {}", x.mov_type)
-        } else {
-            format!("[ERP-O] {} | {}", x.mov_type, x.details)
-        };
-        mov_batch.push(MovInsert {
-            id: Uuid::new_v4().to_string(),
-            item_code: x.ref_code.clone(),
-            item_type: item_type.to_string(),
-            movement_type: x.mov_type.clone(),
-            quantity: x.qty,
-            date: x.date_str.clone(),
-            document_number: x.document.clone(),
-            details,
-        });
-        count_movements += 1;
-        if mov_batch.len() >= MOV_BATCH {
-            flush_stock_movements(&mut tx, &mut mov_batch).await?;
-        }
     }
 
     const LB_CHUNK: usize = 500;
@@ -3454,6 +3415,12 @@ WHERE {so2_date_filter};
     eprintln!(
         "[ERP Sync] Fase pedidos commitada (PO={count_pos} SO={count_sales_orders})."
     );
+
+    // Passo O: grava os acertos/ajustes de insumos (tabela própria, fora da transação das movimentações)
+    match crate::modules::estoque::movimentos::gravar_movimentos(pool, movs_insumos).await {
+        Ok(n) => eprintln!("[ERP Sync] Passo O: {n} movimentos de insumos (ENTDEVINS) gravados."),
+        Err(e) => eprintln!("[ERP Sync] Aviso: falha ao gravar movimentos de insumos: {e}"),
+    }
 
     // Passo Q: Recebimento de Insumos (Controle de Qualidade)
     if let Err(e) = sync_recebe_insumos(pool, false).await {

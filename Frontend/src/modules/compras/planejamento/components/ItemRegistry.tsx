@@ -1,9 +1,10 @@
 import { apiFetch } from '../../../geral/lib/http';
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Trash2, Edit2, Plus, Package, EyeOff, Save, X, ArrowUpDown, ArrowUp, ArrowDown, Info, Calendar, Layers, ClipboardList, RefreshCw } from 'lucide-react';
+import { Search, Trash2, Edit2, Plus, Package, EyeOff, Save, X, ArrowUpDown, ArrowUp, ArrowDown, Info, Calendar, Layers, ClipboardList, RefreshCw, ArrowRightLeft } from 'lucide-react';
 import { api } from '../../../geral/lib/api';
 import { Item, Category } from '../../../geral/lib/types';
 import Drawer from '../../../geral/components/ui/Drawer';
+import { MovimentacaoInsumoTab } from '../../../estoque/components/MovimentacaoInsumoTab';
 
 
 interface ItemRegistryProps {
@@ -26,7 +27,7 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
   const [detailsItem, setDetailsItem] = useState<any>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [detailsActiveTab, setDetailsActiveTab] = useState<'geral' | 'produtos' | 'compras'>('geral');
+  const [detailsActiveTab, setDetailsActiveTab] = useState<'geral' | 'produtos' | 'compras' | 'movimentacao'>('geral');
 
   const handleShowDetails = async (code: string) => {
     setDetailsActiveTab('geral');
@@ -381,6 +382,7 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
           { id: 'geral', label: 'Geral', icon: Info },
           { id: 'produtos', label: 'Produtos Vinculados', icon: Layers, badge: detailsItem?.productsUsedIn?.length },
           { id: 'compras', label: 'Histórico de Compras', icon: ClipboardList, badge: detailsItem?.recentInvoices?.length },
+          { id: 'movimentacao', label: 'Movimentação', icon: ArrowRightLeft },
         ]}
         activeTab={detailsActiveTab}
         onTabChange={(tabId) => setDetailsActiveTab(tabId as any)}
@@ -508,6 +510,8 @@ export default function ItemRegistry({ mode = 'all', active = false, showIgnored
                       )}
                     </div>
                   )}
+
+                  {detailsActiveTab === 'movimentacao' && detailsItem.code && (<MovimentacaoInsumoTab codigo={detailsItem.code} />)}
 
                   {/* TAB CONTENT: COMPRAS / NOTAS FISCAIS */}
                   {detailsActiveTab === 'compras' && (

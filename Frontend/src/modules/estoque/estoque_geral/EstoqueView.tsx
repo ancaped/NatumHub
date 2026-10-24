@@ -12,6 +12,7 @@ import { cn } from '../../geral/lib/utils';
 import { StockMovement, FormulationLine, DbDumpResult } from '../../geral/lib/types';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import Drawer from '../../geral/components/ui/Drawer';
+import { MovimentacaoInsumoTab } from '../components/MovimentacaoInsumoTab';
 import { ListaContagem, type CatalogoContagem } from './components/ListaContagem';
 
 type EstoqueMode = 'materia_prima' | 'embalagens' | 'coloracao' | 'apoio' | 'insumos' | 'produtos';
@@ -181,7 +182,7 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initi
     type: 'insumo' | 'produto' | 'material';
     stock: number;
   } | null>(null);
-  const [drawerTab, setDrawerTab] = useState<'movimentacoes' | 'formulacao' | 'notas' | 'pedidos' | 'lotes' | 'similar'>('movimentacoes');
+  const [drawerTab, setDrawerTab] = useState<'movimentacoes' | 'movimento_erp' | 'formulacao' | 'notas' | 'pedidos' | 'lotes' | 'similar'>('movimentacoes');
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [formulation, setFormulation] = useState<FormulationLine[]>([]);
   const [extraInfo, setExtraInfo] = useState<ItemExtraInfo | null>(null);
@@ -405,6 +406,7 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initi
     } else {
       tabs.push({ id: 'formulacao', label: 'Usado em Produtos', icon: Layers });
       tabs.push({ id: 'movimentacoes', label: 'Movimentações', icon: ArrowUpRight });
+      tabs.push({ id: 'movimento_erp', label: 'Movimentação ERP', icon: ArrowUpRight });
       tabs.push({ id: 'notas', label: 'Notas Fiscais', icon: Receipt });
       tabs.push({ id: 'pedidos', label: 'Pedidos Pendentes', icon: Truck });
       tabs.push({ id: 'similar', label: 'Semelhantes', icon: Link });
@@ -984,6 +986,8 @@ export default function EstoqueView({ mode = 'materia_prima', onBackToHub, initi
                     )}
                   </div>
                 )
+              ) : drawerTab === 'movimento_erp' ? (
+                <MovimentacaoInsumoTab codigo={selectedItem.code} />
               ) : drawerTab === 'similar' ? (
                 /* Similar Items management for Insumos */
                 <div className="space-y-4 text-left">
