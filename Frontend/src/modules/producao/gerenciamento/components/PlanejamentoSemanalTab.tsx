@@ -18,6 +18,8 @@ import CoberturaInsumosDrawer from './CoberturaInsumosDrawer';
 import RetirarDaFilaDrawer from './RetirarDaFilaDrawer';
 import PreviaAcaoDrawer, { PreviaAcao } from './PreviaAcaoDrawer';
 import { canEdit, getAuthUser } from '../../../geral/lib/auth';
+import { useAviso } from '../../../geral/components/ui/Aviso';
+import Drawer from '../../../geral/components/ui/Drawer';
 import { SeloCobertura, piorResultado, useCoberturaSemana, useCoberturaFila, chaveCandidato } from './cobertura';
 
 export interface ReatorConfig {
@@ -508,6 +510,7 @@ export function PlanejamentoSemanalTab({
 }: PlanejamentoSemanalTabProps) {
   // Só quem tem o módulo com nível "editar" (Configurações → Operadores) grava; o servidor também confere (403).
   const podeEditar = useMemo(() => canEdit(getAuthUser(), 'planejamento_producao'), []);
+  const { avisar, aviso } = useAviso();
 
   // Estado da semana atual selecionada (sincronizada com prop se fornecida)
   const [internalCurrentDate, setInternalCurrentDate] = useState<Date>(() => new Date());
@@ -974,7 +977,7 @@ export function PlanejamentoSemanalTab({
         body: JSON.stringify(newItem)
       });
       if (!res.ok) {
-        alert(await mensagemErroServidor(res, 'Não foi possível salvar o planejamento no servidor.'));
+        avisar(await mensagemErroServidor(res, 'Não foi possível salvar o planejamento no servidor.'), 'erro');
         return false;
       }
       setPlannedItems(prev => {
@@ -986,7 +989,7 @@ export function PlanejamentoSemanalTab({
       return true;
     } catch (e) {
       console.warn('Falha ao salvar planejamento:', e);
-      alert('Falha de conexão ao salvar o planejamento.');
+      avisar('Falha de conexão ao salvar o planejamento.', 'erro');
       return false;
     }
   };
@@ -1002,7 +1005,7 @@ export function PlanejamentoSemanalTab({
         body: JSON.stringify(consumirFila && consumirFila.length > 0 ? { itens: items, consumirFila } : items)
       });
       if (!res.ok) {
-        alert(await mensagemErroServidor(res, 'Não foi possível salvar o planejamento no servidor.'));
+        avisar(await mensagemErroServidor(res, 'Não foi possível salvar o planejamento no servidor.'), 'erro');
         return false;
       }
       const ids = new Set(items.map(i => i.id));
@@ -1012,7 +1015,7 @@ export function PlanejamentoSemanalTab({
       return true;
     } catch (e) {
       console.warn('Falha ao salvar planejamento:', e);
-      alert('Falha de conexão ao salvar o planejamento.');
+      avisar('Falha de conexão ao salvar o planejamento.', 'erro');
       return false;
     }
   };
@@ -1024,7 +1027,7 @@ export function PlanejamentoSemanalTab({
       // Sem confirmar o servidor só devolve a prévia (o que sairia e o que fica).
       const res = await apiFetch(`/producao/planejamento-semanal/clear?week=${currentWeekKey}`, { method: 'DELETE' });
       if (!res.ok) {
-        alert(await mensagemErroServidor(res, 'Não foi possível ler a semana no servidor.'));
+        avisar(await mensagemErroServidor(res, 'Não foi possível ler a semana no servidor.'), 'erro');
         return;
       }
       const data = await res.json();
@@ -1041,7 +1044,7 @@ export function PlanejamentoSemanalTab({
       });
     } catch (e) {
       console.warn('Erro ao ler a semana no servidor:', e);
-      alert('Falha de conexão ao ler a semana.');
+      avisar('Falha de conexão ao ler a semana.', 'erro');
     }
   };
 
@@ -1051,7 +1054,7 @@ export function PlanejamentoSemanalTab({
         method: 'DELETE'
       });
       if (!res.ok) {
-        alert('Não foi possível limpar a semana no servidor.');
+        avisar('Não foi possível limpar a semana no servidor.', 'erro');
         return;
       }
       const data = await res.json();
@@ -1071,11 +1074,11 @@ export function PlanejamentoSemanalTab({
         })));
       }
       if (Number(data.blocked) > 0) {
-        alert(`${data.blocked} ordem(ns) não foram removidas porque já estão em envase, rotulagem ou avançaram nos quadros.`);
+        avisar(`${data.blocked} ordem(ns) não foram removidas porque já estão em envase, rotulagem ou avançaram nos quadros.`, 'info');
       }
     } catch (e) {
       console.warn('Erro ao limpar semana no servidor:', e);
-      alert('Falha de conexão ao limpar a semana.');
+      avisar('Falha de conexão ao limpar a semana.', 'erro');
     }
     await fetchPlanejamento();
     window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
@@ -1095,7 +1098,7 @@ export function PlanejamentoSemanalTab({
           body: JSON.stringify({ massa: aprovar, embalagem: aprovar, rotulo: aprovar, ordem_status: ordemStatus })
         });
         if (!res.ok) {
-          alert(await mensagemErroServidor(res, 'Erro ao atualizar aprovação de produção no servidor.'));
+          avisar(await mensagemErroServidor(res, 'Erro ao atualizar aprovação de produção no servidor.'), 'erro');
           break;
         }
         atualizados.push({
@@ -1107,7 +1110,7 @@ export function PlanejamentoSemanalTab({
         });
       } catch (e) {
         console.error('Erro ao alternar aprovação de produção:', e);
-        alert('Erro ao atualizar aprovação de produção no servidor.');
+        avisar('Erro ao atualizar aprovação de produção no servidor.', 'erro');
         break;
       }
     }
@@ -1222,7 +1225,7 @@ export function PlanejamentoSemanalTab({
     if (!editQtyModalItem) return;
     const { item, newQty, batchItems, batchMasses } = editQtyModalItem;
     if (isNaN(newQty) || newQty <= 0) {
-      alert("Informe uma quantidade válida em kg (maior que zero).");
+      avisar("Informe uma quantidade válida em kg (maior que zero).", 'info');
       return;
     }
 
@@ -1241,7 +1244,7 @@ export function PlanejamentoSemanalTab({
           ignoreIds,
         });
         if (msg) {
-          alert(msg);
+          avisar(msg, 'info');
           return;
         }
       }
@@ -1256,7 +1259,7 @@ export function PlanejamentoSemanalTab({
         ignoreIds,
       });
       if (msg) {
-        alert(msg);
+        avisar(msg, 'info');
         return;
       }
     }
@@ -1343,7 +1346,7 @@ export function PlanejamentoSemanalTab({
         if (res.status === 409) {
           bloqueado = true;
           const err = await res.json().catch(() => ({}));
-          alert(err?.error || 'Esta ordem não pode sair do planejamento porque já está em outro quadro.');
+          avisar(err?.error || 'Esta ordem não pode sair do planejamento porque já está em outro quadro.', 'erro');
           continue;
         }
         if (res.ok && it.ordem_status !== 'concluido') removidos.push(it);
@@ -1484,7 +1487,7 @@ export function PlanejamentoSemanalTab({
     } = technicalModalItem;
 
     if (isNaN(quantidadeKg) || quantidadeKg <= 0) {
-      alert("Informe uma quantidade válida em kg (maior que zero).");
+      avisar("Informe uma quantidade válida em kg (maior que zero).", 'info');
       return;
     }
 
@@ -1504,7 +1507,7 @@ export function PlanejamentoSemanalTab({
       ignoreIds: new Set(targets.map(t => t.id)),
     });
     if (alocacaoMsg) {
-      alert(alocacaoMsg);
+      avisar(alocacaoMsg, 'info');
       return;
     }
 
@@ -1534,7 +1537,7 @@ export function PlanejamentoSemanalTab({
   // Adicionar e remover produtos da mesma ordem de produção (até 4 produtos por lote)
   const handleAddProductToSchedule = (prod: any) => {
     if (scheduleSelectedProducts.length >= 4) {
-      alert("Você pode adicionar no máximo 4 produtos por ordem de produção.");
+      avisar("Você pode adicionar no máximo 4 produtos por ordem de produção.", 'info');
       return;
     }
     if (scheduleSelectedProducts.some(p => p.codigo === prod.codigo)) {
@@ -1543,7 +1546,7 @@ export function PlanejamentoSemanalTab({
     if (scheduleSelectedProducts.length > 0) {
       const isSameFormula = sameFormulaProducts.some(sf => sf.codigo === prod.codigo);
       if (!isSameFormula) {
-        alert("Apenas produtos com a exata mesma formulação química (mesmas matérias-primas e proporções) podem ser agendados juntos na mesma batelada.");
+        avisar("Apenas produtos com a exata mesma formulação química (mesmas matérias-primas e proporções) podem ser agendados juntos na mesma batelada.", 'info');
         return;
       }
     }
@@ -1696,12 +1699,12 @@ export function PlanejamentoSemanalTab({
   // Confirmar Agendamento Manual (suporta até 4 itens com massa individual personalizável)
   const handleConfirmSchedule = async () => {
     if (scheduleSelectedProducts.length === 0) {
-      alert("Por favor, selecione ao menos 1 produto para agendar na ordem de produção.");
+      avisar("Por favor, selecione ao menos 1 produto para agendar na ordem de produção.", 'info');
       return;
     }
 
     if (isNaN(scheduleQty) || scheduleQty <= 0) {
-      alert("Informe uma massa total válida em kg (maior que zero).");
+      avisar("Informe uma massa total válida em kg (maior que zero).", 'info');
       return;
     }
 
@@ -1713,7 +1716,7 @@ export function PlanejamentoSemanalTab({
       plannedItems,
     });
     if (alocacaoMsg) {
-      alert(alocacaoMsg);
+      avisar(alocacaoMsg, 'info');
       return;
     }
 
@@ -1796,7 +1799,7 @@ export function PlanejamentoSemanalTab({
   // 1. IMPRESSÃO DA PROGRAMAÇÃO SEMANAL DE PRODUÇÃO (A4 COMPACTO E DIRETO)
   const handlePrintWeeklyPlan = async () => {
     if (plannedItems.length === 0) {
-      alert("Nenhuma batelada agendada nesta semana para imprimir.");
+      avisar("Nenhuma batelada agendada nesta semana para imprimir.", 'info');
       return;
     }
 
@@ -2021,7 +2024,7 @@ export function PlanejamentoSemanalTab({
     });
 
     if (candidates.length === 0) {
-      alert("Nenhum produto com necessidade crítica ou programada no filtro atual. Experimente selecionar 'Todas as Linhas'.");
+      avisar("Nenhum produto com necessidade crítica ou programada no filtro atual. Experimente selecionar 'Todas as Linhas'.", 'info');
       return;
     }
 
@@ -2398,16 +2401,16 @@ export function PlanejamentoSemanalTab({
         body: JSON.stringify({ itens: heuristicProposal, consumirFila })
       });
       if (!res.ok) {
-        alert('Não foi possível gravar a sugestão no servidor.');
+        avisar('Não foi possível gravar a sugestão no servidor.', 'erro');
         return;
       }
       await fetchPlanejamento();
       await fetchFila();
       setHeuristicModalOpen(false);
-      alert("Planejamento semanal aplicado.");
+      avisar("Planejamento semanal aplicado.", 'sucesso');
     } catch (e) {
       console.warn('Erro ao salvar a sugestão:', e);
-      alert('Falha de conexão ao aplicar a sugestão.');
+      avisar('Falha de conexão ao aplicar a sugestão.', 'erro');
     } finally {
       window.dispatchEvent(new CustomEvent('natum:refresh-acompanhamento'));
       onScheduleChanged?.();
@@ -2416,6 +2419,7 @@ export function PlanejamentoSemanalTab({
 
   return (
     <div className="flex flex-col gap-4 w-full">
+      {aviso}
       {/* BARRA SUPERIOR DE COMANDOS */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-zinc-200 shadow-xs">
         {/* Navegação Semanal */}
@@ -2712,7 +2716,7 @@ export function PlanejamentoSemanalTab({
                                 ignoreIds: new Set(draggedBatch.map(i => i.id)),
                               });
                               if (bloqueio) {
-                                alert(bloqueio);
+                                avisar(bloqueio, 'info');
                                 setDraggedBatch(null);
                                 setDraggedItem(null);
                                 return;
@@ -2767,7 +2771,7 @@ export function PlanejamentoSemanalTab({
                                 ignoreIds: new Set([draggedItem.id]),
                               });
                               if (bloqueioItem) {
-                                alert(bloqueioItem);
+                                avisar(bloqueioItem, 'info');
                                 setDraggedItem(null);
                                 return;
                               }
@@ -3292,20 +3296,40 @@ export function PlanejamentoSemanalTab({
 
       {/* MODAL: CONFIGURAÇÃO DE REATORES E REGRAS DE CAPACIDADE */}
       {reatoresModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-2xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-5 flex flex-col gap-4 border border-zinc-200 max-h-[90vh]">
-            <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
-              <div className="flex items-center gap-2">
-                <Settings size={18} className="text-zinc-700" />
-                <h3 className="font-bold text-zinc-900 text-sm">Configuração de Reatores & Regras de Produção</h3>
-              </div>
-              <button 
-                onClick={() => setReatoresModalOpen(false)}
-                className="text-zinc-400 hover:text-zinc-600 p-1 rounded-md cursor-pointer"
-              >
-                <X size={16} />
-              </button>
-            </div>
+        <Drawer isOpen onClose={() => setReatoresModalOpen(false)} title="Configuração de Reatores & Regras de Produção" size="md"
+          footer={
+            <>
+                <button
+                  type="button"
+                  onClick={() => setReatoresModalOpen(false)}
+                  className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await apiFetch('/producao/reatores', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(reatores)
+                      });
+                      setReatoresModalOpen(false);
+                      avisar("Reatores e regras atualizados com sucesso!", 'sucesso');
+                      fetchReatores();
+                    } catch (e) {
+                      console.error(e);
+                      avisar("Erro ao salvar configuração de reatores.", 'erro');
+                    }
+                  }}
+                  className="px-4 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer"
+                >
+                  Salvar Reatores
+                </button>
+            </>
+          }
+        >
 
             <p className="text-xs text-zinc-500">
               Configure os reatores fabris, capacidades nominais em kg e as regras de processo (Shampoo exclusivo, Caldeira mista quente/frio, Resistência térmica ou Bombonas móveis).
@@ -3417,63 +3441,45 @@ export function PlanejamentoSemanalTab({
                 <span>Adicionar Reator / Equipamento</span>
               </button>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setReatoresModalOpen(false)}
-                  className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      await apiFetch('/producao/reatores', {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(reatores)
-                      });
-                      setReatoresModalOpen(false);
-                      alert("Reatores e regras atualizados com sucesso!");
-                      fetchReatores();
-                    } catch (e) {
-                      console.error(e);
-                      alert("Erro ao salvar configuração de reatores.");
-                    }
-                  }}
-                  className="px-4 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer"
-                >
-                  Salvar Reatores
-                </button>
-              </div>
             </div>
-          </div>
-        </div>
+        </Drawer>
       )}
 
       {/* MODAL: AGENDAR PRODUTO NO REATOR / DIA */}
       {scheduleModalItem && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-5 flex flex-col gap-4 border border-zinc-200 max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
-              <div className="flex items-center gap-2">
-                <CalendarClock size={18} className="text-blue-600" />
-                <h3 className="font-bold text-zinc-900 text-sm">
-                  Agendar Batelada no Quadro
-                </h3>
-              </div>
-              <button 
+        <Drawer isOpen onClose={() => {
+          setScheduleModalItem(null);
+          setScheduleSelectedProducts([]);
+          setScheduleSearch('');
+        }} title="Agendar Batelada no Quadro" size="xl"
+          footer={
+            <>
+              <button
+                type="button"
                 onClick={() => {
                   setScheduleModalItem(null);
                   setScheduleSelectedProducts([]);
                   setScheduleSearch('');
                 }}
-                className="text-zinc-400 hover:text-zinc-600 p-1 rounded-md cursor-pointer"
+                className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
               >
-                <X size={16} />
+                Cancelar
               </button>
-            </div>
+              <button
+                type="button"
+                disabled={scheduleSelectedProducts.length === 0}
+                onClick={handleConfirmSchedule}
+                className={`px-4 py-1.5 text-xs font-semibold rounded-lg shadow-xs cursor-pointer ${
+                  scheduleSelectedProducts.length === 0
+                    ? 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
+                    : 'bg-zinc-900 hover:bg-zinc-800 text-white'
+                }`}
+              >
+                Confirmar Agendamento ({scheduleSelectedProducts.length})
+              </button>
+            </>
+          }
+        >
 
             {/* Barra de Pesquisa de Produtos */}
             <div className="space-y-1.5">
@@ -3775,52 +3781,31 @@ export function PlanejamentoSemanalTab({
                 )}
               </div>
             </div>
+        </Drawer>
+      )}
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-zinc-200">
+      {/* MODAL: VINCULAR LOTE ERP DIRETAMENTE NO CARD */}
+      {linkLoteModalItem && (
+        <Drawer isOpen onClose={() => setLinkLoteModalItem(null)} title="Vincular Lote ERP" size="md"
+          footer={
+            <>
               <button
                 type="button"
-                onClick={() => {
-                  setScheduleModalItem(null);
-                  setScheduleSelectedProducts([]);
-                  setScheduleSearch('');
-                }}
+                onClick={() => setLinkLoteModalItem(null)}
                 className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="button"
-                disabled={scheduleSelectedProducts.length === 0}
-                onClick={handleConfirmSchedule}
-                className={`px-4 py-1.5 text-xs font-semibold rounded-lg shadow-xs cursor-pointer ${
-                  scheduleSelectedProducts.length === 0
-                    ? 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
-                    : 'bg-zinc-900 hover:bg-zinc-800 text-white'
-                }`}
+                onClick={handleConfirmLinkLote}
+                className="px-4 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer"
               >
-                Confirmar Agendamento ({scheduleSelectedProducts.length})
+                Salvar Lote
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: VINCULAR LOTE ERP DIRETAMENTE NO CARD */}
-      {linkLoteModalItem && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5 flex flex-col gap-4 border border-zinc-200">
-            <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
-              <div className="flex items-center gap-2">
-                <Tag size={18} className="text-blue-600" />
-                <h3 className="font-bold text-zinc-900 text-sm">Vincular Lote ERP</h3>
-              </div>
-              <button 
-                onClick={() => setLinkLoteModalItem(null)}
-                className="text-zinc-400 hover:text-zinc-600 p-1 rounded-md cursor-pointer"
-              >
-                <X size={16} />
-              </button>
-            </div>
+            </>
+          }
+        >
 
             <div className="p-3 bg-zinc-50 rounded-lg border border-zinc-200 text-xs">
               <strong className="text-zinc-900 block">{linkLoteModalItem.item.descricao || linkLoteModalItem.item.codigo_produto}</strong>
@@ -3902,43 +3887,31 @@ export function PlanejamentoSemanalTab({
                 Ao salvar, o lote é sincronizado automaticamente com os quadros de acompanhamento de produção.
               </p>
             </div>
+        </Drawer>
+      )}
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-zinc-200">
+      {/* MODAL: EDITAR QUANTIDADE A SER PRODUZIDA (MASSA KG) */}
+      {editQtyModalItem && (
+        <Drawer isOpen onClose={() => setEditQtyModalItem(null)} title="Editar Quantidade (Massa)" size="md"
+          footer={
+            <>
               <button
                 type="button"
-                onClick={() => setLinkLoteModalItem(null)}
+                onClick={() => setEditQtyModalItem(null)}
                 className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="button"
-                onClick={handleConfirmLinkLote}
+                onClick={handleConfirmEditQty}
                 className="px-4 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer"
               >
-                Salvar Lote
+                Salvar Quantidade
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: EDITAR QUANTIDADE A SER PRODUZIDA (MASSA KG) */}
-      {editQtyModalItem && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5 flex flex-col gap-4 border border-zinc-200">
-            <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
-              <div className="flex items-center gap-2">
-                <Edit3 size={18} className="text-blue-600" />
-                <h3 className="font-bold text-zinc-900 text-sm">Editar Quantidade (Massa)</h3>
-              </div>
-              <button 
-                onClick={() => setEditQtyModalItem(null)}
-                className="text-zinc-400 hover:text-zinc-600 p-1 rounded-md cursor-pointer"
-              >
-                <X size={16} />
-              </button>
-            </div>
+            </>
+          }
+        >
 
             <div className="p-3 bg-zinc-50 rounded-lg border border-zinc-200 text-xs">
               <strong className="text-zinc-900 block">
@@ -4026,47 +3999,32 @@ export function PlanejamentoSemanalTab({
                 </div>
               );
             })()}
+        </Drawer>
+      )}
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-zinc-200">
+      {/* MODAL: CONFIGURAÇÕES DA BATELADA (PARÂMETROS TÉCNICOS, PROCESSO, EQUIPAMENTO) */}
+      {technicalModalItem && (
+        <Drawer isOpen onClose={() => setTechnicalModalItem(null)} title="Configurações da Batelada" subtitle={technicalModalItem.item.codigo_produto} size="md"
+          footer={
+            <>
               <button
                 type="button"
-                onClick={() => setEditQtyModalItem(null)}
+                onClick={() => setTechnicalModalItem(null)}
                 className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="button"
-                onClick={handleConfirmEditQty}
-                className="px-4 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer"
+                onClick={handleSaveTechnicalModal}
+                className="px-4 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
               >
-                Salvar Quantidade
+                <Check size={14} />
+                <span>Salvar Configurações</span>
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: CONFIGURAÇÕES DA BATELADA (PARÂMETROS TÉCNICOS, PROCESSO, EQUIPAMENTO) */}
-      {technicalModalItem && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-5 flex flex-col gap-4 border border-zinc-200 max-h-[90vh] overflow-y-auto">
-            {/* Cabeçalho */}
-            <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
-              <div className="flex items-center gap-2">
-                <SlidersHorizontal size={18} className="text-blue-600" />
-                <div>
-                  <h3 className="font-bold text-zinc-900 text-sm">Configurações da Batelada</h3>
-                  <span className="text-[11px] text-zinc-500 font-mono">{technicalModalItem.item.codigo_produto}</span>
-                </div>
-              </div>
-              <button 
-                onClick={() => setTechnicalModalItem(null)}
-                className="text-zinc-400 hover:text-zinc-600 p-1 rounded-md cursor-pointer"
-              >
-                <X size={16} />
-              </button>
-            </div>
+            </>
+          }
+        >
 
             {/* Identificação do Produto */}
             <div className="p-2.5 bg-zinc-50 rounded-lg border border-zinc-200 text-xs">
@@ -4428,45 +4386,30 @@ export function PlanejamentoSemanalTab({
                 className="w-full p-2 bg-white border border-zinc-300 rounded-lg text-xs resize-none"
               />
             </div>
-
-            {/* Rodapé com Botões */}
-            <div className="flex justify-end gap-2 pt-2 border-t border-zinc-200">
-              <button
-                type="button"
-                onClick={() => setTechnicalModalItem(null)}
-                className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveTechnicalModal}
-                className="px-4 py-1.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
-              >
-                <Check size={14} />
-                <span>Salvar Configurações</span>
-              </button>
-            </div>
-          </div>
-        </div>
+        </Drawer>
       )}
 
       {/* MODAL: PROPOSTA DA HEURÍSTICA AUTOMÁTICA */}
       {heuristicModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-5 flex flex-col gap-4 border border-zinc-200 max-h-[85vh] overflow-hidden">
-            <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
-              <div className="flex items-center gap-2">
-                <Sparkles size={18} className="text-yellow-500" />
-                <h3 className="font-bold text-zinc-900 text-sm">Proposta de Otimização Semanal (Heurística)</h3>
-              </div>
-              <button 
+        <Drawer isOpen onClose={() => setHeuristicModalOpen(false)} title="Proposta de Otimização Semanal (Heurística)" size="xl"
+          footer={
+            <>
+              <button
                 onClick={() => setHeuristicModalOpen(false)}
-                className="text-zinc-400 hover:text-zinc-600 p-1 rounded-md cursor-pointer"
+                className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
               >
-                <X size={16} />
+                Descartar
               </button>
-            </div>
+              <button
+                onClick={handleApplyHeuristic}
+                className="px-4 py-1.5 text-xs font-semibold bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <Check size={14} />
+                <span>Aplicar no Quadro Semanal</span>
+              </button>
+            </>
+          }
+        >
 
             {/* Resumo da Otimização */}
             <div className="grid grid-cols-4 gap-2 text-center text-xs">
@@ -4542,24 +4485,7 @@ export function PlanejamentoSemanalTab({
                 </tbody>
               </table>
             </div>
-
-            <div className="flex justify-end gap-2 pt-3 border-t border-zinc-200">
-              <button
-                onClick={() => setHeuristicModalOpen(false)}
-                className="px-3.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 rounded-lg border border-zinc-200 cursor-pointer"
-              >
-                Descartar
-              </button>
-              <button
-                onClick={handleApplyHeuristic}
-                className="px-4 py-1.5 text-xs font-semibold bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg shadow-xs flex items-center gap-1.5 cursor-pointer"
-              >
-                <Check size={14} />
-                <span>Aplicar no Quadro Semanal</span>
-              </button>
-            </div>
-          </div>
-        </div>
+        </Drawer>
       )}
 
 
