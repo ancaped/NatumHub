@@ -98,11 +98,17 @@ export function MovimentacaoInsumoTab({ codigo }: { codigo: string }) {
 
       {r && (
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-y border-zinc-100 py-2 text-xs text-zinc-600">
+          {r.estoqueInicio != null && <span>Estoque no início <b className="text-zinc-900">{fmt(r.estoqueInicio)}</b></span>}
           <span>Entradas <b className="text-emerald-700">{fmt(r.entradas)}</b></span>
           <span>Saídas <b className="text-rose-700">{fmt(r.saidas)}</b></span>
           <span>Saldo dos movimentos <b className="text-zinc-900">{fmt(r.saldoMovimentos)}</b></span>
           {r.estoqueAtual != null && <span>Estoque atual <b className="text-zinc-900">{fmt(r.estoqueAtual)}</b></span>}
-          {r.diferenca != null && <span>Diferença <b className="text-zinc-900">{fmt(r.diferenca)}</b></span>}
+          {r.estoqueFim != null && r.estoqueAtual == null && <span>Estoque no fim <b className="text-zinc-900">{fmt(r.estoqueFim)}</b></span>}
+          {r.diferenca != null && (
+            <span title="Estoque no fim − (estoque no início + saldo dos movimentos): o que os movimentos não explicam">
+              Diferença <b className={Math.abs(r.diferenca) > 0.01 ? 'text-amber-700' : 'text-zinc-900'}>{fmt(r.diferenca)}</b>
+            </span>
+          )}
           {r.acertosGrandes > 0 && (
             <span className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-800">
               {r.acertosGrandes} acerto(s) grande(s)
