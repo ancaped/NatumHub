@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::handlers::imports::clean_product_code;
-use crate::handlers::producao::parse_unit_weight_from_desc;
+use crate::modules::producao::lotes::parse_unit_weight_from_desc;
 use crate::handlers::AppState;
 use crate::modules::producao::calculo::{fetch_calculation_data, post_process_kit_only_production};
 use crate::modules::producao::gerenciamento::calculations::calculate_products;

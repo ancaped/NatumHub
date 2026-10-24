@@ -30,6 +30,8 @@ pub mod modules {
         pub mod bases;
         pub mod kits;
         pub mod calculo;
+        pub mod lotes;
+        pub mod historico;
         pub mod permissao;
         pub mod trocas;
         pub mod auditoria;

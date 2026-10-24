@@ -1,15 +1,18 @@
+//! Lotes de produção: lista, conferência de erros, detalhes, resoluções e último lote por produto.
+
 use axum::{
     extract::{Query, State, Path},
     http::StatusCode,
     response::IntoResponse,
-    Json,
+    routing::{get, post},
+    Json, Router,
 };
 use std::sync::Arc;
 use serde_json::json;
 use sqlx::{PgPool, Row};
 
 use crate::models::{
-    QueryParams, NewProducaoEntry, HistoryQueryParams,
+    QueryParams,
 };
 use crate::modules::producao::gerenciamento::calculations::calculate_products;
 use crate::handlers::AppState;
@@ -17,6 +20,16 @@ use crate::modules::producao::calculo::fetch_calculation_data;
 
 // Helper cross-imports
 use crate::handlers::imports::clean_product_code;
+
+pub fn router() -> Router<Arc<AppState>> {
+    Router::new()
+        .route("/api/producao/lotes", get(get_production_lotes))
+        .route("/api/producao/lotes/:number/detalhes", get(get_lote_detalhes))
+        .route("/api/producao/lotes/:number", get(get_lote_lookup))
+        .route("/api/producao/lotes/:number/resolver", post(save_lote_resolution).delete(delete_lote_resolution))
+        .route("/api/producao/ultimo-lote", get(get_ultimo_lote_produto_query))
+        .route("/api/producao/ultimo-lote/:code", get(get_ultimo_lote_produto))
+}
 
 
 
@@ -110,97 +123,6 @@ struct RawLote {
     data_previsao: Option<String>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct UpdateLotePayload {
-    pub lote_erp: Option<String>,
-}
-
-
-
-// 10. POST /api/historico
-pub async fn add_producao(
-    State(state): State<Arc<AppState>>,
-    Json(entry): Json<NewProducaoEntry>,
-) -> impl IntoResponse {
-    if entry.codigo.trim().is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Código do produto não pode ser vazio" }))
-        ).into_response();
-    }
-    if entry.quantidade <= 0 {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Quantidade deve ser maior que zero" }))
-        ).into_response();
-    }
-    if entry.data_producao.trim().is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Data da produção não pode ser vazia" }))
-        ).into_response();
-    }
-
-    match state.db.add_producao_entry(&entry).await {
-        Ok(id) => (
-            StatusCode::CREATED,
-            Json(json!({ "status": "success", "id": id, "message": "Produção lançada com sucesso!" }))
-        ).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao salvar lançamento de produção: {}", e) }))
-        ).into_response(),
-    }
-}
-
-// 11. GET /api/historico
-pub async fn list_producao(
-    State(state): State<Arc<AppState>>,
-    Query(params): Query<HistoryQueryParams>,
-) -> impl IntoResponse {
-    match state.db.list_producao_history(&params).await {
-        Ok(records) => (StatusCode::OK, Json(records)).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao listar histórico de produção: {}", e) }))
-        ).into_response(),
-    }
-}
-
-// 12. DELETE /api/historico/:id
-pub async fn delete_producao(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<i64>,
-) -> impl IntoResponse {
-    match state.db.delete_producao_entry(id).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "status": "success", "message": "Produção estornada/excluída com sucesso!" }))
-        ).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao estornar produção: {}", e) }))
-        ).into_response(),
-    }
-}
-
-// 12b. PUT /api/historico/:id/lote
-pub async fn update_producao_lote(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<i64>,
-    Json(payload): Json<UpdateLotePayload>,
-) -> impl IntoResponse {
-    match state.db.update_producao_lote(id, payload.lote_erp.as_deref()).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "status": "success", "message": "Lote ERP atualizado com sucesso!" }))
-        ).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Erro ao atualizar Lote ERP: {}", e) }))
-        ).into_response(),
-    }
-}
 
 
 // GET /api/producao/lotes

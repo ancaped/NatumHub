@@ -11,7 +11,7 @@ use sqlx::Row;
 
 use crate::modules::producao::gerenciamento::calculations::calculate_products;
 use crate::handlers::AppState;
-use crate::handlers::producao::check_lote_errors;
+use crate::modules::producao::lotes::check_lote_errors;
 use crate::modules::producao::calculo::fetch_calculation_data;
 
 // GET /api/estoque/movimentacoes/:code

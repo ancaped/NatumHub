@@ -202,27 +202,6 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
             "/api/produtos/:code/detalhes",
             get(handlers::get_product_detalhes),
         )
-        .route("/api/producao/lotes", get(handlers::get_production_lotes))
-        .route(
-            "/api/producao/lotes/:number/detalhes",
-            get(handlers::get_lote_detalhes),
-        )
-        .route(
-            "/api/producao/lotes/:number",
-            get(handlers::get_lote_lookup),
-        )
-        .route(
-            "/api/producao/lotes/:number/resolver",
-            post(handlers::save_lote_resolution).delete(handlers::delete_lote_resolution),
-        )
-        .route(
-            "/api/producao/ultimo-lote",
-            get(handlers::get_ultimo_lote_produto_query),
-        )
-        .route(
-            "/api/producao/ultimo-lote/:code",
-            get(handlers::get_ultimo_lote_produto),
-        )
         .merge(modules::producao::proc::router())
         .merge(modules::producao::cobertura::router())
         .merge(modules::producao::decisoes::router())
@@ -232,6 +211,8 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
         .merge(modules::producao::bases::router())
         .merge(modules::producao::kits::router())
         .merge(modules::producao::calculo::router())
+        .merge(modules::producao::lotes::router())
+        .merge(modules::producao::historico::router())
         .merge(modules::producao::trocas::router())
         .merge(modules::producao::auditoria::router())
         .merge(modules::producao::insumos_classificacao::router())
@@ -242,15 +223,6 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
         .merge(modules::qualidade::router())
         .merge(modules::administrativo::router())
         .merge(modules::ferramentas::router())
-        .route(
-            "/api/historico",
-            get(handlers::list_producao).post(handlers::add_producao),
-        )
-        .route("/api/historico/:id", delete(handlers::delete_producao))
-        .route(
-            "/api/historico/:id/lote",
-            put(handlers::update_producao_lote),
-        )
         .route("/api/vendas/pedidos", get(handlers::list_sales_orders))
         .route(
             "/api/vendas/pedidos/detalhe",
