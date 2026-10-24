@@ -470,10 +470,6 @@ export const localAuth = {
   getUser(): AuthUser | null {
     return getAuthUser();
   },
-  // O login exige senha; sem ela o servidor recusa. Trocar de operador é pela tela de login.
-  async signIn(_displayName: string): Promise<AuthUser> {
-    throw new Error('Trocar de operador exige senha: use a tela de login.');
-  },
   async signOut(): Promise<void> {
     await logoutOperator();
     window.location.reload();
