@@ -67,11 +67,56 @@ pub async fn get_overrides(State(state): State<Arc<AppState>>) -> impl IntoRespo
     }
 }
 
+/// Valida e normaliza as regras PCP por produto (vazio vira None).
+pub fn validar_regras_pcp(ovr: &mut ProductOverride) -> Result<(), String> {
+    if let Some(p) = ovr.processo_termico.as_ref() {
+        let p = p.trim().to_lowercase();
+        ovr.processo_termico = match p.as_str() {
+            "" => None,
+            "quente" | "frio" => Some(p),
+            _ => return Err("processo_termico deve ser 'quente', 'frio' ou vazio".to_string()),
+        };
+    }
+    if ovr.dias_ate_envase.map(|n| n < 0).unwrap_or(false) {
+        return Err("dias_ate_envase não pode ser negativo".to_string());
+    }
+    if ovr
+        .producao_minima_kg
+        .map(|n| n < 0.0 || !n.is_finite())
+        .unwrap_or(false)
+    {
+        return Err("producao_minima_kg não pode ser negativa".to_string());
+    }
+    Ok(())
+}
+
 // 3. POST /api/overrides
 pub async fn save_override(
     State(state): State<Arc<AppState>>,
-    Json(ovr): Json<ProductOverride>,
+    Json(corpo): Json<serde_json::Value>,
 ) -> impl IntoResponse {
+    let mut ovr: ProductOverride = match serde_json::from_value(corpo.clone()) {
+        Ok(o) => o,
+        Err(e) => {
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({ "error": format!("Payload inválido: {}", e) })),
+            )
+                .into_response();
+        }
+    };
+    ovr.regras_pcp_enviadas = [
+        "processo_termico",
+        "exclusivo_no_dia",
+        "permite_bombona",
+        "dias_ate_envase",
+        "producao_minima_kg",
+    ]
+    .iter()
+    .any(|k| corpo.get(*k).is_some());
+    if let Err(e) = validar_regras_pcp(&mut ovr) {
+        return (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": e }))).into_response();
+    }
     match state.db.save_override(&ovr).await {
         Ok(_) => (StatusCode::OK, Json(json!({ "status": "success" }))).into_response(),
         Err(e) => (
@@ -158,4 +203,84 @@ pub async fn get_graduation_candidates_handler(
     }
 
     (StatusCode::OK, Json(candidates)).into_response()
+}
+
+#[cfg(test)]
+mod testes_regras_pcp {
+    use super::*;
+    use crate::core::db::Db;
+
+    fn base(codigo: &str) -> ProductOverride {
+        serde_json::from_value(json!({ "codigo": codigo })).unwrap()
+    }
+
+    #[test]
+    fn valida_regras_pcp() {
+        let mut o = base("X");
+        o.processo_termico = Some(" Quente ".into());
+        assert!(validar_regras_pcp(&mut o).is_ok());
+        assert_eq!(o.processo_termico.as_deref(), Some("quente"));
+        o.processo_termico = Some("  ".into());
+        assert!(validar_regras_pcp(&mut o).is_ok());
+        assert_eq!(o.processo_termico, None);
+        o.processo_termico = Some("morno".into());
+        assert!(validar_regras_pcp(&mut o).is_err());
+        let mut o = base("X");
+        o.dias_ate_envase = Some(-1);
+        assert!(validar_regras_pcp(&mut o).is_err());
+        let mut o = base("X");
+        o.producao_minima_kg = Some(-0.5);
+        assert!(validar_regras_pcp(&mut o).is_err());
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn grava_e_le_regras_pcp() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = sqlx::PgPool::connect(&url).await.unwrap();
+        let db = Db::new(pool.clone());
+        let cod = "ZZPCP6";
+        sqlx::query("DELETE FROM overrides_produtos WHERE codigo = $1").bind(cod).execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM produtos WHERE codigo = $1").bind(cod).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO config_linhas (linha_prefix, nome_linha) VALUES ('ZZPCP', 'teste') ON CONFLICT DO NOTHING").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO produtos (codigo, descricao, linha_prefix, media_levantamento) VALUES ($1, 'teste', 'ZZPCP', 0)")
+            .bind(cod).execute(&pool).await.unwrap();
+
+        // grava as 5 regras
+        let mut o = base(cod);
+        o.processo_termico = Some("frio".into());
+        o.exclusivo_no_dia = Some(true);
+        o.permite_bombona = Some(false);
+        o.dias_ate_envase = Some(2);
+        o.producao_minima_kg = Some(150.5);
+        o.regras_pcp_enviadas = true;
+        db.save_override(&o).await.unwrap();
+        let lido = db.get_override(cod).await.unwrap().unwrap();
+        assert_eq!(lido.processo_termico.as_deref(), Some("frio"));
+        assert_eq!(lido.exclusivo_no_dia, Some(true));
+        assert_eq!(lido.permite_bombona, Some(false));
+        assert_eq!(lido.dias_ate_envase, Some(2));
+        assert_eq!(lido.producao_minima_kg, Some(150.5));
+
+        // payload sem as regras (outra tela): preserva
+        let mut o2 = base(cod);
+        o2.observacao = Some("obs".into());
+        db.save_override(&o2).await.unwrap();
+        let lido = db.get_override(cod).await.unwrap().unwrap();
+        assert_eq!(lido.processo_termico.as_deref(), Some("frio"));
+        assert_eq!(lido.dias_ate_envase, Some(2));
+        // payload vazio sem as regras também não apaga a linha
+        db.save_override(&base(cod)).await.unwrap();
+        assert!(db.get_override(cod).await.unwrap().is_some());
+
+        // payload com as regras nulas: limpa; e a linha some por estar vazia
+        let mut o3 = base(cod);
+        o3.regras_pcp_enviadas = true;
+        db.save_override(&o3).await.unwrap();
+        assert!(db.get_override(cod).await.unwrap().is_none());
+
+        sqlx::query("DELETE FROM overrides_produtos WHERE codigo = $1").bind(cod).execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM produtos WHERE codigo = $1").bind(cod).execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM config_linhas WHERE linha_prefix = 'ZZPCP'").execute(&pool).await.unwrap();
+    }
 }

@@ -135,6 +135,11 @@ export default function ProducaoView({
   const [overrideLancamentoGatilho, setOverrideLancamentoGatilho] = useState('');
   const [overrideDataFixo, setOverrideDataFixo] = useState('');
   const [overrideFamilia, setOverrideFamilia] = useState('');
+  const [overrideProcessoTermico, setOverrideProcessoTermico] = useState('');
+  const [overridePermiteBombona, setOverridePermiteBombona] = useState('');
+  const [overrideExclusivoNoDia, setOverrideExclusivoNoDia] = useState('');
+  const [overrideDiasEnvase, setOverrideDiasEnvase] = useState('');
+  const [overrideProducaoMinimaKg, setOverrideProducaoMinimaKg] = useState('');
   const [overrideLancamentoMaximo, setOverrideLancamentoMaximo] = useState('');
   const [lancamentosTick, setLancamentosTick] = useState(0);
   const [overrideProgramadaDisparo, setOverrideProgramadaDisparo] = useState('');
@@ -1260,6 +1265,12 @@ export default function ProducaoView({
     setOverrideLancamentoMaximo(prod.lancamento_estoque_maximo != null ? String(prod.lancamento_estoque_maximo) : '');
     setOverrideDataFixo(prod.lancamento_data_inicio ? String(prod.lancamento_data_inicio).slice(0, 10) : '');
     setOverrideFamilia(prod.familia_produto || '');
+    setOverrideProcessoTermico(prod.processo_termico === 'quente' || prod.processo_termico === 'frio' ? prod.processo_termico : '');
+    const triBool = (v: any) => (v === true ? 'sim' : v === false ? 'nao' : '');
+    setOverridePermiteBombona(triBool(prod.permite_bombona));
+    setOverrideExclusivoNoDia(triBool(prod.exclusivo_no_dia));
+    setOverrideDiasEnvase(prod.dias_ate_envase != null ? String(prod.dias_ate_envase) : '');
+    setOverrideProducaoMinimaKg(prod.producao_minima_kg != null ? String(prod.producao_minima_kg) : '');
   };
 
   const handleSaveOverrides = async () => {
@@ -1286,6 +1297,11 @@ export default function ProducaoView({
       lancamento_estoque_maximo: overrideLancamentoMaximo.trim() === '' ? null : parseInt(overrideLancamentoMaximo, 10) || 0,
       lancamento_data_inicio: overrideDataFixo.trim() === '' ? null : overrideDataFixo.trim(),
       familia_produto: overrideFamilia.trim() === '' ? '-' : overrideFamilia.trim(),
+      processo_termico: overrideProcessoTermico === '' ? null : overrideProcessoTermico,
+      permite_bombona: overridePermiteBombona === '' ? null : overridePermiteBombona === 'sim',
+      exclusivo_no_dia: overrideExclusivoNoDia === '' ? null : overrideExclusivoNoDia === 'sim',
+      dias_ate_envase: overrideDiasEnvase.trim() === '' ? null : Math.max(0, parseInt(overrideDiasEnvase, 10) || 0),
+      producao_minima_kg: overrideProducaoMinimaKg.trim() === '' ? null : Math.max(0, parseFloat(overrideProducaoMinimaKg.replace(',', '.')) || 0),
     };
 
     try {
@@ -2071,6 +2087,74 @@ export default function ProducaoView({
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Processo e planejamento (regras por produto; vazio = automático) */}
+            <div className="space-y-3 bg-white p-4 rounded-xl border border-zinc-200">
+              <h4 className="font-extrabold text-xs text-zinc-900 uppercase tracking-wider border-b border-zinc-100 pb-2">
+                Processo e planejamento
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">Processo térmico</label>
+                  <select
+                    className="w-full px-2.5 py-1.5 text-xs border border-zinc-300 rounded-lg bg-white text-zinc-900"
+                    value={overrideProcessoTermico}
+                    onChange={(e) => setOverrideProcessoTermico(e.target.value)}
+                  >
+                    <option value="">Automático</option>
+                    <option value="quente">Quente</option>
+                    <option value="frio">Frio</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">Permite bombona</label>
+                  <select
+                    className="w-full px-2.5 py-1.5 text-xs border border-zinc-300 rounded-lg bg-white text-zinc-900"
+                    value={overridePermiteBombona}
+                    onChange={(e) => setOverridePermiteBombona(e.target.value)}
+                  >
+                    <option value="">Automático</option>
+                    <option value="sim">Sim</option>
+                    <option value="nao">Não</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">Exclusivo no dia</label>
+                  <select
+                    className="w-full px-2.5 py-1.5 text-xs border border-zinc-300 rounded-lg bg-white text-zinc-900"
+                    value={overrideExclusivoNoDia}
+                    onChange={(e) => setOverrideExclusivoNoDia(e.target.value)}
+                  >
+                    <option value="">Automático</option>
+                    <option value="sim">Sim</option>
+                    <option value="nao">Não</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">Dias até o envase</label>
+                  <input
+                    type="number"
+                    min={0}
+                    className="w-full px-2.5 py-1.5 text-xs font-mono border border-zinc-300 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    placeholder="Não definido"
+                    value={overrideDiasEnvase}
+                    onChange={(e) => setOverrideDiasEnvase(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-zinc-600 mb-1">Produção mínima (kg)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    className="w-full px-2.5 py-1.5 text-xs font-mono border border-zinc-300 rounded-lg text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    placeholder="Não definido"
+                    value={overrideProducaoMinimaKg}
+                    onChange={(e) => setOverrideProducaoMinimaKg(e.target.value)}
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Bloco 4: Linha, Visibilidade / Suspensão, Kit e Observações */}

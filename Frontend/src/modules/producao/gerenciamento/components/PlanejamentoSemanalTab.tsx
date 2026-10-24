@@ -276,7 +276,23 @@ export function getShortReatorName(id: string, recipDetail?: string, reatoresLis
  * Classificação técnica de processo: Quente (Caldeira / Água Caldeira) vs Frio (Bases / Shampoos)
  * Realiza a conversão correta de Unidades de Produto para Massa a Granel em Kg
  */
-export function getProductProcessType(p: any): { 
+export function getProductProcessType(p: any): ReturnType<typeof inferirProcesso> {
+  const r = inferirProcesso(p);
+  // Regras do cadastro do produto (Regras & Parâmetros PCP). NULL = segue o automático.
+  const termico = p?.processo_termico;
+  const bombona = p?.permite_bombona;
+  if (termico !== 'quente' && termico !== 'frio' && typeof bombona !== 'boolean') return r;
+  const out = { ...r };
+  if (termico === 'quente' || termico === 'frio') {
+    out.isQuente = termico === 'quente';
+    out.label = `${r.label} (definido no produto)`;
+    out.motivo = `Processo ${termico === 'quente' ? 'a quente' : 'a frio'} (definido no produto)`;
+  }
+  if (typeof bombona === 'boolean') out.canBombona = bombona;
+  return out;
+}
+
+function inferirProcesso(p: any): { 
   isQuente: boolean; 
   isShampoo: boolean;
   canBombona: boolean;

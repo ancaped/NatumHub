@@ -110,12 +110,18 @@ impl Db {
             lancamento_gatilho: pg_opt_i64(row, 17),
             lancamento_estoque_maximo: pg_opt_i64(row, 18),
             familia_produto: row.get(19),
+            processo_termico: row.get(20),
+            exclusivo_no_dia: row.get(21),
+            permite_bombona: row.get(22),
+            dias_ate_envase: row.get(23),
+            producao_minima_kg: row.get(24),
+            regras_pcp_enviadas: false,
         }
     }
 
     pub async fn get_override(&self, codigo: &str) -> Result<Option<ProductOverride>, String> {
         let row = sqlx::query(
-            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo, is_producao_programada, producao_programada_disparo, producao_programada_objetivo, lancamento_gatilho, lancamento_estoque_maximo, familia_produto
+            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo, is_producao_programada, producao_programada_disparo, producao_programada_objetivo, lancamento_gatilho, lancamento_estoque_maximo, familia_produto, processo_termico, exclusivo_no_dia, permite_bombona, dias_ate_envase, producao_minima_kg
              FROM overrides_produtos WHERE codigo = $1",
         )
         .bind(codigo)
@@ -128,7 +134,7 @@ impl Db {
 
     pub async fn get_all_overrides(&self) -> Result<Vec<ProductOverride>, String> {
         let rows = sqlx::query(
-            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo, is_producao_programada, producao_programada_disparo, producao_programada_objetivo, lancamento_gatilho, lancamento_estoque_maximo, familia_produto
+            "SELECT codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo, is_producao_programada, producao_programada_disparo, producao_programada_objetivo, lancamento_gatilho, lancamento_estoque_maximo, familia_produto, processo_termico, exclusivo_no_dia, permite_bombona, dias_ate_envase, producao_minima_kg
              FROM overrides_produtos",
         )
         .fetch_all(&self.pool)
@@ -159,16 +165,23 @@ impl Db {
             && ovr.lancamento_gatilho.is_none()
             && ovr.lancamento_estoque_maximo.is_none()
             && ovr.familia_produto.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true)
+            && ovr.processo_termico.is_none()
+            && ovr.exclusivo_no_dia.is_none()
+            && ovr.permite_bombona.is_none()
+            && ovr.dias_ate_envase.is_none()
+            && ovr.producao_minima_kg.is_none()
         {
-            sqlx::query("DELETE FROM overrides_produtos WHERE codigo = $1")
+            // Se o corpo não trouxe as regras PCP, elas são preservadas: só apaga a linha sem elas.
+            sqlx::query("DELETE FROM overrides_produtos WHERE codigo = $1 AND ($2 OR (processo_termico IS NULL AND exclusivo_no_dia IS NULL AND permite_bombona IS NULL AND dias_ate_envase IS NULL AND producao_minima_kg IS NULL))")
                 .bind(&ovr.codigo)
+                .bind(ovr.regras_pcp_enviadas)
                 .execute(&self.pool)
                 .await
                 .map_err(|e| e.to_string())?;
         } else {
             sqlx::query(
-                "INSERT INTO overrides_produtos (codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo, is_producao_programada, producao_programada_disparo, producao_programada_objetivo, lancamento_gatilho, lancamento_estoque_maximo, familia_produto)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, CASE WHEN $21 THEN to_char(CURRENT_DATE, 'YYYY-MM-DD') ELSE NULL END), $14, $15, $16, $17, $18, $19, NULLIF($20, ''))
+                "INSERT INTO overrides_produtos (codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo, is_producao_programada, producao_programada_disparo, producao_programada_objetivo, lancamento_gatilho, lancamento_estoque_maximo, familia_produto, processo_termico, exclusivo_no_dia, permite_bombona, dias_ate_envase, producao_minima_kg)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, CASE WHEN $21 THEN to_char(CURRENT_DATE, 'YYYY-MM-DD') ELSE NULL END), $14, $15, $16, $17, $18, $19, NULLIF($20, ''), $22, $23, $24, $25, $26)
                  ON CONFLICT(codigo) DO UPDATE SET
                     estoque_ideal_manual = EXCLUDED.estoque_ideal_manual,
                     pedidos_manual = EXCLUDED.pedidos_manual,
@@ -192,7 +205,12 @@ impl Db {
                         WHEN $20 = '-' THEN NULL
                         WHEN NULLIF($20, '') IS NULL THEN overrides_produtos.familia_produto
                         ELSE $20
-                    END",
+                    END,
+                    processo_termico = CASE WHEN $27 THEN EXCLUDED.processo_termico ELSE overrides_produtos.processo_termico END,
+                    exclusivo_no_dia = CASE WHEN $27 THEN EXCLUDED.exclusivo_no_dia ELSE overrides_produtos.exclusivo_no_dia END,
+                    permite_bombona = CASE WHEN $27 THEN EXCLUDED.permite_bombona ELSE overrides_produtos.permite_bombona END,
+                    dias_ate_envase = CASE WHEN $27 THEN EXCLUDED.dias_ate_envase ELSE overrides_produtos.dias_ate_envase END,
+                    producao_minima_kg = CASE WHEN $27 THEN EXCLUDED.producao_minima_kg ELSE overrides_produtos.producao_minima_kg END",
             )
             .bind(&ovr.codigo)
             .bind(ovr.estoque_ideal_manual)
@@ -219,6 +237,12 @@ impl Db {
                     || ovr.lancamento_gatilho.filter(|n| *n > 0).is_some()
                     || ovr.lancamento_estoque_maximo.filter(|n| *n > 0).is_some(),
             )
+            .bind(&ovr.processo_termico)
+            .bind(ovr.exclusivo_no_dia)
+            .bind(ovr.permite_bombona)
+            .bind(ovr.dias_ate_envase)
+            .bind(ovr.producao_minima_kg)
+            .bind(ovr.regras_pcp_enviadas)
             .execute(&self.pool)
             .await
             .map_err(|e| e.to_string())?;

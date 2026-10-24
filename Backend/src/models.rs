@@ -67,6 +67,20 @@ pub struct ProductOverride {
     /// Família dentro da linha (Cachos, Mandioca, Cronograma…).
     #[serde(default)]
     pub familia_produto: Option<String>,
+    /// Regras de planejamento por produto (P6). None = automático (comportamento de sempre).
+    #[serde(default)]
+    pub processo_termico: Option<String>,
+    #[serde(default)]
+    pub exclusivo_no_dia: Option<bool>,
+    #[serde(default)]
+    pub permite_bombona: Option<bool>,
+    #[serde(default)]
+    pub dias_ate_envase: Option<i32>,
+    #[serde(default)]
+    pub producao_minima_kg: Option<f64>,
+    /// Preenchido pela rota: o corpo trouxe ao menos uma das 5 regras PCP (então todas são substituídas).
+    #[serde(default, skip_serializing)]
+    pub regras_pcp_enviadas: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -111,6 +125,17 @@ pub struct ProductCalculationResult {
     pub lancamento_estoque_maximo: Option<i64>,
     #[serde(default)]
     pub familia_produto: Option<String>,
+    /// Regras de planejamento por produto (P6). None = automático (comportamento de sempre).
+    #[serde(default)]
+    pub processo_termico: Option<String>,
+    #[serde(default)]
+    pub exclusivo_no_dia: Option<bool>,
+    #[serde(default)]
+    pub permite_bombona: Option<bool>,
+    #[serde(default)]
+    pub dias_ate_envase: Option<i32>,
+    #[serde(default)]
+    pub producao_minima_kg: Option<f64>,
 
     // Sales Statistics
     pub media_vendas: f64,          // Mean of sales
