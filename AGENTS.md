@@ -124,6 +124,7 @@ Ajustes de uma ou duas linhas podem ser feitos direto pelo Opus.
 ## Regra fixa: modo automático (decidir sem perguntar)
 
 Decisão do Edson (2026-10-23). A refatoração e a revisão dos módulos seguem sozinhas pela fila `notes/fila-de-trabalho-automatica.md` do ai-memory (tarefa agendada `retomar-refatoracao-nexus`). O agente **não para para perguntar**:
+- **Não fica parado esperando deploy** (Edson, 2026-10-24): enquanto o CI/deploy de um item roda, já começa o próximo item da fila; volta para conferir o deploy quando ele terminar.
 - **Decide sozinho o que é técnico**: ordem dos passos, desenho do código, divisão de arquivos, nomes, testes, commit, push (com comparação antes/depois) e revert. Escolha a opção que você recomendaria e registre em `decisions/registro-decisoes-automaticas.md` (data, item, decisão, por quê, como desfazer).
 - **Não decide regra de negócio** (o que o sistema deve fazer para a fábrica: cálculos, regras de produção/compras, o que mostrar ou esconder para o operador, apagar funções). Anote em `notes/decisoes-aguardando-edson.md` com as opções e a recomendação, e siga para o próximo item sem travar.
 - **Nunca**: gravar dados de produção pelo navegador ou pela API, digitar senhas, abrir `Saves/`/`*.env`, apagar dados, mudar permissões/configurações de segurança, `DROP`/`DELETE` em migração.
