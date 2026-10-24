@@ -230,14 +230,6 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
             get(handlers::get_insumos_status),
         )
         .route(
-            "/api/producao/produtos-mesma-formulacao/:code",
-            get(handlers::get_produtos_mesma_formulacao),
-        )
-        .route(
-            "/api/producao/bases-resumo",
-            get(handlers::get_bases_resumo),
-        )
-        .route(
             "/api/producao/ultimo-lote",
             get(handlers::get_ultimo_lote_produto_query),
         )
@@ -251,6 +243,7 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
         .merge(modules::producao::fila::router())
         .merge(modules::producao::planejamento::router())
         .merge(modules::producao::reatores::router())
+        .merge(modules::producao::bases::router())
         .merge(modules::producao::trocas::router())
         .merge(modules::producao::auditoria::router())
         .merge(modules::producao::insumos_classificacao::router())

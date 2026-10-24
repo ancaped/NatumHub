@@ -27,6 +27,7 @@ pub mod modules {
         pub mod fila;
         pub mod planejamento;
         pub mod reatores;
+        pub mod bases;
         pub mod permissao;
         pub mod trocas;
         pub mod auditoria;
