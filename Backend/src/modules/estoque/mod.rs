@@ -1,4 +1,5 @@
 pub mod almoxarifado;
+pub mod estoque_diario;
 pub mod estoque_geral;
 pub mod movimentos;
 pub mod ordens_manuais;

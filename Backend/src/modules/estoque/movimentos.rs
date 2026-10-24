@@ -16,6 +16,7 @@ use sqlx::{PgPool, Row};
 
 use crate::core::acao::ErroApi;
 use crate::handlers::AppState;
+use crate::modules::estoque::estoque_diario;
 
 /// Acerto/ajuste com |qtde| a partir deste valor é "grande" mesmo sem estoque de referência.
 const LIMITE_ACERTO_GRANDE: f64 = 100.0;
@@ -114,8 +115,8 @@ pub struct Resumo {
     pub entradas: f64,
     pub saidas: f64,
     pub saldo_movimentos: f64,
-    /// O Nexus guarda só o último estoque do item (stock_snapshots é substituído a cada leitura),
-    /// então não há estoque por data: início e diferença ficam nulos.
+    /// Estoque do fim do dia anterior a `desde`, vindo da foto diária (`estoque_diario`); nulo sem foto.
+    /// `diferenca` = estoque_fim - (estoque_inicio + saldo_movimentos): o que os movimentos não explicam.
     pub estoque_inicio: Option<f64>,
     pub estoque_fim: Option<f64>,
     pub diferenca: Option<f64>,
@@ -134,7 +135,12 @@ pub struct RespostaMovimentos {
     pub resumo: Resumo,
 }
 
-fn montar_resumo(movs: &[Movimento], estoque_atual: Option<f64>, fim_hoje: bool) -> Resumo {
+fn montar_resumo(
+    movs: &[Movimento],
+    estoque_atual: Option<f64>,
+    estoque_inicio: Option<f64>,
+    estoque_fim: Option<f64>,
+) -> Resumo {
     let entradas: f64 = movs.iter().filter(|m| m.es == "E").map(|m| m.qtde).sum();
     let saidas: f64 = movs.iter().filter(|m| m.es == "S").map(|m| m.qtde).sum();
     let acertos = movs.iter().filter(|m| m.origem == "ajuste" && tipo_de_acerto(&m.tipo));
@@ -143,13 +149,18 @@ fn montar_resumo(movs: &[Movimento], estoque_atual: Option<f64>, fim_hoje: bool)
         .filter(|m| m.tipo != "inventario" && motivo_generico(m.motivo.as_deref().unwrap_or("")))
         .count();
     let acertos_grandes = acertos.filter(|m| acerto_grande(m.qtde, estoque_atual)).count();
+    let saldo_movimentos = entradas - saidas;
+    let diferenca = match (estoque_inicio, estoque_fim) {
+        (Some(i), Some(f)) => Some(f - (i + saldo_movimentos)),
+        _ => None,
+    };
     Resumo {
         entradas,
         saidas,
-        saldo_movimentos: entradas - saidas,
-        estoque_inicio: None,
-        estoque_fim: if fim_hoje { estoque_atual } else { None },
-        diferenca: None,
+        saldo_movimentos,
+        estoque_inicio,
+        estoque_fim,
+        diferenca,
         estoque_atual,
         acertos_sem_motivo,
         acertos_grandes,
@@ -293,7 +304,14 @@ pub async fn consultar_movimentos(
     .await
     .map_err(erro_db)?;
 
-    let resumo = montar_resumo(&movs, estoque_atual, ate_d >= hoje);
+    let estoque_inicio = estoque_diario::estoque_em(pool, codigo, desde_d - Duration::days(1)).await.map_err(erro_db)?;
+    let estoque_fim = if ate_d >= hoje {
+        estoque_atual
+    } else {
+        estoque_diario::estoque_em(pool, codigo, ate_d).await.map_err(erro_db)?
+    };
+
+    let resumo = montar_resumo(&movs, estoque_atual, estoque_inicio, estoque_fim);
     Ok(RespostaMovimentos { codigo: codigo.to_string(), desde: ds, ate: as_, movimentos: movs, resumo })
 }
 
@@ -450,5 +468,53 @@ mod tests {
         assert_eq!(r.resumo.acertos_sem_motivo, 1);
         assert_eq!(r.resumo.acertos_grandes, 1);
         assert!(r.resumo.estoque_inicio.is_none() && r.resumo.diferenca.is_none());
+    }
+
+    #[test]
+    fn diferenca_so_com_as_duas_fotos() {
+        let m = |es: &str, q: f64| Movimento {
+            data: "2026-01-01".into(), hora: String::new(), origem: "nf", es: es.into(), tipo: "x".into(), qtde: q,
+            lote: None, lote_fornecedor: None, documento: None, usuario: None, motivo: None,
+        };
+        let movs = vec![m("E", 100.0), m("S", 30.0)];
+        let r = montar_resumo(&movs, Some(0.0), Some(50.0), Some(125.0));
+        assert_eq!(r.diferenca, Some(5.0));
+        assert!(montar_resumo(&movs, None, None, Some(125.0)).diferenca.is_none());
+        assert!(montar_resumo(&movs, None, Some(50.0), None).diferenca.is_none());
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn estoque_inicio_e_diferenca_com_fotos() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        let limpar = |p: PgPool| async move {
+            sqlx::query("DELETE FROM erp_movimentos_insumos WHERE referencia = 'TESTE.H2M'").execute(&p).await.unwrap();
+            sqlx::query("DELETE FROM estoque_diario WHERE codigo = 'TESTE.H2M'").execute(&p).await.unwrap();
+        };
+        limpar(pool.clone()).await;
+
+        let hoje = Local::now().date_naive();
+        let d = |n: i64| hoje - Duration::days(n);
+        gravar_movimentos(
+            &pool,
+            vec![MovimentoErp { n_registro: 900011, referencia: "TESTE.H2M".into(), data_mov: d(3), hora: "09:00".into(), es: "E".into(), qtde: 40.0, motivo: "recebimento".into(), operador: "ana".into(), lote_fornecedor: String::new() }],
+        )
+        .await
+        .unwrap();
+        // Foto do fim do dia anterior ao período (desde = d(5) => foto de d(6)) e do fim do período (d(1)).
+        for (dia, est) in [(d(6), 10.0), (d(1), 55.0)] {
+            sqlx::query("INSERT INTO estoque_diario (codigo, dia, estoque, origem) VALUES ('TESTE.H2M', $1, $2, 'insumo')")
+                .bind(dia).bind(est).execute(&pool).await.unwrap();
+        }
+        let desde = d(5).format("%Y-%m-%d").to_string();
+        let ate = d(1).format("%Y-%m-%d").to_string();
+        let r = consultar_movimentos(&pool, "TESTE.H2M", Some(&desde), Some(&ate)).await;
+        limpar(pool.clone()).await;
+        let r = r.unwrap();
+
+        assert_eq!(r.resumo.estoque_inicio, Some(10.0));
+        assert_eq!(r.resumo.estoque_fim, Some(55.0));
+        assert_eq!(r.resumo.diferenca, Some(5.0)); // 55 - (10 + 40)
     }
 }

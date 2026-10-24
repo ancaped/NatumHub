@@ -3468,6 +3468,11 @@ WHERE {so2_date_filter};
         }
     };
 
+    // Foto diária do estoque (base do estoque no início/fim de um período); falha aqui nunca derruba o sync.
+    if let Err(e) = crate::modules::estoque::estoque_diario::gravar_foto_do_dia(pool).await {
+        eprintln!("[ERP Sync] Aviso: foto diária do estoque falhou: {e}");
+    }
+
     // Saúde dos dados importados: só lê e registra; falha aqui nunca derruba o sync.
     if let Err(e) = crate::modules::geral::saude_dados::checar_e_gravar(pool, "sync").await {
         eprintln!("[ERP Sync] Aviso: checagem de saúde dos dados falhou: {e}");

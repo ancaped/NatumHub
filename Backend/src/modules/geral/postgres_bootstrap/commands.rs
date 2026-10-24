@@ -237,6 +237,10 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
         "059_movimentos_insumos.sql",
         include_str!("../../../../supabase/059_movimentos_insumos.sql"),
     ),
+    (
+        "060_estoque_diario.sql",
+        include_str!("../../../../supabase/060_estoque_diario.sql"),
+    ),
 ];
 
 #[derive(Debug, Serialize)]
