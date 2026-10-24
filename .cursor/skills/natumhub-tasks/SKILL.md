@@ -33,7 +33,7 @@ UI: Hub view `mapa_arquitetura`.
 4. Ao concluir:
    - API: `PATCH` done (+ nota curta)
    - md: `Status: done`, Done at, mover bloco para **Done**
-5. Se acceptance pedir `npm run map:arch`, rodar.
+5. O gerador `npm run map:arch` foi removido (2026-10-24): fatos do módulo ficam na Ficha Técnica da central Desenvolvimento.
 6. Resumir em pt-BR.
 
 ## Types
@@ -41,7 +41,7 @@ UI: Hub view `mapa_arquitetura`.
 | Type | Ação |
 |------|------|
 | `version_bump` | Alinhar versão `payload.to` nos `Targets` |
-| `module_curated` | Atualizar `mapa-curated.json` + `npm run map:arch` |
+| `module_curated` | Atualizar a Ficha Técnica do módulo por migração aditiva em `mapa_modules` (ver AGENTS.md) |
 | `module_spec` | Checklist `natumhub-modulos` (SPEC no payload) |
 | `generic` | Title + Notes + Targets |
 

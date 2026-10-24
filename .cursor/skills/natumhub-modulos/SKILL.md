@@ -14,7 +14,7 @@ description: >-
 ## Quando usar
 
 Novo submódulo, nova view no hub, rotas REST de domínio, chave em permissões,
-**ou SPEC exportado do mapa** (`mapa-app.html` → Propor módulo).
+**ou SPEC de módulo** (ficha técnica na central Desenvolvimento).
 
 ## Contexto preferencial no ai-memory (`memory_read_page`)
 
