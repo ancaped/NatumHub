@@ -29,6 +29,7 @@ pub mod modules {
         pub mod reatores;
         pub mod bases;
         pub mod kits;
+        pub mod calculo;
         pub mod permissao;
         pub mod trocas;
         pub mod auditoria;

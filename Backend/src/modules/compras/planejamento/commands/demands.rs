@@ -281,7 +281,7 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
 
     let db = crate::core::db::Db::new(pool.clone());
     let Ok((products, stocks, fat_map, configs, overrides, _)) =
-        crate::handlers::producao::fetch_calculation_data(&db).await
+        crate::modules::producao::calculo::fetch_calculation_data(&db).await
     else {
         return Vec::new();
     };
@@ -295,7 +295,7 @@ pub async fn collect_sim_producao_contributions(pool: &PgPool) -> Vec<SimProduca
             &overrides,
         );
     let kit_composition = db.get_kit_composition().await.unwrap_or_default();
-    crate::handlers::producao::post_process_kit_only_production(&mut computed, &kit_composition);
+    crate::modules::producao::calculo::post_process_kit_only_production(&mut computed, &kit_composition);
 
     let mut needed: Vec<(String, String, String, String, f64)> = Vec::new();
     for p in &computed {

@@ -105,7 +105,6 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
         .allow_headers(Any);
 
     let api = Router::new()
-        .route("/api/products", get(handlers::list_products))
         .route(
             "/api/kits/component-candidates",
             get(handlers::search_kit_component_candidates),
@@ -217,14 +216,6 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
             post(handlers::save_lote_resolution).delete(handlers::delete_lote_resolution),
         )
         .route(
-            "/api/producao/recalcular/preview",
-            get(handlers::preview_recalculation),
-        )
-        .route(
-            "/api/producao/recalcular/ajustar",
-            post(handlers::apply_recalculation_adjustment),
-        )
-        .route(
             "/api/producao/ultimo-lote",
             get(handlers::get_ultimo_lote_produto_query),
         )
@@ -240,6 +231,7 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
         .merge(modules::producao::reatores::router())
         .merge(modules::producao::bases::router())
         .merge(modules::producao::kits::router())
+        .merge(modules::producao::calculo::router())
         .merge(modules::producao::trocas::router())
         .merge(modules::producao::auditoria::router())
         .merge(modules::producao::insumos_classificacao::router())

@@ -13,7 +13,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::handlers::imports::clean_product_code;
-use crate::handlers::{fetch_calculation_data, post_process_kit_only_production, AppState};
+use crate::handlers::AppState;
+use crate::modules::producao::calculo::{fetch_calculation_data, post_process_kit_only_production};
 use crate::models::{KitCalculationResult, KitComponentDetail, ProductCalculationResult, QueryParams};
 use crate::modules::producao::gerenciamento::calculations::calculate_products;
 
