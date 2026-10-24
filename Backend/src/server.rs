@@ -405,3 +405,18 @@ where
         .await
         .map_err(|e| format!("Axum server error: {e}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Montar o router entra em pânico se alguma rota estiver registrada duas vezes.
+    #[tokio::test]
+    async fn router_monta_sem_rota_duplicada() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://ninguem@127.0.0.1:1/nada")
+            .unwrap();
+        let state = Arc::new(handlers::AppState { db: crate::core::db::Db::new(pool) });
+        let _ = build_router(state);
+    }
+}
