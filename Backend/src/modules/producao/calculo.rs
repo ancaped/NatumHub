@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::core::db::Db;
+use crate::core::catalogo::{param, Acao};
 use crate::handlers::imports::clean_product_code;
 use crate::handlers::AppState;
 use crate::models::{LineConfig, Product, ProductCalculationResult, ProductOverride, QueryParams, Stock};
@@ -23,6 +24,30 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/products", get(list_products))
         .route("/api/producao/recalcular/preview", get(preview_recalculation))
         .route("/api/producao/recalcular/ajustar", post(apply_recalculation_adjustment))
+}
+
+/// Ações do cadastro/cálculo de produtos descritas para agentes (ver `core::catalogo`).
+/// O recálculo e o ajuste de estoque ficam de fora de propósito.
+pub fn acoes() -> Vec<Acao> {
+    vec![Acao::leitura(
+        "listar_produtos",
+        "producao",
+        "Lista produtos com estoque, vendas, cobertura e sugestão de produção calculados na hora. Filtre e pagine para respostas menores.",
+        "/api/products",
+        vec![
+            param("search", "query", "texto", false, "Busca por código ou descrição."),
+            param("linha", "query", "texto", false, "Linha de produto."),
+            param("status", "query", "texto", false, "Status calculado do produto."),
+            param("categoria", "query", "texto", false, "Categoria."),
+            param("base", "query", "texto", false, "Código da base."),
+            param("page", "query", "inteiro", false, "Página."),
+            param("limit", "query", "inteiro", false, "Itens por página."),
+            param("sort", "query", "texto", false, "Campo de ordenação."),
+            param("order", "query", "texto", false, "asc ou desc."),
+            param("suspended_only", "query", "booleano", false, "Só os suspensos."),
+            param("fixas_only", "query", "booleano", false, "Só produção fixa."),
+        ],
+    )]
 }
 
 // Helper to query all needed arrays for calculations

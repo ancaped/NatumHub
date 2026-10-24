@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 // Exposed modules from Producao backend
 pub mod core {
     pub mod acao;
+    pub mod catalogo;
     pub mod db;
     pub mod legacy_db;
     pub mod app_config;

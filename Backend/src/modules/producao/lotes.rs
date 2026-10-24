@@ -20,6 +20,7 @@ use crate::modules::producao::calculo::fetch_calculation_data;
 
 // Helper cross-imports
 use crate::handlers::imports::clean_product_code;
+use crate::core::catalogo::{param, Acao};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -29,6 +30,45 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/producao/lotes/:number/resolver", post(save_lote_resolution).delete(delete_lote_resolution))
         .route("/api/producao/ultimo-lote", get(get_ultimo_lote_produto_query))
         .route("/api/producao/ultimo-lote/:code", get(get_ultimo_lote_produto))
+}
+
+/// Ações de consulta de lotes descritas para agentes (ver `core::catalogo`). A resolução de erros de lote fica de fora.
+pub fn acoes() -> Vec<Acao> {
+    const M: &str = "producao_lotes";
+    vec![
+        Acao::leitura(
+            "listar_lotes",
+            M,
+            "Lista os lotes de produto já produzidos (entradas no estoque), do mais novo para o mais antigo.",
+            "/api/producao/lotes",
+            vec![
+                param("search", "query", "texto", false, "Busca por lote, código, descrição ou detalhes."),
+                param("status", "query", "texto", false, "Filtra pelo status do lote; ALL não filtra."),
+                param("limit", "query", "inteiro", false, "Máximo de lotes (padrão 10000)."),
+            ],
+        ),
+        Acao::leitura(
+            "obter_detalhes_lote",
+            M,
+            "Detalhes de um lote: produto, quantidade e consumo de insumos para conferência.",
+            "/api/producao/lotes/:number/detalhes",
+            vec![param("number", "caminho", "texto", true, "Número do lote.")],
+        ),
+        Acao::leitura(
+            "consultar_lote",
+            M,
+            "Consulta rápida de um lote pelo número (itens e datas).",
+            "/api/producao/lotes/:number",
+            vec![param("number", "caminho", "texto", true, "Número do lote.")],
+        ),
+        Acao::leitura(
+            "obter_ultimo_lote_produto",
+            M,
+            "Último lote produzido de um produto.",
+            "/api/producao/ultimo-lote/:code",
+            vec![param("code", "caminho", "texto", true, "Código do produto.")],
+        ),
+    ]
 }
 
 

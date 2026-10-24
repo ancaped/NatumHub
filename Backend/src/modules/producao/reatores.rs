@@ -12,12 +12,24 @@ use sqlx::Row;
 use std::sync::Arc;
 
 use crate::core::acao::ErroApi;
+use crate::core::catalogo::Acao;
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
 use crate::modules::producao::{auditoria, permissao};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new().route("/api/producao/reatores", get(list_reatores).put(save_reatores))
+}
+
+/// Ações dos reatores descritas para agentes (ver `core::catalogo`). A gravação da configuração fica de fora.
+pub fn acoes() -> Vec<Acao> {
+    vec![Acao::leitura(
+        "listar_reatores",
+        permissao::MODULO_PLANEJAMENTO,
+        "Lista os reatores com capacidade em kg, tipo, ordem e se estão ativos.",
+        "/api/producao/reatores",
+        vec![],
+    )]
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]

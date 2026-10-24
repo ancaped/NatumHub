@@ -21,11 +21,12 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::core::acao::{executar_em_2_passos, Confirmar, ErroApi, RespostaAcao};
+use crate::core::catalogo::{self, Acao};
 use crate::handlers::AppState;
 use crate::modules::geral::audit;
 use crate::modules::geral::auth::models::{AuthContext, OperatorRole, Origem};
 use crate::modules::geral::auth::modules_registry::all_module_keys_vec;
-use crate::modules::geral::auth::store::get_operator_modules_and_permissions;
+use crate::modules::geral::auth::store::{get_operator_modules_and_permissions, has_read_access, has_write_access};
 
 pub const PREFIXO_TOKEN: &str = "nxa_";
 const MODULO_AUDITORIA: &str = "hub_settings";
@@ -33,6 +34,7 @@ const MODULO_AUDITORIA: &str = "hub_settings";
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/agentes/eu", get(eu_rota))
+        .route("/api/agentes/acoes", get(acoes_rota))
         .route("/api/admin/agentes", get(listar_rota).post(criar_rota))
         .route("/api/admin/agentes/:id/token", post(novo_token_rota))
         .route("/api/admin/agentes/:id/revogar", post(revogar_rota))
@@ -119,6 +121,39 @@ pub fn eu(ctx: &AuthContext) -> Eu {
             .map(|m| (m.clone(), if ctx.can_edit_module(m) { "editar" } else { "ver" }))
             .collect(),
     }
+}
+
+/// Ação do catálogo com a informação de o chamador poder executá-la.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcaoVisivel {
+    #[serde(flatten)]
+    pub acao: Acao,
+    pub permitida: bool,
+}
+
+/// Ações do catálogo que o chamador enxerga. Operador: todas, permitidas. Agente: só as de módulos que ele pode
+/// ler; as de escrita vêm com `permitida` = pode editar a rota (mesmas funções que o middleware usa).
+pub fn acoes_para(ctx: &AuthContext, modulo: Option<&str>) -> Vec<AcaoVisivel> {
+    catalogo::todas()
+        .into_iter()
+        .filter(|a| modulo.map_or(true, |m| a.modulo == m))
+        .filter_map(|a| {
+            if !ctx.is_agente() {
+                return Some(AcaoVisivel { acao: a, permitida: true });
+            }
+            if !has_read_access(ctx, a.caminho, "GET") {
+                return None;
+            }
+            let permitida = !a.escrita || has_write_access(ctx, a.caminho, a.metodo);
+            Some(AcaoVisivel { acao: a, permitida })
+        })
+        .collect()
+}
+
+#[derive(Debug, Deserialize)]
+struct AcoesQuery {
+    modulo: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -370,6 +405,10 @@ async fn eu_rota(Extension(ctx): Extension<AuthContext>) -> Response {
     Json(eu(&ctx)).into_response()
 }
 
+async fn acoes_rota(Extension(ctx): Extension<AuthContext>, Query(q): Query<AcoesQuery>) -> Response {
+    Json(json!({ "acoes": acoes_para(&ctx, q.modulo.as_deref()) })).into_response()
+}
+
 async fn listar_rota(State(state): State<Arc<AppState>>, Extension(ctx): Extension<AuthContext>) -> Response {
     if let Err(e) = exigir_supervisor(&ctx) {
         return e.into_response();
@@ -437,6 +476,42 @@ mod tests {
         assert_eq!(validar_modulos(&nivel_ruim).unwrap_err().codigo, "invalido");
         let modulo_ruim = BTreeMap::from([("nao_existe".to_string(), "ver".to_string())]);
         assert_eq!(validar_modulos(&modulo_ruim).unwrap_err().codigo, "invalido");
+    }
+
+    fn ctx_teste(origem: Origem, nivel: &str) -> AuthContext {
+        AuthContext {
+            operator_id: "a1".into(),
+            display_name: "Agente PCP".into(),
+            role: OperatorRole::Operador,
+            modules: vec!["planejamento_producao".into()],
+            permissions: HashMap::from([("planejamento_producao".into(), nivel.into())]),
+            origem,
+        }
+    }
+
+    fn permitida(v: &[AcaoVisivel], nome: &str) -> Option<bool> {
+        v.iter().find(|a| a.acao.nome == nome).map(|a| a.permitida)
+    }
+
+    #[test]
+    fn acoes_do_agente_respeitam_modulos_e_nivel() {
+        let ver = acoes_para(&ctx_teste(Origem::Agente, "view"), None);
+        assert_eq!(permitida(&ver, "listar_planejamento_semana"), Some(true));
+        assert_eq!(permitida(&ver, "excluir_ordem_planejamento"), Some(false), "escrita aparece, mas não permitida");
+        assert_eq!(permitida(&ver, "listar_kits"), None, "módulo que o agente não tem não aparece");
+
+        let editar = acoes_para(&ctx_teste(Origem::Agente, "edit"), None);
+        assert_eq!(permitida(&editar, "excluir_ordem_planejamento"), Some(true));
+
+        let filtrado = acoes_para(&ctx_teste(Origem::Agente, "edit"), Some("planejamento_producao"));
+        assert!(!filtrado.is_empty() && filtrado.iter().all(|a| a.acao.modulo == "planejamento_producao"));
+    }
+
+    #[test]
+    fn operador_ve_todas_as_acoes_permitidas() {
+        let todas = acoes_para(&ctx_teste(Origem::Tela, "view"), None);
+        assert_eq!(todas.len(), catalogo::todas().len());
+        assert!(todas.iter().all(|a| a.permitida));
     }
 
     #[test]

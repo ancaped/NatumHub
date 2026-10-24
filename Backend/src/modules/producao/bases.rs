@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::handlers::imports::clean_product_code;
+use crate::core::catalogo::{param, Acao};
 use crate::modules::producao::lotes::parse_unit_weight_from_desc;
 use crate::handlers::AppState;
 use crate::modules::producao::calculo::{fetch_calculation_data, post_process_kit_only_production};
@@ -22,6 +23,27 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/producao/produtos-mesma-formulacao/:code", get(get_produtos_mesma_formulacao))
         .route("/api/producao/bases-resumo", get(get_bases_resumo))
+}
+
+/// Ações de bases e formulações descritas para agentes (ver `core::catalogo`).
+pub fn acoes() -> Vec<Acao> {
+    const M: &str = "producao_bases";
+    vec![
+        Acao::leitura(
+            "listar_produtos_mesma_formulacao",
+            M,
+            "Produtos que usam a mesma fórmula de um produto (úteis para produzir juntos).",
+            "/api/producao/produtos-mesma-formulacao/:code",
+            vec![param("code", "caminho", "texto", true, "Código do produto.")],
+        ),
+        Acao::leitura(
+            "resumir_bases",
+            M,
+            "Resumo das bases: estoque, o que está na fila e nas ordens planejadas, e a necessidade de cada uma.",
+            "/api/producao/bases-resumo",
+            vec![],
+        ),
+    ]
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

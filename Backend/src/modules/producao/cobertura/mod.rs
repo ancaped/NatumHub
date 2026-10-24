@@ -19,6 +19,7 @@ use serde_json::json;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use crate::core::catalogo::{param, Acao};
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
 use crate::modules::producao::decisoes;
@@ -31,6 +32,57 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/producao/cobertura/validacao", get(get_validacao))
         .route("/api/producao/cobertura/faltas-por-linha", get(get_faltas_por_linha))
         .route("/api/producao/cobertura/ordens/:id/base-fonte", put(put_base_fonte))
+}
+
+/// Ações da cobertura de insumos descritas para agentes (ver `core::catalogo`).
+pub fn acoes() -> Vec<Acao> {
+    const M: &str = crate::modules::producao::permissao::MODULO_PLANEJAMENTO;
+    vec![
+        Acao::leitura(
+            "obter_cobertura_semana",
+            M,
+            "Mostra se há insumo para cada ordem da semana (dia a dia) e o resumo por insumo. Só avisa, nunca bloqueia.",
+            "/api/producao/cobertura",
+            vec![param("week", "query", "texto", false, "Semana 2026-W43; padrão: semana de hoje.")],
+        ),
+        Acao::calculo(
+            "simular_candidatos_cobertura",
+            M,
+            "Avalia candidatos da fila como se fossem a última ordem do dia, sem gravar nada. Use antes de agendar para ver se falta insumo.",
+            "/api/producao/cobertura/simular",
+            vec![
+                param("week", "corpo", "texto", false, "Semana 2026-W43; padrão: semana de hoje."),
+                param("candidatos", "corpo", "lista {codigo, kg, data?}", true, "Até 60 candidatos; a data (AAAA-MM-DD) é opcional."),
+            ],
+        ),
+        Acao::leitura(
+            "listar_faltas_por_linha",
+            M,
+            "Insumos em falta na semana, agrupados pela linha de envase.",
+            "/api/producao/cobertura/faltas-por-linha",
+            vec![param("week", "query", "texto", false, "Semana 2026-W43; padrão: semana de hoje.")],
+        ),
+        Acao::leitura(
+            "validar_previsao_insumos",
+            M,
+            "Compara a previsão de consumo da fórmula com a baixa real dos lotes já fechados (para conferir se a previsão é confiável).",
+            "/api/producao/cobertura/validacao",
+            vec![param("limite", "query", "inteiro", false, "Quantos lotes comparar (padrão 30).")],
+        ),
+        Acao::gravacao(
+            "definir_base_fonte_ordem",
+            M,
+            "Declara de onde sai a base de uma ordem (explodir, estoque ou ordem_base). Sem `confirmar=true` mostra só a prévia.",
+            "PUT",
+            "/api/producao/cobertura/ordens/:id/base-fonte",
+            true,
+            vec![
+                param("id", "caminho", "texto", true, "Id da ordem."),
+                param("fonte", "corpo", "texto", true, "explodir, estoque ou ordem_base."),
+                param("confirmar", "corpo", "booleano", false, "true para gravar de fato."),
+            ],
+        ),
+    ]
 }
 
 fn erro(status: StatusCode, msg: impl Into<String>) -> axum::response::Response {

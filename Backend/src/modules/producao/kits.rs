@@ -12,6 +12,7 @@ use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::core::catalogo::{param, Acao};
 use crate::handlers::imports::clean_product_code;
 use crate::handlers::AppState;
 use crate::modules::producao::calculo::{fetch_calculation_data, post_process_kit_only_production};
@@ -22,6 +23,36 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/kits", get(list_kits))
         .route("/api/producao/insumos-status/:code", get(get_insumos_status))
+}
+
+/// Ações de kits e de insumos por produto descritas para agentes (ver `core::catalogo`).
+pub fn acoes() -> Vec<Acao> {
+    vec![
+        Acao::leitura(
+            "listar_kits",
+            "montagem_kits",
+            "Lista os kits com estoque dos componentes e quanto dá para montar.",
+            "/api/kits",
+            vec![
+                param("search", "query", "texto", false, "Busca por código ou descrição."),
+                param("linha", "query", "texto", false, "Linha de produto."),
+                param("status", "query", "texto", false, "Status calculado."),
+                param("page", "query", "inteiro", false, "Página."),
+                param("limit", "query", "inteiro", false, "Itens por página."),
+            ],
+        ),
+        Acao::leitura(
+            "obter_status_insumos_produto",
+            "producao",
+            "Para um produto, mostra se há insumos (matéria-prima, embalagem, rótulo) para produzir uma quantidade.",
+            "/api/producao/insumos-status/:code",
+            vec![
+                param("code", "caminho", "texto", true, "Código do produto."),
+                param("qty", "query", "número", false, "Quantidade de unidades (padrão 100)."),
+                param("bulk_kg", "query", "número", false, "Kg de granel do lote, quando já conhecido."),
+            ],
+        ),
+    ]
 }
 
 /// Estoque de componentes que existem em `items` (embalagem/insumo), não em produtos.

@@ -16,6 +16,7 @@ use sqlx::{PgPool, Row};
 use std::sync::Arc;
 
 use crate::core::acao::{executar_em_2_passos, ErroApi};
+use crate::core::catalogo::{param, Acao};
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
 use crate::modules::producao::fila::{consumir_fila, ConsumoFila};
@@ -34,6 +35,75 @@ pub fn router() -> Router<Arc<AppState>> {
             post(confirm_fisico_planejamento),
         )
         .route("/api/producao/planejamento-semanal/clear", delete(clear_planejamento_semana))
+}
+
+/// Ações do Planejamento descritas para agentes (ver `core::catalogo`).
+pub fn acoes() -> Vec<Acao> {
+    const M: &str = permissao::MODULO_PLANEJAMENTO;
+    vec![
+        Acao::leitura(
+            "listar_planejamento_semana",
+            M,
+            "Lista as ordens do quadro semanal (reator x dia). Use `week` (2026-W43) ou `start_date`+`end_date`; sem filtro devolve as 200 mais recentes.",
+            "/api/producao/planejamento-semanal",
+            vec![
+                param("week", "query", "texto", false, "Semana no formato 2026-W43."),
+                param("start_date", "query", "data", false, "Início do intervalo (AAAA-MM-DD); usar junto com end_date."),
+                param("end_date", "query", "data", false, "Fim do intervalo (AAAA-MM-DD)."),
+            ],
+        ),
+        Acao::gravacao(
+            "gravar_ordens_planejamento",
+            M,
+            "Cria ou atualiza ordens no quadro numa única transação (se uma falhar, nenhuma grava). Em `consumirFila`, informe as demandas da Fila de Demandas que essas ordens atendem: a fila é abatida (kg) na mesma transação.",
+            "PUT",
+            "/api/producao/planejamento-semanal/bulk",
+            false,
+            vec![
+                param("itens", "corpo", "lista de ordens", true, "Ordens: id, week_key, data_planejada, reator_id, codigo_produto, quantidade_planejada, ordem_status, etc."),
+                param("consumirFila", "corpo", "lista {filaId, kg}", false, "Demandas da fila consumidas por estas ordens (kg agendados por item)."),
+            ],
+        ),
+        Acao::gravacao(
+            "excluir_ordem_planejamento",
+            M,
+            "Exclui uma ordem do quadro. Sem `confirmar=true` mostra só a prévia; ordens já em envase ou adiante ficam bloqueadas.",
+            "DELETE",
+            "/api/producao/planejamento-semanal/:id",
+            true,
+            vec![
+                param("id", "caminho", "texto", true, "Id da ordem."),
+                param("confirmar", "query", "booleano", false, "true para excluir de fato."),
+            ],
+        ),
+        Acao::gravacao(
+            "limpar_semana_planejamento",
+            M,
+            "Apaga todas as ordens de uma semana do quadro (as bloqueadas ficam). Sem `confirmar=true` mostra só a prévia.",
+            "DELETE",
+            "/api/producao/planejamento-semanal/clear",
+            true,
+            vec![
+                param("week", "query", "texto", true, "Semana no formato 2026-W43."),
+                param("confirmar", "query", "booleano", false, "true para limpar de fato."),
+            ],
+        ),
+        Acao::gravacao(
+            "aprovar_ordem_planejamento",
+            M,
+            "Marca a conferência física (massa, embalagem, rótulo) e/ou muda o status da ordem (planejado, aprovado, cancelado).",
+            "POST",
+            "/api/producao/planejamento-semanal/:id/confirmar-fisico",
+            false,
+            vec![
+                param("id", "caminho", "texto", true, "Id da ordem."),
+                param("massa", "corpo", "booleano", false, "Massa conferida."),
+                param("embalagem", "corpo", "booleano", false, "Embalagem conferida."),
+                param("rotulo", "corpo", "booleano", false, "Rótulo conferido."),
+                param("ordem_status", "corpo", "texto", false, "planejado, aprovado ou cancelado."),
+            ],
+        ),
+    ]
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]

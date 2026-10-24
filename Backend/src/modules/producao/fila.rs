@@ -16,6 +16,7 @@ use sqlx::{PgPool, Row};
 use std::sync::Arc;
 
 use crate::core::acao::ErroApi;
+use crate::core::catalogo::{param, Acao};
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
 use crate::modules::producao::{auditoria, decisoes, permissao};
@@ -28,6 +29,59 @@ pub fn router() -> Router<Arc<AppState>> {
             delete(delete_fila_demanda).patch(update_fila_demanda).put(update_fila_demanda),
         )
         .route("/api/producao/fila-demandas/:id/retirar", post(retirar_rota))
+}
+
+/// Ações da Fila de Demandas descritas para agentes (ver `core::catalogo`).
+pub fn acoes() -> Vec<Acao> {
+    const M: &str = permissao::MODULO_PLANEJAMENTO;
+    vec![
+        Acao::leitura(
+            "listar_fila_demandas",
+            M,
+            "Lista a Fila de Demandas (produtos que precisam ser produzidos), por prioridade e data.",
+            "/api/producao/fila-demandas",
+            vec![],
+        ),
+        Acao::gravacao(
+            "enviar_para_fila",
+            M,
+            "Coloca um ou vários produtos na Fila de Demandas.",
+            "POST",
+            "/api/producao/fila-demandas",
+            false,
+            vec![param("itens", "corpo", "item ou lista", true, "Cada item: codigoProduto, descricao, quantidade, unidade, quantidadeKg, origemDemanda, linhaEnvase, baseCodigo, observacoes, prioridade.")],
+        ),
+        Acao::gravacao(
+            "atualizar_demanda_fila",
+            M,
+            "Ajusta quantidade, kg, unidade, observações ou prioridade de um item da fila.",
+            "PATCH",
+            "/api/producao/fila-demandas/:id",
+            false,
+            vec![
+                param("id", "caminho", "texto", true, "Id do item da fila."),
+                param("quantidade", "corpo", "número", false, "Nova quantidade."),
+                param("quantidade_kg", "corpo", "número", false, "Novos kg."),
+                param("unidade", "corpo", "texto", false, "Nova unidade."),
+                param("observacoes", "corpo", "texto", false, "Observações."),
+                param("prioridade", "corpo", "inteiro", false, "Prioridade (menor vem primeiro)."),
+            ],
+        ),
+        Acao::gravacao(
+            "retirar_da_fila",
+            M,
+            "Tira um item da fila lembrando o motivo (o sistema aprende com isso). Sem `confirmar=true` mostra só a prévia.",
+            "POST",
+            "/api/producao/fila-demandas/:id/retirar",
+            true,
+            vec![
+                param("id", "caminho", "texto", true, "Id do item da fila."),
+                param("motivo", "corpo", "texto", true, "Por que o item sai da fila."),
+                param("grupo", "corpo", "booleano", false, "true para tirar também os outros SKUs da mesma batelada."),
+                param("confirmar", "corpo", "booleano", false, "true para retirar de fato."),
+            ],
+        ),
+    ]
 }
 
 #[derive(Debug, Clone)]
