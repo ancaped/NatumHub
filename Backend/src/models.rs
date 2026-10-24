@@ -52,7 +52,9 @@ pub struct ProductOverride {
     pub produzir_apenas_kit: Option<i32>,
     pub lancamento_meta_meses: Option<i64>,
     pub lancamento_data_inicio: Option<String>,
-    /// Atualiza `produtos.base_codigo` quando informado (não persiste em overrides).
+    /// Atualiza `produtos.base_codigo` quando a chave vem no corpo (não persiste em overrides).
+    /// Omitido na saída: o GET de overrides não carrega esse valor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_codigo: Option<String>,
     pub terceirizado_modo: Option<String>,
     pub is_producao_programada: Option<i32>,
@@ -78,9 +80,10 @@ pub struct ProductOverride {
     pub dias_ate_envase: Option<i32>,
     #[serde(default)]
     pub producao_minima_kg: Option<f64>,
-    /// Preenchido pela rota: o corpo trouxe ao menos uma das 5 regras PCP (então todas são substituídas).
-    #[serde(default, skip_serializing)]
-    pub regras_pcp_enviadas: bool,
+    /// Preenchido pela rota: chaves presentes no corpo. Só essas colunas são gravadas
+    /// (`null` limpa); as ausentes mantêm o valor atual.
+    #[serde(skip)]
+    pub campos_enviados: std::collections::HashSet<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

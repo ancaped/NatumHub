@@ -11,7 +11,9 @@ use std::sync::Arc;
 
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
-use crate::modules::geral::auth::modules_registry::MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS;
+use crate::modules::geral::auth::modules_registry::{
+    MODULE_ADMIN_LINHA_PRODUTOS, MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS,
+};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,7 +49,10 @@ pub async fn relatorio_produtos_ativos(
     Extension(ctx): Extension<AuthContext>,
     Query(q): Query<RelatorioQuery>,
 ) -> impl IntoResponse {
-    if !ctx.role.is_supervisor() && !ctx.has_module(MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS) {
+    if !ctx.role.is_supervisor()
+        && !ctx.has_module(MODULE_ADMIN_PRODUTOS_ATIVOS_RELATORIOS)
+        && !ctx.has_module(MODULE_ADMIN_LINHA_PRODUTOS)
+    {
         return deny();
     }
 

@@ -757,22 +757,10 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
       return;
     }
     try {
-      const ovr: ProductOverride = {
-        codigo: code,
-        estoque_ideal_manual: null,
-        pedidos_manual: null,
-        media_manual: null,
-        is_lancamento_manual: null,
-        visivel: null,
-        observacao: null,
-        linha_prefix_manual: null,
-        status_produto: null,
-        categoria_produto: null
-      };
-      const res = await apiFetch(`/overrides`, {
+      const res = await apiFetch(`/overrides/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(ovr)
+        body: JSON.stringify({ codigos: [code], action: 'clear', value_str: null })
       });
       if (res.ok) {
         await loadData();
@@ -857,13 +845,15 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     setConfigIgnoredStatuses(updated);
     
     try {
-      await apiFetch(`/settings/ignored_product_statuses`, {
+      const res = await apiFetch(`/settings/ignored_product_statuses`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ value: JSON.stringify(updated) })
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
     } catch (e) {
       console.error(e);
+      setConfigIgnoredStatuses(configIgnoredStatuses);
       alert("Erro ao salvar status ignorados");
     }
   };
@@ -1584,7 +1574,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                         if (ovr.visivel === 0) mods.push('Ocultar Produto');
                         if (ovr.linha_prefix_manual !== null) mods.push(`Linha Manual (${ovr.linha_prefix_manual})`);
                         if (ovr.status_produto !== null) mods.push(`Status Manual (${ovr.status_produto})`);
-                        if (ovr.categoria_produto !== null) mods.push(`Categoria Manual (${ovr.categoria_produto})`);
+                        if (ovr.categoria_produto !== null) mods.push(`Categoria Manual (${categories.find(c => c.id === ovr.categoria_produto)?.name || 'categoria removida'})`);
 
                         return (
                           <tr 
@@ -1616,9 +1606,9 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                             <td className="px-6 py-3 font-mono font-bold text-zinc-500">{ovr.codigo}</td>
                             <td className="px-6 py-3 font-bold text-zinc-800">{description}</td>
                             <td className="px-6 py-3">
-                              <div className="flex flex-wrap gap-1.5">
+                              <div className="flex flex-wrap gap-1">
                                 {mods.map((m, idx) => (
-                                  <span key={idx} className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-250/50 rounded-full text-[10px] font-bold">
+                                  <span key={idx} className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-250/50 rounded-full text-[10px] font-bold whitespace-nowrap">
                                     {m}
                                   </span>
                                 ))}

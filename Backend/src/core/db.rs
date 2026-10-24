@@ -115,7 +115,7 @@ impl Db {
             permite_bombona: row.get(22),
             dias_ate_envase: row.get(23),
             producao_minima_kg: row.get(24),
-            regras_pcp_enviadas: false,
+            campos_enviados: Default::default(),
         }
     }
 
@@ -145,73 +145,55 @@ impl Db {
     }
 
     pub async fn save_override(&self, ovr: &ProductOverride) -> Result<(), String> {
-        if ovr.estoque_ideal_manual.is_none()
-            && ovr.pedidos_manual.is_none()
-            && ovr.media_manual.is_none()
-            && ovr.is_lancamento_manual.is_none()
-            && ovr.visivel.is_none()
-            && ovr.observacao.is_none()
-            && ovr.linha_prefix_manual.is_none()
-            && (ovr.status_produto.is_none() || ovr.status_produto.as_deref() == Some("ativo"))
-            && ovr.categoria_produto.is_none()
-            && (ovr.produzir_apenas_kit.is_none() || ovr.produzir_apenas_kit == Some(0))
-            && (ovr.lancamento_meta_meses.is_none() || ovr.lancamento_meta_meses == Some(6))
-            && ovr.lancamento_data_inicio.is_none()
-            && ovr.terceirizado_modo.is_none()
-            && ovr.base_codigo.is_none()
-            && (ovr.is_producao_programada.is_none() || ovr.is_producao_programada == Some(0))
-            && ovr.producao_programada_disparo.is_none()
-            && ovr.producao_programada_objetivo.is_none()
-            && ovr.lancamento_gatilho.is_none()
-            && ovr.lancamento_estoque_maximo.is_none()
-            && ovr.familia_produto.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true)
-            && ovr.processo_termico.is_none()
-            && ovr.exclusivo_no_dia.is_none()
-            && ovr.permite_bombona.is_none()
-            && ovr.dias_ate_envase.is_none()
-            && ovr.producao_minima_kg.is_none()
-        {
-            // Se o corpo não trouxe as regras PCP, elas são preservadas: só apaga a linha sem elas.
-            sqlx::query("DELETE FROM overrides_produtos WHERE codigo = $1 AND ($2 OR (processo_termico IS NULL AND exclusivo_no_dia IS NULL AND permite_bombona IS NULL AND dias_ate_envase IS NULL AND producao_minima_kg IS NULL))")
-                .bind(&ovr.codigo)
-                .bind(ovr.regras_pcp_enviadas)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| e.to_string())?;
-        } else {
-            sqlx::query(
-                "INSERT INTO overrides_produtos (codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo, is_producao_programada, producao_programada_disparo, producao_programada_objetivo, lancamento_gatilho, lancamento_estoque_maximo, familia_produto, processo_termico, exclusivo_no_dia, permite_bombona, dias_ate_envase, producao_minima_kg)
+        // Só as colunas cujas chaves vieram no corpo são gravadas (inclusive `null`, que limpa);
+        // as demais mantêm o valor atual. Numa linha nova, o que não veio fica NULL/default.
+        let campos: Vec<String> = ovr.campos_enviados.iter().cloned().collect();
+        let sobrescreve = |col: &str| -> String {
+            format!(
+                "{col} = CASE WHEN '{col}' = ANY($27::text[]) THEN EXCLUDED.{col} ELSE overrides_produtos.{col} END"
+            )
+        };
+        let sets = [
+            "estoque_ideal_manual",
+            "pedidos_manual",
+            "media_manual",
+            "is_lancamento_manual",
+            "visivel",
+            "observacao",
+            "linha_prefix_manual",
+            "status_produto",
+            "categoria_produto",
+            "produzir_apenas_kit",
+            "lancamento_meta_meses",
+            "terceirizado_modo",
+            "is_producao_programada",
+            "producao_programada_disparo",
+            "producao_programada_objetivo",
+            "lancamento_gatilho",
+            "lancamento_estoque_maximo",
+            "processo_termico",
+            "exclusivo_no_dia",
+            "permite_bombona",
+            "dias_ate_envase",
+            "producao_minima_kg",
+        ]
+        .iter()
+        .map(|c| sobrescreve(c))
+        .collect::<Vec<_>>()
+        .join(",\n                    ");
+        let sql = format!(
+            "INSERT INTO overrides_produtos (codigo, estoque_ideal_manual, pedidos_manual, media_manual, is_lancamento_manual, visivel, observacao, linha_prefix_manual, status_produto, categoria_produto, produzir_apenas_kit, lancamento_meta_meses, lancamento_data_inicio, terceirizado_modo, is_producao_programada, producao_programada_disparo, producao_programada_objetivo, lancamento_gatilho, lancamento_estoque_maximo, familia_produto, processo_termico, exclusivo_no_dia, permite_bombona, dias_ate_envase, producao_minima_kg)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, CASE WHEN $21 THEN to_char(CURRENT_DATE, 'YYYY-MM-DD') ELSE NULL END), $14, $15, $16, $17, $18, $19, NULLIF($20, ''), $22, $23, $24, $25, $26)
                  ON CONFLICT(codigo) DO UPDATE SET
-                    estoque_ideal_manual = EXCLUDED.estoque_ideal_manual,
-                    pedidos_manual = EXCLUDED.pedidos_manual,
-                    media_manual = EXCLUDED.media_manual,
-                    is_lancamento_manual = EXCLUDED.is_lancamento_manual,
-                    visivel = EXCLUDED.visivel,
-                    observacao = EXCLUDED.observacao,
-                    linha_prefix_manual = EXCLUDED.linha_prefix_manual,
-                    status_produto = COALESCE(EXCLUDED.status_produto, overrides_produtos.status_produto),
-                    categoria_produto = COALESCE(EXCLUDED.categoria_produto, overrides_produtos.categoria_produto),
-                    produzir_apenas_kit = EXCLUDED.produzir_apenas_kit,
-                    lancamento_meta_meses = COALESCE(EXCLUDED.lancamento_meta_meses, overrides_produtos.lancamento_meta_meses),
+                    {sets},
                     lancamento_data_inicio = COALESCE(EXCLUDED.lancamento_data_inicio, overrides_produtos.lancamento_data_inicio, CASE WHEN $21 THEN to_char(CURRENT_DATE, 'YYYY-MM-DD') ELSE NULL END),
-                    terceirizado_modo = COALESCE(EXCLUDED.terceirizado_modo, overrides_produtos.terceirizado_modo),
-                    is_producao_programada = EXCLUDED.is_producao_programada,
-                    producao_programada_disparo = EXCLUDED.producao_programada_disparo,
-                    producao_programada_objetivo = EXCLUDED.producao_programada_objetivo,
-                    lancamento_gatilho = COALESCE(EXCLUDED.lancamento_gatilho, overrides_produtos.lancamento_gatilho),
-                    lancamento_estoque_maximo = COALESCE(EXCLUDED.lancamento_estoque_maximo, overrides_produtos.lancamento_estoque_maximo),
                     familia_produto = CASE
                         WHEN $20 = '-' THEN NULL
                         WHEN NULLIF($20, '') IS NULL THEN overrides_produtos.familia_produto
                         ELSE $20
-                    END,
-                    processo_termico = CASE WHEN $27 THEN EXCLUDED.processo_termico ELSE overrides_produtos.processo_termico END,
-                    exclusivo_no_dia = CASE WHEN $27 THEN EXCLUDED.exclusivo_no_dia ELSE overrides_produtos.exclusivo_no_dia END,
-                    permite_bombona = CASE WHEN $27 THEN EXCLUDED.permite_bombona ELSE overrides_produtos.permite_bombona END,
-                    dias_ate_envase = CASE WHEN $27 THEN EXCLUDED.dias_ate_envase ELSE overrides_produtos.dias_ate_envase END,
-                    producao_minima_kg = CASE WHEN $27 THEN EXCLUDED.producao_minima_kg ELSE overrides_produtos.producao_minima_kg END",
-            )
+                    END"
+        );
+        sqlx::query(&sql)
             .bind(&ovr.codigo)
             .bind(ovr.estoque_ideal_manual)
             .bind(ovr.pedidos_manual)
@@ -242,43 +224,99 @@ impl Db {
             .bind(ovr.permite_bombona)
             .bind(ovr.dias_ate_envase)
             .bind(ovr.producao_minima_kg)
-            .bind(ovr.regras_pcp_enviadas)
+            .bind(&campos)
             .execute(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
-        }
 
-        if let Some(ref bc) = ovr.base_codigo {
-            let trimmed = bc.trim();
-            if trimmed.is_empty() {
-                sqlx::query("UPDATE produtos SET base_codigo = NULL WHERE codigo = $1")
-                    .bind(&ovr.codigo)
-                    .execute(&self.pool)
-                    .await
-                    .map_err(|e| e.to_string())?;
-            } else {
-                sqlx::query("UPDATE produtos SET base_codigo = $2 WHERE codigo = $1")
-                    .bind(&ovr.codigo)
-                    .bind(trimmed)
-                    .execute(&self.pool)
-                    .await
-                    .map_err(|e| e.to_string())?;
-            }
+        // Linha que ficou toda nula/default não tem razão de existir.
+        let mut conn = self.pool.acquire().await.map_err(|e| e.to_string())?;
+        Self::apagar_override_se_vazio(&mut conn, &ovr.codigo).await?;
+
+        // base_codigo mora em produtos: chave presente com null ou "" limpa; ausente não mexe.
+        if ovr.campos_enviados.contains("base_codigo") || ovr.base_codigo.is_some() {
+            let trimmed = ovr.base_codigo.as_deref().map(str::trim).filter(|s| !s.is_empty());
+            sqlx::query("UPDATE produtos SET base_codigo = $2 WHERE codigo = $1")
+                .bind(&ovr.codigo)
+                .bind(trimmed)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| e.to_string())?;
         }
         Ok(())
     }
 
+    /// Apaga a linha de `overrides_produtos` somente se todas as colunas estão nulas/default.
+    async fn apagar_override_se_vazio(
+        conn: &mut sqlx::PgConnection,
+        codigo: &str,
+    ) -> Result<(), String> {
+        sqlx::query(
+            "DELETE FROM overrides_produtos
+             WHERE codigo = $1
+               AND estoque_ideal_manual IS NULL
+               AND pedidos_manual IS NULL
+               AND media_manual IS NULL
+               AND is_lancamento_manual IS NULL
+               AND (visivel IS NULL OR visivel = 1)
+               AND observacao IS NULL
+               AND linha_prefix_manual IS NULL
+               AND (status_produto IS NULL OR status_produto = 'ativo')
+               AND categoria_produto IS NULL
+               AND (produzir_apenas_kit IS NULL OR produzir_apenas_kit = 0)
+               AND (lancamento_meta_meses IS NULL OR lancamento_meta_meses = 6)
+               AND lancamento_data_inicio IS NULL
+               AND terceirizado_modo IS NULL
+               AND (is_producao_programada IS NULL OR is_producao_programada = 0)
+               AND producao_programada_disparo IS NULL
+               AND producao_programada_objetivo IS NULL
+               AND lancamento_gatilho IS NULL
+               AND lancamento_estoque_maximo IS NULL
+               AND (familia_produto IS NULL OR TRIM(familia_produto) = '')
+               AND processo_termico IS NULL
+               AND exclusivo_no_dia IS NULL
+               AND permite_bombona IS NULL
+               AND dias_ate_envase IS NULL
+               AND producao_minima_kg IS NULL",
+        )
+        .bind(codigo)
+        .execute(conn)
+        .await
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Ações aceitas por `save_override_bulk`.
+    pub const ACOES_BULK: [&'static str; 11] = [
+        "hide",
+        "show",
+        "set_launch_auto",
+        "set_launch_yes",
+        "set_launch_no",
+        "sair_producao_fixa",
+        "set_obs",
+        "set_line",
+        "set_status",
+        "set_category",
+        "clear",
+    ];
+
     pub async fn save_override_bulk(&self, req: &BulkOverrideRequest) -> Result<(), String> {
+        if !Self::ACOES_BULK.contains(&req.action.as_str()) {
+            return Err(format!("Ação em lote desconhecida: {}", req.action));
+        }
         let mut tx = self.pool.begin().await.map_err(|e| e.to_string())?;
 
         for codigo in &req.codigos {
-            sqlx::query(
-                "INSERT INTO overrides_produtos (codigo) VALUES ($1) ON CONFLICT (codigo) DO NOTHING",
-            )
-            .bind(codigo)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
+            if req.action != "clear" {
+                sqlx::query(
+                    "INSERT INTO overrides_produtos (codigo) VALUES ($1) ON CONFLICT (codigo) DO NOTHING",
+                )
+                .bind(codigo)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| e.to_string())?;
+            }
 
             match req.action.as_str() {
                 "hide" => {
@@ -369,35 +407,30 @@ impl Db {
                         .map_err(|e| e.to_string())?;
                 }
                 "clear" => {
-                    sqlx::query("DELETE FROM overrides_produtos WHERE codigo = $1")
-                        .bind(codigo)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(|e| e.to_string())?;
+                    // Zera só os ajustes manuais que a aba Audit de Overrides mostra; regras PCP,
+                    // produção programada, terceirizado, gatilhos e família ficam.
+                    sqlx::query(
+                        "UPDATE overrides_produtos
+                         SET estoque_ideal_manual = NULL,
+                             pedidos_manual = NULL,
+                             media_manual = NULL,
+                             is_lancamento_manual = NULL,
+                             visivel = NULL,
+                             observacao = NULL,
+                             linha_prefix_manual = NULL,
+                             status_produto = NULL,
+                             categoria_produto = NULL
+                         WHERE codigo = $1",
+                    )
+                    .bind(codigo)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 }
-                _ => {}
+                outra => return Err(format!("Ação em lote desconhecida: {outra}")),
             }
 
-            sqlx::query(
-                "DELETE FROM overrides_produtos
-                 WHERE codigo = $1
-                   AND estoque_ideal_manual IS NULL
-                   AND pedidos_manual IS NULL
-                   AND media_manual IS NULL
-                   AND is_lancamento_manual IS NULL
-                   AND (visivel IS NULL OR visivel = 1)
-                   AND observacao IS NULL
-                   AND linha_prefix_manual IS NULL
-                   AND (status_produto IS NULL OR status_produto = 'ativo')
-                   AND categoria_produto IS NULL
-                   AND (produzir_apenas_kit IS NULL OR produzir_apenas_kit = 0)
-                   AND (lancamento_meta_meses IS NULL OR lancamento_meta_meses = 6)
-                   AND lancamento_data_inicio IS NULL",
-            )
-            .bind(codigo)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
+            Self::apagar_override_se_vazio(&mut tx, codigo).await?;
         }
 
         tx.commit().await.map_err(|e| e.to_string())?;

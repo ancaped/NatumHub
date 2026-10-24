@@ -151,7 +151,7 @@ pub async fn upload_kit_composicao(
                 .into_response();
         }
     };
-    let temp_path = std::env::temp_dir().join("temp_kits_upload.xlsx");
+    let temp_path = std::env::temp_dir().join(format!("temp_kits_upload_{}.xlsx", uuid::Uuid::new_v4()));
     let mut file = match File::create(&temp_path) {
         Ok(f) => f,
         Err(e) => {
@@ -163,6 +163,8 @@ pub async fn upload_kit_composicao(
         }
     };
     if let Err(e) = file.write_all(&bytes) {
+        drop(file);
+        let _ = std::fs::remove_file(&temp_path);
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("Erro ao escrever arquivo: {}", e) })),

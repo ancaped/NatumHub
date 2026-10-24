@@ -105,15 +105,9 @@ pub async fn save_override(
                 .into_response();
         }
     };
-    ovr.regras_pcp_enviadas = [
-        "processo_termico",
-        "exclusivo_no_dia",
-        "permite_bombona",
-        "dias_ate_envase",
-        "producao_minima_kg",
-    ]
-    .iter()
-    .any(|k| corpo.get(*k).is_some());
+    if let Some(obj) = corpo.as_object() {
+        ovr.campos_enviados = obj.keys().filter(|k| k.as_str() != "codigo").cloned().collect();
+    }
     if let Err(e) = validar_regras_pcp(&mut ovr) {
         return (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": e }))).into_response();
     }
@@ -131,6 +125,13 @@ pub async fn save_override_bulk(
     State(state): State<Arc<AppState>>,
     Json(req): Json<BulkOverrideRequest>,
 ) -> impl IntoResponse {
+    if !crate::core::db::Db::ACOES_BULK.contains(&req.action.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": format!("Ação em lote desconhecida: {}", req.action) })),
+        )
+            .into_response();
+    }
     match state.db.save_override_bulk(&req).await {
         Ok(_) => (StatusCode::OK, Json(json!({ "status": "success" }))).into_response(),
         Err(e) => (
@@ -214,6 +215,19 @@ mod testes_regras_pcp {
         serde_json::from_value(json!({ "codigo": codigo })).unwrap()
     }
 
+    /// Monta o override como a rota faz: as chaves do corpo viram `campos_enviados`.
+    fn do_corpo(corpo: serde_json::Value) -> ProductOverride {
+        let mut o: ProductOverride = serde_json::from_value(corpo.clone()).unwrap();
+        o.campos_enviados = corpo
+            .as_object()
+            .unwrap()
+            .keys()
+            .filter(|k| k.as_str() != "codigo")
+            .cloned()
+            .collect();
+        o
+    }
+
     #[test]
     fn valida_regras_pcp() {
         let mut o = base("X");
@@ -246,14 +260,20 @@ mod testes_regras_pcp {
         sqlx::query("INSERT INTO produtos (codigo, descricao, linha_prefix, media_levantamento) VALUES ($1, 'teste', 'ZZPCP', 0)")
             .bind(cod).execute(&pool).await.unwrap();
 
-        // grava as 5 regras
-        let mut o = base(cod);
-        o.processo_termico = Some("frio".into());
-        o.exclusivo_no_dia = Some(true);
-        o.permite_bombona = Some(false);
-        o.dias_ate_envase = Some(2);
-        o.producao_minima_kg = Some(150.5);
-        o.regras_pcp_enviadas = true;
+        // grava as 5 regras + produção programada + categoria/status
+        let o = do_corpo(json!({
+            "codigo": cod,
+            "processo_termico": "frio",
+            "exclusivo_no_dia": true,
+            "permite_bombona": false,
+            "dias_ate_envase": 2,
+            "producao_minima_kg": 150.5,
+            "is_producao_programada": 1,
+            "producao_programada_disparo": 10,
+            "producao_programada_objetivo": 50,
+            "categoria_produto": "cat-x",
+            "status_produto": "lancamento",
+        }));
         db.save_override(&o).await.unwrap();
         let lido = db.get_override(cod).await.unwrap().unwrap();
         assert_eq!(lido.processo_termico.as_deref(), Some("frio"));
@@ -262,20 +282,58 @@ mod testes_regras_pcp {
         assert_eq!(lido.dias_ate_envase, Some(2));
         assert_eq!(lido.producao_minima_kg, Some(150.5));
 
-        // payload sem as regras (outra tela): preserva
-        let mut o2 = base(cod);
-        o2.observacao = Some("obs".into());
-        db.save_override(&o2).await.unwrap();
+        // salvar só o status (como o painel): preserva regras PCP e produção programada
+        db.save_override(&do_corpo(json!({ "codigo": cod, "status_produto": "ativo" }))).await.unwrap();
         let lido = db.get_override(cod).await.unwrap().unwrap();
+        assert_eq!(lido.status_produto.as_deref(), Some("ativo"));
+        assert_eq!(lido.categoria_produto.as_deref(), Some("cat-x"));
         assert_eq!(lido.processo_termico.as_deref(), Some("frio"));
         assert_eq!(lido.dias_ate_envase, Some(2));
-        // payload vazio sem as regras também não apaga a linha
+        assert_eq!(lido.is_producao_programada, Some(1));
+        assert_eq!(lido.producao_programada_disparo, Some(10));
+        assert_eq!(lido.producao_programada_objetivo, Some(50));
+
+        // payload sem chaves não apaga nada
         db.save_override(&base(cod)).await.unwrap();
         assert!(db.get_override(cod).await.unwrap().is_some());
 
-        // payload com as regras nulas: limpa; e a linha some por estar vazia
-        let mut o3 = base(cod);
-        o3.regras_pcp_enviadas = true;
+        // categoria_produto: null limpa a categoria e só ela
+        db.save_override(&do_corpo(json!({ "codigo": cod, "categoria_produto": null }))).await.unwrap();
+        let lido = db.get_override(cod).await.unwrap().unwrap();
+        assert_eq!(lido.categoria_produto, None);
+        assert_eq!(lido.status_produto.as_deref(), Some("ativo"));
+        assert_eq!(lido.is_producao_programada, Some(1));
+
+        // base_codigo: presente limpa/grava em produtos; ausente não mexe
+        db.save_override(&do_corpo(json!({ "codigo": cod, "base_codigo": "B1" }))).await.unwrap();
+        let bc = || async { sqlx::query_scalar::<_, Option<String>>("SELECT base_codigo FROM produtos WHERE codigo = $1").bind(cod).fetch_one(&pool).await.unwrap() };
+        assert_eq!(bc().await.as_deref(), Some("B1"));
+        db.save_override(&do_corpo(json!({ "codigo": cod, "observacao": "x" }))).await.unwrap();
+        assert_eq!(bc().await.as_deref(), Some("B1"));
+        db.save_override(&do_corpo(json!({ "codigo": cod, "base_codigo": null }))).await.unwrap();
+        assert_eq!(bc().await, None);
+
+        // limpar (lote): zera ajustes manuais, mantém PCP e programada, linha não some
+        db.save_override(&do_corpo(json!({ "codigo": cod, "status_produto": "descontinuado", "media_manual": 3.0, "visivel": 0 }))).await.unwrap();
+        let req = |action: &str| crate::models::BulkOverrideRequest { codigos: vec![cod.to_string()], action: action.into(), value_str: None };
+        db.save_override_bulk(&req("clear")).await.unwrap();
+        let lido = db.get_override(cod).await.unwrap().unwrap();
+        assert_eq!(lido.status_produto, None);
+        assert_eq!(lido.media_manual, None);
+        assert_eq!(lido.visivel, None);
+        assert_eq!(lido.observacao, None);
+        assert_eq!(lido.processo_termico.as_deref(), Some("frio"));
+        assert_eq!(lido.is_producao_programada, Some(1));
+        assert_eq!(lido.producao_programada_objetivo, Some(50));
+        assert!(db.save_override_bulk(&req("acao_inexistente")).await.is_err());
+
+        // com as regras PCP e a programada limpas (chaves null), a linha some por estar vazia
+        let o3 = do_corpo(json!({
+            "codigo": cod,
+            "processo_termico": null, "exclusivo_no_dia": null, "permite_bombona": null,
+            "dias_ate_envase": null, "producao_minima_kg": null,
+            "is_producao_programada": 0, "producao_programada_disparo": null, "producao_programada_objetivo": null,
+        }));
         db.save_override(&o3).await.unwrap();
         assert!(db.get_override(cod).await.unwrap().is_none());
 

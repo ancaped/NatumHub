@@ -47,6 +47,8 @@ pub async fn save_category_query(pool: PgPool, category: &Category) -> Result<()
 }
 
 pub async fn delete_category_query(pool: PgPool, id: &str) -> Result<(), String> {
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
     sqlx::query(
         "UPDATE items
          SET category_id = CASE
@@ -58,7 +60,7 @@ pub async fn delete_category_query(pool: PgPool, id: &str) -> Result<(), String>
          WHERE category_id = $1",
     )
     .bind(id)
-    .execute(&pool)
+    .execute(&mut *tx)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -68,15 +70,16 @@ pub async fn delete_category_query(pool: PgPool, id: &str) -> Result<(), String>
          WHERE categoria_produto = $1",
     )
     .bind(id)
-    .execute(&pool)
+    .execute(&mut *tx)
     .await
     .map_err(|e| e.to_string())?;
 
     sqlx::query("DELETE FROM categories WHERE id = $1")
         .bind(id)
-        .execute(&pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
     Ok(())
 }
 

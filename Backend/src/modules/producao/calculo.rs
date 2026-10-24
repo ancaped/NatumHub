@@ -62,7 +62,7 @@ pub async fn fetch_calculation_data(state: &Db) -> anyhow::Result<(
     let pool = state.pool();
 
     let product_rows = sqlx::query(
-        "SELECT codigo, descricao, linha_prefix, base, media_levantamento FROM produtos",
+        "SELECT codigo, descricao, linha_prefix, base, media_levantamento, base_codigo FROM produtos",
     )
     .fetch_all(pool)
     .await?;
@@ -77,7 +77,7 @@ pub async fn fetch_calculation_data(state: &Db) -> anyhow::Result<(
             descricao: row.get(1),
             linha_prefix: row.get(2),
             base: row.get(3),
-            base_codigo: None,
+            base_codigo: row.get(5),
             media_levantamento: row.get(4),
         });
     }
