@@ -523,4 +523,70 @@ mod tests {
             }
         }
     }
+
+    /// Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn ciclo_do_agente_criar_trocar_e_revogar_token() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        let nome = format!("teste-agente-{}", Uuid::new_v4());
+        let mut autor = agente_com(&[]);
+        autor.role = OperatorRole::Supervisor;
+        autor.origem = Origem::Tela;
+        autor.display_name = "teste-supervisor".into();
+        let entrada = |confirmar| NovoAgente {
+            nome: nome.clone(),
+            modulos: BTreeMap::from([("vendas".to_string(), "ver".to_string()), ("producao".to_string(), "editar".to_string())]),
+            confirmar,
+        };
+        let contar = |pool: PgPool, nome: String| async move {
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM hub_operators WHERE display_name = $1")
+                .bind(nome)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        };
+
+        // prévia não grava
+        let previa = criar(&pool, &autor, entrada(false)).await.unwrap();
+        assert!(previa.previa);
+        assert_eq!(contar(pool.clone(), nome.clone()).await, 0);
+
+        // confirmar grava e devolve o token
+        let criado = criar(&pool, &autor, entrada(true)).await.unwrap();
+        let id = criado.resultado["id"].as_str().unwrap().to_string();
+        let token = criado.resultado["token"].as_str().unwrap().to_string();
+        assert!(token.starts_with("nxa_"));
+        assert_eq!(contar(pool.clone(), nome.clone()).await, 1);
+
+        let resultado = async {
+            let ctx = resolver_token(&pool, &token).await.unwrap().expect("token deve resolver");
+            assert_eq!(ctx.origem, Origem::Agente);
+            assert_ne!(ctx.role, OperatorRole::Supervisor);
+            let mut mods = ctx.modules.clone();
+            mods.sort();
+            assert_eq!(mods, vec!["producao".to_string(), "vendas".to_string()]);
+
+            // trocar o token revoga o antigo
+            let novo = novo_token(&pool, &autor, &id, true).await.unwrap();
+            let token2 = novo.resultado["token"].as_str().unwrap().to_string();
+            assert!(resolver_token(&pool, &token).await.unwrap().is_none(), "token antigo revogado");
+            assert!(resolver_token(&pool, &token2).await.unwrap().is_some(), "token novo funciona");
+
+            // revogar derruba o token
+            revogar(&pool, &autor, &id, true).await.unwrap();
+            assert!(resolver_token(&pool, &token2).await.unwrap().is_none(), "token revogado");
+        }
+        .await;
+
+        for sql in [
+            "DELETE FROM hub_agent_tokens WHERE operator_id = $1",
+            "DELETE FROM hub_operator_modules WHERE operator_id = $1",
+            "DELETE FROM hub_operators WHERE id = $1",
+        ] {
+            sqlx::query(sql).bind(&id).execute(&pool).await.unwrap();
+        }
+        resultado
+    }
 }

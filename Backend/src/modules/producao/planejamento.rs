@@ -885,4 +885,117 @@ mod tests {
     fn status_validos_da_ordem() {
         assert_eq!(ORDEM_STATUS_VALIDOS, ["planejado", "aprovado", "cancelado"]);
     }
+
+    async fn pool_teste() -> PgPool {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        // programacao_envase/rotulagem nascem em runtime (acompanhamento_producao::store), não nas migrações
+        for tabela in ["programacao_envase", "programacao_rotulagem"] {
+            sqlx::query(&format!("CREATE TABLE IF NOT EXISTS {tabela} (id BIGSERIAL PRIMARY KEY, lote_number TEXT NOT NULL)"))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        pool
+    }
+
+    async fn inserir_ordem(pool: &PgPool, id: &str, week: &str) {
+        sqlx::query(
+            "INSERT INTO producao_planejamento_semanal (id, week_key, data_planejada, reator_id, codigo_produto, descricao, quantidade_planejada) \
+             VALUES ($1, $2, '2026-10-23', 'R_100', 'TESTE.001', 'teste', 10)",
+        )
+        .bind(id)
+        .bind(week)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn existem(pool: &PgPool, week: &str) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM producao_planejamento_semanal WHERE week_key = $1")
+            .bind(week)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    async fn limpar_teste(pool: &PgPool, week: &str) {
+        sqlx::query("DELETE FROM producao_planejamento_semanal WHERE week_key = $1")
+            .bind(week)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    /// Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn excluir_ordem_so_apaga_com_confirmar() {
+        let pool = pool_teste().await;
+        let week = format!("teste-{}", uuid::Uuid::new_v4());
+        let id = format!("{week}-a");
+        inserir_ordem(&pool, &id, &week).await;
+
+        let id_tx = id.clone();
+        let previa = executar_em_2_passos(&pool, "excluir_planejamento", false, |tx| {
+            Box::pin(async move { excluir_planejamento_item(&mut **tx, &id_tx).await })
+        })
+        .await
+        .unwrap();
+        assert!(previa.previa);
+        assert_eq!(previa.resultado["id"], id.as_str());
+        assert_eq!(existem(&pool, &week).await, 1, "a prévia não apaga");
+
+        let id_tx = id.clone();
+        let feito = executar_em_2_passos(&pool, "excluir_planejamento", true, |tx| {
+            Box::pin(async move { excluir_planejamento_item(&mut **tx, &id_tx).await })
+        })
+        .await
+        .unwrap();
+        assert!(!feito.previa);
+        assert_eq!(existem(&pool, &week).await, 0, "confirmar apaga");
+        limpar_teste(&pool, &week).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn excluir_ordem_inexistente_e_nao_encontrado() {
+        let pool = pool_teste().await;
+        let id = format!("teste-{}", uuid::Uuid::new_v4());
+        let e = executar_em_2_passos(&pool, "excluir_planejamento", true, |tx| {
+            Box::pin(async move { excluir_planejamento_item(&mut **tx, &id).await })
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(e.codigo, "nao_encontrado");
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn limpar_semana_so_apaga_com_confirmar() {
+        let pool = pool_teste().await;
+        let week = format!("teste-{}", uuid::Uuid::new_v4());
+        inserir_ordem(&pool, &format!("{week}-a"), &week).await;
+        inserir_ordem(&pool, &format!("{week}-b"), &week).await;
+
+        let w = week.clone();
+        let previa = executar_em_2_passos(&pool, "limpar_semana_planejamento", false, |tx| {
+            Box::pin(async move { limpar_semana_planejamento(&mut **tx, &w).await })
+        })
+        .await
+        .unwrap();
+        assert!(previa.previa);
+        assert_eq!((previa.resultado.0.len(), previa.resultado.1), (2, 0));
+        assert_eq!(existem(&pool, &week).await, 2, "a prévia não apaga");
+
+        let w = week.clone();
+        let feito = executar_em_2_passos(&pool, "limpar_semana_planejamento", true, |tx| {
+            Box::pin(async move { limpar_semana_planejamento(&mut **tx, &w).await })
+        })
+        .await
+        .unwrap();
+        assert_eq!(feito.resultado.0.len(), 2);
+        assert_eq!(existem(&pool, &week).await, 0, "confirmar apaga as duas");
+        limpar_teste(&pool, &week).await;
+    }
 }
