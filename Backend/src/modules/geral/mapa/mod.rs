@@ -26,5 +26,4 @@ pub fn router() -> Router<Arc<AppState>> {
             "/api/mapa/activity",
             get(handlers::list_activity).post(handlers::post_activity),
         )
-        .route("/api/mapa/resync-scan", post(handlers::resync_scan))
 }

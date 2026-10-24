@@ -9,7 +9,6 @@ import {
   MessageSquare,
   Network,
   Plus,
-  RefreshCw,
   Save,
   X,
   ZoomIn,
@@ -245,18 +244,6 @@ export default function MapaArquiteturaView({ onBackToHub }: Props) {
     await load();
   };
 
-  const resync = async () => {
-    setSaving(true);
-    try {
-      await apiJson('/mapa/resync-scan', { method: 'POST', body: '{}' });
-      await load();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Falha no resync');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const edgesSvg = useMemo(() => {
     if (!snap) return null;
     return snap.edges.map((e) => {
@@ -305,14 +292,6 @@ export default function MapaArquiteturaView({ onBackToHub }: Props) {
       onTabChange={(id) => setTab(id as TabId)}
       headerActions={
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void resync()}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-          >
-            <RefreshCw className={cn('h-3.5 w-3.5', saving && 'animate-spin')} />
-            Resync rotas
-          </button>
           <button
             type="button"
             onClick={() => setAddOpen(true)}

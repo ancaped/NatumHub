@@ -351,7 +351,6 @@ where
     let _ = modules::geral::audit::store::ensure_tables(&pool).await;
     let _ = modules::geral::mapa::store::ensure_schema(&pool).await;
     let _ = modules::administrativo::funcionarios::store::ensure_schema(&pool).await;
-    let _ = modules::administrativo::acompanhamento_producao::store::ensure_schema(&pool).await;
     let _ = modules::producao::fila::ensure_fila_demandas_table(&pool).await;
 
     let state = Arc::new(handlers::AppState { db });

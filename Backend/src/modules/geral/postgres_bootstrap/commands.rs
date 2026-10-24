@@ -138,8 +138,24 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
         include_str!("../../../../supabase/030_reports_printed.sql"),
     ),
     (
+        "031_hub_operator_modules_access_level.sql",
+        include_str!("../../../../supabase/031_hub_operator_modules_access_level.sql"),
+    ),
+    (
         "031_procs_produtos.sql",
         include_str!("../../../../supabase/031_procs_produtos.sql"),
+    ),
+    (
+        "032_hub_chat_messages.sql",
+        include_str!("../../../../supabase/032_hub_chat_messages.sql"),
+    ),
+    (
+        "033_hub_chat_attachments.sql",
+        include_str!("../../../../supabase/033_hub_chat_attachments.sql"),
+    ),
+    (
+        "034_hub_chat_groups_passwords.sql",
+        include_str!("../../../../supabase/034_hub_chat_groups_passwords.sql"),
     ),
     (
         "035_suppliers_unification.sql",
@@ -172,6 +188,10 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
     (
         "043_qualidade_devolucao_controles.sql",
         include_str!("../../../../supabase/043_qualidade_devolucao_controles.sql"),
+    ),
+    (
+        "043_produtos_qtde_cx.sql",
+        include_str!("../../../../supabase/043_produtos_qtde_cx.sql"),
     ),
     (
         "044_qualidade_recebimento_mp.sql",
@@ -252,6 +272,10 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
     (
         "063_mapa_backend_path_planejamento.sql",
         include_str!("../../../../supabase/063_mapa_backend_path_planejamento.sql"),
+    ),
+    (
+        "064_agenda_lotes_complemento.sql",
+        include_str!("../../../../supabase/064_agenda_lotes_complemento.sql"),
     ),
 ];
 

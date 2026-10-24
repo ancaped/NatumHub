@@ -181,35 +181,3 @@ pub async fn post_activity(
         Err(e) => err_resp(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
 }
-
-#[derive(Debug, Deserialize)]
-pub struct ResyncBody {
-    pub routes: Option<Vec<Value>>,
-}
-
-pub async fn resync_scan(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<AuthContext>,
-    body: Option<Json<ResyncBody>>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
-    let routes = if let Some(Json(b)) = body {
-        if let Some(r) = b.routes {
-            r
-        } else {
-            match store::load_routes_from_mapa_json() {
-                Ok(r) => r,
-                Err(e) => return err_resp(StatusCode::BAD_REQUEST, e),
-            }
-        }
-    } else {
-        match store::load_routes_from_mapa_json() {
-            Ok(r) => r,
-            Err(e) => return err_resp(StatusCode::BAD_REQUEST, e),
-        }
-    };
-    match store::resync_routes(pool, Some(actor(&ctx)), &routes).await {
-        Ok(n) => (StatusCode::OK, Json(json!({ "ok": true, "routes": n }))).into_response(),
-        Err(e) => err_resp(StatusCode::INTERNAL_SERVER_ERROR, e),
-    }
-}
