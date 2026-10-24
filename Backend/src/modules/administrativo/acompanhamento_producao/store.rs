@@ -217,22 +217,22 @@ pub async fn list_acompanhamento(
             to_char(c.updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at,
             c.notes,
             COALESCE(
-                to_char(c.data_pesagem AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                to_char(c.data_pesagem AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"-03:00"'),
                 m.data_planejada || 'T08:00:00Z',
                 m.date || 'T08:00:00Z'
             ) AS data_pesagem,
             COALESCE(
-                to_char(c.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                to_char(c.data_producao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"-03:00"'),
                 m.data_planejada || 'T08:00:00Z',
                 m.date || 'T08:00:00Z'
             ) AS data_producao,
-            to_char(c.data_liberado_envase AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS data_liberado_envase,
-            to_char(c.data_envase AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS data_envase,
-            to_char(c.data_rotulagem AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS data_rotulagem,
-            to_char(c.data_finalizada AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS data_finalizada,
-            to_char(c.data_em_espera AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS data_em_espera,
+            to_char(c.data_liberado_envase AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"-03:00"') AS data_liberado_envase,
+            to_char(c.data_envase AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"-03:00"') AS data_envase,
+            to_char(c.data_rotulagem AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"-03:00"') AS data_rotulagem,
+            to_char(c.data_finalizada AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"-03:00"') AS data_finalizada,
+            to_char(c.data_em_espera AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"-03:00"') AS data_em_espera,
             COALESCE(
-                to_char(c.data_previsao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                to_char(c.data_previsao AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS"-03:00"'),
                 m.data_planejada || 'T08:00:00Z',
                 m.date || 'T08:00:00Z'
             ) AS data_previsao,

@@ -56,6 +56,29 @@ function partesOrdem(texto: string): [string, string, string] {
   return k < 0 ? [prod, '', det] : [prod.slice(0, k), prod.slice(k + 3), det.replace('/2026', '')];
 }
 
+interface DesvioItem {
+  lote: string;
+  insumo: string;
+  descricao: string;
+  previsto: number;
+  baixado: number;
+  razao?: number | null;
+}
+
+interface Validacao {
+  lotesAnalisados: number;
+  itensComparados: number;
+  dentroDe10pct: number;
+  desvioMediano?: number | null;
+  desvioP90?: number | null;
+  baixadoSemPrevisao: number;
+  previstoSemBaixa: number;
+  lotesSemFormula?: string[];
+  piores?: DesvioItem[];
+}
+
+const fmtPct = (n?: number | null) => (n == null ? '—' : `${(Number(n) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`);
+
 const nowrap: React.CSSProperties = { whiteSpace: 'nowrap' };
 
 /** Conta do livre, explicada: de onde vêm os números e por que falta. */
@@ -105,6 +128,10 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
   const [versaoCl, setVersaoCl] = useState(0);
   const [pedido, setPedido] = useState<number | null>(null);
   const [salvando, setSalvando] = useState<string | null>(null);
+  const [validacao, setValidacao] = useState<Validacao | null>(null);
+  const [validando, setValidando] = useState(false);
+  const [erroValidacao, setErroValidacao] = useState<string | null>(null);
+  const [buscaVal, setBuscaVal] = useState('');
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -121,6 +148,22 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
   useEffect(() => {
     if (isOpen) carregar();
   }, [isOpen, carregar]);
+
+  const carregarValidacao = useCallback(async () => {
+    setValidando(true);
+    setErroValidacao(null);
+    try {
+      setValidacao((await apiJson<Validacao>('/api/producao/cobertura/validacao?limite=30')) ?? null);
+    } catch (e) {
+      setErroValidacao(e instanceof Error ? e.message : 'Não foi possível carregar a validação.');
+    } finally {
+      setValidando(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isOpen && aba === 'validacao' && !validacao && !validando && !erroValidacao) carregarValidacao();
+  }, [isOpen, aba, validacao, validando, erroValidacao, carregarValidacao]);
 
   const definirBaseFonte = useCallback(
     async (ordemId: string, fonte: BaseFonte) => {
@@ -187,12 +230,18 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
     setter(n);
   };
 
+  const pioresFiltrados = useMemo(() => {
+    const q = buscaVal.trim().toLowerCase();
+    return (validacao?.piores ?? []).filter((p) => !q || `${p.lote} ${p.insumo} ${p.descricao}`.toLowerCase().includes(q));
+  }, [validacao, buscaVal]);
+
   const abas: DrawerTab[] = [
     { id: 'faltas', label: 'Faltas', badge: totalFaltas || undefined },
     { id: 'revisar', label: 'Revisar', badge: avisos.length || undefined },
     { id: 'bases', label: 'Bases', badge: ordensComBase.length || undefined },
     { id: 'classificacao', label: 'Classificação' },
     { id: 'insumos', label: 'Insumos' },
+    { id: 'validacao', label: 'Validação' },
   ];
 
   if (!isOpen) return null;
@@ -227,14 +276,14 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
           <BotaoAcao onClick={imprimir} disabled={!dados} title="Imprime os insumos da semana com a mesma conta desta tela">
             <Printer size={14} /> Imprimir
           </BotaoAcao>
-          <BotaoAcao onClick={carregar} disabled={loading}>
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Atualizar
+          <BotaoAcao onClick={aba === 'validacao' ? carregarValidacao : carregar} disabled={aba === 'validacao' ? validando : loading}>
+            <RefreshCw size={14} className={(aba === 'validacao' ? validando : loading) ? 'animate-spin' : ''} /> Atualizar
           </BotaoAcao>
         </div>
       }
     >
       <div style={{ padding: 16 }}>
-        {erro && <p style={{ fontSize: '0.78rem', color: 'hsl(var(--danger-hsl))', marginBottom: 8 }}>{erro}</p>}
+        {erro && aba !== 'validacao' && <p style={{ fontSize: '0.78rem', color: 'hsl(var(--danger-hsl))', marginBottom: 8 }}>{erro}</p>}
 
         {aba === 'faltas' && dados && (
           <>
@@ -490,6 +539,60 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
               </tbody>
             </table>
           </div>
+        )}
+
+        {aba === 'validacao' && (
+          <>
+            {erroValidacao && <p style={{ fontSize: '0.78rem', color: 'hsl(var(--danger-hsl))', marginBottom: 8 }}>{erroValidacao}</p>}
+            {validando && !validacao && <p style={{ fontSize: '0.78rem', color: 'hsl(var(--text-secondary-hsl))' }}>Comparando fórmula e baixa real...</p>}
+            {validacao && (
+              <>
+                <p style={{ fontSize: '0.75rem', marginBottom: 6 }}>
+                  <strong>{validacao.lotesAnalisados}</strong> lotes · <strong>{validacao.itensComparados}</strong> insumos comparados ·{' '}
+                  <strong>{validacao.itensComparados > 0 ? fmtPct(validacao.dentroDe10pct / validacao.itensComparados) : '—'}</strong> dentro de ±10% · desvio mediano{' '}
+                  <strong>{fmtPct(validacao.desvioMediano)}</strong> · p90 <strong>{fmtPct(validacao.desvioP90)}</strong>
+                </p>
+                <p style={{ fontSize: '0.68rem', color: 'hsl(var(--text-secondary-hsl))', marginBottom: 8 }}>
+                  Fórmula (com bases explodidas) contra a baixa real do ERP nos últimos lotes fechados. Baixado sem previsão: {validacao.baixadoSemPrevisao} · Previsto sem baixa: {validacao.previstoSemBaixa}
+                  {(validacao.lotesSemFormula ?? []).length > 0 && ` · Lotes sem fórmula: ${(validacao.lotesSemFormula ?? []).join(', ')}`}
+                </p>
+                <FilterBar busca={buscaVal} onBusca={setBuscaVal} placeholder="Buscar lote ou insumo..." />
+                <div className="panel-card" style={{ overflowX: 'auto', padding: 0 }}>
+                  <table className="data-table compacta">
+                    <thead>
+                      <tr>
+                        <th>Lote</th>
+                        <th>Insumo</th>
+                        <th className="numeric-col">Previsto</th>
+                        <th className="numeric-col">Baixado</th>
+                        <th className="numeric-col">Desvio</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {vazio(pioresFiltrados.length, 5, 'Nenhum desvio para mostrar.')}
+                      {pioresFiltrados.map((p, idx) => {
+                        const desvio = p.razao == null ? null : p.razao - 1;
+                        return (
+                          <tr key={`${p.lote}-${p.insumo}-${idx}`}>
+                            <td style={nowrap}>#{p.lote}</td>
+                            <td>
+                              <span style={{ fontWeight: 600 }}>{p.descricao || p.insumo}</span>
+                              <span className="product-code" style={{ fontSize: '0.65rem', marginLeft: 6 }}>{p.insumo}</span>
+                            </td>
+                            <td className="numeric-col" style={nowrap}>{fmt(p.previsto)}</td>
+                            <td className="numeric-col" style={nowrap}>{fmt(p.baixado)}</td>
+                            <td className="numeric-col" style={{ ...nowrap, fontWeight: 700, color: desvio != null && Math.abs(desvio) > 0.1 ? 'hsl(var(--danger-hsl))' : undefined }}>
+                              {desvio == null ? '—' : `${desvio > 0 ? '+' : ''}${fmtPct(desvio)}`}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </>
         )}
       </div>
 
