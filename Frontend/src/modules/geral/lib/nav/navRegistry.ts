@@ -79,7 +79,6 @@ const SUBMODULE_ICONS: Record<string, LucideIcon> = {
   compras_coloracao: Palette,
   compras_apoio: Tag,
   compras_quotations: ShoppingCart,
-  compras_online: Globe,
   compras_pedidos: ClipboardList,
   compras_notas: FileText,
   compras_simulation: Calculator,

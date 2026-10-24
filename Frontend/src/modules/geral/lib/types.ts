@@ -445,39 +445,6 @@ export interface MicrobioAppConfig {
   template?: TemplateConfig;
 }
 
-export interface OnlineOrder {
-  id: string;
-  description: string;
-  itemCode: string | null;
-  storeName: string | null;
-  purchaseUrl: string | null;
-  purchaseDate: string;
-  unitPrice: number | null;
-  quantity: number | null;
-  shippingCost: number | null;
-  totalPrice: number | null;
-  paymentMethod: string | null;
-  trackingCode: string | null;
-  trackingUrl: string | null;
-  status: 'preparing' | 'shipped' | 'delivered' | 'cancelled';
-  estimatedDelivery?: string | null;
-  receiptPath: string | null;
-  notes: string | null;
-  createdAt?: string;
-  isReturn?: boolean | null;
-  returnDeadline?: string | null;
-  returnStatus?: 'pending' | 'sent' | 'refunded' | 'resolved' | null;
-  returnNotes?: string | null;
-}
-
-export interface OnlineStore {
-  id: string;
-  name: string;
-  url?: string | null;
-  notes?: string | null;
-  createdAt?: string;
-}
-
 export interface FiscoTemplateConfig {
   labName: string;
   deptName: string;

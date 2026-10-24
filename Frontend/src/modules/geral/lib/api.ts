@@ -3,7 +3,7 @@ import type {
   Category, Supplier, Item, Invoice,
   DemandResult, Quotation, QuotationItem, QuotationPrice,
   ImportResult, StockImport, PricePoint, SupplierSpend, CategorySpend,
-  ComprasAppConfig, MicrobioAppConfig, FiscoAppConfig, Feedback, Product, Report, OnlineOrder, OnlineStore,
+  ComprasAppConfig, MicrobioAppConfig, FiscoAppConfig, Feedback, Product, Report,
   FiscoQuimicaPattern, FiscoQuimicaAgent, FiscoQuimicaAnalysis, LoteLookup,
   FiscoErpLoteItem, FiscoErpLoteInsumo,
   CustomPurchaseConfigRow,
@@ -276,26 +276,6 @@ export const api = {
   },
   reorderFeedbacks(items: { id: string; priority: number }[]): Promise<void> {
     return hubJson('feedbacks/reorder', { method: 'POST', body: JSON.stringify({ items }) });
-  },
-
-  // === COMPRAS ONLINE ===
-  getOnlineOrders(): Promise<OnlineOrder[]> {
-    return hubJson('compras/online-orders');
-  },
-  saveOnlineOrder(order: OnlineOrder): Promise<void> {
-    return hubJson('compras/online-orders', { method: 'POST', body: JSON.stringify(order) });
-  },
-  deleteOnlineOrder(id: string): Promise<void> {
-    return hubJson(`compras/online-orders/${encodeURIComponent(id)}`, { method: 'DELETE' });
-  },
-  getOnlineStores(): Promise<OnlineStore[]> {
-    return hubJson('compras/online-stores');
-  },
-  saveOnlineStore(store: OnlineStore): Promise<void> {
-    return hubJson('compras/online-stores', { method: 'POST', body: JSON.stringify(store) });
-  },
-  deleteOnlineStore(id: string): Promise<void> {
-    return hubJson(`compras/online-stores/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
   // === FÍSICO-QUÍMICA ===

@@ -84,7 +84,6 @@ pub struct Report {
     pub printed_at: Option<String>,
 }
 
-pub use crate::modules::compras::compras_online::models::{OnlineOrder, OnlineStore};
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]

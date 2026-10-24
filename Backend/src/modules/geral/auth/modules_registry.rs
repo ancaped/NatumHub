@@ -39,7 +39,6 @@ pub const MODULE_COMPRAS_EMB: &str = "compras_embalagens";
 pub const MODULE_COMPRAS_COLOR: &str = "compras_coloracao";
 pub const MODULE_COMPRAS_APOIO: &str = "compras_apoio";
 pub const MODULE_COMPRAS_COT: &str = "compras_quotations";
-pub const MODULE_COMPRAS_ONLINE: &str = "compras_online";
 pub const MODULE_COMPRAS_PEDIDOS: &str = "compras_pedidos";
 pub const MODULE_COMPRAS_NOTAS: &str = "compras_notas";
 pub const MODULE_COMPRAS_SIMULATION: &str = "compras_simulation";
@@ -101,7 +100,6 @@ pub const ALL_MODULE_KEYS: &[&str] = &[
     MODULE_COMPRAS_COLOR,
     MODULE_COMPRAS_APOIO,
     MODULE_COMPRAS_COT,
-    MODULE_COMPRAS_ONLINE,
     MODULE_COMPRAS_PEDIDOS,
     MODULE_COMPRAS_NOTAS,
     MODULE_COMPRAS_SIMULATION,
@@ -193,7 +191,6 @@ pub fn module_registry() -> Vec<ModuleGroup> {
                 leaf(MODULE_COMPRAS_COLOR, "Coloração"),
                 leaf(MODULE_COMPRAS_APOIO, "Material de Apoio"),
                 leaf(MODULE_COMPRAS_COT, "Cotações"),
-                leaf(MODULE_COMPRAS_ONLINE, "Compras Online"),
                 leaf(MODULE_COMPRAS_PEDIDOS, "Pedidos"),
                 leaf(MODULE_COMPRAS_NOTAS, "Notas Fiscais"),
                 leaf(MODULE_COMPRAS_SIMULATION, "Simulador"),
@@ -322,7 +319,6 @@ pub fn default_modules_for_role(role: &str) -> Vec<String> {
             MODULE_COMPRAS_COLOR,
             MODULE_COMPRAS_APOIO,
             MODULE_COMPRAS_COT,
-            MODULE_COMPRAS_ONLINE,
             MODULE_COMPRAS_PEDIDOS,
             MODULE_COMPRAS_NOTAS,
             MODULE_COMPRAS_SIMULATION,

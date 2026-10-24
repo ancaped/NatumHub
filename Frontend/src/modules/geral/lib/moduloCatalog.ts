@@ -80,12 +80,6 @@ export const MODULE_CATALOG: ModuleCatalogItem[] = [
     group: 'Compras',
     subPages: ['Entrada XML / DANFE', 'Conferência', 'Vinculação Pedido'],
   },
-  {
-    key: 'compras_online',
-    label: 'Compras > Compras Online',
-    group: 'Compras',
-    subPages: ['Mercado Livre / Amazon', 'Rastreio de Pacotes', 'Histórico'],
-  },
 
   // Estoque & Almoxarifado
   {

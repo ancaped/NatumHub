@@ -10,8 +10,6 @@ use std::sync::Arc;
 use crate::handlers::AppState;
 use crate::modules::compras::planejamento::models::*;
 use crate::modules::compras::planejamento::commands::*;
-use crate::modules::compras::compras_online::commands::*;
-use crate::modules::compras::compras_online::models::{OnlineOrder, OnlineStore};
 use crate::modules::hub_api::util::{ok_json, ok_status, with_pool};
 
 fn mode_to_parent_category(mode: Option<&str>) -> Option<String> {
@@ -544,50 +542,6 @@ async fn get_nf_import_control_handler(State(state): State<Arc<AppState>>) -> im
     }
 }
 
-// --- Online Orders & Stores ---
-
-async fn get_online_orders_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match with_pool(&state, |pool| get_online_orders_query(pool)).await {
-        Ok(v) => ok_json(v).into_response(),
-        Err(e) => e.into_response(),
-    }
-}
-
-async fn save_online_order_handler(State(state): State<Arc<AppState>>, Json(order): Json<OnlineOrder>) -> impl IntoResponse {
-    match with_pool(&state, |pool| save_online_order_query(pool, &order)).await {
-        Ok(()) => ok_status().into_response(),
-        Err(e) => e.into_response(),
-    }
-}
-
-async fn delete_online_order_handler(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> impl IntoResponse {
-    match with_pool(&state, |pool| delete_online_order_query(pool, &id)).await {
-        Ok(()) => ok_status().into_response(),
-        Err(e) => e.into_response(),
-    }
-}
-
-async fn get_online_stores_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match with_pool(&state, |pool| get_online_stores_query(pool)).await {
-        Ok(v) => ok_json(v).into_response(),
-        Err(e) => e.into_response(),
-    }
-}
-
-async fn save_online_store_handler(State(state): State<Arc<AppState>>, Json(store): Json<OnlineStore>) -> impl IntoResponse {
-    match with_pool(&state, |pool| save_online_store_query(pool, &store)).await {
-        Ok(()) => ok_status().into_response(),
-        Err(e) => e.into_response(),
-    }
-}
-
-async fn delete_online_store_handler(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> impl IntoResponse {
-    match with_pool(&state, |pool| delete_online_store_query(pool, &id)).await {
-        Ok(()) => ok_status().into_response(),
-        Err(e) => e.into_response(),
-    }
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PurchaseListsQuery {
@@ -728,8 +682,4 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/hub/compras/imports/history", get(get_import_history_handler))
         .route("/api/hub/compras/imports/nf-control", get(get_nf_import_control_handler))
         // Online orders & stores
-        .route("/api/hub/compras/online-orders", get(get_online_orders_handler).post(save_online_order_handler))
-        .route("/api/hub/compras/online-orders/:id", delete(delete_online_order_handler))
-        .route("/api/hub/compras/online-stores", get(get_online_stores_handler).post(save_online_store_handler))
-        .route("/api/hub/compras/online-stores/:id", delete(delete_online_store_handler))
 }

@@ -33,8 +33,6 @@ export function getModuleTitle(view: string): string {
       return 'Compras > Cotações';
     case 'compras_simulation':
       return 'Compras > Simulador';
-    case 'compras_online':
-      return 'Compras > Compras Online';
     case 'compras_pedidos':
       return 'Compras > Pedidos';
     case 'compras_notas':

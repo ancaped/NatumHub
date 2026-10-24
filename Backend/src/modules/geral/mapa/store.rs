@@ -386,7 +386,6 @@ pub async fn ensure_seeded(pool: &PgPool) -> Result<(), String> {
         ("compras", "compras_coloracao", "Coloração"),
         ("compras", "compras_apoio", "Apoio"),
         ("compras", "compras_quotations", "Cotações"),
-        ("compras", "compras_online", "Online"),
         ("compras", "compras_pedidos", "Pedidos"),
         ("compras", "compras_notas", "Notas"),
         ("compras", "compras_simulation", "Simulador"),
