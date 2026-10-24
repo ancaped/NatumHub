@@ -21,6 +21,7 @@ import { canEdit, getAuthUser } from '../../../geral/lib/auth';
 import { useAviso } from '../../../geral/components/ui/Aviso';
 import Drawer from '../../../geral/components/ui/Drawer';
 import { SeloCobertura, piorResultado, useCoberturaSemana, useCoberturaFila, chaveCandidato } from './cobertura';
+import { diasPermitidos, ordenarReatoresPorCaber } from '../../lib/heuristicaPlanejamento';
 
 export interface ReatorConfig {
   id: string;
@@ -356,7 +357,7 @@ function inferirProcesso(p: any): {
     return { 
       isQuente: true, 
       isShampoo: false,
-      canBombona: reqQtyKg <= 150,
+      canBombona: reqQtyKg < 200,
       motivo: isR40 ? 'Reator 40kg Quente (Fusão de ceras/óleos)' : 'Fusão de ceras/óleos (Quente)', 
       label: isR40 ? 'Reator 40kg' : 'Caldeira',
       recipienteSugerido: isR40 ? 'R_40' : (reqQtyKg <= 100 ? 'R_100' : (reqQtyKg >= 600 ? 'R_1000_MISTO' : (reqQtyKg <= 250 ? 'R_200' : 'R_500'))),
@@ -366,10 +367,10 @@ function inferirProcesso(p: any): {
     };
   }
 
-  // Máscaras, Cremes, Botox -> Quente (se <= 45kg vai no Reator 40kg, se <= 150kg pode ir na bombona com água quente da caldeira!)
+  // Máscaras, Cremes, Botox -> Quente (se <= 45kg vai no Reator 40kg, se < 200kg pode ir na bombona com água quente da caldeira!)
   if (desc.includes('MASC') || desc.includes('CREME') || desc.includes('DEFRIZANTE') || desc.includes('BOTOX')) {
     const isR40 = reqQtyKg <= 45;
-    const podeBombona = reqQtyKg <= 150;
+    const podeBombona = reqQtyKg < 200;
     return { 
       isQuente: true, 
       isShampoo: false,
@@ -404,7 +405,7 @@ function inferirProcesso(p: any): {
     return { 
       isQuente: true, 
       isShampoo: false,
-      canBombona: reqQtyKg <= 150,
+      canBombona: reqQtyKg < 200,
       motivo: isR40 ? 'Reator 40kg (Condicionador Quente)' : 'Condicionador sem base pronta (Requer Caldeira)', 
       label: isR40 ? 'Reator 40kg' : 'Caldeira',
       recipienteSugerido: isR40 ? 'R_40' : (reqQtyKg <= 150 ? 'BOMBONAS' : (reqQtyKg >= 600 ? 'R_1000_MISTO' : (reqQtyKg <= 250 ? 'R_200' : 'R_500'))),
@@ -2064,6 +2065,8 @@ export function PlanejamentoSemanalTab({
         occupiedSlots.add(`${existing.reator_id}_${existing.data_planejada}`);
       }
     }
+    const diasOcupados = new Set<string>(plannedItems.map(i => i.data_planejada));
+    const diasExclusivos = new Set<string>();
     let groupedBasesCount = 0;
     const daysWithCaldeira = new Set<string>();
 
@@ -2093,8 +2096,21 @@ export function PlanejamentoSemanalTab({
     for (const prod of allOrderedCandidates) {
       const procInfo = getProductProcessType(prod);
       const colorInfo = getProductColorInfo(prod);
-      const reqMassKg = procInfo.reqQtyKg;
+      const producaoMinKg = Number(prod.producao_minima_kg) || 0;
+      const reqMassKg = Math.max(procInfo.reqQtyKg, producaoMinKg);
+      const usouMinimo = producaoMinKg > 0 && producaoMinKg > procInfo.reqQtyKg;
       const reqUnits = procInfo.reqUnits;
+      const descExcl = (prod.descricao || '').toUpperCase();
+      const exclusivo: boolean = prod.exclusivo_no_dia ?? descExcl.includes('AOX');
+      const diasPermitidosProd = diasPermitidos(validDays, exclusivo, diasOcupados, diasExclusivos);
+      const marcar = (dateStr: string) => {
+        diasOcupados.add(dateStr);
+        if (exclusivo) diasExclusivos.add(dateStr);
+        if (usouMinimo) {
+          const ult = proposed[proposed.length - 1];
+          if (ult) ult.observacoes = `${ult.observacoes || ''} | mín. ${producaoMinKg} kg`;
+        }
+      };
 
       // Linha de envase sugerida
       const desc = (prod.descricao || '').toUpperCase();
@@ -2108,7 +2124,7 @@ export function PlanejamentoSemanalTab({
       if (procInfo.isShampoo && reqMassKg >= 450) {
         const rShampoo = reatores.find(r => (r.id === 'R_1000_SHAMPOO' || r.id === 'R_1000') && r.ativo);
         if (rShampoo) {
-          for (const day of validDays) {
+          for (const day of diasPermitidosProd) {
             const slotKey = `${rShampoo.id}_${day.dateStr}`;
             if (!occupiedSlots.has(slotKey)) {
               occupiedSlots.add(slotKey);
@@ -2139,6 +2155,7 @@ export function PlanejamentoSemanalTab({
                 ordem_sequencia: 1,
                 processo_termico: 'frio'
               });
+              marcar(day.dateStr);
               scheduled = true;
               break;
             }
@@ -2152,7 +2169,7 @@ export function PlanejamentoSemanalTab({
       if (procInfo.isQuente && reqMassKg <= 45) {
         const r40 = reatores.find(r => r.id === 'R_40' && r.ativo);
         if (r40) {
-          for (const day of validDays) {
+          for (const day of diasPermitidosProd) {
             const slotKey = `${r40.id}_${day.dateStr}`;
             if (!occupiedSlots.has(slotKey)) {
               occupiedSlots.add(slotKey);
@@ -2183,6 +2200,7 @@ export function PlanejamentoSemanalTab({
                 ordem_sequencia: 1,
                 processo_termico: 'quente'
               });
+              marcar(day.dateStr);
               scheduled = true;
               break;
             }
@@ -2192,12 +2210,12 @@ export function PlanejamentoSemanalTab({
 
       if (scheduled) continue;
 
-      // CENÁRIO B: Máscaras quentes pequenas (<= 150kg) batidas na bombona com água da caldeira!
+      // CENÁRIO B: Quentes pequenos (< 200kg) batidas na bombona com água da caldeira!
       // Regra: Aproveita caldeira já ligada ou agrupa na bombona
-      if (procInfo.isQuente && reqMassKg <= 150 && procInfo.canBombona) {
+      if (procInfo.isQuente && reqMassKg < 200 && procInfo.canBombona) {
         const bombonaReator = reatores.find(r => r.id === 'BOMBONAS' && r.ativo);
         if (bombonaReator) {
-          const sortedDays = [...validDays].sort((a, b) => {
+          const sortedDays = [...diasPermitidosProd].sort((a, b) => {
             const aHasCaldeira = daysWithCaldeira.has(a.dateStr) ? 0 : 1;
             const bHasCaldeira = daysWithCaldeira.has(b.dateStr) ? 0 : 1;
             return aHasCaldeira - bHasCaldeira;
@@ -2236,6 +2254,7 @@ export function PlanejamentoSemanalTab({
                 ordem_sequencia: 1,
                 processo_termico: 'agua_caldeira'
               });
+              marcar(day.dateStr);
               scheduled = true;
               break;
             }
@@ -2249,7 +2268,7 @@ export function PlanejamentoSemanalTab({
       if (!procInfo.isQuente && procInfo.canBombona && reqMassKg <= 200) {
         const bombonaReator = reatores.find(r => r.id === 'BOMBONAS' && r.ativo);
         if (bombonaReator) {
-          for (const day of validDays) {
+          for (const day of diasPermitidosProd) {
             const currentDayBombonas = bombonaSlotsCount[day.dateStr] || 0;
             if (currentDayBombonas < 4) {
               bombonaSlotsCount[day.dateStr] = currentDayBombonas + 1;
@@ -2280,6 +2299,7 @@ export function PlanejamentoSemanalTab({
                 ordem_sequencia: 1,
                 processo_termico: 'frio'
               });
+              marcar(day.dateStr);
               scheduled = true;
               break;
             }
@@ -2323,11 +2343,11 @@ export function PlanejamentoSemanalTab({
         return false;
       });
 
-      // Ordena pelo reator mais próximo do tamanho
-      compatibleReatores.sort((a, b) => Math.abs(a.capacidade_kg - reqMassKg) - Math.abs(b.capacidade_kg - reqMassKg));
+      // Menor reator em que caiba; depois os que não comportam, do maior para o menor
+      const reatoresOrdenados = ordenarReatoresPorCaber(compatibleReatores, reqMassKg);
 
-      for (const reator of compatibleReatores) {
-        for (const day of validDays) {
+      for (const reator of reatoresOrdenados) {
+        for (const day of diasPermitidosProd) {
           const slotKey = `${reator.id}_${day.dateStr}`;
 
           // Se for R_100, valida trava rígida de 1 por dia
@@ -2370,6 +2390,7 @@ export function PlanejamentoSemanalTab({
               ordem_sequencia: 1,
               processo_termico: procInfo.isQuente ? (reator.id === 'R_100' ? 'resistencia' : (reator.id === 'R_40' ? 'quente' : 'caldeira')) : 'frio'
             });
+            marcar(day.dateStr);
             scheduled = true;
             break;
           }
@@ -4473,7 +4494,7 @@ export function PlanejamentoSemanalTab({
                           {item.data_planejada.split('-').slice(1).reverse().join('/')}
                         </td>
                         <td className="p-2.5 text-zinc-700 font-semibold">
-                          {r ? r.nome : item.reator_id}
+                          {item.reator_id === 'BOMBONAS' && item.recipiente_detalhe ? item.recipiente_detalhe : (r ? r.nome : item.reator_id)}
                         </td>
                         <td className="p-2.5 font-bold text-zinc-900 truncate max-w-[200px]" title={item.descricao}>
                           {item.descricao}
