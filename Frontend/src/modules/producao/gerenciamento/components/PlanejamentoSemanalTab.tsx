@@ -462,6 +462,14 @@ function formatDateStr(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+/** Data prevista de envase: data planejada (YYYY-MM-DD, local) + N dias corridos, em dd/mm. */
+function previsaoEnvase(dataPlanejada: string, dias: number): string {
+  const [y, m, d] = (dataPlanejada || '').split('T')[0].split('-').map(Number);
+  if (!y || !m || !d) return '';
+  const dt = new Date(y, m - 1, d + dias);
+  return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function getWeekKey(d: Date): string {
   const monday = getMondayOfWeek(d);
   const target = new Date(monday.valueOf());
@@ -933,6 +941,15 @@ export function PlanejamentoSemanalTab({
   }, [plannedItems]);
 
   // Estatísticas da semana atual
+  const diasAteEnvasePorCodigo = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of products) {
+      const n = p.dias_ate_envase;
+      if (n !== null && n !== undefined && Number.isFinite(Number(n)) && Number(n) >= 0) m.set(p.codigo, Number(n));
+    }
+    return m;
+  }, [products]);
+
   const weekStats = useMemo(() => {
     let totalKg = 0;
     let totalBatches = plannedItems.length;
@@ -2977,6 +2994,27 @@ export function PlanejamentoSemanalTab({
                                       </div>
                                     )}
 
+                                    {/* Envase previsto (dias até o envase definidos no produto) */}
+                                    {(() => {
+                                      const comEnvase = batch.items
+                                        .map(it => ({ it, dias: diasAteEnvasePorCodigo.get(it.codigo_produto) }))
+                                        .filter((x): x is { it: PlanejamentoItem; dias: number } => x.dias !== undefined);
+                                      if (comEnvase.length === 0) return null;
+                                      return (
+                                        <div className="flex flex-col gap-0.5">
+                                          {comEnvase.map(({ it, dias }) => (
+                                            <span
+                                              key={it.id}
+                                              className="text-[10px] text-zinc-500"
+                                              title={`Previsão: data planejada + ${dias} dia(s) até o envase (definido no produto). A liberação real continua sendo o laudo físico-químico.`}
+                                            >
+                                              Envase ≥ {previsaoEnvase(it.data_planejada, dias)}{batch.isMulti ? ` · ${it.codigo_produto}` : ''}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      );
+                                    })()}
+
                                     {/* 3. Métricas: Massa Total (kg) e Rendimento Previsto */}
                                     {(() => {
                                       const isBase = (batch.primaryItem.codigo_produto || '').includes('.36.') || 
@@ -3086,6 +3124,17 @@ export function PlanejamentoSemanalTab({
                                   </div>
                                 );
                               })}
+
+                              {/* Capacidade livre do reator no dia */}
+                              {cellItems.length > 0 && reator.id !== 'BOMBONAS' && (() => {
+                                const usado = cellItems.reduce((acc, it) => acc + (Number(it.quantidade_planejada) || 0), 0);
+                                const livre = Math.round(reator.capacidade_kg - usado);
+                                return livre < 0 ? (
+                                  <div className="text-[10px] text-red-600/80 text-right">excede {Math.abs(livre).toLocaleString('pt-BR')} kg</div>
+                                ) : (
+                                  <div className="text-[10px] text-zinc-500 text-right">{livre.toLocaleString('pt-BR')} kg livres</div>
+                                );
+                              })()}
 
                               {/* Botão de Agendamento Rápido na Célula Vaga */}
                               {cellItems.length === 0 && podeEditar && (
