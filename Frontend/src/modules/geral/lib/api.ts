@@ -288,13 +288,6 @@ export const api = {
   deleteOnlineOrder(id: string): Promise<void> {
     return hubJson(`compras/online-orders/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
-  // Comprovantes eram do app desktop (Tauri); a versão web ainda não tem rota para eles.
-  uploadOrderReceipt(_id: string, _filename: string, _data: number[]): Promise<string> {
-    return Promise.reject(new Error('Envio de comprovante indisponível na versão web.'));
-  },
-  openReceiptFile(_path: string): Promise<void> {
-    return Promise.reject(new Error('Abrir comprovante indisponível na versão web.'));
-  },
   getOnlineStores(): Promise<OnlineStore[]> {
     return hubJson('compras/online-stores');
   },

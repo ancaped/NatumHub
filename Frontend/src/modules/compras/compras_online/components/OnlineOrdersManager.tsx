@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../geral/lib/api';
 import { OnlineOrder, OnlineStore, Item } from '../../../geral/lib/types';
 import { 
-  Plus, Search, Calendar, DollarSign, ExternalLink, Paperclip, 
-  Trash2, Edit3, CheckCircle, Truck, AlertCircle, Eye, FileText, 
+  Plus, Search, Calendar, DollarSign, ExternalLink,
+  Trash2, Edit3, CheckCircle, Truck, AlertCircle, FileText, 
   X, ShoppingBag, Clock, ShieldAlert, CreditCard, Store, TrendingUp, 
   ArrowUpRight, ArrowDownRight, Equal
 } from 'lucide-react';
@@ -60,9 +60,7 @@ export function OnlineOrdersManager() {
   const [selectedChartItemCode, setSelectedChartItemCode] = useState<string>('');
 
   // Attachment states
-  const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptPath, setReceiptPath] = useState<string | null>(null);
-  const [uploadingReceipt, setUploadingReceipt] = useState(false);
 
   useEffect(() => {
     loadOrders();
@@ -122,7 +120,6 @@ export function OnlineOrdersManager() {
     setStatus('preparing');
     setEstimatedDelivery('');
     setNotes('');
-    setReceiptFile(null);
     setReceiptPath(null);
     
     // Return states reset
@@ -151,7 +148,6 @@ export function OnlineOrdersManager() {
     setStatus(order.status);
     setEstimatedDelivery(order.estimatedDelivery || '');
     setNotes(order.notes || '');
-    setReceiptFile(null);
     setReceiptPath(order.receiptPath);
     
     // Return states set
@@ -171,12 +167,6 @@ export function OnlineOrdersManager() {
     setShowModal(true);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setReceiptFile(e.target.files[0]);
-    }
-  };
-
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!description.trim()) {
@@ -185,22 +175,6 @@ export function OnlineOrdersManager() {
     }
 
     const orderId = editingOrder ? editingOrder.id : randomId();
-    let currentReceiptPath = receiptPath;
-
-    if (receiptFile) {
-      setUploadingReceipt(true);
-      try {
-        const buffer = await receiptFile.arrayBuffer();
-        const bytes = Array.from(new Uint8Array(buffer));
-        currentReceiptPath = await api.uploadOrderReceipt(orderId, receiptFile.name, bytes);
-      } catch (err) {
-        console.error(err);
-        alert('Erro ao fazer upload do comprovante.');
-        setUploadingReceipt(false);
-        return;
-      }
-      setUploadingReceipt(false);
-    }
 
     // Resolve store name
     let resolvedStoreName = storeName.trim();
@@ -227,7 +201,7 @@ export function OnlineOrdersManager() {
       trackingUrl: trackingUrl.trim() || null,
       status,
       estimatedDelivery: estimatedDelivery || null,
-      receiptPath: currentReceiptPath,
+      receiptPath: receiptPath,
       notes: notes.trim() || null,
       isReturn,
       returnDeadline: isReturn && returnDeadline ? returnDeadline : null,
@@ -253,15 +227,6 @@ export function OnlineOrdersManager() {
     } catch (e) {
       console.error(e);
       alert('Erro ao excluir registro.');
-    }
-  };
-
-  const handleOpenReceipt = async (path: string) => {
-    try {
-      await api.openReceiptFile(path);
-    } catch (e) {
-      console.error(e);
-      alert('Erro ao abrir comprovante. Verifique se o arquivo ainda existe localmente.');
     }
   };
 
@@ -869,15 +834,6 @@ export function OnlineOrdersManager() {
                             ) : (
                               <span className="text-zinc-400 text-xs italic">-</span>
                             )}
-                            {order.receiptPath && (
-                              <button 
-                                onClick={() => handleOpenReceipt(order.receiptPath!)}
-                                className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-650 hover:underline hover:text-emerald-800 cursor-pointer self-start"
-                              >
-                                <Paperclip className="w-3 h-3" />
-                                Ver Comprovante
-                              </button>
-                            )}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-xs">
@@ -1263,7 +1219,7 @@ export function OnlineOrdersManager() {
                 <h3 className="font-bold text-zinc-900 text-base">
                   {editingOrder ? 'Editar Registro de Compra' : 'Registrar Compra Online'}
                 </h3>
-                <p className="text-xs text-zinc-500 font-medium">Acompanhe mercadorias, preços, frete e comprovantes</p>
+                <p className="text-xs text-zinc-500 font-medium">Acompanhe mercadorias, preços e frete</p>
               </div>
               <button 
                 type="button" 
@@ -1484,29 +1440,6 @@ export function OnlineOrdersManager() {
                 </div>
               </div>
 
-              {/* Attachment upload */}
-              <div className="space-y-1.5 p-4 rounded-xl border border-zinc-200 bg-zinc-50/50">
-                <label className="text-xs font-bold text-zinc-600 uppercase tracking-wider block">Comprovante de Compra (Anexo)</label>
-                <div className="flex flex-col sm:flex-row gap-3 items-center">
-                  <input 
-                    type="file" 
-                    accept=".pdf,.png,.jpg,.jpeg"
-                    onChange={handleFileChange}
-                    className="text-xs border border-zinc-300 rounded-lg p-1 bg-white flex-1 w-full"
-                  />
-                  {receiptPath && (
-                    <button 
-                      type="button"
-                      onClick={() => handleOpenReceipt(receiptPath)}
-                      className="px-4 py-2 border border-zinc-300 rounded-lg text-xs font-bold hover:bg-white transition-colors cursor-pointer bg-zinc-100 text-zinc-800 flex items-center gap-1 shadow-sm shrink-0"
-                    >
-                      <Eye className="w-3.5 h-3.5 text-zinc-500" /> Ver Atual
-                    </button>
-                  )}
-                </div>
-                <p className="text-[10px] text-zinc-450 italic mt-1 block">Tamanho recomendado: PDF ou imagem até 5MB.</p>
-              </div>
-
               {/* Order Status */}
               <div className="space-y-1">
                 <label className="text-xs font-bold text-zinc-600 uppercase tracking-wider block">Status Atual *</label>
@@ -1613,10 +1546,9 @@ export function OnlineOrdersManager() {
               </button>
               <button 
                 type="submit" 
-                disabled={uploadingReceipt}
                 className="flex items-center gap-1.5 bg-zinc-950 text-white px-6 py-2.5 rounded-xl text-xs font-bold hover:bg-zinc-800 disabled:opacity-50 transition-all cursor-pointer shadow-md"
               >
-                {uploadingReceipt ? 'Salvando...' : editingOrder ? 'Salvar Alterações' : 'Salvar Registro'}
+                {editingOrder ? 'Salvar Alterações' : 'Salvar Registro'}
               </button>
             </div>
           </form>

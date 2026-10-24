@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Monitor, Loader2, ArrowRight, AlertTriangle, CheckCircle2, Server, Laptop, Database,
+  Monitor, Loader2, ArrowRight, AlertTriangle, CheckCircle2, Server, Laptop,
 } from 'lucide-react';
 import { APP_NAME } from '../lib/utils';
 import NexusLogo from '../components/NexusLogo';
@@ -21,14 +21,6 @@ interface SetupConnectionViewProps {
 
 type RoleChoice = 'server' | 'terminal';
 
-type BootstrapPostgresResult = {
-  ok: boolean;
-  message: string;
-  postgresEnvPath: string;
-  port: number;
-  steps: string[];
-};
-
 /** Wizard: PC Principal (API+Postgres) ou Terminal (só UI → API do master). */
 export default function SetupConnectionView({ onComplete, reason }: SetupConnectionViewProps) {
   const existing = loadConnectionConfig();
@@ -43,34 +35,6 @@ export default function SetupConnectionView({ onComplete, reason }: SetupConnect
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
-  const [pgInstalling, setPgInstalling] = useState(false);
-  const [pgOk, setPgOk] = useState<string | null>(null);
-
-  const handleInstallPostgres = async () => {
-    setError(null);
-    setPgOk(null);
-    setPgInstalling(true);
-    try {
-      // Instalação local do Postgres era do app desktop (Tauri); não existe na versão web.
-      const result: BootstrapPostgresResult = await Promise.reject(
-        new Error('Instalar o PostgreSQL por aqui só funcionava no app desktop.'),
-      );
-      setPgOk(
-        result.message ||
-          `PostgreSQL pronto na porta ${result.port}. Env: ${result.postgresEnvPath}`
-      );
-    } catch (e: unknown) {
-      const msg =
-        typeof e === 'string'
-          ? e
-          : e instanceof Error
-            ? e.message
-            : 'Falha ao instalar PostgreSQL local.';
-      setError(msg);
-    } finally {
-      setPgInstalling(false);
-    }
-  };
 
   const buildConfig = (): ClientConfig => {
     if (role === 'terminal') {
@@ -226,35 +190,9 @@ export default function SetupConnectionView({ onComplete, reason }: SetupConnect
             <ul className="text-xs text-zinc-600 space-y-1.5 bg-zinc-50 border border-zinc-100 rounded-xl p-3">
               <li className="flex gap-2">
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0 mt-0.5" />
-                No NatumHub Dev: um clique instala Postgres 17, cria o banco e o <code className="text-[10px]">postgres.env</code>
-              </li>
-              <li className="flex gap-2">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0 mt-0.5" />
                 Próximo passo: conta supervisor
               </li>
             </ul>
-
-            <button
-              type="button"
-              onClick={handleInstallPostgres}
-              disabled={saving || testing || pgInstalling}
-              className="w-full flex items-center justify-center gap-2 border border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-900 font-bold text-sm py-2.5 rounded-xl disabled:opacity-60 cursor-pointer"
-            >
-              {pgInstalling ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Database className="h-4 w-4" />
-              )}
-              {pgInstalling
-                ? 'Instalando PostgreSQL (~316 MB, vários minutos)…'
-                : 'Instalar PostgreSQL local (Dev)'}
-            </button>
-
-            {pgOk && (
-              <p className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
-                {pgOk}
-              </p>
-            )}
           </div>
         )}
 
@@ -265,7 +203,7 @@ export default function SetupConnectionView({ onComplete, reason }: SetupConnect
         <button
           type="button"
           onClick={handleFinish}
-          disabled={saving || testing || pgInstalling}
+          disabled={saving || testing}
           className="w-full flex items-center justify-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-sm py-3 rounded-xl disabled:opacity-60 cursor-pointer"
         >
           {saving || testing ? (
