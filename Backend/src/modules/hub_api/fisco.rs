@@ -1093,3 +1093,48 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/hub/fisco/erp-lotes/:lote/insumos", get(get_erp_lote_insumos_handler))
         .route("/api/hub/fisco/products", get(get_all_fisco_products_handler))
 }
+
+/// Ações de leitura do Fisco Químico (ver `core::catalogo`).
+pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
+    use crate::core::catalogo::{param, Acao};
+    vec![
+        Acao::leitura(
+            "listar_lotes_fisco",
+            "fisco_quimica",
+            "Lista lotes do ERP com situação do laudo fisco-químico, paginados.",
+            "/api/hub/fisco/erp-lotes",
+            vec![
+                param("search", "query", "texto", false, "Texto de busca."),
+                param("status_laudo", "query", "texto", false, "Situação do laudo (ALL por padrão)."),
+                param("status_erp", "query", "texto", false, "Status no ERP."),
+                param("date_from", "query", "data", false, "Data inicial."),
+                param("date_to", "query", "data", false, "Data final."),
+                param("page", "query", "inteiro", false, "Página, a partir de 1."),
+                param("limit", "query", "inteiro", false, "Linhas por página (50 por padrão, máximo 500)."),
+            ],
+        ),
+        Acao::leitura(
+            "listar_insumos_lote_fisco",
+            "fisco_quimica",
+            "Insumos consumidos em um lote.",
+            "/api/hub/fisco/erp-lotes/:lote/insumos",
+            vec![
+                param("lote", "caminho", "texto", true, "Número do lote."),
+            ],
+        ),
+        Acao::leitura(
+            "listar_analises_fisco",
+            "fisco_quimica",
+            "Lista as análises fisco-químicas salvas.",
+            "/api/hub/fisco/analyses",
+            vec![],
+        ),
+        Acao::leitura(
+            "listar_lotes_corretivos_fisco",
+            "fisco_quimica",
+            "Lotes corretivos por semana e situação da baixa.",
+            "/api/hub/fisco/corrective-batches",
+            vec![],
+        ),
+    ]
+}

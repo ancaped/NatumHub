@@ -137,3 +137,24 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/hub/microbio/reports/printed", axum::routing::post(update_reports_printed_handler))
         .route("/api/hub/microbio/reports/:id", delete(delete_report_handler))
 }
+
+/// Ações de leitura da Microbiologia (ver `core::catalogo`).
+pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
+    use crate::core::catalogo::{param, Acao};
+    vec![
+        Acao::leitura(
+            "listar_produtos_microbio",
+            "microbiologia",
+            "Lista os produtos acompanhados pela microbiologia.",
+            "/api/hub/microbio/products",
+            vec![],
+        ),
+        Acao::leitura(
+            "listar_laudos_microbio",
+            "microbiologia",
+            "Lista os laudos microbiológicos.",
+            "/api/hub/microbio/reports",
+            vec![],
+        ),
+    ]
+}

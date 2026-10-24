@@ -87,3 +87,72 @@ pub fn router() -> Router<Arc<AppState>> {
             post(handlers::marcar_erp_item),
         )
 }
+
+/// Ações de leitura das Devoluções (ver `core::catalogo`).
+pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
+    use crate::core::catalogo::{param, Acao};
+    vec![
+        Acao::leitura(
+            "listar_devolucoes",
+            "qualidade_devolucoes",
+            "Lista devoluções recebidas.",
+            "/api/qualidade/devolucoes",
+            vec![
+                param("status", "query", "texto", false, "Filtra por status."),
+                param("q", "query", "texto", false, "Texto de busca."),
+                param("filtro", "query", "texto", false, "abertas, finalizadas ou all."),
+            ],
+        ),
+        Acao::leitura(
+            "consultar_item_devolucao",
+            "qualidade_devolucoes",
+            "Busca produtos para registrar devolução.",
+            "/api/qualidade/devolucoes/lookup-item",
+            vec![
+                param("q", "query", "texto", true, "Código ou descrição."),
+            ],
+        ),
+        Acao::leitura(
+            "consultar_specs_lote_devolucao",
+            "qualidade_devolucoes",
+            "Especificações (pH, viscosidade, densidade) de um lote.",
+            "/api/qualidade/devolucoes/lote-specs",
+            vec![
+                param("lote", "query", "texto", true, "Número do lote."),
+                param("code", "query", "texto", false, "Código do produto."),
+            ],
+        ),
+        Acao::leitura(
+            "listar_controles_devolucao",
+            "qualidade_devolucoes",
+            "Lista os controles (folhas) de devolução.",
+            "/api/qualidade/devolucoes/controles",
+            vec![],
+        ),
+        Acao::leitura(
+            "listar_controles_devolucao_pendentes",
+            "qualidade_devolucoes",
+            "Controles de devolução pendentes.",
+            "/api/qualidade/devolucoes/controles/pendentes",
+            vec![],
+        ),
+        Acao::leitura(
+            "detalhar_controle_devolucao",
+            "qualidade_devolucoes",
+            "Detalhe de um controle de devolução.",
+            "/api/qualidade/devolucoes/controles/:id",
+            vec![
+                param("id", "caminho", "inteiro", true, "Id do controle."),
+            ],
+        ),
+        Acao::leitura(
+            "detalhar_devolucao",
+            "qualidade_devolucoes",
+            "Detalhe de uma devolução com itens.",
+            "/api/qualidade/devolucoes/:id",
+            vec![
+                param("id", "caminho", "inteiro", true, "Id da devolução."),
+            ],
+        ),
+    ]
+}

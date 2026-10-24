@@ -57,3 +57,56 @@ pub fn router() -> Router<Arc<AppState>> {
             post(handlers::check_alerts),
         )
 }
+
+/// Ações de leitura dos POPs (ver `core::catalogo`).
+pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
+    use crate::core::catalogo::{param, Acao};
+    vec![
+        Acao::leitura(
+            "listar_setores_pop",
+            "qualidade_pops",
+            "Lista os setores dos POPs.",
+            "/api/qualidade/pops/sectors",
+            vec![],
+        ),
+        Acao::leitura(
+            "listar_documentos_pop",
+            "qualidade_pops",
+            "Lista os POPs.",
+            "/api/qualidade/pops/documents",
+            vec![
+                param("sectorId", "query", "texto", false, "Só POPs deste setor."),
+                param("status", "query", "texto", false, "Filtra por status."),
+                param("q", "query", "texto", false, "Texto de busca."),
+            ],
+        ),
+        Acao::leitura(
+            "detalhar_documento_pop",
+            "qualidade_pops",
+            "Detalhe de um POP.",
+            "/api/qualidade/pops/documents/:id",
+            vec![
+                param("id", "caminho", "texto", true, "Id do POP."),
+            ],
+        ),
+        Acao::leitura(
+            "listar_versoes_documento_pop",
+            "qualidade_pops",
+            "Versões de um POP.",
+            "/api/qualidade/pops/documents/:id/versions",
+            vec![
+                param("id", "caminho", "texto", true, "Id do POP."),
+            ],
+        ),
+        Acao::leitura(
+            "detalhar_versao_documento_pop",
+            "qualidade_pops",
+            "Conteúdo de uma versão de POP.",
+            "/api/qualidade/pops/documents/:id/versions/:vid",
+            vec![
+                param("id", "caminho", "texto", true, "Id do POP."),
+                param("vid", "caminho", "texto", true, "Id da versão."),
+            ],
+        ),
+    ]
+}

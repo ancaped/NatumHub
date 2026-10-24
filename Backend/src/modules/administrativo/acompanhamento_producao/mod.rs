@@ -139,3 +139,77 @@ pub fn router() -> Router<Arc<AppState>> {
             post(handlers::reorder_programacao_rotulagem),
         )
 }
+
+/// Ações de leitura do Acompanhamento de Produção (ver `core::catalogo`).
+pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
+    use crate::core::catalogo::{param, Acao};
+    vec![
+        Acao::leitura(
+            "listar_acompanhamento_producao",
+            "admin_acompanhamento_producao",
+            "Lista os lotes do acompanhamento de produção (status do ERP e status próprio).",
+            "/api/administrativo/acompanhamento-producao",
+            vec![
+                param("search", "query", "texto", false, "Texto de busca."),
+                param("statusErp", "query", "texto", false, "Status no ERP."),
+                param("statusNosso", "query", "texto", false, "Status no Nexus."),
+                param("categoria", "query", "texto", false, "Categoria."),
+                param("dateStart", "query", "data", false, "Data inicial (AAAA-MM-DD)."),
+                param("dateEnd", "query", "data", false, "Data final (AAAA-MM-DD)."),
+                param("limit", "query", "inteiro", false, "Máximo de lotes."),
+                param("apenasTerceirizados", "query", "booleano", false, "Só terceirizados."),
+            ],
+        ),
+        Acao::leitura(
+            "auditar_lotes_acompanhamento",
+            "admin_acompanhamento_producao",
+            "Auditoria de divergências entre os lotes do ERP e o acompanhamento.",
+            "/api/administrativo/acompanhamento-producao/auditoria",
+            vec![],
+        ),
+        Acao::leitura(
+            "consultar_historico_lote_acompanhamento",
+            "admin_acompanhamento_producao",
+            "Histórico de mudanças de status de um lote.",
+            "/api/administrativo/lote-status/:number/history",
+            vec![
+                param("number", "caminho", "texto", true, "Número do lote."),
+            ],
+        ),
+        Acao::leitura(
+            "listar_solicitacoes_terceirizados",
+            "admin_acompanhamento_producao",
+            "Lista solicitações de produção terceirizada.",
+            "/api/administrativo/terceirizados/solicitacoes",
+            vec![],
+        ),
+        Acao::leitura(
+            "consultar_produto_terceirizado",
+            "admin_acompanhamento_producao",
+            "Consulta um produto pelo código para terceirização.",
+            "/api/administrativo/terceirizados/produto/:code",
+            vec![
+                param("code", "caminho", "texto", true, "Código do produto."),
+            ],
+        ),
+        Acao::leitura(
+            "listar_programacao_envase",
+            "admin_acompanhamento_producao",
+            "Programação de envase do dia.",
+            "/api/administrativo/envase/programacao",
+            vec![
+                param("data", "query", "data", false, "Dia (AAAA-MM-DD; hoje por padrão)."),
+            ],
+        ),
+        Acao::leitura(
+            "listar_programacao_rotulagem",
+            "admin_acompanhamento_producao",
+            "Programação de rotulagem do dia.",
+            "/api/administrativo/rotulagem/programacao",
+            vec![
+                param("data", "query", "data", false, "Dia (AAAA-MM-DD; hoje por padrão)."),
+                param("tipo", "query", "texto", false, "Tipo de rotulagem."),
+            ],
+        ),
+    ]
+}

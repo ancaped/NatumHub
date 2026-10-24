@@ -80,6 +80,17 @@ pub fn todas() -> Vec<Acao> {
     v.extend(crate::modules::hub_api::compras::acoes());
     v.extend(crate::handlers::estoque::acoes_produtos());
     v.extend(crate::handlers::vendas::acoes_vendas());
+    v.extend(crate::modules::estoque::almoxarifado::acoes());
+    v.extend(crate::modules::qualidade::avarias::acoes());
+    v.extend(crate::modules::qualidade::devolucoes::acoes());
+    v.extend(crate::modules::qualidade::recebimento_mp::acoes());
+    v.extend(crate::modules::qualidade::pops::acoes());
+    v.extend(crate::modules::qualidade::documentacao::acoes());
+    v.extend(crate::modules::administrativo::acompanhamento_producao::acoes());
+    v.extend(crate::modules::expedicao::acoes());
+    v.extend(crate::modules::financeiro::acoes());
+    v.extend(crate::modules::hub_api::microbio::acoes());
+    v.extend(crate::modules::hub_api::fisco::acoes());
     v
 }
 
@@ -148,6 +159,17 @@ mod tests {
             include_str!("../modules/estoque/estoque_geral/mod.rs"),
             include_str!("../modules/compras/planejamento/mod.rs"),
             include_str!("../modules/hub_api/compras.rs"),
+            include_str!("../modules/estoque/almoxarifado/mod.rs"),
+            include_str!("../modules/qualidade/avarias/mod.rs"),
+            include_str!("../modules/qualidade/devolucoes/mod.rs"),
+            include_str!("../modules/qualidade/recebimento_mp/mod.rs"),
+            include_str!("../modules/qualidade/pops/mod.rs"),
+            include_str!("../modules/qualidade/documentacao/mod.rs"),
+            include_str!("../modules/administrativo/acompanhamento_producao/mod.rs"),
+            include_str!("../modules/expedicao/mod.rs"),
+            include_str!("../modules/financeiro/mod.rs"),
+            include_str!("../modules/hub_api/microbio.rs"),
+            include_str!("../modules/hub_api/fisco.rs"),
             include_str!("../server.rs"),
         ]
         .concat();
