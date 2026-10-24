@@ -24,6 +24,21 @@ jobs:
     name: Testes
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Postgres de teste: as migrações e os testes `#[ignore]` (NEXUS_TEST_DATABASE_URL) rodam contra ele.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: natumhub_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,6 +68,24 @@ jobs:
       - name: Backend (testes)
         working-directory: Backend
         run: cargo test --no-default-features
+
+      # Migrações na mesma ordem do SCHEMA_FILES (postgres_bootstrap/commands.rs), num banco vazio.
+      - name: Banco de teste (migrações)
+        working-directory: Backend
+        env:
+          PGPASSWORD: postgres
+        run: |
+          grep -oE '"[0-9A-Za-z_]+\.sql"' src/modules/geral/postgres_bootstrap/commands.rs | tr -d '"' | awk '!seen[$0]++' |
+          while read -r f; do
+            psql -h localhost -U postgres -d natumhub_test -v ON_ERROR_STOP=1 -q -f "supabase/$f"
+          done
+
+      # Testes que precisam de banco. test_dump_execution precisa do SQL Server do ERP e fica de fora.
+      - name: Backend (testes com banco)
+        working-directory: Backend
+        env:
+          NEXUS_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/natumhub_test
+        run: cargo test --no-default-features --lib -- --ignored --test-threads=1 --skip tests::test_dump_execution
 
   image:
     name: Imagem (GHCR)

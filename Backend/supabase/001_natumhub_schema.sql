@@ -672,4 +672,4 @@ CREATE INDEX IF NOT EXISTS idx_hub_notifications_created ON hub_notifications(cr
 CREATE INDEX IF NOT EXISTS idx_hub_notifications_module ON hub_notifications(module_key);
 
 -- RLS: backend usa DATABASE_URL (service role via postgres), não anon key.
-ALTER TABLE sync_status ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS sync_status ENABLE ROW LEVEL SECURITY;
