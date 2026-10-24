@@ -1,51 +1,51 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import LoginView from './modules/geral/acesso/LoginView';
 import SetupSupervisorView from './modules/geral/acesso/SetupSupervisorView';
 import SetupConnectionView from './modules/geral/acesso/SetupConnectionView';
 import RestartRequiredView from './modules/geral/acesso/RestartRequiredView';
 import DashboardView from './modules/geral/dashboard/DashboardView';
-import ConfiguracoesView from './modules/geral/configuracoes/ConfiguracoesView';
-import DesenvolvimentoView from './modules/geral/desenvolvimento/DesenvolvimentoView';
+const ConfiguracoesView = lazy(() => import('./modules/geral/configuracoes/ConfiguracoesView'));
+const DesenvolvimentoView = lazy(() => import('./modules/geral/desenvolvimento/DesenvolvimentoView'));
 import AppShell from './modules/geral/components/layout/AppShell';
 
-import ProducaoView from './modules/producao/gerenciamento/ProducaoView';
-import PlanejamentoProducaoView from './modules/producao/planejamento/PlanejamentoProducaoView';
-import ProducaoLotesView from './modules/producao/lotes/ProducaoLotesView';
-import { ProcView } from './modules/producao/proc/ProcView';
-import MontagemKitsView from './modules/producao/montagem_kits/MontagemKitsView';
-import MicrobiologiaView from './modules/producao/microbiologia/MicrobiologiaView';
-import FiscoQuimicaView from './modules/producao/fisco_quimica/FiscoQuimicaView';
-import ComprasView from './modules/compras/planejamento/ComprasView';
-import EstoqueView from './modules/estoque/estoque_geral/EstoqueView';
-import EquipamentosView from './modules/estoque/equipamentos/EquipamentosView';
-import AlmoxEstoqueView from './modules/estoque/almoxarifado/AlmoxEstoqueView';
-import AlmoxManutencoesView from './modules/estoque/manutencoes/AlmoxManutencoesView';
-import OrdensManuaisView from './modules/estoque/ordens_manuais/OrdensManuaisView';
-import PedidosView from './modules/compras/controle_pedidos/PedidosView';
-import NotasFiscaisView from './modules/compras/notas_fiscais/NotasFiscaisView';
-import ActiveProductsView from './modules/administrativo/linha_produtos/ActiveProductsView';
-import RelatoriosView from './modules/administrativo/relatorios/RelatoriosView';
-import ProdutosAtivosRelatoriosView from './modules/administrativo/produtos_ativos_relatorios/ProdutosAtivosRelatoriosView';
-import FuncionariosView from './modules/administrativo/funcionarios/FuncionariosView';
-import AcompanhamentoProducaoView from './modules/administrativo/acompanhamento_producao/AcompanhamentoProducaoView';
-import VendasView from './modules/vendas/vendas_geral/VendasView';
-import VendasOnlineView from './modules/vendas/vendas_online/VendasOnlineView';
-import ControleQualidadeView from './modules/qualidade/controle/ControleQualidadeView';
-import QualidadePopsView from './modules/qualidade/pops/QualidadePopsView';
-import QualidadeTreinamentosView from './modules/qualidade/treinamentos/QualidadeTreinamentosView';
-import QualidadeTemperaturaView from './modules/qualidade/temperatura/QualidadeTemperaturaView';
-import QualidadeLimpezaView from './modules/qualidade/limpeza/QualidadeLimpezaView';
-import QualidadeRecebimentoMpView from './modules/qualidade/recebimento_mp/QualidadeRecebimentoMpView';
-import QualidadeDocumentacaoView from './modules/qualidade/documentacao/QualidadeDocumentacaoView';
-import DevolucoesView from './modules/qualidade/devolucoes/DevolucoesView';
-import AvariasView from './modules/qualidade/avarias/AvariasView';
-import AdministrativoView from './modules/administrativo/AdministrativoView';
-import ExpedicaoView from './modules/expedicao/ExpedicaoView';
-import FinanceiroView from './modules/financeiro/FinanceiroView';
-import EtiquetasView from './modules/ferramentas/etiquetas/EtiquetasView';
-import EditorEtiquetasView from './modules/ferramentas/editor/EditorEtiquetasView';
-import ImpressorasView from './modules/ferramentas/impressoras/ImpressorasView';
-import BalancaView from './modules/ferramentas/balanca/BalancaView';
+const ProducaoView = lazy(() => import('./modules/producao/gerenciamento/ProducaoView'));
+const PlanejamentoProducaoView = lazy(() => import('./modules/producao/planejamento/PlanejamentoProducaoView'));
+const ProducaoLotesView = lazy(() => import('./modules/producao/lotes/ProducaoLotesView'));
+const ProcView = lazy(() => import('./modules/producao/proc/ProcView').then(m => ({ default: m.ProcView })));
+const MontagemKitsView = lazy(() => import('./modules/producao/montagem_kits/MontagemKitsView'));
+const MicrobiologiaView = lazy(() => import('./modules/producao/microbiologia/MicrobiologiaView'));
+const FiscoQuimicaView = lazy(() => import('./modules/producao/fisco_quimica/FiscoQuimicaView'));
+const ComprasView = lazy(() => import('./modules/compras/planejamento/ComprasView'));
+const EstoqueView = lazy(() => import('./modules/estoque/estoque_geral/EstoqueView'));
+const EquipamentosView = lazy(() => import('./modules/estoque/equipamentos/EquipamentosView'));
+const AlmoxEstoqueView = lazy(() => import('./modules/estoque/almoxarifado/AlmoxEstoqueView'));
+const AlmoxManutencoesView = lazy(() => import('./modules/estoque/manutencoes/AlmoxManutencoesView'));
+const OrdensManuaisView = lazy(() => import('./modules/estoque/ordens_manuais/OrdensManuaisView'));
+const PedidosView = lazy(() => import('./modules/compras/controle_pedidos/PedidosView'));
+const NotasFiscaisView = lazy(() => import('./modules/compras/notas_fiscais/NotasFiscaisView'));
+const ActiveProductsView = lazy(() => import('./modules/administrativo/linha_produtos/ActiveProductsView'));
+const RelatoriosView = lazy(() => import('./modules/administrativo/relatorios/RelatoriosView'));
+const ProdutosAtivosRelatoriosView = lazy(() => import('./modules/administrativo/produtos_ativos_relatorios/ProdutosAtivosRelatoriosView'));
+const FuncionariosView = lazy(() => import('./modules/administrativo/funcionarios/FuncionariosView'));
+const AcompanhamentoProducaoView = lazy(() => import('./modules/administrativo/acompanhamento_producao/AcompanhamentoProducaoView'));
+const VendasView = lazy(() => import('./modules/vendas/vendas_geral/VendasView'));
+const VendasOnlineView = lazy(() => import('./modules/vendas/vendas_online/VendasOnlineView'));
+const ControleQualidadeView = lazy(() => import('./modules/qualidade/controle/ControleQualidadeView'));
+const QualidadePopsView = lazy(() => import('./modules/qualidade/pops/QualidadePopsView'));
+const QualidadeTreinamentosView = lazy(() => import('./modules/qualidade/treinamentos/QualidadeTreinamentosView'));
+const QualidadeTemperaturaView = lazy(() => import('./modules/qualidade/temperatura/QualidadeTemperaturaView'));
+const QualidadeLimpezaView = lazy(() => import('./modules/qualidade/limpeza/QualidadeLimpezaView'));
+const QualidadeRecebimentoMpView = lazy(() => import('./modules/qualidade/recebimento_mp/QualidadeRecebimentoMpView'));
+const QualidadeDocumentacaoView = lazy(() => import('./modules/qualidade/documentacao/QualidadeDocumentacaoView'));
+const DevolucoesView = lazy(() => import('./modules/qualidade/devolucoes/DevolucoesView'));
+const AvariasView = lazy(() => import('./modules/qualidade/avarias/AvariasView'));
+const AdministrativoView = lazy(() => import('./modules/administrativo/AdministrativoView'));
+const ExpedicaoView = lazy(() => import('./modules/expedicao/ExpedicaoView'));
+const FinanceiroView = lazy(() => import('./modules/financeiro/FinanceiroView'));
+const EtiquetasView = lazy(() => import('./modules/ferramentas/etiquetas/EtiquetasView'));
+const EditorEtiquetasView = lazy(() => import('./modules/ferramentas/editor/EditorEtiquetasView'));
+const ImpressorasView = lazy(() => import('./modules/ferramentas/impressoras/ImpressorasView'));
+const BalancaView = lazy(() => import('./modules/ferramentas/balanca/BalancaView'));
 import { ErrorBoundary } from './modules/geral/components/ErrorBoundary';
 import { FeedbackWidget } from './modules/geral/components/FeedbackWidget';
 import { syncCurrentPageForView } from './modules/geral/lib/viewLabels';
@@ -1313,10 +1313,10 @@ export default function App() {
             onLogout={handleLogout}
             fetchSqlConfig={fetchSqlConfig}
           >
-            {renderContent()}
+            <Suspense fallback={<div className="flex items-center justify-center h-full w-full py-10 text-xs text-zinc-500">Carregando...</div>}>{renderContent()}</Suspense>
           </AppShell>
         ) : (
-          renderContent()
+          <Suspense fallback={<div className="flex items-center justify-center h-full w-full py-10 text-xs text-zinc-500">Carregando...</div>}>{renderContent()}</Suspense>
         )}
       </div>
       <FeedbackWidget
