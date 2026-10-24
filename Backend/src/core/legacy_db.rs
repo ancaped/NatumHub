@@ -3501,6 +3501,11 @@ WHERE {so2_date_filter};
         }
     };
 
+    // Saúde dos dados importados: só lê e registra; falha aqui nunca derruba o sync.
+    if let Err(e) = crate::modules::geral::saude_dados::checar_e_gravar(pool, "sync").await {
+        eprintln!("[ERP Sync] Aviso: checagem de saúde dos dados falhou: {e}");
+    }
+
     Ok(SyncResult {
         products: count_prod,
         suppliers: count_fornec,

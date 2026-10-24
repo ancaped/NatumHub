@@ -10,6 +10,7 @@ pub mod chat;
 pub mod mapa;
 pub mod notifications;
 pub mod postgres_bootstrap;
+pub mod saude_dados;
 
 pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
     axum::Router::new()
@@ -36,6 +37,7 @@ pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
         .route("/api/admin/audit/stock/:code/refresh", axum::routing::post(configuracoes::admin_handlers::refresh_stock_from_erp))
         .route("/api/auth/session", axum::routing::get(acesso::get_session).post(acesso::save_session).delete(acesso::clear_session))
         .merge(hub::router())
+        .merge(saude_dados::router())
         .merge(auth::router())
         .merge(audit::router())
         .merge(agentes::router())

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { apiJson, apiFetch, getSetting, setSetting } from '../lib/http';
 import { cn } from '../lib/utils';
+import SaudeDadosTab from './SaudeDadosTab';
 
 export interface ImportacoesServidorPanelProps {
   sqlHost: string;
@@ -126,6 +127,7 @@ export default function ImportacoesServidorPanel({
   syncingSql,
   setMessage,
 }: ImportacoesServidorPanelProps) {
+  const [aba, setAba] = useState<'sincronizacao' | 'saude'>('sincronizacao');
   const [history, setHistory] = useState<ImportRecord[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [syncLock, setSyncLock] = useState<SyncLockStatus | null>(null);
@@ -242,6 +244,25 @@ export default function ImportacoesServidorPanel({
   };
 
   return (
+    <div className="space-y-4">
+      <div className="flex gap-1 border-b border-zinc-200">
+        {([['sincronizacao', 'Sincronização'], ['saude', 'Saúde dos dados']] as const).map(([id, rotulo]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setAba(id)}
+            className={cn(
+              'px-4 py-2 text-xs font-bold border-b-2 -mb-px cursor-pointer transition-colors',
+              aba === id ? 'border-zinc-900 text-zinc-900' : 'border-transparent text-zinc-400 hover:text-zinc-700',
+            )}
+          >
+            {rotulo}
+          </button>
+        ))}
+      </div>
+      {aba === 'saude' ? (
+        <SaudeDadosTab />
+      ) : (
     <div className="space-y-6">
       {/* Card 1: Status de Sincronização & Controles Rápidos */}
       <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-5">
@@ -617,6 +638,8 @@ export default function ImportacoesServidorPanel({
           </div>
         )}
       </div>
+    </div>
+      )}
     </div>
   );
 }

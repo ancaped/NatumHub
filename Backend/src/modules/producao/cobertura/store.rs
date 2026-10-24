@@ -912,7 +912,21 @@ fn percentil(v: &[f64], p: f64) -> Option<f64> {
     Some(s[idx])
 }
 
-pub async fn validar(pool: &PgPool, limite: i64) -> Result<Validacao, String> {
+/// Previsto (fórmula × quantidade produzida) e baixado (ERP) de cada insumo nos últimos lotes fechados.
+/// Base de `validar` e da checagem de saúde dos dados do ERP.
+pub struct ComparacaoLotes {
+    pub lotes: Vec<i32>,
+    /// (lote, insumo) -> quantidade prevista
+    pub previsto: BTreeMap<(String, String), f64>,
+    /// (lote, insumo) -> quantidade baixada
+    pub baixado: BTreeMap<(String, String), f64>,
+    /// lotes cujos produtos não têm fórmula
+    pub sem_formula: Vec<String>,
+    /// insumo -> descrição (da fórmula)
+    pub descricoes: HashMap<String, String>,
+}
+
+pub async fn comparar_lotes(pool: &PgPool, limite: i64) -> Result<ComparacaoLotes, String> {
     let limite = limite.clamp(1, 200);
     let lotes: Vec<i32> = sqlx::query(
         "SELECT nlote FROM lotes_baixas WHERE nlote IS NOT NULL GROUP BY nlote ORDER BY MAX(dlog) DESC LIMIT $1",
@@ -925,16 +939,12 @@ pub async fn validar(pool: &PgPool, limite: i64) -> Result<Validacao, String> {
     .filter_map(|r| r.get::<Option<i32>, _>("nlote"))
     .collect();
     if lotes.is_empty() {
-        return Ok(Validacao {
-            lotes_analisados: 0,
-            itens_comparados: 0,
-            dentro_de_10pct: 0,
-            desvio_mediano: None,
-            desvio_p90: None,
-            baixado_sem_previsao: 0,
-            previsto_sem_baixa: 0,
-            lotes_sem_formula: Vec::new(),
-            piores: Vec::new(),
+        return Ok(ComparacaoLotes {
+            lotes,
+            previsto: BTreeMap::new(),
+            baixado: BTreeMap::new(),
+            sem_formula: Vec::new(),
+            descricoes: HashMap::new(),
         });
     }
     let lotes_txt: Vec<String> = lotes.iter().map(|n| n.to_string()).collect();
@@ -993,6 +1003,25 @@ pub async fn validar(pool: &PgPool, limite: i64) -> Result<Validacao, String> {
         }
     }
 
+    let descricoes = formulas.itens.iter().map(|(k, v)| (k.clone(), v.0.clone())).collect();
+    Ok(ComparacaoLotes { lotes, previsto, baixado, sem_formula, descricoes })
+}
+
+pub async fn validar(pool: &PgPool, limite: i64) -> Result<Validacao, String> {
+    let ComparacaoLotes { lotes, previsto, baixado, sem_formula, descricoes } = comparar_lotes(pool, limite).await?;
+    if lotes.is_empty() {
+        return Ok(Validacao {
+            lotes_analisados: 0,
+            itens_comparados: 0,
+            dentro_de_10pct: 0,
+            desvio_mediano: None,
+            desvio_p90: None,
+            baixado_sem_previsao: 0,
+            previsto_sem_baixa: 0,
+            lotes_sem_formula: Vec::new(),
+            piores: Vec::new(),
+        });
+    }
     let chaves: HashSet<(String, String)> = previsto.keys().chain(baixado.keys()).cloned().collect();
     let mut desvios: Vec<f64> = Vec::new();
     let mut piores: Vec<DesvioItem> = Vec::new();
@@ -1013,7 +1042,7 @@ pub async fn validar(pool: &PgPool, limite: i64) -> Result<Validacao, String> {
             piores.push(DesvioItem {
                 lote: k.0.clone(),
                 insumo: k.1.clone(),
-                descricao: formulas.itens.get(&k.1).map(|x| x.0.clone()).unwrap_or_default(),
+                descricao: descricoes.get(&k.1).cloned().unwrap_or_default(),
                 previsto: p,
                 baixado: b,
                 razao: Some(razao),
