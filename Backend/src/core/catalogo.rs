@@ -74,6 +74,12 @@ pub fn todas() -> Vec<Acao> {
     v.extend(calculo::acoes());
     v.extend(bases::acoes());
     v.extend(kits::acoes());
+    v.extend(crate::modules::estoque::movimentos::acoes());
+    v.extend(crate::modules::estoque::estoque_geral::acoes());
+    v.extend(crate::modules::compras::planejamento::acoes());
+    v.extend(crate::modules::hub_api::compras::acoes());
+    v.extend(crate::handlers::estoque::acoes_produtos());
+    v.extend(crate::handlers::vendas::acoes_vendas());
     v
 }
 
@@ -138,6 +144,11 @@ mod tests {
             include_str!("../modules/producao/calculo.rs"),
             include_str!("../modules/producao/bases.rs"),
             include_str!("../modules/producao/kits.rs"),
+            include_str!("../modules/estoque/movimentos.rs"),
+            include_str!("../modules/estoque/estoque_geral/mod.rs"),
+            include_str!("../modules/compras/planejamento/mod.rs"),
+            include_str!("../modules/hub_api/compras.rs"),
+            include_str!("../server.rs"),
         ]
         .concat();
         for a in todas() {

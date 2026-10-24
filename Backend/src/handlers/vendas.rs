@@ -9,6 +9,7 @@ use std::sync::Arc;
 use serde_json::json;
 use sqlx::Row;
 
+use crate::core::catalogo::{param, Acao};
 use crate::handlers::AppState;
 
 #[derive(Debug, serde::Deserialize)]
@@ -21,6 +22,9 @@ pub struct SalesOrdersQueryParams {
     pub search: Option<String>,
     pub status: Option<String>,
     pub days: Option<i32>,
+    /// Paginação opcional (só em `GET /api/vendas/pedidos`).
+    pub limite: Option<i64>,
+    pub pagina: Option<i64>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -51,6 +55,17 @@ fn apply_status_filter(qb: &mut sqlx::QueryBuilder<'_, sqlx::Postgres>, status: 
         qb.push(" AND c_status = ");
         qb.push_bind(status.to_string());
     }
+}
+
+/// Paginação opcional de `GET /api/vendas/pedidos`: sem `limite` nem `pagina` devolve tudo (comportamento antigo).
+/// Devolve `(limite, offset)`; `limite` fica entre 1 e 1000 (padrão 100 quando só vier `pagina`) e `pagina` começa em 1.
+fn paginacao(limite: Option<i64>, pagina: Option<i64>) -> Option<(i64, i64)> {
+    if limite.is_none() && pagina.is_none() {
+        return None;
+    }
+    let limite = limite.unwrap_or(100).clamp(1, 1000);
+    let pagina = pagina.unwrap_or(1).max(1);
+    Some((limite, (pagina - 1) * limite))
 }
 
 fn residual_from_items(items: &[crate::models::SalesOrderItem]) -> i32 {
@@ -103,6 +118,13 @@ pub async fn list_sales_orders(
     }
 
     qb.push(" ORDER BY d_pedido DESC, n_pedido DESC");
+
+    if let Some((limite, offset)) = paginacao(params.limite, params.pagina) {
+        qb.push(" LIMIT ");
+        qb.push_bind(limite);
+        qb.push(" OFFSET ");
+        qb.push_bind(offset);
+    }
 
     match fetch_sales_orders_with_items(pool, qb).await {
         Ok(sales_orders) => (StatusCode::OK, Json(sales_orders)).into_response(),
@@ -651,4 +673,86 @@ pub async fn list_sales_faltas(
         })),
     )
         .into_response()
+}
+
+/// Ações de Vendas descritas para agentes (ver `core::catalogo`).
+pub fn acoes_vendas() -> Vec<Acao> {
+    const M: &str = "vendas";
+    vec![
+        Acao::leitura(
+            "listar_pedidos_venda",
+            M,
+            "Lista pedidos de venda com itens, do mais novo ao mais antigo. A base tem dezenas de milhares de pedidos: prefira `days`/`status` e use `limite`+`pagina`. Sem `limite` nem `pagina` devolve tudo.",
+            "/api/vendas/pedidos",
+            vec![
+                param("search", "query", "texto", false, "Parte do nome do cliente ou do número do pedido."),
+                param("status", "query", "texto", false, "ativos, concluidos, ALL ou o código do status do ERP."),
+                param("days", "query", "inteiro", false, "Só pedidos dos últimos N dias."),
+                param("limite", "query", "inteiro", false, "Pedidos por página (1 a 1000; 100 se só `pagina` for informada)."),
+                param("pagina", "query", "inteiro", false, "Número da página, a partir de 1 (usa `limite`)."),
+            ],
+        ),
+        Acao::leitura(
+            "detalhar_pedido_venda",
+            M,
+            "Detalhe de um pedido de venda (cabeçalho, itens e residual).",
+            "/api/vendas/pedidos/detalhe",
+            vec![
+                param("n_pedido", "query", "inteiro", true, "Número do pedido."),
+                param("d_pedido", "query", "data", true, "Data do pedido (AAAA-MM-DD)."),
+            ],
+        ),
+        Acao::leitura(
+            "listar_clientes_venda",
+            M,
+            "Lista clientes com pedidos em aberto no período.",
+            "/api/vendas/clientes",
+            vec![
+                param("search", "query", "texto", false, "Parte do nome do cliente."),
+                param("days", "query", "inteiro", false, "Janela em dias dos pedidos considerados."),
+            ],
+        ),
+        Acao::leitura(
+            "listar_pedidos_do_cliente",
+            M,
+            "Pedidos de um cliente, com itens.",
+            "/api/vendas/clientes/:codigo/pedidos",
+            vec![
+                param("codigo", "caminho", "inteiro", true, "Código do cliente no ERP."),
+                param("status", "query", "texto", false, "ativos, concluidos, ALL ou o código do status do ERP."),
+                param("days", "query", "inteiro", false, "Só pedidos dos últimos N dias."),
+            ],
+        ),
+        Acao::leitura(
+            "listar_faltas_venda",
+            M,
+            "Produtos com falta nos pedidos em aberto (ativas e históricas), com estoque, produção e compras em trânsito.",
+            "/api/vendas/faltas",
+            vec![param("days", "query", "inteiro", false, "Janela em dias dos pedidos considerados.")],
+        ),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::paginacao;
+
+    #[test]
+    fn sem_parametros_nao_pagina() {
+        assert_eq!(paginacao(None, None), None);
+    }
+
+    #[test]
+    fn calcula_limite_e_offset() {
+        assert_eq!(paginacao(Some(50), Some(1)), Some((50, 0)));
+        assert_eq!(paginacao(Some(50), Some(3)), Some((50, 100)));
+        assert_eq!(paginacao(Some(50), None), Some((50, 0)));
+        assert_eq!(paginacao(None, Some(2)), Some((100, 100)));
+    }
+
+    #[test]
+    fn limites_fora_da_faixa_sao_ajustados() {
+        assert_eq!(paginacao(Some(0), Some(0)), Some((1, 0)));
+        assert_eq!(paginacao(Some(99999), Some(-4)), Some((1000, 0)));
+    }
 }

@@ -12,3 +12,61 @@ pub fn router() -> axum::Router<std::sync::Arc<crate::handlers::AppState>> {
         .route("/api/compras/notas", axum::routing::get(handlers::list_invoices))
         .route("/api/compras/notas/:number", axum::routing::get(handlers::get_invoice_detail))
 }
+
+/// Ações de Compras (pedidos, notas, detalhe de insumo) descritas para agentes (ver `core::catalogo`).
+pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
+    use crate::core::catalogo::{param, Acao};
+    vec![
+        Acao::leitura(
+            "listar_pedidos_compra",
+            "compras_pedidos",
+            "Lista pedidos de compra do ERP.",
+            "/api/compras/pedidos",
+            vec![
+                param("search", "query", "texto", false, "Parte do fornecedor ou do número do pedido."),
+                param("status", "query", "texto", false, "Status do pedido no ERP."),
+            ],
+        ),
+        Acao::leitura(
+            "detalhar_pedido_compra",
+            "compras_pedidos",
+            "Cabeçalho e itens de um pedido de compra.",
+            "/api/compras/pedidos/:id",
+            vec![param("id", "caminho", "inteiro", true, "Número de registro do pedido (n_registro).")],
+        ),
+        Acao::leitura(
+            "listar_notas_compra",
+            "compras_notas",
+            "Lista notas fiscais de entrada agrupadas por nota.",
+            "/api/compras/notas",
+            vec![
+                param("search", "query", "texto", false, "Parte do fornecedor ou do número da nota."),
+                param("supplier_id", "query", "texto", false, "Código do fornecedor."),
+            ],
+        ),
+        Acao::leitura(
+            "detalhar_nota_compra",
+            "compras_notas",
+            "Itens de uma nota fiscal de entrada.",
+            "/api/compras/notas/:number",
+            vec![
+                param("number", "caminho", "texto", true, "Número da nota."),
+                param("supplier_id", "query", "texto", false, "Código do fornecedor (desambigua notas repetidas)."),
+            ],
+        ),
+        Acao::leitura(
+            "detalhar_insumo_compra",
+            "compras_materia_prima",
+            "Ficha de compras de um insumo: cadastro, estoque, consumo, pedidos e notas recentes e simulação.",
+            "/api/compras/insumos/:code/detalhes",
+            vec![param("code", "caminho", "texto", true, "Código do insumo.")],
+        ),
+        Acao::leitura(
+            "consultar_info_item_estoque",
+            "estoque_materia_prima",
+            "Notas recentes e pedidos pendentes de um insumo.",
+            "/api/estoque/item-info/:code",
+            vec![param("code", "caminho", "texto", true, "Código do insumo.")],
+        ),
+    ]
+}

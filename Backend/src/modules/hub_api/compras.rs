@@ -7,6 +7,7 @@ use axum::{
 use serde::Deserialize;
 use std::sync::Arc;
 
+use crate::core::catalogo::{param, Acao};
 use crate::handlers::AppState;
 use crate::modules::compras::planejamento::models::*;
 use crate::modules::compras::planejamento::commands::*;
@@ -682,4 +683,118 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/hub/compras/imports/history", get(get_import_history_handler))
         .route("/api/hub/compras/imports/nf-control", get(get_nf_import_control_handler))
         // Online orders & stores
+}
+
+/// Ações de leitura do Hub de Compras descritas para agentes (ver `core::catalogo`).
+pub fn acoes() -> Vec<Acao> {
+    const MP: &str = "compras_materia_prima";
+    vec![
+        Acao::leitura(
+            "listar_itens_compras",
+            MP,
+            "Lista os insumos do Hub de Compras com categoria, estoque e parâmetros de compra.",
+            "/api/hub/compras/items",
+            vec![param("categoryId", "query", "texto", false, "Filtra por categoria (cat_mp, cat_emb, coloracao, apoio ou subcategoria).")],
+        ),
+        Acao::leitura(
+            "simular_demanda_compras",
+            "compras_simulation",
+            "Simulador de compras: necessidade de cada insumo para cobrir os dias-alvo (estoque, consumo, pedidos pendentes e sugestão).",
+            "/api/hub/compras/demands",
+            vec![
+                param("categoryId", "query", "texto", false, "Filtra por categoria."),
+                param("targetDays", "query", "inteiro", false, "Dias de cobertura desejados (padrão 90)."),
+                param("overridePeriod", "query", "inteiro", false, "Período de consumo a considerar, em dias, no lugar do configurado."),
+            ],
+        ),
+        Acao::leitura(
+            "listar_itens_semelhantes_compras",
+            MP,
+            "Itens semelhantes (intercambiáveis) de um insumo.",
+            "/api/hub/compras/items/similar",
+            vec![param("code", "query", "texto", true, "Código do insumo.")],
+        ),
+        Acao::leitura(
+            "listar_listas_compra",
+            MP,
+            "Lista as listas de compra (solicitações em lote).",
+            "/api/hub/compras/listas",
+            vec![
+                param("modulo", "query", "texto", false, "Módulo de origem (ex.: materia_prima, embalagens)."),
+                param("status", "query", "texto", false, "Status da lista."),
+                param("search", "query", "texto", false, "Busca livre."),
+            ],
+        ),
+        Acao::leitura(
+            "detalhar_lista_compra",
+            MP,
+            "Itens de uma lista de compra.",
+            "/api/hub/compras/listas/:id",
+            vec![param("id", "caminho", "texto", true, "Id da lista.")],
+        ),
+        Acao::leitura(
+            "listar_itens_solicitados",
+            MP,
+            "Resumo dos itens com solicitação de compra ativa.",
+            "/api/hub/compras/itens-solicitados",
+            vec![],
+        ),
+        Acao::leitura(
+            "listar_cotacoes",
+            "compras_quotations",
+            "Lista cotações de compra.",
+            "/api/hub/compras/quotations",
+            vec![param("status", "query", "texto", false, "Status da cotação.")],
+        ),
+        Acao::leitura(
+            "detalhar_cotacao",
+            "compras_quotations",
+            "Itens, fornecedores e preços de uma cotação.",
+            "/api/hub/compras/quotations/:id",
+            vec![param("id", "caminho", "texto", true, "Id da cotação.")],
+        ),
+        Acao::leitura(
+            "listar_fornecedores_compras",
+            MP,
+            "Lista fornecedores do Hub de Compras.",
+            "/api/hub/compras/suppliers",
+            vec![param("mode", "query", "texto", false, "materia_prima, embalagens, coloracao ou apoio.")],
+        ),
+        Acao::leitura(
+            "historico_fornecedor_compras",
+            MP,
+            "Histórico de compras de um fornecedor.",
+            "/api/hub/compras/suppliers/:id/history",
+            vec![param("id", "caminho", "texto", true, "Id do fornecedor.")],
+        ),
+        Acao::leitura(
+            "evolucao_preco_item",
+            MP,
+            "Evolução do preço pago por um insumo.",
+            "/api/hub/compras/price-evolution",
+            vec![param("itemCode", "query", "texto", true, "Código do insumo.")],
+        ),
+        Acao::leitura(
+            "gasto_por_fornecedor",
+            MP,
+            "Gasto no período agrupado por fornecedor.",
+            "/api/hub/compras/spending/supplier",
+            vec![
+                param("start", "query", "data", true, "Início (AAAA-MM-DD)."),
+                param("end", "query", "data", true, "Fim (AAAA-MM-DD)."),
+                param("mode", "query", "texto", false, "materia_prima, embalagens, coloracao ou apoio."),
+            ],
+        ),
+        Acao::leitura(
+            "gasto_por_categoria",
+            MP,
+            "Gasto no período agrupado por categoria.",
+            "/api/hub/compras/spending/category",
+            vec![
+                param("start", "query", "data", true, "Início (AAAA-MM-DD)."),
+                param("end", "query", "data", true, "Fim (AAAA-MM-DD)."),
+                param("mode", "query", "texto", false, "materia_prima, embalagens, coloracao ou apoio."),
+            ],
+        ),
+    ]
 }

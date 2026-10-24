@@ -249,6 +249,10 @@ const SCHEMA_FILES: &[(&str, &str)] = &[
         "062_agenda_lotes_ddl.sql",
         include_str!("../../../../supabase/062_agenda_lotes_ddl.sql"),
     ),
+    (
+        "063_mapa_backend_path_planejamento.sql",
+        include_str!("../../../../supabase/063_mapa_backend_path_planejamento.sql"),
+    ),
 ];
 
 #[derive(Debug, Serialize)]

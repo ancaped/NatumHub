@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::core::catalogo::{param, Acao};
 use axum::{
     extract::{Path, Query, State},
     routing::get,
@@ -383,6 +384,21 @@ async fn movimentos_do_insumo(
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new().route("/api/estoque/insumos/:codigo/movimentos", get(movimentos_do_insumo))
+}
+
+/// Ações de movimentação do insumo descritas para agentes (ver `core::catalogo`).
+pub fn acoes() -> Vec<Acao> {
+    vec![Acao::leitura(
+        "consultar_movimentos_insumo",
+        "estoque_materia_prima",
+        "Movimentação de um insumo no período (entradas, saídas e saldo), calculada a partir do ERP. Sem datas usa o período padrão da tela.",
+        "/api/estoque/insumos/:codigo/movimentos",
+        vec![
+            param("codigo", "caminho", "texto", true, "Código do insumo."),
+            param("desde", "query", "data", false, "Início do período (AAAA-MM-DD)."),
+            param("ate", "query", "data", false, "Fim do período (AAAA-MM-DD)."),
+        ],
+    )]
 }
 
 #[cfg(test)]

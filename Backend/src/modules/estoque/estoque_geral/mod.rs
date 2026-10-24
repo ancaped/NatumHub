@@ -6,6 +6,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use crate::core::catalogo::{param, Acao};
 use crate::handlers::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -37,4 +38,32 @@ pub fn router() -> Router<Arc<AppState>> {
             "/api/estoque/compras-pendentes",
             get(handlers::compras_pendentes),
         )
+}
+
+/// Ações de contagem e pendências do Estoque descritas para agentes (ver `core::catalogo`).
+pub fn acoes() -> Vec<Acao> {
+    const M: &str = "estoque_materia_prima";
+    vec![
+        Acao::leitura(
+            "listar_contagens_estoque",
+            M,
+            "Lista as listas de contagem de estoque de um escopo.",
+            "/api/estoque/contagens",
+            vec![param("escopo", "query", "texto", true, "materia_prima, embalagens, coloracao, apoio, produtos ou insumos.")],
+        ),
+        Acao::leitura(
+            "historico_contagem_produto",
+            "estoque_produtos",
+            "Histórico de contagens físicas de um produto.",
+            "/api/estoque/produtos/:code/contagem/historico",
+            vec![param("code", "caminho", "texto", true, "Código do produto.")],
+        ),
+        Acao::leitura(
+            "listar_compras_pendentes",
+            M,
+            "Quantidade pendente de chegada por item, somando os pedidos de compra ainda não entregues.",
+            "/api/estoque/compras-pendentes",
+            vec![],
+        ),
+    ]
 }

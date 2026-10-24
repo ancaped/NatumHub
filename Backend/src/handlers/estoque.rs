@@ -10,6 +10,7 @@ use serde_json::json;
 use sqlx::Row;
 
 use crate::modules::producao::gerenciamento::calculations::calculate_products;
+use crate::core::catalogo::{param, Acao};
 use crate::handlers::AppState;
 use crate::modules::producao::lotes::check_lote_errors;
 use crate::modules::producao::calculo::fetch_calculation_data;
@@ -728,4 +729,46 @@ pub async fn get_product_pending_orders(
         }),
     )
         .into_response()
+}
+
+/// Ações de consulta de produtos/estoque descritas para agentes (ver `core::catalogo`).
+pub fn acoes_produtos() -> Vec<Acao> {
+    const M: &str = "estoque_produtos";
+    vec![
+        Acao::leitura(
+            "detalhar_produto",
+            M,
+            "Ficha de um produto: estoque, produção, reserva, demanda e pendências. Consulta o ERP ao vivo (até 2 s) para atualizar o saldo.",
+            "/api/produtos/:code/detalhes",
+            vec![param("code", "caminho", "texto", true, "Código do produto.")],
+        ),
+        Acao::leitura(
+            "consultar_formulacao_produto",
+            M,
+            "Formulação explodida do produto (insumos e quantidades).",
+            "/api/produtos/formulacao/:code",
+            vec![param("code", "caminho", "texto", true, "Código do produto.")],
+        ),
+        Acao::leitura(
+            "listar_produtos_semelhantes",
+            M,
+            "Produtos com formulação parecida com a do produto informado.",
+            "/api/produtos/semelhantes/:code",
+            vec![param("code", "caminho", "texto", true, "Código do produto.")],
+        ),
+        Acao::leitura(
+            "listar_pedidos_pendentes_produto",
+            M,
+            "Pedidos de venda abertos (e de produção) que ainda devem o produto.",
+            "/api/produtos/:code/pedidos-pendentes",
+            vec![param("code", "caminho", "texto", true, "Código do produto.")],
+        ),
+        Acao::leitura(
+            "listar_movimentacoes_estoque",
+            "estoque_materia_prima",
+            "Movimentações importadas do ERP para um item, da mais nova à mais antiga (sem filtro de datas; para insumo com período use consultar_movimentos_insumo).",
+            "/api/estoque/movimentacoes/:code",
+            vec![param("code", "caminho", "texto", true, "Código do item.")],
+        ),
+    ]
 }
