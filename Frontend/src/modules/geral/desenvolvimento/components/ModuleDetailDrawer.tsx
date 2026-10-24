@@ -4,7 +4,7 @@ import {
   Clock, Shield, ArrowRight, Save, Loader2, Plus, Code, Network,
   Copy, Check
 } from 'lucide-react';
-import type { MapaModule, MapaRoute, MapaEdge, Feedback, MapaTask, MapaDetail } from '../types';
+import type { MapaModule, MapaRoute, MapaEdge, Feedback, MapaTask, MapaDetail, CatalogoAcao } from '../types';
 import { cn } from '../../lib/utils';
 import Drawer from '../../components/ui/Drawer';
 
@@ -12,6 +12,7 @@ interface ModuleDetailDrawerProps {
   module: MapaModule | null;
   onClose: () => void;
   routes: MapaRoute[];
+  acoes?: CatalogoAcao[];
   edges: MapaEdge[];
   groupName?: string;
   feedbacks: Feedback[];
@@ -44,6 +45,7 @@ export default function ModuleDetailDrawer({
   module,
   onClose,
   routes,
+  acoes = [],
   edges,
   groupName,
   feedbacks,
@@ -58,6 +60,7 @@ export default function ModuleDetailDrawer({
   const [activeTab, setActiveTab] = useState<DrawerTab>('tecnica');
   const [notes, setNotes] = useState('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [acaoAberta, setAcaoAberta] = useState<string | null>(null);
 
   const handleCopy = (text: string, key: string) => {
     if (!text) return;
@@ -77,6 +80,7 @@ export default function ModuleDetailDrawer({
   if (!module) return null;
 
   // Filtra rotas, conexões e demandas vinculadas ao módulo
+  const moduleAcoes = module ? acoes.filter((a) => a.modulo === module.moduleKey) : [];
   const moduleRoutes = routes.filter(
     (r) => r.moduleKey === module.moduleKey || (module.routerPrefix && r.path.startsWith(module.routerPrefix))
   );
@@ -124,7 +128,7 @@ export default function ModuleDetailDrawer({
         </div>
       }
       tabs={[
-        { id: 'tecnica', label: 'Ficha Técnica', icon: Route, badge: moduleRoutes.length || undefined },
+        { id: 'tecnica', label: 'Ficha Técnica', icon: Route, badge: moduleAcoes.length || moduleRoutes.length || undefined },
         { id: 'demandas', label: 'Demandas & Bugs', icon: Bug, badge: moduleFeedbacks.length || undefined },
         { id: 'tasks', label: 'Tasks', icon: ListTodo, badge: moduleTasks.length || undefined },
         { id: 'documentacao', label: 'Documentação', icon: FileText },
@@ -238,11 +242,82 @@ export default function ModuleDetailDrawer({
               </div>
             </div>
 
-            {/* Rotas REST */}
+            {/* Ações geradas do código */}
+            <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-2.5 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 block">
+                Ações (geradas do código) ({moduleAcoes.length})
+              </span>
+              {moduleAcoes.length > 0 ? (
+                <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+                  {moduleAcoes.map((a) => {
+                    const aberta = acaoAberta === a.nome;
+                    return (
+                      <div key={a.nome} className="rounded-lg border border-zinc-100 bg-zinc-50/60 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setAcaoAberta(aberta ? null : a.nome)}
+                          className="w-full text-left p-2 space-y-1 cursor-pointer"
+                        >
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={cn('text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border', METHOD_COLORS[a.metodo] || 'bg-zinc-100 text-zinc-700 border-zinc-200')}>
+                              {a.metodo}
+                            </span>
+                            <code className="font-mono text-[11px] text-zinc-800 break-all">{a.caminho}</code>
+                            {a.escrita && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-200">grava</span>
+                            )}
+                            {a.doisPassos && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-sky-50 text-sky-700 border-sky-200">prévia → confirmar</span>
+                            )}
+                          </div>
+                          <code className="font-mono text-[10px] text-zinc-500 block">{a.nome}</code>
+                          <p className="text-[11px] text-zinc-600">{a.descricao}</p>
+                        </button>
+                        {aberta && (
+                          <div className="px-2 pb-2">
+                            {a.parametros.length > 0 ? (
+                              <table className="w-full text-[10px] border-t border-zinc-200">
+                                <thead>
+                                  <tr className="text-left text-zinc-500">
+                                    <th className="py-1 pr-2 font-semibold">Nome</th>
+                                    <th className="py-1 pr-2 font-semibold">Onde</th>
+                                    <th className="py-1 pr-2 font-semibold">Tipo</th>
+                                    <th className="py-1 pr-2 font-semibold">Obrig.</th>
+                                    <th className="py-1 font-semibold">Descrição</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {a.parametros.map((p) => (
+                                    <tr key={p.nome + p.onde} className="border-t border-zinc-100 align-top">
+                                      <td className="py-1 pr-2 font-mono text-zinc-800">{p.nome}</td>
+                                      <td className="py-1 pr-2 text-zinc-600">{p.onde}</td>
+                                      <td className="py-1 pr-2 font-mono text-zinc-600">{p.tipo}</td>
+                                      <td className="py-1 pr-2 text-zinc-600">{p.obrigatorio ? 'sim' : 'não'}</td>
+                                      <td className="py-1 text-zinc-600">{p.descricao}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            ) : (
+                              <p className="text-[10px] text-zinc-400 italic border-t border-zinc-200 pt-1">Sem parâmetros.</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-zinc-400 italic py-2">Este módulo ainda não está no catálogo de ações.</p>
+              )}
+            </div>
+
+            {/* Rotas REST (lista antiga; só quando o módulo não tem ações no catálogo) */}
+            {moduleAcoes.length === 0 && (
             <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-2.5 shadow-2xs">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                  Rotas REST Mapeadas ({moduleRoutes.length})
+                  Rotas (lista antiga, pode estar desatualizada) ({moduleRoutes.length})
                 </span>
               </div>
 
@@ -275,6 +350,7 @@ export default function ModuleDetailDrawer({
                 <p className="text-xs text-zinc-400 italic py-2">Nenhuma rota individual mapeada.</p>
               )}
             </div>
+            )}
 
             {/* Conexões (Edges) Navegáveis */}
             <div className="rounded-xl border border-zinc-200 bg-white p-3.5 space-y-2.5 shadow-2xs">

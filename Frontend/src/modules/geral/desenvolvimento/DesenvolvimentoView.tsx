@@ -350,6 +350,7 @@ export default function DesenvolvimentoView({
             module={selectedModule}
             onClose={() => setSelectedModuleKey(null)}
             routes={snap?.routes || []}
+            acoes={snap?.acoes || []}
             edges={snap?.edges || []}
             groupName={selectedModuleGroup}
             feedbacks={feedbacks}

@@ -662,6 +662,7 @@ pub async fn snapshot(pool: &PgPool) -> Result<MapaSnapshot, String> {
         routes,
         tasks_open,
         activity,
+        acoes: crate::core::catalogo::todas(),
     })
 }
 
@@ -1159,4 +1160,30 @@ pub async fn resync_routes(pool: &PgPool, actor: Option<&str>, routes: &[Value])
     }
     log_activity(pool, actor, "resync_scan", json!({ "routes": n })).await?;
     Ok(n)
+}
+
+#[cfg(test)]
+mod tests {
+    /// Fontes que criam módulos do mapa: o seed de `ensure_seeded` e os INSERTs das migrações.
+    const FONTES_DO_MAPA: &[&str] = &[
+        include_str!("store.rs"),
+        include_str!("../../../../supabase/032_update_mapa_canonical.sql"),
+        include_str!("../../../../supabase/046_planejamento_semanal_integridade.sql"),
+        include_str!("../../../../supabase/048_quadros_confiaveis_ficha.sql"),
+        include_str!("../../../../supabase/053_ferramentas_balanca.sql"),
+    ];
+
+    #[test]
+    fn modulos_do_catalogo_existem_no_mapa() {
+        for a in crate::core::catalogo::todas() {
+            let aspas_simples = format!("'{}'", a.modulo);
+            let aspas_duplas = format!("\"{}\"", a.modulo);
+            assert!(
+                FONTES_DO_MAPA.iter().any(|f| f.contains(&aspas_simples) || f.contains(&aspas_duplas)),
+                "{}: módulo {} não é criado no mapa (seed nem migração)",
+                a.nome,
+                a.modulo
+            );
+        }
+    }
 }

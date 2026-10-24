@@ -87,6 +87,8 @@ pub struct MapaSnapshot {
     pub routes: Vec<MapaRoute>,
     pub tasks_open: Vec<MapaTask>,
     pub activity: Vec<MapaActivity>,
+    /// Ações geradas do código (catálogo `core::catalogo`), só leitura.
+    pub acoes: Vec<crate::core::catalogo::Acao>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -80,6 +80,27 @@ export interface MapaSnapshot {
   routes: MapaRoute[];
   tasksOpen: MapaTask[];
   activity: MapaActivity[];
+  acoes?: CatalogoAcao[];
+}
+
+/** Ação do catálogo gerado do código (`Backend/src/core/catalogo.rs`). */
+export interface CatalogoParam {
+  nome: string;
+  onde: string;
+  tipo: string;
+  obrigatorio: boolean;
+  descricao: string;
+}
+
+export interface CatalogoAcao {
+  nome: string;
+  modulo: string;
+  descricao: string;
+  metodo: string;
+  caminho: string;
+  escrita: boolean;
+  doisPassos: boolean;
+  parametros: CatalogoParam[];
 }
 
 export type DesenvolvimentoTab = 'mapa' | 'fila' | 'timeline' | 'novo_modulo';
