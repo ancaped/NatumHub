@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle,
-  ChevronLeft, ChevronRight, Edit3, CheckCircle2, PlusCircle,
+  ChevronLeft, ChevronRight, Edit3, CheckCircle2,
   Target, Zap, CheckCircle, Package, Sparkles, ChevronDown, ArrowRightLeft,
 } from 'lucide-react';
 import { apiFetch } from '../../../geral/lib/http';
@@ -112,8 +112,6 @@ interface Props {
   reloadToken?: number;
   onEditOverrides: (p: any) => void;
   onShowDetails?: (code: string) => void;
-  productionApprovalList?: string[];
-  onToggleApprovalList?: (code: string) => void;
 }
 
 const POR_PAGINA = 50;
@@ -123,8 +121,6 @@ export function ProducoesFixasTab({
   reloadToken = 0,
   onEditOverrides,
   onShowDetails,
-  productionApprovalList = [],
-  onToggleApprovalList,
 }: Props) {
   const [items, setItems] = useState<any[]>([]);
   const [composicao, setComposicao] = useState<any[]>([]);
@@ -389,7 +385,6 @@ export function ProducoesFixasTab({
                   <th style={{ width: '10%', cursor: 'pointer' }} onClick={() => alternarOrdem('sugestao')} className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px] select-none hover:bg-zinc-100 transition-colors text-right">
                     <div className="flex items-center gap-1 justify-end">Sugestão <SortMark field="sugestao" activeField={sortField} activeDir={sortDir} /></div>
                   </th>
-                  <th style={{ width: '8%', textAlign: 'center' }} className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px]">Fila aprov.</th>
                   <th style={{ width: '8%', textAlign: 'center' }} className="px-4 py-3 font-bold text-zinc-500 uppercase tracking-wider text-[10px]">Ações</th>
                 </tr>
               </thead>
@@ -492,22 +487,6 @@ export function ProducoesFixasTab({
                           )}
                         </td>
                         <td className="px-4 py-2.5 border-b border-zinc-100 align-middle text-center">
-                          {onToggleApprovalList && (
-                            <button
-                              type="button"
-                              onClick={() => onToggleApprovalList(p.codigo)}
-                              className={`p-1.5 rounded transition-colors cursor-pointer ${
-                                productionApprovalList.includes(p.codigo)
-                                  ? 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'
-                                  : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600'
-                              }`}
-                              title={productionApprovalList.includes(p.codigo) ? 'Remover da fila de aprovação' : 'Adicionar à fila de aprovação'}
-                            >
-                              {productionApprovalList.includes(p.codigo) ? <CheckCircle2 size={16} /> : <PlusCircle size={16} />}
-                            </button>
-                          )}
-                        </td>
-                        <td className="px-4 py-2.5 border-b border-zinc-100 align-middle text-center">
                           <button type="button" className="p-1.5 rounded text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 transition-colors cursor-pointer" onClick={() => onEditOverrides(p)} title="Editar parâmetros">
                             <Edit3 size={15} />
                           </button>
@@ -518,7 +497,7 @@ export function ProducoesFixasTab({
                       </tr>
                       {aberto && comps.length > 0 && (
                         <tr className="bg-zinc-50">
-                          <td colSpan={10} className="px-4 py-3 border-b border-zinc-100">
+                          <td colSpan={9} className="px-4 py-3 border-b border-zinc-100">
                             <div className="ml-6 border-l-2 border-zinc-300 pl-3 space-y-1">
                               <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
                                 Composição {montagem != null ? `· monta ${montagem.toLocaleString('pt-BR')} agora` : ''}

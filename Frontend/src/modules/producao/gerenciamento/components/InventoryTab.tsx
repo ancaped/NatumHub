@@ -62,8 +62,6 @@ export function InventoryTab({
   toggleSort,
   SortIcon,
   onShowDetails,
-  productionApprovalList = [],
-  onToggleApprovalList,
   onToggleApenasKit,
   segment: controlledSegment,
   onSegmentChange,

@@ -54,34 +54,6 @@ export default function ProducaoView({
     window.__current_page__ = viewLabels[currentView] || currentView;
   }, [currentView]);
 
-  const [productionApprovalList, setProductionApprovalList] = useState([]);
-
-  useEffect(() => {
-    const loadApprovalList = () => {
-      const stored = localStorage.getItem('natum_hub_production_approval_list');
-      if (stored) {
-        try { setProductionApprovalList(JSON.parse(stored)); } catch (e) { console.error(e); }
-      } else {
-        setProductionApprovalList([]);
-      }
-    };
-    loadApprovalList();
-    window.addEventListener('storage', loadApprovalList);
-    return () => window.removeEventListener('storage', loadApprovalList);
-  }, []);
-
-  const handleToggleApprovalList = (code) => {
-    let newList;
-    if (productionApprovalList.includes(code)) {
-      newList = productionApprovalList.filter(c => c !== code);
-    } else {
-      newList = [...productionApprovalList, code];
-    }
-    setProductionApprovalList(newList);
-    localStorage.setItem('natum_hub_production_approval_list', JSON.stringify(newList));
-    window.dispatchEvent(new Event('storage'));
-  };
-  
   // Data State
   const [products, setProducts] = useState([]);
   const [stats, setStats] = useState({ critico: 0, ordem: 0, saudavel: 0, abundante: 0, lancamentos: 0 });
@@ -1559,8 +1531,6 @@ export default function ProducaoView({
               tabOptions={tabOptions}
               toggleSort={toggleSort}
               SortIcon={SortIcon}
-              productionApprovalList={productionApprovalList}
-              onToggleApprovalList={handleToggleApprovalList}
               onToggleApenasKit={handleToggleComponentApenasKit}
             />
           )}
@@ -1571,8 +1541,6 @@ export default function ProducaoView({
               reloadToken={lancamentosTick}
               onEditOverrides={openEditModal}
               onShowDetails={fetchProductDetails}
-              productionApprovalList={productionApprovalList}
-              onToggleApprovalList={handleToggleApprovalList}
             />
           )}
 
@@ -1605,8 +1573,6 @@ export default function ProducaoView({
               toggleSort={toggleSort}
               SortIcon={SortIcon}
               onShowDetails={fetchProductDetails}
-              productionApprovalList={productionApprovalList}
-              onToggleApprovalList={handleToggleApprovalList}
             />
           )}
 
@@ -1627,8 +1593,6 @@ export default function ProducaoView({
               onEditOverrides={openEditModal}
               onShowDetails={fetchProductDetails}
               onRefresh={fetchProducts}
-              productionApprovalList={productionApprovalList}
-              onToggleApprovalList={handleToggleApprovalList}
             />
           )}
 
@@ -1678,8 +1642,6 @@ export default function ProducaoView({
               SortIcon={SortIcon}
               expandedKits={expandedKits}
               toggleKitExpanded={toggleKitExpanded}
-              productionApprovalList={productionApprovalList}
-              onToggleApprovalList={handleToggleApprovalList}
               onOpenComposition={handleOpenKitComposition}
               onToggleApenasKit={handleToggleComponentApenasKit}
               onShowDetails={fetchProductDetails}

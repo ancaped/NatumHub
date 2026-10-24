@@ -98,8 +98,6 @@ export function KitsTab({
   SortIcon,
   expandedKits,
   toggleKitExpanded,
-  productionApprovalList = [],
-  onToggleApprovalList,
   onOpenComposition,
   onToggleApenasKit,
   onShowDetails,

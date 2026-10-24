@@ -5,7 +5,7 @@ import { DemandResult, FormulationLine } from '../../../geral/lib/types';
 import { 
   Search, Calculator, Trash2, Plus, Minus, Printer, 
   AlertTriangle, Check, Layers, Boxes, ShieldAlert,
-  Info, Loader2, Sparkles, ClipboardList, TrendingUp,
+  Info, Loader2, Sparkles, TrendingUp,
   Filter, ChevronDown, ChevronRight, Percent, RotateCcw,
   Sliders, ArrowUpRight
 } from 'lucide-react';
@@ -443,119 +443,6 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
       setSimulatedProducts([]);
       saveToLocalStorage([]);
     }
-  };
-
-  const handleImportFromApproval = async () => {
-    let approvalCodes: string[] = [];
-    let approvalQtys: Record<string, number> = {};
-    try {
-      const listRaw = localStorage.getItem('natum_hub_production_approval_list');
-      const qtysRaw = localStorage.getItem('natum_hub_production_approval_qtys');
-      if (listRaw) approvalCodes = JSON.parse(listRaw);
-      if (qtysRaw) approvalQtys = JSON.parse(qtysRaw);
-    } catch (e) {
-      console.error('Failed to read production approval queue:', e);
-      alert('Não foi possível ler a fila de aprovação de produção.');
-      return;
-    }
-
-    if (!Array.isArray(approvalCodes) || approvalCodes.length === 0) {
-      alert('Nenhum item na fila de Aprovação de Produção.');
-      return;
-    }
-
-    let products = allProducts;
-    if (products.length === 0) {
-      setLoading(true);
-      try {
-        const prodRes = await apiFetch('/products?limit=5000&show_hidden=true&include_kits=true');
-        if (prodRes.ok) {
-          const data = await prodRes.json();
-          products = data.items || [];
-          setAllProducts(products);
-        }
-      } catch (e) {
-        console.error('Failed to load products for approval import:', e);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    const byCode = new Map(products.map((p: any) => [trimCode(p.codigo), p]));
-    const existingByCode = new Map(simulatedProducts.map(p => [p.codigo, p]));
-    let imported = 0;
-    let updated = 0;
-    const missing: string[] = [];
-
-    for (const rawCode of approvalCodes) {
-      const code = trimCode(rawCode);
-      const product = byCode.get(code);
-      if (!product) {
-        missing.push(code);
-        continue;
-      }
-
-      const qtyFromApproval = Number(approvalQtys[rawCode] || approvalQtys[code]);
-      const quantity =
-        qtyFromApproval > 0
-          ? qtyFromApproval
-          : product.producao_recomendada > 0
-            ? product.producao_recomendada
-            : (Math.round(product.estoque_ideal_qtd) > 0 ? Math.round(product.estoque_ideal_qtd) : 100);
-
-      const existing = existingByCode.get(code);
-      if (existing) {
-        existingByCode.set(code, { ...existing, quantity });
-        updated += 1;
-      } else {
-        existingByCode.set(code, {
-          codigo: product.codigo,
-          descricao: product.descricao,
-          nome_linha: product.nome_linha || 'Outros',
-          quantity,
-          status_label: product.status_label || product.status,
-          produzir_apenas_kit: Number(product.produzir_apenas_kit) === 1,
-          media_vendas: Number(product.media_vendas) || 0,
-          estoque_ideal_qtd: Number(product.estoque_ideal_qtd) || 0,
-          estoque: Number(product.estoque) || 0,
-          estoque_futuro: Number(product.estoque_futuro) || 0,
-        });
-        imported += 1;
-      }
-      fetchFormulationIfNeeded(code);
-      const comps = kitBom[code] || kitBom[product.codigo];
-      if (comps) {
-        comps.forEach(c => fetchFormulationIfNeeded(c.codigo));
-      }
-    }
-
-    const nextList: SimulatedProduct[] = [];
-    const seen = new Set<string>();
-    for (const p of simulatedProducts) {
-      const merged = existingByCode.get(p.codigo);
-      if (merged) {
-        nextList.push(merged);
-        seen.add(p.codigo);
-      }
-    }
-    for (const rawCode of approvalCodes) {
-      const code = trimCode(rawCode);
-      if (seen.has(code)) continue;
-      const item = existingByCode.get(code);
-      if (item) {
-        nextList.push(item);
-        seen.add(code);
-      }
-    }
-
-    setSimulatedProducts(nextList);
-    saveToLocalStorage(nextList);
-
-    const parts = [`${imported + updated} item(ns) da aprovação`];
-    if (imported > 0) parts.push(`${imported} novo(s)`);
-    if (updated > 0) parts.push(`${updated} atualizado(s)`);
-    if (missing.length > 0) parts.push(`${missing.length} não encontrado(s) no catálogo`);
-    alert(`Importação concluída: ${parts.join(', ')}.`);
   };
 
   const demandsByCode = useMemo(() => {
@@ -1208,15 +1095,6 @@ export function SimulationTab({ active = false, activeTab }: SimulationTabProps)
             </div>
 
             <div className="flex items-center gap-2 self-end lg:self-center shrink-0">
-              <button
-                onClick={handleImportFromApproval}
-                className="text-xs text-zinc-700 hover:text-zinc-900 bg-zinc-100 hover:bg-zinc-200 border border-zinc-200/60 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                title="Importar produtos salvos na Fila de Aprovação da Produção"
-              >
-                <ClipboardList className="h-3.5 w-3.5 text-zinc-600" />
-                Importar da Aprovação
-              </button>
-
               {simulatedProducts.length > 0 && (
                 <button
                   onClick={handleClearAll}

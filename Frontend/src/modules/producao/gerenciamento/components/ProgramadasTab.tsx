@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { 
   Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, HelpCircle, 
-  AlertTriangle, ChevronLeft, ChevronRight, Edit3, CheckCircle2, PlusCircle,
+  AlertTriangle, ChevronLeft, ChevronRight, Edit3, CheckCircle2,
   CalendarClock, Zap, CheckCircle, Package, Layers, Info
 } from 'lucide-react';
 
@@ -48,8 +48,6 @@ interface ProgramadasTabProps {
   toggleSort: (field: string, currentField: string, setField: any, currentDir: string, setDir: any) => void;
   SortIcon: React.ComponentType<{ field: string; activeField: string; activeDir: string }>;
   onShowDetails: (code: string) => void;
-  productionApprovalList?: string[];
-  onToggleApprovalList?: (code: string) => void;
 }
 
 export function ProgramadasTab({
@@ -78,9 +76,7 @@ export function ProgramadasTab({
   tabOptions = [],
   toggleSort,
   SortIcon,
-  onShowDetails,
-  productionApprovalList = [],
-  onToggleApprovalList
+  onShowDetails
 }: ProgramadasTabProps) {
   // Filtra estritamente apenas itens que tenham sido configurados como produção programada
   const programadasList = useMemo(() => {
@@ -304,9 +300,6 @@ export function ProgramadasTab({
                     </div>
                   </th>
                   <th style={{ width: '10%', textAlign: 'center' }} className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px]">
-                    Fila Aprov.
-                  </th>
-                  <th style={{ width: '10%', textAlign: 'center' }} className="px-4 py-3 font-bold text-zinc-655 uppercase tracking-wider text-[10px]">
                     Ações
                   </th>
                 </tr>
@@ -406,25 +399,6 @@ export function ProgramadasTab({
                           <span className="text-rose-600 text-sm font-extrabold">{p.producao_recomendada.toLocaleString('pt-BR')} un</span>
                         ) : (
                           <span className="text-zinc-400 font-normal">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-center" onClick={(e) => e.stopPropagation()}>
-                        {onToggleApprovalList && (
-                          <button
-                            onClick={() => onToggleApprovalList(p.codigo)}
-                            className={`p-1.5 rounded transition-colors cursor-pointer ${
-                              productionApprovalList.includes(p.codigo)
-                                ? 'text-emerald-650 bg-emerald-50 hover:bg-emerald-100'
-                                : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600'
-                            }`}
-                            title={productionApprovalList.includes(p.codigo) ? "Remover da Fila de Aprovação" : "Adicionar à Fila de Aprovação"}
-                          >
-                            {productionApprovalList.includes(p.codigo) ? (
-                              <CheckCircle2 size={16} />
-                            ) : (
-                              <PlusCircle size={16} />
-                            )}
-                          </button>
                         )}
                       </td>
                       <td className="px-4 py-2.5 border-b border-zinc-150 align-middle text-center">
