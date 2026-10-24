@@ -14,6 +14,8 @@ import {
 } from '../lib/auth';
 import { defaultModulesForRole, moduleRegistry, type ModuleGroup } from '../lib/modules/registry';
 import { checkServerHealth } from '../lib/connectionConfig';
+import { apiJson } from '../lib/http';
+import PreviaAcaoDrawer, { type PreviaAcao } from '../../producao/gerenciamento/components/PreviaAcaoDrawer';
 
 interface OperadoresPanelProps {
   currentUser: AuthUser | null;
@@ -52,11 +54,13 @@ export default function OperadoresPanel({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [moduleFilter, setModuleFilter] = useState('');
+  const [restricaoLigada, setRestricaoLigada] = useState<boolean | null>(null);
+  const [previaRestricao, setPreviaRestricao] = useState<PreviaAcao | null>(null);
   
   const initDefaultForm = (): FormState => {
     const mods = defaultModulesForRole('operador');
     const perms: Record<string, 'view' | 'edit'> = {};
-    for (const m of mods) perms[m] = 'edit';
+    for (const m of mods) perms[m] = 'view';
     return {
       ...EMPTY_FORM,
       modules: mods,
@@ -107,6 +111,13 @@ export default function OperadoresPanel({
     if (isSupervisor(currentUser)) load();
   }, [load, currentUser]);
 
+  useEffect(() => {
+    if (!isSupervisor(currentUser)) return;
+    apiJson<{ ligada: boolean }>('/admin/permissoes/restricao-leitura')
+      .then((r) => setRestricaoLigada(Boolean(r.ligada)))
+      .catch(() => setRestricaoLigada(null));
+  }, [currentUser]);
+
   if (!isSupervisor(currentUser)) {
     return null;
   }
@@ -115,7 +126,7 @@ export default function OperadoresPanel({
     const mods = defaultModulesForRole(role);
     const perms: Record<string, 'view' | 'edit'> = {};
     for (const m of mods) {
-      perms[m] = form.permissions[m] || 'edit';
+      perms[m] = form.permissions[m] || 'view';
     }
     return { ...form, role, modules: mods, permissions: perms };
   };
@@ -261,6 +272,40 @@ export default function OperadoresPanel({
       setMessage({ text: e?.message || 'Erro ao salvar usuário', type: 'error' });
     } finally {
       setSaving(false);
+      setTimeout(() => setMessage(null), 4000);
+    }
+  };
+
+  const alternarRestricao = async () => {
+    if (restricaoLigada === null) return;
+    const ligada = !restricaoLigada;
+    const chamar = (confirmar: boolean) =>
+      apiJson<{ resultado: { operadoresAtivos: number; operadoresSemModulo: number; operadores: { nome: string; modulos: number }[] } }>(
+        '/admin/permissoes/restricao-leitura',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ligada, confirmar }) }
+      );
+    try {
+      const { resultado } = await chamar(false);
+      setPreviaRestricao({
+        titulo: ligada ? 'Ligar restrição de leitura' : 'Desligar restrição de leitura',
+        confirmarRotulo: ligada ? 'Ligar' : 'Desligar',
+        avisos: ligada
+          ? [
+              'Cada operador passa a ver só os módulos marcados para ele.',
+              ...(resultado.operadoresSemModulo > 0 ? [`${resultado.operadoresSemModulo} operador(es) sem nenhum módulo ficarão sem acesso às telas.`] : []),
+            ]
+          : ['Todos os operadores voltam a ver todas as telas.'],
+        linhas: resultado.operadores.map((o) => ({
+          titulo: o.nome,
+          detalhe: `${o.modulos} ${o.modulos === 1 ? 'módulo' : 'módulos'}`,
+        })),
+        executar: async () => {
+          await chamar(true);
+          setRestricaoLigada(ligada);
+        },
+      });
+    } catch (e: any) {
+      setMessage({ text: e?.message || 'Erro ao consultar a restrição de leitura', type: 'error' });
       setTimeout(() => setMessage(null), 4000);
     }
   };
@@ -590,6 +635,27 @@ export default function OperadoresPanel({
           Novo Usuário
         </button>
       </div>
+
+      {restricaoLigada !== null && (
+        <div className="flex items-center justify-between gap-3 border border-zinc-200 bg-zinc-50 rounded-xl px-3 py-2">
+          <div>
+            <div className="text-xs font-bold text-zinc-900">Restringir leitura por módulo</div>
+            <p className="text-[10px] text-zinc-500 font-medium">
+              Desligado: todos os operadores veem todas as telas; só gravam onde têm "editar". Ligado: cada operador só vê os módulos marcados.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={restricaoLigada}
+            onClick={alternarRestricao}
+            className={`relative h-5 w-9 shrink-0 rounded-full transition-colors cursor-pointer ${restricaoLigada ? 'bg-zinc-900' : 'bg-zinc-300'}`}
+          >
+            <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${restricaoLigada ? 'left-[18px]' : 'left-0.5'}`} />
+          </button>
+        </div>
+      )}
+      {previaRestricao && <PreviaAcaoDrawer previa={previaRestricao} onClose={() => setPreviaRestricao(null)} />}
 
       {loading ? (
         <div className="flex items-center justify-center py-10 text-zinc-400 gap-2">

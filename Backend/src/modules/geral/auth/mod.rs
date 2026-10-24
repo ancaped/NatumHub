@@ -2,6 +2,7 @@ pub mod handlers;
 pub mod middleware;
 pub mod models;
 pub mod modules_registry;
+pub mod restricao_leitura;
 pub mod store;
 
 use axum::routing::{get, post, put};
@@ -26,6 +27,7 @@ pub fn router() -> axum::Router<Arc<AppState>> {
             "/api/auth/operators/manage/:id",
             put(handlers::update_operator).delete(handlers::delete_operator),
         )
+        .merge(restricao_leitura::router())
         .route(
             "/api/auth/devices/manage",
             get(handlers::list_devices_manage),

@@ -16,6 +16,33 @@ const MIN_OPERATOR_PASSWORD_LEN: usize = 4;
 
 static AUTH_INIT_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Setting (tabela `settings`) que liga a restrição de leitura por módulo para operadores. Ausente = desligada.
+pub const SETTING_RESTRINGIR_LEITURA: &str = "restringir_leitura_operadores";
+
+static RESTRINGIR_LEITURA: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn restricao_leitura_ligada() -> bool {
+    RESTRINGIR_LEITURA.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn definir_restricao_leitura(ligada: bool) {
+    RESTRINGIR_LEITURA.store(ligada, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Lê o setting no boot. Qualquer falha deixa a restrição desligada (como sempre foi).
+async fn carregar_restricao_leitura(pool: &PgPool) {
+    let _ = sqlx::query("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+        .execute(pool)
+        .await;
+    let valor: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = $1")
+        .bind(SETTING_RESTRINGIR_LEITURA)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+    definir_restricao_leitura(valor.as_deref() == Some("true"));
+}
+
 pub async fn init_auth_tables(pool: &PgPool) -> Result<(), String> {
     if AUTH_INIT_DONE.load(std::sync::atomic::Ordering::Relaxed) {
         return Ok(());
@@ -30,6 +57,7 @@ pub async fn init_auth_tables(pool: &PgPool) -> Result<(), String> {
     migrate_kit_composicao_schema(pool).await?;
     migrate_overrides_programadas_schema(pool).await?;
     let _ = ensure_supervisor_password_ready(pool).await;
+    carregar_restricao_leitura(pool).await;
     AUTH_INIT_DONE.store(true, std::sync::atomic::Ordering::Relaxed);
     Ok(())
 }
@@ -706,27 +734,39 @@ pub async fn set_operator_modules_with_permissions(
     permissions: Option<&std::collections::HashMap<String, String>>,
 ) -> Result<(), String> {
     let normalized = normalize_modules(modules);
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    // Nível já gravado nunca muda sozinho: só `permissions` explícito o troca; módulo novo entra como "view".
+    let atuais: std::collections::HashMap<String, String> =
+        sqlx::query_as::<_, (String, String)>("SELECT module_key, access_level FROM hub_operator_modules WHERE operator_id = $1")
+            .bind(operator_id)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .collect();
     sqlx::query("DELETE FROM hub_operator_modules WHERE operator_id = $1")
         .bind(operator_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
     for key in normalized {
         let level = permissions
             .and_then(|p| p.get(&key))
+            .or_else(|| atuais.get(&key))
             .map(|s| s.as_str())
-            .unwrap_or("edit");
-        let level = if level == "view" { "view" } else { "edit" };
+            .unwrap_or("view");
+        let level = if level == "edit" { "edit" } else { "view" };
         sqlx::query(
             "INSERT INTO hub_operator_modules (operator_id, module_key, access_level) VALUES ($1, $2, $3)",
         )
         .bind(operator_id)
         .bind(&key)
         .bind(level)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
     }
+    tx.commit().await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1333,7 +1373,7 @@ pub fn requires_supervisor(path: &str, method: &str) -> bool {
     if path.starts_with("/api/auth/operators/manage") {
         return matches!(method, "GET" | "POST" | "PUT" | "DELETE");
     }
-    if path.starts_with("/api/admin/agentes") {
+    if path.starts_with("/api/admin/agentes") || path.starts_with("/api/admin/permissoes") {
         return true;
     }
     if path.starts_with("/api/auth/devices/manage") {
@@ -1479,15 +1519,28 @@ pub fn modulos_da_rota(path: &str) -> Option<&'static [&'static str]> {
         .map(|(_, modulos)| *modulos)
 }
 
-/// Leitura (GET/HEAD) de agente: só rotas de módulos que ele tem. Operador segue sem restrição de leitura.
+/// Leitura (GET/HEAD). Supervisor lê tudo. Agente só lê rotas dos módulos que tem. Operador comum lê tudo,
+/// a não ser que a restrição de leitura esteja ligada (setting `restringir_leitura_operadores`): aí rota
+/// mapeada exige algum dos módulos da rota; rota sem mapeamento segue liberada.
 pub fn has_read_access(ctx: &AuthContext, path: &str, method: &str) -> bool {
-    if !ctx.is_agente() || !matches!(method, "GET" | "HEAD") {
+    has_read_access_com(ctx, path, method, restricao_leitura_ligada())
+}
+
+pub fn has_read_access_com(ctx: &AuthContext, path: &str, method: &str, restringir: bool) -> bool {
+    if ctx.role.is_supervisor() || !matches!(method, "GET" | "HEAD") {
         return true;
     }
     if path == "/api/health" || path.starts_with("/api/agentes/") {
         return true;
     }
-    modulos_da_rota(path).is_some_and(|ms| ms.iter().any(|m| ctx.has_module(m)))
+    if ctx.is_agente() {
+        return modulos_da_rota(path).is_some_and(|ms| ms.iter().any(|m| ctx.has_module(m)));
+    }
+    // Configurações gerais (`/api/settings/*`) são lidas por telas de qualquer módulo.
+    if !restringir || path == "/api/settings" || path.starts_with("/api/settings/") {
+        return true;
+    }
+    modulos_da_rota(path).is_none_or(|ms| ms.iter().any(|m| ctx.has_module(m)))
 }
 
 pub fn has_write_access(ctx: &AuthContext, path: &str, method: &str) -> bool {
@@ -1539,4 +1592,99 @@ pub fn has_write_access(ctx: &AuthContext, path: &str, method: &str) -> bool {
         return modulos_da_rota(path).is_some_and(|ms| ms.iter().any(|m| ctx.can_edit_module(m)));
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::modules::geral::auth::models::Origem;
+    use std::collections::HashMap;
+
+    fn ctx(role: OperatorRole, origem: Origem, modulos: &[&str]) -> AuthContext {
+        AuthContext {
+            operator_id: "o1".into(),
+            display_name: "Teste".into(),
+            role,
+            modules: modulos.iter().map(|m| m.to_string()).collect(),
+            permissions: modulos.iter().map(|m| (m.to_string(), "view".to_string())).collect(),
+            origem,
+        }
+    }
+
+    #[test]
+    fn operador_le_tudo_com_restricao_desligada() {
+        let op = ctx(OperatorRole::Operador, Origem::Tela, &["vendas"]);
+        assert!(has_read_access_com(&op, "/api/producao/auditoria", "GET", false));
+        assert!(has_read_access_com(&op, "/api/notifications", "GET", false));
+    }
+
+    #[test]
+    fn operador_com_restricao_ligada_le_so_seus_modulos() {
+        let op = ctx(OperatorRole::Operador, Origem::Tela, &["vendas"]);
+        assert!(has_read_access_com(&op, "/api/vendas/pedidos", "GET", true));
+        assert!(!has_read_access_com(&op, "/api/producao/auditoria", "GET", true));
+        assert!(has_read_access_com(&op, "/api/notifications", "GET", true), "rota sem mapeamento segue liberada");
+        assert!(has_read_access_com(&op, "/api/settings/qualquer", "GET", true), "settings gerais seguem liberadas");
+        assert!(has_read_access_com(&op, "/api/health", "GET", true));
+        assert!(has_read_access_com(&op, "/api/producao/lotes", "POST", true), "restrição é só de leitura");
+    }
+
+    #[test]
+    fn supervisor_le_tudo_e_agente_segue_como_antes() {
+        let sup = ctx(OperatorRole::Supervisor, Origem::Tela, &[]);
+        assert!(has_read_access_com(&sup, "/api/producao/auditoria", "GET", true));
+        let ag = ctx(OperatorRole::Operador, Origem::Agente, &["vendas"]);
+        assert!(has_read_access_com(&ag, "/api/vendas/pedidos", "GET", false));
+        assert!(!has_read_access_com(&ag, "/api/producao/auditoria", "GET", false));
+        assert!(!has_read_access_com(&ag, "/api/notifications", "GET", false));
+    }
+
+    /// Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn salvar_modulos_preserva_nivel_existente_e_novo_entra_como_view() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        init_auth_tables(&pool).await.unwrap();
+        let id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO hub_operators (id, display_name, role, active, update_channel) VALUES ($1, $2, 'operador', 1, 'stable')",
+        )
+        .bind(&id)
+        .bind(format!("teste-permissoes-{id}"))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let niveis = |pool: PgPool, id: String| async move {
+            sqlx::query_as::<_, (String, String)>("SELECT module_key, access_level FROM hub_operator_modules WHERE operator_id = $1")
+                .bind(id)
+                .fetch_all(&pool)
+                .await
+                .unwrap()
+                .into_iter()
+                .collect::<HashMap<_, _>>()
+        };
+
+        let resultado = async {
+            let inicial = HashMap::from([("producao".to_string(), "edit".to_string())]);
+            set_operator_modules_with_permissions(&pool, &id, &["producao".to_string()], Some(&inicial)).await.unwrap();
+            let mods = ["producao".to_string(), "vendas".to_string()];
+
+            set_operator_modules_with_permissions(&pool, &id, &mods, None).await.unwrap();
+            let n = niveis(pool.clone(), id.clone()).await;
+            assert_eq!(n["producao"], "edit", "nível existente não muda");
+            assert_eq!(n["vendas"], "view", "módulo novo entra como view");
+
+            let explicito = HashMap::from([("vendas".to_string(), "edit".to_string())]);
+            set_operator_modules_with_permissions(&pool, &id, &mods, Some(&explicito)).await.unwrap();
+            let n = niveis(pool.clone(), id.clone()).await;
+            assert_eq!(n["vendas"], "edit", "permissions explícito vale");
+            assert_eq!(n["producao"], "edit");
+        }
+        .await;
+
+        sqlx::query("DELETE FROM hub_operator_modules WHERE operator_id = $1").bind(&id).execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM hub_operators WHERE id = $1").bind(&id).execute(&pool).await.unwrap();
+        resultado
+    }
 }

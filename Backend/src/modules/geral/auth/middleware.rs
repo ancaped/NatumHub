@@ -70,7 +70,7 @@ async fn auth_middleware_inner(
             }
 
             if !store::has_read_access(&ctx, &path, &method) {
-                return ErroApi::sem_permissao("Este agente não tem acesso ao módulo desta rota.")
+                return ErroApi::sem_permissao("Sem acesso ao módulo desta rota.")
                     .com_detalhes(json!({ "metodo": method, "caminho": path }))
                     .into_response();
             }
