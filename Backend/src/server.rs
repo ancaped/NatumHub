@@ -392,6 +392,7 @@ where
     // Antes só rodavam no início de um sync do ERP, e colunas novas ficavam faltando até o próximo sync.
     if let Err(e) = modules::geral::postgres_bootstrap::commands::run_schema_migrations(&pool).await {
         eprintln!("[Database Migration] {e}");
+        modules::geral::alertas::alertar(&pool, "migracao", "Falha ao aplicar migração do banco", &e).await;
     }
     let _ = modules::geral::auth::store::init_auth_tables(&pool).await;
     let _ = modules::geral::audit::store::ensure_tables(&pool).await;
@@ -401,6 +402,11 @@ where
     let _ = modules::producao::fila::ensure_fila_demandas_table(&pool).await;
 
     let state = Arc::new(handlers::AppState { db });
+
+    let pool_alertas = state.db.pool().clone();
+    tokio::spawn(async move {
+        modules::geral::alertas::vigiar_sync_erp(pool_alertas).await;
+    });
 
     let scheduler_state = state.clone();
     tokio::spawn(async move {

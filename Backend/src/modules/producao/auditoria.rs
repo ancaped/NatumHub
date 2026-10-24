@@ -33,6 +33,7 @@ pub async fn registrar(pool: &PgPool, usuario: &str, acao: &str, alvo: &str, det
         .await
     {
         eprintln!("[auditoria] falha ao registrar {acao} {alvo}: {e}");
+        crate::modules::geral::alertas::alertar(pool, "auditoria", "Auditoria não gravou", &format!("Falha ao registrar {acao}: {e}")).await;
     }
 }
 

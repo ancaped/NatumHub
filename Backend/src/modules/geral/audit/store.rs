@@ -80,7 +80,15 @@ pub async fn record(
     .bind(ctx.map(|c| c.origem.as_str()).unwrap_or("sistema"))
     .execute(pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| {
+        let e = e.to_string();
+        let pool = pool.clone();
+        let msg = format!("Falha ao gravar a auditoria: {e}");
+        tokio::spawn(async move {
+            crate::modules::geral::alertas::alertar(&pool, "auditoria", "Auditoria não gravou", &msg).await;
+        });
+        e
+    })?;
     Ok(id)
 }
 

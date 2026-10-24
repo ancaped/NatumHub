@@ -17,6 +17,20 @@ use super::store;
 
 pub async fn auth_middleware(
     State(state): State<Arc<AppState>>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    let rota = req.uri().path().to_string();
+    let pool = state.db.pool().clone();
+    let resp = auth_middleware_inner(State(state), req, next).await;
+    if resp.status() == StatusCode::INTERNAL_SERVER_ERROR {
+        crate::modules::geral::alertas::registrar_500(&pool, &rota).await;
+    }
+    resp
+}
+
+async fn auth_middleware_inner(
+    State(state): State<Arc<AppState>>,
     mut req: Request<Body>,
     next: Next,
 ) -> Response {

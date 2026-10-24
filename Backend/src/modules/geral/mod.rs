@@ -1,6 +1,7 @@
 pub mod configuracoes;
 pub mod feedbacks;
 pub mod acesso;
+pub mod alertas;
 pub mod agentes;
 pub mod hub;
 pub mod auth;
