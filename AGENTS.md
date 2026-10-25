@@ -98,7 +98,7 @@ Rota HTTP           → natumhub-api
 
 ## Regra fixa: toda função também serve a agentes de IA
 
-Decisão do Edson (futuro conector MCP; não construir o MCP ainda). Ao criar ou mexer em qualquer função do Nexus:
+Decisão do Edson (conector MCP: em 2026-10-24 aprovou um MCP mínimo só de leitura sobre o catálogo de ações; escrita por agente continua só pela API em 2 passos). Ao criar ou mexer em qualquer função do Nexus:
 - A lógica de negócio fica em **serviços reutilizáveis** (funções do módulo, sem depender da tela); o handler HTTP só valida e chama o serviço.
 - Exponha **endpoints de ação claros**, um por ação (ex.: `previa_fechamento_op` / `fechar_op`), com JSON enxuto.
 - **Escritas em 2 passos**: sem `confirmar=true` a rota só devolve a prévia (o que mudaria); com `confirmar=true` grava.
