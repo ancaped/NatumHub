@@ -57,6 +57,9 @@ jobs:
           npm run build
           npm run test:unit
 
+      - name: MCP (testes)
+        run: node --test "mcp/*.test.mjs"
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
