@@ -1543,6 +1543,16 @@ pub fn has_read_access_com(ctx: &AuthContext, path: &str, method: &str, restring
     modulos_da_rota(path).is_none_or(|ms| ms.iter().any(|m| ctx.has_module(m)))
 }
 
+/// Settings que só a Linha de Produtos grava (escrever exige "editar" nesse módulo).
+const SETTINGS_LINHA_PRODUTOS: [&str; 1] = ["lancamento_meta_meses_global"];
+/// Settings compartilhadas com a tela de Produção (decisões 15/16): Linha de Produtos ou Produção.
+const SETTINGS_LINHA_OU_PRODUCAO: [&str; 3] = ["ignored_product_statuses", "dias_comerciais", "limit_per_page"];
+
+/// `path` é a rota `base` ou algo abaixo dela (`base/...`), sem confundir `/api/configsX`.
+fn rota_de(path: &str, base: &str) -> bool {
+    path == base || path.strip_prefix(base).is_some_and(|r| r.starts_with('/') || r.starts_with('?'))
+}
+
 pub fn has_write_access(ctx: &AuthContext, path: &str, method: &str) -> bool {
     if ctx.role.is_supervisor() {
         return true;
@@ -1567,10 +1577,19 @@ pub fn has_write_access(ctx: &AuthContext, path: &str, method: &str) -> bool {
             ) && ctx.can_edit_module(m)
         });
     }
+    // Linha de Produtos: definição das linhas e settings de regra só com "editar" no módulo;
+    // os ajustes por produto (/api/overrides) também ficam com a Produção.
+    if rota_de(path, "/api/configs") || SETTINGS_LINHA_PRODUTOS.iter().any(|k| rota_de(path, &format!("/api/settings/{k}"))) {
+        return ctx.can_edit_module(super::modules_registry::MODULE_ADMIN_LINHA_PRODUTOS);
+    }
+    if rota_de(path, "/api/overrides") || SETTINGS_LINHA_OU_PRODUCAO.iter().any(|k| rota_de(path, &format!("/api/settings/{k}"))) {
+        return ctx.can_edit_module(super::modules_registry::MODULE_ADMIN_LINHA_PRODUTOS)
+            || ctx.can_edit_module(super::modules_registry::MODULE_PRODUCAO);
+    }
     if let Some(required) = requires_module(path, method) {
         return ctx.can_edit_module(required);
     }
-    if path.starts_with("/api/products") || path.starts_with("/api/overrides") || path.starts_with("/api/lotes") {
+    if path.starts_with("/api/products") || path.starts_with("/api/lotes") {
         return ctx.can_edit_module(super::modules_registry::MODULE_PRODUCAO);
     }
     if path.starts_with("/api/kits") {
@@ -1609,6 +1628,41 @@ mod tests {
             permissions: modulos.iter().map(|m| (m.to_string(), "view".to_string())).collect(),
             origem,
         }
+    }
+
+    #[test]
+    fn linha_de_produtos_so_edita_quem_tem_o_modulo() {
+        let edita = |role, mods: &[&str]| {
+            let mut c = ctx(role, Origem::Tela, mods);
+            for m in mods {
+                c.permissions.insert(m.to_string(), "edit".to_string());
+            }
+            c
+        };
+        let linha = edita(OperatorRole::Operador, &["admin_linha_produtos"]);
+        let prod = edita(OperatorRole::Operador, &["producao"]);
+        let outro = edita(OperatorRole::Operador, &["vendas"]);
+        let sup = ctx(OperatorRole::Supervisor, Origem::Tela, &[]);
+        for (c, esperado) in [(&linha, true), (&prod, false), (&outro, false), (&sup, true)] {
+            assert_eq!(has_write_access(c, "/api/configs", "PUT"), esperado);
+            assert_eq!(has_write_access(c, "/api/configs/recalcular-linhas", "POST"), esperado);
+            assert_eq!(has_write_access(c, "/api/configs/1", "DELETE"), esperado);
+            assert_eq!(has_write_access(c, "/api/settings/lancamento_meta_meses_global", "PUT"), esperado);
+        }
+        // settings compartilhadas com a Produção: linha de produtos ou produção
+        for (c, esperado) in [(&linha, true), (&prod, true), (&outro, false), (&sup, true)] {
+            assert_eq!(has_write_access(c, "/api/settings/dias_comerciais", "PUT"), esperado);
+            assert_eq!(has_write_access(c, "/api/settings/ignored_product_statuses", "POST"), esperado);
+            assert_eq!(has_write_access(c, "/api/settings/limit_per_page", "PUT"), esperado);
+        }
+        // overrides: linha de produtos ou produção
+        assert!(has_write_access(&linha, "/api/overrides/bulk", "POST"));
+        assert!(has_write_access(&prod, "/api/overrides", "POST"));
+        assert!(!has_write_access(&outro, "/api/overrides", "POST"));
+        // outras settings seguem como estavam (operador liberado)
+        assert!(has_write_access(&outro, "/api/settings/qualquer_outra", "PUT"));
+        // leitura nunca é bloqueada aqui
+        assert!(has_write_access(&outro, "/api/configs", "GET"));
     }
 
     #[test]

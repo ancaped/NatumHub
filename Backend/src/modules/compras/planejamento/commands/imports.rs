@@ -706,9 +706,9 @@ pub async fn get_ignored_product_statuses_query(pool: PgPool) -> Result<Vec<Stri
         Some(row) => {
             let val: String = row.get(0);
             Ok(serde_json::from_str(&val)
-                .unwrap_or_else(|_| vec!["descontinuado".to_string(), "terceirizado".to_string()]))
+                .unwrap_or_else(|_| crate::core::regras_produto::status_ignorados_padrao()))
         }
-        None => Ok(vec!["descontinuado".to_string(), "terceirizado".to_string()]),
+        None => Ok(crate::core::regras_produto::status_ignorados_padrao()),
     }
 }
 
@@ -752,15 +752,15 @@ pub async fn get_auto_ignored_ingredients_query(
     }
 
     let mut item_products_map: HashMap<String, Vec<(String, String, String)>> = HashMap::new();
-    let query = "
-        SELECT f.ingredient_code, f.product_code, p.descricao,
-               COALESCE(op.status_produto, 'ativo'), COALESCE(cl.visivel, 1)
+    let query = format!(
+        "SELECT f.ingredient_code, f.product_code, p.descricao,
+               COALESCE(o.status_produto, 'ativo'), COALESCE(cl.visivel, 1)
         FROM formulations f
         JOIN produtos p ON f.product_code = p.codigo
-        LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
-        LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
-    ";
-    if let Ok(rows) = sqlx::query(query).fetch_all(&pool).await {
+        {}",
+        crate::core::regras_produto::JOIN_LINHA_EFETIVA_SQL
+    );
+    if let Ok(rows) = sqlx::query(&query).fetch_all(&pool).await {
         for row in rows {
             let ing_code: String = row.get(0);
             let prod_code: String = row.get(1);

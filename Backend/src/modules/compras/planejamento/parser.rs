@@ -2,6 +2,8 @@ use calamine::{open_workbook, Data, Reader, Xlsx};
 use sqlx::PgPool;
 use std::path::Path;
 
+use crate::core::regras_produto::{carregar_prefixos_linhas, linha_do_codigo};
+
 fn cell_as_string(cell: &Data) -> String {
     match cell {
         Data::String(s) => s.trim().to_string(),
@@ -31,20 +33,6 @@ fn cell_as_f64(cell: &Data) -> f64 {
     }
 }
 
-pub fn get_linha_prefix(codigo: &str) -> String {
-    if let Some(first_part) = codigo.split('.').next() {
-        let trimmed = first_part.trim();
-        if let Ok(num) = trimmed.parse::<i32>() {
-            let num_str = num.to_string();
-            let known_prefixes = ["1", "2", "3", "5", "6", "10", "14", "17", "20", "70"];
-            if known_prefixes.contains(&num_str.as_str()) {
-                return num_str;
-            }
-        }
-    }
-    "DEFAULT".to_string()
-}
-
 pub async fn parse_faturamento_excel<P: AsRef<Path>>(
     file_path: P,
     pool: &PgPool,
@@ -59,6 +47,7 @@ pub async fn parse_faturamento_excel<P: AsRef<Path>>(
     let range = workbook.worksheet_range(sheet_name)?;
 
     let mut tx = pool.begin().await?;
+    let prefixos = carregar_prefixos_linhas(&mut *tx).await?;
     let mut count = 0;
 
     for (_row_idx, row) in range.rows().skip(1).enumerate() {
@@ -73,7 +62,7 @@ pub async fn parse_faturamento_excel<P: AsRef<Path>>(
             continue;
         }
 
-        let prefix = get_linha_prefix(&codigo);
+        let prefix = linha_do_codigo(&codigo, &prefixos);
 
         // Garantir que o produto existe (sem sobrescrever detalhes melhores)
         sqlx::query(
@@ -133,6 +122,7 @@ pub async fn parse_levantamento_excel<P: AsRef<Path>>(
     let range = workbook.worksheet_range(sheet_name)?;
 
     let mut tx = pool.begin().await?;
+    let prefixos = carregar_prefixos_linhas(&mut *tx).await?;
     let mut count = 0;
 
     for (_row_idx, row) in range.rows().skip(1).enumerate() {
@@ -165,7 +155,7 @@ pub async fn parse_levantamento_excel<P: AsRef<Path>>(
             None
         };
 
-        let prefix = get_linha_prefix(&codigo);
+        let prefix = linha_do_codigo(&codigo, &prefixos);
 
         sqlx::query(
             "INSERT INTO produtos (codigo, descricao, linha_prefix, base, media_levantamento)
@@ -232,6 +222,7 @@ pub async fn importar_kits_excel<P: AsRef<Path>>(
     let sheets = workbook.sheet_names();
 
     let mut tx = pool.begin().await?;
+    let prefixos = carregar_prefixos_linhas(&mut *tx).await?;
 
     let mut kits: std::collections::BTreeSet<String> = sqlx::query_scalar(
         "SELECT DISTINCT kit_codigo FROM kit_composicao WHERE COALESCE(origem, 'manual') = 'manual'",
@@ -287,8 +278,8 @@ pub async fn importar_kits_excel<P: AsRef<Path>>(
                 continue;
             }
 
-            let kit_prefix = get_linha_prefix(&kit_code);
-            let comp_prefix = get_linha_prefix(&comp_code);
+            let kit_prefix = linha_do_codigo(&kit_code, &prefixos);
+            let comp_prefix = linha_do_codigo(&comp_code, &prefixos);
 
             sqlx::query(
                 "INSERT INTO produtos (codigo, descricao, linha_prefix, base)

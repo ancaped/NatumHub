@@ -17,6 +17,7 @@ use crate::core::catalogo::{param, Acao};
 use crate::handlers::imports::clean_product_code;
 use crate::handlers::AppState;
 use crate::models::{LineConfig, Product, ProductCalculationResult, ProductOverride, QueryParams, Stock};
+use crate::core::regras_produto::{e_base, produto_ativo};
 use crate::modules::producao::gerenciamento::calculations::calculate_products;
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -559,12 +560,7 @@ pub async fn list_products(
         };
         let is_coloracao = root_cat == "cat_coloracao";
         let is_apoio = root_cat == "cat_apoio";
-        let is_base = root_cat == "cat_base" 
-            || p.status_produto.as_deref() == Some("bases") 
-            || p.status == "bases"
-            || p.codigo.contains(".36.")
-            || p.descricao.to_uppercase().starts_with("BASE ")
-            || p.descricao.to_uppercase().starts_with("PRE BASE ");
+        let is_base = e_base(&p.codigo, &root_cat, p.status_produto.as_deref().unwrap_or(""));
 
         if params.programadas_only == Some(true) || params.status.as_deref() == Some("programadas") {
             return p.is_producao_programada == Some(1);
@@ -645,7 +641,7 @@ pub async fn list_products(
     let ignored_statuses =
         crate::modules::compras::planejamento::commands::get_ignored_product_statuses_query(pool.clone())
             .await
-            .unwrap_or_default();
+            .unwrap_or_else(|_| crate::core::regras_produto::status_ignorados_padrao());
     let visible_products: Vec<&crate::models::ProductCalculationResult> = computed
         .iter()
         .filter(|p| {
@@ -655,19 +651,13 @@ pub async fn list_products(
             } else {
                 "".to_string()
             };
-            let is_base = root_cat == "cat_base"
-                || p.status_produto.as_deref() == Some("bases")
-                || p.status == "bases"
-                || p.codigo.contains(".36.")
-                || p.descricao.to_uppercase().starts_with("BASE ")
-                || p.descricao.to_uppercase().starts_with("PRE BASE ");
+            let is_base = e_base(&p.codigo, &root_cat, p.status_produto.as_deref().unwrap_or(""));
 
             if is_base && (params.include_bases == Some(true) || params.categoria.as_deref() == Some("cat_base") || params.status.as_deref() == Some("bases") || params.status.as_deref() == Some("base")) {
                 return p.visivel.unwrap_or(1) != 0;
             }
 
-            let status = p.status_produto.as_deref().unwrap_or("ativo");
-            !ignored_statuses.contains(&status.to_string()) && p.visivel.unwrap_or(1) != 0
+            produto_ativo(p.status_produto.as_deref().unwrap_or("ativo"), p.visivel, &ignored_statuses)
         })
         .collect();
     let count_critico = visible_products.iter().filter(|p| p.status == "critico").count();
@@ -690,12 +680,7 @@ pub async fn list_products(
             } else {
                 "".to_string()
             };
-            let is_base = root_cat == "cat_base"
-                || p.status_produto.as_deref() == Some("bases")
-                || p.status == "bases"
-                || p.codigo.contains(".36.")
-                || p.descricao.to_uppercase().starts_with("BASE ")
-                || p.descricao.to_uppercase().starts_with("PRE BASE ");
+            let is_base = e_base(&p.codigo, &root_cat, p.status_produto.as_deref().unwrap_or(""));
 
             if is_base && (params.include_bases == Some(true) || params.categoria.as_deref() == Some("cat_base") || params.status.as_deref() == Some("bases") || params.status.as_deref() == Some("base")) {
                 return p.visivel.unwrap_or(1) != 0;
@@ -778,12 +763,7 @@ pub async fn list_products(
                         } else {
                             "".to_string()
                         };
-                        root_cat == "cat_base"
-                            || p.status_produto.as_deref() == Some("bases")
-                            || p.status == "bases"
-                            || p.codigo.contains(".36.")
-                            || p.descricao.to_uppercase().starts_with("BASE ")
-                            || p.descricao.to_uppercase().starts_with("PRE BASE ")
+                        e_base(&p.codigo, &root_cat, p.status_produto.as_deref().unwrap_or(""))
                     });
                 }
                 _ => {
@@ -804,11 +784,7 @@ pub async fn list_products(
                 };
                 root_cat == *cat
                     || (cat == "cat_base"
-                        && (p.status_produto.as_deref() == Some("bases") 
-                            || p.status == "bases"
-                            || p.codigo.contains(".36.")
-                            || p.descricao.to_uppercase().starts_with("BASE ")
-                            || p.descricao.to_uppercase().starts_with("PRE BASE ")))
+                        && e_base(&p.codigo, "", p.status_produto.as_deref().unwrap_or("")))
             });
         }
     }

@@ -5,6 +5,7 @@ import {
   Target, Zap, CheckCircle, Package, Sparkles, ChevronDown, ArrowRightLeft,
 } from 'lucide-react';
 import { apiFetch } from '../../../geral/lib/http';
+import { eBase } from '../../../geral/lib/regrasProduto';
 
 function DuracaoEstoque({ dias }: { dias: number }) {
   const semConsumo = !Number.isFinite(dias) || dias >= 900;
@@ -31,13 +32,7 @@ function codeKey(value: string) {
 }
 
 function ehBase(p: any) {
-  const desc = String(p?.descricao || '').toUpperCase();
-  return p?.categoria_produto === 'cat_base'
-    || p?.status_produto === 'bases'
-    || p?.status === 'bases'
-    || String(p?.codigo || '').includes('.36.')
-    || desc.startsWith('BASE ')
-    || desc.startsWith('PRE BASE ');
+  return eBase(p?.codigo, p?.categoria_produto, p?.status_produto);
 }
 
 function emRegimeFixo(p: any) {

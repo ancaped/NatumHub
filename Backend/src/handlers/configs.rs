@@ -56,7 +56,7 @@ pub fn acoes_linha_produtos() -> Vec<Acao> {
             vec![
                 param("confirmar", "query", "booleano", false, "true grava; ausente só mostra a prévia."),
                 param("codigos", "corpo", "lista de texto", true, "Códigos dos produtos."),
-                param("action", "corpo", "texto", true, "hide, show, set_launch_auto, set_launch_yes, set_launch_no, sair_producao_fixa, set_obs, set_line, set_status, set_category ou clear."),
+                param("action", "corpo", "texto", true, "hide, show, set_launch_auto, set_launch_yes, set_launch_no, sair_producao_fixa, graduar_lancamento, set_obs, set_line, set_status, set_category ou clear."),
                 param("value_str", "corpo", "texto", false, "Valor da ação (status, linha, categoria ou observação)."),
             ],
         ),
@@ -71,6 +71,15 @@ pub fn acoes_linha_produtos() -> Vec<Acao> {
                 param("prefix", "caminho", "texto", true, "Prefixo da linha (DEFAULT não pode ser excluída)."),
                 param("confirmar", "query", "booleano", false, "true grava; ausente só mostra a prévia."),
             ],
+        ),
+        Acao::gravacao(
+            "recalcular_linhas_produtos",
+            M,
+            "Recalcula a linha automática de todos os produtos pelo código e pelas linhas cadastradas (por segmento do código). Sem `confirmar=true` devolve só a prévia (quantos mudam e até 100 de-para).",
+            "POST",
+            "/api/configs/recalcular-linhas",
+            true,
+            vec![param("confirmar", "query", "booleano", false, "true grava; ausente só mostra a prévia.")],
         ),
     ]
 }
@@ -206,6 +215,97 @@ pub async fn excluir_linha(
     Ok(resposta)
 }
 
+// 2b-2. POST /api/configs/recalcular-linhas (2 passos: sem confirmar=true só mostra quantos produtos mudam)
+pub async fn recalcular_linhas_handler(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
+) -> Response {
+    match recalcular_linhas_produtos(state.db.pool(), &ctx, c.confirmar).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// Quantos itens do de-para a prévia lista.
+const LIMITE_PREVIA_RECALCULO: usize = 100;
+
+/// Serviço: refaz `produtos.linha_prefix` de todos os produtos com `linha_do_codigo` (linhas cadastradas
+/// em `config_linhas`). Não mexe nos ajustes manuais (`overrides_produtos`). Reutilizável por agentes.
+pub async fn recalcular_linhas_produtos(
+    pool: &PgPool,
+    ctx: &AuthContext,
+    confirmar: bool,
+) -> Result<crate::core::acao::RespostaAcao<Value>, ErroApi> {
+    let resposta = executar_em_2_passos(pool, "recalcular_linhas_produtos", confirmar, move |tx| {
+        Box::pin(async move {
+            let prefixos = crate::core::regras_produto::carregar_prefixos_linhas(&mut **tx).await?;
+            let produtos: Vec<(String, String, String)> =
+                sqlx::query_as("SELECT codigo, descricao, linha_prefix FROM produtos")
+                    .fetch_all(&mut **tx)
+                    .await?;
+            let mudancas = calcular_mudancas_de_linha(&produtos, &prefixos);
+            let codigos: Vec<String> = mudancas.iter().map(|m| m.0.clone()).collect();
+            let novas: Vec<String> = mudancas.iter().map(|m| m.3.clone()).collect();
+            for (cods, nov) in codigos.chunks(1000).zip(novas.chunks(1000)) {
+                sqlx::query(
+                    "UPDATE produtos p SET linha_prefix = u.nova
+                     FROM UNNEST($1::text[], $2::text[]) AS u(codigo, nova)
+                     WHERE p.codigo = u.codigo",
+                )
+                .bind(cods)
+                .bind(nov)
+                .execute(&mut **tx)
+                .await?;
+            }
+            let lista: Vec<Value> = mudancas
+                .iter()
+                .take(LIMITE_PREVIA_RECALCULO)
+                .map(|(cod, desc, de, para)| json!({ "codigo": cod, "descricao": desc, "de": de, "para": para }))
+                .collect();
+            Ok(json!({
+                "totalProdutos": produtos.len(),
+                "produtosQueMudam": mudancas.len(),
+                "lista": lista,
+                "listaTruncada": mudancas.len() > LIMITE_PREVIA_RECALCULO,
+            }))
+        })
+    })
+    .await?;
+    if confirmar {
+        audit::record_domain(
+            pool,
+            Some(ctx),
+            MODULO_AUDITORIA,
+            "recalcular_linhas_produtos",
+            "produtos",
+            "todos",
+            &format!(
+                "Linhas dos produtos recalculadas ({} mudaram)",
+                resposta.resultado["produtosQueMudam"]
+            ),
+            None,
+            Some(resposta.resultado.clone()),
+        )
+        .await;
+    }
+    Ok(resposta)
+}
+
+/// (codigo, descricao, de, para) só dos produtos cuja linha automática mudaria.
+pub fn calcular_mudancas_de_linha(
+    produtos: &[(String, String, String)],
+    prefixos: &[String],
+) -> Vec<(String, String, String, String)> {
+    produtos
+        .iter()
+        .filter_map(|(codigo, descricao, atual)| {
+            let nova = crate::core::regras_produto::linha_do_codigo(codigo, prefixos);
+            (nova != *atual).then(|| (codigo.clone(), descricao.clone(), atual.clone(), nova))
+        })
+        .collect()
+}
+
 // 2c. GET /api/overrides
 pub async fn get_overrides(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     match state.db.get_all_overrides().await {
@@ -284,6 +384,7 @@ pub fn campos_da_acao(action: &str) -> &'static [&'static str] {
         "hide" | "show" => &["visivel"],
         "set_launch_auto" | "set_launch_yes" | "set_launch_no" => &["is_lancamento_manual"],
         "sair_producao_fixa" => &["is_lancamento_manual", "lancamento_gatilho", "lancamento_estoque_maximo"],
+        "graduar_lancamento" => &["status_produto", "is_lancamento_manual"],
         "set_obs" => &["observacao"],
         "set_line" => &["linha_prefix_manual"],
         "set_status" => &["status_produto"],
@@ -461,13 +562,15 @@ pub async fn get_graduation_candidates_handler(
         _ => 6,
     };
 
-    let rows = match sqlx::query(
-        "SELECT op.codigo, p.descricao, cl.nome_linha, op.lancamento_meta_meses, op.lancamento_data_inicio
-         FROM overrides_produtos op
-         JOIN produtos p ON op.codigo = p.codigo
-         LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
-         WHERE op.status_produto = 'lancamento'",
-    )
+    let sql = format!(
+        "SELECT o.codigo, p.descricao, cl.nome_linha, o.lancamento_meta_meses, o.lancamento_data_inicio
+         FROM overrides_produtos o
+         JOIN produtos p ON o.codigo = p.codigo
+         LEFT JOIN config_linhas cl ON cl.linha_prefix = {}
+         WHERE o.status_produto = 'lancamento'",
+        crate::core::regras_produto::LINHA_EFETIVA_SQL
+    );
+    let rows = match sqlx::query(&sql)
     .fetch_all(pool)
     .await
     {
@@ -481,6 +584,21 @@ pub async fn get_graduation_candidates_handler(
         }
     };
 
+    // Uma única consulta traz os meses (1-12) com venda de todos os candidatos.
+    let codigos: Vec<String> = rows.iter().map(|r| sqlx::Row::get::<String, _>(r, 0)).collect();
+    let vendas: Vec<(String, i32)> = sqlx::query_as(
+        "SELECT codigo, mes FROM historico_faturamento WHERE codigo = ANY($1) AND quantidade > 0",
+    )
+    .bind(&codigos)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+    let mut meses_por_codigo: HashMap<String, Vec<i32>> = HashMap::new();
+    for (codigo, mes) in vendas {
+        meses_por_codigo.entry(codigo).or_default().push(mes);
+    }
+
+    let hoje = chrono::Local::now().date_naive();
     let mut candidates = Vec::new();
 
     for row in rows {
@@ -492,13 +610,11 @@ pub async fn get_graduation_candidates_handler(
         let date_start: Option<String> = row.get(4);
 
         let limit = meta.unwrap_or(global_limit);
-        let months_with_sales: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM historico_faturamento WHERE codigo = $1 AND quantidade > 0",
-        )
-        .bind(&code)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(0);
+        let months_with_sales = meses_com_venda_desde(
+            meses_por_codigo.get(&code).map(|v| v.as_slice()).unwrap_or(&[]),
+            date_start.as_deref(),
+            hoje,
+        );
 
         if months_with_sales >= limit {
             candidates.push(serde_json::json!({
@@ -515,8 +631,67 @@ pub async fn get_graduation_candidates_handler(
     (StatusCode::OK, Json(candidates)).into_response()
 }
 
+/// Meses de venda a contar para graduar: só os meses (1-12) entre o início do lançamento e hoje.
+/// Sem data (ou data ilegível) conta todos, como antes. O histórico guarda só o mês do ano, então um
+/// lançamento com mais de 12 meses conta o ano todo.
+pub fn meses_com_venda_desde(meses_com_venda: &[i32], data_inicio: Option<&str>, hoje: chrono::NaiveDate) -> i64 {
+    use chrono::Datelike;
+    let inicio = data_inicio
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .and_then(|d| chrono::NaiveDate::parse_from_str(d.get(..10).unwrap_or(d), "%Y-%m-%d").ok());
+    let Some(inicio) = inicio else {
+        return meses_com_venda.len() as i64;
+    };
+    if inicio > hoje {
+        return 0;
+    }
+    let decorridos = (hoje.year() - inicio.year()) * 12 + hoje.month() as i32 - inicio.month() as i32 + 1;
+    if decorridos >= 12 {
+        return meses_com_venda.len() as i64;
+    }
+    meses_com_venda
+        .iter()
+        .filter(|m| {
+            let desde_inicio = (**m - inicio.month() as i32).rem_euclid(12) + 1;
+            desde_inicio <= decorridos
+        })
+        .count() as i64
+}
+
 #[cfg(test)]
 mod testes_validacao {
+    #[test]
+    fn graduacao_conta_so_meses_desde_o_inicio() {
+        let hoje = chrono::NaiveDate::from_ymd_opt(2026, 10, 24).unwrap();
+        let vendas = [5, 6, 7, 8, 9, 10];
+        // sem data: todos
+        assert_eq!(super::meses_com_venda_desde(&vendas, None, hoje), 6);
+        assert_eq!(super::meses_com_venda_desde(&vendas, Some("lixo"), hoje), 6);
+        // início em agosto: ago, set, out
+        assert_eq!(super::meses_com_venda_desde(&vendas, Some("2026-08-15"), hoje), 3);
+        // início há mais de um ano: todos
+        assert_eq!(super::meses_com_venda_desde(&vendas, Some("2025-01-01"), hoje), 6);
+        // início no futuro: nenhum
+        assert_eq!(super::meses_com_venda_desde(&vendas, Some("2026-12-01"), hoje), 0);
+        // atravessa a virada do ano: nov/2025 a out/2026 = 12 meses -> todos; dez/2025 -> dez..out
+        assert_eq!(super::meses_com_venda_desde(&[12, 1, 3, 10], Some("2025-12-10"), hoje), 4);
+        assert_eq!(super::meses_com_venda_desde(&[11, 1, 3, 10], Some("2026-01-10"), hoje), 3);
+    }
+
+    #[test]
+    fn recalculo_lista_so_quem_muda() {
+        let prefixos = vec!["1".to_string(), "9.15".to_string()];
+        let produtos = vec![
+            ("1.12.001".to_string(), "A".to_string(), "1".to_string()),
+            ("9.15.002".to_string(), "B".to_string(), "DEFAULT".to_string()),
+            ("99.1.1".to_string(), "C".to_string(), "DEFAULT".to_string()),
+        ];
+        let m = super::calcular_mudancas_de_linha(&produtos, &prefixos);
+        assert_eq!(m.len(), 1);
+        assert_eq!((m[0].0.as_str(), m[0].2.as_str(), m[0].3.as_str()), ("9.15.002", "DEFAULT", "9.15"));
+    }
+
     use super::*;
 
     fn linha() -> LineConfig {

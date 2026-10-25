@@ -299,13 +299,14 @@ impl Db {
     }
 
     /// Ações aceitas por `save_override_bulk`.
-    pub const ACOES_BULK: [&'static str; 11] = [
+    pub const ACOES_BULK: [&'static str; 12] = [
         "hide",
         "show",
         "set_launch_auto",
         "set_launch_yes",
         "set_launch_no",
         "sair_producao_fixa",
+        "graduar_lancamento",
         "set_obs",
         "set_line",
         "set_status",
@@ -382,6 +383,18 @@ impl Db {
                          SET is_lancamento_manual = 0,
                              lancamento_gatilho = NULL,
                              lancamento_estoque_maximo = NULL
+                         WHERE codigo = $1",
+                    )
+                    .bind(codigo)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                }
+                "graduar_lancamento" => {
+                    // Graduar = status ativo e sem marca manual de lançamento.
+                    sqlx::query(
+                        "UPDATE overrides_produtos
+                         SET status_produto = 'ativo', is_lancamento_manual = NULL
                          WHERE codigo = $1",
                     )
                     .bind(codigo)
@@ -664,7 +677,7 @@ impl Db {
     ) -> Result<Vec<crate::models::ProducaoHistoryRecord>, String> {
         let mut query = String::from(
             "SELECT h.id, h.data_producao, h.codigo, p.descricao,
-                    COALESCE(o.linha_prefix_manual, p.linha_prefix) as resolved_linha_prefix,
+                    {LINHA} as resolved_linha_prefix,
                     cl.nome_linha, h.quantidade, h.observacoes, h.criado_em,
                     h.snap_estoque, h.snap_producao, h.snap_pedidos, h.snap_efp,
                     h.snap_media_vendas, h.snap_duracao_meses, h.snap_status,
@@ -673,8 +686,9 @@ impl Db {
              FROM historico_producao h
              LEFT JOIN produtos p ON h.codigo = p.codigo
              LEFT JOIN overrides_produtos o ON h.codigo = o.codigo
-             LEFT JOIN config_linhas cl ON COALESCE(o.linha_prefix_manual, p.linha_prefix) = cl.linha_prefix
-             WHERE 1=1",
+             LEFT JOIN config_linhas cl ON {LINHA} = cl.linha_prefix
+             WHERE 1=1"
+                .replace("{LINHA}", crate::core::regras_produto::LINHA_EFETIVA_SQL),
         );
 
         let mut binds: Vec<String> = Vec::new();

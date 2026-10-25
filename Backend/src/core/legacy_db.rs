@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use uuid::Uuid;
 use chrono::{Duration, Local, NaiveDate, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::modules::compras::planejamento::parser::get_linha_prefix;
+use crate::core::regras_produto::{carregar_prefixos_linhas, linha_do_codigo};
 
 /// Modo de sincronização ERP.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1987,6 +1987,7 @@ WHERE {so2_date_filter};
     );
 
     let mut tx = pool.begin().await?;
+    let prefixos_linhas = carregar_prefixos_linhas(&mut *tx).await?;
 
     // Write Products — lotes UNNEST (evita ~14 round-trips/produto no pooler)
     eprintln!(
@@ -2012,7 +2013,7 @@ WHERE {so2_date_filter};
     let mut qtde_cxs: Vec<i32> = Vec::with_capacity(count_prod);
 
     for p in &products_list {
-        let prefix = get_linha_prefix(&p.codigo).to_string();
+        let prefix = linha_do_codigo(&p.codigo, &prefixos_linhas);
         codigos.push(p.codigo.clone());
         descricoes.push(p.descricao.clone());
         prefixes.push(prefix);

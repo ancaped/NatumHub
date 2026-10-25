@@ -657,12 +657,14 @@ pub async fn carregar_meta_produtos(pool: &PgPool, produtos: &[String]) -> Resul
     if pedidos.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows = sqlx::query(
+    let linha_efetiva = crate::core::regras_produto::LINHA_EFETIVA_SQL;
+    let rows = sqlx::query(&format!(
         "SELECT TRIM(p.codigo) AS codigo, COALESCE(p.descricao, '') AS descricao, \
-                COALESCE(NULLIF(TRIM(c.nome_linha), ''), p.linha_prefix, '') AS linha \
-         FROM produtos p LEFT JOIN config_linhas c ON c.linha_prefix = p.linha_prefix \
-         WHERE TRIM(p.codigo) = ANY($1)",
-    )
+                COALESCE(NULLIF(TRIM(c.nome_linha), ''), {linha_efetiva}, '') AS linha \
+         FROM produtos p LEFT JOIN overrides_produtos o ON o.codigo = p.codigo \
+         LEFT JOIN config_linhas c ON c.linha_prefix = {linha_efetiva} \
+         WHERE TRIM(p.codigo) = ANY($1)"
+    ))
     .bind(&pedidos)
     .fetch_all(pool)
     .await

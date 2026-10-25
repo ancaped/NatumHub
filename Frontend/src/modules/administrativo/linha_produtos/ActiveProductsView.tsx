@@ -8,6 +8,7 @@ import {
 import { cn, randomId } from '../../geral/lib/utils';
 import { Category, PRODUCT_LINE_STATUSES, GraduationCandidate } from '../../geral/lib/types';
 import { api } from '../../geral/lib/api';
+import { eBase, STATUS_IGNORADOS_PADRAO, DIAS_COMERCIAIS_PADRAO, LIMITE_POR_PAGINA_PADRAO } from '../../geral/lib/regrasProduto';
 import KitCompositionDrawer from '../../producao/components/KitCompositionDrawer';
 import Drawer from '../../geral/components/ui/Drawer';
 import { useAviso } from '../../geral/components/ui/Aviso';
@@ -217,8 +218,8 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const [configNewCatName, setConfigNewCatName] = useState('');
   const [configNewCatParent, setConfigNewCatParent] = useState('');
   const [configIgnoredStatuses, setConfigIgnoredStatuses] = useState<string[]>([]);
-  const [globalDiasComerciais, setGlobalDiasComerciais] = useState('22');
-  const [globalLimitPerPage, setGlobalLimitPerPage] = useState('30');
+  const [globalDiasComerciais, setGlobalDiasComerciais] = useState(String(DIAS_COMERCIAIS_PADRAO));
+  const [globalLimitPerPage, setGlobalLimitPerPage] = useState(String(LIMITE_POR_PAGINA_PADRAO));
   const [globalLancamentoMeta, setGlobalLancamentoMeta] = useState('6');
   const [globalSettingsSaving, setGlobalSettingsSaving] = useState(false);
   const [configSubTab, setConfigSubTab] = useState<'parametros' | 'status' | 'categorias'>('parametros');
@@ -271,7 +272,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
           if (m && m.value) setGlobalLancamentoMeta(m.value);
         }
 
-        let ignoredList = ['descontinuado', 'terceirizado'];
+        let ignoredList = [...STATUS_IGNORADOS_PADRAO];
         if (ignoredRes.ok) {
           try {
             const data = await ignoredRes.json();
@@ -471,8 +472,8 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     await pedirBulk({
       titulo: `Graduar ${graduationCandidates.length} candidato(s) para "Ativa"`,
       codigos: graduationCandidates.map(c => c.codigo),
-      action: 'set_status',
-      value: 'ativo',
+      action: 'graduar_lancamento',
+      value: null,
       confirmarRotulo: 'Graduar',
       aoConcluir: async () => { await loadData(); },
     });
@@ -751,6 +752,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
       if (res.ok) {
         setIsLineModalOpen(false);
         await loadData();
+        avisar('Linha salva. Use "Recalcular linhas dos produtos" para aplicar aos produtos.', 'info');
       } else {
         const errData = await res.json();
         setLineFormError(errData.error || "Erro ao salvar a configuração de linha.");
@@ -791,11 +793,45 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
             throw new Error(e.error || 'Erro ao excluir.');
           }
           await loadData();
+          avisar('Linha excluída. Use "Recalcular linhas dos produtos" para reaplicar as linhas restantes.', 'info');
         },
       });
     } catch (err) {
       console.error(err);
       avisar("Falha de conexão ao excluir.", 'erro');
+    }
+  };
+
+  const handleRecalcularLinhas = async () => {
+    try {
+      const res = await apiFetch(`/configs/recalcular-linhas`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        avisar(data.error || 'Erro ao calcular a prévia.', 'erro');
+        return;
+      }
+      const r = data.resultado || {};
+      const lista: { codigo: string; descricao: string; de: string; para: string }[] = r.lista || [];
+      const avisos: string[] = [];
+      if (r.listaTruncada) avisos.push(`Mostrando ${lista.length} de ${r.produtosQueMudam} produtos que mudam.`);
+      avisos.push('Os ajustes manuais de linha dos produtos não mudam.');
+      setPrevia({
+        titulo: 'Recalcular linhas dos produtos',
+        linhas: lista.map(i => ({ titulo: `${i.codigo} · ${i.descricao}`, detalhe: `${i.de} → ${i.para}` })),
+        avisos: (r.produtosQueMudam ?? 0) === 0 ? ['Nenhum produto muda de linha.'] : avisos,
+        confirmarRotulo: 'Recalcular',
+        executar: async () => {
+          const r2 = await apiFetch(`/configs/recalcular-linhas?confirmar=true`, { method: 'POST' });
+          if (!r2.ok) {
+            const e = await r2.json().catch(() => ({}));
+            throw new Error(e.error || 'Erro ao recalcular as linhas.');
+          }
+          await loadData();
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      avisar('Falha de conexão ao preparar o recálculo.', 'erro');
     }
   };
 
@@ -905,7 +941,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const auditPaginaAtual = Math.min(auditPage, auditTotalPaginas);
   const overridesPagina = overridesFiltrados.slice((auditPaginaAtual - 1) * AUDIT_POR_PAGINA, auditPaginaAtual * AUDIT_POR_PAGINA);
 
-  const renderStatusBadge = (status: string | null, categoria?: string | null) => {
+  const renderStatusBadge = (status: string | null, categoria?: string | null, codigo?: string | null) => {
     const statusVal = status || 'ativo';
     // Ciclo de vida — não incluir roteamento (cat_base)
     const styles: Record<string, string> = {
@@ -925,8 +961,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     };
 
     const lifeStatus = statusVal === 'bases' ? 'ativo' : statusVal;
-    const isBase =
-      categoria === 'cat_base' || statusVal === 'bases';
+    const isBase = eBase(codigo, categoria, statusVal);
 
     return (
       <span className="inline-flex items-center gap-1.5 flex-wrap">
@@ -1221,7 +1256,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                                   configs.find(c => c.linha_prefix === p.linha_prefix)?.nome_linha || p.linha_prefix
                                 )}
                               </td>
-                              <td className="px-4 py-3 align-middle">{renderStatusBadge(p.status_produto, p.categoria_produto)}</td>
+                              <td className="px-4 py-3 align-middle">{renderStatusBadge(p.status_produto, p.categoria_produto, p.codigo)}</td>
                               <td className="px-4 py-2.5">
                                 {p.categoria_produto ? (
                                   <span className="px-2 py-0.5 bg-zinc-100 text-zinc-650 border border-zinc-200 rounded text-[10px] font-bold">
@@ -1368,13 +1403,22 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 text-sm font-medium"
                   />
                 </div>
-                <button
-                  onClick={() => handleOpenLineModal(null)}
-                  className="bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-                >
-                  <Plus className="h-4 w-4" />
-                  Nova Linha
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleRecalcularLinhas}
+                    className="bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 border border-zinc-200 transition-all cursor-pointer"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Recalcular linhas dos produtos
+                  </button>
+                  <button
+                    onClick={() => handleOpenLineModal(null)}
+                    className="bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Nova Linha
+                  </button>
+                </div>
               </div>
 
               {/* Config Table Card */}
@@ -2359,7 +2403,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                   className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium font-mono"
                 />
                 <datalist id="base-produtos-list">
-                  {products.filter((p) => p.categoria_produto === 'cat_base' || p.status === 'bases').map((p) => (
+                  {products.filter((p) => eBase(p.codigo, p.categoria_produto, p.status_produto)).map((p) => (
                     <option key={p.codigo} value={p.codigo}>{p.descricao}</option>
                   ))}
                 </datalist>
@@ -2375,7 +2419,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                 onChange={(e) => setLineOverride(e.target.value)}
                 className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
               >
-                <option value="AUTO">Automático (Da importação do sistema)</option>
+                <option value="AUTO">Automático (pelo código do produto)</option>
                 {configs.map(c => (
                   <option key={c.linha_prefix} value={c.linha_prefix}>{c.nome_linha}</option>
                 ))}
@@ -2390,7 +2434,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                 onChange={(e) => setIsLaunchOverride(e.target.value)}
                 className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
               >
-                <option value="AUTO">Determinar pelo Status de Linha</option>
+                <option value="AUTO">Automático (segue o status: Lançamento é lançamento)</option>
                 <option value="YES">Sim (Forçar Lançamento)</option>
                 <option value="NO">Não (Forçar Normal)</option>
               </select>

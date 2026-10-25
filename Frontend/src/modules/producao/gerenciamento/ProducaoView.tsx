@@ -9,6 +9,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import { apiFetch } from '../../geral/lib/http';
+import { STATUS_IGNORADOS_PADRAO, DIAS_COMERCIAIS_PADRAO, LIMITE_POR_PAGINA_PADRAO, resolverSettingNumerica } from '../../geral/lib/regrasProduto';
 import { salesOrderStatusLabel } from '../../geral/lib/salesOrderStatus';
 
 
@@ -59,7 +60,7 @@ export default function ProducaoView({
   const [stats, setStats] = useState({ critico: 0, ordem: 0, saudavel: 0, abundante: 0, lancamentos: 0 });
   const [bases, setBases] = useState([]);
   const [configs, setConfigs] = useState([]);
-  const [ignoredStatuses, setIgnoredStatuses] = useState(['descontinuado', 'terceirizado']);
+  const [ignoredStatuses, setIgnoredStatuses] = useState<string[]>([...STATUS_IGNORADOS_PADRAO]);
   
   // Filtering & Pagination State
   const [activeTab, setActiveTab] = useState('ALL');
@@ -72,15 +73,9 @@ export default function ProducaoView({
   const [inventorySegment, setInventorySegment] = useState<'needed' | 'normal' | 'kit_mixed' | 'kit_only' | 'programadas' | 'fixas'>('needed');
   const [inventorySegmentCounts, setInventorySegmentCounts] = useState<{ [key: string]: number }>({});
   
-  // Global Settings (Stored in LocalStorage)
-  const [diasComerciais, setDiasComerciais] = useState(() => {
-    const saved = localStorage.getItem('diasComerciais');
-    return saved ? parseInt(saved, 10) : 30;
-  });
-  const [limitPerPage, setLimitPerPage] = useState(() => {
-    const saved = localStorage.getItem('limitPerPage');
-    return saved ? parseInt(saved, 10) : 30;
-  });
+  // Configurações globais: um valor só, guardado no servidor (settings dias_comerciais / limit_per_page)
+  const [diasComerciais, setDiasComerciais] = useState<number>(DIAS_COMERCIAIS_PADRAO);
+  const [limitPerPage, setLimitPerPage] = useState<number>(LIMITE_POR_PAGINA_PADRAO);
 
   // Temp settings state for inputs
   const [tempDiasComerciais, setTempDiasComerciais] = useState<number | string>(diasComerciais);
@@ -993,16 +988,61 @@ export default function ProducaoView({
     );
   };
 
-  const handleSaveGlobalSettings = (e) => {
+  const gravarSettingGlobal = (chave: string, valor: number) =>
+    apiFetch(`/settings/${chave}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: String(valor) }),
+    });
+
+  // Lê as settings do servidor; se ainda não existem, aproveita o valor antigo do navegador e grava no servidor.
+  const carregarSettingsGlobais = async () => {
+    const ler = async (chave: string): Promise<string | null> => {
+      try {
+        const res = await apiFetch(`/settings/${chave}`);
+        if (!res.ok) return null;
+        const data = await res.json();
+        return typeof data?.value === 'string' ? data.value : null;
+      } catch {
+        return null;
+      }
+    };
+    const guardado = (chave: string) => {
+      try { return localStorage.getItem(chave); } catch { return null; }
+    };
+    const [dias, limite] = await Promise.all([
+      (async () => resolverSettingNumerica(await ler('dias_comerciais'), guardado('diasComerciais'), DIAS_COMERCIAIS_PADRAO))(),
+      (async () => resolverSettingNumerica(await ler('limit_per_page'), guardado('limitPerPage'), LIMITE_POR_PAGINA_PADRAO))(),
+    ]);
+    setDiasComerciais(dias.valor);
+    setTempDiasComerciais(dias.valor);
+    setLimitPerPage(limite.valor);
+    setTempLimitPerPage(limite.valor);
+    if (dias.migrar) gravarSettingGlobal('dias_comerciais', dias.valor).catch(() => {});
+    if (limite.migrar) gravarSettingGlobal('limit_per_page', limite.valor).catch(() => {});
+  };
+
+  const handleSaveGlobalSettings = async (e) => {
     if (e) e.preventDefault();
-    const days = parseInt(String(tempDiasComerciais), 10) || 30;
-    const limit = parseInt(String(tempLimitPerPage), 10) || 30;
-    
+    const days = parseInt(String(tempDiasComerciais), 10) || DIAS_COMERCIAIS_PADRAO;
+    const limit = parseInt(String(tempLimitPerPage), 10) || LIMITE_POR_PAGINA_PADRAO;
+
+    try {
+      const respostas = await Promise.all([
+        gravarSettingGlobal('dias_comerciais', days),
+        gravarSettingGlobal('limit_per_page', limit),
+      ]);
+      if (!respostas.every(r => r.ok)) {
+        showToast("Não foi possível salvar as configurações globais.", "error");
+        return;
+      }
+    } catch {
+      showToast("Falha de conexão ao salvar as configurações globais.", "error");
+      return;
+    }
+
     setDiasComerciais(days);
     setLimitPerPage(limit);
-    localStorage.setItem('diasComerciais', days.toString());
-    localStorage.setItem('limitPerPage', limit.toString());
-    
     setPage(1);
     showToast("Configurações globais salvas com sucesso!", "success");
   };
@@ -1374,6 +1414,7 @@ export default function ProducaoView({
     fetchWatchConfig();
     fetchKitComposicao();
     fetchIgnoredStatuses();
+    carregarSettingsGlobais();
   }, []);
 
   useEffect(() => {

@@ -13,6 +13,7 @@ pub mod core {
     pub mod sales_open;
     pub mod production_reserve;
     pub mod mdns;
+    pub mod regras_produto;
 }
 
 pub mod modules {

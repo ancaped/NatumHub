@@ -226,13 +226,15 @@ const DEMANDS_SQL_PRODUCTS: &str = "
              FROM produtos p
              LEFT JOIN overrides_produtos o ON p.codigo = o.codigo
              LEFT JOIN estoque_atual e ON p.codigo = e.codigo
-             LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
+             LEFT JOIN config_linhas cl ON cl.linha_prefix = @LINHA_EFETIVA@
              LEFT JOIN item_stock_calibrations cal ON TRIM(cal.item_code) = TRIM(p.codigo)
              WHERE (p.codigo LIKE '1.34.%' OR p.codigo LIKE '1.30.%' OR o.categoria_produto = 'cat_coloracao' OR o.categoria_produto = 'cat_apoio')
                AND COALESCE(cl.visivel, 1) <> 0
 ";
 
 fn build_demands_sql(include_products: bool) -> String {
+    let demands_products =
+        DEMANDS_SQL_PRODUCTS.replace("@LINHA_EFETIVA@", crate::core::regras_produto::LINHA_EFETIVA_SQL);
     if include_products {
         format!(
             "SELECT code, description, unit, category_id, category_name,
@@ -242,7 +244,7 @@ fn build_demands_sql(include_products: bool) -> String {
          FROM (
              {DEMANDS_SQL_ITEMS}
              UNION ALL
-             {DEMANDS_SQL_PRODUCTS}
+             {demands_products}
          ) t
          WHERE 1=1"
         )

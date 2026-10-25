@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use crate::core::regras_produto::{e_base, produto_ativo, status_ignorados_padrao};
 use crate::models::{LineConfig, Product, ProductCalculationResult, ProductOverride, Stock};
 
 fn normalize_code(code: &str) -> String {
@@ -37,6 +38,8 @@ pub fn calculate_products(
         fator_seguranca_z: 0.0,
         visivel: Some(1),
     };
+
+    let status_ignorados = status_ignorados_padrao();
 
     // Index overrides by product code (raw, trimmed, and normalized)
     let mut overrides_map: HashMap<String, &ProductOverride> = HashMap::new();
@@ -122,7 +125,7 @@ pub fn calculate_products(
         // Get config
         let config = config_map.get(&resolved_linha_prefix).copied().unwrap_or(&default_config);
 
-        let resolved_visivel = if config.visivel == Some(0) || resolved_status_produto == "terceirizado" || resolved_status_produto == "descontinuado" {
+        let resolved_visivel = if config.visivel == Some(0) || !produto_ativo(&resolved_status_produto, None, &status_ignorados) {
             Some(0)
         } else {
             ovr.and_then(|o| o.visivel)
@@ -145,8 +148,10 @@ pub fn calculate_products(
             .or_else(|| fat_lookup.get(&norm_prod_code))
             .copied();
         let (desvio_padrao, is_lancamento) = {
-            // Etiqueta de lançamento só quando o operador marca. Sem venda não vira lançamento.
-            let is_l = ovr.and_then(|o| o.is_lancamento_manual) == Some(1);
+            // Lançamento = operador marcou (sim) ou o status efetivo do produto é "lancamento".
+            // Sem venda não vira lançamento por conta própria.
+            let is_l = ovr.and_then(|o| o.is_lancamento_manual) == Some(1)
+                || resolved_status_produto == "lancamento";
             let std_dev = if is_l {
                 0.0
             } else if let Some(sales) = monthly_sales {
@@ -254,9 +259,7 @@ pub fn calculate_products(
                 0
             };
             ("saindo_de_linha".to_string(), "Saindo de Linha".to_string(), rec)
-        } else if resolved_categoria_produto.as_deref() == Some("cat_base")
-            || resolved_status_produto == "bases"
-        {
+        } else if e_base(&prod.codigo, resolved_categoria_produto.as_deref().unwrap_or(""), &resolved_status_produto) {
             ("bases".to_string(), "Base de produção".to_string(), 0)
         } else {
             let has_manual_ideal = ovr.and_then(|o| o.estoque_ideal_manual).is_some()

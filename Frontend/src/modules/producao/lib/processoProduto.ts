@@ -1,5 +1,6 @@
 import { parseProductUnitWeightKg } from './unitConversion';
 import type { ReatorConfig } from '../gerenciamento/components/PlanejamentoSemanalTab';
+import { eBase } from '../../geral/lib/regrasProduto';
 
 /**
  * Classificação técnica de processo: Quente (Caldeira / Água Caldeira) vs Frio (Bases / Shampoos)
@@ -35,12 +36,7 @@ function inferirProcesso(p: any): {
   const desc = (p.descricao || '').toUpperCase();
   const base = (p.base || '').toUpperCase();
   const code = (p.codigo || '');
-  const isBaseItem = p.categoria_produto === 'cat_base' || 
-                     p.status_produto === 'bases' || 
-                     p.status === 'bases' ||
-                     code.includes('.36.') ||
-                     desc.startsWith('BASE ') || 
-                     desc.startsWith('PRE BASE ');
+  const isBaseItem = eBase(code, p.categoria_produto, p.status_produto);
 
   if (isBaseItem) {
     const isBaseShampoo = desc.includes('SH') || desc.includes('SHAMPOO') || desc.includes('LAURIL');

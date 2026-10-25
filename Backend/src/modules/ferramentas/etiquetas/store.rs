@@ -327,12 +327,12 @@ pub async fn create_print_history(
 }
 
 pub async fn list_catalog_products(pool: &PgPool) -> Result<Vec<CatalogProductInfo>, sqlx::Error> {
-    let rows = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, Option<String>, Option<i32>)>(
+    let sql = format!(
         r#"
         SELECT 
             p.codigo,
             p.descricao,
-            p.linha_prefix,
+            {},
             p.codigo_barras,
             o.categoria_produto,
             NULLIF(p.qtde_cx, 0)
@@ -341,7 +341,9 @@ pub async fn list_catalog_products(pool: &PgPool) -> Result<Vec<CatalogProductIn
         ORDER BY p.descricao ASC
         LIMIT 5000
         "#,
-    )
+        crate::core::regras_produto::LINHA_EFETIVA_SQL
+    );
+    let rows = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, Option<String>, Option<i32>)>(&sql)
     .fetch_all(pool)
     .await?;
 

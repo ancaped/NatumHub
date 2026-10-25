@@ -7,6 +7,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use crate::core::regras_produto::e_base;
 use serde_json::json;
 use sqlx::Row;
 use std::collections::HashMap;
@@ -276,12 +277,11 @@ pub async fn get_bases_resumo(
     let mut finished_items = Vec::new();
 
     for p in computed {
-        let is_base = p.categoria_produto.as_deref() == Some("cat_base")
-            || p.status_produto.as_deref() == Some("bases")
-            || p.status_produto.as_deref() == Some("base")
-            || p.codigo.starts_with("1.36.")
-            || p.codigo.starts_with("2.36.")
-            || p.codigo.starts_with("60.36.");
+        let is_base = e_base(
+            &p.codigo,
+            p.categoria_produto.as_deref().unwrap_or(""),
+            p.status_produto.as_deref().unwrap_or(""),
+        );
         if is_base {
             base_items.push(p);
         } else if p.visivel != Some(0) {

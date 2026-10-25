@@ -30,6 +30,7 @@ import { AgendarDrawer } from './planejamento/AgendarDrawer';
 import { ReatoresDrawer } from './planejamento/ReatoresDrawer';
 import type { DiaSemana, ScheduleModalItem, LinkLoteModalItem, EditQtyModalItem, TechnicalModalItem, HeuristicStats } from './planejamento/tiposDrawers';
 import { diasPermitidos, ordenarReatoresPorCaber } from '../../lib/heuristicaPlanejamento';
+import { eBase } from '../../../geral/lib/regrasProduto';
 
 export interface ReatorConfig {
   id: string;
@@ -452,12 +453,7 @@ export function PlanejamentoSemanalTab({
         // Filtro estrito client-side para garantir que itens inativos/descontinuados/terceirizados sejam expurgados
         // MAS preserva bases ativas de produção
         const activeItems = (data.items || []).filter((p: any) => {
-          const isBase = p.categoria_produto === 'cat_base' || 
-                         p.status_produto === 'bases' || 
-                         p.status === 'bases' ||
-                         (p.codigo || '').includes('.36.') ||
-                         (p.descricao || '').toUpperCase().startsWith('BASE ') ||
-                         (p.descricao || '').toUpperCase().startsWith('PRE BASE ');
+          const isBase = eBase(p.codigo, p.categoria_produto, p.status_produto);
 
           if (isBase) {
             return p.visivel !== 0;
@@ -559,12 +555,7 @@ export function PlanejamentoSemanalTab({
     for (const p of products) {
       if (selectedLineFilter !== 'ALL' && p.linha_prefix !== selectedLineFilter) continue;
       all++;
-      const isBase = p.categoria_produto === 'cat_base' || 
-                     p.status_produto === 'bases' || 
-                     p.status === 'bases' ||
-                     (p.codigo || '').includes('.36.') ||
-                     (p.descricao || '').toUpperCase().startsWith('BASE ') ||
-                     (p.descricao || '').toUpperCase().startsWith('PRE BASE ');
+      const isBase = eBase(p.codigo, p.categoria_produto, p.status_produto);
       if (isBase) bases++;
       const efp = p.estoque_futuro_com_producao ?? p.estoque_futuro ?? 0;
       if (efp < 0 || p.status === 'critico' || p.status === 'ordem') criticos++;
@@ -2901,12 +2892,7 @@ export function PlanejamentoSemanalTab({
                   const efp = prod.estoque_futuro_com_producao ?? prod.estoque_futuro ?? 0;
                   const isCritico = efp < 0 || prod.status === 'critico';
                   const isProgramada = prod.is_producao_programada === 1 || prod.is_producao_programada === true;
-                  const isBase = prod.categoria_produto === 'cat_base' || 
-                                 prod.status_produto === 'bases' || 
-                                 prod.status === 'bases' ||
-                                 (prod.codigo || '').includes('.36.') ||
-                                 (prod.descricao || '').toUpperCase().startsWith('BASE ') ||
-                                 (prod.descricao || '').toUpperCase().startsWith('PRE BASE ');
+                  const isBase = eBase(prod.codigo, prod.categoria_produto, prod.status_produto);
                   const procInfo = getProductProcessType(prod);
                   const mediaVendas = prod.media_vendas || prod.media_manual || 0;
                   const qtdRecomendada = prod.producao_recomendada || 0;

@@ -32,18 +32,18 @@ pub async fn carregar_itens(pool: &PgPool) -> Result<Vec<ItemInsumo>, String> {
     .await
     .map_err(|e| format!("Erro ao ler as matérias-primas: {e}"))?;
 
-    let usos = sqlx::query(
+    let usos = sqlx::query(&format!(
         r#"
         SELECT f.ingredient_code AS insumo,
-               COALESCE(op.status_produto, 'ativo') AS status_produto,
+               COALESCE(o.status_produto, 'ativo') AS status_produto,
                COALESCE(cl.visivel, 1)::int AS linha_visivel
         FROM formulations f
         JOIN produtos p ON f.product_code = p.codigo
-        LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
-        LEFT JOIN overrides_produtos op ON p.codigo = op.codigo
+        {}
         WHERE f.ingredient_code LIKE '9.15.%'
         "#,
-    )
+        crate::core::regras_produto::JOIN_LINHA_EFETIVA_SQL
+    ))
     .fetch_all(pool)
     .await
     .map_err(|e| format!("Erro ao ler o uso das matérias-primas: {e}"))?;

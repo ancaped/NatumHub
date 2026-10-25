@@ -470,6 +470,7 @@ pub async fn list_sales_faltas(
     }
 
     let open_st = crate::core::sales_open::OPEN_STATUS_SQL;
+    let join_linha = crate::core::regras_produto::JOIN_LINHA_EFETIVA_SQL;
     let active_query = if days > 0 {
         format!(
             "SELECT soi.c_cod_prod, p.descricao,
@@ -480,7 +481,7 @@ pub async fn list_sales_faltas(
              FROM sales_order_items soi
              JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
              LEFT JOIN produtos p ON soi.c_cod_prod = p.codigo
-             LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
+             {join_linha}
              WHERE {open_st} AND (soi.n_qtde > soi.n_qtde_fat)
                AND so.d_pedido::date >= (CURRENT_DATE - INTERVAL '{days} days')
              ORDER BY soi.c_cod_prod, soi.d_pedido DESC"
@@ -495,7 +496,7 @@ pub async fn list_sales_faltas(
              FROM sales_order_items soi
              JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
              LEFT JOIN produtos p ON soi.c_cod_prod = p.codigo
-             LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
+             {join_linha}
              WHERE {open_st} AND (soi.n_qtde > soi.n_qtde_fat)
              ORDER BY soi.c_cod_prod, soi.d_pedido DESC"
         )
@@ -583,24 +584,23 @@ pub async fn list_sales_faltas(
              FROM sales_order_items soi
              JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
              LEFT JOIN produtos p ON soi.c_cod_prod = p.codigo
-             LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
+             {join_linha}
              WHERE so.c_status IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
                AND so.d_pedido::date >= (CURRENT_DATE - INTERVAL '{} days')
              ORDER BY soi.c_cod_prod, soi.d_pedido DESC",
             days
         )
     } else {
-        "SELECT soi.c_cod_prod, p.descricao,
+        format!("SELECT soi.c_cod_prod, p.descricao,
                 COALESCE(cl.nome_linha, 'Outros/Geral') as nome_linha,
                 soi.n_pedido, soi.d_pedido, so.c_nome, so.c_status,
                 soi.n_qtde, soi.n_qtde_fat, (soi.n_qtde - soi.n_qtde_fat) as falta_qty, so.d_previsao
          FROM sales_order_items soi
          JOIN sales_orders so ON soi.n_pedido = so.n_pedido AND soi.d_pedido = so.d_pedido
          LEFT JOIN produtos p ON soi.c_cod_prod = p.codigo
-         LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
+         {join_linha}
          WHERE so.c_status IN ('FT', 'CA') AND (soi.n_qtde > soi.n_qtde_fat)
-         ORDER BY soi.c_cod_prod, soi.d_pedido DESC"
-            .to_string()
+         ORDER BY soi.c_cod_prod, soi.d_pedido DESC")
     };
 
     let hist_rows = match sqlx::query(&hist_query).fetch_all(pool).await {

@@ -436,20 +436,21 @@ pub async fn get_spending_by_category_query(
             } else {
                 "cat_apoio"
             };
+            let linha_efetiva = crate::core::regras_produto::LINHA_EFETIVA_SQL;
+            let join_linha = crate::core::regras_produto::JOIN_LINHA_EFETIVA_SQL;
             format!(
-                "SELECT COALESCE(p.linha_prefix,'unknown'), COALESCE(cl.nome_linha,'Sem Linha'),
+                "SELECT COALESCE({linha_efetiva},'unknown'), COALESCE(cl.nome_linha,'Sem Linha'),
                         SUM(inv.total_value), COUNT(DISTINCT inv.item_code)
                  FROM invoices inv
                  JOIN produtos p ON inv.item_code = p.codigo
-                 LEFT JOIN config_linhas cl ON p.linha_prefix = cl.linha_prefix
-                 LEFT JOIN overrides_produtos op ON op.codigo = p.codigo
+                 {join_linha}
                  WHERE inv.invoice_date >= $1 AND inv.invoice_date <= $2
                    AND (
-                       op.categoria_produto = '{parent_id}'
-                       OR op.categoria_produto IN (SELECT id FROM categories WHERE parent_id = '{parent_id}')
-                       OR (op.categoria_produto IS NULL AND {prefix_cond})
+                       o.categoria_produto = '{parent_id}'
+                       OR o.categoria_produto IN (SELECT id FROM categories WHERE parent_id = '{parent_id}')
+                       OR (o.categoria_produto IS NULL AND {prefix_cond})
                    )
-                 GROUP BY p.linha_prefix, cl.nome_linha
+                 GROUP BY {linha_efetiva}, cl.nome_linha
                  ORDER BY SUM(inv.total_value) DESC"
             )
         } else {

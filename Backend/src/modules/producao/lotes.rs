@@ -14,6 +14,7 @@ use sqlx::{PgPool, Row};
 use crate::models::{
     QueryParams,
 };
+use crate::core::regras_produto::e_base;
 use crate::modules::producao::gerenciamento::calculations::calculate_products;
 use crate::handlers::AppState;
 use crate::modules::producao::calculo::fetch_calculation_data;
@@ -466,15 +467,19 @@ pub async fn get_production_lotes(
 
     let mut base_product_codes: StdHashMap<String, bool> = StdHashMap::new();
     if let Ok(rows) = sqlx::query(
-        "SELECT codigo FROM overrides_produtos
-         WHERE categoria_produto = 'cat_base' OR status_produto = 'bases'",
+        "SELECT p.codigo, o.categoria_produto, o.status_produto
+         FROM produtos p LEFT JOIN overrides_produtos o ON o.codigo = p.codigo",
     )
     .fetch_all(pool)
     .await
     {
         for row in rows {
             let c: String = row.get(0);
-            base_product_codes.insert(c, true);
+            let cat: Option<String> = row.get(1);
+            let st: Option<String> = row.get(2);
+            if e_base(&c, cat.as_deref().unwrap_or(""), st.as_deref().unwrap_or("")) {
+                base_product_codes.insert(c, true);
+            }
         }
     }
 
@@ -952,15 +957,7 @@ pub async fn check_lote_errors(
     let mut envase_error = false;
     let mut conferencia_error = false;
 
-    let is_production_base: bool = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM overrides_produtos
-         WHERE codigo = $1 AND (categoria_produto = 'cat_base' OR status_produto = 'bases')",
-    )
-    .bind(product_code)
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0)
-        > 0;
+    let is_production_base: bool = produto_e_base(pool, product_code).await;
 
     let mut exits_map = std::collections::HashMap::new();
     if let Ok(rows) = sqlx::query(
@@ -1924,15 +1921,7 @@ pub async fn get_lote_detalhes(
     let mut total_packaged_weight_kg = 0.0;
 
     for (p_code, p_desc, p_qty, _, p_details) in &products {
-        let p_is_base: bool = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM overrides_produtos
-             WHERE codigo = $1 AND (categoria_produto = 'cat_base' OR status_produto = 'bases')",
-        )
-        .bind(p_code)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(0)
-            > 0;
+        let p_is_base: bool = produto_e_base(pool, p_code).await;
         if p_is_base {
             continue; // bases não entram em envase/conferência
         }
@@ -2422,4 +2411,18 @@ async fn get_ultimo_lote_impl(
         )
             .into_response(),
     }
+}
+
+/// Base de produção pela regra única (`e_base`): categoria, status do override ou código ".36.".
+async fn produto_e_base(pool: &PgPool, codigo: &str) -> bool {
+    let (cat, st): (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT categoria_produto, status_produto FROM overrides_produtos WHERE codigo = $1",
+    )
+    .bind(codigo)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or((None, None));
+    e_base(codigo, cat.as_deref().unwrap_or(""), st.as_deref().unwrap_or(""))
 }

@@ -161,6 +161,7 @@ fn build_router(state: Arc<handlers::AppState>) -> Router {
             "/api/configs",
             get(handlers::get_configs).put(handlers::update_config),
         )
+        .route("/api/configs/recalcular-linhas", post(handlers::recalcular_linhas_handler))
         .route("/api/configs/:prefix", delete(handlers::delete_config))
         .route(
             "/api/overrides",
