@@ -237,7 +237,7 @@ export function ProducoesFixasTab({
 
   const migrar = async (p: any) => {
     if (!window.confirm(`Tirar ${p.codigo} da produção fixa e devolver para a linha normal?`)) return;
-    const res = await apiFetch('/overrides/bulk', {
+    const res = await apiFetch('/overrides/bulk?confirmar=true', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ codigos: [p.codigo], action: 'sair_producao_fixa' }),

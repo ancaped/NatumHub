@@ -690,6 +690,13 @@ pub fn acoes() -> Vec<Acao> {
     const MP: &str = "compras_materia_prima";
     vec![
         Acao::leitura(
+            "listar_categorias_compras",
+            MP,
+            "Lista as categorias e subcategorias do Hub de Compras.",
+            "/api/hub/compras/categories",
+            vec![],
+        ),
+        Acao::leitura(
             "listar_itens_compras",
             MP,
             "Lista os insumos do Hub de Compras com categoria, estoque e parâmetros de compra.",

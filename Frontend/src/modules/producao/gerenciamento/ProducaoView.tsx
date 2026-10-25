@@ -1337,7 +1337,7 @@ export default function ProducaoView({
 
     setLoading(true);
     try {
-      const res = await apiFetch(`/overrides/bulk`, {
+      const res = await apiFetch(`/overrides/bulk?confirmar=true`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

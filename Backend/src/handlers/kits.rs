@@ -2,15 +2,55 @@ use axum::{
     extract::{Multipart, Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
 
+use crate::core::acao::{Confirmar, ErroApi};
+use crate::core::catalogo::{param, Acao};
 use crate::handlers::AppState;
 use crate::models::NewKitComposicao;
+use crate::modules::geral::audit;
+use crate::modules::geral::auth::models::AuthContext;
+
+/// Ações de composição de kits descritas para agentes (ver `core::catalogo`).
+pub fn acoes_kits_composicao() -> Vec<Acao> {
+    const M: &str = "montagem_kits";
+    vec![
+        Acao::leitura(
+            "listar_composicao_kits",
+            M,
+            "Lista as relações kit → componente (manuais e vindas do ERP).",
+            "/api/kits/composicao",
+            vec![],
+        ),
+        Acao::leitura(
+            "buscar_candidatos_componente_kit",
+            M,
+            "Busca produtos que podem ser componentes de um kit.",
+            "/api/kits/component-candidates",
+            vec![
+                param("q", "query", "texto", false, "Parte do código ou da descrição."),
+                param("limit", "query", "inteiro", false, "Máximo de resultados."),
+            ],
+        ),
+        Acao::gravacao(
+            "importar_composicao_kits",
+            M,
+            "Reimporta a planilha de composição de kits: substitui todas as relações manuais (as do ERP ficam). Sem `confirmar=true` só devolve a prévia (quantas saem, quantas entram, kits afetados). Envio multipart com o arquivo no campo `file`.",
+            "POST",
+            "/api/kits/composicao/upload",
+            true,
+            vec![
+                param("confirmar", "query", "booleano", false, "true grava; ausente só mostra a prévia."),
+                param("file", "corpo", "arquivo xlsx", true, "Planilha com as abas HAIREXTRATTUS, LISSSHINE e NATUM."),
+            ],
+        ),
+    ]
+}
 
 #[derive(Debug, Deserialize)]
 pub struct KitComponentSearchQuery {
@@ -125,6 +165,8 @@ pub async fn delete_kit_composicao_handler(
 // POST /api/kits/composicao/upload (re-import xlsx, replaces all)
 pub async fn upload_kit_composicao(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
     use std::fs::File;
@@ -171,41 +213,59 @@ pub async fn upload_kit_composicao(
         )
             .into_response();
     }
-    // Limpeza de linhas manuais ocorre dentro de parse_kits_excel (tx).
+    // Limpeza de linhas manuais ocorre dentro de importar_kits_excel (tx); sem confirmar a transação é desfeita.
     let pool = state.db.pool();
-    match crate::modules::compras::planejamento::parser::parse_kits_excel(&temp_path, pool).await
-    {
-        Ok(count) => {
-            let _ = std::fs::remove_file(&temp_path);
+    let resultado =
+        crate::modules::compras::planejamento::parser::importar_kits_excel(&temp_path, pool, c.confirmar).await;
+    let _ = std::fs::remove_file(&temp_path);
+    match resultado {
+        Ok(resumo) if !c.confirmar => (
+            StatusCode::OK,
+            Json(json!({
+                "previa": true,
+                "acao": "importar_composicao_kits",
+                "resultado": resumo,
+                "confirmar": "repita com confirmar=true para gravar",
+            })),
+        )
+            .into_response(),
+        Ok(resumo) => {
             let fname = file_name.unwrap_or_else(|| "kits.xlsx".to_string());
             let _ = state
                 .db
                 .record_import(
                     "kits",
                     &fname,
-                    count as i64,
+                    resumo.importadas as i64,
                     "success",
-                    Some(&format!("{} relações importadas", count)),
+                    Some(&format!("{} relações importadas", resumo.importadas)),
                 )
                 .await;
+            audit::record_domain(
+                pool,
+                Some(&ctx),
+                "montagem_kits",
+                "importar_composicao_kits",
+                "kit_composicao",
+                &fname,
+                &format!("Composição de kits importada: {} relações", resumo.importadas),
+                Some(json!({ "relacoesManuaisRemovidas": resumo.removidas })),
+                Some(json!({ "relacoesImportadas": resumo.importadas, "kitsAfetados": resumo.kits_afetados })),
+            )
+            .await;
             (
                 StatusCode::OK,
                 Json(json!({
                     "status": "success",
-                    "imported": count,
-                    "message": format!("Composição de kits importada: {} relações", count)
+                    "previa": false,
+                    "imported": resumo.importadas,
+                    "resultado": resumo,
+                    "message": format!("Composição de kits importada: {} relações", resumo.importadas)
                 })),
             )
                 .into_response()
         }
-        Err(e) => {
-            let _ = std::fs::remove_file(&temp_path);
-            (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": format!("Erro ao processar planilha: {}", e) })),
-            )
-                .into_response()
-        }
+        Err(e) => ErroApi::invalido(format!("Erro ao processar planilha: {}", e)).into_response(),
     }
 }
 

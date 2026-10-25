@@ -1,14 +1,17 @@
 import { apiFetch } from '../../geral/lib/http';
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Search, CheckCircle2, RefreshCw, X, ShieldAlert,
-  Edit, Info, Check, Filter, Layers, ListFilter, AlertTriangle, HelpCircle,
-  Database, Trash2, Plus, PlusCircle, Loader2, Settings, Rocket, GraduationCap, UploadCloud
+  Search, CheckCircle2, RefreshCw, ShieldAlert,
+  Edit, Check, Filter, Layers, ListFilter, AlertTriangle,
+  Database, Trash2, Plus, Loader2, Settings, GraduationCap, UploadCloud
 } from 'lucide-react';
 import { cn, randomId } from '../../geral/lib/utils';
 import { Category, PRODUCT_LINE_STATUSES, GraduationCandidate } from '../../geral/lib/types';
 import { api } from '../../geral/lib/api';
 import KitCompositionDrawer from '../../producao/components/KitCompositionDrawer';
+import Drawer from '../../geral/components/ui/Drawer';
+import { useAviso } from '../../geral/components/ui/Aviso';
+import PreviaAcaoDrawer, { PreviaAcao } from '../../producao/gerenciamento/components/PreviaAcaoDrawer';
 
 
 interface ProductOverride {
@@ -81,6 +84,8 @@ interface ActiveProductsViewProps {
 }
 
 export default function ActiveProductsView({ onBackToHub, standalone = false }: ActiveProductsViewProps) {
+  const { avisar, aviso } = useAviso();
+  const [previa, setPrevia] = useState<(PreviaAcao & { aoFechar?: () => void }) | null>(null);
   const [products, setProducts] = useState<ProductResult[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [configs, setConfigs] = useState<LineConfig[]>([]);
@@ -118,15 +123,11 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const [bulkStatus, setBulkStatus] = useState('');
   const [bulkCategory, setBulkCategory] = useState('');
   const [bulkLine, setBulkLine] = useState('');
-  const [bulkObs, setBulkObs] = useState('');
 
   const [activeAtivosTab, setActiveAtivosTab] = useState<'status' | 'linhas' | 'kits' | 'overrides' | 'configuracoes'>('status');
 
   // Kits Composition state
   const [kitComposicao, setKitComposicao] = useState<any[]>([]);
-  const [kitCompNewKit, setKitCompNewKit] = useState('');
-  const [kitCompNewComp, setKitCompNewComp] = useState('');
-  const [kitCompNewQty, setKitCompNewQty] = useState(1);
   const [kitCompSearch, setKitCompSearch] = useState('');
   const [uploadingKitsConfig, setUploadingKitsConfig] = useState(false);
 
@@ -207,6 +208,10 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
   // Overrides Audit states
   const [allOverrides, setAllOverrides] = useState<ProductOverride[]>([]);
+  const [linhaSearch, setLinhaSearch] = useState('');
+  const [auditSearch, setAuditSearch] = useState('');
+  const [auditPage, setAuditPage] = useState(1);
+  const AUDIT_POR_PAGINA = 50;
 
   // Category & Ignored status configuration states
   const [configNewCatName, setConfigNewCatName] = useState('');
@@ -216,9 +221,6 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const [globalLimitPerPage, setGlobalLimitPerPage] = useState('30');
   const [globalLancamentoMeta, setGlobalLancamentoMeta] = useState('6');
   const [globalSettingsSaving, setGlobalSettingsSaving] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [editCatName, setEditCatName] = useState('');
-  const [editCatParent, setEditCatParent] = useState('');
   const [configSubTab, setConfigSubTab] = useState<'parametros' | 'status' | 'categorias'>('parametros');
 
   const loadData = async () => {
@@ -311,14 +313,14 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         })
       ]);
       if (responses.every(r => r.ok)) {
-        alert("Configurações globais salvas com sucesso!");
+        avisar("Configurações globais salvas com sucesso!", 'sucesso');
         await loadData();
       } else {
-        alert("Erro ao salvar algumas configurações.");
+        avisar("Erro ao salvar algumas configurações.", 'erro');
       }
     } catch (e) {
       console.error(e);
-      alert("Erro de conexão ao salvar.");
+      avisar("Erro de conexão ao salvar.", 'erro');
     } finally {
       setGlobalSettingsSaving(false);
     }
@@ -333,100 +335,147 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     }
   };
 
-  const handleAddKitComposicao = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!kitCompNewKit.trim() || !kitCompNewComp.trim()) return;
-    try {
-      const res = await apiFetch(`/kits/composicao`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          kit_codigo: kitCompNewKit.trim(), 
-          componente_codigo: kitCompNewComp.trim(),
-          quantidade: kitCompNewQty
-        })
-      });
-      if (res.ok) {
-        setKitCompNewKit('');
-        setKitCompNewComp('');
-        setKitCompNewQty(1);
-        await fetchKitComposicao();
-      } else {
-        const err = await res.json();
-        alert(err.error || 'Erro ao adicionar kit.');
-      }
-    } catch (e) {
-      console.error(e);
-      alert('Erro de conexão.');
-    }
+  const ROTULO_CAMPO: Record<string, string> = {
+    visivel: 'Visibilidade',
+    is_lancamento_manual: 'Lançamento',
+    lancamento_gatilho: 'Gatilho',
+    lancamento_estoque_maximo: 'Estoque máximo',
+    observacao: 'Observação',
+    linha_prefix_manual: 'Linha',
+    status_produto: 'Status',
+    categoria_produto: 'Categoria',
+    estoque_ideal_manual: 'Estoque ideal',
+    pedidos_manual: 'Pedidos',
+    media_manual: 'Média de vendas',
   };
 
-  const handleDeleteKitComposicao = async (kit: string, comp: string) => {
-    if (!window.confirm(`Remover componente ${comp} do kit ${kit}?`)) return;
+  const formatarValorPrevia = (campo: string, v: string | null) => {
+    if (v === null || v === undefined || v === '') return '(vazio)';
+    if (campo === 'visivel') return v === '0' ? 'oculto' : 'visível';
+    if (campo === 'is_lancamento_manual') return v === '1' ? 'sim' : 'não';
+    if (campo === 'status_produto') return PRODUCT_LINE_STATUSES.find(s => s.value === v)?.label || v;
+    if (campo === 'categoria_produto') return categories.find(c => c.id === v)?.name || v;
+    if (campo === 'linha_prefix_manual') return configs.find(c => c.linha_prefix === v)?.nome_linha || v;
+    return v;
+  };
+
+  const chamarBulk = (codigos: string[], action: string, value: string | null, confirmar: boolean) =>
+    apiFetch(`/overrides/bulk${confirmar ? '?confirmar=true' : ''}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ codigos, action, value_str: value }),
+    });
+
+  /** Ação em lote em 2 passos: pede a prévia ao servidor, mostra no painel e só grava no OK. */
+  const pedirBulk = async (opts: {
+    titulo: string;
+    codigos: string[];
+    action: string;
+    value: string | null;
+    confirmarRotulo: string;
+    aoConcluir: () => void | Promise<void>;
+    aoCancelar?: () => void;
+  }) => {
     try {
-      const res = await apiFetch(`/kits/composicao/${kit}/${comp}`, { method: 'DELETE' });
-      if (res.ok) {
-        await fetchKitComposicao();
-      } else {
-        alert('Erro ao excluir relação.');
+      const res = await chamarBulk(opts.codigos, opts.action, opts.value, false);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        avisar(data.error || 'Erro ao preparar a alteração em lote.', 'erro');
+        opts.aoCancelar?.();
+        return;
       }
+      const r = data.resultado || {};
+      const itens: { codigo: string; mudancas: { campo: string; de: string | null; para: string | null }[] }[] = r.itens || [];
+      const linhas = itens.map(i => ({
+        titulo: `${i.codigo} · ${products.find(p => p.codigo === i.codigo)?.descricao || 'produto'}`,
+        detalhe: i.mudancas
+          .map(m => `${ROTULO_CAMPO[m.campo] || m.campo}: ${formatarValorPrevia(m.campo, m.de)} → ${formatarValorPrevia(m.campo, m.para)}`)
+          .join(' | '),
+      }));
+      const avisos: string[] = [];
+      if ((r.totalComMudanca ?? 0) > itens.length) avisos.push(`Mostrando ${itens.length} de ${r.totalComMudanca} produtos que mudam.`);
+      if ((r.totalProdutos ?? 0) > (r.totalComMudanca ?? 0)) avisos.push(`${r.totalProdutos - r.totalComMudanca} produto(s) já estão com esse valor e não mudam.`);
+      setPrevia({
+        titulo: opts.titulo,
+        linhas,
+        avisos,
+        confirmarRotulo: opts.confirmarRotulo,
+        aoFechar: opts.aoCancelar,
+        executar: async () => {
+          const r2 = await chamarBulk(opts.codigos, opts.action, opts.value, true);
+          if (!r2.ok) {
+            const e = await r2.json().catch(() => ({}));
+            throw new Error(e.error || 'Erro ao aplicar a alteração em lote.');
+          }
+          await opts.aoConcluir();
+        },
+      });
     } catch (e) {
       console.error(e);
-      alert('Erro de conexão.');
+      avisar('Erro de conexão ao preparar a alteração em lote.', 'erro');
+      opts.aoCancelar?.();
     }
   };
 
   const handleUploadKitsConfig = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
     setUploadingKitsConfig(true);
-    const formData = new FormData();
-    formData.append('file', file);
+    const enviar = (confirmar: boolean) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      return apiFetch(`/kits/composicao/upload${confirmar ? '?confirmar=true' : ''}`, { method: 'POST', body: formData });
+    };
     try {
-      const res = await apiFetch(`/kits/composicao/upload`, { method: 'POST', body: formData });
+      const res = await enviar(false);
       const data = await res.json();
-      if (res.ok) {
-        await fetchKitComposicao();
-        await loadData();
-      } else {
-        alert(data.error || 'Erro ao importar.');
+      if (!res.ok) {
+        avisar(data.error || 'Erro ao importar.', 'erro');
+        return;
       }
-    } catch (e) {
-      console.error(e);
-      alert('Erro de conexão.');
+      const r = data.resultado || {};
+      const kits: string[] = r.kitsAfetados || [];
+      setPrevia({
+        titulo: 'Importar composição de kits',
+        linhas: [
+          { titulo: 'Relações manuais que saem', detalhe: String(r.removidas ?? 0) },
+          { titulo: 'Relações do arquivo que entram', detalhe: String(r.importadas ?? 0) },
+          { titulo: 'Kits afetados', detalhe: String(kits.length) },
+          ...kits.slice(0, 50).map(k => ({ titulo: k })),
+        ],
+        avisos: [
+          'Todas as relações manuais atuais são substituídas pelas do arquivo (as vindas do ERP ficam).',
+          ...(kits.length > 50 ? [`Mostrando 50 de ${kits.length} kits.`] : []),
+        ],
+        confirmarRotulo: 'Importar e substituir',
+        executar: async () => {
+          const r2 = await enviar(true);
+          const d2 = await r2.json().catch(() => ({}));
+          if (!r2.ok) throw new Error(d2.error || 'Erro ao importar.');
+          await fetchKitComposicao();
+          await loadData();
+          avisar(d2.message || 'Composição de kits importada.', 'sucesso');
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      avisar('Erro de conexão.', 'erro');
     } finally {
       setUploadingKitsConfig(false);
-      e.target.value = '';
     }
   };
 
   const handleGraduateAll = async () => {
     if (graduationCandidates.length === 0) return;
-    if (!confirm(`Graduar todos os ${graduationCandidates.length} candidatos para o status "Ativa"?`)) return;
-    setLoading(true);
-    try {
-      const codes = graduationCandidates.map(c => c.codigo);
-      const res = await apiFetch(`/overrides/bulk`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          codigos: codes,
-          action: 'set_status',
-          value_str: 'ativo'
-        }),
-      });
-
-      if (res.ok) {
-        await loadData();
-      } else {
-        alert("Erro ao graduar produtos em lote.");
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Erro ao graduar produtos em lote.");
-    } finally {
-      setLoading(false);
-    }
+    await pedirBulk({
+      titulo: `Graduar ${graduationCandidates.length} candidato(s) para "Ativa"`,
+      codigos: graduationCandidates.map(c => c.codigo),
+      action: 'set_status',
+      value: 'ativo',
+      confirmarRotulo: 'Graduar',
+      aoConcluir: async () => { await loadData(); },
+    });
   };
 
   useEffect(() => {
@@ -533,9 +582,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     setObsForm(p.observacao || '');
     setProduzirApenasKitForm(p.produzir_apenas_kit === 1 ? 1 : 0);
     
-    setIsLaunchOverride(
-      p.linha_prefix_manual === null && p.status_produto === null ? 'AUTO' : 'AUTO'
-    );
+    setIsLaunchOverride('AUTO');
     setVisibleOverride(p.visivel === 0 ? '0' : '1');
     
     // Fetch exact overrides for this product code to fill the form accurately
@@ -621,50 +668,38 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         setSelectedProduct(null);
         await loadData();
       } else {
-        alert("Erro ao salvar configurações do produto.");
+        avisar("Erro ao salvar configurações do produto.", 'erro');
       }
     } catch (e) {
       console.error(e);
-      alert("Erro de conexão ao salvar.");
+      avisar("Erro de conexão ao salvar.", 'erro');
     } finally {
       setDrawerLoading(false);
     }
   };
 
-  // Bulk Save
+  // Bulk Save (2 passos: prévia no painel, grava no OK)
   const handleBulkAction = async (action: string, value: string) => {
     if (selectedCodes.size === 0) return;
-    setLoading(true);
-    try {
-      const codesArray = Array.from(selectedCodes);
-      const req = {
-        codigos: codesArray,
-        action,
-        value_str: value || null,
-      };
-
-      const res = await apiFetch(`/overrides/bulk`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(req),
-      });
-
-      if (res.ok) {
+    const rotulos: Record<string, string> = { set_status: 'status', set_line: 'linha', set_category: 'categoria' };
+    await pedirBulk({
+      titulo: `Alterar ${rotulos[action] || 'ajuste'} de ${selectedCodes.size} produto(s)`,
+      codigos: Array.from(selectedCodes),
+      action,
+      value: value || null,
+      confirmarRotulo: 'Aplicar',
+      aoConcluir: async () => {
         setSelectedCodes(new Set());
         setBulkStatus('');
         setBulkCategory('');
         setBulkLine('');
-        setBulkObs('');
         await loadData();
-      } else {
-        alert("Erro ao aplicar alteração em lote.");
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Erro ao processar alteração em lote.");
-    } finally {
-      setLoading(false);
-    }
+      },
+      aoCancelar: () => {
+        setBulkStatus('');
+        setBulkLine('');
+      },
+    });
   };
 
   const handleOpenLineModal = (cfg: LineConfig | null = null) => {
@@ -730,77 +765,64 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
   const handleDeleteLineConfig = async (prefix: string) => {
     if (prefix === 'DEFAULT') {
-      alert("A linha DEFAULT não pode ser excluída.");
-      return;
-    }
-    if (!confirm(`Tem certeza que deseja excluir as regras para a linha com prefixo "${prefix}"?`)) {
+      avisar("A linha DEFAULT não pode ser excluída.", 'erro');
       return;
     }
     try {
-      const res = await apiFetch(`/configs/${prefix}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        await loadData();
-      } else {
-        const errData = await res.json();
-        alert(errData.error || "Erro ao excluir.");
+      const res = await apiFetch(`/configs/${prefix}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        avisar(data.error || "Erro ao excluir.", 'erro');
+        return;
       }
+      const r = data.resultado || {};
+      setPrevia({
+        titulo: `Excluir a linha "${prefix}"`,
+        linhas: [
+          { titulo: 'Produtos que voltam para DEFAULT', detalhe: String(r.produtosParaDefault ?? 0) },
+          { titulo: 'Ajustes manuais de linha que voltam para DEFAULT', detalhe: String(r.overridesParaDefault ?? 0) },
+        ],
+        avisos: [`As regras da linha "${prefix}" são apagadas.`],
+        confirmarRotulo: 'Excluir linha',
+        executar: async () => {
+          const r2 = await apiFetch(`/configs/${prefix}?confirmar=true`, { method: 'DELETE' });
+          if (!r2.ok) {
+            const e = await r2.json().catch(() => ({}));
+            throw new Error(e.error || 'Erro ao excluir.');
+          }
+          await loadData();
+        },
+      });
     } catch (err) {
       console.error(err);
-      alert("Falha de conexão ao excluir.");
+      avisar("Falha de conexão ao excluir.", 'erro');
     }
   };
 
   const handleClearOverride = async (code: string) => {
-    if (!confirm(`Remover todas as configurações manuais do produto "${code}"?`)) {
-      return;
-    }
-    try {
-      const res = await apiFetch(`/overrides/bulk`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ codigos: [code], action: 'clear', value_str: null })
-      });
-      if (res.ok) {
-        await loadData();
-      } else {
-        alert("Erro ao remover configurações.");
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Erro de conexão.");
-    }
+    await pedirBulk({
+      titulo: `Remover configurações manuais de ${code}`,
+      codigos: [code],
+      action: 'clear',
+      value: null,
+      confirmarRotulo: 'Remover',
+      aoConcluir: async () => { await loadData(); },
+    });
   };
 
   const handleClearOverridesBulk = async () => {
     if (selectedOverrideCodes.size === 0) return;
-    if (!confirm(`Remover todas as configurações manuais dos ${selectedOverrideCodes.size} produtos selecionados?`)) {
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await apiFetch(`/overrides/bulk`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          codigos: Array.from(selectedOverrideCodes),
-          action: 'clear',
-          value_str: null
-        })
-      });
-      if (res.ok) {
+    await pedirBulk({
+      titulo: `Remover configurações manuais de ${selectedOverrideCodes.size} produto(s)`,
+      codigos: Array.from(selectedOverrideCodes),
+      action: 'clear',
+      value: null,
+      confirmarRotulo: 'Remover',
+      aoConcluir: async () => {
         setSelectedOverrideCodes(new Set());
         await loadData();
-      } else {
-        alert("Erro ao remover configurações em lote.");
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Erro ao processar remoção em lote.");
-    } finally {
-      setLoading(false);
-    }
+      },
+    });
   };
 
   const handleAddCategory = async (e: React.FormEvent) => {
@@ -820,20 +842,26 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
       setCategories(catsData || []);
     } catch (e) {
       console.error(e);
-      alert("Erro ao salvar categoria");
+      avisar("Erro ao salvar categoria", 'erro');
     }
   };
 
   const handleDeleteCategory = async (id: string) => {
-    if (!confirm("Tem certeza que deseja excluir esta categoria?")) return;
-    try {
-      await api.deleteCategory(id);
-      const catsData = await api.getCategories();
-      setCategories(catsData || []);
-    } catch (e) {
-      console.error(e);
-      alert("Erro ao excluir categoria");
-    }
+    setPrevia({
+      titulo: 'Excluir categoria',
+      linhas: [{ titulo: categories.find(c => c.id === id)?.name || id, detalhe: 'será excluída' }],
+      confirmarRotulo: 'Excluir',
+      executar: async () => {
+        try {
+          await api.deleteCategory(id);
+        } catch (e) {
+          console.error(e);
+          throw new Error('Erro ao excluir categoria');
+        }
+        const catsData = await api.getCategories();
+        setCategories(catsData || []);
+      },
+    });
   };
 
   const handleToggleIgnoredStatus = async (status: string) => {
@@ -854,19 +882,38 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     } catch (e) {
       console.error(e);
       setConfigIgnoredStatuses(configIgnoredStatuses);
-      alert("Erro ao salvar status ignorados");
+      avisar("Erro ao salvar status ignorados", 'erro');
     }
   };
+
+  const configsFiltradas = useMemo(() => {
+    const q = linhaSearch.trim().toLowerCase();
+    if (!q) return configs;
+    return configs.filter(c => c.linha_prefix.toLowerCase().includes(q) || (c.nome_linha || '').toLowerCase().includes(q));
+  }, [configs, linhaSearch]);
+
+  const overridesFiltrados = useMemo(() => {
+    const q = auditSearch.trim().toLowerCase();
+    if (!q) return allOverrides;
+    return allOverrides.filter(o => {
+      const desc = products.find(p => p.codigo === o.codigo)?.descricao || '';
+      return o.codigo.toLowerCase().includes(q) || desc.toLowerCase().includes(q) || (o.observacao || '').toLowerCase().includes(q);
+    });
+  }, [allOverrides, products, auditSearch]);
+
+  const auditTotalPaginas = Math.max(1, Math.ceil(overridesFiltrados.length / AUDIT_POR_PAGINA));
+  const auditPaginaAtual = Math.min(auditPage, auditTotalPaginas);
+  const overridesPagina = overridesFiltrados.slice((auditPaginaAtual - 1) * AUDIT_POR_PAGINA, auditPaginaAtual * AUDIT_POR_PAGINA);
 
   const renderStatusBadge = (status: string | null, categoria?: string | null) => {
     const statusVal = status || 'ativo';
     // Ciclo de vida — não incluir roteamento (cat_base)
     const styles: Record<string, string> = {
-      ativo: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-      lancamento: 'bg-sky-50 text-sky-700 border-sky-100',
+      ativo: 'bg-zinc-100 text-zinc-700 border-zinc-200',
+      lancamento: 'bg-zinc-900 text-white border-zinc-900',
       saindo_de_linha: 'bg-amber-50 text-amber-700 border-amber-100',
       descontinuado: 'bg-rose-50 text-rose-700 border-rose-100',
-      terceirizado: 'bg-zinc-100 text-zinc-700 border-zinc-200',
+      terceirizado: 'bg-white text-zinc-600 border-zinc-300',
     };
 
     const labels: Record<string, string> = {
@@ -899,20 +946,6 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     if (!catId) return 'Nenhuma';
     const cat = categories.find(c => c.id === catId);
     return cat ? cat.name : catId;
-  };
-
-  const getKitNamePreview = () => {
-    if (!kitCompNewKit.trim()) return '';
-    const cleaned = kitCompNewKit.trim().replace(/['"]/g, '').toLowerCase();
-    const found = products.find(p => (p.codigo || '').replace(/['"]/g, '').trim().toLowerCase() === cleaned);
-    return found ? found.descricao : 'Produto não encontrado no estoque';
-  };
-
-  const getCompNamePreview = () => {
-    if (!kitCompNewComp.trim()) return '';
-    const cleaned = kitCompNewComp.trim().replace(/['"]/g, '').toLowerCase();
-    const found = products.find(p => (p.codigo || '').replace(/['"]/g, '').trim().toLowerCase() === cleaned);
-    return found ? found.descricao : 'Produto não encontrado no estoque';
   };
 
   return (
@@ -1162,7 +1195,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span>{p.descricao}</span>
                                   {isKit && (
-                                    <span className="px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide bg-purple-50 text-purple-700 border border-purple-250 rounded">
+                                    <span className="px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide bg-zinc-100 text-zinc-700 border border-zinc-200 rounded">
                                       KIT
                                     </span>
                                   )}
@@ -1216,7 +1249,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                                       setSelectedDrawerKitDesc(p.descricao);
                                       setIsDrawerOpen(true);
                                     }}
-                                    className="p-1.5 hover:bg-purple-100 text-purple-600 rounded-lg transition-colors cursor-pointer"
+                                    className="p-1.5 hover:bg-zinc-100 text-zinc-600 rounded-lg transition-colors cursor-pointer"
                                     title="Gerenciar Composição do Kit"
                                   >
                                     <Layers className="w-4 h-4" />
@@ -1325,7 +1358,16 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
           {activeAtivosTab === 'linhas' && (
             <div className="flex-1 flex flex-col space-y-4">
               <div className="flex justify-between items-center shrink-0">
-                <span className="text-xs font-bold text-zinc-450">Tabela de parâmetros e dias-estoque calculados por linha</span>
+                <div className="relative w-full max-w-sm">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar linha por prefixo ou nome..."
+                    value={linhaSearch}
+                    onChange={(e) => setLinhaSearch(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 text-sm font-medium"
+                  />
+                </div>
                 <button
                   onClick={() => handleOpenLineModal(null)}
                   className="bg-zinc-900 hover:bg-zinc-850 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
@@ -1351,12 +1393,12 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100">
-                    {configs.length === 0 ? (
+                    {configsFiltradas.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="p-8 text-center text-zinc-400">Nenhuma configuração de linha encontrada.</td>
                       </tr>
                     ) : (
-                      configs.map(cfg => (
+                      configsFiltradas.map(cfg => (
                         <tr key={cfg.linha_prefix} className="hover:bg-zinc-50/50 transition-colors">
                           <td className="px-6 py-3 font-mono font-bold text-zinc-500">{cfg.linha_prefix}</td>
                           <td className="px-6 py-3 font-bold text-zinc-800">{cfg.nome_linha}</td>
@@ -1367,7 +1409,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                           <td className="px-6 py-3 text-center">
                             <span className={cn(
                               "px-2 py-0.5 rounded-full text-[10px] font-bold border",
-                              cfg.visivel === 0 ? "bg-zinc-105 text-zinc-500 border-zinc-200" : "bg-emerald-50 text-emerald-700 border-emerald-100"
+                              cfg.visivel === 0 ? "bg-zinc-100 text-zinc-500 border-zinc-200" : "bg-zinc-900 text-white border-zinc-900"
                             )}>
                               {cfg.visivel === 0 ? "Oculto" : "Ativo"}
                             </span>
@@ -1423,7 +1465,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                   <button
                     type="button"
                     onClick={() => setIsNewKitModalOpen(true)}
-                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5 h-[36px]"
+                    className="bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold py-2 px-4 rounded-xl shadow-sm transition-all cursor-pointer inline-flex items-center gap-1.5 h-[36px]"
                   >
                     <Plus className="w-4 h-4" />
                     Compor Novo Kit
@@ -1477,8 +1519,8 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                                   {kit.codigo}
                                 </span>
                                 {compCount > 0 ? (
-                                  <span className="px-2.5 py-1 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-full font-bold text-[11px] inline-flex items-center gap-1">
-                                    <Layers className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span className="px-2.5 py-1 bg-zinc-100 border border-zinc-200 text-zinc-700 rounded-full font-bold text-[11px] inline-flex items-center gap-1">
+                                    <Layers className="w-3.5 h-3.5 text-zinc-500" />
                                     {compCount} {compCount === 1 ? 'insumo' : 'insumos'}
                                   </span>
                                 ) : (
@@ -1525,7 +1567,16 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
           {activeAtivosTab === 'overrides' && (
             <div className="flex-1 flex flex-col space-y-4">
-              <span className="text-xs font-bold text-zinc-450 shrink-0">Lista de desvios manuais inseridos para alterar dias-estoque, médias, carteira de pedidos ou status</span>
+              <div className="relative w-full max-w-sm shrink-0">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar por código, descrição ou observação..."
+                  value={auditSearch}
+                  onChange={(e) => { setAuditSearch(e.target.value); setAuditPage(1); }}
+                  className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 focus:border-zinc-900 text-sm font-medium"
+                />
+              </div>
 
               {/* Overrides Table Card */}
               <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
@@ -1535,10 +1586,10 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                       <th className="px-4 py-3.5 w-12 text-center">
                         <input
                           type="checkbox"
-                          checked={allOverrides.length > 0 && selectedOverrideCodes.size === allOverrides.length}
+                          checked={overridesFiltrados.length > 0 && selectedOverrideCodes.size === overridesFiltrados.length}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              const codes = allOverrides.map(o => o.codigo);
+                              const codes = overridesFiltrados.map(o => o.codigo);
                               setSelectedOverrideCodes(new Set(codes));
                             } else {
                               setSelectedOverrideCodes(new Set());
@@ -1555,12 +1606,16 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100">
-                    {allOverrides.length === 0 ? (
+                    {overridesFiltrados.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="p-8 text-center text-zinc-400">Nenhum override manual cadastrado. Todos os produtos seguem as regras automáticas de suas linhas.</td>
+                        <td colSpan={6} className="p-8 text-center text-zinc-400">
+                          {allOverrides.length === 0
+                            ? 'Nenhum override manual cadastrado. Todos os produtos seguem as regras automáticas de suas linhas.'
+                            : 'Nenhum override encontrado para essa busca.'}
+                        </td>
                       </tr>
                     ) : (
-                      allOverrides.map(ovr => {
+                      overridesPagina.map(ovr => {
                         const prod = products.find(p => p.codigo === ovr.codigo);
                         const description = prod ? prod.descricao : 'Produto não cadastrado ou oculto';
                         const isSelected = selectedOverrideCodes.has(ovr.codigo);
@@ -1633,6 +1688,32 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     )}
                   </tbody>
                 </table>
+                {overridesFiltrados.length > AUDIT_POR_PAGINA && (
+                  <div className="flex items-center justify-between px-6 py-3 border-t border-zinc-100 bg-zinc-50 text-xs font-semibold text-zinc-600">
+                    <span>
+                      {(auditPaginaAtual - 1) * AUDIT_POR_PAGINA + 1}–{Math.min(auditPaginaAtual * AUDIT_POR_PAGINA, overridesFiltrados.length)} de {overridesFiltrados.length}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={auditPaginaAtual <= 1}
+                        onClick={() => setAuditPage(auditPaginaAtual - 1)}
+                        className="px-2.5 py-1 bg-white border border-zinc-200 rounded-lg font-bold text-zinc-700 disabled:opacity-40 cursor-pointer"
+                      >
+                        Anterior
+                      </button>
+                      <span>Página {auditPaginaAtual} de {auditTotalPaginas}</span>
+                      <button
+                        type="button"
+                        disabled={auditPaginaAtual >= auditTotalPaginas}
+                        onClick={() => setAuditPage(auditPaginaAtual + 1)}
+                        className="px-2.5 py-1 bg-white border border-zinc-200 rounded-lg font-bold text-zinc-700 disabled:opacity-40 cursor-pointer"
+                      >
+                        Próxima
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Bulk Actions Bar for Overrides */}
@@ -1947,186 +2028,174 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         </main>
       </div>
 
-      {/* Edit Line Config Modal */}
+      {/* Edit Line Config */}
       {isLineModalOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-zinc-200 shadow-2xl max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-200">
-            <header className="px-6 py-4 border-b border-zinc-150 bg-zinc-50 flex justify-between items-center">
-              <h3 className="font-extrabold text-zinc-900 text-base">
-                {editingLineConfig ? 'Editar Configuração de Linha' : 'Nova Configuração de Linha'}
-              </h3>
-              <button 
+        <Drawer
+          onClose={() => setIsLineModalOpen(false)}
+          size="sm"
+          title={editingLineConfig ? 'Editar Configuração de Linha' : 'Nova Configuração de Linha'}
+          footer={
+            <>
+              <button
+                type="button"
                 onClick={() => setIsLineModalOpen(false)}
-                className="p-1 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-650 transition-colors cursor-pointer"
+                className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl font-bold text-xs transition-colors cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                Cancelar
               </button>
-            </header>
+              <button
+                type="submit"
+                form="form-config-linha"
+                disabled={lineSaving}
+                className="px-4 py-2 bg-zinc-900 hover:bg-zinc-950 text-white rounded-xl font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {lineSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Salvando...
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4" />
+                    Salvar Config
+                  </>
+                )}
+              </button>
+            </>
+          }
+        >
+          <form id="form-config-linha" onSubmit={handleSaveLineConfig} className="space-y-4 text-left">
+            {lineFormError && (
+              <div className="bg-rose-50 border border-rose-100 text-rose-800 p-3 rounded-xl text-xs flex gap-2 font-medium">
+                <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
+                <span>{lineFormError}</span>
+              </div>
+            )}
 
-            <form onSubmit={handleSaveLineConfig} className="p-6 space-y-4 text-left">
-              {lineFormError && (
-                <div className="bg-rose-50 border border-rose-100 text-rose-800 p-3 rounded-xl text-xs flex gap-2 font-medium">
-                  <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
-                  <span>{lineFormError}</span>
-                </div>
-              )}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-zinc-700 block">Prefixo de Linha</label>
+                <input
+                  type="text"
+                  disabled={!!editingLineConfig}
+                  placeholder="Ex: 9.15."
+                  value={linePrefixForm}
+                  onChange={(e) => setLinePrefixForm(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium disabled:bg-zinc-100 disabled:text-zinc-400"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-zinc-700 block">Nome da Linha</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Capilar Professional"
+                  value={lineNameForm}
+                  onChange={(e) => setLineNameForm(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
+                />
+              </div>
+            </div>
 
+            <div className="border-t border-zinc-150 pt-3 mt-3">
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-3">Multiplicadores & Segurança</span>
+              
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-zinc-700 block">Prefixo de Linha</label>
+                  <label className="text-[11px] font-bold text-zinc-650 block" title="Calcula o estoque ideal em meses de venda média">Estoque Ideal (Meses)</label>
                   <input
-                    type="text"
-                    disabled={!!editingLineConfig}
-                    placeholder="Ex: 9.15."
-                    value={linePrefixForm}
-                    onChange={(e) => setLinePrefixForm(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium disabled:bg-zinc-100 disabled:text-zinc-400"
+                    type="number"
+                    step="any"
+                    placeholder="Ex: 3.0"
+                    value={idealMultForm}
+                    onChange={(e) => setIdealMultForm(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-zinc-700 block">Nome da Linha</label>
+                  <label className="text-[11px] font-bold text-zinc-650 block" title="Segurança estatística Z para cálculo de estoque mínimo">Fator de Segurança Z</label>
                   <input
-                    type="text"
-                    placeholder="Ex: Capilar Professional"
-                    value={lineNameForm}
-                    onChange={(e) => setLineNameForm(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
+                    type="number"
+                    step="any"
+                    placeholder="Ex: 1.65"
+                    value={fatorZForm}
+                    onChange={(e) => setFatorZForm(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
                   />
                 </div>
               </div>
 
-              <div className="border-t border-zinc-150 pt-3 mt-3">
-                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-3">Multiplicadores & Segurança</span>
-                
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-zinc-650 block" title="Calcula o estoque ideal em meses de venda média">Estoque Ideal (Meses)</label>
-                    <input
-                      type="number"
-                      step="any"
-                      placeholder="Ex: 3.0"
-                      value={idealMultForm}
-                      onChange={(e) => setIdealMultForm(e.target.value)}
-                      className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-zinc-650 block" title="Segurança estatística Z para cálculo de estoque mínimo">Fator de Segurança Z</label>
-                    <input
-                      type="number"
-                      step="any"
-                      placeholder="Ex: 1.65"
-                      value={fatorZForm}
-                      onChange={(e) => setFatorZForm(e.target.value)}
-                      className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 mt-3">
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-zinc-650 block" title="Multiplicador do ponto de ressuprimento/abrir ordem">Mult. Abrir Ordem</label>
-                    <input
-                      type="number"
-                      step="any"
-                      placeholder="Ex: 1.5"
-                      value={ordemMultForm}
-                      onChange={(e) => setOrdemMultForm(e.target.value)}
-                      className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-zinc-650 block" title="Multiplicador da quantidade ideal a produzir/lote recomendado">Mult. Lote Produção</label>
-                    <input
-                      type="number"
-                      step="any"
-                      placeholder="Ex: 1.0"
-                      value={prodMultForm}
-                      onChange={(e) => setProdMultForm(e.target.value)}
-                      className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5 mt-3">
-                  <label className="text-[11px] font-bold text-zinc-650 block">Visibilidade no Painel de Planejamento</label>
-                  <select
-                    value={visibleLineForm}
-                    onChange={(e) => setVisibleLineForm(e.target.value)}
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-zinc-650 block" title="Multiplicador do ponto de ressuprimento/abrir ordem">Mult. Abrir Ordem</label>
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder="Ex: 1.5"
+                    value={ordemMultForm}
+                    onChange={(e) => setOrdemMultForm(e.target.value)}
                     className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
-                  >
-                    <option value="1">Exibir Linha e seus Produtos</option>
-                    <option value="0">Ocultar de Linha (Desativar)</option>
-                  </select>
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-zinc-650 block" title="Multiplicador da quantidade ideal a produzir/lote recomendado">Mult. Lote Produção</label>
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder="Ex: 1.0"
+                    value={prodMultForm}
+                    onChange={(e) => setProdMultForm(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
+                  />
                 </div>
               </div>
 
-              <div className="pt-4 flex gap-3 border-t border-zinc-150 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setIsLineModalOpen(false)}
-                  className="flex-1 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+              <div className="space-y-1.5 mt-3">
+                <label className="text-[11px] font-bold text-zinc-650 block">Visibilidade no Painel de Planejamento</label>
+                <select
+                  value={visibleLineForm}
+                  onChange={(e) => setVisibleLineForm(e.target.value)}
+                  className="w-full px-3 py-1.5 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
                 >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={lineSaving}
-                  className="flex-1 py-2 bg-zinc-900 hover:bg-zinc-950 text-white rounded-xl font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                >
-                  {lineSaving ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Salvando...
-                    </>
-                  ) : (
-                    <>
-                      <Check className="h-4 w-4" />
-                      Salvar Config
-                    </>
-                  )}
-                </button>
+                  <option value="1">Exibir Linha e seus Produtos</option>
+                  <option value="0">Ocultar de Linha (Desativar)</option>
+                </select>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Backdrop for Edit Drawer */}
-      {selectedProduct && (
-        <div 
-          className="fixed inset-0 bg-black/30 backdrop-blur-xs transition-opacity duration-300 z-40 cursor-pointer" 
-          onClick={() => setSelectedProduct(null)}
-        />
+            </div>
+          </form>
+        </Drawer>
       )}
 
       {/* Edit Drawer (Side panel) */}
-      <div className={cn(
-        "w-96 bg-white border-l border-zinc-200 shadow-2xl flex flex-col h-full fixed right-0 top-0 transition-transform duration-350 z-50",
-        selectedProduct ? "translate-x-0" : "translate-x-full"
-      )}>
-        {/* Drawer Header */}
-        <div className="px-6 py-4 border-b border-zinc-200 bg-zinc-50 flex justify-between items-center shrink-0">
-          <div>
-            <h3 className="font-extrabold text-zinc-900 text-base">Configurar Produto</h3>
-            <p className="text-[10px] text-zinc-400 font-mono mt-0.5">Código: {selectedProduct?.codigo}</p>
-          </div>
-          <button 
-            onClick={() => setSelectedProduct(null)}
-            className="p-1 hover:bg-zinc-200 rounded-lg text-zinc-400 hover:text-zinc-650 transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Drawer Content Form */}
-        {drawerLoading ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 font-medium">
-            <RefreshCw className="h-5 w-5 animate-spin text-zinc-500 mb-2" />
-            Carregando overrides do produto...
-          </div>
-        ) : (
-          <form onSubmit={handleSaveIndividualOverride} className="flex-1 overflow-y-auto p-6 space-y-5 text-left">
+      {selectedProduct && (
+        <Drawer
+          onClose={() => setSelectedProduct(null)}
+          size="sm"
+          title="Configurar Produto"
+          subtitle={`Código: ${selectedProduct.codigo}`}
+          loading={drawerLoading}
+          loadingText="Carregando overrides do produto..."
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={() => setSelectedProduct(null)}
+                className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                form="form-override-produto"
+                disabled={drawerLoading}
+                className="px-4 py-2 bg-zinc-900 hover:bg-zinc-950 text-white rounded-xl font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <Check className="h-4 w-4" />
+                Salvar
+              </button>
+            </>
+          }
+        >
+          <form id="form-override-produto" onSubmit={handleSaveIndividualOverride} className="space-y-5 text-left">
             {/* Product Info Display */}
             <div className="space-y-1">
               <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider block">Descrição</span>
@@ -2135,14 +2204,14 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
             {/* Kit Fast Action Banner if it's a Kit */}
             {(selectedProduct?.is_kit || selectedProduct?.categoria_produto === 'kit' || kitComposicao.some(kc => kc.kit_codigo === selectedProduct?.codigo)) && (
-              <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl space-y-2">
+              <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-xl space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-extrabold text-purple-900 uppercase tracking-wide flex items-center gap-1.5">
-                    <Layers className="w-4 h-4 text-purple-600" />
+                  <span className="text-[11px] font-extrabold text-zinc-900 uppercase tracking-wide flex items-center gap-1.5">
+                    <Layers className="w-4 h-4 text-zinc-600" />
                     Kit Comercial Montável
                   </span>
                 </div>
-                <p className="text-[11px] text-purple-700 leading-snug">
+                <p className="text-[11px] text-zinc-600 leading-snug">
                   Este item é montado a partir de componentes/insumos.
                 </p>
                 <button
@@ -2154,7 +2223,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                       setIsDrawerOpen(true);
                     }
                   }}
-                  className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+                  className="w-full py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-xs cursor-pointer"
                 >
                   <Layers className="w-4 h-4" />
                   Ver / Editar Composição deste Kit
@@ -2171,7 +2240,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                 className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
               >
                 {PRODUCT_LINE_STATUSES.map(s => (
-                  <option key={s.value} value={s.value}>{s.icon} {s.label}</option>
+                  <option key={s.value} value={s.value}>{s.label}</option>
                 ))}
               </select>
               <span className="text-[10px] text-zinc-400 font-semibold block leading-tight">
@@ -2200,7 +2269,7 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                   onClick={() => setProduzirApenasKitForm(1)}
                   className={`p-2.5 rounded-lg text-xs font-bold border transition-all text-left flex flex-col gap-0.5 cursor-pointer ${
                     produzirApenasKitForm === 1
-                      ? 'bg-purple-50 border-purple-600 shadow-xs text-purple-900'
+                      ? 'bg-zinc-900 border-zinc-900 shadow-xs text-white'
                       : 'bg-zinc-100/60 border-zinc-200 text-zinc-500 hover:text-zinc-700'
                   }`}
                 >
@@ -2434,27 +2503,9 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                 className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
               />
             </div>
-
-            {/* Submit / Action Buttons */}
-            <div className="pt-4 flex gap-3 border-t border-zinc-200 shrink-0">
-              <button
-                type="button"
-                onClick={() => setSelectedProduct(null)}
-                className="flex-1 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl font-bold text-xs transition-colors cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                className="flex-1 py-2 bg-zinc-900 hover:bg-zinc-950 text-white rounded-xl font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Check className="h-4 w-4" />
-                Salvar
-              </button>
-            </div>
           </form>
-        )}
-      </div>
+        </Drawer>
+      )}
 
       <KitCompositionDrawer
         isOpen={isDrawerOpen}
@@ -2466,119 +2517,118 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         }}
       />
 
-      {/* MODAL: SELECIONAR NOVO KIT PARA COMPOSIÇÃO */}
+      {/* Compor novo kit: escolher o produto */}
       {isNewKitModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[85vh] overflow-hidden flex flex-col">
-            <div className="flex justify-between items-center border-b border-zinc-150 pb-3 shrink-0">
-              <h3 className="font-extrabold text-sm text-zinc-900 flex items-center gap-2">
-                <PlusCircle className="h-5 w-5 text-emerald-600 animate-pulse" />
-                Definir Composição para Novo Kit
-              </h3>
-              <button 
-                onClick={() => { setIsNewKitModalOpen(false); setNewKitSearch(''); }}
-                className="p-1.5 hover:bg-zinc-100 rounded-full text-zinc-450 hover:text-zinc-900 cursor-pointer transition-colors"
-              >
-                <X size={16} />
-              </button>
+        <Drawer
+          onClose={() => { setIsNewKitModalOpen(false); setNewKitSearch(''); }}
+          size="md"
+          title="Definir Composição para Novo Kit"
+          footer={
+            <button
+              type="button"
+              onClick={() => { setIsNewKitModalOpen(false); setNewKitSearch(''); }}
+              className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+            >
+              Cancelar
+            </button>
+          }
+        >
+          <div className="space-y-3 flex-1 flex flex-col overflow-hidden">
+            <p className="text-xs text-zinc-500 font-medium">
+              Pesquise e selecione qualquer produto cadastrado no sistema para iniciar a definição da sua composição (estrutura de insumos).
+            </p>
+
+            <div className="relative shrink-0">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+              <input
+                type="text"
+                placeholder="Pesquise por código ou descrição do produto..."
+                value={newKitSearch}
+                onChange={(e) => setNewKitSearch(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-900 text-xs font-semibold text-zinc-900"
+              />
             </div>
 
-            <div className="space-y-3 flex-1 flex flex-col overflow-hidden">
-              <p className="text-xs text-zinc-500 font-medium">
-                Pesquise e selecione qualquer produto cadastrado no sistema para iniciar a definição da sua composição (estrutura de insumos).
-              </p>
-
-              <div className="relative shrink-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-                <input
-                  type="text"
-                  placeholder="Pesquise por código ou descrição do produto..."
-                  value={newKitSearch}
-                  onChange={(e) => setNewKitSearch(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-900 text-xs font-semibold text-zinc-900"
-                />
-              </div>
-
-              <div className="flex-1 overflow-y-auto border border-zinc-200 rounded-xl divide-y divide-zinc-100">
-                {products
-                  .filter(p => {
-                    if (!newKitSearch.trim()) return false;
-                    const q = newKitSearch.toLowerCase();
-                    return (
-                      (p.codigo || '').toLowerCase().includes(q) ||
-                      (p.descricao || '').toLowerCase().includes(q)
-                    );
-                  })
-                  .slice(0, 50)
-                  .map(p => {
-                    const isAlreadyKit = kitComposicao.some(kc => kc.kit_codigo === p.codigo);
-                    return (
-                      <button
-                        key={p.codigo}
-                        type="button"
-                        onClick={() => {
-                          setSelectedDrawerKitCode(p.codigo);
-                          setSelectedDrawerKitDesc(p.descricao);
-                          setIsDrawerOpen(true);
-                          setIsNewKitModalOpen(false);
-                          setNewKitSearch('');
-                        }}
-                        className="w-full text-left p-3 hover:bg-zinc-50 flex items-center justify-between gap-3 transition-colors cursor-pointer"
-                      >
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-[11px] font-bold bg-zinc-100 text-zinc-700 px-2 py-0.5 rounded-md border border-zinc-200">
-                              {p.codigo}
-                            </span>
-                            <span className="text-xs font-bold text-zinc-950 truncate">
-                              {p.descricao}
-                            </span>
-                          </div>
-                        </div>
-                        {isAlreadyKit ? (
-                          <span className="text-[10px] font-bold text-zinc-400 shrink-0">
-                            Já possui composição
-                          </span>
-                        ) : (
-                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-md shrink-0">
-                            Iniciar composição
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                {newKitSearch.trim() && products.filter(p => {
+            <div className="flex-1 overflow-y-auto border border-zinc-200 rounded-xl divide-y divide-zinc-100">
+              {products
+                .filter(p => {
+                  if (!newKitSearch.trim()) return false;
                   const q = newKitSearch.toLowerCase();
                   return (
                     (p.codigo || '').toLowerCase().includes(q) ||
                     (p.descricao || '').toLowerCase().includes(q)
                   );
-                }).length === 0 && (
-                  <div className="p-8 text-center text-zinc-400 font-bold text-xs">
-                    Nenhum produto encontrado com essa busca.
-                  </div>
-                )}
-                {!newKitSearch.trim() && (
-                  <div className="p-8 text-center text-zinc-450 font-bold text-xs space-y-1">
-                    <Search className="w-5 h-5 text-zinc-350 mx-auto" />
-                    <p>Comece a digitar para pesquisar produtos.</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="pt-3 border-t border-zinc-150 flex justify-end shrink-0">
-              <button
-                type="button"
-                onClick={() => { setIsNewKitModalOpen(false); setNewKitSearch(''); }}
-                className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl font-bold text-xs transition-colors cursor-pointer"
-              >
-                Cancelar
-              </button>
+                })
+                .slice(0, 50)
+                .map(p => {
+                  const isAlreadyKit = kitComposicao.some(kc => kc.kit_codigo === p.codigo);
+                  return (
+                    <button
+                      key={p.codigo}
+                      type="button"
+                      onClick={() => {
+                        setSelectedDrawerKitCode(p.codigo);
+                        setSelectedDrawerKitDesc(p.descricao);
+                        setIsDrawerOpen(true);
+                        setIsNewKitModalOpen(false);
+                        setNewKitSearch('');
+                      }}
+                      className="w-full text-left p-3 hover:bg-zinc-50 flex items-center justify-between gap-3 transition-colors cursor-pointer"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-[11px] font-bold bg-zinc-100 text-zinc-700 px-2 py-0.5 rounded-md border border-zinc-200">
+                            {p.codigo}
+                          </span>
+                          <span className="text-xs font-bold text-zinc-950 truncate">
+                            {p.descricao}
+                          </span>
+                        </div>
+                      </div>
+                      {isAlreadyKit ? (
+                        <span className="text-[10px] font-bold text-zinc-400 shrink-0">
+                          Já possui composição
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-zinc-700 bg-zinc-100 border border-zinc-200 px-2 py-0.5 rounded-md shrink-0">
+                          Iniciar composição
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              {newKitSearch.trim() && products.filter(p => {
+                const q = newKitSearch.toLowerCase();
+                return (
+                  (p.codigo || '').toLowerCase().includes(q) ||
+                  (p.descricao || '').toLowerCase().includes(q)
+                );
+              }).length === 0 && (
+                <div className="p-8 text-center text-zinc-400 font-bold text-xs">
+                  Nenhum produto encontrado com essa busca.
+                </div>
+              )}
+              {!newKitSearch.trim() && (
+                <div className="p-8 text-center text-zinc-450 font-bold text-xs space-y-1">
+                  <Search className="w-5 h-5 text-zinc-350 mx-auto" />
+                  <p>Comece a digitar para pesquisar produtos.</p>
+                </div>
+              )}
             </div>
           </div>
-        </div>
+        </Drawer>
       )}
+
+      {previa && (
+        <PreviaAcaoDrawer
+          previa={previa}
+          onClose={() => {
+            previa.aoFechar?.();
+            setPrevia(null);
+          }}
+        />
+      )}
+      {aviso}
     </div>
   );
 }

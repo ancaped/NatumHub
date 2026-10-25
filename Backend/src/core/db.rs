@@ -68,23 +68,35 @@ impl Db {
 
     pub async fn delete_line_config(&self, prefix: &str) -> Result<(), String> {
         let mut tx = self.pool.begin().await.map_err(|e| e.to_string())?;
-        sqlx::query("UPDATE produtos SET linha_prefix = 'DEFAULT' WHERE linha_prefix = $1")
-            .bind(prefix)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
-        sqlx::query("UPDATE overrides_produtos SET linha_prefix_manual = 'DEFAULT' WHERE linha_prefix_manual = $1")
-            .bind(prefix)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
-        sqlx::query("DELETE FROM config_linhas WHERE linha_prefix = $1")
-            .bind(prefix)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
+        Self::excluir_linha_na_tx(&mut tx, prefix).await?;
         tx.commit().await.map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    /// Remapeia produtos e overrides da linha para DEFAULT e apaga a linha, numa transação de quem chama.
+    /// Devolve (produtos remapeados, overrides remapeados).
+    pub async fn excluir_linha_na_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        prefix: &str,
+    ) -> Result<(u64, u64), String> {
+        let produtos = sqlx::query("UPDATE produtos SET linha_prefix = 'DEFAULT' WHERE linha_prefix = $1")
+            .bind(prefix)
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| e.to_string())?
+            .rows_affected();
+        let overrides = sqlx::query("UPDATE overrides_produtos SET linha_prefix_manual = 'DEFAULT' WHERE linha_prefix_manual = $1")
+            .bind(prefix)
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| e.to_string())?
+            .rows_affected();
+        sqlx::query("DELETE FROM config_linhas WHERE linha_prefix = $1")
+            .bind(prefix)
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok((produtos, overrides))
     }
 
     fn map_product_override(row: &sqlx::postgres::PgRow) -> ProductOverride {
@@ -302,11 +314,21 @@ impl Db {
     ];
 
     pub async fn save_override_bulk(&self, req: &BulkOverrideRequest) -> Result<(), String> {
+        let mut tx = self.pool.begin().await.map_err(|e| e.to_string())?;
+        Self::bulk_na_tx(&mut tx, req).await?;
+        tx.commit().await.map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Aplica a ação em lote dentro de uma transação aberta por quem chama (que decide commit ou rollback).
+    pub async fn bulk_na_tx(
+        tx_in: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        req: &BulkOverrideRequest,
+    ) -> Result<(), String> {
         if !Self::ACOES_BULK.contains(&req.action.as_str()) {
             return Err(format!("Ação em lote desconhecida: {}", req.action));
         }
-        let mut tx = self.pool.begin().await.map_err(|e| e.to_string())?;
-
+        let tx: &mut sqlx::PgConnection = &mut **tx_in;
         for codigo in &req.codigos {
             if req.action != "clear" {
                 sqlx::query(
@@ -430,10 +452,9 @@ impl Db {
                 outra => return Err(format!("Ação em lote desconhecida: {outra}")),
             }
 
-            Self::apagar_override_se_vazio(&mut tx, codigo).await?;
+            Self::apagar_override_se_vazio(tx, codigo).await?;
         }
 
-        tx.commit().await.map_err(|e| e.to_string())?;
         Ok(())
     }
 

@@ -207,10 +207,42 @@ pub async fn parse_kits_excel<P: AsRef<Path>>(
     file_path: P,
     pool: &PgPool,
 ) -> anyhow::Result<usize> {
+    Ok(importar_kits_excel(file_path, pool, true).await?.importadas)
+}
+
+/// Resultado da importação (ou da prévia) da composição de kits.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumoKitsExcel {
+    /// Relações manuais que existiam e saem (o arquivo as substitui).
+    pub removidas: usize,
+    /// Relações do arquivo que entram.
+    pub importadas: usize,
+    /// Kits que existiam com relação manual ou aparecem no arquivo, em ordem alfabética.
+    pub kits_afetados: Vec<String>,
+}
+
+/// Lê o arquivo e regrava as relações manuais numa transação: com `confirmar` faz commit; sem, desfaz (prévia).
+pub async fn importar_kits_excel<P: AsRef<Path>>(
+    file_path: P,
+    pool: &PgPool,
+    confirmar: bool,
+) -> anyhow::Result<ResumoKitsExcel> {
     let mut workbook: Xlsx<_> = open_workbook(file_path)?;
     let sheets = workbook.sheet_names();
 
     let mut tx = pool.begin().await?;
+
+    let mut kits: std::collections::BTreeSet<String> = sqlx::query_scalar(
+        "SELECT DISTINCT kit_codigo FROM kit_composicao WHERE COALESCE(origem, 'manual') = 'manual'",
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .collect();
+    let removidas: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM kit_composicao WHERE COALESCE(origem, 'manual') = 'manual'")
+        .fetch_one(&mut *tx)
+        .await?;
 
     // Não apaga origem=erp (Passo P). Só regrava linhas manuais do Excel.
     sqlx::query("DELETE FROM kit_composicao WHERE COALESCE(origem, 'manual') = 'manual'")
@@ -297,10 +329,15 @@ pub async fn parse_kits_excel<P: AsRef<Path>>(
             .execute(&mut *tx)
             .await?;
 
+            kits.insert(kit_code.clone());
             count += 1;
         }
     }
 
-    tx.commit().await?;
-    Ok(count)
+    if confirmar {
+        tx.commit().await?;
+    } else {
+        tx.rollback().await?;
+    }
+    Ok(ResumoKitsExcel { removidas: removidas as usize, importadas: count, kits_afetados: kits.into_iter().collect() })
 }

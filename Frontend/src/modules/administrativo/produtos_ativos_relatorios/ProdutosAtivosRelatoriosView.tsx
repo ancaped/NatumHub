@@ -11,6 +11,7 @@ import * as XLSX from 'xlsx';
 import { apiJson } from '../../geral/lib/http';
 import { cn } from '../../geral/lib/utils';
 import { PRODUCT_ROUTING_CATEGORIES } from '../../geral/lib/types';
+import PreviaAcaoDrawer, { PreviaAcao } from '../../producao/gerenciamento/components/PreviaAcaoDrawer';
 
 interface RelatorioItem {
   codigo: string;
@@ -53,6 +54,7 @@ function statusLabel(status: string): string {
 
 export default function ProdutosAtivosRelatoriosView({ onBackToHub }: Props) {
   const [items, setItems] = useState<RelatorioItem[]>([]);
+  const [previa, setPrevia] = useState<PreviaAcao | null>(null);
   const [lines, setLines] = useState<LineOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -139,16 +141,21 @@ export default function ProdutosAtivosRelatoriosView({ onBackToHub }: Props) {
   );
 
   const exportXlsx = () => {
-    let rows = items.filter((i) => selected.has(i.codigo));
+    const rows = items.filter((i) => selected.has(i.codigo));
     if (rows.length === 0) {
       if (items.length === 0) return;
-      const ok = window.confirm(
-        'Nenhum produto marcado. Exportar todos os filtrados?',
-      );
-      if (!ok) return;
-      rows = items;
+      setPrevia({
+        titulo: 'Exportar todos os filtrados?',
+        linhas: [{ titulo: 'Nenhum produto marcado: serão exportados todos os filtrados', detalhe: `${items.length} produtos` }],
+        confirmarRotulo: 'Exportar',
+        executar: async () => gerarXlsx(items),
+      });
+      return;
     }
+    gerarXlsx(rows);
+  };
 
+  const gerarXlsx = (rows: RelatorioItem[]) => {
     const sheetData = rows.map((r) => ({
       codigo: r.codigo,
       descricao: r.descricao,
@@ -359,6 +366,7 @@ export default function ProdutosAtivosRelatoriosView({ onBackToHub }: Props) {
           </div>
         </div>
       </main>
+      {previa && <PreviaAcaoDrawer previa={previa} onClose={() => setPrevia(null)} />}
     </div>
   );
 }

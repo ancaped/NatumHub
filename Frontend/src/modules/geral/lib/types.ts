@@ -97,15 +97,14 @@ export interface ProductLineStatusConfig {
   color: string;
   bgColor: string;
   borderColor: string;
-  icon: string;
 }
 
 export const PRODUCT_LINE_STATUSES: ProductLineStatusConfig[] = [
-  { value: 'ativo', label: 'Ativa', description: 'Produção e compras normais com cálculos automáticos', color: 'text-emerald-700', bgColor: 'bg-emerald-50', borderColor: 'border-emerald-200', icon: '✅' },
-  { value: 'lancamento', label: 'Lançamento', description: 'Estoque definido manualmente até criar histórico de giro', color: 'text-blue-700', bgColor: 'bg-blue-50', borderColor: 'border-blue-200', icon: '🚀' },
-  { value: 'saindo_de_linha', label: 'Saindo de Linha', description: 'Produção usa insumos restantes, compras exclusivas bloqueadas', color: 'text-amber-700', bgColor: 'bg-amber-50', borderColor: 'border-amber-200', icon: '⚠️' },
-  { value: 'descontinuado', label: 'Saiu de Linha', description: 'Produção e compras completamente paralisadas', color: 'text-red-700', bgColor: 'bg-red-50', borderColor: 'border-red-200', icon: '🚫' },
-  { value: 'terceirizado', label: 'Terceirizado', description: 'Produção terceirizada, sem compras ou produção automática', color: 'text-purple-700', bgColor: 'bg-purple-50', borderColor: 'border-purple-200', icon: '🏭' },
+  { value: 'ativo', label: 'Ativa', description: 'Produção e compras normais com cálculos automáticos', color: 'text-zinc-700', bgColor: 'bg-zinc-100', borderColor: 'border-zinc-200' },
+  { value: 'lancamento', label: 'Lançamento', description: 'Estoque definido manualmente até criar histórico de giro', color: 'text-white', bgColor: 'bg-zinc-900', borderColor: 'border-zinc-900' },
+  { value: 'saindo_de_linha', label: 'Saindo de Linha', description: 'Produção usa insumos restantes, compras exclusivas bloqueadas', color: 'text-amber-700', bgColor: 'bg-amber-50', borderColor: 'border-amber-200' },
+  { value: 'descontinuado', label: 'Saiu de Linha', description: 'Produção e compras completamente paralisadas', color: 'text-red-700', bgColor: 'bg-red-50', borderColor: 'border-red-200' },
+  { value: 'terceirizado', label: 'Terceirizado', description: 'Produção terceirizada, sem compras ou produção automática', color: 'text-zinc-600', bgColor: 'bg-white', borderColor: 'border-zinc-300' },
 ];
 
 /** Categorias de roteamento (não confundir com status de ciclo de vida). */
