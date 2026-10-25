@@ -4,6 +4,8 @@ import {
   Check, Plus, Trash2, Layers, FlaskConical, Package, CheckCircle2, AlertTriangle, X
 } from 'lucide-react';
 import { apiFetch } from '../../../geral/lib/http';
+import { useAviso } from '../../../geral/components/ui/Aviso';
+import { usePreviaServidor, linhasAjusteFila, linhasExclusaoFila } from '../../lib/usePreviaServidor';
 
 export function BasesTab({
   configs,
@@ -13,6 +15,8 @@ export function BasesTab({
   onRefresh,
   onShowDetails,
 }: any) {
+  const { avisar, aviso } = useAviso();
+  const { pedir: pedirPrevia, elemento: previaElemento } = usePreviaServidor(avisar);
   const [bases, setBases] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -106,19 +110,26 @@ export function BasesTab({
     try {
       const targetId = b.fila_id;
       if (!targetId) return;
-      const res = await apiFetch(`/producao/fila-demandas/${encodeURIComponent(targetId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          quantidade: editingQueueKg,
-          quantidadeKg: editingQueueKg,
-          unidade: 'kg',
-        }),
+      await pedirPrevia({
+        url: `/producao/fila-demandas/${encodeURIComponent(targetId)}`,
+        init: {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            quantidade: editingQueueKg,
+            quantidadeKg: editingQueueKg,
+            unidade: 'kg',
+          }),
+        },
+        titulo: 'Ajustar kg da base na fila',
+        confirmarRotulo: 'OK, ajustar',
+        linhas: linhasAjusteFila,
+        erroPadrao: 'Não foi possível ajustar o item da fila.',
+        aoConcluir: async () => {
+          setEditingQueueCode(null);
+          await loadBases();
+        },
       });
-      if (res.ok) {
-        setEditingQueueCode(null);
-        await loadBases();
-      }
     } catch (err) {
       console.error('Erro ao atualizar kg da base na fila:', err);
     } finally {
@@ -132,13 +143,18 @@ export function BasesTab({
     try {
       const targetId = b.fila_id;
       if (!targetId) return;
-      const res = await apiFetch(`/producao/fila-demandas/${encodeURIComponent(targetId)}`, {
-        method: 'DELETE',
+      await pedirPrevia({
+        url: `/producao/fila-demandas/${encodeURIComponent(targetId)}`,
+        init: { method: 'DELETE' },
+        titulo: 'Tirar base da fila',
+        confirmarRotulo: 'OK, tirar da fila',
+        linhas: linhasExclusaoFila,
+        erroPadrao: 'Não foi possível tirar o item da fila.',
+        aoConcluir: async () => {
+          setEditingQueueCode(null);
+          await loadBases();
+        },
       });
-      if (res.ok) {
-        setEditingQueueCode(null);
-        await loadBases();
-      }
     } catch (err) {
       console.error('Erro ao remover base da fila:', err);
     } finally {
@@ -240,6 +256,8 @@ export function BasesTab({
 
   return (
     <div className="view-container animate-in fade-in duration-200">
+      {previaElemento}
+      {aviso}
       {/* Top Segmented Control */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4 bg-zinc-100 p-1.5 rounded-xl border border-zinc-200">
         <div className="inline-flex rounded-lg p-0.5 bg-zinc-200/60 text-xs font-semibold flex-wrap gap-0.5">

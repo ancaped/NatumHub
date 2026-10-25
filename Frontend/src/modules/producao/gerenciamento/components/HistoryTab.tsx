@@ -1,4 +1,5 @@
 import { apiFetch } from '../../../geral/lib/http';
+import { useAviso } from '../../../geral/components/ui/Aviso';
 import React, { useState } from 'react';
 import { 
   Search, RefreshCw, X, ArrowUpDown, ArrowUp, ArrowDown, HelpCircle, 
@@ -26,6 +27,7 @@ export function HistoryTab({
   expandedHistoryId,
   setExpandedHistoryId
 }) {
+  const { avisar, aviso } = useAviso();
   const [editingId, setEditingId] = useState(null);
   const [editVal, setEditVal] = useState('');
 
@@ -41,16 +43,17 @@ export function HistoryTab({
         if (onRefresh) onRefresh();
       } else {
         const err = await res.json();
-        alert(err.error || "Erro ao atualizar lote");
+        avisar(err.error || "Erro ao atualizar lote", 'erro');
       }
     } catch (e) {
       console.error(e);
-      alert("Falha de conexão com a API");
+      avisar("Falha de conexão com a API", 'erro');
     }
   };
 
   return (
     <div className="view-container animate-in fade-in duration-200">
+      {aviso}
       {/* Summary KPIs */}
       <section className="summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
         <div className="summary-card saudavel">

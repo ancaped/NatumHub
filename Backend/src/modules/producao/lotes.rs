@@ -5,7 +5,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
+    Extension, Json, Router,
 };
 use std::sync::Arc;
 use serde_json::json;
@@ -17,7 +17,9 @@ use crate::models::{
 use crate::core::regras_produto::e_base;
 use crate::modules::producao::gerenciamento::calculations::calculate_products;
 use crate::handlers::AppState;
+use crate::modules::geral::auth::models::AuthContext;
 use crate::modules::producao::calculo::fetch_calculation_data;
+use crate::modules::producao::{auditoria, permissao};
 
 // Helper cross-imports
 use crate::handlers::imports::clean_product_code;
@@ -45,7 +47,7 @@ pub fn acoes() -> Vec<Acao> {
             vec![
                 param("search", "query", "texto", false, "Busca por lote, código, descrição ou detalhes."),
                 param("status", "query", "texto", false, "Filtra pelo status do lote; ALL não filtra."),
-                param("limit", "query", "inteiro", false, "Máximo de lotes (padrão 10000)."),
+                param("limit", "query", "inteiro", false, "Máximo de lotes (1 a 10000; padrão 10000)."),
             ],
         ),
         Acao::leitura(
@@ -68,6 +70,13 @@ pub fn acoes() -> Vec<Acao> {
             "Último lote produzido de um produto.",
             "/api/producao/ultimo-lote/:code",
             vec![param("code", "caminho", "texto", true, "Código do produto.")],
+        ),
+        Acao::leitura(
+            "obter_ultimo_lote_produto_por_query",
+            M,
+            "Último lote produzido de um produto, com o código na query (útil para códigos com barra ou espaço).",
+            "/api/producao/ultimo-lote",
+            vec![param("code", "query", "texto", true, "Código do produto.")],
         ),
     ]
 }
@@ -166,6 +175,142 @@ struct RawLote {
 
 
 
+/// Métricas de um produto no momento do cálculo (a "foto" que o lote guarda):
+/// estoque, produção, pedidos, média de vendas, estoque futuro, status, rótulo, produção recomendada,
+/// duração em meses, estoque ideal e demanda ajustada.
+type ProdCalcTuple = (i64, i64, i64, f64, i64, String, String, i64, f64, f64, f64);
+
+/// Métricas calculadas agora de todos os produtos, por código bruto e por código limpo.
+async fn carregar_metricas_produtos(db: &crate::core::db::Db) -> std::collections::HashMap<String, ProdCalcTuple> {
+    let mut mapa = std::collections::HashMap::new();
+    if let Ok((products, stocks, fat_map, configs, overrides, _)) = fetch_calculation_data(db).await {
+        let computed = calculate_products(&products, &stocks, &fat_map, &configs, &overrides);
+        for item in computed {
+            let tuple: ProdCalcTuple = (
+                item.estoque,
+                item.producao,
+                item.pedidos_aberto,
+                item.media_vendas,
+                item.estoque_futuro_com_producao,
+                item.status,
+                item.status_label,
+                item.producao_recomendada,
+                item.duracao_meses,
+                item.estoque_ideal_qtd,
+                item.demanda_ajustada,
+            );
+            let raw_code = item.codigo.trim().to_string();
+            let clean_code = clean_product_code(&raw_code);
+            mapa.insert(raw_code, tuple.clone());
+            if !clean_code.is_empty() {
+                mapa.insert(clean_code, tuple);
+            }
+        }
+    }
+    mapa
+}
+
+/// Grava em `historico_producao` a foto (estoque, produção, status...) dos lotes de produto vindos do ERP que
+/// ainda não têm uma. Roda no fim do sync do ERP (antes isso acontecia dentro do `GET /api/producao/lotes`).
+/// Não duplica: só insere se não existir linha com o mesmo `lote_erp` (e o lote não casa por produto + data).
+/// Devolve quantos lotes foram gravados.
+pub async fn gravar_snapshots_lotes_novos(pool: &PgPool) -> Result<u64, sqlx::Error> {
+    // Lotes de entrada de produto agrupados como na lista: produto e data do primeiro movimento (mais recente),
+    // quantidade somada entre produtos distintos do mesmo lote.
+    let rows = sqlx::query(
+        "SELECT m.document_number, m.item_code, m.quantity, m.date
+         FROM stock_movements m
+         WHERE m.item_type = 'produto' AND m.movement_type = 'entrada' AND m.date::timestamp <= NOW()
+         ORDER BY m.date DESC",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut ordem: Vec<String> = Vec::new();
+    let mut lotes: std::collections::HashMap<String, (String, f64, String)> = std::collections::HashMap::new();
+    for row in rows {
+        let numero = row.get::<Option<String>, _>(0).unwrap_or_default();
+        let codigo: String = row.get(1);
+        let qtd: f64 = row.get(2);
+        let data: String = row.get(3);
+        match lotes.get_mut(&numero) {
+            Some(l) => {
+                if !l.0.contains(&codigo) {
+                    l.0 = format!("{} / {}", l.0, codigo);
+                    l.1 += qtd;
+                }
+            }
+            None => {
+                ordem.push(numero.clone());
+                lotes.insert(numero, (codigo, qtd, data));
+            }
+        }
+    }
+
+    let mut por_lote: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut por_produto_data: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for r in sqlx::query("SELECT lote_erp, codigo, data_producao FROM historico_producao").fetch_all(pool).await? {
+        if let Some(le) = r.get::<Option<String>, _>(0) {
+            let le = le.trim();
+            if !le.is_empty() {
+                por_lote.insert(le.to_string());
+            }
+        }
+        let codigo: String = r.get(1);
+        let data: String = r.get(2);
+        let d = data.split('T').next().unwrap_or(&data).split(' ').next().unwrap_or(&data);
+        por_produto_data.insert(format!("{}_{}", codigo.trim(), d));
+    }
+
+    let metricas = carregar_metricas_produtos(&crate::core::db::Db::new(pool.clone())).await;
+    let mut gravados = 0u64;
+    for numero in ordem {
+        let l_num = numero.trim();
+        if l_num.is_empty() || por_lote.contains(l_num) {
+            continue;
+        }
+        let (codigos, qtd, data) = &lotes[&numero];
+        let raw_p_code = codigos.split(" / ").next().unwrap_or(codigos).trim();
+        let p_code = clean_product_code(raw_p_code);
+        let d = data.split('T').next().unwrap_or(data).split(' ').next().unwrap_or(data);
+        if por_produto_data.contains(&format!("{raw_p_code}_{d}")) || por_produto_data.contains(&format!("{p_code}_{d}")) {
+            continue;
+        }
+        let Some(m) = metricas.get(raw_p_code).or_else(|| metricas.get(&p_code)) else { continue };
+        let r = sqlx::query(
+            "INSERT INTO historico_producao (
+                data_producao, codigo, quantidade, observacoes,
+                snap_estoque, snap_producao, snap_pedidos, snap_efp,
+                snap_media_vendas, snap_duracao_meses, snap_status, snap_status_label,
+                snap_producao_recomendada, lote_erp
+             )
+             SELECT $1::text, $2::text, $3::int, $4::text, $5::int, $6::int, $7::int, $8::int,
+                    $9::float8, $10::float8, $11::text, $12::text, $13::int, $14::text
+             WHERE NOT EXISTS (SELECT 1 FROM historico_producao WHERE lote_erp = $14::text)",
+        )
+        .bind(data)
+        .bind(raw_p_code)
+        .bind(qtd.round() as i32)
+        .bind("Sincronizado automaticamente via ERP")
+        .bind(m.0 as i32)
+        .bind(m.1 as i32)
+        .bind(m.2 as i32)
+        .bind(m.4 as i32)
+        .bind(m.3)
+        .bind(m.8)
+        .bind(&m.5)
+        .bind(&m.6)
+        .bind(m.7 as i32)
+        .bind(l_num)
+        .execute(pool)
+        .await;
+        match r {
+            Ok(r) => gravados += r.rows_affected(),
+            Err(e) => eprintln!("[lotes] snapshot do lote {l_num} não gravou: {e}"),
+        }
+    }
+    Ok(gravados)
+}
+
 // GET /api/producao/lotes
 pub async fn get_production_lotes(
     State(state): State<Arc<AppState>>,
@@ -211,7 +356,7 @@ pub async fn get_production_lotes(
     }
 
     qb.push(" ORDER BY m.date DESC");
-    let limit_val = params.limit.unwrap_or(10000);
+    let limit_val = params.limit.unwrap_or(10000).clamp(1, 10000);
     qb.push(format!(" LIMIT {}", limit_val));
 
     let rows = match qb.build().fetch_all(pool).await {
@@ -601,38 +746,11 @@ pub async fn get_production_lotes(
         }
     }
 
-    // 2. Carrega métricas reais calculadas dos produtos para auto-snapshot de novos lotes ERP
-    type ProdCalcTuple = (i64, i64, i64, f64, i64, String, String, i64, f64, f64, f64);
-    let mut prod_metrics_map: StdHashMap<String, ProdCalcTuple> = StdHashMap::new();
+    // 2. Carrega métricas reais calculadas dos produtos para o snapshot de lotes ERP novos (só exibição aqui;
+    // quem grava em historico_producao é `gravar_snapshots_lotes_novos`, no fim do sync do ERP)
+    let prod_metrics_map = carregar_metricas_produtos(&state.db).await;
 
-    if let Ok((products, stocks, fat_map, configs, overrides, _)) = fetch_calculation_data(&state.db).await {
-        let computed = calculate_products(&products, &stocks, &fat_map, &configs, &overrides);
-        for item in computed {
-            let tuple: ProdCalcTuple = (
-                item.estoque,
-                item.producao,
-                item.pedidos_aberto,
-                item.media_vendas,
-                item.estoque_futuro_com_producao,
-                item.status,
-                item.status_label,
-                item.producao_recomendada,
-                item.duracao_meses,
-                item.estoque_ideal_qtd,
-                item.demanda_ajustada,
-            );
-            let raw_code = item.codigo.trim().to_string();
-            let clean_code = clean_product_code(&raw_code);
-            prod_metrics_map.insert(raw_code, tuple.clone());
-            if !clean_code.is_empty() {
-                prod_metrics_map.insert(clean_code, tuple);
-            }
-        }
-    }
-
-    // 3. Itera pelos lotes e associa snapshot ou cria snapshot automático
-    let mut auto_inserts: Vec<(String, String, i32, Option<String>, i32, i32, i32, i32, f64, f64, String, String, i32, String)> = Vec::new();
-
+    // 3. Itera pelos lotes e associa snapshot (o existente ou o calculado agora, só para a resposta)
     for lote in &mut grouped_lotes {
         let l_num = lote.lote_number.trim();
         let raw_p_code = lote.product_code.split(" / ").next().unwrap_or(&lote.product_code).trim();
@@ -671,65 +789,6 @@ pub async fn get_production_lotes(
             lote.snap_estoque_ideal_qtd = Some(m.9);
             lote.snap_demanda_ajustada = Some(m.10);
             lote.observacoes = Some("Registrado automaticamente via sincronização ERP".to_string());
-
-            if !l_num.is_empty() {
-                auto_inserts.push((
-                    lote.date.clone(),
-                    raw_p_code.to_string(),
-                    lote.quantity.round() as i32,
-                    Some("Sincronizado automaticamente via ERP".to_string()),
-                    m.0 as i32,
-                    m.1 as i32,
-                    m.2 as i32,
-                    m.4 as i32,
-                    m.3,
-                    m.8,
-                    m.5.clone(),
-                    m.6.clone(),
-                    m.7 as i32,
-                    l_num.to_string(),
-                ));
-            }
-        }
-    }
-
-    // 4. Salva em historico_producao os novos lotes para persistência
-    if !auto_inserts.is_empty() {
-        for item in auto_inserts {
-            let exists: Option<i32> = sqlx::query_scalar(
-                "SELECT id FROM historico_producao WHERE lote_erp = $1 LIMIT 1"
-            )
-            .bind(&item.13)
-            .fetch_optional(pool)
-            .await
-            .unwrap_or(None);
-
-            if exists.is_none() {
-                let _ = sqlx::query(
-                    "INSERT INTO historico_producao (
-                        data_producao, codigo, quantidade, observacoes,
-                        snap_estoque, snap_producao, snap_pedidos, snap_efp,
-                        snap_media_vendas, snap_duracao_meses, snap_status, snap_status_label,
-                        snap_producao_recomendada, lote_erp
-                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)"
-                )
-                .bind(&item.0)
-                .bind(&item.1)
-                .bind(item.2)
-                .bind(&item.3)
-                .bind(item.4)
-                .bind(item.5)
-                .bind(item.6)
-                .bind(item.7)
-                .bind(item.8)
-                .bind(item.9)
-                .bind(&item.10)
-                .bind(&item.11)
-                .bind(item.12)
-                .bind(&item.13)
-                .execute(pool)
-                .await;
-            }
         }
     }
 
@@ -2177,15 +2236,41 @@ pub async fn get_lote_detalhes(
     (StatusCode::OK, Json(details)).into_response()
 }
 
+/// Resolução de erros do lote como está gravada (para a auditoria): `None` = sem resolução.
+async fn resolucao_atual(pool: &PgPool, lote_number: &str) -> Option<serde_json::Value> {
+    sqlx::query(
+        "SELECT is_resolved, resolved_by, resolved_at, observations FROM lote_error_resolutions WHERE lote_number = $1",
+    )
+    .bind(lote_number)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .map(|row| {
+        json!({
+            "resolvido": row.get::<Option<i32>, _>(0).map(|v| v == 1),
+            "resolvidoPor": row.get::<Option<String>, _>(1),
+            "resolvidoEm": row.get::<Option<String>, _>(2),
+            "observacoes": row.get::<Option<String>, _>(3),
+        })
+    })
+}
+
 // POST /api/producao/lotes/:number/resolver
+// O autor é sempre o usuário logado (o `resolved_by` do corpo é ignorado).
 pub async fn save_lote_resolution(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(lote_number): Path<String>,
     Json(payload): Json<ResolveLotePayload>,
 ) -> impl IntoResponse {
+    if let Err(r) = permissao::exigir_edicao_em(&ctx, crate::modules::geral::auth::store::modulos_da_rota("/api/producao/lotes").unwrap_or(&[])) {
+        return r;
+    }
     let pool = state.db.pool();
     let resolved_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let resolved_by = payload.resolved_by.unwrap_or_else(|| "Administrador".to_string());
+    let resolved_by = ctx.display_name.clone();
+    let antes = resolucao_atual(pool, &lote_number).await;
 
     match sqlx::query(
         "INSERT INTO lote_error_resolutions (lote_number, is_resolved, resolved_by, resolved_at, observations)
@@ -2203,7 +2288,17 @@ pub async fn save_lote_resolution(
     .execute(pool)
     .await
     {
-        Ok(_) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
+        Ok(_) => {
+            auditoria::registrar(
+                pool,
+                &ctx.display_name,
+                "resolver_lote",
+                &lote_number,
+                json!({ "antes": antes, "depois": resolucao_atual(pool, &lote_number).await }),
+            )
+            .await;
+            (StatusCode::OK, Json(json!({ "success": true }))).into_response()
+        }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     }
 }
@@ -2211,15 +2306,23 @@ pub async fn save_lote_resolution(
 // DELETE /api/producao/lotes/:number/resolver
 pub async fn delete_lote_resolution(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(lote_number): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(r) = permissao::exigir_edicao_em(&ctx, crate::modules::geral::auth::store::modulos_da_rota("/api/producao/lotes").unwrap_or(&[])) {
+        return r;
+    }
     let pool = state.db.pool();
+    let antes = resolucao_atual(pool, &lote_number).await;
     match sqlx::query("DELETE FROM lote_error_resolutions WHERE lote_number = $1")
         .bind(&lote_number)
         .execute(pool)
         .await
     {
-        Ok(_) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
+        Ok(_) => {
+            auditoria::registrar(pool, &ctx.display_name, "reabrir_lote", &lote_number, json!({ "antes": antes })).await;
+            (StatusCode::OK, Json(json!({ "success": true }))).into_response()
+        }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     }
 }
@@ -2425,4 +2528,50 @@ async fn produto_e_base(pool: &PgPool, codigo: &str) -> bool {
     .flatten()
     .unwrap_or((None, None));
     e_base(codigo, cat.as_deref().unwrap_or(""), st.as_deref().unwrap_or(""))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn foto_do_lote_novo_grava_uma_vez_so() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        let lote = format!("TESTE-{}", uuid::Uuid::new_v4());
+        let codigo = "TESTE.LOTE.001";
+        sqlx::query("INSERT INTO config_linhas (linha_prefix, nome_linha) VALUES ('ZZHIST', 'teste') ON CONFLICT DO NOTHING").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO produtos (codigo, descricao, linha_prefix) VALUES ($1, 'TESTE LOTE 500ML', 'ZZHIST') ON CONFLICT (codigo) DO NOTHING")
+            .bind(codigo)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO stock_movements (id, item_code, item_type, movement_type, quantity, date, document_number) \
+             VALUES ($1, $2, 'produto', 'entrada', 100, '2026-10-01', $3)",
+        )
+        .bind(format!("mov-{lote}"))
+        .bind(codigo)
+        .bind(&lote)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        gravar_snapshots_lotes_novos(&pool).await.unwrap();
+        let segunda = gravar_snapshots_lotes_novos(&pool).await.unwrap();
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM historico_producao WHERE lote_erp = $1")
+            .bind(&lote)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        sqlx::query("DELETE FROM historico_producao WHERE codigo = $1").bind(codigo).execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM stock_movements WHERE document_number = $1").bind(&lote).execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM produtos WHERE codigo = $1").bind(codigo).execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM config_linhas WHERE linha_prefix = 'ZZHIST'").execute(&pool).await.ok();
+        assert_eq!(n, 1, "o lote ganha uma foto, e só uma");
+        assert_eq!(segunda, 0, "a segunda rodada não grava de novo");
+    }
 }

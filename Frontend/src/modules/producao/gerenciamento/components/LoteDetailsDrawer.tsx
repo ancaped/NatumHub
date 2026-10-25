@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch } from '../../../geral/lib/http';
 import { api } from '../../../geral/lib/api';
 import { cn } from '../../../geral/lib/utils';
+import { usePreviaServidor } from '../../lib/usePreviaServidor';
 
 interface LoteDetailsDrawerProps {
   open: boolean;
@@ -49,6 +50,9 @@ export function LoteDetailsDrawer({
   const toast = (message: string, type: 'success' | 'error' = 'success') => {
     onToast?.(message, type);
   };
+  const { abrir: abrirPrevia, elemento: previaElemento } = usePreviaServidor((mensagem, tipo) =>
+    toast(mensagem, tipo === 'erro' ? 'error' : 'success')
+  );
 
   const loadDetails = async (number: string) => {
     setActiveSubTab('inicio');
@@ -127,7 +131,6 @@ export function LoteDetailsDrawer({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           observations: resolutionObs,
-          resolved_by: 'Administrador',
           base_code: resolveBaseCode.trim() || null,
           base_quantity: resolveBaseQty.trim() ? parseFloat(resolveBaseQty) : null,
           substitutions: mappedSwaps.map((swap) => ({
@@ -162,24 +165,31 @@ export function LoteDetailsDrawer({
     }
   };
 
-  const handleUndoResolve = async () => {
-    if (!loteNumber || !window.confirm('Deseja reabrir os desvios deste lote e remover a justificativa?')) return;
-    setResolveLoading(true);
-    try {
-      const res = await apiFetch(`/producao/lotes/${loteNumber}/resolver`, { method: 'DELETE' });
-      if (res.ok) {
-        toast('Resolução estornada com sucesso!', 'success');
-        await loadDetails(loteNumber);
-        onResolved?.();
-      } else {
-        toast('Erro ao estornar resolução', 'error');
-      }
-    } catch (e) {
-      console.error('Error undoing resolve:', e);
-      toast('Falha ao estornar resolução', 'error');
-    } finally {
-      setResolveLoading(false);
-    }
+  const handleUndoResolve = () => {
+    if (!loteNumber) return;
+    abrirPrevia({
+      titulo: 'Reabrir desvios do lote',
+      linhas: [{ titulo: `Lote #${loteNumber}`, detalhe: 'Reabre os desvios e remove a justificativa' }],
+      confirmarRotulo: 'OK, reabrir',
+      executar: async () => {
+        setResolveLoading(true);
+        try {
+          const res = await apiFetch(`/producao/lotes/${loteNumber}/resolver`, { method: 'DELETE' });
+          if (res.ok) {
+            toast('Resolução estornada com sucesso!', 'success');
+            await loadDetails(loteNumber);
+            onResolved?.();
+          } else {
+            toast('Erro ao estornar resolução', 'error');
+          }
+        } catch (e) {
+          console.error('Error undoing resolve:', e);
+          toast('Falha ao estornar resolução', 'error');
+        } finally {
+          setResolveLoading(false);
+        }
+      },
+    });
   };
 
   const subTabs = [
@@ -190,6 +200,8 @@ export function LoteDetailsDrawer({
   ];
 
   return (
+    <>
+    <div className="relative" style={{ zIndex: 300 }}>{previaElemento}</div>
     <AnimatePresence>
       {open && (
         <>
@@ -306,6 +318,7 @@ export function LoteDetailsDrawer({
         </>
       )}
     </AnimatePresence>
+    </>
   );
 }
 

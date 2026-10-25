@@ -23,6 +23,8 @@ import { api } from '../../geral/lib/api';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import { ProcModal } from './components/ProcModal';
 import { ProcGeneratorModal } from './components/ProcGeneratorModal';
+import { useAviso } from '../../geral/components/ui/Aviso';
+import { usePreviaServidor } from '../lib/usePreviaServidor';
 
 interface ProcViewProps {
   onBackToHub?: () => void;
@@ -64,6 +66,8 @@ export function isProcForaDoRotulo(item?: ProcItem | null): boolean {
 }
 
 export const ProcView: React.FC<ProcViewProps> = ({ onBackToHub, onNavigate }) => {
+  const { avisar, aviso } = useAviso();
+  const { abrir: abrirPrevia, elemento: previaElemento } = usePreviaServidor(avisar);
   const [activeTab, setActiveTab] = useState<'procs' | 'generator' | 'novo'>('procs');
   const [procs, setProcs] = useState<ProcItem[]>([]);
   const [metrics, setMetrics] = useState<ProcSummaryMetrics>({
@@ -199,14 +203,20 @@ export const ProcView: React.FC<ProcViewProps> = ({ onBackToHub, onNavigate }) =
     setModalOpen(true);
   };
 
-  const handleDelete = async (item: ProcItem) => {
-    if (!confirm(`Deseja realmente excluir o PROC de "${item.descricao}"?`)) return;
-    try {
-      await api.deleteProc(item.id);
-      fetchProcs();
-    } catch (err: any) {
-      alert('Erro ao excluir PROC: ' + (err?.message || 'Falha na requisição.'));
-    }
+  const handleDelete = (item: ProcItem) => {
+    abrirPrevia({
+      titulo: 'Excluir PROC',
+      linhas: [{ titulo: item.descricao, detalhe: item.proc ? `PROC ${item.proc}` : undefined }],
+      confirmarRotulo: 'OK, excluir',
+      executar: async () => {
+        try {
+          await api.deleteProc(item.id);
+          fetchProcs();
+        } catch (err: any) {
+          avisar('Erro ao excluir PROC: ' + (err?.message || 'Falha na requisição.'), 'erro');
+        }
+      },
+    });
   };
 
   const sidebarItems = [
@@ -265,6 +275,8 @@ export const ProcView: React.FC<ProcViewProps> = ({ onBackToHub, onNavigate }) =
       }}
       headerActions={headerActions}
     >
+      {previaElemento}
+      {aviso}
       <div className="p-4 sm:p-6 space-y-4 max-w-7xl mx-auto">
         
         {/* Barra de Filtros e Busca */}

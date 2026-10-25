@@ -1,4 +1,6 @@
 import { apiFetch } from '../../geral/lib/http';
+import { useAviso } from '../../geral/components/ui/Aviso';
+import { usePreviaServidor } from '../lib/usePreviaServidor';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   ArrowLeft, Search, RefreshCw, Layers, ClipboardList, PlusCircle, Trash2, 
@@ -23,6 +25,8 @@ import {
 } from '../lib/viraPackaging';
 
 export default function MontagemKitsView({ onBackToHub }) {
+  const { avisar, aviso } = useAviso();
+  const { pedir: pedirPrevia, abrir: abrirPrevia, elemento: previaElemento } = usePreviaServidor(avisar);
   const [activeSubTab, setActiveSubTab] = useState('ordens'); // 'ordens', 'componentes' ou 'composicao'
   const [loading, setLoading] = useState(false);
 
@@ -290,28 +294,34 @@ export default function MontagemKitsView({ onBackToHub }) {
         await fetchKits(); // Atualiza os alertas
       } else {
         const err = await res.json();
-        alert(err.error || 'Erro ao adicionar kit.');
+        avisar(err.error || 'Erro ao adicionar kit.', 'erro');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro de conexão.');
+      avisar('Erro de conexão.', 'erro');
     }
   };
 
-  const handleDeleteKitComposicao = async (kit, comp) => {
-    if (!window.confirm(`Remover componente ${comp} do kit ${kit}?`)) return;
-    try {
-      const res = await apiFetch(`/kits/composicao/${kit}/${comp}`, { method: 'DELETE' });
-      if (res.ok) {
-        await fetchKitComposicao();
-        await fetchKits(); // Atualiza os alertas
-      } else {
-        alert('Erro ao excluir relação.');
-      }
-    } catch (e) {
-      console.error(e);
-      alert('Erro de conexão.');
-    }
+  const handleDeleteKitComposicao = (kit, comp) => {
+    abrirPrevia({
+      titulo: 'Remover componente do kit',
+      linhas: [{ titulo: `Componente ${comp}`, detalhe: `Kit ${kit}` }],
+      confirmarRotulo: 'OK, remover',
+      executar: async () => {
+        try {
+          const res = await apiFetch(`/kits/composicao/${kit}/${comp}`, { method: 'DELETE' });
+          if (res.ok) {
+            await fetchKitComposicao();
+            await fetchKits(); // Atualiza os alertas
+          } else {
+            avisar('Erro ao excluir relação.', 'erro');
+          }
+        } catch (e) {
+          console.error(e);
+          avisar('Erro de conexão.', 'erro');
+        }
+      },
+    });
   };
 
   const handleUploadKitsConfig = async (e) => {
@@ -327,11 +337,11 @@ export default function MontagemKitsView({ onBackToHub }) {
         await fetchKitComposicao();
         await fetchKits(); // Atualiza os alertas
       } else {
-        alert(data.error || 'Erro ao importar.');
+        avisar(data.error || 'Erro ao importar.', 'erro');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro de conexão.');
+      avisar('Erro de conexão.', 'erro');
     } finally {
       setUploadingKitsConfig(false);
     }
@@ -380,27 +390,33 @@ export default function MontagemKitsView({ onBackToHub }) {
         await fetchViraComposicao();
       } else {
         const err = await res.json();
-        alert(err.error || 'Erro ao adicionar vira.');
+        avisar(err.error || 'Erro ao adicionar vira.', 'erro');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro de conexão.');
+      avisar('Erro de conexão.', 'erro');
     }
   };
 
-  const handleDeleteViraComposicao = async (de, para) => {
-    if (!window.confirm(`Remover relação de vira do produto ${de} para ${para}?`)) return;
-    try {
-      const res = await apiFetch(`/turnovers/composicao/${de}/${para}`, { method: 'DELETE' });
-      if (res.ok) {
-        await fetchViraComposicao();
-      } else {
-        alert('Erro ao excluir relação.');
-      }
-    } catch (e) {
-      console.error(e);
-      alert('Erro de conexão.');
-    }
+  const handleDeleteViraComposicao = (de, para) => {
+    abrirPrevia({
+      titulo: 'Remover relação de vira',
+      linhas: [{ titulo: `Produto ${de}`, detalhe: `vira ${para}` }],
+      confirmarRotulo: 'OK, remover',
+      executar: async () => {
+        try {
+          const res = await apiFetch(`/turnovers/composicao/${de}/${para}`, { method: 'DELETE' });
+          if (res.ok) {
+            await fetchViraComposicao();
+          } else {
+            avisar('Erro ao excluir relação.', 'erro');
+          }
+        } catch (e) {
+          console.error(e);
+          avisar('Erro de conexão.', 'erro');
+        }
+      },
+    });
   };
 
   const fetchNextViraOrderNumber = async () => {
@@ -525,11 +541,11 @@ export default function MontagemKitsView({ onBackToHub }) {
         await fetchViraOrders();
       } else {
         const err = await res.json();
-        alert(err.error || 'Erro ao criar ordem de vira.');
+        avisar(err.error || 'Erro ao criar ordem de vira.', 'erro');
       }
     } catch (err) {
       console.error(err);
-      alert('Erro ao conectar com a API.');
+      avisar('Erro ao conectar com a API.', 'erro');
     } finally {
       setSubmittingNewViraOrder(false);
     }
@@ -584,11 +600,11 @@ export default function MontagemKitsView({ onBackToHub }) {
         await fetchViraOrders();
       } else {
         const err = await res.json();
-        alert(err.error || 'Erro ao atualizar ordem de vira.');
+        avisar(err.error || 'Erro ao atualizar ordem de vira.', 'erro');
       }
     } catch (err) {
       console.error(err);
-      alert('Erro de conexão.');
+      avisar('Erro de conexão.', 'erro');
     } finally {
       setSubmittingEditViraOrder(false);
     }
@@ -652,19 +668,20 @@ export default function MontagemKitsView({ onBackToHub }) {
     return `${t.slice(0, n - 1)}…`;
   };
 
+  // Excluir é escrita em 2 passos: o servidor devolve a ordem que sairia e só apaga com confirmar=true.
   const handleDeleteViraOrder = async (id) => {
-    if (!window.confirm("Deseja realmente excluir esta ordem de vira?")) return;
-    try {
-      const res = await apiFetch(`/turnovers/orders/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        await fetchViraOrders();
-      } else {
-        alert('Erro ao excluir ordem.');
-      }
-    } catch (e) {
-      console.error(e);
-      alert('Erro de conexão.');
-    }
+    await pedirPrevia({
+      url: `/turnovers/orders/${id}`,
+      init: { method: 'DELETE' },
+      titulo: 'Excluir ordem de vira',
+      confirmarRotulo: 'OK, excluir',
+      linhas: (d) => [{
+        titulo: `Ordem ${d.item?.order_number ?? id}`,
+        detalhe: `${d.item?.de_produto_codigo ?? ''} → ${d.item?.para_produto_codigo ?? ''} • ${d.item?.quantity ?? ''} un`,
+      }],
+      erroPadrao: 'Erro ao excluir ordem.',
+      aoConcluir: async () => { await fetchViraOrders(); },
+    });
   };
 
   const getViraDeNamePreview = () => {
@@ -803,11 +820,11 @@ export default function MontagemKitsView({ onBackToHub }) {
   const handleCreateOrder = async (e, andPrint = false) => {
     if (e) e.preventDefault();
     if (!newOrderNumber.trim()) {
-      alert("Por favor, preencha o número do lote/ordem.");
+      avisar("Por favor, preencha o número do lote/ordem.", 'erro');
       return;
     }
     if (!selectedKitCode) {
-      alert("Por favor, selecione o kit.");
+      avisar("Por favor, selecione o kit.", 'erro');
       return;
     }
 
@@ -879,11 +896,11 @@ export default function MontagemKitsView({ onBackToHub }) {
         }
       } else {
         const err = await res.json();
-        alert(err.error || "Erro ao criar ordem de montagem");
+        avisar(err.error || "Erro ao criar ordem de montagem", 'erro');
       }
     } catch (err) {
       console.error(err);
-      alert("Falha de rede ao criar ordem");
+      avisar("Falha de rede ao criar ordem", 'erro');
     } finally {
       setSubmittingNewOrder(false);
     }
@@ -966,11 +983,11 @@ export default function MontagemKitsView({ onBackToHub }) {
         handlePrintOrder(created);
       } else {
         const err = await res.json();
-        alert(err.error || "Erro ao gerar ordem de montagem");
+        avisar(err.error || "Erro ao gerar ordem de montagem", 'erro');
       }
     } catch (err) {
       console.error(err);
-      alert("Falha de rede ao gerar e imprimir ordem");
+      avisar("Falha de rede ao gerar e imprimir ordem", 'erro');
     }
   };
 
@@ -1085,30 +1102,30 @@ export default function MontagemKitsView({ onBackToHub }) {
           handlePrintOrder(updatedOrder);
         }
       } else {
-        alert("Erro ao atualizar ordem de montagem");
+        avisar("Erro ao atualizar ordem de montagem", 'erro');
       }
     } catch (err) {
       console.error(err);
-      alert("Falha de rede ao atualizar");
+      avisar("Falha de rede ao atualizar", 'erro');
     } finally {
       setSubmittingEditOrder(false);
     }
   };
 
+  // Excluir é escrita em 2 passos: o servidor devolve a ordem que sairia e só apaga com confirmar=true.
   const handleDeleteOrder = async (id) => {
-    if (!window.confirm("Deseja realmente excluir esta ordem de montagem?")) return;
-    try {
-      const res = await apiFetch(`/kits/orders/${id}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        fetchOrders();
-      } else {
-        alert("Erro ao excluir ordem de montagem");
-      }
-    } catch (err) {
-      console.error(err);
-    }
+    await pedirPrevia({
+      url: `/kits/orders/${id}`,
+      init: { method: 'DELETE' },
+      titulo: 'Excluir ordem de montagem',
+      confirmarRotulo: 'OK, excluir',
+      linhas: (d) => [{
+        titulo: `Ordem ${d.item?.order_number ?? id}`,
+        detalhe: `${d.item?.kit_product_code ?? ''} • ${d.item?.quantity ?? ''} un`,
+      }],
+      erroPadrao: 'Erro ao excluir ordem de montagem',
+      aoConcluir: async () => { fetchOrders(); },
+    });
   };
 
   // Helper: Print Ordem de Montagem ticket
@@ -1131,6 +1148,8 @@ export default function MontagemKitsView({ onBackToHub }) {
 
   return (
     <div className="flex flex-1 w-full h-full overflow-hidden animate-in fade-in duration-200">
+      {previaElemento}
+      {aviso}
       {/* Printable Sheet */}
       {printingOrder && (
         printingOrder.isViraPrint || printingOrder.kitProductDescription?.startsWith('CONVERSÃO') ? (

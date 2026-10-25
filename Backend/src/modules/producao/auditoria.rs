@@ -16,10 +16,22 @@ use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
 
+use crate::core::catalogo::{param, Acao};
 use crate::handlers::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new().route("/api/producao/auditoria", get(listar_rota))
+}
+
+/// Ações de consulta da auditoria descritas para agentes (ver `core::catalogo`).
+pub fn acoes() -> Vec<Acao> {
+    vec![Acao::leitura(
+        "listar_auditoria_producao",
+        "producao",
+        "Lista quem fez o quê no Gerenciamento de Produção (mais recentes primeiro).",
+        "/api/producao/auditoria",
+        vec![param("limite", "query", "inteiro", false, "Quantos registros (1 a 500; padrão 50).")],
+    )]
 }
 
 /// Grava a ação. Falha de auditoria não desfaz a ação já feita, mas fica no log do servidor.

@@ -1,5 +1,8 @@
-use sqlx::{PgPool, Row};
+use serde::Serialize;
+use sqlx::{PgPool, Postgres, Row, Transaction};
+use crate::core::acao::{executar_em_2_passos, ErroApi, RespostaAcao};
 use super::models::{
+    valor_novo, Campo,
     AcompanhamentoLoteItem, SaveLoteCustomStatusPayload, AcompanhamentoQueryParams, 
     StatusHistoryEntry, TerceirizadoSolicitacaoItem, CreateTerceirizadoSolicitacaoPayload,
     ProgramacaoEnvaseItem, SaveProgramacaoEnvasePayload, ReorderProgramacaoEnvasePayload,
@@ -147,22 +150,10 @@ pub async fn list_acompanhamento(
                             'Unidades: ' || REPLACE(REPLACE(substring(pp.observacoes from '~([0-9.,]+)\s*un'), '.', ''), ',', '.') || ' | '
                         ELSE 
                             'Unidades: ' || ROUND(COALESCE(sm.quantity, pp.quantidade_planejada::float8) / NULLIF(
-                                CASE 
-                                     WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(5000\s*ML|5\s*L\b)' THEN 5.0
-                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(1000\s*ML|1\s*L\b|1\s*KG\b)' THEN 1.0
-                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(900\s*ML|900\s*G\b)' THEN 0.9
-                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(500\s*ML|500\s*G\b)' THEN 0.5
-                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(300\s*ML|300\s*G\b)' THEN 0.3
-                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(250\s*ML|250\s*G\b)' THEN 0.25
-                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(200\s*ML|200\s*G\b)' THEN 0.2
-                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(150\s*ML|150\s*G\b)' THEN 0.15
-                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(100\s*ML|100\s*G\b)' THEN 0.1
-                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(90\s*ML|90\s*G\b)' THEN 0.09
-                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(60\s*ML|60\s*G\b)' THEN 0.06
-                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(50\s*ML|50\s*G\b)' THEN 0.05
-                                    WHEN COALESCE(p_calc.descricao, pp.descricao) ~* '(30\s*ML|30\s*G\b)' THEN 0.03
-                                    ELSE 1.0
-                                END, 0
+                                COALESCE(NULLIF(
+                                    CASE WHEN pw.mt IS NULL THEN NULL
+                                         ELSE REPLACE((pw.mt)[1], ',', '.')::float8 * (CASE WHEN (pw.mt)[2] IN ('KG', 'L') THEN 1.0 ELSE 0.001 END)
+                                    END, 0), 1.0), 0
                             ))::text || ' | '
                     END ||
                     'Planejamento Semanal | Reator: ' || COALESCE(pp.reator_id, '') || ' | Processo: ' || COALESCE(pp.processo_termico, '') || ' | Ordem: ' || COALESCE(pp.ordem_sequencia, 1)::text
@@ -176,6 +167,10 @@ pub async fn list_acompanhamento(
                 NULLIF(TRIM(pp.reator_id), '') AS reator_id
             FROM producao_planejamento_semanal pp
             LEFT JOIN produtos p_calc ON pp.codigo_produto = p_calc.codigo
+            -- peso unitário: primeira medida da descrição como token (350ML não casa 50ML; 2,5L não casa 5L), igual ao front
+            LEFT JOIN LATERAL (
+                SELECT regexp_match(UPPER(COALESCE(p_calc.descricao, pp.descricao, '')), '(\d+(?:[.,]\d+)?)\s*(ML|L|GR|G|KG)\y') AS mt
+            ) pw ON TRUE
             LEFT JOIN erp_lotes_laudos ell ON (pp.lote_erp IS NOT NULL AND TRIM(pp.lote_erp) != '' AND ell.lote = TRIM(pp.lote_erp) AND (ell.product_code = pp.codigo_produto OR ell.product_code IS NULL))
             LEFT JOIN (
                 SELECT sm2.document_number, sm2.item_code, sm2.quantity, sm2.date, sm2.details, p2.descricao AS item_descricao
@@ -307,7 +302,7 @@ pub async fn list_acompanhamento(
     }
 
     qb.push(" ORDER BY CASE WHEN (c.custom_status IS NOT NULL AND c.custom_status != 'Ordem Finalizada' AND c.custom_status != 'Finalizada') OR c.data_previsao IS NOT NULL THEN 0 ELSE 1 END, m.date DESC");
-    let limit = params.limit.unwrap_or(2500);
+    let limit = params.limit.unwrap_or(2500).clamp(1, 5000);
     qb.push(format!(" LIMIT {}", limit));
 
     let rows = qb.build().fetch_all(pool).await
@@ -451,19 +446,61 @@ pub async fn list_acompanhamento(
     Ok(items)
 }
 
-pub async fn upsert_status(
-    pool: &PgPool,
-    payload: &SaveLoteCustomStatusPayload,
-) -> Result<(), String> {
+type Tx<'a> = Transaction<'a, Postgres>;
+
+fn normalizar_status(s: &str) -> String {
+    match s.trim() {
+        "Produção" => "Produzido".to_string(),
+        "Finalizada" => "Ordem Finalizada".to_string(),
+        outro => outro.to_string(),
+    }
+}
+
+/// Registra uma transição no histórico do lote. Falha aqui desfaz a gravação inteira (não se ignora mais o erro).
+async fn gravar_historico(
+    tx: &mut Tx<'_>,
+    lote: &str,
+    status: &str,
+    category: Option<&str>,
+    autor: Option<&str>,
+    notes: Option<&str>,
+) -> Result<(), ErroApi> {
+    sqlx::query(
+        r#"
+        INSERT INTO lote_status_history (lote_number, status, category, changed_by, changed_at, notes)
+        VALUES ($1, $2, $3, $4, NOW(), $5)
+        "#,
+    )
+    .bind(lote)
+    .bind(status)
+    .bind(category)
+    .bind(autor)
+    .bind(notes)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Grava o status do lote. Campos ausentes preservam o que já está gravado (`category`, `motivoEspera`, insumo
+/// faltante); `null` explícito limpa. Escreve o histórico (com o status anterior) na mesma transação.
+pub async fn upsert_status_tx(tx: &mut Tx<'_>, payload: &SaveLoteCustomStatusPayload) -> Result<(), ErroApi> {
+    if payload.lote_number.trim().is_empty() {
+        return Err(ErroApi::invalido("Informe o lote."));
+    }
     let is_terceirizado_val = payload.is_terceirizado.unwrap_or(false);
-    let mut normalized_status = payload.custom_status.clone();
-    if normalized_status == "Produção" {
-        normalized_status = "Produzido".to_string();
-    } else if normalized_status == "Finalizada" {
-        normalized_status = "Ordem Finalizada".to_string();
+
+    let anterior: Option<String> = sqlx::query_scalar(
+        "SELECT custom_status FROM lote_custom_status WHERE lote_number = $1 FOR UPDATE",
+    )
+    .bind(&payload.lote_number)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let mut normalized_status = normalizar_status(&payload.custom_status);
+    if normalized_status.is_empty() {
+        normalized_status = anterior.clone().unwrap_or_else(|| "Aberto".to_string());
     }
 
-    sqlx::query(
+    let category_efetiva: Option<String> = sqlx::query_scalar(
         r#"
         INSERT INTO lote_custom_status (
             lote_number, custom_status, category, updated_by, updated_at, notes,
@@ -485,7 +522,7 @@ pub async fn upsert_status(
         )
         ON CONFLICT (lote_number) DO UPDATE SET
             custom_status = EXCLUDED.custom_status,
-            category = EXCLUDED.category,
+            category = CASE WHEN $13 THEN EXCLUDED.category ELSE lote_custom_status.category END,
             updated_by = EXCLUDED.updated_by,
             updated_at = NOW(),
             notes = COALESCE(EXCLUDED.notes, lote_custom_status.notes),
@@ -495,68 +532,82 @@ pub async fn upsert_status(
             data_envase = CASE WHEN EXCLUDED.custom_status IN ('Envase', 'Ordem Parcial') THEN COALESCE(lote_custom_status.data_envase, NOW()) ELSE lote_custom_status.data_envase END,
             data_rotulagem = CASE WHEN EXCLUDED.custom_status = 'Rotulagem' THEN COALESCE(lote_custom_status.data_rotulagem, NOW()) ELSE lote_custom_status.data_rotulagem END,
             data_finalizada = CASE WHEN EXCLUDED.custom_status IN ('Finalizada', 'Ordem Finalizada') THEN COALESCE(lote_custom_status.data_finalizada, NOW()) ELSE lote_custom_status.data_finalizada END,
-            data_em_espera = CASE WHEN EXCLUDED.motivo_espera IS NOT NULL THEN COALESCE(lote_custom_status.data_em_espera, NOW()) ELSE NULL END,
-            motivo_espera = EXCLUDED.motivo_espera,
+            data_em_espera = CASE WHEN $14
+                THEN (CASE WHEN EXCLUDED.motivo_espera IS NOT NULL THEN COALESCE(lote_custom_status.data_em_espera, NOW()) ELSE NULL END)
+                ELSE lote_custom_status.data_em_espera END,
+            motivo_espera = CASE WHEN $14 THEN EXCLUDED.motivo_espera ELSE lote_custom_status.motivo_espera END,
             is_terceirizado = CASE WHEN $7 THEN TRUE ELSE lote_custom_status.is_terceirizado END,
             ficha_ordem = COALESCE(EXCLUDED.ficha_ordem, lote_custom_status.ficha_ordem),
             quantidade_envasada_parcial = COALESCE(EXCLUDED.quantidade_envasada_parcial, lote_custom_status.quantidade_envasada_parcial),
-            insumo_faltante_codigo = EXCLUDED.insumo_faltante_codigo,
-            insumo_faltante_descricao = EXCLUDED.insumo_faltante_descricao,
+            insumo_faltante_codigo = CASE WHEN $15 THEN EXCLUDED.insumo_faltante_codigo ELSE lote_custom_status.insumo_faltante_codigo END,
+            insumo_faltante_descricao = CASE WHEN $16 THEN EXCLUDED.insumo_faltante_descricao ELSE lote_custom_status.insumo_faltante_descricao END,
             fornecedor_terceirizado = COALESCE(EXCLUDED.fornecedor_terceirizado, lote_custom_status.fornecedor_terceirizado)
+        RETURNING category
         "#
     )
     .bind(&payload.lote_number)
     .bind(&normalized_status)
-    .bind(&payload.category)
+    .bind(valor_novo(&payload.category))
     .bind(&payload.updated_by)
     .bind(&payload.notes)
-    .bind(&payload.motivo_espera)
+    .bind(valor_novo(&payload.motivo_espera))
     .bind(is_terceirizado_val)
     .bind(&payload.ficha_ordem)
     .bind(payload.quantidade_envasada_parcial)
-    .bind(&payload.insumo_faltante_codigo)
-    .bind(&payload.insumo_faltante_descricao)
+    .bind(valor_novo(&payload.insumo_faltante_codigo))
+    .bind(valor_novo(&payload.insumo_faltante_descricao))
     .bind(&payload.fornecedor_terceirizado)
-    .execute(pool)
-    .await
-    .map_err(|e| format!("Erro ao salvar status customizado: {e}"))?;
+    .bind(payload.category.is_some())
+    .bind(payload.motivo_espera.is_some())
+    .bind(payload.insumo_faltante_codigo.is_some())
+    .bind(payload.insumo_faltante_descricao.is_some())
+    .fetch_one(&mut **tx)
+    .await?;
 
-    if normalized_status == "Ordem Finalizada" || normalized_status == "Finalizada" {
-        let _ = delete_programacao_envase_by_lote(pool, &payload.lote_number).await;
+    if normalized_status == "Ordem Finalizada" {
+        sqlx::query("DELETE FROM programacao_envase WHERE lote_number = $1")
+            .bind(&payload.lote_number)
+            .execute(&mut **tx)
+            .await?;
     }
 
-    // Grava também no histórico de transições
-    let history_notes = payload.motivo_espera.clone().or_else(|| payload.notes.clone());
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO lote_status_history (lote_number, status, category, changed_by, changed_at, notes)
-        VALUES ($1, $2, $3, $4, NOW(), $5)
-        "#
+    // Histórico de transições, com o status anterior
+    let mut partes: Vec<String> = Vec::new();
+    if let Some(ref a) = anterior {
+        partes.push(format!("Anterior: {a}"));
+    }
+    if let Some(n) = valor_novo(&payload.motivo_espera).or_else(|| payload.notes.clone()) {
+        partes.push(n);
+    }
+    let history_notes = if partes.is_empty() { None } else { Some(partes.join(" | ")) };
+    gravar_historico(
+        tx,
+        &payload.lote_number,
+        &normalized_status,
+        category_efetiva.as_deref(),
+        payload.updated_by.as_deref(),
+        history_notes.as_deref(),
     )
-    .bind(&payload.lote_number)
-    .bind(&normalized_status)
-    .bind(&payload.category)
-    .bind(&payload.updated_by)
-    .bind(&history_notes)
-    .execute(pool)
-    .await;
+    .await
+}
 
+pub async fn upsert_status(pool: &PgPool, payload: &SaveLoteCustomStatusPayload) -> Result<(), ErroApi> {
+    let mut tx = pool.begin().await?;
+    upsert_status_tx(&mut tx, payload).await?;
+    tx.commit().await?;
     Ok(())
 }
 
 pub async fn save_ficha_ordem(
     pool: &PgPool,
     payload: &SaveFichaOrdemPayload,
-) -> Result<(), String> {
-    let mut normalized_status = payload.custom_status.clone();
-    if let Some(ref st) = normalized_status {
-        if st == "Produção" {
-            normalized_status = Some("Produzido".to_string());
-        } else if st == "Finalizada" {
-            normalized_status = Some("Ordem Finalizada".to_string());
-        }
+) -> Result<(), ErroApi> {
+    if payload.lote_number.trim().is_empty() {
+        return Err(ErroApi::invalido("Informe o lote."));
     }
+    let normalized_status = payload.custom_status.as_deref().map(normalizar_status).filter(|s| !s.is_empty());
 
+    let mut tx = pool.begin().await?;
     sqlx::query(
         r#"
         INSERT INTO lote_custom_status (
@@ -594,78 +645,189 @@ pub async fn save_ficha_ordem(
     .bind(&payload.updated_by)
     .bind(&payload.ficha_ordem)
     .bind(payload.quantidade_envasada_parcial)
-    .execute(pool)
-    .await
-    .map_err(|e| format!("Erro ao salvar ficha da ordem: {e}"))?;
+    .execute(&mut *tx)
+    .await?;
 
     if let Some(ref st) = normalized_status {
-        let _ = sqlx::query(
-            r#"
-            INSERT INTO lote_status_history (lote_number, status, category, changed_by, changed_at, notes)
-            VALUES ($1, $2, 'Ficha da Ordem', $3, NOW(), 'Apontamento via Ficha da Ordem')
-            "#
+        gravar_historico(
+            &mut tx,
+            &payload.lote_number,
+            st,
+            Some("Ficha da Ordem"),
+            payload.updated_by.as_deref(),
+            Some("Apontamento via Ficha da Ordem"),
         )
-        .bind(&payload.lote_number)
-        .bind(st)
-        .bind(&payload.updated_by)
-        .execute(pool)
-        .await;
+        .await?;
     }
-
+    tx.commit().await?;
     Ok(())
 }
 
+/// Aplica o mesmo status a vários lotes, tudo ou nada. Só para status preenchido; o reset (apagar a linha do lote)
+/// é `apagar_status_lotes`, em 2 passos.
 pub async fn save_batch_lote_custom_status(
     pool: &PgPool,
     payload: &super::models::BatchLoteCustomStatusPayload,
-) -> Result<usize, String> {
-    let count = payload.lote_numbers.len();
-    if count == 0 {
-        return Ok(0);
+) -> Result<usize, ErroApi> {
+    let Some(ref new_status) = payload.custom_status else { return Ok(0) };
+    let mut tx = pool.begin().await?;
+    let mut feitos = 0usize;
+    for lote in &payload.lote_numbers {
+        let single_payload = SaveLoteCustomStatusPayload {
+            lote_number: lote.clone(),
+            custom_status: new_status.clone(),
+            category: payload.category.clone(),
+            updated_by: payload.updated_by.clone(),
+            notes: payload.notes.clone(),
+            motivo_espera: payload.motivo_espera.clone(),
+            is_terceirizado: None,
+            ficha_ordem: None,
+            quantidade_envasada_parcial: None,
+            insumo_faltante_codigo: None,
+            insumo_faltante_descricao: None,
+            fornecedor_terceirizado: None,
+            etapas_status: None,
+        };
+        upsert_status_tx(&mut tx, &single_payload).await?;
+        feitos += 1;
     }
+    tx.commit().await?;
+    Ok(feitos)
+}
 
-    if let Some(ref new_status) = payload.custom_status {
-        if new_status.trim().is_empty() {
-            for lote in &payload.lote_numbers {
-                delete_status(pool, lote).await?;
+/// O que será (ou foi) apagado ao redefinir o status de um lote.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusApagado {
+    pub lote_number: String,
+    pub status_anterior: String,
+    pub category: Option<String>,
+    pub motivo_espera: Option<String>,
+}
+
+/// Apaga a linha inteira do lote em `lote_custom_status` (volta ao status padrão), registrando antes no histórico
+/// o status que existia. `None` = o lote não tinha linha.
+async fn apagar_status_tx(tx: &mut Tx<'_>, lote: &str, autor: &str) -> Result<Option<StatusApagado>, ErroApi> {
+    let row = sqlx::query(
+        "SELECT custom_status, category, motivo_espera FROM lote_custom_status WHERE lote_number = $1 FOR UPDATE",
+    )
+    .bind(lote)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some(row) = row else { return Ok(None) };
+    let apagado = StatusApagado {
+        lote_number: lote.to_string(),
+        status_anterior: row.try_get::<Option<String>, _>("custom_status").ok().flatten().unwrap_or_default(),
+        category: row.try_get::<Option<String>, _>("category").ok().flatten(),
+        motivo_espera: row.try_get::<Option<String>, _>("motivo_espera").ok().flatten(),
+    };
+    gravar_historico(
+        tx,
+        lote,
+        "Status Removido",
+        apagado.category.as_deref(),
+        Some(autor),
+        Some(&format!("Anterior: {}. Lote redefinido para o status padrão.", apagado.status_anterior)),
+    )
+    .await?;
+    sqlx::query("DELETE FROM lote_custom_status WHERE lote_number = $1")
+        .bind(lote)
+        .execute(&mut **tx)
+        .await?;
+    Ok(Some(apagado))
+}
+
+/// Redefine o status de um ou mais lotes (apaga a linha). Escrita em 2 passos: sem `confirmar` só devolve o que
+/// seria apagado; com `confirmar` apaga, grava o histórico e a auditoria.
+pub async fn apagar_status_lotes(
+    pool: &PgPool,
+    lotes: &[String],
+    autor: &str,
+    confirmar: bool,
+) -> Result<RespostaAcao<Vec<StatusApagado>>, ErroApi> {
+    let mut unicos: Vec<String> = Vec::new();
+    for l in lotes {
+        if !l.trim().is_empty() && !unicos.contains(l) {
+            unicos.push(l.clone());
+        }
+    }
+    if unicos.is_empty() {
+        return Err(ErroApi::invalido("Informe ao menos um lote."));
+    }
+    let autor_tx = autor.to_string();
+    let lista = unicos.clone();
+    let resposta = executar_em_2_passos(pool, "redefinir_status_lote", confirmar, move |tx| {
+        Box::pin(async move {
+            let mut apagados = Vec::new();
+            for l in &lista {
+                if let Some(a) = apagar_status_tx(tx, l, &autor_tx).await? {
+                    apagados.push(a);
+                }
             }
-            return Ok(count);
-        }
+            Ok(apagados)
+        })
+    })
+    .await?;
+    if confirmar && !resposta.resultado.is_empty() {
+        crate::modules::producao::auditoria::registrar(
+            pool,
+            autor,
+            "redefinir_status_lote",
+            &unicos.join(","),
+            serde_json::json!({ "apagados": resposta.resultado }),
+        )
+        .await;
+    }
+    Ok(resposta)
+}
 
-        for lote in &payload.lote_numbers {
-            let single_payload = SaveLoteCustomStatusPayload {
-                lote_number: lote.clone(),
-                custom_status: new_status.clone(),
-                category: payload.category.clone(),
-                updated_by: payload.updated_by.clone(),
-                notes: payload.notes.clone(),
-                motivo_espera: payload.motivo_espera.clone(),
-                is_terceirizado: None,
-                ficha_ordem: None,
-                quantidade_envasada_parcial: None,
-                insumo_faltante_codigo: None,
-                insumo_faltante_descricao: None,
-                fornecedor_terceirizado: None,
-                etapas_status: None,
-            };
-            upsert_status(pool, &single_payload).await?;
-        }
-    } else {
-        for lote in &payload.lote_numbers {
-            delete_status(pool, lote).await?;
+const ETAPAS_VALIDAS: [&str; 4] = ["pesagem", "producao", "envase", "rotulagem"];
+
+/// Fuso fixo da fábrica (Brasil sem horário de verão): data/hora sem fuso é lida como America/Sao_Paulo.
+fn fuso_sp() -> chrono::FixedOffset {
+    chrono::FixedOffset::west_opt(3 * 3600).expect("fuso")
+}
+
+/// Data/hora de agendamento da etapa → RFC 3339. `AAAA-MM-DD` vira 08:00; sem fuso vira America/Sao_Paulo.
+fn normalizar_data_agendada(d: &str) -> Result<String, ErroApi> {
+    use chrono::TimeZone;
+    let t = d.trim();
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(t) {
+        return Ok(dt.to_rfc3339());
+    }
+    if let Ok(dia) = chrono::NaiveDate::parse_from_str(t, "%Y-%m-%d") {
+        let ndt = dia.and_hms_opt(8, 0, 0).expect("hora");
+        return Ok(fuso_sp().from_local_datetime(&ndt).single().expect("fuso fixo").to_rfc3339());
+    }
+    for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"] {
+        if let Ok(ndt) = chrono::NaiveDateTime::parse_from_str(t, fmt) {
+            return Ok(fuso_sp().from_local_datetime(&ndt).single().expect("fuso fixo").to_rfc3339());
         }
     }
-
-    Ok(count)
+    Err(ErroApi::regra(format!("Data de agendamento inválida: \"{t}\". Use AAAA-MM-DD ou AAAA-MM-DDTHH:MM.")))
 }
 
 pub async fn save_lote_etapa_status(
     pool: &PgPool,
     payload: &SaveLoteEtapaStatusPayload,
     lote_number: &str,
-) -> Result<(), String> {
+) -> Result<(), ErroApi> {
     let etapa = payload.etapa.trim().to_lowercase();
+    if !ETAPAS_VALIDAS.contains(&etapa.as_str()) {
+        return Err(ErroApi::regra(format!(
+            "Etapa inválida: \"{}\". Use: {}.",
+            payload.etapa.trim(),
+            ETAPAS_VALIDAS.join(", ")
+        )));
+    }
     let status = payload.status.trim().to_string();
+    if status.is_empty() {
+        return Err(ErroApi::regra("Informe o status da etapa."));
+    }
+    let dt_agendada_str: Option<String> = match payload.data_agendada.as_deref().map(str::trim) {
+        Some(d) if !d.is_empty() => Some(normalizar_data_agendada(d)?),
+        _ => None,
+    };
     let motivo = payload.motivo_espera.clone();
     let insumo_cod = payload.insumo_faltante_codigo.clone();
     let insumo_desc = payload.insumo_faltante_descricao.clone();
@@ -683,17 +845,6 @@ pub async fn save_lote_etapa_status(
 
     let patch = serde_json::json!({
         etapa.clone(): etapa_obj
-    });
-
-    let dt_agendada_str: Option<String> = payload.data_agendada.as_deref().and_then(|d| {
-        let clean = d.trim();
-        if clean.is_empty() {
-            None
-        } else if clean.len() == 10 {
-            Some(format!("{} 08:00:00-03", clean))
-        } else {
-            Some(clean.to_string())
-        }
     });
 
     sqlx::query(
@@ -766,10 +917,81 @@ pub async fn save_lote_etapa_status(
     .bind(&status)
     .bind(&dt_agendada_str)
     .execute(pool)
-    .await
-    .map_err(|e| format!("Erro ao salvar status da etapa: {e}"))?;
+    .await?;
 
     Ok(())
+}
+
+/// Interpreta uma data/hora enviada pela tela. Sem fuso, vale como UTC (comportamento antigo); só a data vira 12:00.
+fn parse_data(campo: &str, s: &str) -> Result<chrono::DateTime<chrono::Utc>, ErroApi> {
+    let trimmed = s.trim();
+    chrono::DateTime::parse_from_rfc3339(trimmed)
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M:%S").map(|ndt| ndt.and_utc()))
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M").map(|ndt| ndt.and_utc()))
+        .or_else(|_| {
+            chrono::NaiveDate::parse_from_str(trimmed, "%Y-%m-%d").map(|d| d.and_hms_opt(12, 0, 0).unwrap().and_utc())
+        })
+        .map_err(|_| ErroApi::regra(format!("Data inválida em {campo}: \"{trimmed}\".")))
+}
+
+/// `(enviado, valor)`: ausente = (false, None) preserva; `null` ou vazio = (true, None) limpa; texto = (true, Some).
+fn data_campo(campo: &str, c: &Campo<String>) -> Result<(bool, Option<chrono::DateTime<chrono::Utc>>), ErroApi> {
+    match c {
+        None => Ok((false, None)),
+        Some(None) => Ok((true, None)),
+        Some(Some(s)) if s.trim().is_empty() => Ok((true, None)),
+        Some(Some(s)) => Ok((true, Some(parse_data(campo, s)?))),
+    }
+}
+
+/// Data de previsão atual do lote (ou a data do ERP) para detectar reagendamento.
+async fn previsao_anterior(tx: &mut Tx<'_>, lote: &str) -> Result<Option<String>, ErroApi> {
+    let atual: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT data_previsao FROM lote_custom_status WHERE lote_number = $1")
+            .bind(lote)
+            .fetch_optional(&mut **tx)
+            .await?
+            .flatten();
+    if let Some(cp) = atual {
+        return Ok(Some(cp.format("%Y-%m-%d").to_string()));
+    }
+    let erp_dt: Option<String> = sqlx::query_scalar(
+        "SELECT date::text FROM stock_movements WHERE document_number = $1 AND item_type = 'produto' AND movement_type = 'entrada' LIMIT 1",
+    )
+    .bind(lote)
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(erp_dt.map(|d| d.chars().take(10).collect::<String>()))
+}
+
+/// Entrada do histórico de reagendamentos (adiamento/antecipação), se a data mudou.
+fn entrada_reagendamento(
+    antiga: Option<&str>,
+    nova: chrono::DateTime<chrono::Utc>,
+    agora: chrono::DateTime<chrono::Utc>,
+    autor: &str,
+) -> Option<serde_json::Value> {
+    let old_str = antiga?;
+    let new_date_str = nova.format("%Y-%m-%d").to_string();
+    if old_str == new_date_str {
+        return None;
+    }
+    let is_adiamento = new_date_str.as_str() > old_str;
+    let motivo = if is_adiamento {
+        format!("Adiado de {} para {}", old_str, new_date_str)
+    } else {
+        format!("Antecipado de {} para {}", old_str, new_date_str)
+    };
+    Some(serde_json::json!([{
+        "dataAnterior": old_str,
+        "novaData": new_date_str,
+        "motivo": motivo,
+        "tipo": if is_adiamento { "adiamento" } else { "antecipacao" },
+        "etapa": "pcp",
+        "alteradoEm": agora.to_rfc3339(),
+        "alteradoPor": autor
+    }]))
 }
 
 pub async fn save_lote_previsao(
@@ -778,77 +1000,22 @@ pub async fn save_lote_previsao(
     data_previsao: Option<&str>,
     updated_by: Option<&str>,
     fornecedor_terceirizado: Option<&str>,
-) -> Result<(), String> {
+) -> Result<(), ErroApi> {
     let now = chrono::Utc::now();
-    let prev_dt = if let Some(dp) = data_previsao {
-        let trimmed = dp.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            chrono::DateTime::parse_from_rfc3339(trimmed)
-                .map(|dt| dt.with_timezone(&chrono::Utc))
-                .or_else(|_| {
-                    chrono::NaiveDate::parse_from_str(trimmed, "%Y-%m-%d")
-                        .map(|d| d.and_hms_opt(12, 0, 0).unwrap().and_utc())
-                })
-                .ok()
+    let prev_dt = match data_previsao.map(str::trim) {
+        Some(d) if !d.is_empty() => Some(parse_data("previsão", d)?),
+        _ => None,
+    };
+
+    let mut tx = pool.begin().await?;
+    let new_entry_json = match prev_dt {
+        Some(new_dt) => {
+            let antiga = previsao_anterior(&mut tx, lote_number).await?;
+            entrada_reagendamento(antiga.as_deref(), new_dt, now, updated_by.unwrap_or("Operador"))
         }
-    } else {
-        None
+        None => None,
     };
 
-    // Buscar data_previsao atual (ou data da OP original) para detectar reagendamento/adiamento
-    let current_previsao: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
-        "SELECT data_previsao FROM lote_custom_status WHERE lote_number = $1"
-    )
-    .bind(lote_number)
-    .fetch_optional(pool)
-    .await
-    .unwrap_or(None);
-
-    let old_date_str: Option<String> = if let Some(cp) = current_previsao {
-        Some(cp.format("%Y-%m-%d").to_string())
-    } else {
-        let erp_dt: Option<String> = sqlx::query_scalar(
-            "SELECT date::text FROM stock_movements WHERE document_number = $1 AND item_type = 'produto' AND movement_type = 'entrada' LIMIT 1"
-        )
-        .bind(lote_number)
-        .fetch_optional(pool)
-        .await
-        .unwrap_or(None);
-        erp_dt.map(|d| d.chars().take(10).collect::<String>())
-    };
-
-    let new_entry_json: Option<serde_json::Value> = if let Some(new_dt) = prev_dt {
-        let new_date_str = new_dt.format("%Y-%m-%d").to_string();
-        if let Some(ref old_str) = old_date_str {
-            if old_str != &new_date_str {
-                let is_adiamento = &new_date_str > old_str;
-                let motivo = if is_adiamento {
-                    format!("Adiado de {} para {}", old_str, new_date_str)
-                } else {
-                    format!("Antecipado de {} para {}", old_str, new_date_str)
-                };
-                Some(serde_json::json!([{
-                    "dataAnterior": old_str,
-                    "novaData": new_date_str,
-                    "motivo": motivo,
-                    "tipo": if is_adiamento { "adiamento" } else { "antecipacao" },
-                    "etapa": "pcp",
-                    "alteradoEm": now.to_rfc3339(),
-                    "alteradoPor": updated_by.unwrap_or("Operador")
-                }]))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    // Upsert em lote_custom_status
     sqlx::query(
         r#"
         INSERT INTO lote_custom_status (
@@ -873,121 +1040,60 @@ pub async fn save_lote_previsao(
     .bind(now)
     .bind(fornecedor_terceirizado)
     .bind(new_entry_json)
-    .execute(pool)
-    .await
-    .map_err(|e| format!("Erro ao salvar previsão do lote: {e}"))?;
+    .execute(&mut *tx)
+    .await?;
 
-    // Registra no histórico de auditoria
     let note_text = match prev_dt {
         Some(dt) => format!("Previsão de produção definida/alterada para {}", dt.format("%d/%m/%Y")),
         None => "Previsão de produção atualizada".to_string(),
     };
-
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO lote_status_history (lote_number, status, changed_by, changed_at, notes)
-        VALUES ($1, 'Previsão Alterada', $2, $3, $4)
-        "#
-    )
-    .bind(lote_number)
-    .bind(updated_by)
-    .bind(now)
-    .bind(&note_text)
-    .execute(pool)
-    .await;
-
+    gravar_historico(&mut tx, lote_number, "Previsão Alterada", None, updated_by, Some(&note_text)).await?;
+    tx.commit().await?;
     Ok(())
 }
 
-fn parse_timestamp_opt(val: Option<&str>) -> Option<chrono::DateTime<chrono::Utc>> {
-    if let Some(s) = val {
-        let trimmed = s.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            chrono::DateTime::parse_from_rfc3339(trimmed)
-                .map(|dt| dt.with_timezone(&chrono::Utc))
-                .or_else(|_| {
-                    chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M:%S")
-                        .map(|ndt| ndt.and_utc())
-                })
-                .or_else(|_| {
-                    chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M")
-                        .map(|ndt| ndt.and_utc())
-                })
-                .or_else(|_| {
-                    chrono::NaiveDate::parse_from_str(trimmed, "%Y-%m-%d")
-                        .map(|d| d.and_hms_opt(12, 0, 0).unwrap().and_utc())
-                })
-                .ok()
-        }
-    } else {
-        None
-    }
-}
-
+/// Ajuste manual das datas das etapas. Só os campos enviados mudam: ausente preserva; `null` (ou vazio) limpa.
 pub async fn save_lote_timestamps(
     pool: &PgPool,
     payload: &SaveLoteTimestampsPayload,
-) -> Result<(), String> {
+) -> Result<(), ErroApi> {
+    if payload.lote_number.trim().is_empty() {
+        return Err(ErroApi::invalido("Informe o lote."));
+    }
     let now = chrono::Utc::now();
-    let dt_pesagem = parse_timestamp_opt(payload.data_pesagem.as_deref());
-    let dt_producao = parse_timestamp_opt(payload.data_producao.as_deref());
-    let dt_lib_envase = parse_timestamp_opt(payload.data_liberado_envase.as_deref());
-    let dt_envase = parse_timestamp_opt(payload.data_envase.as_deref());
-    let dt_rotulagem = parse_timestamp_opt(payload.data_rotulagem.as_deref());
-    let dt_finalizada = parse_timestamp_opt(payload.data_finalizada.as_deref());
-    let dt_previsao = parse_timestamp_opt(payload.data_previsao.as_deref());
+    let (set_pesagem, dt_pesagem) = data_campo("dataPesagem", &payload.data_pesagem)?;
+    let (set_producao, dt_producao) = data_campo("dataProducao", &payload.data_producao)?;
+    let (set_lib, dt_lib_envase) = data_campo("dataLiberadoEnvase", &payload.data_liberado_envase)?;
+    let (set_envase, dt_envase) = data_campo("dataEnvase", &payload.data_envase)?;
+    let (set_rotulagem, dt_rotulagem) = data_campo("dataRotulagem", &payload.data_rotulagem)?;
+    let (set_finalizada, dt_finalizada) = data_campo("dataFinalizada", &payload.data_finalizada)?;
+    let (set_previsao, dt_previsao) = data_campo("dataPrevisao", &payload.data_previsao)?;
 
-    // Detectar alteração de data_previsao para histórico de reagendamento
-    let current_previsao: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
-        "SELECT data_previsao FROM lote_custom_status WHERE lote_number = $1"
-    )
-    .bind(&payload.lote_number)
-    .fetch_optional(pool)
-    .await
-    .unwrap_or(None);
+    let enviados: Vec<&str> = [
+        (set_pesagem, "pesagem"),
+        (set_producao, "produção"),
+        (set_lib, "liberado p/ envase"),
+        (set_envase, "envase"),
+        (set_rotulagem, "rotulagem"),
+        (set_finalizada, "finalizada"),
+        (set_previsao, "previsão"),
+    ]
+    .iter()
+    .filter(|(on, _)| *on)
+    .map(|(_, n)| *n)
+    .collect();
+    if enviados.is_empty() {
+        return Err(ErroApi::regra("Informe ao menos uma data para ajustar."));
+    }
 
-    let old_date_str: Option<String> = if let Some(cp) = current_previsao {
-        Some(cp.format("%Y-%m-%d").to_string())
-    } else {
-        let erp_dt: Option<String> = sqlx::query_scalar(
-            "SELECT date::text FROM stock_movements WHERE document_number = $1 AND item_type = 'produto' AND movement_type = 'entrada' LIMIT 1"
-        )
-        .bind(&payload.lote_number)
-        .fetch_optional(pool)
-        .await
-        .unwrap_or(None);
-        erp_dt.map(|d| d.chars().take(10).collect::<String>())
-    };
-
-    let new_entry_json: Option<serde_json::Value> = if let Some(new_dt) = dt_previsao {
-        let new_date_str = new_dt.format("%Y-%m-%d").to_string();
-        if let Some(ref old_str) = old_date_str {
-            if old_str != &new_date_str {
-                let is_adiamento = &new_date_str > old_str;
-                let motivo = if is_adiamento {
-                    format!("Adiado de {} para {}", old_str, new_date_str)
-                } else {
-                    format!("Antecipado de {} para {}", old_str, new_date_str)
-                };
-                Some(serde_json::json!([{
-                    "dataAnterior": old_str,
-                    "novaData": new_date_str,
-                    "motivo": motivo,
-                    "tipo": if is_adiamento { "adiamento" } else { "antecipacao" },
-                    "etapa": "pcp",
-                    "alteradoEm": now.to_rfc3339(),
-                    "alteradoPor": payload.updated_by.as_deref().unwrap_or("Operador")
-                }]))
-            } else {
-                None
-            }
-        } else {
-            None
+    let autor = payload.updated_by.as_deref().unwrap_or("Operador");
+    let mut tx = pool.begin().await?;
+    let new_entry_json = match (set_previsao, dt_previsao) {
+        (true, Some(new_dt)) => {
+            let antiga = previsao_anterior(&mut tx, &payload.lote_number).await?;
+            entrada_reagendamento(antiga.as_deref(), new_dt, now, autor)
         }
-    } else {
-        None
+        _ => None,
     };
 
     sqlx::query(
@@ -999,13 +1105,13 @@ pub async fn save_lote_timestamps(
         )
         VALUES ($1, 'Aberto', $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '[]'::jsonb))
         ON CONFLICT (lote_number) DO UPDATE SET
-            data_pesagem = EXCLUDED.data_pesagem,
-            data_producao = EXCLUDED.data_producao,
-            data_liberado_envase = EXCLUDED.data_liberado_envase,
-            data_envase = EXCLUDED.data_envase,
-            data_rotulagem = EXCLUDED.data_rotulagem,
-            data_finalizada = EXCLUDED.data_finalizada,
-            data_previsao = COALESCE(EXCLUDED.data_previsao, lote_custom_status.data_previsao),
+            data_pesagem = CASE WHEN $12 THEN EXCLUDED.data_pesagem ELSE lote_custom_status.data_pesagem END,
+            data_producao = CASE WHEN $13 THEN EXCLUDED.data_producao ELSE lote_custom_status.data_producao END,
+            data_liberado_envase = CASE WHEN $14 THEN EXCLUDED.data_liberado_envase ELSE lote_custom_status.data_liberado_envase END,
+            data_envase = CASE WHEN $15 THEN EXCLUDED.data_envase ELSE lote_custom_status.data_envase END,
+            data_rotulagem = CASE WHEN $16 THEN EXCLUDED.data_rotulagem ELSE lote_custom_status.data_rotulagem END,
+            data_finalizada = CASE WHEN $17 THEN EXCLUDED.data_finalizada ELSE lote_custom_status.data_finalizada END,
+            data_previsao = CASE WHEN $18 THEN EXCLUDED.data_previsao ELSE lote_custom_status.data_previsao END,
             updated_by = COALESCE(EXCLUDED.updated_by, lote_custom_status.updated_by),
             updated_at = EXCLUDED.updated_at,
             historico_reagendamentos = CASE 
@@ -1025,22 +1131,26 @@ pub async fn save_lote_timestamps(
     .bind(dt_finalizada)
     .bind(dt_previsao)
     .bind(new_entry_json)
-    .execute(pool)
-    .await
-    .map_err(|e| format!("Erro ao salvar timestamps do lote: {e}"))?;
+    .bind(set_pesagem)
+    .bind(set_producao)
+    .bind(set_lib)
+    .bind(set_envase)
+    .bind(set_rotulagem)
+    .bind(set_finalizada)
+    .bind(set_previsao)
+    .execute(&mut *tx)
+    .await?;
 
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO lote_status_history (lote_number, status, changed_by, changed_at, notes)
-        VALUES ($1, 'Datas Ajustadas', $2, $3, 'Ajuste manual de datas e horários das etapas')
-        "#
+    gravar_historico(
+        &mut tx,
+        &payload.lote_number,
+        "Datas Ajustadas",
+        None,
+        payload.updated_by.as_deref(),
+        Some(&format!("Ajuste manual de datas e horários das etapas ({})", enviados.join(", "))),
     )
-    .bind(&payload.lote_number)
-    .bind(&payload.updated_by)
-    .bind(now)
-    .execute(pool)
-    .await;
-
+    .await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -1099,19 +1209,6 @@ pub async fn get_lote_history(
         });
     }
     Ok(list)
-}
-
-pub async fn delete_status(
-    pool: &PgPool,
-    lote_number: &str,
-) -> Result<(), String> {
-    sqlx::query("DELETE FROM lote_custom_status WHERE lote_number = $1")
-        .bind(lote_number)
-        .execute(pool)
-        .await
-        .map_err(|e| format!("Erro ao remover status: {e}"))?;
-
-    Ok(())
 }
 
 // -------------------------------------------------------------
@@ -1583,61 +1680,47 @@ pub async fn desvincular_terceirizado_lote(
     Ok(())
 }
 
+/// Exclui a solicitação e desmarca "terceirizado" só do lote vinculado a ela, e só se nenhuma outra solicitação
+/// ativa continuar apontando para esse lote. Os demais lotes do mesmo produto não são tocados.
 pub async fn delete_terceirizados_solicitacao(
     pool: &PgPool,
     id: i64,
 ) -> Result<(), String> {
-    let row: Option<(Option<String>, String)> = sqlx::query_as(
-        "SELECT lote_number, product_code FROM terceirizados_solicitacoes WHERE id = $1"
+    let mut tx = pool.begin().await.map_err(|e| format!("Erro ao iniciar a exclusão: {e}"))?;
+    let lote: Option<String> = sqlx::query_scalar(
+        "SELECT lote_number FROM terceirizados_solicitacoes WHERE id = $1 FOR UPDATE"
     )
     .bind(id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await
-    .ok()
+    .map_err(|e| format!("Erro ao ler a solicitação de terceirizado: {e}"))?
     .flatten();
 
     sqlx::query("DELETE FROM terceirizados_solicitacoes WHERE id = $1")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| format!("Erro ao deletar solicitação de terceirizado: {e}"))?;
 
-    if let Some((lote_opt, prod_code)) = row {
-        if let Some(lote) = lote_opt {
-            let _ = sqlx::query(
-                r#"
-                UPDATE lote_custom_status
-                SET is_terceirizado = FALSE, updated_at = NOW()
-                WHERE lote_number = $1
-                AND NOT EXISTS (
-                    SELECT 1 FROM terceirizados_solicitacoes ts
-                    WHERE ts.status != 'CANCELADO' AND ts.lote_number = $1
-                )
-                "#
-            )
-            .bind(&lote)
-            .execute(pool)
-            .await;
-        }
-
-        let _ = sqlx::query(
+    if let Some(lote) = lote {
+        sqlx::query(
             r#"
             UPDATE lote_custom_status
             SET is_terceirizado = FALSE, updated_at = NOW()
-            WHERE lote_number IN (
-                SELECT m.document_number FROM stock_movements m WHERE m.item_code = $1
-            )
+            WHERE lote_number = $1
             AND NOT EXISTS (
                 SELECT 1 FROM terceirizados_solicitacoes ts
-                WHERE ts.status != 'CANCELADO' AND ts.product_code = $1
+                WHERE ts.status != 'CANCELADO' AND ts.lote_number = $1
             )
             "#
         )
-        .bind(&prod_code)
-        .execute(pool)
-        .await;
+        .bind(&lote)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Erro ao desmarcar o lote terceirizado: {e}"))?;
     }
 
+    tx.commit().await.map_err(|e| format!("Erro ao confirmar a exclusão: {e}"))?;
     Ok(())
 }
 
@@ -1992,21 +2075,26 @@ pub async fn save_programacao_envase(
         }
     }
 
-    // Caso novo item: calcular ordem caso não informada
+    // Caso novo item: calcular ordem caso não informada. Transação + trava por dia/linha: duas gravações
+    // simultâneas não pegam a mesma ordem.
+    let mut tx = pool.begin().await.map_err(|e| format!("Erro ao iniciar a gravação: {e}"))?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+        .bind(format!("programacao_envase:{}:{}", payload.data_programada, payload.linha))
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Erro ao travar a programação de envase: {e}"))?;
     let ordem = match payload.ordem {
         Some(o) if o > 0 => o,
         _ => {
-            let max_row = sqlx::query(
+            let r = sqlx::query(
                 "SELECT COALESCE(MAX(ordem), 0) + 1 AS next_ordem FROM programacao_envase WHERE data_programada = $1::date AND linha = $2"
             )
             .bind(&payload.data_programada)
             .bind(&payload.linha)
-            .fetch_one(pool)
-            .await;
-            match max_row {
-                Ok(r) => r.try_get::<i32, _>("next_ordem").unwrap_or(1),
-                Err(_) => 1,
-            }
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| format!("Erro ao calcular a ordem do envase: {e}"))?;
+            r.try_get::<i32, _>("next_ordem").unwrap_or(1)
         }
     };
 
@@ -2053,9 +2141,10 @@ pub async fn save_programacao_envase(
     .bind(status_envase)
     .bind(&payload.observacoes)
     .bind(&payload.created_by)
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| format!("Erro ao inserir programação de envase: {e}"))?;
+    tx.commit().await.map_err(|e| format!("Erro ao confirmar a programação de envase: {e}"))?;
 
     Ok(ProgramacaoEnvaseItem {
         id: row.try_get::<i64, _>("id").or_else(|_| row.try_get::<i32, _>("id").map(|v| v as i64)).unwrap_or(0),
@@ -2100,6 +2189,8 @@ pub async fn reorder_programacao_envase(
     pool: &PgPool,
     payload: &ReorderProgramacaoEnvasePayload,
 ) -> Result<(), String> {
+    // Tudo ou nada: uma falha no meio não deixa a fila meio reordenada.
+    let mut tx = pool.begin().await.map_err(|e| format!("Erro ao iniciar a reordenação: {e}"))?;
     for item in &payload.items {
         sqlx::query(
             "UPDATE programacao_envase SET ordem = $1, linha = $2, updated_at = NOW() WHERE id = $3"
@@ -2107,10 +2198,11 @@ pub async fn reorder_programacao_envase(
         .bind(item.ordem)
         .bind(&item.linha)
         .bind(item.id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| format!("Erro ao reordenar item {}: {e}", item.id))?;
     }
+    tx.commit().await.map_err(|e| format!("Erro ao confirmar a reordenação: {e}"))?;
     Ok(())
 }
 
@@ -2412,21 +2504,25 @@ pub async fn save_programacao_rotulagem(
         }
     }
 
-    // Caso novo item: calcular ordem caso não informada
+    // Caso novo item: calcular ordem caso não informada (transação + trava por dia/tipo, como no envase)
+    let mut tx = pool.begin().await.map_err(|e| format!("Erro ao iniciar a gravação: {e}"))?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+        .bind(format!("programacao_rotulagem:{}:{}", payload.data_programada, payload.tipo))
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Erro ao travar a programação de rotulagem: {e}"))?;
     let ordem = match payload.ordem {
         Some(o) if o > 0 => o,
         _ => {
-            let max_row = sqlx::query(
+            let r = sqlx::query(
                 "SELECT COALESCE(MAX(ordem), 0) + 1 AS next_ordem FROM programacao_rotulagem WHERE data_programada = $1::date AND tipo = $2"
             )
             .bind(&payload.data_programada)
             .bind(&payload.tipo)
-            .fetch_one(pool)
-            .await;
-            match max_row {
-                Ok(r) => r.try_get::<i32, _>("next_ordem").unwrap_or(1),
-                Err(_) => 1,
-            }
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| format!("Erro ao calcular a ordem da rotulagem: {e}"))?;
+            r.try_get::<i32, _>("next_ordem").unwrap_or(1)
         }
     };
 
@@ -2466,9 +2562,10 @@ pub async fn save_programacao_rotulagem(
     .bind(status_rotulagem)
     .bind(&payload.observacoes)
     .bind(&payload.created_by)
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| format!("Erro ao criar programação de rotulagem: {e}"))?;
+    tx.commit().await.map_err(|e| format!("Erro ao confirmar a programação de rotulagem: {e}"))?;
 
     Ok(ProgramacaoRotulagemItem {
         id: row.try_get::<i64, _>("id").or_else(|_| row.try_get::<i32, _>("id").map(|v| v as i64)).unwrap_or(0),
@@ -2510,6 +2607,7 @@ pub async fn reorder_programacao_rotulagem(
     pool: &PgPool,
     payload: &ReorderProgramacaoRotulagemPayload,
 ) -> Result<(), String> {
+    let mut tx = pool.begin().await.map_err(|e| format!("Erro ao iniciar a reordenação: {e}"))?;
     for item in &payload.items {
         sqlx::query(
             "UPDATE programacao_rotulagem SET ordem = $1, tipo = $2, updated_at = NOW() WHERE id = $3"
@@ -2517,58 +2615,29 @@ pub async fn reorder_programacao_rotulagem(
         .bind(item.ordem)
         .bind(&item.tipo)
         .bind(item.id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| format!("Erro ao reordenar item de rotulagem {}: {e}", item.id))?;
     }
+    tx.commit().await.map_err(|e| format!("Erro ao confirmar a reordenação: {e}"))?;
     Ok(())
 }
 
+/// Peso unitário (kg) pela primeira medida da descrição, lida como token (`350ML` não casa `50ML`, `2,5L` não casa
+/// `5L`). Mesma regra de `Frontend/src/modules/producao/lib/unitConversion.ts`; sem medida, 1,0.
 pub fn parse_product_unit_weight_kg(descricao: &str) -> f64 {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| regex::Regex::new(r"(\d+(?:[.,]\d+)?)\s*(ML|L|GR|G|KG)\b").expect("regex do peso unitário"));
     let desc = descricao.to_uppercase();
-    if desc.contains("5000ML") || desc.contains("5000 ML") || desc.contains("5L") || desc.contains("5 L") {
-        return 5.0;
-    }
-    if desc.contains("1000ML") || desc.contains("1000 ML") || desc.contains("1000G") || desc.contains("1000 G") || desc.contains("1KG") || desc.contains("1 KG") || desc.contains("1L") || desc.contains("1 L") {
+    let Some(c) = re.captures(&desc) else { return 1.0 };
+    let Ok(val) = c[1].replace(',', ".").parse::<f64>() else { return 1.0 };
+    if val <= 0.0 {
         return 1.0;
     }
-    if desc.contains("900ML") || desc.contains("900 ML") || desc.contains("900G") || desc.contains("900 G") {
-        return 0.9;
+    match &c[2] {
+        "KG" | "L" => val,
+        _ => val / 1000.0,
     }
-    if desc.contains("500ML") || desc.contains("500 ML") || desc.contains("500G") || desc.contains("500 G") || desc.contains("500 GR") {
-        return 0.5;
-    }
-    if desc.contains("300ML") || desc.contains("300 ML") || desc.contains("300G") || desc.contains("300 G") || desc.contains("300 GR") {
-        return 0.3;
-    }
-    if desc.contains("250ML") || desc.contains("250 ML") || desc.contains("250G") || desc.contains("250 G") || desc.contains("250 GR") {
-        return 0.25;
-    }
-    if desc.contains("200ML") || desc.contains("200 ML") || desc.contains("200G") || desc.contains("200 G") || desc.contains("200 GR") {
-        return 0.2;
-    }
-    if desc.contains("150ML") || desc.contains("150 ML") || desc.contains("150G") || desc.contains("150 G") || desc.contains("150 GR") {
-        return 0.15;
-    }
-    if desc.contains("120ML") || desc.contains("120 ML") || desc.contains("120G") || desc.contains("120 G") || desc.contains("120 GR") {
-        return 0.12;
-    }
-    if desc.contains("100ML") || desc.contains("100 ML") || desc.contains("100G") || desc.contains("100 G") || desc.contains("100 GR") {
-        return 0.1;
-    }
-    if desc.contains("90ML") || desc.contains("90 ML") || desc.contains("90G") || desc.contains("90 G") || desc.contains("90 GR") {
-        return 0.09;
-    }
-    if desc.contains("60ML") || desc.contains("60 ML") || desc.contains("60G") || desc.contains("60 G") || desc.contains("60 GR") {
-        return 0.06;
-    }
-    if desc.contains("50ML") || desc.contains("50 ML") || desc.contains("50G") || desc.contains("50 G") || desc.contains("50 GR") {
-        return 0.05;
-    }
-    if desc.contains("30ML") || desc.contains("30 ML") || desc.contains("30G") || desc.contains("30 G") || desc.contains("30 GR") {
-        return 0.03;
-    }
-    1.0
 }
 
 /// Auditoria somente leitura dos lotes: aponta onde a mesma ordem pode estar aparecendo duas vezes
@@ -2697,4 +2766,271 @@ pub async fn auditoria_lotes(pool: &PgPool) -> Result<serde_json::Value, String>
         "loteRepetido": repetidos_json,
         "total": pares_json.len() + inexistentes_json.len() + repetidos_json.len(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn peso_unitario_le_a_medida_como_token() {
+        let casos: [(&str, f64); 10] = [
+            ("SHAMPOO 350ML", 0.35),
+            ("CONDICIONADOR 2,5L", 2.5),
+            ("OLEO 15 L", 15.0),
+            ("CREME 500 G", 0.5),
+            ("SABONETE 1KG", 1.0),
+            ("MASCARA 50ML", 0.05),
+            ("GEL 120 GR", 0.12),
+            ("PRODUTO 5L", 5.0),
+            ("PRODUTO SEM MEDIDA", 1.0),
+            ("", 1.0),
+        ];
+        for (desc, esperado) in casos {
+            let v = parse_product_unit_weight_kg(desc);
+            assert!((v - esperado).abs() < 1e-9, "{desc}: {v} != {esperado}");
+        }
+    }
+
+    #[test]
+    fn data_agendada_sem_fuso_vale_sao_paulo() {
+        assert_eq!(normalizar_data_agendada("2026-10-24").unwrap(), "2026-10-24T08:00:00-03:00");
+        assert_eq!(normalizar_data_agendada("2026-10-24T14:30").unwrap(), "2026-10-24T14:30:00-03:00");
+        assert_eq!(normalizar_data_agendada("2026-10-24 14:30:15").unwrap(), "2026-10-24T14:30:15-03:00");
+        assert_eq!(normalizar_data_agendada("2026-10-24T14:30:00+00:00").unwrap(), "2026-10-24T14:30:00+00:00");
+        assert_eq!(normalizar_data_agendada("amanhã").unwrap_err().status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[test]
+    fn campo_distingue_ausente_de_null() {
+        let p: SaveLoteTimestampsPayload = serde_json::from_value(json!({ "dataProducao": null, "dataEnvase": "2026-10-24" })).unwrap();
+        assert!(p.data_pesagem.is_none(), "ausente");
+        assert_eq!(p.data_producao, Some(None), "null explícito");
+        assert_eq!(p.data_envase, Some(Some("2026-10-24".to_string())));
+    }
+
+    async fn pool_de_teste() -> PgPool {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        for ddl in [
+            "CREATE TABLE IF NOT EXISTS lote_custom_status (lote_number TEXT PRIMARY KEY, custom_status TEXT NOT NULL)",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS category TEXT",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS updated_by TEXT",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS notes TEXT",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS data_pesagem TIMESTAMPTZ",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS data_producao TIMESTAMPTZ",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS data_liberado_envase TIMESTAMPTZ",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS data_envase TIMESTAMPTZ",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS data_rotulagem TIMESTAMPTZ",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS data_finalizada TIMESTAMPTZ",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS data_em_espera TIMESTAMPTZ",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS data_previsao TIMESTAMPTZ",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS motivo_espera TEXT",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS is_terceirizado BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS ficha_ordem JSONB DEFAULT '{}'::jsonb",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS quantidade_envasada_parcial NUMERIC(15, 4) DEFAULT 0",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS historico_reagendamentos JSONB DEFAULT '[]'::jsonb",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS quadros_ocultos JSONB DEFAULT '[]'::jsonb",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS etapas_status JSONB DEFAULT '{}'::jsonb",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS insumo_faltante_codigo TEXT",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS insumo_faltante_descricao TEXT",
+            "ALTER TABLE lote_custom_status ADD COLUMN IF NOT EXISTS fornecedor_terceirizado TEXT",
+            "CREATE TABLE IF NOT EXISTS lote_status_history (id BIGSERIAL PRIMARY KEY, lote_number TEXT NOT NULL, status TEXT NOT NULL, \
+             category TEXT, changed_by TEXT, changed_at TIMESTAMPTZ DEFAULT NOW(), notes TEXT)",
+            "ALTER TABLE lote_status_history ADD COLUMN IF NOT EXISTS category TEXT",
+            "ALTER TABLE lote_status_history ADD COLUMN IF NOT EXISTS changed_by TEXT",
+            "ALTER TABLE lote_status_history ADD COLUMN IF NOT EXISTS changed_at TIMESTAMPTZ DEFAULT NOW()",
+            "ALTER TABLE lote_status_history ADD COLUMN IF NOT EXISTS notes TEXT",
+            "CREATE TABLE IF NOT EXISTS programacao_envase (id BIGSERIAL PRIMARY KEY, lote_number TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS terceirizados_solicitacoes (id BIGSERIAL PRIMARY KEY, product_code TEXT NOT NULL, \
+             quantity NUMERIC NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'SOLICITADO', lote_number TEXT)",
+            "CREATE TABLE IF NOT EXISTS producao_auditoria (id BIGSERIAL PRIMARY KEY, quando TIMESTAMPTZ NOT NULL DEFAULT NOW(), \
+             usuario TEXT NOT NULL, acao TEXT NOT NULL, alvo TEXT NOT NULL DEFAULT '', detalhe JSONB NOT NULL DEFAULT '{}'::jsonb)",
+        ] {
+            sqlx::query(ddl).execute(&pool).await.unwrap();
+        }
+        pool
+    }
+
+    async fn limpar_lotes(pool: &PgPool, lotes: &[&str]) {
+        for l in lotes {
+            sqlx::query("DELETE FROM lote_custom_status WHERE lote_number = $1").bind(l).execute(pool).await.unwrap();
+            sqlx::query("DELETE FROM lote_status_history WHERE lote_number = $1").bind(l).execute(pool).await.unwrap();
+        }
+    }
+
+    /// A expressão de peso unitário do SQL da listagem dá o mesmo resultado que a função em Rust.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn peso_unitario_do_sql_igual_ao_do_rust() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        for desc in ["SHAMPOO 350ML", "COND 2,5L", "OLEO 15 L", "CREME 500 G", "SAB 1KG", "MASC 50ML", "X 120 GR", "SEM MEDIDA", "KIT 500 GRAMAS"] {
+            let sql: f64 = sqlx::query_scalar(
+                r#"SELECT COALESCE(NULLIF(CASE WHEN pw.mt IS NULL THEN NULL
+                          ELSE REPLACE((pw.mt)[1], ',', '.')::float8 * (CASE WHEN (pw.mt)[2] IN ('KG', 'L') THEN 1.0 ELSE 0.001 END) END, 0), 1.0)::float8
+                   FROM (SELECT regexp_match(UPPER(COALESCE($1::text, '')), '(\d+(?:[.,]\d+)?)\s*(ML|L|GR|G|KG)\y') AS mt) pw"#,
+            )
+            .bind(desc)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            let rust = parse_product_unit_weight_kg(desc);
+            assert!((sql - rust).abs() < 1e-9, "{desc}: sql {sql} != rust {rust}");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn timestamps_so_muda_o_que_foi_enviado() {
+        let pool = pool_de_teste().await;
+        limpar_lotes(&pool, &["TST-ACP-TS"]).await;
+        let completo: SaveLoteTimestampsPayload = serde_json::from_value(json!({
+            "loteNumber": "TST-ACP-TS", "updatedBy": "t",
+            "dataPesagem": "2026-10-20T10:00:00Z", "dataProducao": "2026-10-21T10:00:00Z", "dataEnvase": "2026-10-22T10:00:00Z"
+        })).unwrap();
+        save_lote_timestamps(&pool, &completo).await.unwrap();
+
+        // só a produção muda: pesagem e envase ficam
+        let so_producao: SaveLoteTimestampsPayload = serde_json::from_value(json!({
+            "loteNumber": "TST-ACP-TS", "updatedBy": "t", "dataProducao": "2026-10-25T10:00:00Z"
+        })).unwrap();
+        save_lote_timestamps(&pool, &so_producao).await.unwrap();
+        let r = sqlx::query("SELECT to_char(data_pesagem AT TIME ZONE 'UTC','YYYY-MM-DD') AS p, to_char(data_producao AT TIME ZONE 'UTC','YYYY-MM-DD') AS d, \
+                             to_char(data_envase AT TIME ZONE 'UTC','YYYY-MM-DD') AS e FROM lote_custom_status WHERE lote_number = 'TST-ACP-TS'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(r.get::<Option<String>, _>("p").as_deref(), Some("2026-10-20"), "pesagem preservada");
+        assert_eq!(r.get::<Option<String>, _>("d").as_deref(), Some("2026-10-25"));
+        assert_eq!(r.get::<Option<String>, _>("e").as_deref(), Some("2026-10-22"), "envase preservado");
+
+        // null explícito limpa só aquele campo
+        let limpa: SaveLoteTimestampsPayload = serde_json::from_value(json!({ "loteNumber": "TST-ACP-TS", "dataEnvase": null })).unwrap();
+        save_lote_timestamps(&pool, &limpa).await.unwrap();
+        let r = sqlx::query("SELECT data_pesagem IS NOT NULL AS p, data_envase IS NULL AS e FROM lote_custom_status WHERE lote_number = 'TST-ACP-TS'")
+            .fetch_one(&pool).await.unwrap();
+        assert!(r.get::<bool, _>("p") && r.get::<bool, _>("e"));
+
+        // data inválida e corpo vazio: 422, nada muda
+        let ruim: SaveLoteTimestampsPayload = serde_json::from_value(json!({ "loteNumber": "TST-ACP-TS", "dataPesagem": "ontem" })).unwrap();
+        assert_eq!(save_lote_timestamps(&pool, &ruim).await.unwrap_err().status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+        let vazio: SaveLoteTimestampsPayload = serde_json::from_value(json!({ "loteNumber": "TST-ACP-TS" })).unwrap();
+        assert!(save_lote_timestamps(&pool, &vazio).await.is_err());
+        limpar_lotes(&pool, &["TST-ACP-TS"]).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn upsert_status_preserva_o_que_nao_veio() {
+        let pool = pool_de_teste().await;
+        limpar_lotes(&pool, &["TST-ACP-UP"]).await;
+        let esp: SaveLoteCustomStatusPayload = serde_json::from_value(json!({
+            "loteNumber": "TST-ACP-UP", "customStatus": "Em Espera", "category": "Caldeira", "updatedBy": "t",
+            "motivoEspera": "Falta de frasco", "insumoFaltanteCodigo": "9.1", "insumoFaltanteDescricao": "Frasco"
+        })).unwrap();
+        upsert_status(&pool, &esp).await.unwrap();
+
+        // só o status: categoria, motivo e insumo continuam
+        let so_status: SaveLoteCustomStatusPayload = serde_json::from_value(json!({
+            "loteNumber": "TST-ACP-UP", "customStatus": "Produzido", "updatedBy": "t"
+        })).unwrap();
+        upsert_status(&pool, &so_status).await.unwrap();
+        let r = sqlx::query("SELECT custom_status, category, motivo_espera, insumo_faltante_codigo, insumo_faltante_descricao, data_em_espera IS NOT NULL AS espera \
+                             FROM lote_custom_status WHERE lote_number = 'TST-ACP-UP'").fetch_one(&pool).await.unwrap();
+        assert_eq!(r.get::<String, _>("custom_status"), "Produzido");
+        assert_eq!(r.get::<Option<String>, _>("category").as_deref(), Some("Caldeira"));
+        assert_eq!(r.get::<Option<String>, _>("motivo_espera").as_deref(), Some("Falta de frasco"));
+        assert_eq!(r.get::<Option<String>, _>("insumo_faltante_codigo").as_deref(), Some("9.1"));
+        assert_eq!(r.get::<Option<String>, _>("insumo_faltante_descricao").as_deref(), Some("Frasco"));
+        assert!(r.get::<bool, _>("espera"));
+
+        // sem customStatus: o status do lote fica; só a categoria muda
+        let so_categoria: SaveLoteCustomStatusPayload = serde_json::from_value(json!({ "loteNumber": "TST-ACP-UP", "category": "Outra" })).unwrap();
+        upsert_status(&pool, &so_categoria).await.unwrap();
+        let (st, cat): (String, Option<String>) = sqlx::query_as("SELECT custom_status, category FROM lote_custom_status WHERE lote_number = 'TST-ACP-UP'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!((st.as_str(), cat.as_deref()), ("Produzido", Some("Outra")));
+
+        // null explícito limpa
+        let limpa: SaveLoteCustomStatusPayload = serde_json::from_value(json!({
+            "loteNumber": "TST-ACP-UP", "customStatus": "Produzido", "updatedBy": "t",
+            "category": null, "motivoEspera": null, "insumoFaltanteCodigo": null, "insumoFaltanteDescricao": null
+        })).unwrap();
+        upsert_status(&pool, &limpa).await.unwrap();
+        let r = sqlx::query("SELECT category, motivo_espera, insumo_faltante_codigo, data_em_espera FROM lote_custom_status WHERE lote_number = 'TST-ACP-UP'")
+            .fetch_one(&pool).await.unwrap();
+        assert!(r.get::<Option<String>, _>("category").is_none());
+        assert!(r.get::<Option<String>, _>("motivo_espera").is_none());
+        assert!(r.get::<Option<String>, _>("insumo_faltante_codigo").is_none());
+        assert!(r.get::<Option<chrono::DateTime<chrono::Utc>>, _>("data_em_espera").is_none());
+
+        // histórico traz o status anterior
+        let notas: Vec<Option<String>> = sqlx::query_scalar("SELECT notes FROM lote_status_history WHERE lote_number = 'TST-ACP-UP' ORDER BY id")
+            .fetch_all(&pool).await.unwrap();
+        assert_eq!(notas.len(), 4);
+        assert!(notas[1].as_deref().unwrap_or("").contains("Anterior: Em Espera"));
+        limpar_lotes(&pool, &["TST-ACP-UP"]).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn redefinir_status_e_em_2_passos_e_deixa_historico() {
+        let pool = pool_de_teste().await;
+        limpar_lotes(&pool, &["TST-ACP-DEL"]).await;
+        sqlx::query("INSERT INTO lote_custom_status (lote_number, custom_status, category) VALUES ('TST-ACP-DEL', 'Envase', 'Produção')")
+            .execute(&pool).await.unwrap();
+        let lotes = vec!["TST-ACP-DEL".to_string(), "TST-ACP-NAO-EXISTE".to_string()];
+
+        let previa = apagar_status_lotes(&pool, &lotes, "t", false).await.unwrap();
+        assert!(previa.previa);
+        assert_eq!(previa.resultado.len(), 1);
+        assert_eq!(previa.resultado[0].status_anterior, "Envase");
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lote_custom_status WHERE lote_number = 'TST-ACP-DEL'").fetch_one(&pool).await.unwrap();
+        assert_eq!(n, 1, "a prévia não apaga");
+
+        let feito = apagar_status_lotes(&pool, &lotes, "t", true).await.unwrap();
+        assert!(!feito.previa);
+        let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lote_custom_status WHERE lote_number = 'TST-ACP-DEL'").fetch_one(&pool).await.unwrap();
+        assert_eq!(n, 0);
+        let nota: String = sqlx::query_scalar("SELECT notes FROM lote_status_history WHERE lote_number = 'TST-ACP-DEL' AND status = 'Status Removido'")
+            .fetch_one(&pool).await.unwrap();
+        assert!(nota.contains("Anterior: Envase"));
+        assert!(apagar_status_lotes(&pool, &[], "t", true).await.is_err());
+        limpar_lotes(&pool, &["TST-ACP-DEL"]).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn excluir_solicitacao_so_desmarca_o_lote_vinculado() {
+        let pool = pool_de_teste().await;
+        limpar_lotes(&pool, &["TST-ACP-T1", "TST-ACP-T2", "TST-ACP-T3"]).await;
+        sqlx::query("DELETE FROM terceirizados_solicitacoes WHERE product_code = 'TST-ACP-PROD'").execute(&pool).await.unwrap();
+        for l in ["TST-ACP-T1", "TST-ACP-T2", "TST-ACP-T3"] {
+            sqlx::query("INSERT INTO lote_custom_status (lote_number, custom_status, is_terceirizado) VALUES ($1, 'Aberto', TRUE)")
+                .bind(l).execute(&pool).await.unwrap();
+        }
+        // T1: solicitação própria; T2: marcado à mão; T3: tem outra solicitação ativa além da que será excluída
+        let s1: i64 = sqlx::query_scalar("INSERT INTO terceirizados_solicitacoes (product_code, quantity, lote_number, status) VALUES ('TST-ACP-PROD', 1, 'TST-ACP-T1', 'VINCULADO') RETURNING id")
+            .fetch_one(&pool).await.unwrap();
+        let s3a: i64 = sqlx::query_scalar("INSERT INTO terceirizados_solicitacoes (product_code, quantity, lote_number, status) VALUES ('TST-ACP-PROD', 1, 'TST-ACP-T3', 'VINCULADO') RETURNING id")
+            .fetch_one(&pool).await.unwrap();
+        sqlx::query("INSERT INTO terceirizados_solicitacoes (product_code, quantity, lote_number, status) VALUES ('TST-ACP-PROD', 1, 'TST-ACP-T3', 'VINCULADO')")
+            .execute(&pool).await.unwrap();
+
+        delete_terceirizados_solicitacao(&pool, s1).await.unwrap();
+        delete_terceirizados_solicitacao(&pool, s3a).await.unwrap();
+        let marca = |l: &'static str| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_scalar::<_, Option<bool>>("SELECT is_terceirizado FROM lote_custom_status WHERE lote_number = $1")
+                    .bind(l).fetch_one(&pool).await.unwrap().unwrap_or(false)
+            }
+        };
+        assert!(!marca("TST-ACP-T1").await, "o lote da solicitação excluída é desmarcado");
+        assert!(marca("TST-ACP-T2").await, "outro lote do mesmo produto não é tocado");
+        assert!(marca("TST-ACP-T3").await, "lote com outra solicitação ativa continua marcado");
+        sqlx::query("DELETE FROM terceirizados_solicitacoes WHERE product_code = 'TST-ACP-PROD'").execute(&pool).await.unwrap();
+        limpar_lotes(&pool, &["TST-ACP-T1", "TST-ACP-T2", "TST-ACP-T3"]).await;
+    }
 }

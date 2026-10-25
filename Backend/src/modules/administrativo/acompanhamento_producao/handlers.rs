@@ -1,14 +1,18 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     Extension, Json,
 };
 use serde_json::json;
 use std::sync::Arc;
 
+use crate::core::acao::{Confirmar, ErroApi};
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
+use crate::modules::geral::auth::modules_registry::{
+    MODULE_ADMIN_ACOMPANHAMENTO_PRODUCAO, MODULE_PLANEJAMENTO_PRODUCAO, MODULE_PRODUCAO,
+};
 
 use super::models::{
     AcompanhamentoQueryParams, SaveLoteCustomStatusPayload, BatchLoteCustomStatusPayload,
@@ -26,6 +30,43 @@ pub struct ProgramacaoEnvaseQuery {
 
 fn err(status: StatusCode, msg: impl Into<String>) -> axum::response::Response {
     (status, Json(json!({ "error": msg.into() }))).into_response()
+}
+
+/// Quem pode gravar no Acompanhamento: "editar" em qualquer um dos módulos que dão acesso à rota
+/// (mesmo conjunto de `modulos_da_rota` para `/api/administrativo`). Supervisor sempre pode.
+pub(super) fn exigir_edicao(ctx: &AuthContext) -> Result<(), ErroApi> {
+    let pode = [MODULE_ADMIN_ACOMPANHAMENTO_PRODUCAO, MODULE_PRODUCAO, MODULE_PLANEJAMENTO_PRODUCAO]
+        .iter()
+        .any(|m| ctx.can_edit_module(m));
+    if pode {
+        Ok(())
+    } else {
+        Err(ErroApi::sem_permissao("Sem permissão para alterar o Acompanhamento de Produção."))
+    }
+}
+
+fn exigir_supervisor(ctx: &AuthContext) -> Result<(), ErroApi> {
+    if ctx.role.is_supervisor() {
+        Ok(())
+    } else {
+        Err(ErroApi::novo(StatusCode::FORBIDDEN, "apenas_supervisor", "Apenas o supervisor pode executar esta ação."))
+    }
+}
+
+/// O autor de toda gravação é o usuário logado, nunca um nome vindo do corpo.
+fn autor(ctx: &AuthContext) -> String {
+    let n = ctx.display_name.trim();
+    if n.is_empty() { "Operador".to_string() } else { n.to_string() }
+}
+
+/// Erro de gravação vindo do store como texto: registra no log e devolve 500 padronizado.
+fn interno(contexto: &str, e: String) -> ErroApi {
+    eprintln!("[AcompanhamentoProducao] {contexto}: {e}");
+    ErroApi::interno(e)
+}
+
+fn ok(v: serde_json::Value) -> Response {
+    (StatusCode::OK, Json(v)).into_response()
 }
 
 pub async fn get_acompanhamento_producao(
@@ -56,97 +97,68 @@ pub async fn save_lote_custom_status(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Json(mut payload): Json<SaveLoteCustomStatusPayload>,
-) -> impl IntoResponse {
-    if payload.updated_by.as_deref().unwrap_or("").trim().is_empty() {
-        payload.updated_by = Some(ctx.display_name.clone());
-    }
-
-    match store::upsert_status(state.db.pool(), &payload).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "success": true, "message": "Status atualizado com sucesso!" })),
-        )
-            .into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao salvar status: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    payload.updated_by = Some(autor(&ctx));
+    store::upsert_status(state.db.pool(), &payload).await?;
+    Ok(ok(json!({ "success": true, "message": "Status atualizado com sucesso!" })))
 }
 
 pub async fn save_ficha_ordem(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Json(mut payload): Json<SaveFichaOrdemPayload>,
-) -> impl IntoResponse {
-    if payload.updated_by.as_deref().unwrap_or("").trim().is_empty() {
-        payload.updated_by = Some(ctx.display_name.clone());
-    }
-
-    match store::save_ficha_ordem(state.db.pool(), &payload).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "success": true, "message": "Ficha da ordem salva com sucesso!" })),
-        )
-            .into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao salvar ficha da ordem: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    payload.updated_by = Some(autor(&ctx));
+    store::save_ficha_ordem(state.db.pool(), &payload).await?;
+    Ok(ok(json!({ "success": true, "message": "Ficha da ordem salva com sucesso!" })))
 }
 
+/// Status em lote. Com status preenchido grava (tudo ou nada). Com status vazio/ausente é o reset (apaga a linha de
+/// cada lote): 2 passos, `?confirmar=true`; sem ele só devolve a prévia do que seria apagado.
 pub async fn save_batch_lote_custom_status(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
     Json(mut payload): Json<BatchLoteCustomStatusPayload>,
-) -> impl IntoResponse {
-    if payload.updated_by.as_deref().unwrap_or("").trim().is_empty() {
-        payload.updated_by = Some(ctx.display_name.clone());
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    let quem = autor(&ctx);
+    payload.updated_by = Some(quem.clone());
+    if payload.lote_numbers.is_empty() {
+        return Ok(ok(json!({ "success": true, "updatedCount": 0 })));
     }
-
-    match store::save_batch_lote_custom_status(state.db.pool(), &payload).await {
-        Ok(count) => (
-            StatusCode::OK,
-            Json(json!({ "success": true, "updatedCount": count })),
-        )
-            .into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao salvar status em lote: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
+    let tem_status = payload.custom_status.as_deref().is_some_and(|s| !s.trim().is_empty());
+    if tem_status {
+        let n = store::save_batch_lote_custom_status(state.db.pool(), &payload).await?;
+        return Ok(ok(json!({ "success": true, "updatedCount": n })));
     }
+    let r = store::apagar_status_lotes(state.db.pool(), &payload.lote_numbers, &quem, c.confirmar).await?;
+    let n = r.resultado.len();
+    let mut corpo = serde_json::to_value(&r).unwrap_or_else(|_| json!({}));
+    corpo["success"] = json!(true);
+    corpo["updatedCount"] = json!(if c.confirmar { n } else { 0 });
+    Ok(ok(corpo))
 }
 
 pub async fn save_lote_previsao(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(lote_number): Path<String>,
-    Json(mut payload): Json<SaveLotePrevisaoPayload>,
-) -> impl IntoResponse {
-    if payload.updated_by.as_deref().unwrap_or("").trim().is_empty() {
-        payload.updated_by = Some(ctx.display_name.clone());
-    }
-
-    match store::save_lote_previsao(
+    Json(payload): Json<SaveLotePrevisaoPayload>,
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    let quem = autor(&ctx);
+    store::save_lote_previsao(
         state.db.pool(),
         &lote_number,
         payload.data_previsao.as_deref(),
-        payload.updated_by.as_deref(),
+        Some(&quem),
         payload.fornecedor_terceirizado.as_deref(),
     )
-    .await
-    {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "success": true, "message": "Previsão de produção salva com sucesso!" })),
-        )
-            .into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao salvar previsão: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+    .await?;
+    Ok(ok(json!({ "success": true, "message": "Previsão de produção salva com sucesso!" })))
 }
 
 pub async fn save_lote_timestamps(
@@ -154,41 +166,29 @@ pub async fn save_lote_timestamps(
     Extension(ctx): Extension<AuthContext>,
     Path(lote_number): Path<String>,
     Json(mut payload): Json<SaveLoteTimestampsPayload>,
-) -> impl IntoResponse {
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
     payload.lote_number = lote_number;
-    if payload.updated_by.as_deref().unwrap_or("").trim().is_empty() {
-        payload.updated_by = Some(ctx.display_name.clone());
-    }
-
-    match store::save_lote_timestamps(state.db.pool(), &payload).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "success": true, "message": "Datas e horários atualizados com sucesso!" })),
-        )
-            .into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao salvar timestamps: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+    payload.updated_by = Some(autor(&ctx));
+    store::save_lote_timestamps(state.db.pool(), &payload).await?;
+    Ok(ok(json!({ "success": true, "message": "Datas e horários atualizados com sucesso!" })))
 }
 
+/// Redefine o status do lote (apaga a linha inteira). 2 passos: `?confirmar=true` grava; sem ele só a prévia.
 pub async fn delete_lote_custom_status(
     State(state): State<Arc<AppState>>,
-    _ctx: Extension<AuthContext>,
+    Extension(ctx): Extension<AuthContext>,
     Path(lote_number): Path<String>,
-) -> impl IntoResponse {
-    match store::delete_status(state.db.pool(), &lote_number).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "success": true, "message": "Status resetado com sucesso!" })),
-        )
-            .into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao deletar status: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
+    Query(c): Query<Confirmar>,
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    let r = store::apagar_status_lotes(state.db.pool(), &[lote_number], &autor(&ctx), c.confirmar).await?;
+    let mut corpo = serde_json::to_value(&r).unwrap_or_else(|_| json!({}));
+    corpo["success"] = json!(true);
+    if c.confirmar {
+        corpo["message"] = json!("Status resetado com sucesso!");
     }
+    Ok(ok(corpo))
 }
 
 pub async fn get_lote_history(
@@ -211,21 +211,15 @@ pub struct ToggleTerceirizadoPayload {
 
 pub async fn toggle_terceirizado(
     State(state): State<Arc<AppState>>,
-    _ctx: Extension<AuthContext>,
+    Extension(ctx): Extension<AuthContext>,
     Path(lote_number): Path<String>,
     Json(payload): Json<ToggleTerceirizadoPayload>,
-) -> impl IntoResponse {
-    match store::set_lote_terceirizado(state.db.pool(), &lote_number, payload.is_terceirizado).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "success": true, "message": "Classificação terceirizado atualizada com sucesso!" })),
-        )
-            .into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao alterar terceirizado: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    store::set_lote_terceirizado(state.db.pool(), &lote_number, payload.is_terceirizado)
+        .await
+        .map_err(|e| interno("Erro ao alterar terceirizado", e))?;
+    Ok(ok(json!({ "success": true, "message": "Classificação terceirizado atualizada com sucesso!" })))
 }
 
 // -------------------------------------------------------------
@@ -248,74 +242,54 @@ pub async fn create_terceirizados_solicitacao(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Json(mut payload): Json<CreateTerceirizadoSolicitacaoPayload>,
-) -> impl IntoResponse {
-    if payload.solicitado_por.as_deref().unwrap_or("").trim().is_empty() {
-        payload.solicitado_por = Some(ctx.display_name.clone());
-    }
-
-    match store::create_terceirizados_solicitacao(state.db.pool(), &payload).await {
-        Ok(id) => (
-            StatusCode::CREATED,
-            Json(json!({ "success": true, "id": id, "message": "Solicitação criada com sucesso!" })),
-        )
-            .into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao criar solicitação: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    payload.solicitado_por = Some(autor(&ctx));
+    let id = store::create_terceirizados_solicitacao(state.db.pool(), &payload)
+        .await
+        .map_err(|e| interno("Erro ao criar solicitação", e))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "success": true, "id": id, "message": "Solicitação criada com sucesso!" })),
+    )
+        .into_response())
 }
 
 pub async fn vincular_terceirizado_solicitacao(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
     Json(payload): Json<VincularTerceirizadoPayload>,
-) -> impl IntoResponse {
-    match store::vincular_terceirizado_lote(state.db.pool(), id, &payload.lote_number).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "success": true, "message": "Lote vinculado com sucesso!" })),
-        )
-            .into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao vincular lote: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    store::vincular_terceirizado_lote(state.db.pool(), id, &payload.lote_number)
+        .await
+        .map_err(|e| interno("Erro ao vincular lote", e))?;
+    Ok(ok(json!({ "success": true, "message": "Lote vinculado com sucesso!" })))
 }
 
 pub async fn desvincular_terceirizado_solicitacao(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
-) -> impl IntoResponse {
-    match store::desvincular_terceirizado_lote(state.db.pool(), id).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "success": true, "message": "Lote desvinculado com sucesso!" })),
-        )
-            .into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao desvincular lote: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    store::desvincular_terceirizado_lote(state.db.pool(), id)
+        .await
+        .map_err(|e| interno("Erro ao desvincular lote", e))?;
+    Ok(ok(json!({ "success": true, "message": "Lote desvinculado com sucesso!" })))
 }
 
 pub async fn delete_terceirizados_solicitacao(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
-) -> impl IntoResponse {
-    match store::delete_terceirizados_solicitacao(state.db.pool(), id).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "success": true, "message": "Solicitação removida com sucesso!" })),
-        )
-            .into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao remover solicitação: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    store::delete_terceirizados_solicitacao(state.db.pool(), id)
+        .await
+        .map_err(|e| interno("Erro ao remover solicitação", e))?;
+    Ok(ok(json!({ "success": true, "message": "Solicitação removida com sucesso!" })))
 }
 
 pub async fn aprovar_terceirizado_solicitacao(
@@ -323,9 +297,10 @@ pub async fn aprovar_terceirizado_solicitacao(
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
     Json(payload): Json<super::models::AprovarTerceirizadoPayload>,
-) -> impl IntoResponse {
-    let aprovador = payload.aprovado_por.unwrap_or(ctx.display_name);
-    match store::aprovar_terceirizado_solicitacao(
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    let aprovador = autor(&ctx);
+    let item = store::aprovar_terceirizado_solicitacao(
         state.db.pool(),
         id,
         &payload.tipo,
@@ -333,13 +308,8 @@ pub async fn aprovar_terceirizado_solicitacao(
         &aprovador,
     )
     .await
-    {
-        Ok(item) => (StatusCode::OK, Json(item)).into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao aprovar etapa: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+    .map_err(|e| interno("Erro ao aprovar etapa", e))?;
+    Ok((StatusCode::OK, Json(item)).into_response())
 }
 
 pub async fn update_terceirizado_previsao(
@@ -347,22 +317,18 @@ pub async fn update_terceirizado_previsao(
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
     Json(payload): Json<super::models::UpdateTerceirizadoPrevisaoPayload>,
-) -> impl IntoResponse {
-    let updated_by = payload.updated_by.unwrap_or(ctx.display_name);
-    match store::update_terceirizado_previsao(
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    let updated_by = autor(&ctx);
+    let item = store::update_terceirizado_previsao(
         state.db.pool(),
         id,
         payload.previsao_entrega.as_deref(),
         Some(&updated_by),
     )
     .await
-    {
-        Ok(item) => (StatusCode::OK, Json(item)).into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao atualizar previsão da solicitação: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+    .map_err(|e| interno("Erro ao atualizar previsão da solicitação", e))?;
+    Ok((StatusCode::OK, Json(item)).into_response())
 }
 
 
@@ -381,7 +347,7 @@ pub async fn lookup_produto_terceirizado(
 }
 
 // -------------------------------------------------------------
-// Google Sheets Sync
+// Google Sheets Sync (envia todos os lotes para uma URL externa: só supervisor grava/dispara)
 // -------------------------------------------------------------
 
 pub async fn get_sheets_config(
@@ -398,29 +364,25 @@ pub async fn get_sheets_config(
 
 pub async fn save_sheets_config(
     State(state): State<Arc<AppState>>,
-    _ctx: Extension<AuthContext>,
+    Extension(ctx): Extension<AuthContext>,
     Json(payload): Json<super::models::SaveSheetsConfigPayload>,
-) -> impl IntoResponse {
-    match store::save_sheets_config(state.db.pool(), &payload).await {
-        Ok(config) => (StatusCode::OK, Json(config)).into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao salvar config Sheets: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_supervisor(&ctx)?;
+    let config = store::save_sheets_config(state.db.pool(), &payload)
+        .await
+        .map_err(|e| interno("Erro ao salvar config Sheets", e))?;
+    Ok((StatusCode::OK, Json(config)).into_response())
 }
 
 pub async fn sync_sheets_now(
     State(state): State<Arc<AppState>>,
-    _ctx: Extension<AuthContext>,
-) -> impl IntoResponse {
-    match store::trigger_sheets_sync(state.db.pool()).await {
-        Ok(res) => (StatusCode::OK, Json(res)).into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao sincronizar Sheets: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+    Extension(ctx): Extension<AuthContext>,
+) -> Result<Response, ErroApi> {
+    exigir_supervisor(&ctx)?;
+    let res = store::trigger_sheets_sync(state.db.pool())
+        .await
+        .map_err(|e| interno("Erro ao sincronizar Sheets", e))?;
+    Ok((StatusCode::OK, Json(res)).into_response())
 }
 
 // -------------------------------------------------------------
@@ -445,57 +407,49 @@ pub async fn save_programacao_envase(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Json(mut payload): Json<SaveProgramacaoEnvasePayload>,
-) -> impl IntoResponse {
-    if payload.created_by.as_deref().unwrap_or("").trim().is_empty() {
-        payload.created_by = Some(ctx.display_name.clone());
-    }
-
-    match store::save_programacao_envase(state.db.pool(), &payload).await {
-        Ok(item) => (StatusCode::OK, Json(item)).into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao salvar programacao envase: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    payload.created_by = Some(autor(&ctx));
+    let item = store::save_programacao_envase(state.db.pool(), &payload)
+        .await
+        .map_err(|e| interno("Erro ao salvar programacao envase", e))?;
+    Ok((StatusCode::OK, Json(item)).into_response())
 }
 
 pub async fn delete_programacao_envase(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
-) -> impl IntoResponse {
-    match store::delete_programacao_envase(state.db.pool(), id).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao excluir programacao envase: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    store::delete_programacao_envase(state.db.pool(), id)
+        .await
+        .map_err(|e| interno("Erro ao excluir programacao envase", e))?;
+    Ok(ok(json!({ "success": true })))
 }
 
 pub async fn delete_programacao_envase_by_lote(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(lote_number): Path<String>,
-) -> impl IntoResponse {
-    match store::delete_programacao_envase_by_lote(state.db.pool(), &lote_number).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao excluir programacao envase por lote: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    store::delete_programacao_envase_by_lote(state.db.pool(), &lote_number)
+        .await
+        .map_err(|e| interno("Erro ao excluir programacao envase por lote", e))?;
+    Ok(ok(json!({ "success": true })))
 }
 
 pub async fn reorder_programacao_envase(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Json(payload): Json<ReorderProgramacaoEnvasePayload>,
-) -> impl IntoResponse {
-    match store::reorder_programacao_envase(state.db.pool(), &payload).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao reordenar programacao envase: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    store::reorder_programacao_envase(state.db.pool(), &payload)
+        .await
+        .map_err(|e| interno("Erro ao reordenar programacao envase", e))?;
+    Ok(ok(json!({ "success": true })))
 }
 
 // -------------------------------------------------------------
@@ -520,57 +474,49 @@ pub async fn save_programacao_rotulagem(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Json(mut payload): Json<SaveProgramacaoRotulagemPayload>,
-) -> impl IntoResponse {
-    if payload.created_by.as_deref().unwrap_or("").trim().is_empty() {
-        payload.created_by = Some(ctx.display_name.clone());
-    }
-
-    match store::save_programacao_rotulagem(state.db.pool(), &payload).await {
-        Ok(item) => (StatusCode::OK, Json(item)).into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao salvar programacao rotulagem: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    payload.created_by = Some(autor(&ctx));
+    let item = store::save_programacao_rotulagem(state.db.pool(), &payload)
+        .await
+        .map_err(|e| interno("Erro ao salvar programacao rotulagem", e))?;
+    Ok((StatusCode::OK, Json(item)).into_response())
 }
 
 pub async fn delete_programacao_rotulagem(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
-) -> impl IntoResponse {
-    match store::delete_programacao_rotulagem(state.db.pool(), id).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao excluir programacao rotulagem: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    store::delete_programacao_rotulagem(state.db.pool(), id)
+        .await
+        .map_err(|e| interno("Erro ao excluir programacao rotulagem", e))?;
+    Ok(ok(json!({ "success": true })))
 }
 
 pub async fn delete_programacao_rotulagem_by_lote(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(lote_number): Path<String>,
-) -> impl IntoResponse {
-    match store::delete_programacao_rotulagem_by_lote(state.db.pool(), &lote_number).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao excluir programacao rotulagem por lote: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    store::delete_programacao_rotulagem_by_lote(state.db.pool(), &lote_number)
+        .await
+        .map_err(|e| interno("Erro ao excluir programacao rotulagem por lote", e))?;
+    Ok(ok(json!({ "success": true })))
 }
 
 pub async fn reorder_programacao_rotulagem(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Json(payload): Json<ReorderProgramacaoRotulagemPayload>,
-) -> impl IntoResponse {
-    match store::reorder_programacao_rotulagem(state.db.pool(), &payload).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao reordenar programacao rotulagem: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    store::reorder_programacao_rotulagem(state.db.pool(), &payload)
+        .await
+        .map_err(|e| interno("Erro ao reordenar programacao rotulagem", e))?;
+    Ok(ok(json!({ "success": true })))
 }
 
 pub async fn ocultar_quadro_lote(
@@ -578,24 +524,13 @@ pub async fn ocultar_quadro_lote(
     Extension(ctx): Extension<AuthContext>,
     Path(lote_number): Path<String>,
     Json(payload): Json<QuadroAcaoPayload>,
-) -> impl IntoResponse {
-    let updated_by = if ctx.display_name.trim().is_empty() {
-        "Operador".to_string()
-    } else {
-        ctx.display_name
-    };
-
-    match store::ocultar_quadro_lote(state.db.pool(), &lote_number, &payload.quadro, Some(&updated_by)).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "success": true, "message": "Lote removido do quadro com sucesso!" })),
-        )
-            .into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao ocultar lote do quadro: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    let updated_by = autor(&ctx);
+    store::ocultar_quadro_lote(state.db.pool(), &lote_number, &payload.quadro, Some(&updated_by))
+        .await
+        .map_err(|e| interno("Erro ao ocultar lote do quadro", e))?;
+    Ok(ok(json!({ "success": true, "message": "Lote removido do quadro com sucesso!" })))
 }
 
 pub async fn restaurar_quadro_lote(
@@ -603,24 +538,13 @@ pub async fn restaurar_quadro_lote(
     Extension(ctx): Extension<AuthContext>,
     Path(lote_number): Path<String>,
     Json(payload): Json<QuadroAcaoPayload>,
-) -> impl IntoResponse {
-    let updated_by = if ctx.display_name.trim().is_empty() {
-        "Operador".to_string()
-    } else {
-        ctx.display_name
-    };
-
-    match store::restaurar_quadro_lote(state.db.pool(), &lote_number, &payload.quadro, Some(&updated_by)).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "success": true, "message": "Quadro restaurado para o lote com sucesso!" })),
-        )
-            .into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao restaurar quadro do lote: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    let updated_by = autor(&ctx);
+    store::restaurar_quadro_lote(state.db.pool(), &lote_number, &payload.quadro, Some(&updated_by))
+        .await
+        .map_err(|e| interno("Erro ao restaurar quadro do lote", e))?;
+    Ok(ok(json!({ "success": true, "message": "Quadro restaurado para o lote com sucesso!" })))
 }
 
 pub async fn save_lote_etapa_status(
@@ -628,21 +552,9 @@ pub async fn save_lote_etapa_status(
     Extension(ctx): Extension<AuthContext>,
     Path(lote_number): Path<String>,
     Json(mut payload): Json<SaveLoteEtapaStatusPayload>,
-) -> impl IntoResponse {
-    if payload.updated_by.as_deref().unwrap_or("").trim().is_empty() {
-        payload.updated_by = Some(ctx.display_name.clone());
-    }
-
-    match store::save_lote_etapa_status(state.db.pool(), &payload, &lote_number).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "success": true, "message": "Status da etapa atualizado com sucesso!" })),
-        )
-            .into_response(),
-        Err(e) => {
-            eprintln!("[AcompanhamentoProducao] Erro ao salvar status da etapa: {e}");
-            err(StatusCode::INTERNAL_SERVER_ERROR, e)
-        }
-    }
+) -> Result<Response, ErroApi> {
+    exigir_edicao(&ctx)?;
+    payload.updated_by = Some(autor(&ctx));
+    store::save_lote_etapa_status(state.db.pool(), &payload, &lote_number).await?;
+    Ok(ok(json!({ "success": true, "message": "Status da etapa atualizado com sucesso!" })))
 }
-

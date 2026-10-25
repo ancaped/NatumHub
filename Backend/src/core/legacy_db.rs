@@ -3474,6 +3474,13 @@ WHERE {so2_date_filter};
         eprintln!("[ERP Sync] Aviso: foto diária do estoque falhou: {e}");
     }
 
+    // Foto (estoque, produção, status) dos lotes novos em historico_producao; falha aqui nunca derruba o sync.
+    match crate::modules::producao::lotes::gravar_snapshots_lotes_novos(pool).await {
+        Ok(n) if n > 0 => eprintln!("[ERP Sync] Foto de {n} lote(s) novo(s) gravada no histórico de produção"),
+        Ok(_) => {}
+        Err(e) => eprintln!("[ERP Sync] Aviso: foto dos lotes novos falhou: {e}"),
+    }
+
     // Saúde dos dados importados: só lê e registra; falha aqui nunca derruba o sync.
     if let Err(e) = crate::modules::geral::saude_dados::checar_e_gravar(pool, "sync").await {
         eprintln!("[ERP Sync] Aviso: checagem de saúde dos dados falhou: {e}");

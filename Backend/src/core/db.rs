@@ -516,145 +516,15 @@ impl Db {
         Ok(map)
     }
 
+    /// Lança a produção numa transação (ver `lancar_producao`).
     pub async fn add_producao_entry(
         &self,
         entry: &crate::models::NewProducaoEntry,
-    ) -> Result<i64, String> {
+    ) -> Result<ResultadoLancamento, String> {
         let mut tx = self.pool.begin().await.map_err(|e| e.to_string())?;
-
-        let insert_id_i32: i32 = sqlx::query_scalar(
-            "INSERT INTO historico_producao (data_producao, codigo, quantidade, observacoes,
-             snap_estoque, snap_producao, snap_pedidos, snap_efp, snap_media_vendas,
-             snap_duracao_meses, snap_status, snap_status_label, snap_producao_recomendada,
-             snap_estoque_ideal_qtd, snap_demanda_ajustada, consume_base, base_code, lote_erp)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-             RETURNING id",
-        )
-        .bind(&entry.data_producao)
-        .bind(&entry.codigo)
-        .bind(entry.quantidade)
-        .bind(&entry.observacoes)
-        .bind(entry.snap_estoque)
-        .bind(entry.snap_producao)
-        .bind(entry.snap_pedidos)
-        .bind(entry.snap_efp)
-        .bind(entry.snap_media_vendas)
-        .bind(entry.snap_duracao_meses)
-        .bind(&entry.snap_status)
-        .bind(&entry.snap_status_label)
-        .bind(entry.snap_producao_recomendada)
-        .bind(entry.snap_estoque_ideal_qtd)
-        .bind(entry.snap_demanda_ajustada)
-        .bind(if entry.consume_base.unwrap_or(false) {
-            1
-        } else {
-            0
-        })
-        .bind(&entry.base_code)
-        .bind(&entry.lote_erp)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
-        let insert_id = insert_id_i32 as i64;
-
-        sqlx::query(
-            "INSERT INTO estoque_atual (codigo, estoque, producao, pedidos_aberto, fase)
-             VALUES ($1, 0, 0, 0, NULL)
-             ON CONFLICT (codigo) DO NOTHING",
-        )
-        .bind(&entry.codigo)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
-
-        sqlx::query("UPDATE estoque_atual SET producao = producao + $1 WHERE codigo = $2")
-            .bind(entry.quantidade)
-            .bind(&entry.codigo)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
-
-        if entry.consume_base.unwrap_or(false) {
-            if let Some(ref b_code) = entry.base_code {
-                sqlx::query(
-                    "INSERT INTO estoque_atual (codigo, estoque, producao, pedidos_aberto, fase)
-                     VALUES ($1, 0, 0, 0, NULL)
-                     ON CONFLICT (codigo) DO NOTHING",
-                )
-                .bind(b_code)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| e.to_string())?;
-                sqlx::query(
-                    "UPDATE estoque_atual SET estoque = GREATEST(0.0, estoque - $1) WHERE codigo = $2",
-                )
-                .bind(entry.quantidade)
-                .bind(b_code)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| e.to_string())?;
-            }
-        }
-
+        let r = lancar_producao(&mut tx, entry).await.map_err(|e| e.to_string())?;
         tx.commit().await.map_err(|e| e.to_string())?;
-        Ok(insert_id)
-    }
-
-    pub async fn delete_producao_entry(&self, id: i64) -> Result<(), String> {
-        let mut tx = self.pool.begin().await.map_err(|e| e.to_string())?;
-
-        let record = sqlx::query(
-            "SELECT codigo, quantidade, consume_base, base_code FROM historico_producao WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
-
-        if let Some(row) = record {
-            let codigo: String = row.get(0);
-            let qty = pg_i64(&row, 1);
-            let consume_base: Option<i32> = row.get(2);
-            let base_code: Option<String> = row.get(3);
-
-            sqlx::query("DELETE FROM historico_producao WHERE id = $1")
-                .bind(id)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| e.to_string())?;
-
-            sqlx::query(
-                "UPDATE estoque_atual SET producao = GREATEST(0.0, producao - $1) WHERE codigo = $2",
-            )
-            .bind(qty)
-            .bind(&codigo)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
-
-            if consume_base.unwrap_or(0) == 1 {
-                if let Some(ref b_code) = base_code {
-                    sqlx::query(
-                        "INSERT INTO estoque_atual (codigo, estoque, producao, pedidos_aberto, fase)
-                         VALUES ($1, 0, 0, 0, NULL)
-                         ON CONFLICT (codigo) DO NOTHING",
-                    )
-                    .bind(b_code)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|e| e.to_string())?;
-                    sqlx::query("UPDATE estoque_atual SET estoque = estoque + $1 WHERE codigo = $2")
-                        .bind(qty)
-                        .bind(b_code)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                }
-            }
-        }
-
-        tx.commit().await.map_err(|e| e.to_string())?;
-        Ok(())
+        Ok(r)
     }
 
     pub async fn update_producao_lote(
@@ -1184,5 +1054,270 @@ impl Db {
         .map_err(|e| e.to_string())?;
 
         Ok(rows.into_iter().map(|r| r.get(0)).collect())
+    }
+}
+
+/// Resultado de um lançamento de produção.
+#[derive(Debug)]
+pub struct ResultadoLancamento {
+    pub id: i64,
+    /// kg descontados da base (só com `consume_base` e medida conhecida); `None` = a base não foi mexida.
+    pub base_descontada_kg: Option<f64>,
+    /// Por que a base não foi descontada, quando era para ser.
+    pub aviso: Option<String>,
+}
+
+/// Quantidade de produto acabado (unidades) em kg de base: peso unitário lido da descrição ("500ML" = 0,5 kg).
+/// `None` quando a descrição não traz uma medida válida; nesse caso a base não deve ser mexida.
+pub fn unidades_para_kg(descricao: &str, unidades: i64) -> Option<f64> {
+    crate::modules::producao::fila::medida_kg(descricao).map(|peso| unidades as f64 * peso)
+}
+
+async fn kg_da_base(conn: &mut sqlx::PgConnection, codigo: &str, unidades: i64) -> Result<Option<f64>, sqlx::Error> {
+    let descricao: Option<String> = sqlx::query_scalar("SELECT descricao FROM produtos WHERE codigo = $1")
+        .bind(codigo)
+        .fetch_optional(&mut *conn)
+        .await?;
+    Ok(descricao.and_then(|d| unidades_para_kg(&d, unidades)))
+}
+
+/// Grava o lançamento de produção em `historico_producao` e soma em `estoque_atual.producao`. Com `consume_base`,
+/// desconta da base o equivalente em kg (a base é em kg, o lançamento em unidades); sem medida conhecida no produto
+/// a base não é mexida e o motivo vai em `aviso`.
+pub async fn lancar_producao(
+    conn: &mut sqlx::PgConnection,
+    entry: &crate::models::NewProducaoEntry,
+) -> Result<ResultadoLancamento, sqlx::Error> {
+    let insert_id_i32: i32 = sqlx::query_scalar(
+        "INSERT INTO historico_producao (data_producao, codigo, quantidade, observacoes,
+         snap_estoque, snap_producao, snap_pedidos, snap_efp, snap_media_vendas,
+         snap_duracao_meses, snap_status, snap_status_label, snap_producao_recomendada,
+         snap_estoque_ideal_qtd, snap_demanda_ajustada, consume_base, base_code, lote_erp)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+         RETURNING id",
+    )
+    .bind(&entry.data_producao)
+    .bind(&entry.codigo)
+    .bind(entry.quantidade)
+    .bind(&entry.observacoes)
+    .bind(entry.snap_estoque)
+    .bind(entry.snap_producao)
+    .bind(entry.snap_pedidos)
+    .bind(entry.snap_efp)
+    .bind(entry.snap_media_vendas)
+    .bind(entry.snap_duracao_meses)
+    .bind(&entry.snap_status)
+    .bind(&entry.snap_status_label)
+    .bind(entry.snap_producao_recomendada)
+    .bind(entry.snap_estoque_ideal_qtd)
+    .bind(entry.snap_demanda_ajustada)
+    .bind(if entry.consume_base.unwrap_or(false) { 1 } else { 0 })
+    .bind(&entry.base_code)
+    .bind(&entry.lote_erp)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO estoque_atual (codigo, estoque, producao, pedidos_aberto, fase)
+         VALUES ($1, 0, 0, 0, NULL)
+         ON CONFLICT (codigo) DO NOTHING",
+    )
+    .bind(&entry.codigo)
+    .execute(&mut *conn)
+    .await?;
+
+    sqlx::query("UPDATE estoque_atual SET producao = producao + $1 WHERE codigo = $2")
+        .bind(entry.quantidade)
+        .bind(&entry.codigo)
+        .execute(&mut *conn)
+        .await?;
+
+    let mut base_descontada_kg = None;
+    let mut aviso = None;
+    let mut descontado_kg = 0.0_f64;
+    if entry.consume_base.unwrap_or(false) {
+        if let Some(ref b_code) = entry.base_code {
+            match kg_da_base(&mut *conn, &entry.codigo, entry.quantidade).await? {
+                Some(kg) => {
+                    sqlx::query(
+                        "INSERT INTO estoque_atual (codigo, estoque, producao, pedidos_aberto, fase)
+                         VALUES ($1, 0, 0, 0, NULL)
+                         ON CONFLICT (codigo) DO NOTHING",
+                    )
+                    .bind(b_code)
+                    .execute(&mut *conn)
+                    .await?;
+                    sqlx::query("UPDATE estoque_atual SET estoque = GREATEST(0.0, estoque - $1) WHERE codigo = $2")
+                        .bind(kg)
+                        .bind(b_code)
+                        .execute(&mut *conn)
+                        .await?;
+                    base_descontada_kg = Some(kg);
+                    descontado_kg = kg;
+                }
+                None => {
+                    let msg = format!(
+                        "Base {b_code} não descontada: o produto {} não traz a medida (ML, L, G, KG) na descrição.",
+                        entry.codigo
+                    );
+                    eprintln!("[historico] {msg}");
+                    aviso = Some(msg);
+                }
+            }
+        }
+    }
+    sqlx::query("UPDATE historico_producao SET base_consumida_kg = $1 WHERE id = $2")
+        .bind(descontado_kg)
+        .bind(insert_id_i32)
+        .execute(&mut *conn)
+        .await?;
+    Ok(ResultadoLancamento { id: insert_id_i32 as i64, base_descontada_kg, aviso })
+}
+
+/// Estorna um lançamento de produção: apaga de `historico_producao`, tira da produção em `estoque_atual` e, se
+/// o lançamento consumiu base, devolve à base o mesmo equivalente em kg. Roda na transação de quem chama.
+/// `None` = o lançamento não existe. Devolve o que foi estornado.
+pub async fn estornar_producao(
+    conn: &mut sqlx::PgConnection,
+    id: i64,
+) -> Result<Option<serde_json::Value>, sqlx::Error> {
+    let record = sqlx::query(
+        "SELECT codigo, quantidade, consume_base, base_code, data_producao, lote_erp, base_consumida_kg
+         FROM historico_producao WHERE id = $1 FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some(row) = record else { return Ok(None) };
+    let codigo: String = row.get(0);
+    let qty = pg_i64(&row, 1);
+    let consume_base: Option<i32> = row.get(2);
+    let base_code: Option<String> = row.get(3);
+    let data_producao: String = row.get(4);
+    let lote_erp: Option<String> = row.get(5);
+    let base_consumida_kg: Option<f64> = row.get(6);
+
+    sqlx::query("DELETE FROM historico_producao WHERE id = $1")
+        .bind(id)
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query("UPDATE estoque_atual SET producao = GREATEST(0.0, producao - $1) WHERE codigo = $2")
+        .bind(qty)
+        .bind(&codigo)
+        .execute(&mut *conn)
+        .await?;
+
+    let mut base_devolvida_kg = None;
+    let mut aviso = None;
+    if consume_base.unwrap_or(0) == 1 {
+        if let Some(ref b_code) = base_code {
+            // Devolve exatamente o que o lançamento descontou. Sem o registro (lançamento antigo), o código
+            // antigo descontou a quantidade em unidades, então é isso que volta.
+            let kg = base_consumida_kg.unwrap_or(qty as f64);
+            if kg > 0.0 {
+                sqlx::query(
+                    "INSERT INTO estoque_atual (codigo, estoque, producao, pedidos_aberto, fase)
+                     VALUES ($1, 0, 0, 0, NULL)
+                     ON CONFLICT (codigo) DO NOTHING",
+                )
+                .bind(b_code)
+                .execute(&mut *conn)
+                .await?;
+                sqlx::query("UPDATE estoque_atual SET estoque = estoque + $1 WHERE codigo = $2")
+                    .bind(kg)
+                    .bind(b_code)
+                    .execute(&mut *conn)
+                    .await?;
+                base_devolvida_kg = Some(kg);
+            } else {
+                aviso = Some(format!("Base {b_code} não devolvida: o lançamento não descontou a base."));
+            }
+        }
+    }
+    Ok(Some(serde_json::json!({
+        "id": id,
+        "codigo": codigo,
+        "quantidade": qty,
+        "dataProducao": data_producao,
+        "loteErp": lote_erp,
+        "baseCode": base_code,
+        "baseDevolvidaKg": base_devolvida_kg,
+        "aviso": aviso,
+    })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unidades_viram_kg_pelo_peso_da_descricao() {
+        assert_eq!(unidades_para_kg("SHAMPOO 500ML", 200), Some(100.0));
+        assert_eq!(unidades_para_kg("CREME 1,5KG", 10), Some(15.0));
+        assert_eq!(unidades_para_kg("GEL 250 G", 4), Some(1.0));
+        assert_eq!(unidades_para_kg("SEM MEDIDA", 10), None, "sem medida, a base não é mexida");
+    }
+
+    /// Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn lancar_desconta_a_base_em_kg_e_estornar_devolve() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        sqlx::query("INSERT INTO config_linhas (linha_prefix, nome_linha) VALUES ('ZZHIST', 'teste') ON CONFLICT DO NOTHING").execute(&pool).await.unwrap();
+        for (cod, desc) in [("TESTE.HIST.P", "TESTE SHAMPOO 500ML"), ("TESTE.HIST.S", "TESTE SEM MEDIDA"), ("TESTE.HIST.B", "TESTE BASE")] {
+            sqlx::query("INSERT INTO produtos (codigo, descricao, linha_prefix) VALUES ($1, $2, 'ZZHIST') ON CONFLICT (codigo) DO UPDATE SET descricao = EXCLUDED.descricao")
+                .bind(cod).bind(desc).execute(&pool).await.unwrap();
+        }
+        sqlx::query("INSERT INTO estoque_atual (codigo, estoque, producao, pedidos_aberto, fase) VALUES ('TESTE.HIST.B', 100, 0, 0, NULL) ON CONFLICT (codigo) DO UPDATE SET estoque = 100")
+            .execute(&pool).await.unwrap();
+        let entry = |codigo: &str| crate::models::NewProducaoEntry {
+            data_producao: "2026-10-24".into(), codigo: codigo.into(), quantidade: 40, observacoes: None,
+            snap_estoque: None, snap_producao: None, snap_pedidos: None, snap_efp: None, snap_media_vendas: None,
+            snap_duracao_meses: None, snap_status: None, snap_status_label: None, snap_producao_recomendada: None,
+            snap_estoque_ideal_qtd: None, snap_demanda_ajustada: None,
+            consume_base: Some(true), base_code: Some("TESTE.HIST.B".into()), lote_erp: None,
+        };
+        let base = |pool: PgPool| async move {
+            sqlx::query_scalar::<_, f64>("SELECT estoque::float8 FROM estoque_atual WHERE codigo = 'TESTE.HIST.B'").fetch_one(&pool).await.unwrap()
+        };
+        let db = Db::new(pool.clone());
+
+        // 40 un de 500 ML = 20 kg da base (e não 40)
+        let r = db.add_producao_entry(&entry("TESTE.HIST.P")).await.unwrap();
+        assert_eq!(r.base_descontada_kg, Some(20.0));
+        assert_eq!(base(pool.clone()).await, 80.0);
+
+        // estornar devolve os mesmos 20 kg
+        let mut tx = pool.begin().await.unwrap();
+        let est = estornar_producao(&mut tx, r.id).await.unwrap().unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(est["baseDevolvidaKg"], 20.0);
+        assert_eq!(base(pool.clone()).await, 100.0);
+
+        // lançamento antigo (sem base_consumida_kg): devolve a quantidade original, como o código antigo descontou
+        let r3 = db.add_producao_entry(&entry("TESTE.HIST.P")).await.unwrap();
+        assert_eq!(base(pool.clone()).await, 80.0);
+        sqlx::query("UPDATE historico_producao SET base_consumida_kg = NULL WHERE id = $1")
+            .bind(r3.id as i32).execute(&pool).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        let est = estornar_producao(&mut tx, r3.id).await.unwrap().unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(est["baseDevolvidaKg"], 40.0);
+        assert_eq!(base(pool.clone()).await, 120.0);
+        sqlx::query("UPDATE estoque_atual SET estoque = 100 WHERE codigo = 'TESTE.HIST.B'").execute(&pool).await.unwrap();
+
+        // sem medida: lança, mas não mexe na base
+        let r2 = db.add_producao_entry(&entry("TESTE.HIST.S")).await.unwrap();
+        assert_eq!(r2.base_descontada_kg, None);
+        assert!(r2.aviso.is_some());
+        assert_eq!(base(pool.clone()).await, 100.0);
+        let mut tx = pool.begin().await.unwrap();
+        estornar_producao(&mut tx, r2.id).await.unwrap().unwrap();
+        tx.commit().await.unwrap();
+
+        sqlx::query("DELETE FROM estoque_atual WHERE codigo LIKE 'TESTE.HIST.%'").execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM produtos WHERE codigo LIKE 'TESTE.HIST.%'").execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM config_linhas WHERE linha_prefix = 'ZZHIST'").execute(&pool).await.ok();
     }
 }

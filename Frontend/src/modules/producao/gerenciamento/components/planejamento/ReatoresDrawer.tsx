@@ -5,6 +5,7 @@ import { apiFetch } from '../../../../geral/lib/http';
 import type { TipoAviso } from '../../../../geral/components/ui/Aviso';
 import type { ReatorConfig } from '../PlanejamentoSemanalTab';
 import type { Setter } from './tiposDrawers';
+import { usePreviaServidor } from '../../../lib/usePreviaServidor';
 
 interface ReatoresDrawerProps {
   reatores: ReatorConfig[];
@@ -21,7 +22,9 @@ export function ReatoresDrawer({
   avisar,
   fetchReatores,
 }: ReatoresDrawerProps) {
+  const { abrir: abrirPrevia, elemento: previaElemento } = usePreviaServidor(avisar);
   return (
+    <>
     <Drawer isOpen onClose={() => setReatoresModalOpen(false)} title="Configuração de Reatores & Regras de Produção" size="md"
       footer={
         <>
@@ -94,9 +97,14 @@ export function ReatoresDrawer({
                   <button
                     type="button"
                     onClick={() => {
-                      if (confirm(`Remover "${r.nome}" da configuração?`)) {
-                        setReatores(reatores.filter(item => item.id !== r.id));
-                      }
+                      abrirPrevia({
+                        titulo: 'Remover reator da configuração',
+                        linhas: [{ titulo: r.nome, detalhe: 'Sai da lista até salvar a configuração' }],
+                        confirmarRotulo: 'OK, remover',
+                        executar: async () => {
+                          setReatores(reatores.filter(item => item.id !== r.id));
+                        },
+                      });
                     }}
                     className="text-zinc-400 hover:text-red-600 p-1 rounded transition-colors cursor-pointer"
                     title="Remover este equipamento"
@@ -169,5 +177,7 @@ export function ReatoresDrawer({
 
         </div>
     </Drawer>
+    {previaElemento}
+    </>
   );
 }

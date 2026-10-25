@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '../../../geral/lib/http';
 import { eBase } from '../../../geral/lib/regrasProduto';
+import { useAviso } from '../../../geral/components/ui/Aviso';
+import { usePreviaServidor } from '../../lib/usePreviaServidor';
 
 function DuracaoEstoque({ dias }: { dias: number }) {
   const semConsumo = !Number.isFinite(dias) || dias >= 900;
@@ -117,6 +119,8 @@ export function ProducoesFixasTab({
   onEditOverrides,
   onShowDetails,
 }: Props) {
+  const { avisar, aviso } = useAviso();
+  const { pedir: pedirPrevia, elemento: previaElemento } = usePreviaServidor(avisar);
   const [items, setItems] = useState<any[]>([]);
   const [composicao, setComposicao] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -230,20 +234,33 @@ export function ProducoesFixasTab({
     setPage(1);
   };
 
+  // Ação em lote em 2 passos: o servidor devolve a prévia e só grava com confirmar=true.
   const migrar = async (p: any) => {
-    if (!window.confirm(`Tirar ${p.codigo} da produção fixa e devolver para a linha normal?`)) return;
-    const res = await apiFetch('/overrides/bulk?confirmar=true', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ codigos: [p.codigo], action: 'sair_producao_fixa' }),
+    await pedirPrevia({
+      url: '/overrides/bulk',
+      init: {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigos: [p.codigo], action: 'sair_producao_fixa' }),
+      },
+      titulo: `Tirar ${p.codigo} da produção fixa`,
+      confirmarRotulo: 'OK, devolver para a linha normal',
+      linhas: (d) =>
+        (d?.resultado?.itens ?? []).map((i: any) => ({
+          titulo: `${i.codigo} · ${p.descricao || 'produto'}`,
+          detalhe: 'Sai da produção fixa e volta para a linha normal',
+        })),
+      erroPadrao: 'Não foi possível tirar da produção fixa.',
+      aoConcluir: () => { void load(); },
     });
-    if (res.ok) void load();
   };
 
   const filtrado = search.trim() !== '' || filtro !== 'ALL' || familia !== 'ALL' || linha !== 'ALL';
 
   return (
     <div className="view-container animate-in fade-in duration-200">
+      {previaElemento}
+      {aviso}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         <div className="bg-white rounded-xl border border-zinc-200 p-3.5 shadow-sm flex items-center gap-3">
           <div className="p-2.5 rounded-lg bg-blue-50 text-blue-600 shrink-0">

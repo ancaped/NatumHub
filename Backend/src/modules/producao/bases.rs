@@ -170,7 +170,6 @@ pub async fn get_bases_resumo(
     post_process_kit_only_production(&mut computed, &kit_composition);
 
     let pool = state.db.pool();
-    let _ = crate::modules::producao::fila::ensure_fila_demandas_table(pool).await;
 
     // Map of items in fila_demandas: code -> (id, qty, qty_kg)
     let mut fila_map: HashMap<String, (String, f64, f64)> = HashMap::new();

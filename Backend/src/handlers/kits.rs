@@ -9,7 +9,7 @@ use serde_json::json;
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
 
-use crate::core::acao::{Confirmar, ErroApi};
+use crate::core::acao::{executar_em_2_passos, Confirmar, ErroApi};
 use crate::core::catalogo::{param, Acao};
 use crate::handlers::AppState;
 use crate::models::NewKitComposicao;
@@ -20,6 +20,27 @@ use crate::modules::geral::auth::models::AuthContext;
 pub fn acoes_kits_composicao() -> Vec<Acao> {
     const M: &str = "montagem_kits";
     vec![
+        Acao::leitura(
+            "listar_ordens_montagem_kits",
+            M,
+            "Lista as ordens de montagem de kits (da mais nova para a mais antiga), com status, quantidades e lotes dos componentes.",
+            "/api/kits/orders",
+            vec![],
+        ),
+        Acao::leitura(
+            "listar_ordens_reembalagem",
+            M,
+            "Lista as ordens de reembalagem (vira: um produto vira outro), com status, quantidades e embalagens.",
+            "/api/turnovers/orders",
+            vec![],
+        ),
+        Acao::leitura(
+            "listar_composicao_reembalagem",
+            M,
+            "Lista as relações de reembalagem (produto de origem -> produto de destino e fator de conversão).",
+            "/api/turnovers/composicao",
+            vec![],
+        ),
         Acao::leitura(
             "listar_composicao_kits",
             M,
@@ -50,6 +71,85 @@ pub fn acoes_kits_composicao() -> Vec<Acao> {
             ],
         ),
     ]
+}
+
+const MODULO_KITS: &str = "montagem_kits";
+
+/// Só quem tem edição na Montagem de Kits grava (leitura continua liberada).
+fn exigir_montagem(ctx: &AuthContext) -> Result<(), axum::response::Response> {
+    if ctx.can_edit_module(MODULO_KITS) {
+        Ok(())
+    } else {
+        Err(ErroApi::sem_permissao("Sem permissão para alterar a Montagem de Kits.").into_response())
+    }
+}
+
+/// Linha da ordem como JSON (para auditoria antes/depois). `tabela` é sempre uma constante daqui.
+async fn instantaneo_ordem(pool: &PgPool, tabela: &'static str, id: i64) -> Option<serde_json::Value> {
+    sqlx::query_scalar(&format!("SELECT to_jsonb(t) FROM {tabela} t WHERE id = $1"))
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+}
+
+/// Relação de composição (kit ou vira) como JSON, para auditoria. Nomes de tabela/coluna são constantes daqui.
+async fn instantaneo_composicao(
+    pool: &PgPool,
+    tabela: &'static str,
+    col_a: &'static str,
+    col_b: &'static str,
+    a: &str,
+    b: &str,
+) -> Option<serde_json::Value> {
+    sqlx::query_scalar(&format!("SELECT to_jsonb(t) FROM {tabela} t WHERE {col_a} = $1 AND {col_b} = $2"))
+        .bind(a)
+        .bind(b)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+}
+
+/// Número da ordem sem colidir com o UNIQUE: dentro da transação, com lock por tabela, usa o número pedido se
+/// estiver livre; senão o próximo da sequência (a tela pede `next-order-number` antes e duas pessoas podem pedir o mesmo).
+async fn numero_livre(
+    conn: &mut sqlx::PgConnection,
+    tabela: &'static str,
+    pedido: &str,
+    padrao: &str,
+) -> Result<String, sqlx::Error> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+        .bind(tabela)
+        .execute(&mut *conn)
+        .await?;
+    let mut candidato = pedido.to_string();
+    if !candidato.trim().is_empty() {
+        let ja: bool = sqlx::query_scalar(&format!("SELECT EXISTS (SELECT 1 FROM {tabela} WHERE order_number = $1)"))
+            .bind(&candidato)
+            .fetch_one(&mut *conn)
+            .await?;
+        if !ja {
+            return Ok(candidato);
+        }
+    }
+    let ultimo: Option<String> =
+        sqlx::query_scalar(&format!("SELECT order_number FROM {tabela} ORDER BY id DESC LIMIT 1"))
+            .fetch_optional(&mut *conn)
+            .await?;
+    candidato = compute_next_order_number(ultimo, padrao);
+    for _ in 0..1000 {
+        let ja: bool = sqlx::query_scalar(&format!("SELECT EXISTS (SELECT 1 FROM {tabela} WHERE order_number = $1)"))
+            .bind(&candidato)
+            .fetch_one(&mut *conn)
+            .await?;
+        if !ja {
+            break;
+        }
+        candidato = compute_next_order_number(Some(candidato), padrao);
+    }
+    Ok(candidato)
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,8 +208,12 @@ pub async fn list_kit_composicao(State(state): State<Arc<AppState>>) -> impl Int
 // POST /api/kits/composicao
 pub async fn add_kit_composicao_handler(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Json(body): Json<NewKitComposicao>,
 ) -> impl IntoResponse {
+    if let Err(r) = exigir_montagem(&ctx) {
+        return r;
+    }
     if body.kit_codigo.trim().is_empty() || body.componente_codigo.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -117,13 +221,15 @@ pub async fn add_kit_composicao_handler(
         )
             .into_response();
     }
-    if body.quantidade <= 0.0 {
+    if !body.quantidade.is_finite() || body.quantidade <= 0.0 {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": "A quantidade deve ser maior que zero." })),
         )
             .into_response();
     }
+    let pool = state.db.pool();
+    let antes = instantaneo_composicao(pool, "kit_composicao", "kit_codigo", "componente_codigo", &body.kit_codigo, &body.componente_codigo).await;
     match state
         .db
         .add_kit_composicao(
@@ -135,7 +241,22 @@ pub async fn add_kit_composicao_handler(
         )
         .await
     {
-        Ok(_) => (StatusCode::CREATED, Json(json!({ "status": "success" }))).into_response(),
+        Ok(_) => {
+            let depois = instantaneo_composicao(pool, "kit_composicao", "kit_codigo", "componente_codigo", &body.kit_codigo, &body.componente_codigo).await;
+            audit::record_domain(
+                pool,
+                Some(&ctx),
+                MODULO_KITS,
+                "salvar_composicao_kit",
+                "kit_composicao",
+                &format!("{}/{}", body.kit_codigo, body.componente_codigo),
+                &format!("Composição do kit {}: componente {}", body.kit_codigo, body.componente_codigo),
+                antes,
+                depois,
+            )
+            .await;
+            (StatusCode::CREATED, Json(json!({ "status": "success" }))).into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("Erro ao adicionar relação de kit: {}", e) })),
@@ -147,10 +268,30 @@ pub async fn add_kit_composicao_handler(
 // DELETE /api/kits/composicao/:kit/:comp
 pub async fn delete_kit_composicao_handler(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path((kit, comp)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    if let Err(r) = exigir_montagem(&ctx) {
+        return r;
+    }
+    let pool = state.db.pool();
+    let antes = instantaneo_composicao(pool, "kit_composicao", "kit_codigo", "componente_codigo", &kit, &comp).await;
     match state.db.delete_kit_composicao(&kit, &comp).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "status": "success" }))).into_response(),
+        Ok(_) => {
+            audit::record_domain(
+                pool,
+                Some(&ctx),
+                MODULO_KITS,
+                "excluir_composicao_kit",
+                "kit_composicao",
+                &format!("{kit}/{comp}"),
+                &format!("Composição do kit {kit}: componente {comp} removido"),
+                antes,
+                None,
+            )
+            .await;
+            (StatusCode::OK, Json(json!({ "status": "success" }))).into_response()
+        }
         Err(e) => {
             let status = if e.contains("sincronizado do ERP") {
                 StatusCode::FORBIDDEN
@@ -325,42 +466,71 @@ pub async fn list_kit_orders(State(state): State<Arc<AppState>>) -> impl IntoRes
 
 pub async fn create_kit_order(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Json(payload): Json<crate::models::CreateKitOrderRequest>,
 ) -> impl IntoResponse {
+    if let Err(r) = exigir_montagem(&ctx) {
+        return r;
+    }
+    if !payload.quantity.is_finite() || payload.quantity <= 0.0 {
+        return ErroApi::invalido("A quantidade da ordem deve ser maior que zero.").into_response();
+    }
+    if payload.quantity_assembled.is_some_and(|q| !q.is_finite() || q < 0.0) {
+        return ErroApi::invalido("A quantidade montada não pode ser negativa.").into_response();
+    }
     let pool = state.db.pool();
     let created_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let status = payload.status.unwrap_or_else(|| "PENDING".to_string());
+    let status = payload.status.clone().unwrap_or_else(|| "PENDING".to_string());
     let qty_assembled = payload.quantity_assembled.unwrap_or(payload.quantity);
 
-    match sqlx::query(
-        "INSERT INTO kit_assembly_orders (
-            order_number, kit_product_code, kit_product_description, quantity, status,
-            created_at, assembled_by, checked_by, observations, erp_launched, components_lotes,
-            quantity_assembled
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, $10, $11)
-         RETURNING id",
-    )
-    .bind(&payload.order_number)
-    .bind(&payload.kit_product_code)
-    .bind(&payload.kit_product_description)
-    .bind(payload.quantity)
-    .bind(&status)
-    .bind(&created_at)
-    .bind(&payload.assembled_by)
-    .bind(&payload.checked_by)
-    .bind(&payload.observations)
-    .bind(&payload.components_lotes)
-    .bind(qty_assembled)
-    .fetch_one(pool)
-    .await
-    {
-        Ok(row) => {
-            let last_id = crate::core::pg_row::pg_i64(&row, 0);
+    let resultado: Result<(i64, String), sqlx::Error> = async {
+        let mut tx = pool.begin().await?;
+        let numero = numero_livre(&mut tx, "kit_assembly_orders", &payload.order_number, "1001").await?;
+        let row = sqlx::query(
+            "INSERT INTO kit_assembly_orders (
+                order_number, kit_product_code, kit_product_description, quantity, status,
+                created_at, assembled_by, checked_by, observations, erp_launched, components_lotes,
+                quantity_assembled
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, $10, $11)
+             RETURNING id",
+        )
+        .bind(&numero)
+        .bind(&payload.kit_product_code)
+        .bind(&payload.kit_product_description)
+        .bind(payload.quantity)
+        .bind(&status)
+        .bind(&created_at)
+        .bind(&payload.assembled_by)
+        .bind(&payload.checked_by)
+        .bind(&payload.observations)
+        .bind(&payload.components_lotes)
+        .bind(qty_assembled)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok((crate::core::pg_row::pg_i64(&row, 0), numero))
+    }
+    .await;
+
+    match resultado {
+        Ok((last_id, numero)) => {
+            audit::record_domain(
+                pool,
+                Some(&ctx),
+                MODULO_KITS,
+                "criar_ordem_kit",
+                "kit_assembly_orders",
+                &last_id.to_string(),
+                &format!("Ordem de montagem {} criada: {} x {}", numero, payload.quantity, payload.kit_product_code),
+                None,
+                instantaneo_ordem(pool, "kit_assembly_orders", last_id).await,
+            )
+            .await;
             (
                 StatusCode::CREATED,
                 Json(json!({
                     "id": last_id,
-                    "orderNumber": payload.order_number,
+                    "orderNumber": numero,
                     "createdAt": created_at,
                     "message": "Ordem de montagem criada"
                 })),
@@ -377,10 +547,21 @@ pub async fn create_kit_order(
 
 pub async fn update_kit_order(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
     Json(payload): Json<crate::models::UpdateKitOrderRequest>,
 ) -> impl IntoResponse {
+    if let Err(r) = exigir_montagem(&ctx) {
+        return r;
+    }
+    if payload.quantity.is_some_and(|q| !q.is_finite() || q <= 0.0) {
+        return ErroApi::invalido("A quantidade da ordem deve ser maior que zero.").into_response();
+    }
+    if payload.quantity_assembled.is_some_and(|q| !q.is_finite() || q < 0.0) {
+        return ErroApi::invalido("A quantidade montada não pode ser negativa.").into_response();
+    }
     let pool = state.db.pool();
+    let antes = instantaneo_ordem(pool, "kit_assembly_orders", id).await;
     let mut qb = sqlx::QueryBuilder::new("UPDATE kit_assembly_orders SET ");
     let mut has_set = false;
 
@@ -451,11 +632,25 @@ pub async fn update_kit_order(
     qb.push_bind(id);
 
     match qb.build().execute(pool).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "message": "Ordem de montagem atualizada" })),
-        )
-            .into_response(),
+        Ok(_) => {
+            audit::record_domain(
+                pool,
+                Some(&ctx),
+                MODULO_KITS,
+                "atualizar_ordem_kit",
+                "kit_assembly_orders",
+                &id.to_string(),
+                &format!("Ordem de montagem {id} atualizada"),
+                antes,
+                instantaneo_ordem(pool, "kit_assembly_orders", id).await,
+            )
+            .await;
+            (
+                StatusCode::OK,
+                Json(json!({ "message": "Ordem de montagem atualizada" })),
+            )
+                .into_response()
+        }
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": format!("Erro ao atualizar: {}", e) })),
@@ -466,24 +661,65 @@ pub async fn update_kit_order(
 
 pub async fn delete_kit_order(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
+    Query(q): Query<Confirmar>,
 ) -> impl IntoResponse {
+    excluir_ordem(state, ctx, id, q.confirmar, "kit_assembly_orders", "excluir_ordem_kit", "Ordem de montagem", "Ordem de montagem excluída").await
+}
+
+/// Exclui uma ordem (kit ou reembalagem) em 2 passos: sem `confirmar` só devolve a ordem que sairia.
+async fn excluir_ordem(
+    state: Arc<AppState>,
+    ctx: AuthContext,
+    id: i64,
+    confirmar: bool,
+    tabela: &'static str,
+    acao: &'static str,
+    rotulo: &'static str,
+    mensagem: &'static str,
+) -> axum::response::Response {
+    if let Err(r) = exigir_montagem(&ctx) {
+        return r;
+    }
     let pool = state.db.pool();
-    match sqlx::query("DELETE FROM kit_assembly_orders WHERE id = $1")
-        .bind(id)
-        .execute(pool)
-        .await
-    {
-        Ok(_) => (
+    let r = executar_em_2_passos(pool, acao, confirmar, |tx| {
+        Box::pin(async move {
+            let ordem: serde_json::Value = sqlx::query_scalar(&format!("SELECT to_jsonb(t) FROM {tabela} t WHERE id = $1 FOR UPDATE"))
+                .bind(id)
+                .fetch_optional(&mut **tx)
+                .await?
+                .ok_or_else(|| ErroApi::nao_encontrado(format!("{rotulo} não encontrada.")))?;
+            sqlx::query(&format!("DELETE FROM {tabela} WHERE id = $1"))
+                .bind(id)
+                .execute(&mut **tx)
+                .await?;
+            Ok(ordem)
+        })
+    })
+    .await;
+    match r {
+        Ok(r) if r.previa => (
             StatusCode::OK,
-            Json(json!({ "message": "Ordem de montagem excluída" })),
+            Json(json!({ "previa": true, "acao": acao, "item": r.resultado, "confirmar": "repita com confirmar=true para excluir" })),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": format!("Erro ao excluir: {}", e) })),
-        )
-            .into_response(),
+        Ok(r) => {
+            audit::record_domain(
+                pool,
+                Some(&ctx),
+                MODULO_KITS,
+                acao,
+                tabela,
+                &id.to_string(),
+                &format!("{rotulo} {id} excluída"),
+                Some(r.resultado),
+                None,
+            )
+            .await;
+            (StatusCode::OK, Json(json!({ "message": mensagem }))).into_response()
+        }
+        Err(e) => e.into_response(),
     }
 }
 
@@ -565,9 +801,20 @@ pub async fn list_vira_composicao(State(state): State<Arc<AppState>>) -> impl In
 
 pub async fn add_vira_composicao(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Json(payload): Json<crate::models::NewViraComposicao>,
 ) -> impl IntoResponse {
+    if let Err(r) = exigir_montagem(&ctx) {
+        return r;
+    }
+    if payload.de_produto_codigo.trim().is_empty() || payload.para_produto_codigo.trim().is_empty() {
+        return ErroApi::invalido("Informe o produto de origem e o de destino.").into_response();
+    }
+    if !payload.quantidade.is_finite() || payload.quantidade <= 0.0 {
+        return ErroApi::invalido("A quantidade deve ser maior que zero.").into_response();
+    }
     let pool = state.db.pool();
+    let antes = instantaneo_composicao(pool, "vira_composicao", "de_produto_codigo", "para_produto_codigo", &payload.de_produto_codigo, &payload.para_produto_codigo).await;
     match sqlx::query(
         "INSERT INTO vira_composicao (de_produto_codigo, para_produto_codigo, quantidade)
          VALUES ($1, $2, $3)
@@ -579,11 +826,29 @@ pub async fn add_vira_composicao(
     .execute(pool)
     .await
     {
-        Ok(_) => (
-            StatusCode::CREATED,
-            Json(json!({ "message": "Composição de vira adicionada" })),
-        )
-            .into_response(),
+        Ok(_) => {
+            audit::record_domain(
+                pool,
+                Some(&ctx),
+                MODULO_KITS,
+                "salvar_composicao_vira",
+                "vira_composicao",
+                &format!("{}/{}", payload.de_produto_codigo, payload.para_produto_codigo),
+                &format!("Composição de vira {} -> {}", payload.de_produto_codigo, payload.para_produto_codigo),
+                antes,
+                Some(json!({
+                    "de_produto_codigo": payload.de_produto_codigo,
+                    "para_produto_codigo": payload.para_produto_codigo,
+                    "quantidade": payload.quantidade,
+                })),
+            )
+            .await;
+            (
+                StatusCode::CREATED,
+                Json(json!({ "message": "Composição de vira adicionada" })),
+            )
+                .into_response()
+        }
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": e.to_string() })),
@@ -594,9 +859,14 @@ pub async fn add_vira_composicao(
 
 pub async fn delete_vira_composicao(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path((de, para)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    if let Err(r) = exigir_montagem(&ctx) {
+        return r;
+    }
     let pool = state.db.pool();
+    let antes = instantaneo_composicao(pool, "vira_composicao", "de_produto_codigo", "para_produto_codigo", &de, &para).await;
     match sqlx::query(
         "DELETE FROM vira_composicao WHERE de_produto_codigo = $1 AND para_produto_codigo = $2",
     )
@@ -605,11 +875,25 @@ pub async fn delete_vira_composicao(
     .execute(pool)
     .await
     {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "message": "Composição de vira excluída" })),
-        )
-            .into_response(),
+        Ok(_) => {
+            audit::record_domain(
+                pool,
+                Some(&ctx),
+                MODULO_KITS,
+                "excluir_composicao_vira",
+                "vira_composicao",
+                &format!("{de}/{para}"),
+                &format!("Composição de vira {de} -> {para} excluída"),
+                antes,
+                None,
+            )
+            .await;
+            (
+                StatusCode::OK,
+                Json(json!({ "message": "Composição de vira excluída" })),
+            )
+                .into_response()
+        }
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": e.to_string() })),
@@ -619,16 +903,6 @@ pub async fn delete_vira_composicao(
 }
 
 async fn fetch_vira_orders(pool: &PgPool) -> Result<Vec<crate::models::ViraOrder>, String> {
-    // Garante colunas de reembalagem (015) sem exigir bootstrap completo
-    let _ = sqlx::query(
-        "ALTER TABLE vira_ordens ADD COLUMN IF NOT EXISTS packaging_deductions TEXT",
-    )
-    .execute(pool)
-    .await;
-    let _ = sqlx::query("ALTER TABLE vira_ordens ADD COLUMN IF NOT EXISTS motivo TEXT")
-        .execute(pool)
-        .await;
-
     let rows = sqlx::query(
         "SELECT id, order_number, de_produto_codigo, de_produto_descricao,
                 para_produto_codigo, para_produto_descricao, quantity, status,
@@ -688,11 +962,21 @@ pub async fn list_vira_orders(State(state): State<Arc<AppState>>) -> impl IntoRe
 
 pub async fn create_vira_order(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Json(payload): Json<crate::models::CreateViraOrderRequest>,
 ) -> impl IntoResponse {
+    if let Err(r) = exigir_montagem(&ctx) {
+        return r;
+    }
+    if !payload.quantity.is_finite() || payload.quantity <= 0.0 {
+        return ErroApi::invalido("A quantidade da ordem deve ser maior que zero.").into_response();
+    }
+    if payload.quantity_assembled.is_some_and(|q| !q.is_finite() || q < 0.0) {
+        return ErroApi::invalido("A quantidade montada não pode ser negativa.").into_response();
+    }
     let pool = state.db.pool();
     let created_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let status = payload.status.unwrap_or_else(|| "PENDING".to_string());
+    let status = payload.status.clone().unwrap_or_else(|| "PENDING".to_string());
     let qty_assembled = payload.quantity_assembled.unwrap_or(payload.quantity);
 
     let packaging_json = match &payload.packaging_deductions {
@@ -709,7 +993,10 @@ pub async fn create_vira_order(
         _ => None,
     };
 
-    let last_id: i64 = match sqlx::query(
+    let inserido: Result<(i64, String), sqlx::Error> = async {
+        let mut tx = pool.begin().await?;
+        let numero = numero_livre(&mut tx, "vira_ordens", &payload.order_number, "V-1001").await?;
+        let row = sqlx::query(
         "INSERT INTO vira_ordens (
             order_number, de_produto_codigo, de_produto_descricao,
             para_produto_codigo, para_produto_descricao, quantity, status,
@@ -718,7 +1005,7 @@ pub async fn create_vira_order(
          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, $12, $13, $14)
          RETURNING id",
     )
-    .bind(&payload.order_number)
+    .bind(&numero)
     .bind(&payload.de_produto_codigo)
     .bind(&payload.de_produto_codigo)
     .bind(&payload.para_produto_codigo)
@@ -732,10 +1019,14 @@ pub async fn create_vira_order(
     .bind(qty_assembled)
     .bind(&packaging_json)
     .bind(&payload.motivo)
-    .fetch_one(pool)
-    .await
-    {
-        Ok(row) => crate::core::pg_row::pg_i64(&row, 0),
+    .fetch_one(&mut *tx)
+    .await?;
+        tx.commit().await?;
+        Ok((crate::core::pg_row::pg_i64(&row, 0), numero))
+    }
+    .await;
+    let (last_id, numero) = match inserido {
+        Ok(x) => x,
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -759,19 +1050,43 @@ pub async fn create_vira_order(
     .execute(pool)
     .await;
 
+    audit::record_domain(
+        pool,
+        Some(&ctx),
+        MODULO_KITS,
+        "criar_ordem_vira",
+        "vira_ordens",
+        &last_id.to_string(),
+        &format!(
+            "Ordem de reembalagem {} criada: {} x {} -> {}",
+            numero, payload.quantity, payload.de_produto_codigo, payload.para_produto_codigo
+        ),
+        None,
+        instantaneo_ordem(pool, "vira_ordens", last_id).await,
+    )
+    .await;
+
     (
         StatusCode::CREATED,
-        Json(json!({ "id": last_id, "message": "Ordem de vira criada" })),
+        Json(json!({ "id": last_id, "orderNumber": numero, "message": "Ordem de vira criada" })),
     )
         .into_response()
 }
 
 pub async fn update_vira_order(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
     Json(payload): Json<crate::models::UpdateViraOrderRequest>,
 ) -> impl IntoResponse {
+    if let Err(r) = exigir_montagem(&ctx) {
+        return r;
+    }
+    if payload.quantity_assembled.is_some_and(|q| !q.is_finite() || q < 0.0) {
+        return ErroApi::invalido("A quantidade montada não pode ser negativa.").into_response();
+    }
     let pool = state.db.pool();
+    let antes = instantaneo_ordem(pool, "vira_ordens", id).await;
     let mut qb = sqlx::QueryBuilder::new("UPDATE vira_ordens SET ");
     let mut has_set = false;
     let mut separated = qb.separated(", ");
@@ -846,11 +1161,25 @@ pub async fn update_vira_order(
     qb.push_bind(id);
 
     match qb.build().execute(pool).await {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "message": "Ordem de reembalagem atualizada" })),
-        )
-            .into_response(),
+        Ok(_) => {
+            audit::record_domain(
+                pool,
+                Some(&ctx),
+                MODULO_KITS,
+                "atualizar_ordem_vira",
+                "vira_ordens",
+                &id.to_string(),
+                &format!("Ordem de reembalagem {id} atualizada"),
+                antes,
+                instantaneo_ordem(pool, "vira_ordens", id).await,
+            )
+            .await;
+            (
+                StatusCode::OK,
+                Json(json!({ "message": "Ordem de reembalagem atualizada" })),
+            )
+                .into_response()
+        }
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": format!("Erro ao atualizar: {}", e) })),
@@ -861,25 +1190,11 @@ pub async fn update_vira_order(
 
 pub async fn delete_vira_order(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
+    Query(q): Query<Confirmar>,
 ) -> impl IntoResponse {
-    let pool = state.db.pool();
-    match sqlx::query("DELETE FROM vira_ordens WHERE id = $1")
-        .bind(id)
-        .execute(pool)
-        .await
-    {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({ "message": "Ordem de vira excluída" })),
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": e.to_string() })),
-        )
-            .into_response(),
-    }
+    excluir_ordem(state, ctx, id, q.confirmar, "vira_ordens", "excluir_ordem_vira", "Ordem de reembalagem", "Ordem de vira excluída").await
 }
 
 pub async fn get_next_vira_order_number(State(state): State<Arc<AppState>>) -> impl IntoResponse {

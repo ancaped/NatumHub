@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../../../geral/lib/http';
+import { useAviso } from '../../../geral/components/ui/Aviso';
+import { usePreviaServidor, linhasAjusteFila, linhasExclusaoFila } from '../../lib/usePreviaServidor';
 import { kitComponentNeedQty } from '../../lib/kitComponentQty';
 import { formatUnitsToKg } from '../../lib/unitConversion';
 import {
@@ -103,6 +105,8 @@ export function KitsTab({
   onShowDetails,
   diasComerciais = 30,
 }: any) {
+  const { avisar, aviso } = useAviso();
+  const { pedir: pedirPrevia, elemento: previaElemento } = usePreviaServidor(avisar);
   const [centralSubTab, setCentralSubTab] = useState<'demandas' | 'montagem'>('demandas');
   const [modo, setModo] = useState<'kit' | 'itens'>('kit');
   const [queuedMap, setQueuedMap] = useState<Map<string, any>>(new Map());
@@ -165,20 +169,22 @@ export function KitsTab({
       const item = queuedMap.get(code);
       const targetId = item?.id;
       if (!targetId) return;
-      const res = await apiFetch(`/producao/fila-demandas/${encodeURIComponent(targetId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          quantidade: editingQueueQty,
-          unidade: 'un',
-        }),
+      await pedirPrevia({
+        url: `/producao/fila-demandas/${encodeURIComponent(targetId)}`,
+        init: {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quantidade: editingQueueQty, unidade: 'un' }),
+        },
+        titulo: 'Ajustar quantidade na fila',
+        confirmarRotulo: 'OK, ajustar',
+        linhas: linhasAjusteFila,
+        erroPadrao: 'Não foi possível ajustar o item da fila.',
+        aoConcluir: () => {
+          setEditingQueueCode(null);
+          fetchQueuedItems();
+        },
       });
-      if (res.ok) {
-        setEditingQueueCode(null);
-        fetchQueuedItems();
-      }
-    } catch (err) {
-      console.error(err);
     } finally {
       setSavingQueue(false);
     }
@@ -190,13 +196,18 @@ export function KitsTab({
       const item = queuedMap.get(code);
       const targetId = item?.id;
       if (!targetId) return;
-      const res = await apiFetch(`/producao/fila-demandas/${encodeURIComponent(targetId)}`, {
-        method: 'DELETE',
+      await pedirPrevia({
+        url: `/producao/fila-demandas/${encodeURIComponent(targetId)}`,
+        init: { method: 'DELETE' },
+        titulo: 'Tirar da fila',
+        confirmarRotulo: 'OK, tirar da fila',
+        linhas: linhasExclusaoFila,
+        erroPadrao: 'Não foi possível tirar o item da fila.',
+        aoConcluir: () => {
+          setEditingQueueCode(null);
+          fetchQueuedItems();
+        },
       });
-      if (res.ok) {
-        setEditingQueueCode(null);
-        fetchQueuedItems();
-      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -419,6 +430,8 @@ export function KitsTab({
 
   return (
     <div className="view-container animate-in fade-in duration-200">
+      {previaElemento}
+      {aviso}
       {/* Central de Kits: Sub-abas de topo */}
       <div className="flex items-center justify-between mb-4 pb-2 border-b border-zinc-200">
         <div className="inline-flex p-1 bg-zinc-100 rounded-lg border border-zinc-200 text-xs font-semibold">

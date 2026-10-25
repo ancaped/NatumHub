@@ -91,12 +91,13 @@ pub fn acoes() -> Vec<Acao> {
         Acao::gravacao(
             "aprovar_ordem_planejamento",
             M,
-            "Marca a conferência física (massa, embalagem, rótulo) e/ou muda o status da ordem (planejado, aprovado, cancelado).",
+            "Marca a conferência física (massa, embalagem, rótulo) e/ou muda o status da ordem (planejado, aprovado, cancelado). Sem `confirmar=true` mostra só a prévia (antes e depois).",
             "POST",
             "/api/producao/planejamento-semanal/:id/confirmar-fisico",
-            false,
+            true,
             vec![
                 param("id", "caminho", "texto", true, "Id da ordem."),
+                param("confirmar", "query", "booleano", false, "true para gravar de fato."),
                 param("massa", "corpo", "booleano", false, "Massa conferida."),
                 param("embalagem", "corpo", "booleano", false, "Embalagem conferida."),
                 param("rotulo", "corpo", "booleano", false, "Rótulo conferido."),
@@ -465,7 +466,10 @@ async fn upsert_planejamento_item(
             FROM lote_custom_status
             WHERE lote_number = $1
             ON CONFLICT (lote_number) DO UPDATE SET
-                custom_status = COALESCE(EXCLUDED.custom_status, lote_custom_status.custom_status),
+                custom_status = CASE
+                    WHEN lote_custom_status.custom_status IS NULL OR lote_custom_status.custom_status IN ('Aberto', 'Pendente') THEN COALESCE(EXCLUDED.custom_status, lote_custom_status.custom_status)
+                    ELSE lote_custom_status.custom_status
+                END,
                 etapas_status = COALESCE(lote_custom_status.etapas_status, '{}'::jsonb) || COALESCE(EXCLUDED.etapas_status, '{}'::jsonb),
                 quadros_ocultos = COALESCE(EXCLUDED.quadros_ocultos, lote_custom_status.quadros_ocultos),
                 data_pesagem = COALESCE(lote_custom_status.data_pesagem, EXCLUDED.data_pesagem),
@@ -505,7 +509,7 @@ async fn upsert_planejamento_item(
         )
         ON CONFLICT (lote_number) DO UPDATE SET
             custom_status = CASE
-                WHEN lote_custom_status.custom_status IN ('Finalizada', 'Ordem Finalizada', 'Produzido', 'Aberto', 'Pendente') THEN 'Pesagem'
+                WHEN lote_custom_status.custom_status IN ('Aberto', 'Pendente') THEN 'Pesagem'
                 ELSE lote_custom_status.custom_status
             END,
             data_pesagem = CASE
@@ -566,6 +570,25 @@ pub enum BulkPlanejamentoPayload {
     },
 }
 
+/// O que `gravar_planejamento` fez: consumo da fila e as ordens antes/depois (para a auditoria).
+#[derive(Debug)]
+pub struct ResultadoGravacao {
+    pub consumos: Vec<ConsumoFila>,
+    pub antes: Vec<serde_json::Value>,
+    pub depois: Vec<serde_json::Value>,
+}
+
+/// Ordens (campos que importam, sem carimbos de data) pelos ids, em ordem de id. Inexistente = não aparece.
+async fn instantaneo_ordens(conn: &mut sqlx::PgConnection, ids: &[String]) -> Result<Vec<serde_json::Value>, ErroApi> {
+    sqlx::query_scalar(
+        "SELECT to_jsonb(t) - 'created_at' - 'updated_at' FROM producao_planejamento_semanal t WHERE id = ANY($1) ORDER BY id",
+    )
+    .bind(ids)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)
+}
+
 /// Grava uma ou várias ordens numa única transação: se qualquer uma falhar ou violar regra, nada é gravado.
 /// O consumo da Fila de Demandas entra na mesma transação (ordem gravada e demanda consumida, ou nenhuma).
 async fn gravar_planejamento(
@@ -573,11 +596,13 @@ async fn gravar_planejamento(
     itens: &mut [PlanejamentoItemDto],
     consumir: &[PedidoConsumoFila],
     usuario: &str,
-) -> Result<Vec<ConsumoFila>, ErroApi> {
+) -> Result<ResultadoGravacao, ErroApi> {
     for it in itens.iter_mut() {
         normalizar_planejamento_item(it)?;
     }
+    let ids: Vec<String> = itens.iter().map(|i| i.id.clone()).collect();
     let mut tx = pool.begin().await.map_err(db)?;
+    let antes = instantaneo_ordens(&mut tx, &ids).await?;
     for it in itens.iter() {
         validar_status_planejamento(&mut tx, it).await?;
         upsert_planejamento_item(&mut tx, it, usuario).await.map_err(db)?;
@@ -587,8 +612,9 @@ async fn gravar_planejamento(
     for c in consumir {
         consumos.push(consumir_fila(&mut tx, &c.fila_id, c.kg).await.map_err(db)?);
     }
+    let depois = instantaneo_ordens(&mut tx, &ids).await?;
     tx.commit().await.map_err(db)?;
-    Ok(consumos)
+    Ok(ResultadoGravacao { consumos, antes, depois })
 }
 
 pub async fn save_planejamento_item(
@@ -602,8 +628,15 @@ pub async fn save_planejamento_item(
     let id = item.id.clone();
     let mut itens = vec![item];
     match gravar_planejamento(state.db.pool(), &mut itens, &[], &ctx.display_name).await {
-        Ok(_) => {
-            auditoria::registrar(state.db.pool(), &ctx.display_name, "gravar_planejamento", &id, json!({ "itens": 1 })).await;
+        Ok(r) => {
+            auditoria::registrar(
+                state.db.pool(),
+                &ctx.display_name,
+                "gravar_planejamento",
+                &id,
+                json!({ "itens": 1, "antes": r.antes, "depois": r.depois }),
+            )
+            .await;
             (StatusCode::OK, Json(json!({ "ok": true, "id": id }))).into_response()
         }
         Err(e) => e.into_response(),
@@ -624,14 +657,15 @@ pub async fn bulk_save_planejamento(
     };
     let ids: Vec<String> = itens.iter().map(|i| i.id.clone()).collect();
     match gravar_planejamento(state.db.pool(), &mut itens, &consumir, &ctx.display_name).await {
-        Ok(fila) => {
+        Ok(r) => {
+            let fila = r.consumos;
             let fila_ids: Vec<&str> = fila.iter().map(|c| c.fila_id.as_str()).collect();
             auditoria::registrar(
                 state.db.pool(),
                 &ctx.display_name,
                 "gravar_planejamento",
                 &format!("{} ordens", ids.len()),
-                json!({ "ids": ids, "filaConsumida": fila_ids }),
+                json!({ "ids": ids, "antes": r.antes, "depois": r.depois, "filaConsumida": fila_ids, "filaResultado": fila }),
             )
             .await;
             (StatusCode::OK, Json(json!({ "ok": true, "fila": fila }))).into_response()
@@ -779,10 +813,55 @@ pub async fn delete_planejamento_item(
     }
 }
 
+/// Marca conferência física e/ou status da ordem, com a linha travada. Devolve a ordem antes e depois.
+async fn aprovar_planejamento_item(
+    conn: &mut sqlx::PgConnection,
+    id: &str,
+    payload: &ConfirmFisicoPayload,
+) -> Result<serde_json::Value, ErroApi> {
+    let antes: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT jsonb_build_object('ordemStatus', ordem_status, 'massa', fisico_confirmado_massa, \
+         'embalagem', fisico_confirmado_embalagem, 'rotulo', fisico_confirmado_rotulo, \
+         'codigoProduto', codigo_produto, 'loteErp', lote_erp) \
+         FROM producao_planejamento_semanal WHERE id = $1 FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?;
+    let Some(antes) = antes else {
+        return Err(ErroApi::nao_encontrado("Item não encontrado"));
+    };
+    let depois: serde_json::Value = sqlx::query_scalar(
+        r#"
+        UPDATE producao_planejamento_semanal
+        SET fisico_confirmado_massa = COALESCE($2, fisico_confirmado_massa),
+            fisico_confirmado_embalagem = COALESCE($3, fisico_confirmado_embalagem),
+            fisico_confirmado_rotulo = COALESCE($4, fisico_confirmado_rotulo),
+            ordem_status = COALESCE($5, ordem_status),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+        RETURNING jsonb_build_object('ordemStatus', ordem_status, 'massa', fisico_confirmado_massa,
+            'embalagem', fisico_confirmado_embalagem, 'rotulo', fisico_confirmado_rotulo,
+            'codigoProduto', codigo_produto, 'loteErp', lote_erp)
+        "#,
+    )
+    .bind(id)
+    .bind(payload.massa)
+    .bind(payload.embalagem)
+    .bind(payload.rotulo)
+    .bind(payload.ordem_status.as_deref().map(str::trim))
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(json!({ "id": id, "antes": antes, "depois": depois }))
+}
+
 pub async fn confirm_fisico_planejamento(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<String>,
+    Query(q): Query<ConfirmarParams>,
     Json(payload): Json<ConfirmFisicoPayload>,
 ) -> impl IntoResponse {
     if let Err(r) = permissao::exigir_edicao(&ctx) {
@@ -794,31 +873,23 @@ pub async fn confirm_fisico_planejamento(
             return ErroApi::regra(format!("Status de ordem inválido: {s}. Use planejado, aprovado ou cancelado.")).into_response();
         }
     }
-    let q = r#"
-        UPDATE producao_planejamento_semanal
-        SET fisico_confirmado_massa = COALESCE($2, fisico_confirmado_massa),
-            fisico_confirmado_embalagem = COALESCE($3, fisico_confirmado_embalagem),
-            fisico_confirmado_rotulo = COALESCE($4, fisico_confirmado_rotulo),
-            ordem_status = COALESCE($5, ordem_status),
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1
-        RETURNING data_planejada::text, lote_erp, ordem_status
-    "#;
-    match sqlx::query(q)
-        .bind(&id)
-        .bind(payload.massa)
-        .bind(payload.embalagem)
-        .bind(payload.rotulo)
-        .bind(payload.ordem_status.as_deref().map(str::trim))
-        .fetch_optional(pool)
-        .await
-    {
-        Ok(Some(_row)) => {
-            auditoria::registrar(pool, &ctx.display_name, "aprovar_planejamento", &id, json!({ "ordemStatus": payload.ordem_status })).await;
-            (StatusCode::OK, Json(json!({ "ok": true }))).into_response()
+    let confirmar = q.confirmar == Some(true);
+    let id_tx = id.clone();
+    let r = executar_em_2_passos(pool, "aprovar_planejamento", confirmar, |tx| {
+        Box::pin(async move { aprovar_planejamento_item(&mut **tx, &id_tx, &payload).await })
+    })
+    .await;
+    match r {
+        Ok(r) if r.previa => (
+            StatusCode::OK,
+            Json(json!({ "previa": true, "acao": "aprovar_planejamento", "item": r.resultado, "confirmar": "repita com confirmar=true para gravar" })),
+        )
+            .into_response(),
+        Ok(r) => {
+            auditoria::registrar(pool, &ctx.display_name, "aprovar_planejamento", &id, r.resultado.clone()).await;
+            (StatusCode::OK, Json(json!({ "ok": true, "item": r.resultado }))).into_response()
         }
-        Ok(None) => ErroApi::nao_encontrado("Item não encontrado").into_response(),
-        Err(e) => db(e).into_response(),
+        Err(e) => e.into_response(),
     }
 }
 
@@ -1125,7 +1196,7 @@ mod tests {
         let mut a = vec![item(&format!("{week}-a"), "2026-10-23")];
         a[0].week_key = week.clone();
         let consumo = PedidoConsumoFila { fila_id: fila_id.clone(), kg: 40.0 };
-        let r = gravar_planejamento(&pool, &mut a, &[consumo], "teste").await.unwrap();
+        let r = gravar_planejamento(&pool, &mut a, &[consumo], "teste").await.unwrap().consumos;
         assert_eq!(r[0].resultado, crate::modules::producao::fila::ResultadoConsumo::Reduzido { restante_kg: 60.0, restante_un: 120 });
         assert_eq!(ler_fila(&pool, &fila_id).await, Some((120.0, 60.0)));
 
@@ -1138,7 +1209,7 @@ mod tests {
         // fila inexistente não é erro
         let mut c = vec![item(&format!("{week}-c"), "2026-10-25")];
         let consumo = PedidoConsumoFila { fila_id: fila_id.clone(), kg: 1.0 };
-        let r = gravar_planejamento(&pool, &mut c, &[consumo], "teste").await.unwrap();
+        let r = gravar_planejamento(&pool, &mut c, &[consumo], "teste").await.unwrap().consumos;
         assert_eq!(r[0].resultado, crate::modules::producao::fila::ResultadoConsumo::NaoEncontrado);
 
         sqlx::query("DELETE FROM producao_planejamento_semanal WHERE id LIKE $1").bind(format!("{week}-%")).execute(&pool).await.unwrap();
@@ -1166,6 +1237,92 @@ mod tests {
         assert_eq!(ler_fila(&pool, &fila_id).await, Some((200.0, 100.0)), "fila intacta após rollback");
 
         sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1").bind(&fila_id).execute(&pool).await.unwrap();
+    }
+
+    async fn status_do_lote(pool: &PgPool, lote: &str) -> Option<String> {
+        sqlx::query_scalar("SELECT custom_status FROM lote_custom_status WHERE lote_number = $1")
+            .bind(lote)
+            .fetch_optional(pool)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn gravar_ordem_nunca_regride_o_status_do_lote() {
+        let pool = pool_teste().await;
+        sqlx::query("INSERT INTO producao_reatores_config (id, nome, capacidade_kg, ativo) VALUES ('R_100', 'R100', 100, TRUE) ON CONFLICT (id) DO NOTHING")
+            .execute(&pool)
+            .await
+            .ok();
+        let base = format!("teste-{}", uuid::Uuid::new_v4());
+        // status inicial -> o que deve ficar depois de gravar a ordem de novo
+        let casos = [
+            ("Finalizada", "Finalizada"),
+            ("Ordem Finalizada", "Ordem Finalizada"),
+            ("Produzido", "Produzido"),
+            ("Produção", "Produção"),
+            ("Envase", "Envase"),
+            ("Pesagem", "Pesagem"),
+            ("Aberto", "Pesagem"),
+            ("Pendente", "Pesagem"),
+        ];
+        for (i, (inicial, esperado)) in casos.iter().enumerate() {
+            let id = format!("{base}-{i}");
+            sqlx::query("INSERT INTO lote_custom_status (lote_number, custom_status) VALUES ($1, $2)")
+                .bind(&id)
+                .bind(inicial)
+                .execute(&pool)
+                .await
+                .unwrap();
+            let mut itens = vec![item(&id, &format!("2026-11-{:02}", 2 + i))];
+            gravar_planejamento(&pool, &mut itens, &[], "teste").await.unwrap();
+            assert_eq!(status_do_lote(&pool, &id).await.as_deref(), Some(*esperado), "status inicial {inicial}");
+        }
+        // ordem nova, sem status: nasce em Pesagem
+        let nova = format!("{base}-nova");
+        let mut itens = vec![item(&nova, "2026-11-20")];
+        let r = gravar_planejamento(&pool, &mut itens, &[], "teste").await.unwrap();
+        assert!(r.antes.is_empty() && r.depois.len() == 1, "antes vazio, depois com a ordem");
+        assert_eq!(status_do_lote(&pool, &nova).await.as_deref(), Some("Pesagem"));
+
+        sqlx::query("DELETE FROM lote_custom_status WHERE lote_number LIKE $1").bind(format!("{base}-%")).execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM producao_planejamento_semanal WHERE id LIKE $1").bind(format!("{base}-%")).execute(&pool).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn aprovar_ordem_so_grava_com_confirmar() {
+        let pool = pool_teste().await;
+        let week = format!("teste-{}", uuid::Uuid::new_v4());
+        let id = format!("{week}-a");
+        inserir_ordem(&pool, &id, &week).await;
+        let payload = ConfirmFisicoPayload { massa: Some(true), embalagem: None, rotulo: None, ordem_status: Some("aprovado".into()) };
+
+        for confirmar in [false, true] {
+            let (i, p) = (id.clone(), ConfirmFisicoPayload { massa: payload.massa, embalagem: None, rotulo: None, ordem_status: payload.ordem_status.clone() });
+            let r = executar_em_2_passos(&pool, "aprovar_planejamento", confirmar, |tx| {
+                Box::pin(async move { aprovar_planejamento_item(&mut **tx, &i, &p).await })
+            })
+            .await
+            .unwrap();
+            assert_eq!(r.resultado["antes"]["ordemStatus"], "planejado");
+            assert_eq!(r.resultado["depois"]["ordemStatus"], "aprovado");
+            let atual: String = sqlx::query_scalar("SELECT ordem_status FROM producao_planejamento_semanal WHERE id = $1")
+                .bind(&id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(atual, if confirmar { "aprovado" } else { "planejado" });
+        }
+        let (i, p) = ("nao-existe".to_string(), payload);
+        let e = executar_em_2_passos(&pool, "aprovar_planejamento", false, |tx| {
+            Box::pin(async move { aprovar_planejamento_item(&mut **tx, &i, &p).await })
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(e.codigo, "nao_encontrado");
+        limpar_teste(&pool, &week).await;
     }
 
     #[tokio::test]

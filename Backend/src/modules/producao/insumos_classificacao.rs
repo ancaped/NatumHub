@@ -35,6 +35,27 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/producao/insumos-classificacao/buscar", get(buscar_rota))
 }
 
+/// Ações de consulta da classificação de insumos descritas para agentes (ver `core::catalogo`).
+pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
+    use crate::core::catalogo::{param, Acao};
+    vec![
+        Acao::leitura(
+            "listar_classificacao_insumos",
+            "producao",
+            "Lista os insumos classificados como não usado, trocado ou ok (fora da conta de cobertura quando não usados).",
+            "/api/producao/insumos-classificacao",
+            vec![],
+        ),
+        Acao::leitura(
+            "buscar_insumos_classificacao",
+            "producao",
+            "Busca insumos para classificar, por código ou descrição (mínimo 2 letras).",
+            "/api/producao/insumos-classificacao/buscar",
+            vec![param("q", "query", "texto", true, "Parte do código ou da descrição.")],
+        ),
+    ]
+}
+
 fn erro(status: StatusCode, msg: impl Into<String>) -> axum::response::Response {
     (status, Json(json!({ "error": msg.into() }))).into_response()
 }

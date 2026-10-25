@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
 import TirarEsperaDrawer from './TirarEsperaDrawer';
+import PreviaAcaoDrawer, { type PreviaAcao } from '../../producao/gerenciamento/components/PreviaAcaoDrawer';
 import {
   Table,
   Calendar as CalendarIcon,
@@ -64,6 +65,19 @@ import { getHoliday, isWeekend, HolidayInfo } from '../../geral/lib/brazilHolida
 import { api } from '../../geral/lib/api';
 import { FiscoQuimicaAnalysis } from '../../geral/lib/types';
 import { PlanejamentoSemanalTab } from '../../producao/gerenciamento/components/PlanejamentoSemanalTab';
+
+/** Linha da prévia do servidor ao redefinir o status de um lote (o que será apagado). */
+interface StatusApagadoPrevia {
+  loteNumber: string;
+  statusAnterior: string;
+  category?: string | null;
+  motivoEspera?: string | null;
+}
+
+const statusApagadoParaLinha = (a: StatusApagadoPrevia) => ({
+  titulo: `Lote ${a.loteNumber}`,
+  detalhe: [a.statusAnterior, a.category, a.motivoEspera].filter(Boolean).join(' · '),
+});
 
 import { CATEGORIAS_ENVASE, CORES_PREDEFINIDAS, ORDEM_CORES_FABRICA, REMOTE_LOOKUP_TTL_MS, REMOTE_LOTES_TTL_MS, STATUS_OPTIONS, MOTIVOS_PAUSA_PADRAO, MONTH_NAMES, WEEKDAY_NAMES } from './lib/constantes';
 import { getTodayIso, parseLoteDateToIso, formatDateOnly, formatWeekdayAndDate, formatShortWeekday, formatDateTime, formatDateShort, formatDurationBetween } from './lib/datas';
@@ -465,8 +479,9 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           dataAgendada: dataAgendada || null,
         })
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error(`Erro ao persistir etapa ${etapa} do lote #${loteNumber}:`, err);
+      showToast(`Não foi possível salvar a etapa ${etapa} do lote #${loteNumber}: ${err?.message || err}`, 'error');
     }
   }, [currentUser]);
 
@@ -549,6 +564,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   const [editingPrevisaoSolicId, setEditingPrevisaoSolicId] = useState<number | null>(null);
   const [tempPrevisaoSolicVal, setTempPrevisaoSolicVal] = useState<string>('');
   const [savingPrevisaoSolic, setSavingPrevisaoSolic] = useState(false);
+
+  const [previaAcao, setPreviaAcao] = useState<PreviaAcao | null>(null);
 
   const showToast = (text: string, type: 'success' | 'error' = 'success') => {
     setToastMessage({ text, type });
@@ -1213,14 +1230,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           body: JSON.stringify({
             dataProducao: new Date(`${cleanDate}T08:00:00Z`).toISOString()
           })
-        }).catch(() => {});
+        }).catch((e: any) => showToast(`Não foi possível salvar a data da produção: ${e?.message || e}`, 'error'));
       } else if (etapa === 'pesagem') {
         await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(loteNumber)}/timestamps`, {
           method: 'POST',
           body: JSON.stringify({
             dataPesagem: new Date(`${cleanDate}T08:00:00Z`).toISOString()
           })
-        }).catch(() => {});
+        }).catch((e: any) => showToast(`Não foi possível salvar a data da pesagem: ${e?.message || e}`, 'error'));
       }
 
       // 4. Remover registro de adiamento do histórico reativo
@@ -1766,13 +1783,13 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     if (envaseEsperaMotivo === 'Envase Parcial (interrompido)') {
       motivoFinal = `Envase Parcial (${envaseEsperaParcialQtd || 0} un). Motivo restante: ${envaseEsperaMotivoRestante || 'Não especificado'}`;
       try {
-        await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(envaseEsperaItem.loteNumber)}/custom-status`, {
+        await apiJson('/api/administrativo/lote-status', {
           method: 'POST',
           body: JSON.stringify({
+            loteNumber: envaseEsperaItem.loteNumber,
             quantidadeEnvasadaParcial: envaseEsperaParcialQtd,
             motivoEspera: motivoFinal,
             customStatus: 'Ordem Parcial',
-            updatedBy: (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador',
           })
         });
         setLotes(prev => prev.map(l => (l.loteNumber || '').trim() === envaseEsperaItem.loteNumber.trim() ? {
@@ -1781,8 +1798,10 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           quantidadeEnvasadaParcial: envaseEsperaParcialQtd,
           motivoEspera: motivoFinal
         } : l));
-      } catch (err) {
-        console.error('Erro ao salvar custom-status parcial no backend:', err);
+      } catch (err: any) {
+        console.error('Erro ao salvar o envase parcial no backend:', err);
+        showToast(`Não foi possível registrar o envase parcial: ${err?.message || err}`, 'error');
+        return;
       }
     }
     handleChangeStatusEnvase(envaseEsperaItem, 'EM_ESPERA', motivoFinal);
@@ -1793,7 +1812,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   const handleToggleCaldeiraLote = async (loteNumber: string) => {
     const isCurrentlyCaldeira = lotesComCaldeira.has(loteNumber) || lotes.some(l => l.loteNumber === loteNumber && l.category === 'Caldeira');
     const newIsCaldeira = !isCurrentlyCaldeira;
-    const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
 
     setLotesComCaldeira(prev => {
       const next = new Set(prev);
@@ -1810,18 +1828,19 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
     setLotes(prev => prev.map(l => l.loteNumber === loteNumber ? { ...l, category: newIsCaldeira ? 'Caldeira' : null } : l));
 
+    // Só a marcação de caldeira muda: sem customStatus o servidor mantém o status do lote.
     try {
       await apiJson('/api/administrativo/lote-status', {
         method: 'POST',
         body: JSON.stringify({
           loteNumber,
-          customStatus: 'Produzido',
           category: newIsCaldeira ? 'Caldeira' : null,
-          updatedBy: responsibleName
         })
       });
-    } catch (e) {
+    } catch (e: any) {
       console.error('Erro ao atualizar Caldeira no backend:', e);
+      showToast(`Não foi possível salvar a marcação de Caldeira: ${e?.message || e}`, 'error');
+      return;
     }
 
     if (newIsCaldeira) {
@@ -2583,7 +2602,30 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   };
 
   // Salvar alteração de status com motivo opcional
-  const executeStatusUpdate = async (loteNumber: string, newStatus: string, motivoEspera: string | null) => {
+  const executeStatusUpdate = async (loteNumber: string, newStatus: string, motivoEspera: string | null, resetConfirmado = false) => {
+    // Redefinir o status apaga a linha do lote: mostra a prévia do servidor e só apaga ao confirmar
+    if (!newStatus && !resetConfirmado) {
+      try {
+        const r = await apiJson<{ resultado: StatusApagadoPrevia[] }>(
+          `/api/administrativo/lote-status/${encodeURIComponent(loteNumber)}?confirmar=false`,
+          { method: 'DELETE' }
+        );
+        if (!r.resultado?.length) {
+          showToast(`Lote ${loteNumber} já está no status padrão.`);
+          return;
+        }
+        setPreviaAcao({
+          titulo: 'Redefinir status do lote',
+          linhas: r.resultado.map(statusApagadoParaLinha),
+          avisos: ['O status, a categoria e o motivo de espera gravados serão apagados (fica registrado no histórico do lote).'],
+          confirmarRotulo: 'Redefinir',
+          executar: async () => { await executeStatusUpdate(loteNumber, newStatus, motivoEspera, true); },
+        });
+      } catch (err: any) {
+        showToast(`Não foi possível consultar o lote: ${err?.message || err}`, 'error');
+      }
+      return;
+    }
     setSavingLote(loteNumber);
     const previousLotes = [...lotes];
     const option = STATUS_OPTIONS.find(o => o.value === newStatus);
@@ -2663,7 +2705,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
     try {
       if (!newStatus) {
-        await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(loteNumber)}`, {
+        await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(loteNumber)}?confirmar=true`, {
           method: 'DELETE',
         });
         showToast(`Lote ${loteNumber} redefinido para status padrão.`);
@@ -3559,7 +3601,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     }
   };
 
-  const handleApplyBatchStatus = async (statusValue: string, motivoOverride?: string | null) => {
+  const handleApplyBatchStatus = async (statusValue: string, motivoOverride?: string | null, resetConfirmado = false) => {
     if (!statusValue) return;
     if (statusValue === 'Em Espera' && motivoOverride === undefined) {
       setShowBatchEsperaModal(true);
@@ -3579,16 +3621,32 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       : null;
 
     try {
-      await apiJson('/api/administrativo/lote-status/batch', {
+      // Reset em lote apaga a linha de cada lote: prévia do servidor primeiro, depois confirma
+      const url = finalStatus ? '/api/administrativo/lote-status/batch' : `/api/administrativo/lote-status/batch?confirmar=${resetConfirmado}`;
+      const resp = await apiJson<{ resultado?: StatusApagadoPrevia[] }>(url, {
         method: 'POST',
         body: JSON.stringify({
           loteNumbers,
           customStatus: finalStatus,
           category,
-          updatedBy: responsibleName,
           motivoEspera: finalMotivo,
         })
       });
+      if (!finalStatus && !resetConfirmado) {
+        const apagados = resp.resultado ?? [];
+        if (apagados.length === 0) {
+          showToast('Nenhum dos lotes selecionados tem status gravado para redefinir.');
+        } else {
+          setPreviaAcao({
+            titulo: 'Redefinir status dos lotes',
+            linhas: apagados.map(statusApagadoParaLinha),
+            avisos: ['O status, a categoria e o motivo de espera gravados serão apagados (fica registrado no histórico de cada lote).'],
+            confirmarRotulo: `Redefinir ${apagados.length} lote(s)`,
+            executar: async () => { await handleApplyBatchStatus(statusValue, motivoOverride, true); },
+          });
+        }
+        return;
+      }
 
       showToast(`${loteNumbers.length} lote(s) atualizado(s) para "${finalStatus || 'Padrão'}".`);
       setSelectedLotes(new Set());
@@ -6661,6 +6719,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       onTabChange={(id) => setCurrentTab(id as TabType)}
 
     >
+      {previaAcao && <PreviaAcaoDrawer previa={previaAcao} onClose={() => setPreviaAcao(null)} />}
       {/* Toast flutuante de confirmação */}
       {toastMessage && (
         <div className="fixed top-16 right-6 z-50 animate-in fade-in slide-in-from-top-3 duration-200">

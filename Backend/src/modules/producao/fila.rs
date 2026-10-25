@@ -4,7 +4,7 @@
 //! `fila_descartada` na mesma transação. Toda retirada vai para `producao_auditoria`.
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post},
@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
 
-use crate::core::acao::ErroApi;
+use crate::core::acao::{executar_em_2_passos, Confirmar, ErroApi};
 use crate::core::catalogo::{param, Acao};
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
@@ -54,17 +54,30 @@ pub fn acoes() -> Vec<Acao> {
         Acao::gravacao(
             "atualizar_demanda_fila",
             M,
-            "Ajusta quantidade, kg, unidade, observações ou prioridade de um item da fila.",
+            "Ajusta quantidade, kg, unidade, observações ou prioridade de um item da fila. Sem `confirmar=true` mostra só a prévia (antes e depois).",
             "PATCH",
             "/api/producao/fila-demandas/:id",
-            false,
+            true,
             vec![
                 param("id", "caminho", "texto", true, "Id do item da fila."),
+                param("confirmar", "query", "booleano", false, "true para gravar de fato."),
                 param("quantidade", "corpo", "número", false, "Nova quantidade."),
                 param("quantidade_kg", "corpo", "número", false, "Novos kg."),
                 param("unidade", "corpo", "texto", false, "Nova unidade."),
                 param("observacoes", "corpo", "texto", false, "Observações."),
                 param("prioridade", "corpo", "inteiro", false, "Prioridade (menor vem primeiro)."),
+            ],
+        ),
+        Acao::gravacao(
+            "excluir_da_fila",
+            M,
+            "Apaga um item da fila sem registrar motivo (para tirar com motivo use `retirar_da_fila`). Sem `confirmar=true` mostra só a prévia.",
+            "DELETE",
+            "/api/producao/fila-demandas/:id",
+            true,
+            vec![
+                param("id", "caminho", "texto", true, "Id do item da fila."),
+                param("confirmar", "query", "booleano", false, "true para excluir de fato."),
             ],
         ),
         Acao::gravacao(
@@ -365,8 +378,15 @@ pub async fn create_fila_demandas(
     };
 
     match gravar_fila_demandas(pool, items).await {
-        Ok(ids) => {
-            auditoria::registrar(pool, &ctx.display_name, "enviar_para_fila", &format!("{} itens", ids.len()), json!({ "ids": ids })).await;
+        Ok((ids, antes, depois)) => {
+            auditoria::registrar(
+                pool,
+                &ctx.display_name,
+                "enviar_para_fila",
+                &format!("{} itens", ids.len()),
+                json!({ "ids": ids, "antes": antes, "depois": depois }),
+            )
+            .await;
             (
                 StatusCode::OK,
                 Json(json!({ "ok": true, "count": ids.len(), "ids": ids })),
@@ -379,12 +399,24 @@ pub async fn create_fila_demandas(
 
 /// Grava todos os itens numa transação. A fila tem uma linha por SKU, mas sem constraint única;
 /// o advisory lock por código impede que dois POST simultâneos dupliquem o SKU.
+/// Linhas da fila (sem carimbos de data) pelos ids, em ordem de código.
+async fn instantaneo_fila(conn: &mut sqlx::PgConnection, ids: &[String]) -> Result<Vec<Value>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT to_jsonb(t) - 'created_at' - 'updated_at' FROM producao_fila_demandas t WHERE id = ANY($1) ORDER BY codigo_produto, id",
+    )
+    .bind(ids)
+    .fetch_all(&mut *conn)
+    .await
+}
+
+/// Devolve os ids gravados e as linhas antes e depois (para a auditoria).
 async fn gravar_fila_demandas(
     pool: &PgPool,
     items: Vec<CreateFilaDemandaItem>,
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<(Vec<String>, Vec<Value>, Vec<Value>), sqlx::Error> {
     let mut tx = pool.begin().await?;
     let mut ids = Vec::new();
+    let mut antes: Vec<Value> = Vec::new();
     for it in items {
         sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
             .bind(&it.codigo_produto)
@@ -399,6 +431,7 @@ async fn gravar_fila_demandas(
         .await?;
 
         if let Some(eid) = existing_id {
+            antes.extend(instantaneo_fila(&mut tx, std::slice::from_ref(&eid)).await?);
             if it.modo.as_deref() == Some("somar") {
                 sqlx::query(
                     r#"
@@ -474,8 +507,9 @@ async fn gravar_fila_demandas(
         .await?;
         ids.push(new_id);
     }
+    let depois = instantaneo_fila(&mut tx, &ids).await?;
     tx.commit().await?;
-    Ok(ids)
+    Ok((ids, antes, depois))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -488,17 +522,15 @@ pub struct UpdateFilaDemandaPayload {
     pub prioridade: Option<i32>,
 }
 
-pub async fn update_fila_demanda(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<AuthContext>,
-    Path(id): Path<String>,
-    Json(payload): Json<UpdateFilaDemandaPayload>,
-) -> impl IntoResponse {
-    if let Err(r) = permissao::exigir_edicao(&ctx) {
-        return r;
-    }
-    let pool = state.db.pool();
-    let q = r#"
+/// Atualiza o item com a linha travada. Devolve a linha antes e depois; inexistente = 404.
+async fn atualizar_fila_item(
+    conn: &mut sqlx::PgConnection,
+    id: &str,
+    payload: &UpdateFilaDemandaPayload,
+) -> Result<Value, ErroApi> {
+    let antes = instantaneo_fila_travado(&mut *conn, id).await?;
+    let depois: Value = sqlx::query_scalar(
+        r#"
         UPDATE producao_fila_demandas
         SET quantidade = COALESCE($1, quantidade),
             quantidade_kg = COALESCE($2, quantidade_kg),
@@ -507,55 +539,95 @@ pub async fn update_fila_demanda(
             prioridade = COALESCE($5, prioridade),
             updated_at = CURRENT_TIMESTAMP
         WHERE id = $6
-    "#;
+        RETURNING to_jsonb(producao_fila_demandas) - 'created_at' - 'updated_at'
+        "#,
+    )
+    .bind(payload.quantidade)
+    .bind(payload.quantidade_kg)
+    .bind(payload.unidade.as_deref())
+    .bind(payload.observacoes.as_deref())
+    .bind(payload.prioridade)
+    .bind(id)
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(json!({ "id": id, "antes": antes, "depois": depois }))
+}
 
-    match sqlx::query(q)
-        .bind(payload.quantidade)
-        .bind(payload.quantidade_kg)
-        .bind(payload.unidade)
-        .bind(payload.observacoes)
-        .bind(payload.prioridade)
-        .bind(&id)
-        .execute(pool)
-        .await
-    {
-        Ok(res) if res.rows_affected() == 0 => ErroApi::nao_encontrado("Item da fila não encontrado.").into_response(),
-        Ok(res) => {
-            auditoria::registrar(pool, &ctx.display_name, "atualizar_fila", &id, json!({})).await;
-            (
-                StatusCode::OK,
-                Json(json!({ "ok": true, "updated": res.rows_affected() })),
-            )
-                .into_response()
-        }
-        Err(e) => ErroApi::interno(format!("Erro ao atualizar item da fila: {}", e)).into_response(),
+async fn instantaneo_fila_travado(conn: &mut sqlx::PgConnection, id: &str) -> Result<Value, ErroApi> {
+    sqlx::query_scalar::<_, Value>(
+        "SELECT to_jsonb(t) - 'created_at' - 'updated_at' FROM producao_fila_demandas t WHERE id = $1 FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or_else(|| ErroApi::nao_encontrado("Item da fila não encontrado."))
+}
+
+pub async fn update_fila_demanda(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Path(id): Path<String>,
+    Query(q): Query<Confirmar>,
+    Json(payload): Json<UpdateFilaDemandaPayload>,
+) -> impl IntoResponse {
+    if let Err(r) = permissao::exigir_edicao(&ctx) {
+        return r;
     }
+    let pool = state.db.pool();
+    let id_tx = id.clone();
+    let r = executar_em_2_passos(pool, "atualizar_fila", q.confirmar, |tx| {
+        Box::pin(async move { atualizar_fila_item(&mut **tx, &id_tx, &payload).await })
+    })
+    .await;
+    match r {
+        Ok(r) if r.previa => (
+            StatusCode::OK,
+            Json(json!({ "previa": true, "acao": "atualizar_fila", "item": r.resultado, "confirmar": "repita com confirmar=true para gravar" })),
+        )
+            .into_response(),
+        Ok(r) => {
+            auditoria::registrar(pool, &ctx.display_name, "atualizar_fila", &id, r.resultado.clone()).await;
+            (StatusCode::OK, Json(json!({ "ok": true, "updated": 1, "item": r.resultado }))).into_response()
+        }
+        Err(e) => e.into_response(),
+    }
+}
+
+async fn excluir_fila_item(conn: &mut sqlx::PgConnection, id: &str) -> Result<Value, ErroApi> {
+    let item = instantaneo_fila_travado(&mut *conn, id).await?;
+    sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1")
+        .bind(id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(item)
 }
 
 pub async fn delete_fila_demanda(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<String>,
+    Query(q): Query<Confirmar>,
 ) -> impl IntoResponse {
     if let Err(r) = permissao::exigir_edicao(&ctx) {
         return r;
     }
     let pool = state.db.pool();
-    match sqlx::query("DELETE FROM producao_fila_demandas WHERE id = $1")
-        .bind(&id)
-        .execute(pool)
-        .await
-    {
-        Ok(res) if res.rows_affected() == 0 => ErroApi::nao_encontrado("Item da fila não encontrado.").into_response(),
-        Ok(res) => {
-            auditoria::registrar(pool, &ctx.display_name, "excluir_da_fila", &id, json!({})).await;
-            (
-                StatusCode::OK,
-                Json(json!({ "ok": true, "deleted": res.rows_affected() })),
-            )
-                .into_response()
+    let id_tx = id.clone();
+    let r = executar_em_2_passos(pool, "excluir_da_fila", q.confirmar, |tx| {
+        Box::pin(async move { excluir_fila_item(&mut **tx, &id_tx).await })
+    })
+    .await;
+    match r {
+        Ok(r) if r.previa => (
+            StatusCode::OK,
+            Json(json!({ "previa": true, "acao": "excluir_da_fila", "item": r.resultado, "confirmar": "repita com confirmar=true para excluir" })),
+        )
+            .into_response(),
+        Ok(r) => {
+            auditoria::registrar(pool, &ctx.display_name, "excluir_da_fila", &id, json!({ "item": r.resultado })).await;
+            (StatusCode::OK, Json(json!({ "ok": true, "deleted": 1, "item": r.resultado }))).into_response()
         }
-        Err(e) => ErroApi::interno(format!("Erro ao excluir item da fila: {}", e)).into_response(),
+        Err(e) => e.into_response(),
     }
 }
 
@@ -580,21 +652,23 @@ pub enum ResultadoConsumo {
 /// Peso (kg) de uma unidade, lido da descrição ("500ML" -> 0.5). Porta fiel de `parseProductUnitWeightKg`
 /// do front: sem medida (ou medida <= 0) vale 1.0.
 pub fn peso_unitario_kg(descricao: &str) -> f64 {
+    medida_kg(descricao).unwrap_or(1.0)
+}
+
+/// Mesma leitura de `peso_unitario_kg`, mas `None` quando a descrição não traz uma medida válida.
+pub fn medida_kg(descricao: &str) -> Option<f64> {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| regex::Regex::new(r"(\d+(?:[.,]\d+)?)\s*(ML|L|GR|G|KG)\b").unwrap());
     let desc = descricao.to_uppercase();
-    let Some(m) = re.captures(&desc) else { return 1.0 };
-    let val: f64 = match m[1].replace(',', ".").parse() {
-        Ok(v) => v,
-        Err(_) => return 1.0,
-    };
+    let m = re.captures(&desc)?;
+    let val: f64 = m[1].replace(',', ".").parse().ok()?;
     if val <= 0.0 {
-        return 1.0;
+        return None;
     }
     match &m[2] {
-        "KG" | "L" => val,
-        "G" | "GR" | "ML" => val / 1000.0,
-        _ => 1.0,
+        "KG" | "L" => Some(val),
+        "G" | "GR" | "ML" => Some(val / 1000.0),
+        _ => None,
     }
 }
 
@@ -652,6 +726,9 @@ mod tests {
         assert_eq!(peso_unitario_kg("OLEO 1L"), 1.0);
         assert_eq!(peso_unitario_kg("SEM MEDIDA"), 1.0);
         assert_eq!(peso_unitario_kg("X 0ML"), 1.0);
+        assert_eq!(medida_kg("SHAMPOO 500ML"), Some(0.5));
+        assert_eq!(medida_kg("SEM MEDIDA"), None);
+        assert_eq!(medida_kg("X 0ML"), None);
     }
 
     #[test]
@@ -660,6 +737,60 @@ mod tests {
         assert_eq!(batch_da_observacao("[BATCH: G7 ]").as_deref(), Some("G7"));
         assert_eq!(batch_da_observacao("sem tag"), None);
         assert_eq!(batch_da_observacao("[batch:]"), None);
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn atualizar_e_excluir_item_da_fila_so_gravam_com_confirmar() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        let id = format!("tf2-{}", uuid::Uuid::new_v4());
+        sqlx::query(
+            "INSERT INTO producao_fila_demandas (id, codigo_produto, descricao, quantidade, unidade, quantidade_kg, origem_demanda) \
+             VALUES ($1, 'TF2.001', 'TESTE 500ML', 10, 'un', 5, 'teste')",
+        )
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let qtd = |pool: PgPool, id: String| async move {
+            sqlx::query_scalar::<_, Option<f64>>("SELECT quantidade::float8 FROM producao_fila_demandas WHERE id = $1")
+                .bind(id)
+                .fetch_optional(&pool)
+                .await
+                .unwrap()
+                .flatten()
+        };
+        let payload = || UpdateFilaDemandaPayload { quantidade: Some(20.0), quantidade_kg: Some(10.0), unidade: None, observacoes: None, prioridade: None };
+
+        for confirmar in [false, true] {
+            let (i, p) = (id.clone(), payload());
+            let r = executar_em_2_passos(&pool, "atualizar_fila", confirmar, |tx| {
+                Box::pin(async move { atualizar_fila_item(&mut **tx, &i, &p).await })
+            })
+            .await
+            .unwrap();
+            assert_eq!(r.resultado["antes"]["quantidade"].as_f64(), Some(10.0));
+            assert_eq!(r.resultado["depois"]["quantidade"].as_f64(), Some(20.0));
+            assert_eq!(qtd(pool.clone(), id.clone()).await, Some(if confirmar { 20.0 } else { 10.0 }));
+        }
+        for confirmar in [false, true] {
+            let i = id.clone();
+            let r = executar_em_2_passos(&pool, "excluir_da_fila", confirmar, |tx| {
+                Box::pin(async move { excluir_fila_item(&mut **tx, &i).await })
+            })
+            .await
+            .unwrap();
+            assert_eq!(r.resultado["codigo_produto"], "TF2.001");
+            assert_eq!(qtd(pool.clone(), id.clone()).await.is_some(), !confirmar);
+        }
+        let i = id.clone();
+        let e = executar_em_2_passos(&pool, "excluir_da_fila", true, |tx| {
+            Box::pin(async move { excluir_fila_item(&mut **tx, &i).await })
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(e.codigo, "nao_encontrado");
     }
 
     /// Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.

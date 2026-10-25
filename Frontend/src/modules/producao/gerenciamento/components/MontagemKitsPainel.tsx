@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../../../geral/lib/http';
+import { usePreviaServidor } from '../../lib/usePreviaServidor';
 import { kitComponentNeedQty, kitOrderComponentNeed } from '../../lib/kitComponentQty';
 import {
   Search, RefreshCw, HelpCircle, Layers, Boxes, ClipboardList, Package, ChevronRight, Printer,
@@ -164,6 +165,7 @@ export function MontagemKitsPainel({ tabOptions = [], onOpenComposition }: Props
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  const { pedir: pedirPrevia, abrir: abrirPrevia, elemento: previaElemento } = usePreviaServidor((mensagem) => setAviso(mensagem));
   const [qtdDraft, setQtdDraft] = useState<Record<string, string>>({});
   const [concluirQtd, setConcluirQtd] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -289,17 +291,34 @@ export function MontagemKitsPainel({ tabOptions = [], onOpenComposition }: Props
     const code = String(p.codigo);
     const qtd = qtdDaOrdem(k, code);
     const jaAbertas = abertas.filter((o) => String(o.kitProductCode) === code);
-    if (jaAbertas.length > 0 && !window.confirm(`Já existe ordem em aberto para ${code} (${jaAbertas.map((o) => o.orderNumber).join(', ')}). Criar outra?`)) {
-      return;
-    }
     if (qtd <= 0) {
       setAviso(`O estoque de ${code} já está comprometido nas ordens abertas. Informe outra quantidade se quiser uma ordem extra.`);
       return;
     }
     const cobreAgora = Number(k.max_montavel_estoque) || 0;
-    if (qtd > cobreAgora && !window.confirm(`O estoque cobre ${cobreAgora} un e a ordem pede ${qtd}. Criar assim mesmo?`)) {
+    const avisos: string[] = [];
+    if (jaAbertas.length > 0) {
+      avisos.push(`Já existe ordem em aberto para ${code} (${jaAbertas.map((o) => o.orderNumber).join(', ')}). Criar outra?`);
+    }
+    if (qtd > cobreAgora) {
+      avisos.push(`O estoque cobre ${cobreAgora} un e a ordem pede ${qtd}. Criar assim mesmo?`);
+    }
+    if (avisos.length > 0) {
+      abrirPrevia({
+        titulo: 'Criar ordem de montagem',
+        linhas: [{ titulo: p.descricao || code, detalhe: `${qtd} un de ${code}` }],
+        avisos,
+        confirmarRotulo: 'OK, criar a ordem',
+        executar: () => gravarOrdem(k, eImprimir, qtd),
+      });
       return;
     }
+    await gravarOrdem(k, eImprimir, qtd);
+  };
+
+  const gravarOrdem = async (k: any, eImprimir: boolean, qtd: number) => {
+    const p = kitProduto(k);
+    const code = String(p.codigo);
     setBusy(code);
     setAviso(null);
     try {
@@ -342,6 +361,9 @@ export function MontagemKitsPainel({ tabOptions = [], onOpenComposition }: Props
         setAviso(err.error || 'Não foi possível criar a ordem.');
         return;
       }
+      // O servidor pode trocar o número se outro operador pegou o mesmo antes.
+      const resposta = await res.json().catch(() => ({}));
+      if (resposta?.orderNumber) orderNum = resposta.orderNumber;
       setQtdDraft((prev) => ({ ...prev, [code]: '' }));
       setAviso(`Ordem ${orderNum} criada: ${qtd} un de ${code}.`);
       setOpen(code);
@@ -379,16 +401,25 @@ export function MontagemKitsPainel({ tabOptions = [], onOpenComposition }: Props
     await load();
   };
 
+  // Excluir é escrita em 2 passos: o servidor devolve a ordem que sairia e só apaga com confirmar=true.
   const excluirOrdem = async (id: number) => {
-    if (!window.confirm('Excluir esta ordem de montagem?')) return;
     setBusy(String(id));
-    const res = await apiFetch(`/kits/orders/${id}`, { method: 'DELETE' });
-    setBusy(null);
-    if (!res.ok) {
-      setAviso('Não foi possível excluir a ordem.');
-      return;
+    try {
+      await pedirPrevia({
+        url: `/kits/orders/${id}`,
+        init: { method: 'DELETE' },
+        titulo: 'Excluir ordem de montagem',
+        confirmarRotulo: 'OK, excluir',
+        linhas: (d) => [{
+          titulo: `Ordem ${d.item?.order_number ?? id}`,
+          detalhe: `${d.item?.kit_product_code ?? ''} • ${d.item?.quantity ?? ''} un`,
+        }],
+        erroPadrao: 'Não foi possível excluir a ordem.',
+        aoConcluir: load,
+      });
+    } finally {
+      setBusy(null);
     }
-    await load();
   };
 
   const visiveis = useMemo(() => {
@@ -424,6 +455,7 @@ export function MontagemKitsPainel({ tabOptions = [], onOpenComposition }: Props
 
   return (
     <div className="view-container animate-in fade-in duration-200">
+      {previaElemento}
       {printing && (
         <>
           <style>{kitOrderPrintStyle}</style>

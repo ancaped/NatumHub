@@ -5,14 +5,17 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
+    Extension, Json, Router,
 };
 use serde_json::json;
 use sqlx::Row;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::core::acao::{executar_em_2_passos, Confirmar, ErroApi};
 use crate::core::db::Db;
+use crate::modules::geral::auth::models::AuthContext;
+use crate::modules::producao::{auditoria, permissao};
 use crate::core::catalogo::{param, Acao};
 use crate::handlers::imports::clean_product_code;
 use crate::handlers::AppState;
@@ -28,9 +31,10 @@ pub fn router() -> Router<Arc<AppState>> {
 }
 
 /// Ações do cadastro/cálculo de produtos descritas para agentes (ver `core::catalogo`).
-/// O recálculo e o ajuste de estoque ficam de fora de propósito.
+/// Só a prévia do recálculo entra aqui; o ajuste de estoque (escrita) fica de fora de propósito.
 pub fn acoes() -> Vec<Acao> {
-    vec![Acao::leitura(
+    vec![
+        Acao::leitura(
         "listar_produtos",
         "producao",
         "Lista produtos com estoque, vendas, cobertura e sugestão de produção calculados na hora. Filtre e pagine para respostas menores.",
@@ -48,7 +52,18 @@ pub fn acoes() -> Vec<Acao> {
             param("suspended_only", "query", "booleano", false, "Só os suspensos."),
             param("fixas_only", "query", "booleano", false, "Só produção fixa."),
         ],
-    )]
+    ),
+        Acao::leitura(
+            "previa_recalculo_estoque_insumo",
+            "producao",
+            "Calcula quanto de um insumo/embalagem foi consumido pela produção lançada de um produto e qual deveria ser o estoque (só leitura; o ajuste é feito na tela).",
+            "/api/producao/recalcular/preview",
+            vec![
+                param("product_code", "query", "texto", true, "Código do produto acabado."),
+                param("ingredient_code", "query", "texto", true, "Código do insumo/embalagem."),
+            ],
+        ),
+    ]
 }
 
 // Helper to query all needed arrays for calculations
@@ -441,7 +456,6 @@ pub async fn list_products(
     }
 
     // Fila de demandas e Planejamento ativo
-    let _ = crate::modules::producao::fila::ensure_fila_demandas_table(pool).await;
     let mut fila_set = std::collections::HashSet::new();
     if let Ok(rows) = sqlx::query("SELECT codigo_produto FROM producao_fila_demandas")
         .fetch_all(pool)
@@ -1055,64 +1069,104 @@ pub async fn preview_recalculation(
     ).into_response()
 }
 
-// POST /api/producao/recalcular/ajustar
-pub async fn apply_recalculation_adjustment(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<crate::models::RecalculationAdjustmentRequest>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
-
-    let (current_stock, reserved_qty, in_production, in_orders): (f64, f64, f64, f64) =
-        match sqlx::query(
-            "SELECT stock_qty, reserved_qty, in_production, in_orders FROM stock_snapshots ss
-             WHERE ss.item_code = $1
-             ORDER BY ss.snapshot_date DESC, ss.id DESC LIMIT 1",
-        )
-        .bind(&payload.ingredient_code)
-        .fetch_optional(pool)
-        .await
-        {
-            Ok(Some(row)) => (
-                row.get(0),
-                row.get(1),
-                row.get(2),
-                row.get(3),
-            ),
-            _ => (0.0, 0.0, 0.0, 0.0),
-        };
-
+/// Ajuste manual do estoque de um insumo/embalagem (recálculo retrospectivo): grava um snapshot `MANUAL_ADJUST`
+/// com o estoque atual menos `adjustment_qty` (nunca abaixo de zero). Roda na transação de quem chama.
+/// Devolve o insumo, o estoque de antes e o de depois.
+async fn ajustar_estoque_insumo(
+    conn: &mut sqlx::PgConnection,
+    payload: &crate::models::RecalculationAdjustmentRequest,
+) -> Result<serde_json::Value, ErroApi> {
+    let codigo = payload.ingredient_code.trim();
+    if codigo.is_empty() {
+        return Err(ErroApi::invalido("Informe o código do insumo."));
+    }
+    if !payload.adjustment_qty.is_finite() || payload.adjustment_qty < 0.0 {
+        return Err(ErroApi::invalido("O valor do ajuste deve ser um número maior ou igual a zero."));
+    }
+    let atual = sqlx::query(
+        "SELECT stock_qty, reserved_qty, in_production, in_orders FROM stock_snapshots ss
+         WHERE ss.item_code = $1
+         ORDER BY ss.snapshot_date DESC, ss.id DESC LIMIT 1",
+    )
+    .bind(codigo)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let (current_stock, reserved_qty, in_production, in_orders): (f64, f64, f64, f64) = match atual {
+        Some(row) => (row.get(0), row.get(1), row.get(2), row.get(3)),
+        None => (0.0, 0.0, 0.0, 0.0),
+    };
     let new_stock = (current_stock - payload.adjustment_qty).max(0.0);
 
-    let _ = sqlx::query(
+    sqlx::query(
         "INSERT INTO stock_imports (id, filename, source, imported_at, item_count)
          VALUES ('MANUAL_ADJUST', 'Ajuste Manual', 'AJUSTE', NOW(), 1)
          ON CONFLICT(id) DO NOTHING",
     )
-    .execute(pool)
-    .await;
-
-    let new_uuid = uuid::Uuid::new_v4().to_string();
-
-    match sqlx::query(
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query(
         "INSERT INTO stock_snapshots (id, import_id, item_code, stock_qty, reserved_qty, in_production, in_orders, snapshot_date)
          VALUES ($1, 'MANUAL_ADJUST', $2, $3, $4, $5, $6, NOW())",
     )
-    .bind(&new_uuid)
-    .bind(&payload.ingredient_code)
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(codigo)
     .bind(new_stock)
     .bind(reserved_qty)
     .bind(in_production)
     .bind(in_orders)
-    .execute(pool)
-    .await
-    {
-        Ok(_) => (
+    .execute(&mut *conn)
+    .await?;
+    Ok(json!({
+        "ingredientCode": codigo,
+        "estoqueAtual": current_stock,
+        "estoqueNovo": new_stock,
+        "ajuste": payload.adjustment_qty,
+        "motivo": payload.reason,
+    }))
+}
+
+// POST /api/producao/recalcular/ajustar
+// Escrita em 2 passos: sem `confirmar=true` só devolve a prévia (estoque atual -> novo).
+pub async fn apply_recalculation_adjustment(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(q): Query<Confirmar>,
+    Json(payload): Json<crate::models::RecalculationAdjustmentRequest>,
+) -> impl IntoResponse {
+    if let Err(r) = permissao::exigir_edicao_em(&ctx, crate::modules::geral::auth::store::modulos_da_rota("/api/producao/recalcular/ajustar").unwrap_or(&[])) {
+        return r;
+    }
+    let pool = state.db.pool();
+    let r = executar_em_2_passos(pool, "ajustar_estoque_recalculo", q.confirmar, |tx| {
+        Box::pin(async move { ajustar_estoque_insumo(&mut **tx, &payload).await })
+    })
+    .await;
+    match r {
+        Ok(r) if r.previa => (
             StatusCode::OK,
-            Json(json!({ 
-                "status": "success", 
-                "message": format!("Estoque da embalagem/insumo {} ajustado de {} para {} com sucesso!", payload.ingredient_code, current_stock, new_stock) 
-            }))
-        ).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("Erro ao inserir snapshot de ajuste: {}", e) }))).into_response(),
+            Json(json!({
+                "previa": true, "acao": "ajustar_estoque_recalculo", "item": r.resultado,
+                "confirmar": "repita com confirmar=true para gravar"
+            })),
+        )
+            .into_response(),
+        Ok(r) => {
+            let item = r.resultado;
+            let codigo = item["ingredientCode"].as_str().unwrap_or_default().to_string();
+            auditoria::registrar(pool, &ctx.display_name, "ajustar_estoque_recalculo", &codigo, item.clone()).await;
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "status": "success",
+                    "message": format!(
+                        "Estoque da embalagem/insumo {} ajustado de {} para {} com sucesso!",
+                        codigo, item["estoqueAtual"], item["estoqueNovo"]
+                    ),
+                    "item": item,
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => e.into_response(),
     }
 }

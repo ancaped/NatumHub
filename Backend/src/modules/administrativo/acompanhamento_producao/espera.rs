@@ -164,6 +164,9 @@ pub async fn limpar_espera_rota(
     Path(lote): Path<String>,
     Json(c): Json<CorpoEspera>,
 ) -> impl IntoResponse {
+    if let Err(erro) = super::handlers::exigir_edicao(&ctx) {
+        return erro.into_response();
+    }
     let pool = state.db.pool();
     let lote = lote.trim().to_string();
     if !c.confirmar {

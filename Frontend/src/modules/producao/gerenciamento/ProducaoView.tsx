@@ -9,6 +9,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import { apiFetch } from '../../geral/lib/http';
+import { usePreviaServidor } from '../lib/usePreviaServidor';
 import { STATUS_IGNORADOS_PADRAO, DIAS_COMERCIAIS_PADRAO, LIMITE_POR_PAGINA_PADRAO, resolverSettingNumerica } from '../../geral/lib/regrasProduto';
 import { salesOrderStatusLabel } from '../../geral/lib/salesOrderStatus';
 
@@ -341,10 +342,12 @@ export default function ProducaoView({
     }
   };
 
+  // Ajuste de estoque em 2 passos: o servidor devolve estoque atual -> novo e só grava com confirmar=true.
   const handleApplyRecalc = async () => {
     if (!recalcPreview) return;
-    try {
-      const res = await apiFetch(`/producao/recalcular/ajustar`, {
+    await pedirPrevia({
+      url: `/producao/recalcular/ajustar`,
+      init: {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -352,20 +355,22 @@ export default function ProducaoView({
           adjustment_qty: recalcPreview.total_consumption,
           reason: `Recálculo retrospectivo de embalagem baseado na produção de ${recalcPreview.total_produced} un de ${recalcPreview.product_code}`
         })
-      });
-      if (res.ok) {
-        const data = await res.json();
+      },
+      titulo: 'Ajustar estoque do insumo',
+      confirmarRotulo: 'OK, ajustar o estoque',
+      linhas: (d) => [{
+        titulo: `${recalcPreview.ingredient_description || d.item?.ingredientCode || recalcPreview.ingredient_code}`,
+        detalhe: `${d.item?.estoqueAtual} → ${d.item?.estoqueNovo}`,
+      }],
+      erroPadrao: 'Erro ao aplicar ajuste de estoque',
+      aoConcluir: (data) => {
         showToast(data.message || "Ajuste aplicado com sucesso!", "success");
         setRecalcPreview(null);
         setRecalcProd('');
         setRecalcIng('');
         fetchProducts(); // Refresh stocks list
-      } else {
-        showToast("Erro ao aplicar ajuste de estoque", "error");
-      }
-    } catch (err) {
-      console.error(err);
-    }
+      },
+    });
   };
 
   // === SORTING STATE ===
@@ -393,6 +398,11 @@ export default function ProducaoView({
     setToast({ message, type });
     setTimeout(() => setToast(null), 5000);
   };
+
+  // Escritas com prévia: o servidor (2 passos) ou a própria tela mostram o que muda e só gravam no OK.
+  const { pedir: pedirPrevia, abrir: abrirPrevia, elemento: previaElemento } = usePreviaServidor((mensagem, tipo) =>
+    showToast(mensagem, tipo === 'erro' ? 'error' : 'success')
+  );
 
   // === SORTING HELPERS ===
   const toggleSort = (field, currentField, setField, currentDir, setDir) => {
@@ -462,12 +472,18 @@ export default function ProducaoView({
     } catch (e) { showToast('Erro de conexão', 'error'); }
   };
 
-  const handleDeleteKitComposicao = async (kit, comp) => {
-    if (!window.confirm(`Remover componente ${comp} do kit ${kit}?`)) return;
-    try {
-      const res = await apiFetch(`/kits/composicao/${kit}/${comp}`, { method: 'DELETE' });
-      if (res.ok) { showToast('Relação removida!'); fetchKitComposicao(); }
-    } catch (e) { showToast('Erro', 'error'); }
+  const handleDeleteKitComposicao = (kit, comp) => {
+    abrirPrevia({
+      titulo: 'Remover componente do kit',
+      linhas: [{ titulo: `Componente ${comp}`, detalhe: `Kit ${kit}` }],
+      confirmarRotulo: 'OK, remover',
+      executar: async () => {
+        try {
+          const res = await apiFetch(`/kits/composicao/${kit}/${comp}`, { method: 'DELETE' });
+          if (res.ok) { showToast('Relação removida!'); fetchKitComposicao(); }
+        } catch (e) { showToast('Erro', 'error'); }
+      },
+    });
   };
 
   const handleUploadKitsConfig = async (e) => {
@@ -756,8 +772,16 @@ export default function ProducaoView({
     }
   }, [suspendedSearch]);
 
-  const handleUnsuspendProduct = async (code) => {
-    if (!window.confirm(`Deseja realmente reativar o produto ${code} e remover sua suspensão?`)) return;
+  const handleUnsuspendProduct = (code) => {
+    abrirPrevia({
+      titulo: 'Reativar produto',
+      linhas: [{ titulo: `Produto ${code}`, detalhe: 'Volta a ativo e sai da suspensão' }],
+      confirmarRotulo: 'OK, reativar',
+      executar: () => executarUnsuspendProduct(code),
+    });
+  };
+
+  const executarUnsuspendProduct = async (code) => {
     try {
       const res = await apiFetch(`/overrides`);
       if (res.ok) {
@@ -953,28 +977,29 @@ export default function ProducaoView({
     }
   };
 
+  // Estorno é escrita em 2 passos: o servidor devolve o que seria estornado e só grava com confirmar=true.
   const handleDeleteHistory = async (id) => {
-    if (!window.confirm("Tem certeza que deseja estornar este lote de produção? A quantidade correspondente será subtraída do estoque em processo.")) {
-      return;
-    }
-
-    try {
-      const res = await apiFetch(`/historico/${id}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
+    await pedirPrevia({
+      url: `/historico/${id}`,
+      init: { method: 'DELETE' },
+      titulo: 'Estornar lote de produção',
+      confirmarRotulo: 'OK, estornar',
+      linhas: (d) => [{
+        titulo: `${d.item?.codigo ?? 'Lote'} • ${d.item?.quantidade ?? ''} un`,
+        detalhe: d.item?.baseDevolvidaKg != null ? `devolve ${d.item.baseDevolvidaKg} kg à base ${d.item.baseCode}` : undefined,
+      }],
+      avisos: (d) => [
+        'A quantidade correspondente será subtraída do estoque em processo.',
+        ...(d.item?.aviso ? [d.item.aviso] : []),
+      ],
+      erroPadrao: 'Erro ao excluir lote de produção',
+      aoConcluir: () => {
         showToast("Lote de produção estornado com sucesso!", "success");
         fetchProducts();
         fetchKits();
         fetchHistory();
-      } else {
-        const err = await res.json();
-        showToast(err.error || "Erro ao excluir lote de produção", "error");
-      }
-    } catch (e) {
-      console.error(e);
-      showToast("Erro de conexão ao excluir lote", "error");
-    }
+      },
+    });
   };
 
   const handleTabChange = (tabId) => {
@@ -1105,27 +1130,30 @@ export default function ProducaoView({
       showToast("Não é possível excluir a linha padrão DEFAULT", "error");
       return;
     }
-    if (!window.confirm(`Tem certeza que deseja excluir permanentemente a linha de prefixo "${prefix}"?`)) {
-      return;
-    }
-
-    try {
-      const res = await apiFetch(`/configs/${prefix}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        showToast("Linha excluída com sucesso!", "success");
-        fetchConfigs();
-        fetchProducts();
-        fetchKits();
-      } else {
-        const data = await res.json();
-        showToast(data.error || "Erro ao excluir linha", "error");
-      }
-    } catch (e) {
-      console.error(e);
-      showToast("Erro de conexão ao excluir linha", "error");
-    }
+    abrirPrevia({
+      titulo: 'Excluir linha',
+      linhas: [{ titulo: `Linha "${prefix}"`, detalhe: 'Exclusão permanente' }],
+      confirmarRotulo: 'OK, excluir',
+      executar: async () => {
+        try {
+          const res = await apiFetch(`/configs/${prefix}`, {
+            method: 'DELETE',
+          });
+          if (res.ok) {
+            showToast("Linha excluída com sucesso!", "success");
+            fetchConfigs();
+            fetchProducts();
+            fetchKits();
+          } else {
+            const data = await res.json();
+            showToast(data.error || "Erro ao excluir linha", "error");
+          }
+        } catch (e) {
+          console.error(e);
+          showToast("Erro de conexão ao excluir linha", "error");
+        }
+      },
+    });
   };
 
   const handleConfigCreate = async (e) => {
@@ -2902,6 +2930,8 @@ export default function ProducaoView({
         />
 
 
+
+      {previaElemento}
 
       {/* Action status notification Toast */}
       {toast && (

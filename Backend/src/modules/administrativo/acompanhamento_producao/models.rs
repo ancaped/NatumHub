@@ -54,6 +54,22 @@ where
     }
 }
 
+/// Campo de escrita que distingue ausente (`None`: preserva o valor gravado) de `null` explícito (`Some(None)`: limpa).
+pub type Campo<T> = Option<Option<T>>;
+
+pub fn campo<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+/// Valor final de um `Campo` ao inserir uma linha nova (ausente e `null` viram NULL).
+pub fn valor_novo<T: Clone>(c: &Campo<T>) -> Option<T> {
+    c.clone().flatten()
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusHistoryEntry {
@@ -131,16 +147,25 @@ pub struct SaveLoteEtapaStatusPayload {
 #[serde(rename_all = "camelCase")]
 pub struct SaveLoteCustomStatusPayload {
     pub lote_number: String,
+    /// Ausente/vazio mantém o status gravado do lote (lote novo entra como "Aberto"): serve para mexer só em
+    /// categoria, espera etc. sem mudar o status.
+    #[serde(default)]
     pub custom_status: String,
-    pub category: Option<String>,
+    /// Ausente preserva; `null` limpa.
+    #[serde(default, deserialize_with = "campo")]
+    pub category: Campo<String>,
     pub updated_by: Option<String>,
     pub notes: Option<String>,
-    pub motivo_espera: Option<String>,
+    /// Ausente preserva; `null` limpa (e tira o lote de "Em Espera").
+    #[serde(default, deserialize_with = "campo")]
+    pub motivo_espera: Campo<String>,
     pub is_terceirizado: Option<bool>,
     pub ficha_ordem: Option<serde_json::Value>,
     pub quantidade_envasada_parcial: Option<f64>,
-    pub insumo_faltante_codigo: Option<String>,
-    pub insumo_faltante_descricao: Option<String>,
+    #[serde(default, deserialize_with = "campo")]
+    pub insumo_faltante_codigo: Campo<String>,
+    #[serde(default, deserialize_with = "campo")]
+    pub insumo_faltante_descricao: Campo<String>,
     pub fornecedor_terceirizado: Option<String>,
     pub etapas_status: Option<serde_json::Value>,
 }
@@ -160,10 +185,12 @@ pub struct SaveFichaOrdemPayload {
 pub struct BatchLoteCustomStatusPayload {
     pub lote_numbers: Vec<String>,
     pub custom_status: Option<String>,
-    pub category: Option<String>,
+    #[serde(default, deserialize_with = "campo")]
+    pub category: Campo<String>,
     pub updated_by: Option<String>,
     pub notes: Option<String>,
-    pub motivo_espera: Option<String>,
+    #[serde(default, deserialize_with = "campo")]
+    pub motivo_espera: Campo<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -204,25 +231,26 @@ impl<'de> Deserialize<'de> for SaveLotePrevisaoPayload {
     }
 }
 
+/// Datas das etapas: só os campos enviados mudam (ausente preserva; `null` ou texto vazio limpa).
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveLoteTimestampsPayload {
-    #[serde(alias = "lote_number")]
+    #[serde(default, alias = "lote_number")]
     pub lote_number: String,
-    #[serde(alias = "data_pesagem")]
-    pub data_pesagem: Option<String>,
-    #[serde(alias = "data_producao")]
-    pub data_producao: Option<String>,
-    #[serde(alias = "data_liberado_envase")]
-    pub data_liberado_envase: Option<String>,
-    #[serde(alias = "data_envase")]
-    pub data_envase: Option<String>,
-    #[serde(alias = "data_rotulagem")]
-    pub data_rotulagem: Option<String>,
-    #[serde(alias = "data_finalizada")]
-    pub data_finalizada: Option<String>,
-    #[serde(alias = "data_previsao")]
-    pub data_previsao: Option<String>,
+    #[serde(default, deserialize_with = "campo", alias = "data_pesagem")]
+    pub data_pesagem: Campo<String>,
+    #[serde(default, deserialize_with = "campo", alias = "data_producao")]
+    pub data_producao: Campo<String>,
+    #[serde(default, deserialize_with = "campo", alias = "data_liberado_envase")]
+    pub data_liberado_envase: Campo<String>,
+    #[serde(default, deserialize_with = "campo", alias = "data_envase")]
+    pub data_envase: Campo<String>,
+    #[serde(default, deserialize_with = "campo", alias = "data_rotulagem")]
+    pub data_rotulagem: Campo<String>,
+    #[serde(default, deserialize_with = "campo", alias = "data_finalizada")]
+    pub data_finalizada: Campo<String>,
+    #[serde(default, deserialize_with = "campo", alias = "data_previsao")]
+    pub data_previsao: Campo<String>,
     #[serde(alias = "updated_by")]
     pub updated_by: Option<String>,
 }

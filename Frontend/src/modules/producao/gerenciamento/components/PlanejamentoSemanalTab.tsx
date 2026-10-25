@@ -816,14 +816,53 @@ export function PlanejamentoSemanalTab({
   // Único caminho para ordem avulsa e batelada: grava status e flags físicos em /confirmar-fisico.
   const aplicarAprovacao = async (alvos: PlanejamentoItem[], aprovar: boolean) => {
     const ordemStatus = aprovar ? 'aprovado' : 'planejado';
+    const urlOrdem = (it: PlanejamentoItem, confirmar: boolean) =>
+      `/producao/planejamento-semanal/${encodeURIComponent(it.id)}/confirmar-fisico${confirmar ? '?confirmar=true' : ''}`;
+    const init = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ massa: aprovar, embalagem: aprovar, rotulo: aprovar, ordem_status: ordemStatus })
+    };
+    // Prévia do servidor (sem confirmar) de cada ordem: status de antes e depois.
+    const linhas: PreviaAcao['linhas'] = [];
+    const avisos: string[] = [];
+    for (const it of alvos) {
+      try {
+        const res = await apiFetch(urlOrdem(it, false), init);
+        if (res.ok) {
+          const d = await res.json();
+          linhas.push({
+            titulo: it.descricao || it.codigo_produto,
+            detalhe: `${d.item?.antes?.ordemStatus ?? it.ordem_status ?? 'planejado'} → ${d.item?.depois?.ordemStatus ?? ordemStatus}`,
+          });
+        } else {
+          avisos.push(await mensagemErroServidor(res, 'Erro ao atualizar aprovação de produção no servidor.'));
+        }
+      } catch (e) {
+        console.error('Erro ao ler a aprovação de produção:', e);
+        avisos.push('Erro ao atualizar aprovação de produção no servidor.');
+      }
+    }
+    setPreviaAcao({
+      titulo: aprovar ? 'Aprovar produção' : 'Remover aprovação da produção',
+      linhas,
+      avisos: [...new Set(avisos)],
+      confirmarRotulo: aprovar ? 'OK, aprovar' : 'OK, remover aprovação',
+      executar: () => executarAprovacao(alvos, aprovar, urlOrdem, init),
+    });
+  };
+
+  const executarAprovacao = async (
+    alvos: PlanejamentoItem[],
+    aprovar: boolean,
+    urlOrdem: (it: PlanejamentoItem, confirmar: boolean) => string,
+    init: RequestInit,
+  ) => {
+    const ordemStatus = aprovar ? 'aprovado' : 'planejado';
     const atualizados: PlanejamentoItem[] = [];
     for (const it of alvos) {
       try {
-        const res = await apiFetch(`/producao/planejamento-semanal/${encodeURIComponent(it.id)}/confirmar-fisico`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ massa: aprovar, embalagem: aprovar, rotulo: aprovar, ordem_status: ordemStatus })
-        });
+        const res = await apiFetch(urlOrdem(it, true), init);
         if (!res.ok) {
           avisar(await mensagemErroServidor(res, 'Erro ao atualizar aprovação de produção no servidor.'), 'erro');
           break;

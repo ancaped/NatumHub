@@ -64,7 +64,10 @@ impl Acao {
 
 /// Todas as ações descritas, juntando as listas dos módulos.
 pub fn todas() -> Vec<Acao> {
-    use crate::modules::producao::{bases, calculo, cobertura, fila, kits, lotes, planejamento, reatores};
+    use crate::modules::producao::{
+        auditoria, bases, calculo, cobertura, decisoes, fila, historico, insumos_classificacao, kits, lotes, planejamento, proc,
+        reatores, trocas,
+    };
     let mut v = Vec::new();
     v.extend(planejamento::acoes());
     v.extend(fila::acoes());
@@ -74,6 +77,12 @@ pub fn todas() -> Vec<Acao> {
     v.extend(calculo::acoes());
     v.extend(bases::acoes());
     v.extend(kits::acoes());
+    v.extend(auditoria::acoes());
+    v.extend(decisoes::acoes());
+    v.extend(trocas::acoes());
+    v.extend(insumos_classificacao::acoes());
+    v.extend(historico::acoes());
+    v.extend(proc::acoes());
     v.extend(crate::modules::estoque::movimentos::acoes());
     v.extend(crate::modules::estoque::estoque_geral::acoes());
     v.extend(crate::modules::compras::planejamento::acoes());
@@ -105,9 +114,7 @@ mod tests {
     /// Escritas que ainda gravam direto, sem prévia. Escrita nova sem 2 passos fora desta lista reprova o teste.
     const ESCRITAS_SEM_DOIS_PASSOS: &[&str] = &[
         "gravar_ordens_planejamento",
-        "aprovar_ordem_planejamento",
         "enviar_para_fila",
-        "atualizar_demanda_fila",
     ];
 
     #[test]
@@ -158,6 +165,12 @@ mod tests {
             include_str!("../modules/producao/calculo.rs"),
             include_str!("../modules/producao/bases.rs"),
             include_str!("../modules/producao/kits.rs"),
+            include_str!("../modules/producao/auditoria.rs"),
+            include_str!("../modules/producao/decisoes.rs"),
+            include_str!("../modules/producao/trocas.rs"),
+            include_str!("../modules/producao/insumos_classificacao.rs"),
+            include_str!("../modules/producao/historico.rs"),
+            include_str!("../modules/producao/proc/mod.rs"),
             include_str!("../modules/estoque/movimentos.rs"),
             include_str!("../modules/estoque/estoque_geral/mod.rs"),
             include_str!("../modules/compras/planejamento/mod.rs"),

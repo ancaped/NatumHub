@@ -28,6 +28,17 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/producao/trocas/:id", delete(remover_rota))
 }
 
+/// Ações de consulta das trocas de insumo descritas para agentes (ver `core::catalogo`).
+pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
+    vec![crate::core::catalogo::Acao::leitura(
+        "listar_trocas_insumo",
+        "producao",
+        "Lista as trocas de insumo cadastradas (um insumo cobrindo outro) usadas na cobertura de insumos.",
+        "/api/producao/trocas",
+        vec![],
+    )]
+}
+
 fn erro(status: StatusCode, msg: impl Into<String>) -> axum::response::Response {
     (status, Json(json!({ "error": msg.into() }))).into_response()
 }

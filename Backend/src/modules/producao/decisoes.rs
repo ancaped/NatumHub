@@ -28,6 +28,17 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new().route("/api/producao/decisoes", get(listar_rota).put(registrar_rota).delete(remover_rota))
 }
 
+/// Ações de consulta das decisões descritas para agentes (ver `core::catalogo`).
+pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
+    vec![crate::core::catalogo::Acao::leitura(
+        "listar_decisoes_producao",
+        "producao",
+        "Lista as decisões lembradas do planejamento: de onde vem cada base (`base_fonte`) e por que itens saíram da fila (`fila_descartada`).",
+        "/api/producao/decisoes",
+        vec![crate::core::catalogo::param("tipo", "query", "texto", true, "base_fonte ou fila_descartada.")],
+    )]
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Decisao {

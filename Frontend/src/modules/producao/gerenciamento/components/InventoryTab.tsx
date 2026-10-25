@@ -5,6 +5,8 @@ import {
   Zap, Package, FlaskConical, Calendar, Layers, Target, Check, X, Trash2
 } from 'lucide-react';
 import { apiFetch, apiJson } from '../../../geral/lib/http';
+import { useAviso } from '../../../geral/components/ui/Aviso';
+import { usePreviaServidor, linhasAjusteFila } from '../../lib/usePreviaServidor';
 import { parseProductUnitWeightKg, formatUnitsToKg } from '../../lib/unitConversion';
 import { BatchOpportunityModal } from './BatchOpportunityModal';
 
@@ -81,6 +83,8 @@ export function InventoryTab({
   };
 
   const [hideQueued, setHideQueued] = useState(false);
+  const { avisar, aviso } = useAviso();
+  const { pedir: pedirPrevia, elemento: previaElemento } = usePreviaServidor(avisar);
   const [selectedFamily, setSelectedFamily] = useState('ALL');
   
   // State for PostgreSQL Fila de Demandas & Popover
@@ -299,20 +303,27 @@ export function InventoryTab({
 
     setSavingQueueCode(p.codigo);
     try {
-      const res = await apiFetch(`/producao/fila-demandas/${encodeURIComponent(item.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          quantidade: newQty,
-          quantidadeKg: kg,
-          unidade: 'un',
-        }),
+      await pedirPrevia({
+        url: `/producao/fila-demandas/${encodeURIComponent(item.id)}`,
+        init: {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            quantidade: newQty,
+            quantidadeKg: kg,
+            unidade: 'un',
+          }),
+        },
+        titulo: 'Ajustar quantidade na fila',
+        confirmarRotulo: 'OK, ajustar',
+        linhas: linhasAjusteFila,
+        erroPadrao: 'Não foi possível ajustar o item da fila.',
+        aoConcluir: async () => {
+          setEditingQueueCode(null);
+          await fetchQueue();
+          if (onRefresh) onRefresh();
+        },
       });
-      if (res.ok) {
-        setEditingQueueCode(null);
-        await fetchQueue();
-        if (onRefresh) onRefresh();
-      }
     } catch (err) {
       console.error('Erro ao atualizar quantidade na fila:', err);
     } finally {
@@ -340,7 +351,7 @@ export function InventoryTab({
       if (onRefresh) onRefresh();
     } catch (err) {
       console.error('Erro ao remover da fila de demandas:', err);
-      alert(err instanceof Error ? err.message : 'Não foi possível tirar da fila.');
+      avisar(err instanceof Error ? err.message : 'Não foi possível tirar da fila.', 'erro');
     } finally {
       setSavingQueueCode(null);
     }
@@ -412,6 +423,8 @@ export function InventoryTab({
 
   return (
     <div className="view-container animate-in fade-in duration-200">
+      {previaElemento}
+      {aviso}
       {/* Segmented Control Superior (6 Regimes Canônicos) */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4 bg-zinc-100 p-1.5 rounded-xl border border-zinc-200">
         <div className="flex flex-wrap items-center gap-1.5">
