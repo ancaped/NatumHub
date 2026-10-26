@@ -10,6 +10,7 @@ import {
 import KitCompositionDrawer from '../components/KitCompositionDrawer';
 import { api } from '../../geral/lib/api';
 import { Category } from '../../geral/lib/types';
+import { SeloOrdemParada } from '../lib/ordemParada';
 import {
   formatQtyPerKitLabel,
   kitComponentNeedQty,
@@ -1844,6 +1845,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                             }`}>
                               {o.status === 'COMPLETED' ? 'Concluída' : 'Em Montagem'}
                             </span>
+                            <SeloOrdemParada ordem={o} />
                           </td>
                           <td className="p-3">
                             <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase ${
@@ -2355,6 +2357,7 @@ export default function MontagemKitsView({ onBackToHub }) {
                               }`}>
                                 {o.status === 'COMPLETED' ? 'Concluída' : 'Em Montagem'}
                               </span>
+                              <SeloOrdemParada ordem={o} />
                             </td>
                             <td className="p-4 text-center">
                               <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase ${

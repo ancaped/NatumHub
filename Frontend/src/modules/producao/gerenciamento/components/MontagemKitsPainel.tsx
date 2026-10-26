@@ -5,6 +5,7 @@ import { kitComponentNeedQty, kitOrderComponentNeed } from '../../lib/kitCompone
 import {
   Search, RefreshCw, HelpCircle, Layers, Boxes, ClipboardList, Package, ChevronRight, Printer,
 } from 'lucide-react';
+import { SeloOrdemParada } from '../../lib/ordemParada';
 import { KitOrderPrintSheet, kitOrderPrintStyle } from '../../lib/KitOrderPrintSheet';
 
 interface Props {
@@ -138,7 +139,7 @@ function OrdensDoKit(props: {
             <tr key={o.id}>
               <td className="comp-code">{o.orderNumber}</td>
               <td className="numeric-col">{Number(o.quantity) || 0} un</td>
-              <td><span className={`status-badge ${o.status === 'IN_PROGRESS' ? 'aguardando' : 'ordem'}`}>{statusOrdem(o.status)}</span></td>
+              <td><span className={`status-badge ${o.status === 'IN_PROGRESS' ? 'aguardando' : 'ordem'}`}>{statusOrdem(o.status)}</span><SeloOrdemParada ordem={o} /></td>
               <td>
                 <AcoesOrdem
                   ordem={o}
@@ -742,7 +743,7 @@ export function MontagemKitsPainel({ tabOptions = [], onOpenComposition }: Props
                           return date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString('pt-BR') : (raw || '—');
                         })()}</td>
                         <td className="px-4 py-2.5">
-                          <span className={`status-badge ${o.status === 'COMPLETED' ? 'saudavel' : o.status === 'IN_PROGRESS' ? 'aguardando' : 'ordem'}`}>{statusOrdem(o.status)}</span>
+                          <span className={`status-badge ${o.status === 'COMPLETED' ? 'saudavel' : o.status === 'IN_PROGRESS' ? 'aguardando' : 'ordem'}`}>{statusOrdem(o.status)}</span><SeloOrdemParada ordem={o} />
                         </td>
                         <td className="px-4 py-2.5">
                           <span className={`status-badge ${o.erpLaunched === 1 ? 'abundante' : ''}`}>{o.erpLaunched === 1 ? 'Lançado' : 'Não'}</span>
