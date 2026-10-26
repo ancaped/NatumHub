@@ -104,6 +104,42 @@ async fn load_item_kit_component_stocks(
     out
 }
 
+/// Necessidade física de um componente para `kits` kits (espelho de `kitComponentNeedQty` no front).
+pub fn necessidade_componente(qtd_por_kit: f64, kits: i64, fq: Option<f64>, fk: Option<i32>) -> i64 {
+    if kits <= 0 {
+        return 0;
+    }
+    if let (Some(fq), Some(fk)) = (fq, fk) {
+        if fq.is_finite() && fk > 0 && fq > 0.0 {
+            let grupos = (kits as f64 / fk as f64).ceil();
+            return (grupos * fq).ceil() as i64;
+        }
+    }
+    if qtd_por_kit <= 0.0 {
+        return 0;
+    }
+    let bruto = qtd_por_kit * kits as f64;
+    if (bruto - bruto.round()).abs() < 1e-6 {
+        return bruto.round() as i64;
+    }
+    (bruto - 1e-9).ceil() as i64
+}
+
+/// Quantos kits o `disponivel` de um componente permite montar. Nunca negativo.
+pub fn kits_montaveis(disponivel: i64, qtd_por_kit: f64, fq: Option<f64>, fk: Option<i32>) -> i64 {
+    let disp = disponivel.max(0);
+    if let (Some(fq), Some(fk)) = (fq, fk) {
+        if fq.is_finite() && fk > 0 && fq > 0.0 {
+            return ((disp as f64 / fq).floor() as i64) * fk as i64;
+        }
+    }
+    if qtd_por_kit > 0.0 {
+        (disp as f64 / qtd_por_kit).floor() as i64
+    } else {
+        disp
+    }
+}
+
 fn kit_component_from_item(
     code: &str,
     desc: &str,
@@ -138,6 +174,7 @@ fn kit_component_from_item(
         necessita_producao: false,
         fonte: Some("item".into()),
         produzir_apenas_kit: None,
+        reservado_ordens: 0,
     }
 }
 
@@ -166,6 +203,30 @@ pub async fn list_kits(
             Json(json!({ "error": format!("Erro ao buscar composição dos kits: {}", e) }))
         ).into_response(),
     };
+
+    // Ordens de montagem abertas reservam componentes (decisão 31).
+    let mut reservado_por_comp: HashMap<String, i64> = HashMap::new();
+    {
+        let comp_por_kit: HashMap<String, &Vec<(String, f64, Option<f64>, Option<i32>)>> = kit_composition
+            .iter()
+            .map(|(k, v)| (clean_product_code(k), v))
+            .collect();
+        let ordens = crate::handlers::kits::fetch_kit_orders(pool).await.unwrap_or_default();
+        for o in ordens.iter().filter(|o| {
+            !matches!(o.status.trim().to_uppercase().as_str(), "COMPLETED" | "CANCELLED" | "CANCELADO")
+        }) {
+            let qtd_kits = o.quantity.ceil() as i64;
+            if qtd_kits <= 0 {
+                continue;
+            }
+            if let Some(comps) = comp_por_kit.get(&clean_product_code(&o.kit_product_code)) {
+                for (c, q, fq, fk) in comps.iter() {
+                    *reservado_por_comp.entry(clean_product_code(c)).or_insert(0) +=
+                        necessidade_componente(*q, qtd_kits, *fq, *fk);
+                }
+            }
+        }
+    }
 
     // 3. Calculate all items in real time
     let mut computed = calculate_products(&products, &stocks, &fat_map, &configs, &overrides);
@@ -317,7 +378,7 @@ pub async fn list_kits(
 
         for (comp_code, comp_qty, fat_qtd, fat_kits) in &components_with_qty {
             let comp_norm = comp_code.replace('.', "").trim().to_string();
-            let detail = if let Some(comp_calc) = computed_map.get(comp_code).or_else(|| computed_map.get(&comp_norm)) {
+            let detail: Option<KitComponentDetail> = if let Some(comp_calc) = computed_map.get(comp_code).or_else(|| computed_map.get(&comp_norm)) {
                 if comp_calc.producao_recomendada > 0 {
                     critical_components.push(comp_code.clone());
                 }
@@ -337,6 +398,7 @@ pub async fn list_kits(
                     necessita_producao: comp_calc.producao_recomendada > 0,
                     fonte: Some("produto".into()),
                     produzir_apenas_kit: comp_calc.produzir_apenas_kit,
+                    reservado_ordens: 0,
                 })
             } else if let Some((desc, est, prod, ped)) = item_stocks.get(comp_code) {
                 Some(kit_component_from_item(
@@ -367,20 +429,21 @@ pub async fn list_kits(
                     necessita_producao: false,
                     fonte: None,
                     produzir_apenas_kit: None,
+                    reservado_ordens: 0,
                 })
             };
 
-            if let Some(detail) = detail {
-                let from_efp = if *comp_qty > 0.0 {
-                    (detail.estoque_futuro_com_producao as f64 / *comp_qty).floor() as i64
-                } else {
-                    detail.estoque_futuro_com_producao
-                };
-                let from_estoque = if *comp_qty > 0.0 {
-                    (detail.estoque as f64 / *comp_qty).floor() as i64
-                } else {
-                    detail.estoque
-                };
+            if let Some(mut detail) = detail {
+                let reservado = reservado_por_comp.get(comp_code).copied().unwrap_or(0);
+                detail.reservado_ordens = reservado;
+                let from_efp = kits_montaveis(
+                    detail.estoque_futuro_com_producao - reservado,
+                    *comp_qty,
+                    *fat_qtd,
+                    *fat_kits,
+                );
+                let from_estoque =
+                    kits_montaveis(detail.estoque - reservado, *comp_qty, *fat_qtd, *fat_kits);
                 min_efp = Some(match min_efp {
                     Some(m) => std::cmp::min(m, from_efp),
                     None => from_efp,
@@ -400,16 +463,18 @@ pub async fn list_kits(
         let mut min_prod_efp: Option<i64> = None;
         let mut min_prod_estoque: Option<i64> = None;
         for d in components_detail.iter().filter(|d| d.fonte.as_deref() == Some("produto")) {
-            let from_efp = if d.quantidade > 0.0 {
-                (d.estoque_futuro_com_producao as f64 / d.quantidade).floor() as i64
-            } else {
-                d.estoque_futuro_com_producao
-            };
-            let from_est = if d.quantidade > 0.0 {
-                (d.estoque as f64 / d.quantidade).floor() as i64
-            } else {
-                d.estoque
-            };
+            let from_efp = kits_montaveis(
+                d.estoque_futuro_com_producao - d.reservado_ordens,
+                d.quantidade,
+                d.fator_proporcao_qtd,
+                d.fator_proporcao_kits,
+            );
+            let from_est = kits_montaveis(
+                d.estoque - d.reservado_ordens,
+                d.quantidade,
+                d.fator_proporcao_qtd,
+                d.fator_proporcao_kits,
+            );
             min_prod_efp = Some(match min_prod_efp {
                 Some(m) => std::cmp::min(m, from_efp),
                 None => from_efp,
@@ -435,11 +500,12 @@ pub async fn list_kits(
                 .collect();
             let product_bottlenecks_in_production = product_comps.is_empty()
                 || product_comps.iter().all(|d| {
-                    let kits_from_stock = if d.quantidade > 0.0 {
-                        (d.estoque as f64 / d.quantidade).floor() as i64
-                    } else {
-                        d.estoque
-                    };
+                    let kits_from_stock = kits_montaveis(
+                        d.estoque - d.reservado_ordens,
+                        d.quantidade,
+                        d.fator_proporcao_qtd,
+                        d.fator_proporcao_kits,
+                    );
                     kits_from_stock >= necessidade_kit || d.producao > 0
                 });
 
@@ -841,4 +907,33 @@ pub async fn get_insumos_status(
         }),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod testes_fatores {
+    use super::*;
+
+    #[test]
+    fn necessidade_com_fatores() {
+        // 3 un a cada 2 kits: 5 kits = 3 grupos = 9 un
+        assert_eq!(necessidade_componente(1.5, 5, Some(3.0), Some(2)), 9);
+        assert_eq!(necessidade_componente(1.5, 0, Some(3.0), Some(2)), 0);
+    }
+
+    #[test]
+    fn necessidade_sem_fatores() {
+        assert_eq!(necessidade_componente(0.5, 3, None, None), 2);
+        assert_eq!(necessidade_componente(2.0, 3, None, None), 6);
+        assert_eq!(necessidade_componente(0.0, 3, None, None), 0);
+    }
+
+    #[test]
+    fn montaveis() {
+        assert_eq!(kits_montaveis(10, 1.5, Some(3.0), Some(2)), 6);
+        assert_eq!(kits_montaveis(10, 0.5, None, None), 20);
+        assert_eq!(kits_montaveis(7, 2.0, None, None), 3);
+        assert_eq!(kits_montaveis(7, 0.0, None, None), 7);
+        assert_eq!(kits_montaveis(-5, 1.0, None, None), 0);
+        assert_eq!(kits_montaveis(-5, 1.5, Some(3.0), Some(2)), 0);
+    }
 }

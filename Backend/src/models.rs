@@ -317,6 +317,9 @@ pub struct KitComponentDetail {
     /// 1 = produzido só para kit; 0 = também vendido avulso.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub produzir_apenas_kit: Option<i32>,
+    /// Quantidade do componente comprometida em ordens de montagem abertas (já descontada do montável).
+    #[serde(default)]
+    pub reservado_ordens: i64,
 }
 
 #[derive(Debug, Serialize, Clone)]

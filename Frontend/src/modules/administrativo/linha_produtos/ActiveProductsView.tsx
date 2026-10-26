@@ -117,7 +117,6 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
   const [lancamentoMetaForm, setLancamentoMetaForm] = useState('6');
   const [lancamentoDataInicioForm, setLancamentoDataInicioForm] = useState('');
   const [baseCodigoForm, setBaseCodigoForm] = useState('');
-  const [terceirizadoModoForm, setTerceirizadoModoForm] = useState('');
   const [graduationCandidates, setGraduationCandidates] = useState<GraduationCandidate[]>([]);
 
   // Bulk actions state
@@ -577,7 +576,6 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
     setStatusForm(p.status_produto || 'ativo');
     setCategoryForm(p.categoria_produto || '');
     setBaseCodigoForm(p.base_codigo || '');
-    setTerceirizadoModoForm(p.terceirizado_modo || '');
     setLineOverride(p.linha_prefix_manual || 'AUTO');
     setIdealStockOverride(p.estoque_ideal_manual != null ? p.estoque_ideal_manual.toString() : '');
     setObsForm(p.observacao || '');
@@ -613,7 +611,6 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
 
           setLancamentoMetaForm(override.lancamento_meta_meses?.toString() || '6');
           setLancamentoDataInicioForm(override.lancamento_data_inicio || '');
-          setTerceirizadoModoForm(override.terceirizado_modo || '');
           if (override.visivel === 0) setVisibleOverride('0');
           else setVisibleOverride('1');
         } else {
@@ -653,7 +650,6 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
         status_produto: statusForm || 'ativo',
         categoria_produto: categoryForm.trim() || null,
         base_codigo: baseCodigoForm.trim() || null,
-        terceirizado_modo: statusForm === 'terceirizado' ? (terceirizadoModoForm.trim() || null) : null,
         lancamento_meta_meses: statusForm === 'lancamento' ? parseInt(lancamentoMetaForm, 10) || 6 : null,
         lancamento_data_inicio: statusForm === 'lancamento' ? (lancamentoDataInicioForm.trim() || new Date().toISOString().split('T')[0]) : null,
         produzir_apenas_kit: produzirApenasKitForm,
@@ -2353,21 +2349,6 @@ export default function ActiveProductsView({ onBackToHub, standalone = false }: 
                     />
                   </div>
                 </div>
-              </div>
-            )}
-
-            {statusForm === 'terceirizado' && (
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-zinc-700 block">Modo terceirizado</label>
-                <select
-                  value={terceirizadoModoForm}
-                  onChange={(e) => setTerceirizadoModoForm(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 text-xs font-medium"
-                >
-                  <option value="">Padrão (sem compra automática)</option>
-                  <option value="recorrente">Recorrente — reposição programada</option>
-                  <option value="demanda">Sob demanda — apenas quando solicitado</option>
-                </select>
               </div>
             )}
 

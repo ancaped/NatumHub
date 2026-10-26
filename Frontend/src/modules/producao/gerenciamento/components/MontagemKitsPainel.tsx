@@ -282,8 +282,8 @@ export function MontagemKitsPainel({ tabOptions = [], onOpenComposition }: Props
   const qtdDaOrdem = (k: any, code: string) => {
     const digitada = qtdDraft[code];
     if (digitada != null && digitada !== '') return Number(digitada) || 0;
-    const emOrdem = abertasPorKit.get(code)?.qty || 0;
-    return Math.max(0, (Number(k.max_montavel_estoque) || 0) - emOrdem);
+    // O servidor já desconta dos componentes o que está reservado nas ordens abertas.
+    return Math.max(0, Number(k.max_montavel_estoque) || 0);
   };
 
   const criarOrdem = async (k: any, eImprimir = false) => {
@@ -292,7 +292,7 @@ export function MontagemKitsPainel({ tabOptions = [], onOpenComposition }: Props
     const qtd = qtdDaOrdem(k, code);
     const jaAbertas = abertas.filter((o) => String(o.kitProductCode) === code);
     if (qtd <= 0) {
-      setAviso(`O estoque de ${code} já está comprometido nas ordens abertas. Informe outra quantidade se quiser uma ordem extra.`);
+      setAviso('Não há componentes livres: o estoque está comprometido nas ordens abertas.');
       return;
     }
     const cobreAgora = Number(k.max_montavel_estoque) || 0;
@@ -626,7 +626,10 @@ export function MontagemKitsPainel({ tabOptions = [], onOpenComposition }: Props
                                           {isLim && <span className="status-badge critico" style={{ marginLeft: 6, fontSize: '0.6rem' }}>gargalo</span>}
                                         </td>
                                         <td className="numeric-col">{comp.quantidade}</td>
-                                        <td className="numeric-col">{comp.estoque}</td>
+                                        <td className="numeric-col">
+                                          {comp.estoque}
+                                          {Number(comp.reservado_ordens) > 0 && <div className="text-[10px] font-normal text-zinc-500">reservado {comp.reservado_ordens}</div>}
+                                        </td>
                                         <td className="numeric-col" style={{ fontWeight: 700 }}>{n} kits</td>
                                         <td className="numeric-col" style={{ fontWeight: 700, color: need > Number(comp.estoque) ? 'hsl(var(--danger-hsl))' : undefined }}>{need}</td>
                                       </tr>

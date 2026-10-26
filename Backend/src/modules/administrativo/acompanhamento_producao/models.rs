@@ -109,6 +109,9 @@ pub struct AcompanhamentoLoteItem {
     pub data_previsao: Option<String>,
     pub motivo_espera: Option<String>,
     pub is_terceirizado: bool,
+    /// Lote com laudo aprovado (AP) no ERP: liberado para envase automaticamente.
+    #[serde(default)]
+    pub liberado_envase_laudo: bool,
     pub ficha_ordem: Option<serde_json::Value>,
     pub quantidade_envasada_parcial: Option<f64>,
     pub insumo_faltante_codigo: Option<String>,

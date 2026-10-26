@@ -26,6 +26,8 @@ export interface AcompanhamentoLote {
   dataPesagem?: string | null;
   dataProducao?: string | null;
   dataLiberadoEnvase?: string | null;
+  /** Laudo aprovado (AP) no ERP: libera o lote para envase (decisão 23). */
+  liberadoEnvaseLaudo?: boolean;
   dataEnvase?: string | null;
   dataRotulagem?: string | null;
   dataFinalizada?: string | null;

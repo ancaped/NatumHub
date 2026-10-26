@@ -128,7 +128,8 @@ pub async fn list_acompanhamento(
                 SELECT 1 FROM terceirizados_solicitacoes ts 
                 WHERE ts.status != 'CANCELADO' 
                 AND ts.lote_number = m.document_number
-            ) AS is_terceirizado
+            ) AS is_terceirizado,
+            (lap.lote IS NOT NULL) AS liberado_envase_laudo
         FROM (
             SELECT 
                 COALESCE(NULLIF(TRIM(pp.lote_erp), ''), pp.id) AS document_number,
@@ -231,6 +232,12 @@ pub async fn list_acompanhamento(
             {}
         ) m
         LEFT JOIN produtos p ON m.item_code = p.codigo
+        -- lotes com laudo aprovado (AP) no ERP, sem zeros à esquerda (decisão 23)
+        LEFT JOIN (
+            SELECT DISTINCT LTRIM(TRIM(lote), '0') AS lote
+            FROM erp_lotes_laudos
+            WHERE UPPER(TRIM(resultado)) = 'AP'
+        ) lap ON lap.lote = LTRIM(TRIM(m.document_number), '0')
         LEFT JOIN LATERAL (
             SELECT c.*
             FROM lote_custom_status c
@@ -352,6 +359,7 @@ pub async fn list_acompanhamento(
         let data_previsao: Option<String> = row.try_get::<Option<String>, _>("data_previsao").ok().flatten();
         let motivo_espera: Option<String> = row.try_get::<Option<String>, _>("motivo_espera").ok().flatten();
         let is_terceirizado: bool = row.try_get::<Option<bool>, _>("is_terceirizado").ok().flatten().unwrap_or(false);
+        let liberado_envase_laudo: bool = row.try_get::<Option<bool>, _>("liberado_envase_laudo").ok().flatten().unwrap_or(false);
         let ficha_ordem: Option<serde_json::Value> = row.try_get::<Option<serde_json::Value>, _>("ficha_ordem").ok().flatten();
         let quantidade_envasada_parcial: Option<f64> = row.try_get::<Option<f64>, _>("quantidade_envasada_parcial").ok().flatten();
         let insumo_faltante_codigo: Option<String> = row.try_get::<Option<String>, _>("insumo_faltante_codigo").ok().flatten();
@@ -442,6 +450,7 @@ pub async fn list_acompanhamento(
             data_previsao,
             motivo_espera,
             is_terceirizado,
+            liberado_envase_laudo,
             ficha_ordem,
             quantidade_envasada_parcial,
             insumo_faltante_codigo,
@@ -1353,7 +1362,7 @@ pub async fn create_terceirizados_solicitacao(
 
     let new_id: i64 = row.get("id");
 
-    // Marca os lotes desse produto/lote como terceirizados em lote_custom_status
+    // Só marca quando há lote vinculado (sem lote não se marcam lotes históricos do produto).
     if let Some(lote) = lote_num_clean {
         let _ = sqlx::query(
             r#"
@@ -1363,19 +1372,6 @@ pub async fn create_terceirizados_solicitacao(
             "#
         )
         .bind(lote)
-        .execute(pool)
-        .await;
-    } else {
-        let _ = sqlx::query(
-            r#"
-            INSERT INTO lote_custom_status (lote_number, custom_status, is_terceirizado, updated_at)
-            SELECT DISTINCT m.document_number, 'Aberto', TRUE, NOW()
-            FROM stock_movements m
-            WHERE m.item_code = $1 AND m.item_type = 'produto'
-            ON CONFLICT (lote_number) DO UPDATE SET is_terceirizado = TRUE, updated_at = NOW()
-            "#
-        )
-        .bind(&payload.product_code)
         .execute(pool)
         .await;
     }
@@ -3059,6 +3055,35 @@ mod tests {
             sqlx::query(&format!("DELETE FROM {t} WHERE lote_number = 'TST-ACP-OUTRO'")).execute(&pool).await.unwrap();
         }
         limpar_lotes(&pool, &["TST-ACP-FIN"]).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn laudo_aprovado_libera_envase_sem_zeros_a_esquerda() {
+        let pool = pool_de_teste().await;
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS erp_lotes_laudos (lote TEXT NOT NULL, product_code TEXT NOT NULL, ph FLOAT8, viscosidade FLOAT8, \
+             densidade FLOAT8, viscosidade_24h FLOAT8, fabricado_por TEXT, autorizado_por TEXT, responsavel TEXT, resultado TEXT, \
+             data_inspecao TEXT, data_lote TEXT, data_pesado TEXT, data_envase TEXT, quantidade_kg FLOAT8, unidades FLOAT8, \
+             observacoes TEXT, updated_at TIMESTAMPTZ DEFAULT NOW(), PRIMARY KEY (lote, product_code))",
+        ).execute(&pool).await.unwrap();
+        let lotes = ["987654321", "987654322"];
+        let laudos = ["00987654321", "00987654322"];
+        limpar_lotes(&pool, &lotes).await;
+        sqlx::query("DELETE FROM erp_lotes_laudos WHERE lote = ANY($1)").bind(&laudos[..]).execute(&pool).await.unwrap();
+        for (l, ld, res) in [(lotes[0], laudos[0], "AP"), (lotes[1], laudos[1], "RP")] {
+            sqlx::query("INSERT INTO lote_custom_status (lote_number, custom_status) VALUES ($1, 'Produzido')")
+                .bind(l).execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO erp_lotes_laudos (lote, product_code, resultado) VALUES ($1, 'TST-LAUDO', $2)")
+                .bind(ld).bind(res).execute(&pool).await.unwrap();
+        }
+        let params: AcompanhamentoQueryParams = serde_json::from_value(json!({ "search": "98765432" })).unwrap();
+        let itens = list_acompanhamento(&pool, &params).await.unwrap();
+        let achou = |n: &str| itens.iter().find(|i| i.lote_number == n).map(|i| i.liberado_envase_laudo);
+        assert_eq!(achou("987654321"), Some(true), "laudo AP gravado com zeros libera o lote");
+        assert_eq!(achou("987654322"), Some(false), "laudo RP não libera");
+        limpar_lotes(&pool, &lotes).await;
+        sqlx::query("DELETE FROM erp_lotes_laudos WHERE lote = ANY($1)").bind(&laudos[..]).execute(&pool).await.unwrap();
     }
 
     #[tokio::test]

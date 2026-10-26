@@ -63,7 +63,6 @@ import { apiJson } from '../../geral/lib/http';
 import { getAuthUser } from '../../geral/lib/auth';
 import { getHoliday, isWeekend, HolidayInfo } from '../../geral/lib/brazilHolidays';
 import { api } from '../../geral/lib/api';
-import { FiscoQuimicaAnalysis } from '../../geral/lib/types';
 import { PlanejamentoSemanalTab } from '../../producao/gerenciamento/components/PlanejamentoSemanalTab';
 
 /** Linha da prévia do servidor ao redefinir o status de um lote (o que será apagado). */
@@ -188,9 +187,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   const [envaseShowAllDates, setEnvaseShowAllDates] = useState<boolean>(false);
   const [rotulagemScopeFilter, setRotulagemScopeFilter] = useState<'LIBERADOS' | 'TODOS'>('LIBERADOS');
   const [envaseScopeFilter, setEnvaseScopeFilter] = useState<'LIBERADOS' | 'TODOS'>('LIBERADOS');
-
-  // Dados de Análises Físico-Química
-  const [fiscoAnalyses, setFiscoAnalyses] = useState<FiscoQuimicaAnalysis[]>([]);
 
   // Modal para Ajuste Manual de Datas e Horários das Etapas
   const [editTimestampsLote, setEditTimestampsLote] = useState<AcompanhamentoLote | null>(null);
@@ -612,29 +608,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       setLoadingRotulagem(false);
     }
   }, []);
-
-  // Carregar análises físico-químicas
-  const fetchFiscoAnalyses = useCallback(async () => {
-    try {
-      const data = await api.getFiscoQuimicaAnalyses();
-      setFiscoAnalyses(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.warn('[FQ] Erro ao carregar análises físico-químicas:', err);
-    }
-  }, []);
-
-  const fiscoAnalysesByBatch = useMemo(() => {
-    const map = new Map<string, FiscoQuimicaAnalysis>();
-    fiscoAnalyses.forEach(a => {
-      if (a.batch) {
-        const clean = a.batch.trim().toLowerCase();
-        map.set(clean, a);
-        const noZero = clean.replace(/^0+/, '');
-        if (noZero) map.set(noZero, a);
-      }
-    });
-    return map;
-  }, [fiscoAnalyses]);
 
   const renderFiscoQuimicaBadge = (_loteNumber?: string | null) => {
     // Conforme solicitado no feedback s52yeds57lb: removida tag 'conforme / pH' dos cards de envase/produção
@@ -1301,9 +1274,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     fetchLotes();
     fetchKitOrders();
     fetchSolicitacoes();
-    fetchFiscoAnalyses();
     fetchProgramacaoRotulagem('TODOS');
-  }, [fetchLotes, fetchKitOrders, fetchSolicitacoes, fetchFiscoAnalyses, fetchProgramacaoRotulagem]);
+  }, [fetchLotes, fetchKitOrders, fetchSolicitacoes, fetchProgramacaoRotulagem]);
 
   useEffect(() => {
     const handleRefresh = () => {
@@ -5172,14 +5144,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         }
 
         // REGRA REQUISITADA:
-        // "liberados para envase, quando eu fizer a analise fisico-quimica, eles são liberados para envase automaticamente (unica regra automatica) aqui, (permitir adicionar lote manualmente ao liberado para envase, assim como remover, ok ?"
+        // Liberado automaticamente só com laudo aprovado (AP) no ERP (decisão 23); o servidor devolve `liberadoEnvaseLaudo`.
+        // Também é possível adicionar/remover o lote manualmente da lista de liberados.
         const cleanNum = (l.loteNumber || '').trim().toLowerCase();
-        const cleanNumNoZero = cleanNum.replace(/^0+/, '');
-        const hasFqAnalysis = fiscoAnalysesByBatch.has(cleanNum) || (cleanNumNoZero ? fiscoAnalysesByBatch.has(cleanNumNoZero) : false) || Boolean(l.dataLiberadoEnvase);
+        const hasLaudoAprovado = Boolean(l.liberadoEnvaseLaudo) || Boolean(l.dataLiberadoEnvase);
         const isManual = manualLiberadosEnvase.has(cleanNum) || manualLiberadosEnvase.has(l.loteNumber) || l.customStatus === 'Liberado para Envase';
         const isPlanned = Boolean(l.details?.includes('Planejamento Semanal'));
 
-        if (hasFqAnalysis || isManual || isPlanned) {
+        if (hasLaudoAprovado || isManual || isPlanned) {
           if (encaixeStatusFilter === 'TODOS') return true;
           return getEffectiveStatus(l) === encaixeStatusFilter || isPlanned;
         }
@@ -5191,7 +5163,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         isAlreadyScheduled: false,
         scheduledItem: undefined
       }));
-  }, [lotes, encaixeSearch, programacaoEnvase, programacaoRotulagem, envaseScopeFilter, encaixeStatusFilter, fiscoAnalysesByBatch, manualLiberadosEnvase]);
+  }, [lotes, encaixeSearch, programacaoEnvase, programacaoRotulagem, envaseScopeFilter, encaixeStatusFilter, manualLiberadosEnvase]);
 
   const lotesParaEncaixe = useMemo(() => {
     return deduplicateLotesByNumber(filterLotesBySearch(baseLotesParaEncaixe, encaixeSearch));
