@@ -1,6 +1,7 @@
 import React from 'react';
 import { Calendar } from 'lucide-react';
 import type { AcompanhamentoLote, StageDurationItem, LoteEtapaStatusResult, WeekRange, LoteEsperaDetails, ProgramacaoEnvaseItem, ProgramacaoRotulagemItem } from './tipos';
+import { parseProductUnitWeightKg as parseUnitWeightKgDaMedida } from '../../../producao/lib/unitConversion';
 import { formatDateOnly, formatDurationBetween, parseLoteDateToIso } from './datas';
 
 export function getLotePlanningOrdem(lote: AcompanhamentoLote): number {
@@ -80,23 +81,8 @@ export function inferCorProduto(description: string): { isColorido: boolean; cor
 /**
  * Extrai o peso/volume unitário do produto a partir da descrição (ex: "60 ML" -> 0.06 kg, "500 G" -> 0.5 kg, "1000 ML" / "1 L" -> 1.0 kg)
  */
-export function parseProductUnitWeightKg(descricao?: string): number {
-  if (!descricao) return 1.0;
-  const desc = descricao.toUpperCase();
-  const m = desc.match(/(\d+(?:[.,]\d+)?)\s*(ML|L|GR|G|KG)\b/i);
-  if (!m) return 1.0;
-
-  const val = parseFloat(m[1].replace(',', '.'));
-  if (isNaN(val) || val <= 0) return 1.0;
-
-  const unit = m[2].toUpperCase();
-  if (unit === 'KG' || unit === 'L') {
-    return val;
-  }
-  if (unit === 'G' || unit === 'GR' || unit === 'ML') {
-    return val / 1000.0;
-  }
-  return 1.0;
+export function parseProductUnitWeightKg(descricao?: string, ehBase = false): number | null {
+  return parseUnitWeightKgDaMedida(descricao, ehBase);
 }
 
 /** Chave React estável de uma linha de lote: lote + produto + ordem do planejamento (evita colisão em listas sem dedupe). */
@@ -575,7 +561,12 @@ export function getLoteEtapaStatus(
   const rawEtapas = l.etapasStatus || (l as any).etapas_status;
   const etapaEntry = rawEtapas?.[etapa];
   const schedDate = getLoteScheduleDateIso(l, etapa);
-  const autoOk = Boolean(schedDate && isPastEndOfDay(schedDate) && l.erpStatus !== 'CA');
+  // A conclusão automática (data agendada passou / hoje depois das 18h) vem calculada do servidor; o relógio do
+  // navegador só vale como fallback quando o campo não veio.
+  const efetivaServidor = l.etapasEfetivas?.[etapa];
+  const autoOk = efetivaServidor
+    ? efetivaServidor.isConcluido
+    : Boolean(schedDate && isPastEndOfDay(schedDate) && l.erpStatus !== 'CA');
 
   if (etapaEntry) {
     const isEspera = etapaEntry.status === 'Em Espera' || Boolean(etapaEntry.motivoEspera);
@@ -908,4 +899,17 @@ export function getPrevisaoBadge(dateIso?: string | null) {
       formatted: dateFormatted
     };
   }
+}
+
+/**
+ * Unidades do lote para exibição. Produto sem peso na descrição (`pesoDesconhecido`) não tem unidades calculadas:
+ * mostra "—" em vez de "0 un". Com `classeUn`, a sigla "un" sai num <span> com essa classe.
+ */
+export function formatarUnidadesLote(
+  lote: { quantity?: number | string | null; pesoDesconhecido?: boolean } | null | undefined,
+  classeUn?: string
+): React.ReactNode {
+  if (lote?.pesoDesconhecido) return <span title="Produto sem peso na descrição">—</span>;
+  const n = Number(lote?.quantity || 0).toLocaleString('pt-BR');
+  return classeUn ? <>{n} <span className={classeUn}>un</span></> : `${n} un`;
 }

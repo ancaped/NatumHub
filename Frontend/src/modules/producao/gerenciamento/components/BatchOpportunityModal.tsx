@@ -4,7 +4,7 @@ import {
   RefreshCw, Plus, Clock, Truck, ChevronRight 
 } from 'lucide-react';
 import { apiFetch } from '../../../geral/lib/http';
-import { parseProductUnitWeightKg, formatUnitsToKg } from '../../lib/unitConversion';
+import { unidadesParaKg, formatUnitsToKg, ehBaseProduto } from '../../lib/unitConversion';
 
 interface BatchOpportunityModalProps {
   product: any;
@@ -66,9 +66,10 @@ export function BatchOpportunityModal({
   }, [product.codigo, product.producao_recomendada]);
 
   // Calculations for batch mass
-  const primaryWeight = parseProductUnitWeightKg(product.descricao);
   const primaryQty = product.producao_recomendada > 0 ? product.producao_recomendada : 100;
-  const primaryKg = primaryQty * primaryWeight;
+  // kg desconhecido (descrição sem medida) conta 0 nos totais e vai sem kg para a fila
+  const primaryKgOuNull = unidadesParaKg(primaryQty, product.descricao, ehBaseProduto(product));
+  const primaryKg = primaryKgOuNull ?? 0;
 
   let totalSelectedKg = primaryKg;
   let totalSelectedUnits = primaryQty;
@@ -76,8 +77,7 @@ export function BatchOpportunityModal({
   siblings.forEach((s) => {
     const sel = selectedSiblings[s.codigo];
     if (sel?.selected) {
-      const w = parseProductUnitWeightKg(s.descricao);
-      totalSelectedKg += sel.qty * w;
+      totalSelectedKg += unidadesParaKg(sel.qty, s.descricao, ehBaseProduto(s)) ?? 0;
       totalSelectedUnits += sel.qty;
     }
   });
@@ -114,7 +114,7 @@ export function BatchOpportunityModal({
           descricao: product.descricao,
           quantidade: primaryQty,
           unidade: 'un',
-          quantidadeKg: Math.round(primaryKg * 10) / 10,
+          quantidadeKg: primaryKgOuNull == null ? null : Math.round(primaryKg * 10) / 10,
           origemDemanda: product.is_producao_programada === 1 ? 'programada' : (product.is_lancamento ? 'fixa' : 'sugestao_estoque'),
           baseCodigo: product.base_codigo,
           baseNome: product.base,
@@ -125,8 +125,8 @@ export function BatchOpportunityModal({
       siblings.forEach((s) => {
         const sel = selectedSiblings[s.codigo];
         if (sel?.selected) {
-          const w = parseProductUnitWeightKg(s.descricao);
-          const sKg = Math.round(sel.qty * w * 10) / 10;
+          const sKgBruto = unidadesParaKg(sel.qty, s.descricao, ehBaseProduto(s));
+          const sKg = sKgBruto == null ? null : Math.round(sKgBruto * 10) / 10;
           itemsToEnqueue.push({
             codigoProduto: s.codigo,
             descricao: s.descricao,
@@ -231,7 +231,7 @@ export function BatchOpportunityModal({
                         </div>
                       ))}
                     {insumosStatus.ingredients.filter((ing: any) => ing.is_missing).length === 0 && (
-                      <p className="text-zinc-500 text-[11px]">Matérias-primas e embalagens suficientes para produzir {primaryQty} unidades ({Math.round(primaryKg)} kg).</p>
+                      <p className="text-zinc-500 text-[11px]">Matérias-primas e embalagens suficientes para produzir {primaryQty} unidades ({primaryKgOuNull == null ? 'sem peso na descrição' : `${Math.round(primaryKg)} kg`}).</p>
                     )}
                   </div>
                 ) : (
@@ -261,7 +261,7 @@ export function BatchOpportunityModal({
                   </div>
                   <div className="text-right">
                     <span className="font-mono font-bold text-zinc-900">{primaryQty} un</span>
-                    <span className="text-zinc-500 ml-1.5 font-mono">(~{Math.round(primaryKg)} kg)</span>
+                    <span className="text-zinc-500 ml-1.5 font-mono">({primaryKgOuNull == null ? 'sem peso' : `~${Math.round(primaryKg)} kg`})</span>
                   </div>
                 </div>
 
@@ -273,8 +273,8 @@ export function BatchOpportunityModal({
                     {siblings.map((sib) => {
                       const sel = selectedSiblings[sib.codigo];
                       const isSelected = Boolean(sel?.selected);
-                      const w = parseProductUnitWeightKg(sib.descricao);
-                      const sibKg = (sel?.qty || 100) * w;
+                      const sibKgOuNull = unidadesParaKg(sel?.qty || 100, sib.descricao, ehBaseProduto(sib));
+                      const sibKg = sibKgOuNull ?? 0;
 
                       return (
                         <div 
@@ -314,7 +314,7 @@ export function BatchOpportunityModal({
                             />
                             <span className="text-zinc-500 font-mono text-[11px]">un</span>
                             <span className="text-zinc-400 font-mono text-[10px] w-14 text-right">
-                              (~{Math.round(sibKg)} kg)
+                              ({sibKgOuNull == null ? 'sem peso' : `~${Math.round(sibKg)} kg`})
                             </span>
                           </div>
                         </div>

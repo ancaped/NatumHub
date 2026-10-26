@@ -2,6 +2,8 @@ pub mod models;
 pub mod store;
 pub mod handlers;
 pub mod espera;
+pub mod quadros_estado;
+pub mod etapas_efetivas;
 
 use std::sync::Arc;
 use axum::{
@@ -19,6 +21,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/api/administrativo/acompanhamento-producao/auditoria",
             get(handlers::get_auditoria_lotes),
+        )
+        .route(
+            "/api/administrativo/acompanhamento-producao/quadros-estado",
+            get(quadros_estado::get_quadros_estado).post(quadros_estado::salvar_quadros_estado),
         )
         .route(
             "/api/administrativo/lote-status",
@@ -159,6 +165,13 @@ pub fn acoes() -> Vec<crate::core::catalogo::Acao> {
                 param("limit", "query", "inteiro", false, "Máximo de lotes."),
                 param("apenasTerceirizados", "query", "booleano", false, "Só terceirizados."),
             ],
+        ),
+        Acao::leitura(
+            "ler_estado_quadros_acompanhamento",
+            "admin_acompanhamento_producao",
+            "Estado dos quadros: ordem manual, concluídos, liberados para envase, filas manuais, caldeira e adiados.",
+            "/api/administrativo/acompanhamento-producao/quadros-estado",
+            vec![],
         ),
         Acao::leitura(
             "auditar_lotes_acompanhamento",

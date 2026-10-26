@@ -72,6 +72,46 @@ pub fn e_base(codigo: &str, categoria_produto: &str, status_produto: &str) -> bo
     categoria_produto == "cat_base" || status_produto == "bases" || codigo.contains(".36.")
 }
 
+/// Categoria raiz (sobe por `categories.parent_id`); `pais` = id -> parent_id.
+pub fn categoria_raiz(id: &str, pais: &std::collections::HashMap<String, String>) -> String {
+    let mut atual = id.to_string();
+    for _ in 0..16 {
+        match pais.get(&atual) {
+            Some(pai) if !pai.is_empty() && *pai != atual => atual = pai.clone(),
+            _ => break,
+        }
+    }
+    atual
+}
+
+/// id -> parent_id de `categories` (só as que têm pai).
+pub async fn carregar_pais_categorias(pool: &sqlx::PgPool) -> Result<std::collections::HashMap<String, String>, sqlx::Error> {
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as("SELECT id, parent_id FROM categories").fetch_all(pool).await?;
+    Ok(rows.into_iter().filter_map(|(id, pai)| pai.map(|p| (id, p))).collect())
+}
+
+/// Dos `codigos`, os que são base de produção (categoria raiz `cat_base`, status `bases` ou código ".36.").
+pub async fn codigos_de_base(pool: &sqlx::PgPool, codigos: &[String]) -> Result<std::collections::HashSet<String>, sqlx::Error> {
+    let pais = carregar_pais_categorias(pool).await?;
+    let rows: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT p.codigo, COALESCE(o.categoria_produto, ''), COALESCE(o.status_produto, '') \
+         FROM produtos p LEFT JOIN overrides_produtos o ON o.codigo = p.codigo WHERE p.codigo = ANY($1)",
+    )
+    .bind(codigos)
+    .fetch_all(pool)
+    .await?;
+    let mut bases: std::collections::HashSet<String> =
+        rows.into_iter().filter(|(c, cat, st)| e_base(c, &categoria_raiz(cat, &pais), st)).map(|(c, _, _)| c).collect();
+    // código fora do cadastro: ainda vale o segmento ".36."
+    bases.extend(codigos.iter().filter(|c| e_base(c, "", "")).cloned());
+    Ok(bases)
+}
+
+/// Peso (kg) de uma unidade: base vale 1,0 (1 un = 1 kg); os demais, a medida da descrição (`None` = desconhecido).
+pub fn peso_unitario_kg(descricao: &str, eh_base: bool) -> Option<f64> {
+    if eh_base { Some(1.0) } else { crate::modules::producao::fila::medida_kg(descricao) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,5 +166,20 @@ mod tests {
         assert!(e_base("60.36.002", "", "ativo"));
         assert!(!e_base("1.3.6", "", "ativo"));
         assert!(!e_base("1.360.1", "", "ativo"));
+    }
+
+    #[test]
+    fn peso_unitario_base_vale_1kg_e_sem_medida_e_desconhecido() {
+        assert_eq!(peso_unitario_kg("BASE SHAMPOO PEROLADO NH 11", true), Some(1.0));
+        assert_eq!(peso_unitario_kg("SHAMPOO 500ML", false), Some(0.5));
+        assert_eq!(peso_unitario_kg("KIT PRESENTE", false), None);
+    }
+
+    #[test]
+    fn categoria_raiz_sobe_ate_o_topo() {
+        let mut pais = std::collections::HashMap::new();
+        pais.insert("sub".to_string(), "cat_base".to_string());
+        assert_eq!(categoria_raiz("sub", &pais), "cat_base");
+        assert_eq!(categoria_raiz("cat_base", &pais), "cat_base");
     }
 }

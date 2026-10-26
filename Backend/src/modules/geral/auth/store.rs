@@ -1493,6 +1493,7 @@ pub fn modulos_da_rota(path: &str) -> Option<&'static [&'static str]> {
         ("/api/producao/lotes", &[MODULE_PRODUCAO_LOTES, MODULE_PRODUCAO]),
         ("/api/producao/planejamento-semanal", PLANEJAMENTO),
         ("/api/producao/fila-demandas", PLANEJAMENTO),
+        ("/api/producao/produtos-sem-peso", ACOMPANHAMENTO),
         ("/api/producao/reatores", PLANEJAMENTO),
         ("/api/producao/cobertura", PLANEJAMENTO),
         ("/api/producao", PRODUCAO),

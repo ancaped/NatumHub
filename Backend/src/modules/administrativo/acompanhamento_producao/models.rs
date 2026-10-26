@@ -123,6 +123,12 @@ pub struct AcompanhamentoLoteItem {
     /// Id da ordem em `producao_planejamento_semanal` (None para lotes que só existem no ERP/status).
     #[serde(default)]
     pub planning_id: Option<String>,
+    /// Status efetivo de cada etapa (conclusão automática às 18h calculada no servidor).
+    #[serde(default)]
+    pub etapas_efetivas: super::etapas_efetivas::EtapasEfetivas,
+    /// `true` quando a descrição do produto não traz medida: `quantity` (unidades) não foi calculada.
+    #[serde(default)]
+    pub peso_desconhecido: bool,
 }
 
 #[derive(Debug, Deserialize)]

@@ -81,9 +81,12 @@ const statusApagadoParaLinha = (a: StatusApagadoPrevia) => ({
 
 import { CATEGORIAS_ENVASE, CORES_PREDEFINIDAS, ORDEM_CORES_FABRICA, REMOTE_LOOKUP_TTL_MS, REMOTE_LOTES_TTL_MS, STATUS_OPTIONS, MOTIVOS_PAUSA_PADRAO, MONTH_NAMES, WEEKDAY_NAMES } from './lib/constantes';
 import { getTodayIso, parseLoteDateToIso, formatDateOnly, formatWeekdayAndDate, formatShortWeekday, formatDateTime, formatDateShort, formatDurationBetween } from './lib/datas';
-import { getLotePlanningOrdem, getLoteReator, inferCategoriaEnvase, inferCorProduto, parseProductUnitWeightKg, loteRowKey, loteMergeKey, stripLotePrefix, normalizeLoteSearch, deduplicateLotesByNumber, consolidateLotesForBatch, filterLotesBySearch, parseUnitWeightFromDescription, calculateStageDurations, renderCardTimelineDates, getEffectiveStatus, isLoteConcluido, isLoteParcial, isLoteOcultoNoQuadro, getLoteEtapaStatus, getEffectivePrevisao, isPastEndOfDay, getLoteScheduleDateIso, isLoteDaSemana, getLoteEsperaDetails, getPrevisaoBadge } from './lib/lotes';
+import { getLotePlanningOrdem, getLoteReator, inferCategoriaEnvase, inferCorProduto, parseProductUnitWeightKg, loteRowKey, loteMergeKey, stripLotePrefix, normalizeLoteSearch, deduplicateLotesByNumber, consolidateLotesForBatch, filterLotesBySearch, parseUnitWeightFromDescription, calculateStageDurations, renderCardTimelineDates, getEffectiveStatus, formatarUnidadesLote, isLoteConcluido, isLoteParcial, isLoteOcultoNoQuadro, getLoteEtapaStatus, getEffectivePrevisao, isPastEndOfDay, getLoteScheduleDateIso, isLoteDaSemana, getLoteEsperaDetails, getPrevisaoBadge } from './lib/lotes';
 import type { StatusHistoryEntry, AcompanhamentoLote, LoteAdiadoRegistro, TerceirizadoSolicitacao, ProgramacaoEnvaseItem, ProgramacaoRotulagemItem, KitAssemblyOrder, TabType, AcompanhamentoProducaoProps } from './lib/tipos';
 import { ColumnFilterHeader } from './lib/ColumnFilterHeader';
+import { useEstadoServidor, paraSet, deSet } from './lib/estadoQuadros';
+import { ehBaseProduto } from '../../producao/lib/unitConversion';
+import AvisoProdutosSemPeso from '../../producao/components/AvisoProdutosSemPeso';
 
 // Reexports: outros módulos importam estes nomes daqui.
 export * from './lib/tipos';
@@ -253,43 +256,15 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   const [savingTerceirizado, setSavingTerceirizado] = useState<boolean>(false);
 
   // Sequência de Ordenação Manual no Quadro de Produção
-  const [producaoOrderOverrides, setProducaoOrderOverrides] = useState<string[]>(() => {
-    try {
-      const s = localStorage.getItem('natum_producao_order_overrides');
-      return s ? JSON.parse(s) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [producaoOrderOverrides, setProducaoOrderOverrides] = useEstadoServidor<string[]>('producao_order_overrides', 'natum_producao_order_overrides', [], { aoErro: m => showToast(m, 'error') });
 
   // Sequência de Ordenação Manual no Quadro de Pesagem
-  const [pesagemOrderOverrides, setPesagemOrderOverrides] = useState<string[]>(() => {
-    try {
-      const s = localStorage.getItem('natum_pesagem_order_overrides');
-      return s ? JSON.parse(s) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [pesagemOrderOverrides, setPesagemOrderOverrides] = useEstadoServidor<string[]>('pesagem_order_overrides', 'natum_pesagem_order_overrides', [], { aoErro: m => showToast(m, 'error') });
 
   // Inclusões Manuais em Liberados para Envase e Filas
-  const [manualLiberadosEnvase, setManualLiberadosEnvase] = useState<Set<string>>(() => {
-    try {
-      const s = localStorage.getItem('natum_manual_liberados_envase');
-      return s ? new Set(JSON.parse(s)) : new Set();
-    } catch {
-      return new Set();
-    }
-  });
+  const [manualLiberadosEnvase, setManualLiberadosEnvase] = useEstadoServidor<Set<string>>('manual_liberados_envase', 'natum_manual_liberados_envase', new Set(), { paraJson: deSet, deJson: paraSet, aoErro: m => showToast(m, 'error') });
 
-  const [manualFilasAdicionados, setManualFilasAdicionados] = useState<Record<'pesagem' | 'producao' | 'rotulagem', string[]>>(() => {
-    try {
-      const s = localStorage.getItem('natum_filas_manuais_adicionados');
-      return s ? JSON.parse(s) : { pesagem: [], producao: [], rotulagem: [] };
-    } catch {
-      return { pesagem: [], producao: [], rotulagem: [] };
-    }
-  });
+  const [manualFilasAdicionados, setManualFilasAdicionados] = useEstadoServidor<Record<'pesagem' | 'producao' | 'rotulagem', string[]>>('filas_manuais_adicionados', 'natum_filas_manuais_adicionados', { pesagem: [], producao: [], rotulagem: [] }, { aoErro: m => showToast(m, 'error') });
 
   // Modal para Adicionar Lote a qualquer fila
   const [addLoteModalTarget, setAddLoteModalTarget] = useState<'pesagem' | 'producao' | 'rotulagem' | 'envase' | null>(null);
@@ -349,43 +324,12 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
   const [envaseEsperaMotivoRestante, setEnvaseEsperaMotivoRestante] = useState<string>('');
 
   // Histórico de Lotes Adiados
-  const [lotesAdiadosHistorico, setLotesAdiadosHistorico] = useState<LoteAdiadoRegistro[]>(() => {
-    try {
-      const s = localStorage.getItem('natum_lotes_adiados_historico');
-      return s ? JSON.parse(s) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [lotesAdiadosHistorico, setLotesAdiadosHistorico] = useEstadoServidor<LoteAdiadoRegistro[]>('lotes_adiados_historico', 'natum_lotes_adiados_historico', [], { aoErro: m => showToast(m, 'error') });
 
   // Lotes concluídos em Pesagem e Produção para manter card visível com toggle verde/reversão
-  const [pesagemConcluidosLotes, setPesagemConcluidosLotes] = useState<string[]>(() => {
-    try {
-      const s = localStorage.getItem('natum_pesagem_concluidos_lotes');
-      return s ? JSON.parse(s) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [pesagemConcluidosLotes, setPesagemConcluidosLotes] = useEstadoServidor<string[]>('pesagem_concluidos_lotes', 'natum_pesagem_concluidos_lotes', [], { aoErro: m => showToast(m, 'error') });
 
-  const [producaoConcluidosLotes, setProducaoConcluidosLotes] = useState<string[]>(() => {
-    try {
-      const s = localStorage.getItem('natum_producao_concluidos_lotes');
-      return s ? JSON.parse(s) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  // Status e pausas isoladas por etapa (Pesagem, Produção, Rotulagem, Envase)
-  const [localEtapasStatus, setLocalEtapasStatus] = useState<Record<string, Record<string, any>>>(() => {
-    try {
-      const s = localStorage.getItem('natum_etapas_status');
-      return s ? JSON.parse(s) : {};
-    } catch {
-      return {};
-    }
-  });
+  const [producaoConcluidosLotes, setProducaoConcluidosLotes] = useEstadoServidor<string[]>('producao_concluidos_lotes', 'natum_producao_concluidos_lotes', [], { aoErro: m => showToast(m, 'error') });
 
   // Salva o status de uma etapa específica (Pesagem, Produção, Rotulagem ou Envase) de forma 100% isolada
   const saveEtapaStatus = useCallback(async (
@@ -401,30 +345,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     const responsible = updatedBy || (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
     const nowIso = new Date().toISOString();
 
-    // 1. Atualização otimista no cache local e localStorage
-    setLocalEtapasStatus(prev => {
-      const lotePrev = prev[loteNumber] || {};
-      const next = {
-        ...prev,
-        [loteNumber]: {
-          ...lotePrev,
-          [etapa]: {
-            status,
-            motivoEspera: motivoEspera || null,
-            insumoFaltanteCodigo: insumoFaltanteCodigo || null,
-            insumoFaltanteDescricao: insumoFaltanteDescricao || null,
-            updatedBy: responsible,
-            updatedAt: nowIso,
-          }
-        }
-      };
-      try {
-        localStorage.setItem('natum_etapas_status', JSON.stringify(next));
-      } catch {}
-      return next;
-    });
-
-    // 2. Atualização otimista na lista de lotes em memória
+    // 1. Atualização otimista na lista de lotes em memória
     setLotes(prev => prev.map(l => {
       if (l.loteNumber !== loteNumber) return l;
       const currentEtapas = l.etapasStatus || (l as any).etapas_status || {};
@@ -465,7 +386,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       return updatedLote;
     }));
 
-    // 3. Persistência no backend (Postgres via rota dedicada de etapa)
+    // 2. Persistência no backend (Postgres via rota dedicada de etapa)
     try {
       await apiJson(`/api/administrativo/lote-status/${encodeURIComponent(loteNumber)}/etapa-status`, {
         method: 'POST',
@@ -497,30 +418,9 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     observacoes?: string;
     duracaoMinutos?: number;
   }
-  const [caldeiraAtiva, setCaldeiraAtiva] = useState<{ ligouEm: string; operador: string; lotes: string[] } | null>(() => {
-    try {
-      const s = localStorage.getItem('natum_caldeira_ativa');
-      return s ? JSON.parse(s) : null;
-    } catch {
-      return null;
-    }
-  });
-  const [caldeiraHistorico, setCaldeiraHistorico] = useState<CaldeiraRegistro[]>(() => {
-    try {
-      const s = localStorage.getItem('natum_caldeira_historico');
-      return s ? JSON.parse(s) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [lotesComCaldeira, setLotesComCaldeira] = useState<Set<string>>(() => {
-    try {
-      const s = localStorage.getItem('natum_lotes_com_caldeira');
-      return s ? new Set(JSON.parse(s)) : new Set();
-    } catch {
-      return new Set();
-    }
-  });
+  const [caldeiraAtiva, setCaldeiraAtiva] = useEstadoServidor<{ ligouEm: string; operador: string; lotes: string[] } | null>('caldeira_ativa', 'natum_caldeira_ativa', null, { aoErro: m => showToast(m, 'error') });
+  const [caldeiraHistorico, setCaldeiraHistorico] = useEstadoServidor<CaldeiraRegistro[]>('caldeira_historico', 'natum_caldeira_historico', [], { aoErro: m => showToast(m, 'error') });
+  const [lotesComCaldeira, setLotesComCaldeira] = useEstadoServidor<Set<string>>('lotes_com_caldeira', 'natum_lotes_com_caldeira', new Set(), { paraJson: deSet, deJson: paraSet, aoErro: m => showToast(m, 'error') });
   const [showCaldeiraView, setShowCaldeiraView] = useState<boolean>(false);
 
   const [currentYear, setCurrentYear] = useState<number>(today.getFullYear());
@@ -1102,13 +1002,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         };
         setLotesAdiadosHistorico(prev => {
           const next = [newReg, ...prev.filter(x => !(x.loteNumber === loteNumber && (x.dataAdiadoPara === dataPara || x.dataOriginal === dataOrig)))];
-          try { localStorage.setItem('natum_lotes_adiados_historico', JSON.stringify(next)); } catch {}
           return next;
         });
       } else if (dataOrig && dataPara && dataPara <= dataOrig) {
         setLotesAdiadosHistorico(prev => {
           const next = prev.filter(x => !(x.loteNumber === loteNumber && x.dataOriginal === dataOrig));
-          try { localStorage.setItem('natum_lotes_adiados_historico', JSON.stringify(next)); } catch {}
           return next;
         });
       }
@@ -1243,7 +1141,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       // 4. Remover registro de adiamento do histórico reativo
       setLotesAdiadosHistorico(prev => {
         const next = prev.filter(x => x.loteNumber !== loteNumber);
-        try { localStorage.setItem('natum_lotes_adiados_historico', JSON.stringify(next)); } catch {}
         return next;
       });
 
@@ -1382,13 +1279,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         };
         setLotesAdiadosHistorico(prev => {
           const next = [newReg, ...prev.filter(x => !(x.loteNumber === lote.loteNumber && (x.dataAdiadoPara === dataPara || x.dataOriginal === dataOrig)))];
-          try { localStorage.setItem('natum_lotes_adiados_historico', JSON.stringify(next)); } catch {}
           return next;
         });
       } else if (dataOrig && dataPara && dataPara <= dataOrig) {
         setLotesAdiadosHistorico(prev => {
           const next = prev.filter(x => !(x.loteNumber === lote.loteNumber && x.dataOriginal === dataOrig));
-          try { localStorage.setItem('natum_lotes_adiados_historico', JSON.stringify(next)); } catch {}
           return next;
         });
       }
@@ -1414,10 +1309,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     const handleRefresh = () => {
       setPesagemOrderOverrides([]);
       setProducaoOrderOverrides([]);
-      try {
-        localStorage.removeItem('natum_pesagem_order_overrides');
-        localStorage.removeItem('natum_producao_order_overrides');
-      } catch {}
       fetchLotes();
     };
     window.addEventListener('natum:refresh-acompanhamento', handleRefresh);
@@ -1547,8 +1438,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     const finalKg = Number(lote.quantityKg) || 0;
     let finalUn = Number(lote.quantity) || 0;
     if (finalUn <= 0 && finalKg > 0) {
-      const uWeight = parseProductUnitWeightKg(lote.productDescription);
-      finalUn = Math.round(finalKg / (uWeight || 1));
+      const uWeight = parseProductUnitWeightKg(lote.productDescription, ehBaseProduto({ codigo: lote.productCode, descricao: lote.productDescription }));
+      if (uWeight) finalUn = Math.round(finalKg / uWeight); // sem medida na descrição: unidades desconhecidas (0)
     }
 
     try {
@@ -1820,9 +1711,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       } else {
         next.add(loteNumber);
       }
-      try {
-        localStorage.setItem('natum_lotes_com_caldeira', JSON.stringify(Array.from(next)));
-      } catch {}
       return next;
     });
 
@@ -1859,9 +1747,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       lotes: lotesArr,
     };
     setCaldeiraAtiva(novoEstado);
-    try {
-      localStorage.setItem('natum_caldeira_ativa', JSON.stringify(novoEstado));
-    } catch {}
     showToast("🔥 Caldeira ligada! Registro de aquecimento iniciado.");
   };
 
@@ -1878,10 +1763,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     const novoHist = [novoRegistro, ...caldeiraHistorico];
     setCaldeiraHistorico(novoHist);
     setCaldeiraAtiva(null);
-    try {
-      localStorage.removeItem('natum_caldeira_ativa');
-      localStorage.setItem('natum_caldeira_historico', JSON.stringify(novoHist));
-    } catch {}
     showToast("❄️ Caldeira desligada e arquivada no histórico de aquecimento.");
   };
 
@@ -1951,7 +1832,10 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
   // Organizar Campanha da Linha (Agrupa por Categoria e Ordena por Escala de Cores)
   const handleAutoSortCampanha = async (linha: string) => {
-    const lineItems = programacaoEnvase.filter(it => it.linha === linha);
+    // Só o dia selecionado: a lista em memória pode trazer outras datas, que não devem ser reordenadas.
+    const lineItems = programacaoEnvase.filter(it =>
+      it.linha === linha && (it.dataProgramada ? parseLoteDateToIso(it.dataProgramada) === envaseSelectedDate : true)
+    );
     if (lineItems.length <= 1) {
       showToast(`Linha ${linha} possui poucos itens para reorganização.`);
       return;
@@ -2675,32 +2559,21 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       setPesagemConcluidosLotes(prev => {
         if (prev.includes(loteNumber)) return prev;
         const next = [...prev, loteNumber];
-        try {
-          localStorage.setItem('natum_pesagem_concluidos_lotes', JSON.stringify(next));
-        } catch {}
         return next;
       });
     } else if (newStatus === 'Fila Pesagem') {
       setPesagemConcluidosLotes(prev => {
         const next = prev.filter(x => x !== loteNumber);
-        try {
-          localStorage.setItem('natum_pesagem_concluidos_lotes', JSON.stringify(next));
-        } catch {}
         return next;
       });
     }
 
-    // Se o status for de finalização, remove imediatamente das filas operacionais de Envase e Rotulagem
+    // Se o status for de finalização, tira imediatamente da tela as filas operacionais de Envase e Rotulagem
     if (newStatus === 'Finalizada' || newStatus === 'Ordem Finalizada') {
       const cleanTarget = (loteNumber || '').trim().toLowerCase();
       setProgramacaoEnvase(prev => prev.filter(it => (it.loteNumber || '').trim().toLowerCase() !== cleanTarget));
       setProgramacaoRotulagem(prev => prev.filter(it => (it.loteNumber || '').trim().toLowerCase() !== cleanTarget));
-      apiJson(`/api/administrativo/envase/programacao/lote/${encodeURIComponent(loteNumber)}`, {
-        method: 'DELETE'
-      }).catch(() => {});
-      apiJson(`/api/administrativo/rotulagem/programacao/lote/${encodeURIComponent(loteNumber)}`, {
-        method: 'DELETE'
-      }).catch(() => {});
+      // O servidor tira o lote das duas programações na mesma transação do status.
     }
 
     try {
@@ -2924,9 +2797,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           const next = new Set(prev);
           next.delete((loteNumber || '').trim().toLowerCase());
           next.delete(loteNumber);
-          try {
-            localStorage.setItem('natum_manual_liberados_envase', JSON.stringify(Array.from(next)));
-          } catch {}
           return next;
         });
         setProgramacaoEnvase(prev => prev.filter(p => p.loteNumber !== loteNumber));
@@ -3025,9 +2895,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         const next = new Set(prev);
         next.delete((loteNumber || '').trim().toLowerCase());
         next.delete(loteNumber);
-        try {
-          localStorage.setItem('natum_manual_liberados_envase', JSON.stringify(Array.from(next)));
-        } catch {}
         return next;
       });
     } else {
@@ -3035,9 +2902,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         const currentList = prev[etapa] || [];
         const nextList = currentList.filter(n => n !== loteNumber);
         const next = { ...prev, [etapa]: nextList };
-        try {
-          localStorage.setItem('natum_filas_manuais_adicionados', JSON.stringify(next));
-        } catch {}
         return next;
       });
     }
@@ -3069,9 +2933,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           const next = new Set(prev);
           next.add(cleanNum);
           next.add(lote.loteNumber);
-          try {
-            localStorage.setItem('natum_manual_liberados_envase', JSON.stringify(Array.from(next)));
-          } catch {}
           return next;
         });
 
@@ -3091,9 +2952,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           if (!currentList.includes(lote.loteNumber)) {
             const nextList = [...currentList, lote.loteNumber];
             const next = { ...prev, [target]: nextList };
-            try {
-              localStorage.setItem('natum_filas_manuais_adicionados', JSON.stringify(next));
-            } catch {}
             return next;
           }
           return prev;
@@ -3102,14 +2960,12 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         if (target === 'pesagem') {
           setPesagemConcluidosLotes(prev => {
             const next = prev.filter(x => x !== lote.loteNumber);
-            try { localStorage.setItem('natum_pesagem_concluidos_lotes', JSON.stringify(next)); } catch {}
             return next;
           });
           await saveEtapaStatus(lote.loteNumber, 'pesagem', 'fila', null, null, null, responsibleName, targetDate);
         } else if (target === 'producao') {
           setProducaoConcluidosLotes(prev => {
             const next = prev.filter(x => x !== lote.loteNumber);
-            try { localStorage.setItem('natum_producao_concluidos_lotes', JSON.stringify(next)); } catch {}
             return next;
           });
           await saveEtapaStatus(lote.loteNumber, 'producao', 'fila', null, null, null, responsibleName, targetDate);
@@ -3139,17 +2995,11 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     setLotesComCaldeira(prev => {
       const next = new Set(prev);
       next.add(loteNumber);
-      try {
-        localStorage.setItem('natum_lotes_com_caldeira', JSON.stringify(Array.from(next)));
-      } catch {}
       return next;
     });
     setProducaoOrderOverrides(prev => {
       if (prev.includes(loteNumber)) return prev;
       const next = [...prev, loteNumber];
-      try {
-        localStorage.setItem('natum_producao_order_overrides', JSON.stringify(next));
-      } catch {}
       return next;
     });
     const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
@@ -5801,9 +5651,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     updated[idx] = updated[targetIdx];
     updated[targetIdx] = temp;
     setPesagemOrderOverrides(updated);
-    try {
-      localStorage.setItem('natum_pesagem_order_overrides', JSON.stringify(updated));
-    } catch {}
   };
 
   // Lotes aguardando início de pesagem + lotes em espera (Fila Unificada de Pesagem)
@@ -5946,9 +5793,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     updated[idx] = updated[targetIdx];
     updated[targetIdx] = temp;
     setProducaoOrderOverrides(updated);
-    try {
-      localStorage.setItem('natum_producao_order_overrides', JSON.stringify(updated));
-    } catch {}
   };
 
   // Lotes aguardando produção + lotes em espera (Fila Unificada de Produção)
@@ -6283,8 +6127,8 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
     const numKg = Number(lote.quantityKg) || 0;
     let numQty = Number(lote.quantity) || 0;
     if (numQty <= 0 && numKg > 0) {
-      const uWeight = parseProductUnitWeightKg(lote.productDescription);
-      numQty = Math.round(numKg / (uWeight || 1));
+      const uWeight = parseProductUnitWeightKg(lote.productDescription, ehBaseProduto({ codigo: lote.productCode, descricao: lote.productDescription }));
+      if (uWeight) numQty = Math.round(numKg / uWeight); // sem medida na descrição: unidades desconhecidas (0)
     }
     const payload = {
       dataProgramada: targetDate,
@@ -6478,12 +6322,10 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
         setPesagemOrderOverrides(prev => {
           if (prev.includes(data.loteNumber)) return prev;
           const next = [...prev, data.loteNumber];
-          try { localStorage.setItem('natum_pesagem_order_overrides', JSON.stringify(next)); } catch {}
           return next;
         });
         setPesagemConcluidosLotes(prev => {
           const next = prev.filter(x => x !== data.loteNumber);
-          try { localStorage.setItem('natum_pesagem_concluidos_lotes', JSON.stringify(next)); } catch {}
           return next;
         });
         await saveEtapaStatus(data.loteNumber, 'pesagem', 'ativo', null, null, null, responsibleName, targetDate);
@@ -6492,12 +6334,10 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
       } else if (data.source === 'ativa' && targetLocation === 'fila') {
         setPesagemOrderOverrides(prev => {
           const next = prev.filter(x => x !== data.loteNumber);
-          try { localStorage.setItem('natum_pesagem_order_overrides', JSON.stringify(next)); } catch {}
           return next;
         });
         setPesagemConcluidosLotes(prev => {
           const next = prev.filter(x => x !== data.loteNumber);
-          try { localStorage.setItem('natum_pesagem_concluidos_lotes', JSON.stringify(next)); } catch {}
           return next;
         });
         await saveEtapaStatus(data.loteNumber, 'pesagem', 'fila', null, null, null, responsibleName);
@@ -6509,9 +6349,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           const [moved] = updated.splice(data.index, 1);
           updated.splice(targetIndex, 0, moved);
           setPesagemOrderOverrides(updated);
-          try {
-            localStorage.setItem('natum_pesagem_order_overrides', JSON.stringify(updated));
-          } catch {}
         }
       }
     } catch (err) {
@@ -6574,9 +6411,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           const [moved] = updated.splice(data.index, 1);
           updated.splice(targetIndex, 0, moved);
           setProducaoOrderOverrides(updated);
-          try {
-            localStorage.setItem('natum_producao_order_overrides', JSON.stringify(updated));
-          } catch {}
         }
       }
     } catch (err) {
@@ -6720,6 +6554,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
     >
       {previaAcao && <PreviaAcaoDrawer previa={previaAcao} onClose={() => setPreviaAcao(null)} />}
+      {mode !== 'planejamento' && <AvisoProdutosSemPeso className="mb-2" />}
       {/* Toast flutuante de confirmação */}
       {toastMessage && (
         <div className="fixed top-16 right-6 z-50 animate-in fade-in slide-in-from-top-3 duration-200">
@@ -7630,7 +7465,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                           {/* Quantidade (Unidades E Kg do lote completo) */}
                           <td className="py-2.5 px-4 text-right whitespace-nowrap">
                             <div className="font-mono font-bold text-xs text-zinc-900">
-                              {Number(lote.quantity || 0).toLocaleString('pt-BR')} <span className="text-[10px] text-zinc-500">un</span>
+                              {formatarUnidadesLote(lote, "text-[10px] text-zinc-500")}
                             </div>
                             <div className="text-[11px] font-mono text-zinc-500 font-semibold">
                               {Number(lote.quantityKg || 0).toLocaleString('pt-BR')} <span className="text-[10px] text-zinc-400">kg total</span>
@@ -8529,7 +8364,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {Number(lote.quantityKg || 0).toLocaleString('pt-BR')} kg
                           </span>
                           <span className="text-[11px] text-zinc-500">
-                            {Number(lote.quantity || 0).toLocaleString('pt-BR')} un
+                            {formatarUnidadesLote(lote)}
                           </span>
                         </div>
 
@@ -8544,7 +8379,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 const next = newConcluido
                                   ? Array.from(new Set([...prev, lote.loteNumber]))
                                   : prev.filter(x => x !== lote.loteNumber);
-                                try { localStorage.setItem('natum_pesagem_concluidos_lotes', JSON.stringify(next)); } catch {}
                                 return next;
                               });
                               try {
@@ -8569,12 +8403,10 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             onClick={async () => {
                               setPesagemConcluidosLotes(prev => {
                                 const next = prev.filter(x => x !== lote.loteNumber);
-                                try { localStorage.setItem('natum_pesagem_concluidos_lotes', JSON.stringify(next)); } catch {}
                                 return next;
                               });
                               setPesagemOrderOverrides(prev => {
                                 const next = prev.filter(x => x !== lote.loteNumber);
-                                try { localStorage.setItem('natum_pesagem_order_overrides', JSON.stringify(next)); } catch {}
                                 return next;
                               });
                               const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
@@ -8853,7 +8685,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {Number(lote.quantityKg || 0).toLocaleString('pt-BR')} kg
                           </span>
                           <span className="text-[11px] text-zinc-500">
-                            {Number(lote.quantity || 0).toLocaleString('pt-BR')} un
+                            {formatarUnidadesLote(lote)}
                           </span>
                         </div>
 
@@ -8886,12 +8718,10 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   setPesagemOrderOverrides(prev => {
                                     if (prev.includes(lote.loteNumber)) return prev;
                                     const next = [...prev, lote.loteNumber];
-                                    try { localStorage.setItem('natum_pesagem_order_overrides', JSON.stringify(next)); } catch {}
                                     return next;
                                   });
                                   setPesagemConcluidosLotes(prev => {
                                     const next = prev.filter(x => x !== lote.loteNumber);
-                                    try { localStorage.setItem('natum_pesagem_concluidos_lotes', JSON.stringify(next)); } catch {}
                                     return next;
                                   });
                                   const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
@@ -9165,7 +8995,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {Number(lote.quantityKg || 0).toLocaleString('pt-BR')} kg
                           </span>
                           <span className="text-[11px] text-zinc-500">
-                            {Number(lote.quantity || 0).toLocaleString('pt-BR')} un
+                            {formatarUnidadesLote(lote)}
                           </span>
                         </div>
 
@@ -9177,7 +9007,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               if (newConcluido) {
                                 setProducaoConcluidosLotes(prev => {
                                   const next = Array.from(new Set([...prev, lote.loteNumber]));
-                                  try { localStorage.setItem('natum_producao_concluidos_lotes', JSON.stringify(next)); } catch {}
                                   return next;
                                 });
                                 const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
@@ -9186,7 +9015,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               } else {
                                 setProducaoConcluidosLotes(prev => {
                                   const next = prev.filter(x => x !== lote.loteNumber);
-                                  try { localStorage.setItem('natum_producao_concluidos_lotes', JSON.stringify(next)); } catch {}
                                   return next;
                                 });
                                 const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
@@ -9225,12 +9053,10 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             onClick={() => {
                               setProducaoOrderOverrides(prev => {
                                 const next = prev.filter(x => x !== lote.loteNumber);
-                                try { localStorage.setItem('natum_producao_order_overrides', JSON.stringify(next)); } catch {}
                                 return next;
                               });
                               setProducaoConcluidosLotes(prev => {
                                 const next = prev.filter(x => x !== lote.loteNumber);
-                                try { localStorage.setItem('natum_producao_concluidos_lotes', JSON.stringify(next)); } catch {}
                                 return next;
                               });
                               const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
@@ -9442,7 +9268,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {Number(lote.quantityKg || 0).toLocaleString('pt-BR')} kg
                           </span>
                           <span className="text-[11px] text-zinc-500">
-                            {Number(lote.quantity || 0).toLocaleString('pt-BR')} un
+                            {formatarUnidadesLote(lote)}
                           </span>
                         </div>
 
@@ -9454,7 +9280,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               if (newConcluido) {
                                 setProducaoConcluidosLotes(prev => {
                                   const next = Array.from(new Set([...prev, lote.loteNumber]));
-                                  try { localStorage.setItem('natum_producao_concluidos_lotes', JSON.stringify(next)); } catch {}
                                   return next;
                                 });
                                 const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
@@ -9463,7 +9288,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               } else {
                                 setProducaoConcluidosLotes(prev => {
                                   const next = prev.filter(x => x !== lote.loteNumber);
-                                  try { localStorage.setItem('natum_producao_concluidos_lotes', JSON.stringify(next)); } catch {}
                                   return next;
                                 });
                                 const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
@@ -9743,7 +9567,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {Number(lote.quantityKg || 0).toLocaleString('pt-BR')} kg
                           </span>
                           <span className="text-[11px] text-zinc-500">
-                            {Number(lote.quantity || 0).toLocaleString('pt-BR')} un
+                            {formatarUnidadesLote(lote)}
                           </span>
                         </div>
 
@@ -9787,7 +9611,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   setProducaoOrderOverrides(prev => {
                                     if (prev.includes(lote.loteNumber)) return prev;
                                     const next = [...prev, lote.loteNumber];
-                                    try { localStorage.setItem('natum_producao_order_overrides', JSON.stringify(next)); } catch {}
                                     return next;
                                   });
                                   const responsibleName = (currentUser?.displayName || (currentUser as any)?.display_name) || 'Operador';
@@ -9842,7 +9665,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                   setProducaoOrderOverrides(prev => {
                                     if (prev.includes(lote.loteNumber)) return prev;
                                     const next = [...prev, lote.loteNumber];
-                                    try { localStorage.setItem('natum_producao_order_overrides', JSON.stringify(next)); } catch {}
                                     return next;
                                   });
                                   await saveEtapaStatus(lote.loteNumber, 'producao', 'ativo', null, null, null, responsibleName);
@@ -10613,7 +10435,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                         <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-zinc-100">
                           <span className="font-bold text-zinc-900">
-                            {Number(lote.quantity || 0).toLocaleString('pt-BR')} <span className="text-[10px] text-zinc-500 font-normal">un</span>
+                            {formatarUnidadesLote(lote, "text-[10px] text-zinc-500 font-normal")}
                           </span>
                           <span className="text-[11px] text-zinc-500">
                             {Number(lote.quantityKg || 0).toLocaleString('pt-BR')} kg
@@ -11802,7 +11624,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                         <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-zinc-100">
                           <span className="font-bold text-zinc-900">
-                            {Number(lote.quantity || 0).toLocaleString('pt-BR')} <span className="text-[10px] text-zinc-500 font-normal">un</span>
+                            {formatarUnidadesLote(lote, "text-[10px] text-zinc-500 font-normal")}
                           </span>
                           <span className="text-[11px] text-zinc-500">
                             {Number(lote.quantityKg || 0).toLocaleString('pt-BR')} kg
@@ -12095,7 +11917,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                         <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-zinc-100">
                           <span className="font-bold text-zinc-900">
-                            {Number(lote.quantity).toLocaleString('pt-BR')} <span className="text-[10px] text-zinc-500 font-normal">un</span>
+                            {formatarUnidadesLote(lote, "text-[10px] text-zinc-500 font-normal")}
                           </span>
                           <span className="text-[11px] text-zinc-500">
                             {Number(lote.quantityKg).toLocaleString('pt-BR')} kg
@@ -12392,7 +12214,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
                         <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-zinc-100">
                           <span className="font-bold text-zinc-900">
-                            {Number(lote.quantity).toLocaleString('pt-BR')} <span className="text-[10px] text-zinc-500 font-normal">un</span>
+                            {formatarUnidadesLote(lote, "text-[10px] text-zinc-500 font-normal")}
                           </span>
                           <span className="text-[11px] text-zinc-500">
                             {Number(lote.quantityKg).toLocaleString('pt-BR')} kg
@@ -12746,7 +12568,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             <div className="text-[10px] font-mono text-zinc-400">SKU: {item.productCode}</div>
                           </td>
                           <td className="py-2.5 px-3 text-right font-mono whitespace-nowrap">
-                            <div className="font-bold text-zinc-900">{Number(item.quantity || 0).toLocaleString('pt-BR')} un</div>
+                            <div className="font-bold text-zinc-900">{formatarUnidadesLote(item)}</div>
                             <div className="text-[10px] text-zinc-500 font-semibold">{Number(item.quantityKg || 0).toLocaleString('pt-BR')} kg</div>
                           </td>
                           <td className="py-2.5 px-3 text-center whitespace-nowrap">
@@ -13332,7 +13154,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       <div className="flex items-center gap-3 text-[11px] text-zinc-500 font-mono mt-1">
                         <span>{Number(candidate.quantityKg || 0).toLocaleString('pt-BR')} kg</span>
                         <span>•</span>
-                        <span>{Number(candidate.quantity || 0).toLocaleString('pt-BR')} un</span>
+                        <span>{formatarUnidadesLote(candidate)}</span>
                         {candidate.dataPrevisao && (
                           <>
                             <span>•</span>
@@ -13531,7 +13353,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         {lote && (
                           <div className="text-right font-mono text-[11px] text-zinc-500 shrink-0">
                             <div>{Number(lote.quantityKg || 0).toLocaleString('pt-BR')} kg</div>
-                            <div>{Number(lote.quantity || 0).toLocaleString('pt-BR')} un</div>
+                            <div>{formatarUnidadesLote(lote)}</div>
                           </div>
                         )}
                       </div>
@@ -14455,7 +14277,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 <span>Data: {formatDateOnly(l.date || l.dataPrevisao)}</span>
                                 <span>•</span>
                                 <span>
-                                  {l.quantity ? `${l.quantity.toLocaleString('pt-BR')} un` : ''}
+                                  {l.pesoDesconhecido ? formatarUnidadesLote(l) : (l.quantity ? `${l.quantity.toLocaleString('pt-BR')} un` : '')}
                                   {l.quantityKg ? ` (${l.quantityKg.toLocaleString('pt-BR')} kg)` : ''}
                                 </span>
                               </div>
@@ -14557,7 +14379,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 </p>
                 <div className="flex items-center justify-between text-xs text-zinc-600 pt-1 border-t border-zinc-200/60 font-mono">
                   <span>Massa: <strong>{Number(editTerceirizadoLote.quantityKg || 0).toLocaleString('pt-BR')} kg</strong></span>
-                  <span>Unidades: <strong>{Number(editTerceirizadoLote.quantity || 0).toLocaleString('pt-BR')} un</strong></span>
+                  <span>Unidades: <strong>{formatarUnidadesLote(editTerceirizadoLote)}</strong></span>
                 </div>
               </div>
 

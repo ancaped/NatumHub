@@ -9,7 +9,8 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { apiFetch } from '../../../geral/lib/http';
-import { parseProductUnitWeightKg } from '../../lib/unitConversion';
+import AvisoProdutosSemPeso from '../../components/AvisoProdutosSemPeso';
+import { unidadesDeKg, ehBaseProduto } from '../../lib/unitConversion';
 import { printHtmlViaIframe } from '../../../geral/lib/printCleanup';
 import { loadNatumLogoDataUrl } from '../../../geral/lib/logoUtils';
 import { getHoliday, getBrazilHolidaysForYear, HolidayInfo } from '../../../geral/lib/brazilHolidays';
@@ -167,8 +168,7 @@ export function groupCellItems(cellItems: PlanejamentoItem[]): CellBatchGroup[] 
     const primaryItem = items[0];
     const totalKg = Number(items.reduce((acc, it) => acc + (Number(it.quantidade_planejada) || 0), 0).toFixed(1));
     const totalUnits = items.reduce((acc, it) => {
-      const uW = parseProductUnitWeightKg(it.descricao);
-      return acc + Math.round((Number(it.quantidade_planejada) || 0) / (uW || 1));
+      return acc + (unidadesDeKg(Number(it.quantidade_planejada) || 0, it.descricao, ehBaseProduto({ codigo: it.codigo_produto, descricao: it.descricao })) ?? 0);
     }, 0);
     const isMulti = items.length > 1;
     const loteErp = items.find(it => it.lote_erp && it.lote_erp.trim())?.lote_erp?.trim();
@@ -671,13 +671,14 @@ export function PlanejamentoSemanalTab({
     const payload = itens
       .filter(it => it.ordem_status !== 'concluido')
       .map(it => {
-        const uW = parseProductUnitWeightKg(it.descricao);
-        const estUn = Math.max(1, Math.round((Number(it.quantidade_planejada) || 0) / (uW || 1)));
+        const estUnOuNull = unidadesDeKg(Number(it.quantidade_planejada) || 0, it.descricao, ehBaseProduto({ codigo: it.codigo_produto, descricao: it.descricao }));
+        // sem medida na descrição não dá para converter: vai a quantidade em kg mesmo
+        const estUn = estUnOuNull == null ? (Number(it.quantidade_planejada) || 0) : Math.max(1, estUnOuNull);
         return {
           codigoProduto: it.codigo_produto,
           descricao: it.descricao || it.codigo_produto,
           quantidade: estUn,
-          unidade: 'un',
+          unidade: estUnOuNull == null ? 'kg' : 'un',
           quantidadeKg: Number(it.quantidade_planejada) || 0,
           origemDemanda: 'retorno_pcp',
           modo: 'somar',
@@ -1034,12 +1035,11 @@ export function PlanejamentoSemanalTab({
       let savedAny = false;
       for (const it of batchItems) {
         const itemQty = batchMasses?.[it.id] !== undefined ? batchMasses[it.id] : it.quantidade_planejada;
-        const uW = parseProductUnitWeightKg(it.descricao);
-        const estUn = Math.round(itemQty / (uW || 1));
+        const estUn = unidadesDeKg(itemQty, it.descricao, ehBaseProduto({ codigo: it.codigo_produto, descricao: it.descricao }));
         const updated: PlanejamentoItem = {
           ...it,
           quantidade_planejada: itemQty,
-          observacoes: it.observacoes?.replace(/\|\s*[0-9.,]+\s*kg\s*\|\s*~[0-9.,]+\s*un/i, `| ${itemQty} kg | ~${estUn.toLocaleString('pt-BR')} un`),
+          observacoes: it.observacoes?.replace(/\|\s*[0-9.,]+\s*kg\s*\|\s*~[0-9.,]+\s*un/i, estUn == null ? `| ${itemQty} kg` : `| ${itemQty} kg | ~${estUn.toLocaleString('pt-BR')} un`),
         };
         if (await handleSaveItem(updated)) savedAny = true;
       }
@@ -1503,12 +1503,14 @@ export function PlanejamentoSemanalTab({
         ? Number(scheduleItemMasses[prod.codigo].toFixed(1))
         : Number((scheduleQty / numItems).toFixed(1));
 
-      const estUnits = Math.round(massPerItem / (procInfo.unitWeightKg || 1));
+      // sem medida na descrição o rendimento em unidades é desconhecido: a observação leva só os kg
+      const estUnits = unidadesDeKg(massPerItem, prod.descricao, ehBaseProduto(prod));
+      const sufixoUn = estUnits == null ? '' : ` | ~${estUnits.toLocaleString('pt-BR')} un`;
       const batchObs = numItems > 1 
-        ? `Batelada conjunta (${i + 1}/${numItems}) [batch:${batchId}] | ${massPerItem} kg | ~${estUnits.toLocaleString('pt-BR')} un`
+        ? `Batelada conjunta (${i + 1}/${numItems}) [batch:${batchId}] | ${massPerItem} kg${sufixoUn}`
         : (procInfo.isQuente 
             ? (scheduleReator === 'BOMBONAS' ? 'Água Quente Caldeira (Bombona)' : (scheduleReator === 'R_100' ? 'Resistência (100kg)' : (scheduleReator === 'R_40' ? 'Reator 40kg (Quente)' : 'Requer Caldeira'))) 
-            : 'Processo a Frio') + ` | ~${estUnits.toLocaleString('pt-BR')} un`;
+            : 'Processo a Frio') + sufixoUn;
 
       const newItem: PlanejamentoItem = {
         id: itemId,
@@ -1576,8 +1578,7 @@ export function PlanejamentoSemanalTab({
     for (const item of plannedItems) {
       const isBase = item.codigo_produto.includes('.36.') || (item.descricao || '').toUpperCase().startsWith('BASE ');
       if (!isBase) {
-        const uWeight = parseProductUnitWeightKg(item.descricao);
-        totalEstimatedUnits += Math.round(item.quantidade_planejada / (uWeight || 1));
+        totalEstimatedUnits += unidadesDeKg(item.quantidade_planejada, item.descricao, ehBaseProduto({ codigo: item.codigo_produto, descricao: item.descricao })) ?? 0;
       }
     }
 
@@ -1599,8 +1600,8 @@ export function PlanejamentoSemanalTab({
 
       const itemsRows = dayItems.map(item => {
         const isBase = item.codigo_produto.includes('.36.') || (item.descricao || '').toUpperCase().startsWith('BASE ');
-        const uWeight = parseProductUnitWeightKg(item.descricao);
-        const yieldText = isBase ? 'Granel' : `${Math.round(item.quantidade_planejada / (uWeight || 1)).toLocaleString('pt-BR')} un`;
+        const rendimento = unidadesDeKg(item.quantidade_planejada, item.descricao, ehBaseProduto({ codigo: item.codigo_produto, descricao: item.descricao }));
+        const yieldText = isBase ? 'Granel' : (rendimento == null ? '—' : `${rendimento.toLocaleString('pt-BR')} un`);
         const rawLote = item.lote_erp ? String(item.lote_erp).trim() : '';
         const loteErpDisplay = (rawLote && rawLote !== '-' && rawLote !== '—') ? rawLote : '';
 
@@ -1880,7 +1881,7 @@ export function PlanejamentoSemanalTab({
               daysWithCaldeira.add(day.dateStr);
 
               const plannedKg = Math.min(1000, Math.max(1, Math.round(reqMassKg)));
-              const plannedUnits = Math.round(plannedKg / procInfo.unitWeightKg);
+              const plannedUnits = procInfo.unitWeightKg ? Math.round(plannedKg / procInfo.unitWeightKg) : null;
 
               proposed.push({
                 id: `HEUR_${currentWeekKey}_${rShampoo.id}_${day.dateStr}_${prod.codigo}`,
@@ -1894,7 +1895,7 @@ export function PlanejamentoSemanalTab({
                 base_codigo: prod.base || null,
                 base_nome: prod.base || null,
                 linha_envase: envLine,
-                observacoes: `Reator Shampoo | ${plannedKg} kg | ~${plannedUnits.toLocaleString('pt-BR')} un`,
+                observacoes: `Reator Shampoo | ${plannedKg} kg${plannedUnits == null ? '' : ` | ~${plannedUnits.toLocaleString('pt-BR')} un`}`,
                 ordem_status: 'planejado',
                 fisico_confirmado_massa: false,
                 fisico_confirmado_embalagem: false,
@@ -1925,7 +1926,7 @@ export function PlanejamentoSemanalTab({
               daysWithCaldeira.add(day.dateStr);
 
               const plannedKg = Math.min(40, Math.max(reqMassKg, 20));
-              const plannedUnits = Math.round(plannedKg / procInfo.unitWeightKg);
+              const plannedUnits = procInfo.unitWeightKg ? Math.round(plannedKg / procInfo.unitWeightKg) : null;
 
               proposed.push({
                 id: `HEUR_${currentWeekKey}_${r40.id}_${day.dateStr}_${prod.codigo}`,
@@ -1939,7 +1940,7 @@ export function PlanejamentoSemanalTab({
                 base_codigo: prod.base || null,
                 base_nome: prod.base || null,
                 linha_envase: envLine,
-                observacoes: `Reator 40kg (Produção Quente) | ~${plannedUnits.toLocaleString('pt-BR')} un`,
+                observacoes: `Reator 40kg (Produção Quente)${plannedUnits == null ? '' : ` | ~${plannedUnits.toLocaleString('pt-BR')} un`}`,
                 ordem_status: 'planejado',
                 fisico_confirmado_massa: false,
                 fisico_confirmado_embalagem: false,
@@ -1979,7 +1980,7 @@ export function PlanejamentoSemanalTab({
               const bombonaCap = reqMassKg <= 60 ? 50 : (reqMassKg <= 120 ? 100 : 200);
               const recip = `Bombona ${bombonaCap}kg`;
               const plannedKg = Math.max(bombonaCap, Math.round(reqMassKg));
-              const plannedUnits = Math.round(plannedKg / procInfo.unitWeightKg);
+              const plannedUnits = procInfo.unitWeightKg ? Math.round(plannedKg / procInfo.unitWeightKg) : null;
 
               proposed.push({
                 id: `HEUR_${currentWeekKey}_BOMBONAS_${day.dateStr}_${prod.codigo}`,
@@ -1993,7 +1994,7 @@ export function PlanejamentoSemanalTab({
                 base_codigo: prod.base || null,
                 base_nome: prod.base || null,
                 linha_envase: envLine,
-                observacoes: `Água Quente Caldeira (Bombona) | ~${plannedUnits.toLocaleString('pt-BR')} un`,
+                observacoes: `Água Quente Caldeira (Bombona)${plannedUnits == null ? '' : ` | ~${plannedUnits.toLocaleString('pt-BR')} un`}`,
                 ordem_status: 'planejado',
                 fisico_confirmado_massa: false,
                 fisico_confirmado_embalagem: false,
@@ -2024,7 +2025,7 @@ export function PlanejamentoSemanalTab({
               const bombonaCap = reqMassKg <= 60 ? 50 : (reqMassKg <= 120 ? 100 : 200);
               const recip = `Bombona ${bombonaCap}kg`;
               const plannedKg = Math.max(bombonaCap, Math.round(reqMassKg));
-              const plannedUnits = Math.round(plannedKg / procInfo.unitWeightKg);
+              const plannedUnits = procInfo.unitWeightKg ? Math.round(plannedKg / procInfo.unitWeightKg) : null;
 
               proposed.push({
                 id: `HEUR_${currentWeekKey}_BOMBONAS_${day.dateStr}_${prod.codigo}`,
@@ -2038,7 +2039,7 @@ export function PlanejamentoSemanalTab({
                 base_codigo: prod.base || null,
                 base_nome: prod.base || null,
                 linha_envase: envLine,
-                observacoes: `Mistura a Frio (Base Pronta) | ~${plannedUnits.toLocaleString('pt-BR')} un`,
+                observacoes: `Mistura a Frio (Base Pronta)${plannedUnits == null ? '' : ` | ~${plannedUnits.toLocaleString('pt-BR')} un`}`,
                 ordem_status: 'planejado',
                 fisico_confirmado_massa: false,
                 fisico_confirmado_embalagem: false,
@@ -2113,7 +2114,7 @@ export function PlanejamentoSemanalTab({
             }
 
             const plannedQty = Math.min(reator.capacidade_kg, Math.max(reqMassKg, Math.round(reator.capacidade_kg * 0.8)));
-            const plannedUnits = Math.round(plannedQty / procInfo.unitWeightKg);
+            const plannedUnits = procInfo.unitWeightKg ? Math.round(plannedQty / procInfo.unitWeightKg) : null;
 
             proposed.push({
               id: `HEUR_${currentWeekKey}_${reator.id}_${day.dateStr}_${prod.codigo}`,
@@ -2129,7 +2130,7 @@ export function PlanejamentoSemanalTab({
               linha_envase: envLine,
               observacoes: (procInfo.isQuente 
                 ? (reator.id === 'R_100' ? 'Resistência (100kg - Máx 1/dia)' : (reator.id === 'R_40' ? 'Reator 40kg (Quente)' : 'Requer Caldeira (Quente)')) 
-                : 'Processo a Frio') + ` | ~${plannedUnits.toLocaleString('pt-BR')} un`,
+                : 'Processo a Frio') + `${plannedUnits == null ? '' : ` | ~${plannedUnits.toLocaleString('pt-BR')} un`}`,
               ordem_status: 'planejado',
               fisico_confirmado_massa: false,
               fisico_confirmado_embalagem: false,
@@ -2206,6 +2207,7 @@ export function PlanejamentoSemanalTab({
   return (
     <div className="flex flex-col gap-4 w-full">
       {aviso}
+      <AvisoProdutosSemPeso />
       {/* BARRA SUPERIOR DE COMANDOS */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-zinc-200 shadow-xs">
         {/* Navegação Semanal */}
@@ -2709,8 +2711,7 @@ export function PlanejamentoSemanalTab({
                                     {batch.isMulti && (
                                       <div className="space-y-1 pl-1.5 border-l-2 border-zinc-300 my-0.5">
                                         {batch.items.map((it) => {
-                                          const uW = parseProductUnitWeightKg(it.descricao);
-                                          const estUn = Math.round(it.quantidade_planejada / (uW || 1));
+                                          const estUn = unidadesDeKg(it.quantidade_planejada, it.descricao, ehBaseProduto({ codigo: it.codigo_produto, descricao: it.descricao }));
                                           return (
                                             <div key={it.id} className="text-[11px] leading-tight">
                                               <div className="font-bold text-zinc-800 line-clamp-1" title={it.descricao}>
@@ -2718,7 +2719,7 @@ export function PlanejamentoSemanalTab({
                                               </div>
                                               <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
                                                 <span>{it.codigo_produto}</span>
-                                                <span><strong className="text-zinc-700">{it.quantidade_planejada} kg</strong> (~{estUn.toLocaleString('pt-BR')} un)</span>
+                                                <span><strong className="text-zinc-700">{it.quantidade_planejada} kg</strong> ({estUn == null ? "— un" : `~${estUn.toLocaleString("pt-BR")} un`})</span>
                                               </div>
                                             </div>
                                           );
@@ -2781,9 +2782,8 @@ export function PlanejamentoSemanalTab({
                                                 : (isBase 
                                                     ? 'Base Granel' 
                                                     : (() => {
-                                                        const uW = parseProductUnitWeightKg(batch.primaryItem.descricao);
-                                                        const yieldUnits = Math.round(batch.primaryItem.quantidade_planejada / (uW || 1));
-                                                        return `~${yieldUnits.toLocaleString('pt-BR')} un`;
+                                                        const yieldUnits = unidadesDeKg(batch.primaryItem.quantidade_planejada, batch.primaryItem.descricao, ehBaseProduto({ codigo: batch.primaryItem.codigo_produto, descricao: batch.primaryItem.descricao }));
+                                                        return yieldUnits == null ? '— un' : `~${yieldUnits.toLocaleString('pt-BR')} un`;
                                                       })()
                                                   )}
                                             </span>

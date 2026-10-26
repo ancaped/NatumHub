@@ -650,12 +650,7 @@ pub enum ResultadoConsumo {
 }
 
 /// Peso (kg) de uma unidade, lido da descrição ("500ML" -> 0.5). Porta fiel de `parseProductUnitWeightKg`
-/// do front: sem medida (ou medida <= 0) vale 1.0.
-pub fn peso_unitario_kg(descricao: &str) -> f64 {
-    medida_kg(descricao).unwrap_or(1.0)
-}
-
-/// Mesma leitura de `peso_unitario_kg`, mas `None` quando a descrição não traz uma medida válida.
+/// do front. `None` (desconhecido) quando a descrição não traz uma medida válida: quem usa decide, nunca se presume 1 kg.
 pub fn medida_kg(descricao: &str) -> Option<f64> {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| regex::Regex::new(r"(\d+(?:[.,]\d+)?)\s*(ML|L|GR|G|KG)\b").unwrap());
@@ -680,7 +675,7 @@ pub async fn consumir_fila(
     kg: f64,
 ) -> Result<ConsumoFila, sqlx::Error> {
     let linha = sqlx::query(
-        "SELECT descricao, quantidade_kg::float8 AS kg FROM producao_fila_demandas WHERE id = $1 FOR UPDATE",
+        "SELECT descricao, quantidade::float8 AS qtd, quantidade_kg::float8 AS kg FROM producao_fila_demandas WHERE id = $1 FOR UPDATE",
     )
     .bind(fila_id)
     .fetch_optional(&mut *conn)
@@ -691,10 +686,15 @@ pub async fn consumir_fila(
     };
     let descricao: String = l.get("descricao");
     let fila_kg: f64 = l.get::<Option<f64>, _>("kg").unwrap_or(0.0);
+    let fila_un: f64 = l.get::<Option<f64>, _>("qtd").unwrap_or(0.0);
     if fila_kg > 0.0 && kg > 0.0 && kg + 0.05 < fila_kg {
         let restante_kg = ((fila_kg - kg) * 10.0).round() / 10.0;
-        let peso = peso_unitario_kg(&descricao);
-        let restante_un = ((restante_kg / if peso != 0.0 { peso } else { 1.0 }).round() as i64).max(1);
+        // Unidades restantes: pelo peso da descrição; sem medida, na mesma proporção dos kg que sobraram.
+        let restante_un = match medida_kg(&descricao) {
+            Some(peso) => (restante_kg / peso).round() as i64,
+            None => (fila_un * restante_kg / fila_kg).round() as i64,
+        }
+        .max(1);
         sqlx::query(
             "UPDATE producao_fila_demandas SET quantidade = $2::float8, quantidade_kg = $3::float8, unidade = 'un', \
              updated_at = CURRENT_TIMESTAMP WHERE id = $1",
@@ -720,12 +720,9 @@ mod tests {
 
     #[test]
     fn peso_unitario_le_a_medida_da_descricao() {
-        assert_eq!(peso_unitario_kg("SHAMPOO 500ML"), 0.5);
-        assert_eq!(peso_unitario_kg("CREME 1,5KG"), 1.5);
-        assert_eq!(peso_unitario_kg("GEL 250 G"), 0.25);
-        assert_eq!(peso_unitario_kg("OLEO 1L"), 1.0);
-        assert_eq!(peso_unitario_kg("SEM MEDIDA"), 1.0);
-        assert_eq!(peso_unitario_kg("X 0ML"), 1.0);
+        assert_eq!(medida_kg("CREME 1,5KG"), Some(1.5));
+        assert_eq!(medida_kg("GEL 250 G"), Some(0.25));
+        assert_eq!(medida_kg("OLEO 1L"), Some(1.0));
         assert_eq!(medida_kg("SHAMPOO 500ML"), Some(0.5));
         assert_eq!(medida_kg("SEM MEDIDA"), None);
         assert_eq!(medida_kg("X 0ML"), None);

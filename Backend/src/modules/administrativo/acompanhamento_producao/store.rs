@@ -149,12 +149,12 @@ pub async fn list_acompanhamento(
                         WHEN pp.observacoes ~* '~[0-9.,]+\s*un' THEN 
                             'Unidades: ' || REPLACE(REPLACE(substring(pp.observacoes from '~([0-9.,]+)\s*un'), '.', ''), ',', '.') || ' | '
                         ELSE 
-                            'Unidades: ' || ROUND(COALESCE(sm.quantity, pp.quantidade_planejada::float8) / NULLIF(
-                                COALESCE(NULLIF(
-                                    CASE WHEN pw.mt IS NULL THEN NULL
-                                         ELSE REPLACE((pw.mt)[1], ',', '.')::float8 * (CASE WHEN (pw.mt)[2] IN ('KG', 'L') THEN 1.0 ELSE 0.001 END)
-                                    END, 0), 1.0), 0
-                            ))::text || ' | '
+                            -- sem medida na descrição o peso é desconhecido: não escreve "Unidades:" (o Rust marca pesoDesconhecido)
+                            COALESCE('Unidades: ' || ROUND(COALESCE(sm.quantity, pp.quantidade_planejada::float8) / NULLIF(
+                                CASE WHEN pw.mt IS NULL THEN NULL
+                                     ELSE REPLACE((pw.mt)[1], ',', '.')::float8 * (CASE WHEN (pw.mt)[2] IN ('KG', 'L') THEN 1.0 ELSE 0.001 END)
+                                END, 0
+                            ))::text || ' | ', '')
                     END ||
                     'Planejamento Semanal | Reator: ' || COALESCE(pp.reator_id, '') || ' | Processo: ' || COALESCE(pp.processo_termico, '') || ' | Ordem: ' || COALESCE(pp.ordem_sequencia, 1)::text
                 ) AS details,
@@ -308,6 +308,16 @@ pub async fn list_acompanhamento(
     let rows = qb.build().fetch_all(pool).await
         .map_err(|e| format!("Erro ao consultar acompanhamento de produção: {e}"))?;
 
+    // Base de produção é medida em kg (1 un = 1 kg): não tem medida na descrição e nem por isso o peso é desconhecido.
+    let codigos: Vec<String> = rows
+        .iter()
+        .filter_map(|r| r.try_get::<Option<String>, _>("item_code").ok().flatten())
+        .filter(|c| !c.is_empty())
+        .collect();
+    let bases = crate::core::regras_produto::codigos_de_base(pool, &codigos)
+        .await
+        .map_err(|e| format!("Erro ao identificar as bases: {e}"))?;
+
     let mut items = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for row in rows {
@@ -392,16 +402,19 @@ pub async fn list_acompanhamento(
             _ => erp_code.clone(),
         };
 
+        // Sem "Unidades:" nos detalhes, o peso vem da descrição. Sem medida na descrição o peso é desconhecido:
+        // as unidades não são calculadas (0), nunca presumidas como 1 kg por unidade.
+        let mut peso_desconhecido = false;
         let final_unidades = match unidades {
             Some(u) => u,
-            None => {
-                let unit_w = parse_product_unit_weight_kg(&product_description);
-                if unit_w > 0.0 && kg > 0.0 {
-                    (kg / unit_w).round()
-                } else {
-                    kg
+            None => match crate::core::regras_produto::peso_unitario_kg(&product_description, bases.contains(&product_code)) {
+                Some(unit_w) if kg > 0.0 => (kg / unit_w).round(),
+                Some(_) => kg,
+                None => {
+                    peso_desconhecido = kg > 0.0;
+                    0.0
                 }
-            }
+            },
         };
 
         items.push(AcompanhamentoLoteItem {
@@ -440,7 +453,14 @@ pub async fn list_acompanhamento(
             planning_ordem,
             reator_id,
             planning_id,
+            etapas_efetivas: Default::default(),
+            peso_desconhecido,
         });
+    }
+
+    let (hoje, hora) = super::etapas_efetivas::agora_sp();
+    for item in items.iter_mut() {
+        item.etapas_efetivas = super::etapas_efetivas::calcular(item, &hoje, hora);
     }
 
     Ok(items)
@@ -565,10 +585,13 @@ pub async fn upsert_status_tx(tx: &mut Tx<'_>, payload: &SaveLoteCustomStatusPay
     .await?;
 
     if normalized_status == "Ordem Finalizada" {
-        sqlx::query("DELETE FROM programacao_envase WHERE lote_number = $1")
-            .bind(&payload.lote_number)
-            .execute(&mut **tx)
-            .await?;
+        // Finalizar o lote tira das duas programações, na mesma transação do status.
+        for tabela in ["programacao_envase", "programacao_rotulagem"] {
+            sqlx::query(&format!("DELETE FROM {tabela} WHERE lote_number = $1"))
+                .bind(&payload.lote_number)
+                .execute(&mut **tx)
+                .await?;
+        }
     }
 
     // Histórico de transições, com o status anterior
@@ -2009,10 +2032,10 @@ pub async fn save_programacao_envase(
                     quantity = $7,
                     quantity_kg = $8,
                     categoria_envase = $9,
-                    is_colorido = $10,
-                    cor = $11,
-                    status_envase = $12,
-                    observacoes = $13,
+                    is_colorido = COALESCE($10, is_colorido),
+                    cor = COALESCE($11, cor),
+                    status_envase = COALESCE($12, status_envase),
+                    observacoes = COALESCE($13, observacoes),
                     updated_at = NOW()
                 WHERE id = $14
                 RETURNING
@@ -2044,9 +2067,9 @@ pub async fn save_programacao_envase(
             .bind(payload.quantity)
             .bind(payload.quantity_kg)
             .bind(&payload.categoria_envase)
-            .bind(is_colorido)
+            .bind(payload.is_colorido)
             .bind(&payload.cor)
-            .bind(status_envase)
+            .bind(payload.status_envase.as_deref())
             .bind(&payload.observacoes)
             .bind(id)
             .fetch_one(pool)
@@ -2624,20 +2647,9 @@ pub async fn reorder_programacao_rotulagem(
 }
 
 /// Peso unitário (kg) pela primeira medida da descrição, lida como token (`350ML` não casa `50ML`, `2,5L` não casa
-/// `5L`). Mesma regra de `Frontend/src/modules/producao/lib/unitConversion.ts`; sem medida, 1,0.
-pub fn parse_product_unit_weight_kg(descricao: &str) -> f64 {
-    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let re = RE.get_or_init(|| regex::Regex::new(r"(\d+(?:[.,]\d+)?)\s*(ML|L|GR|G|KG)\b").expect("regex do peso unitário"));
-    let desc = descricao.to_uppercase();
-    let Some(c) = re.captures(&desc) else { return 1.0 };
-    let Ok(val) = c[1].replace(',', ".").parse::<f64>() else { return 1.0 };
-    if val <= 0.0 {
-        return 1.0;
-    }
-    match &c[2] {
-        "KG" | "L" => val,
-        _ => val / 1000.0,
-    }
+/// `5L`). Mesma regra de `Frontend/src/modules/producao/lib/unitConversion.ts`. Sem medida válida: `None` (desconhecido).
+pub fn parse_product_unit_weight_kg(descricao: &str) -> Option<f64> {
+    crate::modules::producao::fila::medida_kg(descricao)
 }
 
 /// Auditoria somente leitura dos lotes: aponta onde a mesma ordem pode estar aparecendo duas vezes
@@ -2775,21 +2787,25 @@ mod tests {
 
     #[test]
     fn peso_unitario_le_a_medida_como_token() {
-        let casos: [(&str, f64); 10] = [
-            ("SHAMPOO 350ML", 0.35),
-            ("CONDICIONADOR 2,5L", 2.5),
-            ("OLEO 15 L", 15.0),
-            ("CREME 500 G", 0.5),
-            ("SABONETE 1KG", 1.0),
-            ("MASCARA 50ML", 0.05),
-            ("GEL 120 GR", 0.12),
-            ("PRODUTO 5L", 5.0),
-            ("PRODUTO SEM MEDIDA", 1.0),
-            ("", 1.0),
+        let casos: [(&str, Option<f64>); 10] = [
+            ("SHAMPOO 350ML", Some(0.35)),
+            ("CONDICIONADOR 2,5L", Some(2.5)),
+            ("OLEO 15 L", Some(15.0)),
+            ("CREME 500 G", Some(0.5)),
+            ("SABONETE 1KG", Some(1.0)),
+            ("MASCARA 50ML", Some(0.05)),
+            ("GEL 120 GR", Some(0.12)),
+            ("PRODUTO 5L", Some(5.0)),
+            ("PRODUTO SEM MEDIDA", None),
+            ("", None),
         ];
         for (desc, esperado) in casos {
             let v = parse_product_unit_weight_kg(desc);
-            assert!((v - esperado).abs() < 1e-9, "{desc}: {v} != {esperado}");
+            match (v, esperado) {
+                (Some(v), Some(e)) => assert!((v - e).abs() < 1e-9, "{desc}: {v} != {e}"),
+                (None, None) => {}
+                _ => panic!("{desc}: {v:?} != {esperado:?}"),
+            }
         }
     }
 
@@ -2868,9 +2884,9 @@ mod tests {
         let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
         let pool = PgPool::connect(&url).await.unwrap();
         for desc in ["SHAMPOO 350ML", "COND 2,5L", "OLEO 15 L", "CREME 500 G", "SAB 1KG", "MASC 50ML", "X 120 GR", "SEM MEDIDA", "KIT 500 GRAMAS"] {
-            let sql: f64 = sqlx::query_scalar(
-                r#"SELECT COALESCE(NULLIF(CASE WHEN pw.mt IS NULL THEN NULL
-                          ELSE REPLACE((pw.mt)[1], ',', '.')::float8 * (CASE WHEN (pw.mt)[2] IN ('KG', 'L') THEN 1.0 ELSE 0.001 END) END, 0), 1.0)::float8
+            let sql: Option<f64> = sqlx::query_scalar(
+                r#"SELECT NULLIF(CASE WHEN pw.mt IS NULL THEN NULL
+                          ELSE REPLACE((pw.mt)[1], ',', '.')::float8 * (CASE WHEN (pw.mt)[2] IN ('KG', 'L') THEN 1.0 ELSE 0.001 END) END, 0)::float8
                    FROM (SELECT regexp_match(UPPER(COALESCE($1::text, '')), '(\d+(?:[.,]\d+)?)\s*(ML|L|GR|G|KG)\y') AS mt) pw"#,
             )
             .bind(desc)
@@ -2878,7 +2894,11 @@ mod tests {
             .await
             .unwrap();
             let rust = parse_product_unit_weight_kg(desc);
-            assert!((sql - rust).abs() < 1e-9, "{desc}: sql {sql} != rust {rust}");
+            match (sql, rust) {
+                (Some(a), Some(b)) => assert!((a - b).abs() < 1e-9, "{desc}: sql {a} != rust {b}"),
+                (None, None) => {}
+                _ => panic!("{desc}: sql {sql:?} != rust {rust:?}"),
+            }
         }
     }
 
@@ -2971,6 +2991,93 @@ mod tests {
         assert_eq!(notas.len(), 4);
         assert!(notas[1].as_deref().unwrap_or("").contains("Anterior: Em Espera"));
         limpar_lotes(&pool, &["TST-ACP-UP"]).await;
+    }
+
+    async fn garantir_programacoes(pool: &PgPool) {
+        for ddl in [
+            "CREATE TABLE IF NOT EXISTS programacao_envase (id BIGSERIAL PRIMARY KEY, lote_number TEXT NOT NULL)",
+            "ALTER TABLE programacao_envase ADD COLUMN IF NOT EXISTS is_colorido BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE programacao_envase ADD COLUMN IF NOT EXISTS cor VARCHAR(50)",
+            "ALTER TABLE programacao_envase ADD COLUMN IF NOT EXISTS data_programada DATE",
+            "ALTER TABLE programacao_envase ADD COLUMN IF NOT EXISTS linha VARCHAR(20)",
+            "ALTER TABLE programacao_envase ADD COLUMN IF NOT EXISTS ordem INTEGER DEFAULT 1",
+            "ALTER TABLE programacao_envase ADD COLUMN IF NOT EXISTS product_code VARCHAR(100)",
+            "ALTER TABLE programacao_envase ADD COLUMN IF NOT EXISTS product_description TEXT",
+            "ALTER TABLE programacao_envase ADD COLUMN IF NOT EXISTS quantity DOUBLE PRECISION DEFAULT 0",
+            "ALTER TABLE programacao_envase ADD COLUMN IF NOT EXISTS quantity_kg DOUBLE PRECISION DEFAULT 0",
+            "ALTER TABLE programacao_envase ADD COLUMN IF NOT EXISTS categoria_envase VARCHAR(50)",
+            "ALTER TABLE programacao_envase ADD COLUMN IF NOT EXISTS status_envase VARCHAR(50) DEFAULT 'PROGRAMADO'",
+            "ALTER TABLE programacao_envase ADD COLUMN IF NOT EXISTS observacoes TEXT",
+            "ALTER TABLE programacao_envase ADD COLUMN IF NOT EXISTS created_by VARCHAR(100)",
+            "ALTER TABLE programacao_envase ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()",
+            "ALTER TABLE programacao_envase ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()",
+            "CREATE TABLE IF NOT EXISTS programacao_rotulagem (id BIGSERIAL PRIMARY KEY, lote_number TEXT NOT NULL)",
+        ] {
+            sqlx::query(ddl).execute(pool).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn finalizar_lote_tira_das_duas_programacoes() {
+        let pool = pool_de_teste().await;
+        garantir_programacoes(&pool).await;
+        limpar_lotes(&pool, &["TST-ACP-FIN"]).await;
+        for t in ["programacao_envase", "programacao_rotulagem"] {
+            sqlx::query(&format!("DELETE FROM {t} WHERE lote_number IN ('TST-ACP-FIN', 'TST-ACP-OUTRO')")).execute(&pool).await.unwrap();
+            for l in ["TST-ACP-FIN", "TST-ACP-OUTRO"] {
+                // Colunas obrigatórias no esquema da migração 064 (banco novo / CI).
+                let (cols, vals) = if t == "programacao_envase" {
+                    ("linha, categoria_envase", "'L1', 'TESTE'")
+                } else {
+                    ("tipo", "'MANUAL'")
+                };
+                sqlx::query(&format!(
+                    "INSERT INTO {t} (lote_number, data_programada, {cols}, product_code, product_description) \
+                     VALUES ($1, CURRENT_DATE, {vals}, 'TST', 'teste')"
+                ))
+                .bind(l)
+                .execute(&pool)
+                .await
+                .unwrap();
+            }
+        }
+        let fin: SaveLoteCustomStatusPayload = serde_json::from_value(json!({
+            "loteNumber": "TST-ACP-FIN", "customStatus": "Ordem Finalizada", "updatedBy": "t"
+        })).unwrap();
+        upsert_status(&pool, &fin).await.unwrap();
+        for t in ["programacao_envase", "programacao_rotulagem"] {
+            let n: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {t} WHERE lote_number = 'TST-ACP-FIN'")).fetch_one(&pool).await.unwrap();
+            assert_eq!(n, 0, "{t}: lote finalizado sai da programação");
+            let outro: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {t} WHERE lote_number = 'TST-ACP-OUTRO'")).fetch_one(&pool).await.unwrap();
+            assert_eq!(outro, 1, "{t}: outro lote não é mexido");
+            sqlx::query(&format!("DELETE FROM {t} WHERE lote_number = 'TST-ACP-OUTRO'")).execute(&pool).await.unwrap();
+        }
+        limpar_lotes(&pool, &["TST-ACP-FIN"]).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn atualizar_envase_sem_cor_nem_status_preserva_o_gravado() {
+        let pool = pool_de_teste().await;
+        garantir_programacoes(&pool).await;
+        sqlx::query("DELETE FROM programacao_envase WHERE lote_number = 'TST-ACP-ENV'").execute(&pool).await.unwrap();
+        let novo: SaveProgramacaoEnvasePayload = serde_json::from_value(json!({
+            "dataProgramada": "2026-10-26", "linha": "Linha 1", "loteNumber": "TST-ACP-ENV", "categoriaEnvase": "Shampoo",
+            "isColorido": true, "cor": "Azul", "statusEnvase": "EM_ENVASE", "observacoes": "obs"
+        })).unwrap();
+        let criado = save_programacao_envase(&pool, &novo).await.unwrap();
+        // muda só a linha: nenhum dos campos opcionais é enviado
+        let move_linha: SaveProgramacaoEnvasePayload = serde_json::from_value(json!({
+            "id": criado.id, "dataProgramada": "2026-10-26", "linha": "Linha 2", "loteNumber": "TST-ACP-ENV", "categoriaEnvase": "Shampoo"
+        })).unwrap();
+        let r = save_programacao_envase(&pool, &move_linha).await.unwrap();
+        assert_eq!(r.linha, "Linha 2");
+        assert!(r.is_colorido, "is_colorido preservado");
+        assert_eq!(r.cor.as_deref(), Some("Azul"));
+        assert_eq!(r.status_envase, "EM_ENVASE");
+        assert_eq!(r.observacoes.as_deref(), Some("obs"));
+        sqlx::query("DELETE FROM programacao_envase WHERE lote_number = 'TST-ACP-ENV'").execute(&pool).await.unwrap();
     }
 
     #[tokio::test]

@@ -54,7 +54,7 @@ fn exigir_supervisor(ctx: &AuthContext) -> Result<(), ErroApi> {
 }
 
 /// O autor de toda gravação é o usuário logado, nunca um nome vindo do corpo.
-fn autor(ctx: &AuthContext) -> String {
+pub(super) fn autor(ctx: &AuthContext) -> String {
     let n = ctx.display_name.trim();
     if n.is_empty() { "Operador".to_string() } else { n.to_string() }
 }
@@ -65,7 +65,7 @@ fn interno(contexto: &str, e: String) -> ErroApi {
     ErroApi::interno(e)
 }
 
-fn ok(v: serde_json::Value) -> Response {
+pub(super) fn ok(v: serde_json::Value) -> Response {
     (StatusCode::OK, Json(v)).into_response()
 }
 

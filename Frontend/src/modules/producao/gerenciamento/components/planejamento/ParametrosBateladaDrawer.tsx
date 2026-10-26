@@ -1,7 +1,7 @@
 import React from 'react';
 import { Check, Flame, RefreshCw, Snowflake } from 'lucide-react';
 import Drawer from '../../../../geral/components/ui/Drawer';
-import { parseProductUnitWeightKg } from '../../../lib/unitConversion';
+import { parseProductUnitWeightKg, unidadesDeKg, ehBaseProduto } from '../../../lib/unitConversion';
 import type { ReatorConfig } from '../PlanejamentoSemanalTab';
 import type { DiaSemana, Setter, TechnicalModalItem } from './tiposDrawers';
 
@@ -322,13 +322,13 @@ export function ParametrosBateladaDrawer({
           <div>
             <label className="font-bold text-zinc-800 block mb-1">Qtd. Esperada (~un):</label>
             {(() => {
-              const uW = parseProductUnitWeightKg(technicalModalItem.item.descricao);
-              const expectedUnits = Math.round((technicalModalItem.quantidadeKg || 0) / (uW || 1));
+              const uW = parseProductUnitWeightKg(technicalModalItem.item.descricao, ehBaseProduto({ codigo: technicalModalItem.item.codigo_produto, descricao: technicalModalItem.item.descricao }));
+              const expectedUnits = unidadesDeKg(technicalModalItem.quantidadeKg || 0, technicalModalItem.item.descricao, ehBaseProduto({ codigo: technicalModalItem.item.codigo_produto, descricao: technicalModalItem.item.descricao }));
               return (
                 <div className="p-2 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-bold text-blue-700 flex items-center justify-between">
-                  <span>~{expectedUnits.toLocaleString('pt-BR')} un</span>
+                  <span>{expectedUnits == null ? '— un (sem peso na descrição)' : `~${expectedUnits.toLocaleString('pt-BR')} un`}</span>
                   <span className="text-[10px] text-zinc-400 font-normal">
-                    ({uW >= 1 ? `${uW} kg` : `${Math.round(uW * 1000)} g`})
+                    {uW != null && (`(${uW >= 1 ? `${uW} kg` : `${Math.round(uW * 1000)} g`})`)}
                   </span>
                 </div>
               );

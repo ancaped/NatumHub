@@ -1,6 +1,6 @@
 import React from 'react';
 import Drawer from '../../../../geral/components/ui/Drawer';
-import { parseProductUnitWeightKg } from '../../../lib/unitConversion';
+import { unidadesDeKg, ehBaseProduto } from '../../../lib/unitConversion';
 import { getShortReatorName } from '../../../lib/processoProduto';
 import type { ReatorConfig } from '../PlanejamentoSemanalTab';
 import type { EditQtyModalItem, Setter } from './tiposDrawers';
@@ -58,8 +58,7 @@ export function EditarQuantidadeDrawer({
             <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
               {editQtyModalItem.batchItems.map(it => {
                 const currentVal = editQtyModalItem.batchMasses?.[it.id] ?? it.quantidade_planejada;
-                const uW = parseProductUnitWeightKg(it.descricao);
-                const estUn = Math.round(currentVal / (uW || 1));
+                const estUn = unidadesDeKg(currentVal, it.descricao, ehBaseProduto({ codigo: it.codigo_produto, descricao: it.descricao }));
                 return (
                   <div key={it.id} className="p-2.5 bg-zinc-50 rounded-lg border border-zinc-200 text-xs">
                     <div className="font-bold text-zinc-900 truncate mb-1" title={it.descricao}>
@@ -84,7 +83,7 @@ export function EditarQuantidadeDrawer({
                       />
                       <span className="text-zinc-500 font-mono text-[11px]">kg</span>
                       <span className="text-zinc-500 font-medium text-[11px] ml-auto">
-                        ~{estUn.toLocaleString('pt-BR')} un
+                        {estUn == null ? '— un' : `~${estUn.toLocaleString('pt-BR')} un`}
                       </span>
                     </div>
                   </div>
@@ -97,9 +96,8 @@ export function EditarQuantidadeDrawer({
             </div>
           </div>
         ) : (() => {
-          const uW = parseProductUnitWeightKg(editQtyModalItem.item.descricao);
           const isB = (editQtyModalItem.item.codigo_produto || '').includes('.36.') || (editQtyModalItem.item.descricao || '').toUpperCase().startsWith('BASE ');
-          const projectedUnits = Math.round(editQtyModalItem.newQty / (uW || 1));
+          const projectedUnits = unidadesDeKg(editQtyModalItem.newQty, editQtyModalItem.item.descricao, ehBaseProduto({ codigo: editQtyModalItem.item.codigo_produto, descricao: editQtyModalItem.item.descricao }));
 
           return (
             <div>
@@ -120,7 +118,7 @@ export function EditarQuantidadeDrawer({
               <div className="mt-1.5 flex items-center justify-between text-[11px] text-zinc-600">
                 <span>Rendimento Projetado:</span>
                 <strong className="text-emerald-700 font-bold text-xs">
-                  {isB ? 'Base Granel' : `~${projectedUnits.toLocaleString('pt-BR')} un`}
+                  {isB ? 'Base Granel' : projectedUnits == null ? '— un (sem peso na descrição)' : `~${projectedUnits.toLocaleString('pt-BR')} un`}
                 </strong>
               </div>
             </div>

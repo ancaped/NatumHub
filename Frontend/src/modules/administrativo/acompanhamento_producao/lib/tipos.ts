@@ -56,6 +56,10 @@ export interface AcompanhamentoLote {
     updatedAt?: string | null;
   }> | null;
   etapas_status?: any | null;
+  /** Status efetivo por etapa calculado no servidor (conclusão automática às 18h, America/Sao_Paulo). */
+  etapasEfetivas?: Partial<Record<'pesagem' | 'producao' | 'rotulagem' | 'envase', { status: string; isEspera: boolean; isConcluido: boolean }>> | null;
+  /** A descrição do produto não traz medida: `quantity` (unidades) não foi calculada. */
+  pesoDesconhecido?: boolean;
   planningOrdem?: number | null;
   planning_ordem?: number | null;
   reatorId?: string | null;

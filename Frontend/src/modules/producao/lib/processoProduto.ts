@@ -29,7 +29,8 @@ function inferirProcesso(p: any): {
   motivo: string; 
   label: string; 
   recipienteSugerido: string;
-  unitWeightKg: number;
+  /** `null` quando a descrição não traz medida (peso desconhecido). */
+  unitWeightKg: number | null;
   reqUnits: number;
   reqQtyKg: number;
 } {
@@ -55,10 +56,11 @@ function inferirProcesso(p: any): {
     };
   }
 
+  // Sem medida na descrição o peso é desconhecido (`null`); para a sugestão de recipiente (heurística de porte) vale 1 kg por unidade.
   const unitWeightKg = parseProductUnitWeightKg(p.descricao);
   const reqUnits = Number(p.producao_recomendada || p.estoque_ideal_manual || p.lote_minimo || 100);
   // Converte unidades de envase para massa em kg de granel:
-  const reqQtyKg = Math.max(1, Math.round(reqUnits * unitWeightKg * 10) / 10);
+  const reqQtyKg = Math.max(1, Math.round(reqUnits * (unitWeightKg ?? 1.0) * 10) / 10);
 
   const isShampoo = desc.includes('SH') || desc.includes('SHAMPOO') || desc.includes('SABONETE') || desc.includes('TONICO');
   if (isShampoo) {

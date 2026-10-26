@@ -71,6 +71,7 @@ pub fn todas() -> Vec<Acao> {
     let mut v = Vec::new();
     v.extend(planejamento::acoes());
     v.extend(fila::acoes());
+    v.extend(crate::modules::producao::sem_peso::acoes());
     v.extend(reatores::acoes());
     v.extend(cobertura::acoes());
     v.extend(lotes::acoes());
@@ -183,6 +184,7 @@ mod tests {
             include_str!("../modules/qualidade/pops/mod.rs"),
             include_str!("../modules/qualidade/documentacao/mod.rs"),
             include_str!("../modules/administrativo/acompanhamento_producao/mod.rs"),
+            include_str!("../modules/producao/sem_peso.rs"),
             include_str!("../modules/expedicao/mod.rs"),
             include_str!("../modules/financeiro/mod.rs"),
             include_str!("../modules/hub_api/microbio.rs"),

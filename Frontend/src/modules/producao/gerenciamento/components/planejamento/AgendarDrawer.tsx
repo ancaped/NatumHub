@@ -1,7 +1,7 @@
 import React from 'react';
 import { Plus, Search, Sparkles, X } from 'lucide-react';
 import Drawer from '../../../../geral/components/ui/Drawer';
-import { parseProductUnitWeightKg } from '../../../lib/unitConversion';
+import { unidadesDeKg, ehBaseProduto } from '../../../lib/unitConversion';
 import { getProductProcessType } from '../../../lib/processoProduto';
 import type { ReatorConfig } from '../PlanejamentoSemanalTab';
 import type { DiaSemana, ScheduleModalItem, Setter } from './tiposDrawers';
@@ -245,11 +245,10 @@ export function AgendarDrawer({
             </div>
             <div className="space-y-1.5 max-h-56 overflow-y-auto">
               {scheduleSelectedProducts.map((p) => {
-                const uWeight = parseProductUnitWeightKg(p.descricao);
                 const currentItemKg = scheduleItemMasses[p.codigo] !== undefined 
                   ? scheduleItemMasses[p.codigo] 
                   : Number((scheduleQty / scheduleSelectedProducts.length).toFixed(1));
-                const itemYield = Math.round(currentItemKg / (uWeight || 1));
+                const itemYield = unidadesDeKg(currentItemKg, p.descricao, ehBaseProduto(p));
                 const pct = scheduleQty > 0 ? Math.round((currentItemKg / scheduleQty) * 100) : 0;
                 const procP = getProductProcessType(p);
 
@@ -283,7 +282,7 @@ export function AgendarDrawer({
                           <span className="text-xs font-semibold text-zinc-700">kg</span>
                         </div>
                         <span className="text-[10px] text-blue-700 font-bold mt-0.5">
-                          ~{itemYield.toLocaleString('pt-BR')} un
+                          {itemYield == null ? '— un' : `~${itemYield.toLocaleString('pt-BR')} un`}
                         </span>
                       </div>
                       <button

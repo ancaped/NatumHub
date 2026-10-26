@@ -7,7 +7,7 @@ import {
 import { apiFetch, apiJson } from '../../../geral/lib/http';
 import { useAviso } from '../../../geral/components/ui/Aviso';
 import { usePreviaServidor, linhasAjusteFila } from '../../lib/usePreviaServidor';
-import { parseProductUnitWeightKg, formatUnitsToKg } from '../../lib/unitConversion';
+import { unidadesParaKg, formatUnitsToKg, ehBaseProduto } from '../../lib/unitConversion';
 import { BatchOpportunityModal } from './BatchOpportunityModal';
 
 function inferFamily(p: any): string {
@@ -262,8 +262,8 @@ export function InventoryTab({
     const qty = customQty && customQty > 0
       ? customQty
       : (p.producao_recomendada > 0 ? p.producao_recomendada : (p.estoque_ideal_qtd > 0 ? Math.round(p.estoque_ideal_qtd) : 100));
-    const weight = parseProductUnitWeightKg(p.descricao);
-    const kg = Math.round(qty * weight * 10) / 10;
+    const kgBruto = unidadesParaKg(qty, p.descricao, ehBaseProduto(p));
+    const kg = kgBruto == null ? null : Math.round(kgBruto * 10) / 10;
     const origem = p.is_producao_programada === 1 ? 'programada' : (p.is_lancamento ? 'fixa' : 'sugestao_estoque');
 
     setSavingQueueCode(p.codigo);
@@ -298,8 +298,8 @@ export function InventoryTab({
   const handleUpdateQueueQty = async (p: any, newQty: number) => {
     const item = queuedMap.get(String(p.codigo).trim());
     if (!item?.id || !(newQty > 0)) return;
-    const weight = parseProductUnitWeightKg(p.descricao);
-    const kg = Math.round(newQty * weight * 10) / 10;
+    const kgBruto = unidadesParaKg(newQty, p.descricao, ehBaseProduto(p));
+    const kg = kgBruto == null ? null : Math.round(kgBruto * 10) / 10;
 
     setSavingQueueCode(p.codigo);
     try {
@@ -389,8 +389,8 @@ export function InventoryTab({
     try {
       const payload = toEnqueue.map((p: any) => {
         const qty = p.producao_recomendada;
-        const weight = parseProductUnitWeightKg(p.descricao);
-        const kg = Math.round(qty * weight * 10) / 10;
+        const kgBruto = unidadesParaKg(qty, p.descricao, ehBaseProduto(p));
+        const kg = kgBruto == null ? null : Math.round(kgBruto * 10) / 10;
         const origem = p.is_producao_programada === 1 ? 'programada' : (p.is_lancamento ? 'fixa' : 'sugestao_estoque');
         return {
           codigoProduto: p.codigo,
@@ -852,7 +852,7 @@ export function InventoryTab({
                           <div>
                             <span className="text-zinc-900">{p.producao_recomendada} un</span>
                             <div className="text-[10px] text-zinc-500 font-normal font-mono">
-                              (~{formatUnitsToKg(p.producao_recomendada, p.descricao)})
+                              (~{formatUnitsToKg(p.producao_recomendada, p.descricao, ehBaseProduto(p))})
                             </div>
                           </div>
                         ) : (
@@ -921,7 +921,7 @@ export function InventoryTab({
                                   </button>
                                 </div>
                                 <div className="text-[10px] text-zinc-500 font-mono mb-2">
-                                  Volume estimado: ~{formatUnitsToKg(parseFloat(editQueueQty) || 0, p.descricao)}
+                                  Volume estimado: ~{formatUnitsToKg(parseFloat(editQueueQty) || 0, p.descricao, ehBaseProduto(p))}
                                 </div>
                                 <div className="flex flex-wrap gap-1 mb-2.5">
                                   {[100, 200, 500, p.producao_recomendada > 0 ? p.producao_recomendada : 1000].map((preset, idx) => (
