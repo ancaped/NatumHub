@@ -320,6 +320,9 @@ pub struct KitComponentDetail {
     /// Quantidade do componente comprometida em ordens de montagem abertas (já descontada do montável).
     #[serde(default)]
     pub reservado_ordens: i64,
+    /// Quantos kits o estoque livre deste componente monta (com fatores e já sem a reserva).
+    #[serde(default)]
+    pub kits_cobertos: i64,
 }
 
 #[derive(Debug, Serialize, Clone)]

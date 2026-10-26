@@ -124,7 +124,7 @@ pub async fn list_acompanhamento(
             c.historico_reagendamentos,
             c.quadros_ocultos,
             c.etapas_status,
-            COALESCE(c.is_terceirizado, FALSE) OR (ovr.terceirizado_modo IS NOT NULL) OR EXISTS (
+            COALESCE(c.is_terceirizado, FALSE) OR EXISTS (
                 SELECT 1 FROM terceirizados_solicitacoes ts 
                 WHERE ts.status != 'CANCELADO' 
                 AND ts.lote_number = m.document_number
@@ -246,7 +246,6 @@ pub async fn list_acompanhamento(
             ORDER BY (CASE WHEN c.lote_number = m.document_number THEN 0 ELSE 1 END) ASC
             LIMIT 1
         ) c ON TRUE
-        LEFT JOIN overrides_produtos ovr ON m.item_code = ovr.codigo
         WHERE 1=1
         "#,
         search_open,
@@ -256,7 +255,7 @@ pub async fn list_acompanhamento(
     let mut qb = sqlx::QueryBuilder::new(sql);
 
     if params.apenas_terceirizados == Some(true) {
-        qb.push(" AND (COALESCE(c.is_terceirizado, FALSE) = TRUE OR ovr.terceirizado_modo IS NOT NULL OR c.category ILIKE '%terceir%' OR EXISTS (SELECT 1 FROM terceirizados_solicitacoes ts WHERE ts.status != 'CANCELADO' AND ts.lote_number = m.document_number))");
+        qb.push(" AND (COALESCE(c.is_terceirizado, FALSE) = TRUE OR c.category ILIKE '%terceir%' OR EXISTS (SELECT 1 FROM terceirizados_solicitacoes ts WHERE ts.status != 'CANCELADO' AND ts.lote_number = m.document_number))");
     }
 
     if let Some(ref search) = params.search {

@@ -17,6 +17,8 @@ function kitProduto(k: any) {
 }
 
 function cobre(comp: any) {
+  // o servidor já calcula com fatores de proporção e sem a reserva das ordens abertas
+  if (comp?.kits_cobertos != null) return Number(comp.kits_cobertos) || 0;
   const qtd = Number(comp?.quantidade) || 0;
   const estoque = Number(comp?.estoque) || 0;
   if (qtd <= 0) return estoque;

@@ -175,6 +175,7 @@ fn kit_component_from_item(
         fonte: Some("item".into()),
         produzir_apenas_kit: None,
         reservado_ordens: 0,
+        kits_cobertos: 0,
     }
 }
 
@@ -399,6 +400,7 @@ pub async fn list_kits(
                     fonte: Some("produto".into()),
                     produzir_apenas_kit: comp_calc.produzir_apenas_kit,
                     reservado_ordens: 0,
+                    kits_cobertos: 0,
                 })
             } else if let Some((desc, est, prod, ped)) = item_stocks.get(comp_code) {
                 Some(kit_component_from_item(
@@ -430,6 +432,7 @@ pub async fn list_kits(
                     fonte: None,
                     produzir_apenas_kit: None,
                     reservado_ordens: 0,
+                    kits_cobertos: 0,
                 })
             };
 
@@ -444,6 +447,7 @@ pub async fn list_kits(
                 );
                 let from_estoque =
                     kits_montaveis(detail.estoque - reservado, *comp_qty, *fat_qtd, *fat_kits);
+                detail.kits_cobertos = from_estoque;
                 min_efp = Some(match min_efp {
                     Some(m) => std::cmp::min(m, from_efp),
                     None => from_efp,
