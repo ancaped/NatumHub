@@ -565,8 +565,8 @@ pub async fn list_kits(
     let total_items = kit_results.len();
 
     // Paginate
-    let page = params.page.unwrap_or(1);
-    let limit = params.limit.unwrap_or(50);
+    let page = params.page.unwrap_or(1).max(1);
+    let limit = params.limit.unwrap_or(50).clamp(1, 1000);
     let total_pages = (total_items + limit - 1) / limit;
     
     let start = (page - 1) * limit;

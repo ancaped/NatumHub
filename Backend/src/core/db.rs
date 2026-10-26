@@ -834,10 +834,10 @@ impl Db {
             .map_err(|e| e.to_string())?;
             if is_erp {
                 return Err(
-                    "Componente sincronizado do ERP não pode ser removido aqui. Altere no ERP e rode o sync."
-                        .into(),
+                    "Relação vinda do ERP não pode ser excluída aqui. Altere no ERP e rode o sync.".into(),
                 );
             }
+            return Err("Relação não encontrada.".into());
         }
         Ok(())
     }

@@ -293,12 +293,19 @@ pub async fn delete_kit_composicao_handler(
             (StatusCode::OK, Json(json!({ "status": "success" }))).into_response()
         }
         Err(e) => {
-            let status = if e.contains("sincronizado do ERP") {
+            let status = if e.contains("vinda do ERP") {
                 StatusCode::FORBIDDEN
+            } else if e.contains("não encontrada") {
+                StatusCode::NOT_FOUND
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            (status, Json(json!({ "error": format!("Erro ao excluir relação de kit: {}", e) }))).into_response()
+            let msg = if status == StatusCode::INTERNAL_SERVER_ERROR {
+                format!("Erro ao excluir relação de kit: {}", e)
+            } else {
+                e
+            };
+            (status, Json(json!({ "error": msg }))).into_response()
         }
     }
 }
@@ -481,7 +488,8 @@ pub async fn create_kit_order(
     let pool = state.db.pool();
     let created_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let status = payload.status.clone().unwrap_or_else(|| "PENDING".to_string());
-    let qty_assembled = payload.quantity_assembled.unwrap_or(payload.quantity);
+    // Ordem nova não tem quantidade montada (NULL); a tela já trata null como "ainda não montou".
+    let qty_assembled = payload.quantity_assembled;
 
     let resultado: Result<(i64, String), sqlx::Error> = async {
         let mut tx = pool.begin().await?;
@@ -977,7 +985,8 @@ pub async fn create_vira_order(
     let pool = state.db.pool();
     let created_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let status = payload.status.clone().unwrap_or_else(|| "PENDING".to_string());
-    let qty_assembled = payload.quantity_assembled.unwrap_or(payload.quantity);
+    // Ordem nova não tem quantidade montada (NULL); a tela já trata null como "ainda não montou".
+    let qty_assembled = payload.quantity_assembled;
 
     let packaging_json = match &payload.packaging_deductions {
         Some(raw) if !raw.trim().is_empty() => match normalize_packaging_deductions_json(raw) {

@@ -1892,14 +1892,6 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
 
   // Isolamento Estrito de Terceirizados (Códigos SKU e Números de Lote cadastrados em solicitações)
-  const terceirizadoProductCodes = useMemo(() => {
-    return new Set(
-      solicitacoes
-        .filter(s => s.status !== 'CANCELADO' && s.productCode)
-        .map(s => s.productCode.trim().toUpperCase())
-    );
-  }, [solicitacoes]);
-
   const terceirizadoLoteNumbers = useMemo(() => {
     return new Set(
       solicitacoes
@@ -2230,7 +2222,9 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
             method: 'POST',
             body: JSON.stringify({ isTerceirizado: true })
           });
-        } catch (_) {}
+        } catch (err: any) {
+          showToast('Solicitação criada, mas não foi possível marcar o lote como terceirizado: ' + (err?.message || err), 'error');
+        }
       }
       showToast("Solicitação de terceirizado criada com sucesso!");
       setShowNovaSolicitacaoModal(false);
@@ -2422,7 +2416,9 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
           method: 'POST',
           body: JSON.stringify({ isTerceirizado: true })
         });
-      } catch (_) {}
+      } catch (err: any) {
+        showToast('Solicitação vinculada, mas não foi possível marcar o lote como terceirizado: ' + (err?.message || err), 'error');
+      }
       showToast(`Solicitação vinculada ao lote #${vincularLoteInput.trim()}!`);
       setShowVincularModal(null);
       setVincularLoteInput('');

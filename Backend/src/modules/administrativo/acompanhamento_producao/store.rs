@@ -1673,7 +1673,9 @@ pub async fn desvincular_terceirizado_lote(
     sqlx::query(
         r#"
         UPDATE terceirizados_solicitacoes
-        SET lote_number = NULL, status = 'SOLICITADO', vinculado_em = NULL
+        SET lote_number = NULL, vinculado_em = NULL,
+            status = CASE WHEN COALESCE(aprovacao_embalagem, false) AND COALESCE(aprovacao_materia_prima, false)
+                          THEN 'APROVADO' ELSE 'SOLICITADO' END
         WHERE id = $1
         "#
     )
@@ -2862,6 +2864,9 @@ mod tests {
             "CREATE TABLE IF NOT EXISTS programacao_envase (id BIGSERIAL PRIMARY KEY, lote_number TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS terceirizados_solicitacoes (id BIGSERIAL PRIMARY KEY, product_code TEXT NOT NULL, \
              quantity NUMERIC NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'SOLICITADO', lote_number TEXT)",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS vinculado_em TIMESTAMPTZ",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS aprovacao_embalagem BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE terceirizados_solicitacoes ADD COLUMN IF NOT EXISTS aprovacao_materia_prima BOOLEAN DEFAULT FALSE",
             "CREATE TABLE IF NOT EXISTS producao_auditoria (id BIGSERIAL PRIMARY KEY, quando TIMESTAMPTZ NOT NULL DEFAULT NOW(), \
              usuario TEXT NOT NULL, acao TEXT NOT NULL, alvo TEXT NOT NULL DEFAULT '', detalhe JSONB NOT NULL DEFAULT '{}'::jsonb)",
         ] {
@@ -3139,5 +3144,33 @@ mod tests {
         assert!(marca("TST-ACP-T3").await, "lote com outra solicitação ativa continua marcado");
         sqlx::query("DELETE FROM terceirizados_solicitacoes WHERE product_code = 'TST-ACP-PROD'").execute(&pool).await.unwrap();
         limpar_lotes(&pool, &["TST-ACP-T1", "TST-ACP-T2", "TST-ACP-T3"]).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn desvincular_volta_para_aprovado_quando_as_duas_aprovacoes_estao_marcadas() {
+        let pool = pool_de_teste().await;
+        sqlx::query("DELETE FROM terceirizados_solicitacoes WHERE product_code LIKE 'TST-DESV-%'").execute(&pool).await.unwrap();
+        let mut ids = Vec::new();
+        for (cod, emb, mat) in [("TST-DESV-A", true, true), ("TST-DESV-B", true, false)] {
+            let id: i64 = sqlx::query_scalar(
+                "INSERT INTO terceirizados_solicitacoes (product_code, quantity, status, lote_number, aprovacao_embalagem, aprovacao_materia_prima, vinculado_em) \
+                 VALUES ($1, 1, 'VINCULADO', 'TST-DESV-LOTE', $2, $3, NOW()) RETURNING id",
+            )
+            .bind(cod).bind(emb).bind(mat)
+            .fetch_one(&pool).await.unwrap();
+            ids.push(id);
+        }
+        for id in &ids {
+            desvincular_terceirizado_lote(&pool, *id).await.unwrap();
+        }
+        let st: Vec<(String, Option<String>)> = sqlx::query_as(
+            "SELECT status, lote_number FROM terceirizados_solicitacoes WHERE id = ANY($1) ORDER BY product_code",
+        )
+        .bind(&ids).fetch_all(&pool).await.unwrap();
+        assert_eq!(st[0], ("APROVADO".to_string(), None));
+        assert_eq!(st[1], ("SOLICITADO".to_string(), None));
+        sqlx::query("DELETE FROM terceirizados_solicitacoes WHERE product_code LIKE 'TST-DESV-%'").execute(&pool).await.unwrap();
+        limpar_lotes(&pool, &["TST-DESV-LOTE"]).await;
     }
 }

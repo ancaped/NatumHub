@@ -206,6 +206,7 @@ pub async fn get_lote_history(
 
 #[derive(Debug, serde::Deserialize)]
 pub struct ToggleTerceirizadoPayload {
+    #[serde(rename = "isTerceirizado", alias = "is_terceirizado")]
     pub is_terceirizado: bool,
 }
 
@@ -557,4 +558,17 @@ pub async fn save_lote_etapa_status(
     payload.updated_by = Some(autor(&ctx));
     store::save_lote_etapa_status(state.db.pool(), &payload, &lote_number).await?;
     Ok(ok(json!({ "success": true, "message": "Status da etapa atualizado com sucesso!" })))
+}
+
+#[cfg(test)]
+mod testes_terceirizado {
+    use super::ToggleTerceirizadoPayload;
+
+    #[test]
+    fn toggle_terceirizado_aceita_camel_e_snake_case() {
+        let a: ToggleTerceirizadoPayload = serde_json::from_str(r#"{"isTerceirizado":true}"#).unwrap();
+        let b: ToggleTerceirizadoPayload = serde_json::from_str(r#"{"is_terceirizado":false}"#).unwrap();
+        assert!(a.is_terceirizado);
+        assert!(!b.is_terceirizado);
+    }
 }

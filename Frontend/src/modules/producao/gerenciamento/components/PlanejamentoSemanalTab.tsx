@@ -466,7 +466,7 @@ export function PlanejamentoSemanalTab({
                              p.status_produto === 'descontinuado' || 
                              p.status_produto === 'inativo' || 
                              p.status_produto === 'terceirizado' ||
-                             p.terceirizado_modo === 1;
+                             !!p.terceirizado_modo;
           return !isSuspended;
         });
         setProducts(activeItems);
