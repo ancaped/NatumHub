@@ -1,22 +1,35 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     Extension, Json,
 };
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::{PgPool, Row};
+use sqlx::{PgConnection, PgPool, Row};
 use std::sync::Arc;
 
+use crate::core::acao::{corpo_acao, Confirmar, ErroApi, RespostaAcao};
 use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
 
+use super::servicos;
 use super::models::{
     CreateManualOrderRequest, CreateRecordTypeRequest, CreateSheetBlockRequest, ItemSearchHit,
     ManualOrderItemOut, ManualOrderOut, PendingByItem, RecordTypeOut, SheetRegisterOut,
     UpdateManualOrderRequest,
 };
+
+/// O autor de toda gravação é o usuário logado, nunca um nome vindo do corpo.
+fn autor(ctx: &AuthContext) -> String {
+    let n = ctx.display_name.trim();
+    if n.is_empty() { "Operador".to_string() } else { n.to_string() }
+}
+
+/// Resposta das escritas em 2 passos (campos do resultado também na raiz, para a tela antiga).
+fn resposta(r: &RespostaAcao<serde_json::Value>, status: Option<StatusCode>) -> Response {
+    (status.unwrap_or(StatusCode::OK), Json(corpo_acao(r))).into_response()
+}
 
 /// Linhas vazias na folha A4 de preenchimento manual.
 pub const BLANK_LINES_PER_SHEET: i32 = 18;
@@ -159,7 +172,7 @@ pub async fn pending_net_by_item(pool: &PgPool) -> std::collections::HashMap<Str
     map
 }
 
-fn normalize_kind(raw: &str) -> Result<&'static str, String> {
+pub(super) fn normalize_kind(raw: &str) -> Result<&'static str, String> {
     match raw.trim().to_lowercase().as_str() {
         "entrada" => Ok("entrada"),
         "saida" | "saída" => Ok("saida"),
@@ -167,7 +180,7 @@ fn normalize_kind(raw: &str) -> Result<&'static str, String> {
     }
 }
 
-async fn next_order_number(pool: &PgPool) -> Result<String, String> {
+pub(super) async fn next_order_number(conn: &mut PgConnection) -> Result<String, String> {
     let year = chrono::Local::now().format("%Y").to_string();
     let prefix = format!("OM-{year}-");
     let row = sqlx::query(
@@ -179,7 +192,7 @@ async fn next_order_number(pool: &PgPool) -> Result<String, String> {
         "#,
     )
     .bind(format!("{prefix}%"))
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -197,7 +210,7 @@ async fn next_order_number(pool: &PgPool) -> Result<String, String> {
     Ok(format!("{prefix}{next:04}"))
 }
 
-async fn load_items(pool: &PgPool, order_id: i64) -> Result<Vec<ManualOrderItemOut>, String> {
+async fn load_items(conn: &mut PgConnection, order_id: i64) -> Result<Vec<ManualOrderItemOut>, String> {
     let rows = sqlx::query(
         r#"
         SELECT id, item_code, description, unit, qty, notes
@@ -207,7 +220,7 @@ async fn load_items(pool: &PgPool, order_id: i64) -> Result<Vec<ManualOrderItemO
         "#,
     )
     .bind(order_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -273,6 +286,17 @@ pub async fn list_orders(
             .into_response();
     }
 
+    let mut conn = match pool.acquire().await {
+        Ok(c) => c,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
     let mut sql = String::from(ORDER_SELECT);
     sql.push_str(" WHERE 1=1");
     let mut binds: Vec<String> = Vec::new();
@@ -328,7 +352,7 @@ pub async fn list_orders(
     let mut out = Vec::with_capacity(rows.len());
     for r in rows {
         let id = crate::core::pg_row::pg_i64(&r, 0);
-        let items = match load_items(pool, id).await {
+        let items = match load_items(&mut conn, id).await {
             Ok(i) => i,
             Err(e) => {
                 return (
@@ -357,7 +381,18 @@ pub async fn get_order(
             .into_response();
     }
 
-    match load_full(pool, id).await {
+    let mut conn = match pool.acquire().await {
+        Ok(c) => c,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    match load_full(&mut conn, id).await {
         Ok(o) => (StatusCode::OK, Json(o)).into_response(),
         Err(_) => (
             StatusCode::NOT_FOUND,
@@ -370,481 +405,62 @@ pub async fn get_order(
 pub async fn create_order(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
     Json(payload): Json<CreateManualOrderRequest>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
-    if let Err(e) = ensure_tables(pool).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
-        )
-            .into_response();
-    }
-
-    let kind = match normalize_kind(&payload.kind) {
-        Ok(k) => k,
-        Err(e) => {
-            return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response();
-        }
-    };
-    if payload.items.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Informe ao menos um item" })),
-        )
-            .into_response();
-    }
-    for it in &payload.items {
-        if it.item_code.trim().is_empty() || !(it.qty > 0.0) {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "Cada item precisa de código e qty > 0" })),
-            )
-                .into_response();
-        }
-    }
-
-    if payload.partner_name.trim().is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Informe a pessoa/empresa" })),
-        )
-            .into_response();
-    }
-    let record_type = payload.record_type.trim().to_string();
-    if record_type.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Informe o tipo de registro (ex.: Venda, Uso/Interno)" })),
-        )
-            .into_response();
-    }
-
-    let order_number = match next_order_number(pool).await {
-        Ok(n) => n,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e })),
-            )
-                .into_response();
-        }
-    };
-
-    let order_date = payload
-        .order_date
-        .as_deref()
-        .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
-        .unwrap_or_else(|| chrono::Local::now().date_naive());
-
-    let mut tx = match pool.begin().await {
-        Ok(t) => t,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
-
-    let row = match sqlx::query(
-        r#"
-        INSERT INTO manual_stock_orders
-            (order_number, kind, record_type, partner_name, order_date, status, notes, created_by)
-        VALUES ($1, $2, $3, $4, $5, 'OPEN', $6, $7)
-        RETURNING id
-        "#,
-    )
-    .bind(&order_number)
-    .bind(kind)
-    .bind(&record_type)
-    .bind(payload.partner_name.trim())
-    .bind(order_date)
-    .bind(&payload.notes)
-    .bind(&ctx.display_name)
-    .fetch_one(&mut *tx)
-    .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
-    let id = crate::core::pg_row::pg_i64(&row, 0);
-
-    let _ = sqlx::query(
-        "INSERT INTO manual_stock_record_types (name) VALUES ($1) ON CONFLICT (name) DO NOTHING",
-    )
-    .bind(&record_type)
-    .execute(&mut *tx)
-    .await;
-
-    for it in &payload.items {
-        if let Err(e) = sqlx::query(
-            r#"
-            INSERT INTO manual_stock_order_items (order_id, item_code, description, unit, qty, notes)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            "#,
-        )
-        .bind(id)
-        .bind(it.item_code.trim())
-        .bind(it.description.as_deref().unwrap_or("").trim())
-        .bind(it.unit.as_deref().unwrap_or("UN"))
-        .bind(it.qty)
-        .bind(&it.notes)
-        .execute(&mut *tx)
-        .await
-        {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    }
-
-    if let Err(e) = tx.commit().await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-            .into_response();
-    }
-
-    match load_full(pool, id).await {
-        Ok(o) => (StatusCode::CREATED, Json(o)).into_response(),
-        Err(e) => (
-            StatusCode::CREATED,
-            Json(json!({ "id": id, "orderNumber": order_number, "warning": e })),
-        )
-            .into_response(),
-    }
+) -> Result<Response, ErroApi> {
+    let r = servicos::criar_ordem(state.db.pool(), payload, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, c.confirmar.then_some(StatusCode::CREATED)))
 }
 
-async fn load_full(pool: &PgPool, id: i64) -> Result<ManualOrderOut, String> {
+pub(super) async fn load_full(conn: &mut PgConnection, id: i64) -> Result<ManualOrderOut, String> {
     let row = sqlx::query(&format!("{ORDER_SELECT} WHERE id = $1"))
         .bind(id)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
-    let items = load_items(pool, id).await?;
+    let items = load_items(&mut *conn, id).await?;
     Ok(row_to_order(&row, items))
 }
 
 pub async fn update_order(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
+    Query(c): Query<Confirmar>,
     Json(payload): Json<UpdateManualOrderRequest>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
-    if let Err(e) = ensure_tables(pool).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
-        )
-            .into_response();
-    }
-
-    let status: String = match sqlx::query_scalar("SELECT status FROM manual_stock_orders WHERE id = $1")
-        .bind(id)
-        .fetch_optional(pool)
-        .await
-    {
-        Ok(Some(s)) => s,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({ "error": "Ordem não encontrada" })),
-            )
-                .into_response();
-        }
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
-    if status != "OPEN" {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Só é possível editar ordens abertas (OPEN)" })),
-        )
-            .into_response();
-    }
-
-    let mut tx = match pool.begin().await {
-        Ok(t) => t,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
-
-    if let Some(ref kind_raw) = payload.kind {
-        match normalize_kind(kind_raw) {
-            Ok(k) => {
-                if let Err(e) = sqlx::query("UPDATE manual_stock_orders SET kind = $1 WHERE id = $2")
-                    .bind(k)
-                    .bind(id)
-                    .execute(&mut *tx)
-                    .await
-                {
-                    return (
-                        StatusCode::BAD_REQUEST,
-                        Json(json!({ "error": e.to_string() })),
-                    )
-                        .into_response();
-                }
-            }
-            Err(e) => {
-                return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response();
-            }
-        }
-    }
-    if let Some(ref name) = payload.partner_name {
-        let _ = sqlx::query("UPDATE manual_stock_orders SET partner_name = $1 WHERE id = $2")
-            .bind(name.trim())
-            .bind(id)
-            .execute(&mut *tx)
-            .await;
-    }
-    if let Some(ref rt) = payload.record_type {
-        let rt = rt.trim();
-        if !rt.is_empty() {
-            let _ = sqlx::query("UPDATE manual_stock_orders SET record_type = $1 WHERE id = $2")
-                .bind(rt)
-                .bind(id)
-                .execute(&mut *tx)
-                .await;
-            let _ = sqlx::query(
-                "INSERT INTO manual_stock_record_types (name) VALUES ($1) ON CONFLICT (name) DO NOTHING",
-            )
-            .bind(rt)
-            .execute(&mut *tx)
-            .await;
-        }
-    }
-    if let Some(ref d) = payload.order_date {
-        if let Ok(nd) = chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d") {
-            let _ = sqlx::query("UPDATE manual_stock_orders SET order_date = $1 WHERE id = $2")
-                .bind(nd)
-                .bind(id)
-                .execute(&mut *tx)
-                .await;
-        }
-    }
-    if payload.notes.is_some() {
-        let _ = sqlx::query("UPDATE manual_stock_orders SET notes = $1 WHERE id = $2")
-            .bind(&payload.notes)
-            .bind(id)
-            .execute(&mut *tx)
-            .await;
-    }
-
-    if let Some(ref items) = payload.items {
-        if items.is_empty() {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "Informe ao menos um item" })),
-            )
-                .into_response();
-        }
-        if let Err(e) = sqlx::query("DELETE FROM manual_stock_order_items WHERE order_id = $1")
-            .bind(id)
-            .execute(&mut *tx)
-            .await
-        {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-        for it in items {
-            if it.item_code.trim().is_empty() || !(it.qty > 0.0) {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({ "error": "Cada item precisa de código e qty > 0" })),
-                )
-                    .into_response();
-            }
-            if let Err(e) = sqlx::query(
-                r#"
-                INSERT INTO manual_stock_order_items (order_id, item_code, description, unit, qty, notes)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                "#,
-            )
-            .bind(id)
-            .bind(it.item_code.trim())
-            .bind(it.description.as_deref().unwrap_or("").trim())
-            .bind(it.unit.as_deref().unwrap_or("UN"))
-            .bind(it.qty)
-            .bind(&it.notes)
-            .execute(&mut *tx)
-            .await
-            {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({ "error": e.to_string() })),
-                )
-                    .into_response();
-            }
-        }
-    }
-
-    if let Err(e) = tx.commit().await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-            .into_response();
-    }
-
-    match load_full(pool, id).await {
-        Ok(o) => (StatusCode::OK, Json(o)).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
-        )
-            .into_response(),
-    }
+) -> Result<Response, ErroApi> {
+    let r = servicos::atualizar_ordem(state.db.pool(), id, payload, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, None))
 }
 
 pub async fn post_order(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
-    if let Err(e) = ensure_tables(pool).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
-        )
-            .into_response();
-    }
-
-    let res = sqlx::query(
-        r#"
-        UPDATE manual_stock_orders
-        SET status = 'POSTED', posted_by = $2, posted_at = NOW()
-        WHERE id = $1 AND status = 'OPEN'
-        "#,
-    )
-    .bind(id)
-    .bind(&ctx.display_name)
-    .execute(pool)
-    .await;
-
-    match res {
-        Ok(r) if r.rows_affected() == 0 => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Ordem não encontrada ou já lançada" })),
-        )
-            .into_response(),
-        Ok(_) => match load_full(pool, id).await {
-            Ok(o) => (StatusCode::OK, Json(o)).into_response(),
-            Err(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e })),
-            )
-                .into_response(),
-        },
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-            .into_response(),
-    }
+    Query(c): Query<Confirmar>,
+) -> Result<Response, ErroApi> {
+    let r = servicos::postar_ordem(state.db.pool(), id, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, None))
 }
 
 pub async fn reopen_order(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
-    if let Err(e) = ensure_tables(pool).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
-        )
-            .into_response();
-    }
-
-    let res = sqlx::query(
-        r#"
-        UPDATE manual_stock_orders
-        SET status = 'OPEN', posted_by = NULL, posted_at = NULL
-        WHERE id = $1 AND status = 'POSTED'
-        "#,
-    )
-    .bind(id)
-    .execute(pool)
-    .await;
-
-    match res {
-        Ok(r) if r.rows_affected() == 0 => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Ordem não encontrada ou não está POSTED" })),
-        )
-            .into_response(),
-        Ok(_) => match load_full(pool, id).await {
-            Ok(o) => (StatusCode::OK, Json(o)).into_response(),
-            Err(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e })),
-            )
-                .into_response(),
-        },
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-            .into_response(),
-    }
+    Query(c): Query<Confirmar>,
+) -> Result<Response, ErroApi> {
+    let r = servicos::reabrir_ordem(state.db.pool(), id, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, None))
 }
 
 pub async fn delete_order(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
-    if let Err(e) = ensure_tables(pool).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
-        )
-            .into_response();
-    }
-
-    let res = sqlx::query("DELETE FROM manual_stock_orders WHERE id = $1 AND status = 'OPEN'")
-        .bind(id)
-        .execute(pool)
-        .await;
-
-    match res {
-        Ok(r) if r.rows_affected() == 0 => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Só é possível excluir ordens abertas" })),
-        )
-            .into_response(),
-        Ok(_) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-            .into_response(),
-    }
+    Query(c): Query<Confirmar>,
+) -> Result<Response, ErroApi> {
+    let r = servicos::excluir_ordem(state.db.pool(), id, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, None))
 }
 
 #[derive(Debug, Deserialize)]
@@ -959,89 +575,27 @@ pub async fn list_record_types(State(state): State<Arc<AppState>>) -> impl IntoR
 
 pub async fn create_record_type(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
     Json(payload): Json<CreateRecordTypeRequest>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
-    if let Err(e) = ensure_tables(pool).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
-        )
-            .into_response();
-    }
-    let name = payload.name.trim().to_string();
-    if name.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Nome do tipo obrigatório" })),
-        )
-            .into_response();
-    }
-    let row = sqlx::query(
-        r#"
-        INSERT INTO manual_stock_record_types (name) VALUES ($1)
-        ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-        RETURNING id, name, created_at
-        "#,
-    )
-    .bind(&name)
-    .fetch_one(pool)
-    .await;
-    match row {
-        Ok(r) => {
-            let created_at: chrono::DateTime<chrono::Utc> = r.get(2);
-            (
-                StatusCode::CREATED,
-                Json(RecordTypeOut {
-                    id: crate::core::pg_row::pg_i64(&r, 0),
-                    name: r.get(1),
-                    created_at: created_at.to_rfc3339(),
-                }),
-            )
-                .into_response()
-        }
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": e.to_string() })),
-        )
-            .into_response(),
-    }
+) -> Result<Response, ErroApi> {
+    let r = servicos::criar_tipo_registro(state.db.pool(), payload, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, c.confirmar.then_some(StatusCode::CREATED)))
 }
 
 pub async fn delete_record_type(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
-    if let Err(e) = ensure_tables(pool).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
-        )
-            .into_response();
-    }
-    match sqlx::query("DELETE FROM manual_stock_record_types WHERE id = $1")
-        .bind(id)
-        .execute(pool)
-        .await
-    {
-        Ok(r) if r.rows_affected() == 0 => (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": "Tipo não encontrado" })),
-        )
-            .into_response(),
-        Ok(_) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-            .into_response(),
-    }
+    Query(c): Query<Confirmar>,
+) -> Result<Response, ErroApi> {
+    let r = servicos::excluir_tipo_registro(state.db.pool(), id, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, None))
 }
 
 // ─── Folhas de registro (Controle Entrada/Saída de Insumo) ───
 
-fn sheet_prefix(kind: &str) -> &'static str {
+pub(super) fn sheet_prefix(kind: &str) -> &'static str {
     if kind == "entrada" {
         "CEI"
     } else {
@@ -1069,152 +623,20 @@ fn row_to_sheet_register(r: &sqlx::postgres::PgRow) -> SheetRegisterOut {
     }
 }
 
-async fn next_sheet_seq_tx(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    kind: &str,
-) -> Result<u32, String> {
-    let year = chrono::Local::now().format("%Y").to_string();
-    let prefix = format!("{}-{}-", sheet_prefix(kind), year);
-    let row = sqlx::query(
-        r#"
-        SELECT register_number FROM manual_stock_sheet_registers
-        WHERE register_number LIKE $1
-        ORDER BY register_number DESC
-        LIMIT 1
-        FOR UPDATE
-        "#,
-    )
-    .bind(format!("{prefix}%"))
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    Ok(match row {
-        Some(r) => {
-            let last: String = r.get(0);
-            last.rsplit('-')
-                .next()
-                .and_then(|s| s.parse::<u32>().ok())
-                .unwrap_or(0)
-                + 1
-        }
-        None => 1,
-    })
-}
-
 pub async fn create_sheet_block(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
+    Query(c): Query<Confirmar>,
     Json(payload): Json<CreateSheetBlockRequest>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
-    if let Err(e) = ensure_tables(pool).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
-        )
-            .into_response();
-    }
-
-    let kind = match normalize_kind(&payload.kind) {
-        Ok(k) => k,
-        Err(e) => {
-            return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response();
-        }
-    };
-    let qty = payload.quantity;
-    if qty < 1 || qty > 100 {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "quantity deve ser entre 1 e 100" })),
-        )
-            .into_response();
-    }
-
-    let mut tx = match pool.begin().await {
-        Ok(t) => t,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e.to_string() })),
-            )
-                .into_response();
-        }
-    };
-
-    let mut next_seq = match next_sheet_seq_tx(&mut tx, kind).await {
-        Ok(n) => n,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e })),
-            )
-                .into_response();
-        }
-    };
-
-    let year = chrono::Local::now().format("%Y").to_string();
-    let prefix = sheet_prefix(kind);
-    let mut ids = Vec::with_capacity(qty as usize);
-
-    for _ in 0..qty {
-        let register_number = format!("{prefix}-{year}-{next_seq:04}");
-        let row = match sqlx::query(
-            r#"
-            INSERT INTO manual_stock_sheet_registers
-                (register_number, kind, status, created_by)
-            VALUES ($1, $2, 'retirada', $3)
-            RETURNING id
-            "#,
-        )
-        .bind(&register_number)
-        .bind(kind)
-        .bind(&ctx.display_name)
-        .fetch_one(&mut *tx)
-        .await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({ "error": e.to_string() })),
-                )
-                    .into_response();
-            }
-        };
-        ids.push(crate::core::pg_row::pg_i64(&row, 0));
-        next_seq += 1;
-    }
-
-    if let Err(e) = tx.commit().await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-            .into_response();
-    }
-
-    let mut out = Vec::with_capacity(ids.len());
-    for id in ids {
-        match load_sheet(pool, id).await {
-            Ok(s) => out.push(s),
-            Err(e) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({ "error": e })),
-                )
-                    .into_response();
-            }
-        }
-    }
-
-    (StatusCode::CREATED, Json(out)).into_response()
+) -> Result<Response, ErroApi> {
+    let r = servicos::criar_bloco_folhas(state.db.pool(), payload, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, c.confirmar.then_some(StatusCode::CREATED)))
 }
 
-async fn load_sheet(pool: &PgPool, id: i64) -> Result<SheetRegisterOut, String> {
+pub(super) async fn load_sheet(conn: &mut PgConnection, id: i64) -> Result<SheetRegisterOut, String> {
     let row = sqlx::query(&format!("{SHEET_SELECT} WHERE id = $1"))
         .bind(id)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
     Ok(row_to_sheet_register(&row))
@@ -1298,7 +720,18 @@ pub async fn get_sheet_register(
             .into_response();
     }
 
-    match load_sheet(pool, id).await {
+    let mut conn = match pool.acquire().await {
+        Ok(c) => c,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    match load_sheet(&mut conn, id).await {
         Ok(s) => (StatusCode::OK, Json(s)).into_response(),
         Err(_) => (
             StatusCode::NOT_FOUND,
@@ -1312,92 +745,19 @@ pub async fn conferir_sheet_register(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
-    if let Err(e) = ensure_tables(pool).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
-        )
-            .into_response();
-    }
-
-    let res = sqlx::query(
-        r#"
-        UPDATE manual_stock_sheet_registers
-        SET status = 'conferida', conferred_by = $2, conferred_at = NOW()
-        WHERE id = $1 AND status = 'retirada'
-        "#,
-    )
-    .bind(id)
-    .bind(&ctx.display_name)
-    .execute(pool)
-    .await;
-
-    match res {
-        Ok(r) if r.rows_affected() == 0 => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Registro não encontrado ou já conferido" })),
-        )
-            .into_response(),
-        Ok(_) => match load_sheet(pool, id).await {
-            Ok(s) => (StatusCode::OK, Json(s)).into_response(),
-            Err(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e })),
-            )
-                .into_response(),
-        },
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-            .into_response(),
-    }
+    Query(c): Query<Confirmar>,
+) -> Result<Response, ErroApi> {
+    let r = servicos::conferir_folha(state.db.pool(), id, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, None))
 }
 
 pub async fn reabrir_sheet_register(
     State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<AuthContext>,
     Path(id): Path<i64>,
-) -> impl IntoResponse {
-    let pool = state.db.pool();
-    if let Err(e) = ensure_tables(pool).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
-        )
-            .into_response();
-    }
-
-    let res = sqlx::query(
-        r#"
-        UPDATE manual_stock_sheet_registers
-        SET status = 'retirada', conferred_by = NULL, conferred_at = NULL
-        WHERE id = $1 AND status = 'conferida'
-        "#,
-    )
-    .bind(id)
-    .execute(pool)
-    .await;
-
-    match res {
-        Ok(r) if r.rows_affected() == 0 => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Registro não encontrado ou não está conferido" })),
-        )
-            .into_response(),
-        Ok(_) => match load_sheet(pool, id).await {
-            Ok(s) => (StatusCode::OK, Json(s)).into_response(),
-            Err(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e })),
-            )
-                .into_response(),
-        },
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-            .into_response(),
-    }
+    Query(c): Query<Confirmar>,
+) -> Result<Response, ErroApi> {
+    let r = servicos::reabrir_folha(state.db.pool(), id, &autor(&ctx), c.confirmar).await?;
+    Ok(resposta(&r, None))
 }
+

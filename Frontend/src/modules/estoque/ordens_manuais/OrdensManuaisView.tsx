@@ -26,6 +26,8 @@ import AppLayout from '../../geral/components/layout/AppLayout';
 import { ReportTabs } from '../../geral/components/ui/ReportKit';
 import Modal from '../../geral/components/ui/Modal';
 import { apiJson } from '../../geral/lib/http';
+import type { TipoAviso } from '../../geral/components/ui/Aviso';
+import { usePreviaServidor } from '../../producao/lib/usePreviaServidor';
 import { printBlankSheets, printErpLaunchList, printSingleOrder } from './printHelpers';
 
 type Kind = 'entrada' | 'saida';
@@ -259,6 +261,16 @@ export default function OrdensManuaisView({ onBackToHub }: { onBackToHub: () => 
     setTimeout(() => setSuccessMsg(''), 4000);
   };
 
+  // Escritas em 2 passos: a prévia vem do servidor (sem `confirmar`) e só grava no OK.
+  const avisarPrevia = useCallback((msg: string, tipo?: TipoAviso) => {
+    if (tipo === 'erro') setError(msg);
+    else {
+      setSuccessMsg(msg);
+      setTimeout(() => setSuccessMsg(''), 4000);
+    }
+  }, []);
+  const { pedir: pedirPrevia, elemento: previaElemento } = usePreviaServidor(avisarPrevia);
+
   const retiradaCount = useMemo(
     () => (activeTab === 'registro' ? sheets.filter((s) => s.status === 'retirada').length : undefined),
     [activeTab, sheets],
@@ -430,14 +442,14 @@ export default function OrdensManuaisView({ onBackToHub }: { onBackToHub: () => 
         items,
       };
       if (editingId) {
-        await apiJson(`/estoque/ordens-manuais/${editingId}`, {
+        await apiJson(`/estoque/ordens-manuais/${editingId}?confirmar=true`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
         showToast('Ordem manual atualizada com sucesso!');
       } else {
-        await apiJson('/estoque/ordens-manuais', {
+        await apiJson('/estoque/ordens-manuais?confirmar=true', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -454,38 +466,57 @@ export default function OrdensManuaisView({ onBackToHub }: { onBackToHub: () => 
     }
   };
 
-  const markPosted = async (o: ManualOrder) => {
-    if (!window.confirm(`Confirma o lançamento da ordem ${o.orderNumber} no ERP?\n\nIsso marcará o status como concluído.`)) return;
-    try {
-      await apiJson(`/estoque/ordens-manuais/${o.id}/postar`, { method: 'POST' });
-      showToast(`Ordem ${o.orderNumber} marcada como lançada no ERP!`);
-      if (viewingOrder?.id === o.id) {
-        setViewingOrder((prev) => (prev ? { ...prev, status: 'POSTED' } : null));
-      }
-      await loadOrders();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Falha ao marcar como lançada');
-    }
+  const resumoOrdem = (o: ManualOrder) =>
+    `${o.kind === 'entrada' ? 'Entrada' : 'Saída'} · ${o.partnerName} · ${o.items.length} ${o.items.length === 1 ? 'item' : 'itens'}`;
+
+  const markPosted = (o: ManualOrder) => {
+    void pedirPrevia({
+      url: `/estoque/ordens-manuais/${o.id}/postar`,
+      init: { method: 'POST' },
+      titulo: `Lançar ordem ${o.orderNumber} no ERP`,
+      confirmarRotulo: 'OK, marcar como lançada',
+      linhas: (d) => [
+        { titulo: `Ordem ${o.orderNumber}`, detalhe: `${o.status === 'OPEN' ? 'Aberta' : 'Lançada'} → ${d?.status === 'POSTED' ? 'Lançada no ERP' : 'Lançada'}` },
+        { titulo: resumoOrdem(o) },
+      ],
+      avisos: () => ['Ela deixa de contar como pendente de entrada/saída no planejamento de compras.'],
+      erroPadrao: 'Falha ao marcar como lançada',
+      aoConcluir: async () => {
+        showToast(`Ordem ${o.orderNumber} marcada como lançada no ERP!`);
+        if (viewingOrder?.id === o.id) {
+          setViewingOrder((prev) => (prev ? { ...prev, status: 'POSTED' } : null));
+        }
+        await loadOrders();
+      },
+    });
   };
 
-  const reopen = async (o: ManualOrder) => {
-    if (!window.confirm(`Deseja reabrir a ordem ${o.orderNumber}?\n\nEla voltará para a fila de pendências a lançar.`)) return;
-    try {
-      await apiJson(`/estoque/ordens-manuais/${o.id}/reabrir`, { method: 'POST' });
-      showToast(`Ordem ${o.orderNumber} reaberta com sucesso.`);
-      if (viewingOrder?.id === o.id) {
-        setViewingOrder((prev) => (prev ? { ...prev, status: 'OPEN' } : null));
-      }
-      await loadOrders();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Falha ao reabrir ordem');
-    }
+  const reopen = (o: ManualOrder) => {
+    void pedirPrevia({
+      url: `/estoque/ordens-manuais/${o.id}/reabrir`,
+      init: { method: 'POST' },
+      titulo: `Reabrir ordem ${o.orderNumber}`,
+      confirmarRotulo: 'OK, reabrir',
+      linhas: (d) => [
+        { titulo: `Ordem ${o.orderNumber}`, detalhe: `Lançada → ${d?.status === 'OPEN' ? 'Aberta' : 'Reaberta'}` },
+        { titulo: resumoOrdem(o) },
+      ],
+      avisos: () => ['Ela volta para a fila de pendências a lançar e conta de novo no planejamento de compras.'],
+      erroPadrao: 'Falha ao reabrir ordem',
+      aoConcluir: async () => {
+        showToast(`Ordem ${o.orderNumber} reaberta com sucesso.`);
+        if (viewingOrder?.id === o.id) {
+          setViewingOrder((prev) => (prev ? { ...prev, status: 'OPEN' } : null));
+        }
+        await loadOrders();
+      },
+    });
   };
 
   const remove = async (o: ManualOrder) => {
     if (!window.confirm(`ATENÇÃO: Tem certeza que deseja excluir definitivamente a ordem ${o.orderNumber}?`)) return;
     try {
-      await apiJson(`/estoque/ordens-manuais/${o.id}`, { method: 'DELETE' });
+      await apiJson(`/estoque/ordens-manuais/${o.id}?confirmar=true`, { method: 'DELETE' });
       showToast(`Ordem ${o.orderNumber} excluída.`);
       if (viewingOrder?.id === o.id) {
         setViewingOrder(null);
@@ -502,7 +533,7 @@ export default function OrdensManuaisView({ onBackToHub }: { onBackToHub: () => 
     setTypeBusy(true);
     setError('');
     try {
-      await apiJson('/estoque/ordens-manuais/tipos', {
+      await apiJson('/estoque/ordens-manuais/tipos?confirmar=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: val }),
@@ -520,7 +551,7 @@ export default function OrdensManuaisView({ onBackToHub }: { onBackToHub: () => 
   const deleteType = async (t: RecordType) => {
     if (!window.confirm(`Remover o tipo de registro "${t.name}"?\n\nAs ordens já existentes continuarão com a descrição preservada.`)) return;
     try {
-      await apiJson(`/estoque/ordens-manuais/tipos/${t.id}`, { method: 'DELETE' });
+      await apiJson(`/estoque/ordens-manuais/tipos/${t.id}?confirmar=true`, { method: 'DELETE' });
       showToast(`Tipo "${t.name}" removido.`);
       await loadTypes();
     } catch (e: unknown) {
@@ -563,11 +594,12 @@ export default function OrdensManuaisView({ onBackToHub }: { onBackToHub: () => 
     setBlockBusy(true);
     setError('');
     try {
-      const created = await apiJson<SheetRegister[]>('/estoque/ordens-manuais/registros/bloco', {
+      const resp = await apiJson<SheetRegister[] | { registros?: SheetRegister[] }>('/estoque/ordens-manuais/registros/bloco?confirmar=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ kind: blockKind, quantity }),
       });
+      const created: SheetRegister[] = Array.isArray(resp) ? resp : (resp?.registros ?? []);
       setBlockOpen(false);
       await loadSheets();
       if (Array.isArray(created) && created.length > 0) {
@@ -585,7 +617,7 @@ export default function OrdensManuaisView({ onBackToHub }: { onBackToHub: () => 
 
   const conferirSheet = async (s: SheetRegister) => {
     try {
-      await apiJson(`/estoque/ordens-manuais/registros/${s.id}/conferir`, { method: 'POST' });
+      await apiJson(`/estoque/ordens-manuais/registros/${s.id}/conferir?confirmar=true`, { method: 'POST' });
       showToast(`Folha ${s.registerNumber} marcada como conferida!`);
       await loadSheets();
     } catch (e: unknown) {
@@ -595,7 +627,7 @@ export default function OrdensManuaisView({ onBackToHub }: { onBackToHub: () => 
 
   const reabrirSheet = async (s: SheetRegister) => {
     try {
-      await apiJson(`/estoque/ordens-manuais/registros/${s.id}/reabrir`, { method: 'POST' });
+      await apiJson(`/estoque/ordens-manuais/registros/${s.id}/reabrir?confirmar=true`, { method: 'POST' });
       showToast(`Folha ${s.registerNumber} reaberta (Retirada).`);
       await loadSheets();
     } catch (e: unknown) {
@@ -662,6 +694,7 @@ export default function OrdensManuaisView({ onBackToHub }: { onBackToHub: () => 
 
   return (
     <>
+      {previaElemento}
       <AppLayout
         moduleTitle="Ordens Manuais"
         moduleSubtitle="Controle Operacional de Entradas (CEI), Saídas (CSI) e Folhas Físicas"

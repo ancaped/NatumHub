@@ -30,6 +30,8 @@ import {
   X,
 } from 'lucide-react';
 import { apiJson } from '../../geral/lib/http';
+import type { TipoAviso } from '../../geral/components/ui/Aviso';
+import { usePreviaServidor } from '../../producao/lib/usePreviaServidor';
 import AppLayout from '../../geral/components/layout/AppLayout';
 import { ReportTabs } from '../../geral/components/ui/ReportKit';
 import ItemDrawer, {
@@ -166,6 +168,9 @@ export default function AlmoxEstoqueView({ onBackToHub, initialFamily = 'todas' 
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Escritas que mudam o saldo: a prévia vem do servidor (sem `confirmar`) e só grava no OK.
+  const avisarPrevia = useCallback((m: string, tipo?: TipoAviso) => (tipo === 'erro' ? setError(m) : setAviso(m)), []);
+  const { pedir: pedirPrevia, elemento: previaElemento } = usePreviaServidor(avisarPrevia);
   const [addOpen, setAddOpen] = useState(false);
   const [familiasModalOpen, setFamiliasModalOpen] = useState(false);
   const [photoModalItem, setPhotoModalItem] = useState<AlmoxOpsItem | null>(null);
@@ -319,7 +324,7 @@ export default function AlmoxEstoqueView({ onBackToHub, initialFamily = 'todas' 
     setBusy(true);
     try {
       const res = await apiJson<{ item: AlmoxOpsItem }>(
-        `/almox/items/${encodeURIComponent(selected.code)}/config`,
+        `/almox/items/${encodeURIComponent(selected.code)}/config?confirmar=true`,
         { method: 'PUT', body: JSON.stringify(payload) },
       );
       setSelected(res.item);
@@ -330,10 +335,25 @@ export default function AlmoxEstoqueView({ onBackToHub, initialFamily = 'todas' 
   };
 
   const submitMovement = async (payload: MovementPayload) => {
+    const tipo = payload.movementType;
+    const rotulo = tipo === 'entrada' ? 'Entrada' : tipo === 'saida' ? 'Saída' : 'Ajuste';
     setBusy(true);
     try {
-      await apiJson('/almox/movements', { method: 'POST', body: JSON.stringify(payload) });
-      await load();
+      await pedirPrevia({
+        url: '/almox/movements',
+        init: { method: 'POST', body: JSON.stringify(payload) },
+        titulo: `${rotulo} de estoque`,
+        confirmarRotulo: 'OK, lançar',
+        linhas: (d) => {
+          const m = d?.movement ?? {};
+          return [{
+            titulo: `${m.itemDescription || m.itemCode || ''}`.trim() || 'Item',
+            detalhe: `${rotulo} de ${Number(m.quantity ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 })}`,
+          }];
+        },
+        erroPadrao: 'Não foi possível lançar o movimento.',
+        aoConcluir: () => load(),
+      });
     } finally {
       setBusy(false);
     }
@@ -345,7 +365,7 @@ export default function AlmoxEstoqueView({ onBackToHub, initialFamily = 'todas' 
     setError(null);
     setAviso(null);
     try {
-      await apiJson('/almox/demands', {
+      await apiJson('/almox/demands?confirmar=true', {
         method: 'POST',
         body: JSON.stringify({
           title: it.description || it.code,
@@ -367,7 +387,7 @@ export default function AlmoxEstoqueView({ onBackToHub, initialFamily = 'todas' 
     setError(null);
     setAviso(null);
     try {
-      await apiJson('/almox/demands/from-min', { method: 'POST', body: '{}' });
+      await apiJson('/almox/demands/from-min?confirmar=true', { method: 'POST', body: '{}' });
       setAviso('Solicitações de compra geradas para todos os itens abaixo do estoque mínimo.');
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Nenhum item abaixo do mínimo no momento.');
@@ -380,7 +400,7 @@ export default function AlmoxEstoqueView({ onBackToHub, initialFamily = 'todas' 
     setBusy(true);
     setError(null);
     try {
-      await apiJson(`/almox/items/${encodeURIComponent(code)}`, { method: 'DELETE' });
+      await apiJson(`/almox/items/${encodeURIComponent(code)}?confirmar=true`, { method: 'DELETE' });
       setAviso(`Item "${code}" foi excluído com sucesso do almoxarifado.`);
       setSelected(null);
       await load();
@@ -396,7 +416,7 @@ export default function AlmoxEstoqueView({ onBackToHub, initialFamily = 'todas' 
     setBusy(true);
     setError(null);
     try {
-      await apiJson(`/almox/items/${encodeURIComponent(code)}/config`, {
+      await apiJson(`/almox/items/${encodeURIComponent(code)}/config?confirmar=true`, {
         method: 'PUT',
         body: JSON.stringify({ section: newSection }),
       });
@@ -415,34 +435,48 @@ export default function AlmoxEstoqueView({ onBackToHub, initialFamily = 'todas' 
     setError(null);
     setAviso(null);
     try {
-      const res = await apiJson<{ saidas: number; entradas: number }>('/almox/counts', {
-        method: 'POST',
-        body: JSON.stringify({
-          countedAt: countDate,
-          lines: items.map((it) => {
-            const entry = countEntries[it.code];
-            const countedQty = entry ? entry.totalQty : it.qtyOnHand;
-            return {
-              itemCode: it.code,
-              countedQty: Number.isFinite(countedQty) ? countedQty : it.qtyOnHand,
-              packQty: entry && entry.mode === 'pack' ? entry.packFactor : undefined,
-              packName: entry && entry.mode === 'pack' ? entry.packName : undefined,
-            };
+      await pedirPrevia({
+        url: '/almox/counts',
+        init: {
+          method: 'POST',
+          body: JSON.stringify({
+            countedAt: countDate,
+            lines: items.map((it) => {
+              const entry = countEntries[it.code];
+              const countedQty = entry ? entry.totalQty : it.qtyOnHand;
+              return {
+                itemCode: it.code,
+                countedQty: Number.isFinite(countedQty) ? countedQty : it.qtyOnHand,
+                packQty: entry && entry.mode === 'pack' ? entry.packFactor : undefined,
+                packName: entry && entry.mode === 'pack' ? entry.packName : undefined,
+              };
+            }),
           }),
-        }),
+        },
+        titulo: 'Concluir contagem programada',
+        confirmarRotulo: 'OK, aplicar contagem',
+        linhas: (d) => [
+          { titulo: 'Itens contados', detalhe: String(items.length) },
+          { titulo: 'Saídas apuradas (saldo menor que o do sistema)', detalhe: String(d?.saidas ?? 0) },
+          { titulo: 'Entradas/devoluções (saldo maior que o do sistema)', detalhe: String(d?.entradas ?? 0) },
+        ],
+        avisos: () => ['O saldo físico do almoxarifado será ajustado para as quantidades contadas.'],
+        erroPadrao: 'Não foi possível salvar a contagem programada.',
+        aoConcluir: async (res) => {
+          const saidas = Number(res?.saidas ?? 0);
+          const entradas = Number(res?.entradas ?? 0);
+          const partes: string[] = [];
+          if (saidas > 0) partes.push(saidas === 1 ? '1 item com saída apurada' : `${saidas} itens com saídas apuradas`);
+          if (entradas > 0) partes.push(entradas === 1 ? '1 item com devolução/entrada' : `${entradas} itens com devolução/entrada`);
+          setAviso(
+            partes.length
+              ? `Contagem programada concluída com sucesso! ${partes.join(' e ')}. O saldo físico foi atualizado no almoxarifado.`
+              : 'Contagem programada concluída! Nenhum consumo ou saída registrado no período.',
+          );
+          setCountEntries({});
+          await load();
+        },
       });
-      const partes: string[] = [];
-      if (res.saidas > 0) partes.push(res.saidas === 1 ? '1 item com saída apurada' : `${res.saidas} itens com saídas apuradas`);
-      if (res.entradas > 0) partes.push(res.entradas === 1 ? '1 item com devolução/entrada' : `${res.entradas} itens com devolução/entrada`);
-      setAviso(
-        partes.length
-          ? `Contagem programada concluída com sucesso! ${partes.join(' e ')}. O saldo físico foi atualizado no almoxarifado.`
-          : 'Contagem programada concluída! Nenhum consumo ou saída registrado no período.',
-      );
-      setCountEntries({});
-      await load();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Não foi possível salvar a contagem programada.');
     } finally {
       setBusy(false);
     }
@@ -484,6 +518,8 @@ export default function AlmoxEstoqueView({ onBackToHub, initialFamily = 'todas' 
   };
 
   return (
+    <>
+    {previaElemento}
     <AppLayout
       moduleTitle="Estoque e Almoxarifado"
       onBackToHub={onBackToHub}
@@ -1127,6 +1163,7 @@ export default function AlmoxEstoqueView({ onBackToHub, initialFamily = 'todas' 
         )}
       </div>
     </AppLayout>
+    </>
   );
 }
 
@@ -2179,7 +2216,7 @@ function AddItem({
     setBusy(true);
     setError(null);
     try {
-      const res = await apiJson<{ item: AlmoxOpsItem }>('/almox/items/local', {
+      const res = await apiJson<{ item: AlmoxOpsItem }>('/almox/items/local?confirmar=true', {
         method: 'POST',
         body: JSON.stringify({
           code: code.trim() || undefined,
@@ -2472,7 +2509,7 @@ function GerenciarFamiliasModal({
     setBusy(true);
     setError(null);
     try {
-      await apiJson('/almox/familias', {
+      await apiJson('/almox/familias?confirmar=true', {
         method: 'POST',
         body: JSON.stringify({
           label: label.trim(),
@@ -2494,7 +2531,7 @@ function GerenciarFamiliasModal({
     setBusy(true);
     setError(null);
     try {
-      await apiJson(`/almox/familias/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      await apiJson(`/almox/familias/${encodeURIComponent(id)}?confirmar=true`, { method: 'DELETE' });
       await onUpdated();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erro ao excluir família.');
@@ -2625,7 +2662,7 @@ function PhotoLightboxModal({
     try {
       const base64 = await compressImageFile(file, 800, 0.75);
       const newDate = new Date().toISOString();
-      const res = await apiJson<{ item: AlmoxOpsItem }>(`/almox/items/${encodeURIComponent(item.code)}/config`, {
+      const res = await apiJson<{ item: AlmoxOpsItem }>(`/almox/items/${encodeURIComponent(item.code)}/config?confirmar=true`, {
         method: 'PUT',
         body: JSON.stringify({
           photoData: base64,
@@ -2645,7 +2682,7 @@ function PhotoLightboxModal({
     setBusy(true);
     setError(null);
     try {
-      const res = await apiJson<{ item: AlmoxOpsItem }>(`/almox/items/${encodeURIComponent(item.code)}/config`, {
+      const res = await apiJson<{ item: AlmoxOpsItem }>(`/almox/items/${encodeURIComponent(item.code)}/config?confirmar=true`, {
         method: 'PUT',
         body: JSON.stringify({
           photoData: null,

@@ -239,7 +239,7 @@ export default function AlmoxManutencoesView({ onBackToHub, initialEquipmentId, 
     setError(null);
     setAviso(null);
     try {
-      await apiJson(`/almox/maintenances/${encodeURIComponent(m.id)}`, {
+      await apiJson(`/almox/maintenances/${encodeURIComponent(m.id)}?confirmar=true`, {
         method: 'PUT',
         body: JSON.stringify({ status: 'concluida' }),
       });
@@ -672,7 +672,7 @@ function MaintForm({
     setError(null);
     const dias = recurrenceDays ? Number(recurrenceDays) : null;
     try {
-      await apiJson('/almox/maintenances', {
+      await apiJson('/almox/maintenances?confirmar=true', {
         method: 'POST',
         body: JSON.stringify({
           equipmentId: isAvulsa ? null : equipmentId,

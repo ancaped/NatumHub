@@ -375,6 +375,7 @@ pub async fn ensure_seeded(pool: &PgPool) -> Result<(), String> {
         ("estoque", "estoque_apoio", "Material de Apoio"),
         ("estoque", "estoque_produtos", "Produtos Acabados"),
         ("estoque", "estoque_previsao_uso", "Previsão de Uso"),
+        ("estoque", "estoque_ordens_manuais", "Ordens Manuais"),
         ("almoxarifado", "estoque_itens", "Itens"),
         ("almoxarifado", "estoque_supermercado", "Supermercado"),
         ("almoxarifado", "estoque_pecas", "Peças"),

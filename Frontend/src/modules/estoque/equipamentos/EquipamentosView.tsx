@@ -425,7 +425,7 @@ export default function EquipamentosView({
             }]
           : [],
       };
-      await apiJson('/almox/demands', {
+      await apiJson('/almox/demands?confirmar=true', {
         method: 'POST',
         body: JSON.stringify(body),
       });
@@ -525,13 +525,13 @@ export default function EquipamentosView({
     };
 
     try {
-      const res = await apiJson<{ equipment: Equipment }>('/almox/equipments', {
+      const res = await apiJson<{ equipment: Equipment }>('/almox/equipments?confirmar=true', {
         method: 'POST',
         body: JSON.stringify(body),
       });
       const saved = res.equipment;
       if (pendingPhoto && saved?.id) {
-        await apiJson(`/almox/fotos/equipment/${encodeURIComponent(saved.id)}`, {
+        await apiJson(`/almox/fotos/equipment/${encodeURIComponent(saved.id)}?confirmar=true`, {
           method: 'POST',
           body: JSON.stringify({ photoData: pendingPhoto, notes: 'Foto principal' }),
         });
@@ -560,7 +560,7 @@ export default function EquipamentosView({
       : eqForm.equipFamily;
 
     try {
-      await apiJson(`/almox/equipments/${encodeURIComponent(selectedId)}`, {
+      await apiJson(`/almox/equipments/${encodeURIComponent(selectedId)}?confirmar=true`, {
         method: 'PUT',
         body: JSON.stringify({
           code: eqForm.code.trim(),
@@ -668,7 +668,7 @@ export default function EquipamentosView({
           replaced: p.replaced,
         };
       });
-      await apiJson('/almox/maintenances', {
+      await apiJson('/almox/maintenances?confirmar=true', {
         method: 'POST',
         body: JSON.stringify({
           equipmentId: mtForm.equipmentId,
@@ -696,7 +696,7 @@ export default function EquipamentosView({
   const updateMaintStatus = async (maintId: string, status: string) => {
     setBusy(true);
     try {
-      await apiJson(`/almox/maintenances/${encodeURIComponent(maintId)}`, {
+      await apiJson(`/almox/maintenances/${encodeURIComponent(maintId)}?confirmar=true`, {
         method: 'PUT',
         body: JSON.stringify({ status }),
       });
@@ -715,7 +715,7 @@ export default function EquipamentosView({
       const b64 = reader.result as string;
       if (forDetail && selectedId) {
         try {
-          await apiJson(`/almox/fotos/equipment/${encodeURIComponent(selectedId)}`, {
+          await apiJson(`/almox/fotos/equipment/${encodeURIComponent(selectedId)}?confirmar=true`, {
             method: 'POST',
             body: JSON.stringify({ photoData: b64, notes: file.name }),
           });
@@ -732,7 +732,7 @@ export default function EquipamentosView({
 
   const deleteFoto = async (fotoId: string) => {
     try {
-      await apiJson(`/almox/fotos/${encodeURIComponent(fotoId)}`, { method: 'DELETE' });
+      await apiJson(`/almox/fotos/${encodeURIComponent(fotoId)}?confirmar=true`, { method: 'DELETE' });
       if (selectedId) {
         await loadPark();
         await openDetail(selectedId);

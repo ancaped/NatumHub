@@ -109,6 +109,21 @@ pub struct RespostaAcao<T> {
     pub confirmar: Option<&'static str>,
 }
 
+/// Corpo HTTP das escritas em 2 passos: o `RespostaAcao` padrão e, por compatibilidade com a tela, os campos do
+/// resultado também na raiz (mais `success: true`).
+pub fn corpo_acao(r: &RespostaAcao<Value>) -> Value {
+    let mut corpo = serde_json::to_value(r).unwrap_or_else(|_| json!({}));
+    if let Some(res) = r.resultado.as_object() {
+        for (k, v) in res {
+            if corpo.get(k).is_none() {
+                corpo[k] = v.clone();
+            }
+        }
+    }
+    corpo["success"] = json!(true);
+    corpo
+}
+
 /// Roda `gravar` numa transação: com `confirmar` grava (commit); sem, desfaz (rollback) e devolve a prévia.
 /// Erro em `gravar` sempre desfaz. Auditoria fica com quem chama, só quando `confirmar`.
 pub async fn executar_em_2_passos<T, F>(

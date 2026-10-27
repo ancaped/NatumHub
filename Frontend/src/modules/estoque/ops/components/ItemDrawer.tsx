@@ -26,6 +26,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiJson } from '../../../geral/lib/http';
+import { usePreviaServidor } from '../../../producao/lib/usePreviaServidor';
 import type { AlmoxFamilia, AlmoxMovement, AlmoxOpsItem } from '../types';
 import { SECTION_LABELS } from '../types';
 
@@ -178,6 +179,10 @@ export default function ItemDrawer({
   const [localError, setLocalError] = useState<string | null>(null);
   const [localSuccess, setLocalSuccess] = useState<string | null>(null);
   const [savingAction, setSavingAction] = useState(false);
+  // Contagem pontual muda o saldo: a prévia vem do servidor (sem `confirmar`) e só grava no OK.
+  const { pedir: pedirPrevia, elemento: previaElemento } = usePreviaServidor(
+    (m, tipo) => (tipo === 'erro' ? setLocalError(m) : setLocalSuccess(m)),
+  );
 
   // Edit config states
   const [description, setDescription] = useState(item.description || '');
@@ -278,32 +283,52 @@ export default function ItemDrawer({
     setLocalSuccess(null);
     try {
       const countedAt = new Date().toISOString().slice(0, 10);
-      await apiJson('/almox/counts', {
-        method: 'POST',
-        body: JSON.stringify({
-          countedAt,
-          lines: [
-            {
-              itemCode: item.code,
-              countedQty: calculatedCountQty,
-              packQty: countMode === 'pack' ? packFactor : null,
-              packName: countMode === 'pack' ? packName : null,
-            },
-          ],
-        }),
+      const fmt = (n: number) => Math.abs(n).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+      await pedirPrevia({
+        url: '/almox/counts',
+        init: {
+          method: 'POST',
+          body: JSON.stringify({
+            countedAt,
+            lines: [
+              {
+                itemCode: item.code,
+                countedQty: calculatedCountQty,
+                packQty: countMode === 'pack' ? packFactor : null,
+                packName: countMode === 'pack' ? packName : null,
+              },
+            ],
+          }),
+        },
+        titulo: `Contagem de ${item.description || item.code}`,
+        confirmarRotulo: 'OK, salvar contagem',
+        linhas: () => [
+          { titulo: 'Saldo no sistema', detalhe: `${fmt(item.qtyOnHand)} ${item.unit}` },
+          { titulo: 'Quantidade contada', detalhe: `${fmt(calculatedCountQty)} ${item.unit}` },
+          {
+            titulo: 'Efeito no saldo',
+            detalhe:
+              countDiff < 0
+                ? `Saída apurada de ${fmt(countDiff)} ${item.unit}`
+                : countDiff > 0
+                ? `Entrada de ${fmt(countDiff)} ${item.unit}`
+                : 'Sem diferença',
+          },
+        ],
+        erroPadrao: 'Erro ao registrar contagem do item.',
+        aoConcluir: async () => {
+          setLocalSuccess(
+            countDiff < 0
+              ? `Contagem salva! Consumo de ${Math.abs(countDiff).toLocaleString('pt-BR')} ${item.unit} apurado com sucesso.`
+              : countDiff > 0
+              ? `Contagem salva! Saldo ajustado com entrada de ${countDiff.toLocaleString('pt-BR')} ${item.unit}.`
+              : 'Contagem salva! Saldo conferido e confirmado como estável.'
+          );
+          if (onCountSaved) {
+            await onCountSaved();
+          }
+        },
       });
-
-      setLocalSuccess(
-        countDiff < 0
-          ? `Contagem salva! Consumo de ${Math.abs(countDiff).toLocaleString('pt-BR')} ${item.unit} apurado com sucesso.`
-          : countDiff > 0
-          ? `Contagem salva! Saldo ajustado com entrada de ${countDiff.toLocaleString('pt-BR')} ${item.unit}.`
-          : 'Contagem salva! Saldo conferido e confirmado como estável.'
-      );
-
-      if (onCountSaved) {
-        await onCountSaved();
-      }
     } catch (e: unknown) {
       setLocalError(e instanceof Error ? e.message : 'Erro ao registrar contagem do item.');
     } finally {
@@ -418,7 +443,7 @@ export default function ItemDrawer({
     setLocalError(null);
     try {
       const base64 = await compressImageFile(file, 800, 0.75);
-      const res = await apiJson<{ foto: any }>(`/almox/fotos/item/${encodeURIComponent(item.code)}`, {
+      const res = await apiJson<{ foto: any }>(`/almox/fotos/item/${encodeURIComponent(item.code)}?confirmar=true`, {
         method: 'POST',
         body: JSON.stringify({
           photoData: base64,
@@ -440,7 +465,7 @@ export default function ItemDrawer({
     setSavingAction(true);
     setLocalError(null);
     try {
-      await apiJson(`/almox/fotos/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      await apiJson(`/almox/fotos/${encodeURIComponent(id)}?confirmar=true`, { method: 'DELETE' });
       setFotos((prev) => prev.filter((f) => f.id !== id));
     } catch (err: unknown) {
       setLocalError(err instanceof Error ? err.message : 'Erro ao excluir foto.');
@@ -460,6 +485,7 @@ export default function ItemDrawer({
   const currentFamilyLabel = SECTION_LABELS[section] || familias.find((f) => f.id === section)?.label || section;
 
   return (
+    <>
     <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex justify-end">
       <div className="absolute inset-0 cursor-pointer" onClick={onClose} />
       <div className="relative w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300 z-10">
@@ -1262,5 +1288,7 @@ export default function ItemDrawer({
         </div>
       </div>
     </div>
+    {previaElemento}
+    </>
   );
 }

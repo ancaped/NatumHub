@@ -1,5 +1,5 @@
 use chrono::{Duration, Utc};
-use sqlx::{PgPool, Row};
+use sqlx::{Connection, PgConnection, PgPool, Row};
 use uuid::Uuid;
 
 use super::models::*;
@@ -429,11 +429,10 @@ const ITEM_SELECT: &str = r#"
 
 /// Lista itens monitorados (com config). `section` filtra submódulo; `None` = catálogo unificado.
 pub async fn list_items(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     only_active: bool,
     section: Option<&str>,
 ) -> Result<Vec<AlmoxItemRow>, String> {
-    ensure_tables(pool).await?;
     let section = match section {
         Some(s) if !s.is_empty() => Some(normalize_section(s)?),
         _ => None,
@@ -454,18 +453,18 @@ pub async fn list_items(
 
     let rows = if outros || section.is_none() {
         sqlx::query(&sql)
-            .fetch_all(pool)
+            .fetch_all(&mut *conn)
             .await
             .map_err(|e| e.to_string())?
     } else if let Some(sec) = section.as_deref() {
         sqlx::query(&sql)
             .bind(sec)
-            .fetch_all(pool)
+            .fetch_all(&mut *conn)
             .await
             .map_err(|e| e.to_string())?
     } else {
         sqlx::query(&sql)
-            .fetch_all(pool)
+            .fetch_all(&mut *conn)
             .await
             .map_err(|e| e.to_string())?
     };
@@ -473,23 +472,21 @@ pub async fn list_items(
     Ok(rows.iter().map(map_item_row).collect())
 }
 
-pub async fn get_item(pool: &PgPool, code: &str) -> Result<Option<AlmoxItemRow>, String> {
-    ensure_tables(pool).await?;
+pub async fn get_item(conn: &mut PgConnection, code: &str) -> Result<Option<AlmoxItemRow>, String> {
     let sql = format!("{ITEM_SELECT} WHERE i.code = $1");
     let row = sqlx::query(&sql)
         .bind(code)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
     Ok(row.as_ref().map(map_item_row))
 }
 
 pub async fn search_erp_catalog(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     q: &str,
     limit: i64,
 ) -> Result<Vec<CatalogSearchHit>, String> {
-    ensure_tables(pool).await?;
     let term = format!("%{}%", q.trim());
     let rows = sqlx::query(
         r#"
@@ -509,7 +506,7 @@ pub async fn search_erp_catalog(
     )
     .bind(&term)
     .bind(limit.clamp(1, 100))
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -526,7 +523,7 @@ pub async fn search_erp_catalog(
 }
 
 async fn upsert_peca_meta(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     code: &str,
     lifespan_days: Option<i32>,
     installed_at: Option<&str>,
@@ -556,21 +553,20 @@ async fn upsert_peca_meta(
     .bind(next_exchange_at)
     .bind(notes)
     .bind(&now)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 pub async fn upsert_item_config(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     code: &str,
     req: &UpsertItemConfigRequest,
 ) -> Result<AlmoxItemRow, String> {
-    ensure_tables(pool).await?;
     let exists: Option<String> = sqlx::query_scalar("SELECT code FROM items WHERE code = $1")
         .bind(code)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
     if exists.is_none() {
@@ -620,7 +616,7 @@ pub async fn upsert_item_config(
     .bind(req.default_pack_name.as_deref())
     .bind(req.photo_data.as_deref())
     .bind(req.photo_date.as_deref())
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -628,14 +624,14 @@ pub async fn upsert_item_config(
         let _ = sqlx::query("UPDATE items SET description = $1 WHERE code = $2")
             .bind(d)
             .bind(code)
-            .execute(pool)
+            .execute(&mut *conn)
             .await;
     }
     if let Some(u) = req.unit.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         let _ = sqlx::query("UPDATE items SET unit = $1 WHERE code = $2")
             .bind(u)
             .bind(code)
-            .execute(pool)
+            .execute(&mut *conn)
             .await;
     }
 
@@ -648,7 +644,7 @@ pub async fn upsert_item_config(
     )
     .bind(code)
     .bind(&now)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -659,7 +655,7 @@ pub async fn upsert_item_config(
         || req.expires_at.is_some()
     {
         upsert_peca_meta(
-            pool,
+            &mut *conn,
             code,
             req.lifespan_days,
             req.installed_at.as_deref(),
@@ -670,16 +666,15 @@ pub async fn upsert_item_config(
         .await?;
     }
 
-    get_item(pool, code)
+    get_item(&mut *conn, code)
         .await?
         .ok_or_else(|| "Item atualizado, mas não encontrado na lista.".to_string())
 }
 
 pub async fn link_erp_item(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     req: &LinkErpItemRequest,
 ) -> Result<AlmoxItemRow, String> {
-    ensure_tables(pool).await?;
     let code = req.item_code.trim();
     let section = normalize_section(&req.section)?;
     if section == "supermercado" {
@@ -688,7 +683,7 @@ pub async fn link_erp_item(
 
     let row = sqlx::query("SELECT description, unit FROM items WHERE code = $1")
         .bind(code)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Item {code} não encontrado no ERP (items)."))?;
@@ -728,7 +723,7 @@ pub async fn link_erp_item(
     .bind(&erp_desc)
     .bind(&erp_unit)
     .bind(&now)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -741,24 +736,23 @@ pub async fn link_erp_item(
     )
     .bind(code)
     .bind(&now)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
     if section == "pecas" {
-        upsert_peca_meta(pool, code, None, None, None, None, req.notes.as_deref()).await?;
+        upsert_peca_meta(&mut *conn, code, None, None, None, None, req.notes.as_deref()).await?;
     }
 
-    get_item(pool, code)
+    get_item(&mut *conn, code)
         .await?
         .ok_or_else(|| "Item vinculado, mas não listado.".to_string())
 }
 
 pub async fn create_local_item(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     req: &CreateLocalItemRequest,
 ) -> Result<AlmoxItemRow, String> {
-    ensure_tables(pool).await?;
     let section = normalize_section(&req.section)?;
     let desc = req.description.trim();
     if desc.is_empty() {
@@ -779,7 +773,7 @@ pub async fn create_local_item(
                 "SELECT EXISTS(SELECT 1 FROM items WHERE UPPER(code) = UPPER($1))",
             )
             .bind(&custom_upper)
-            .fetch_one(pool)
+            .fetch_one(&mut *conn)
             .await
             .map_err(|e| e.to_string())?;
             if exists {
@@ -796,7 +790,7 @@ pub async fn create_local_item(
                 RETURNING next_val - 1
                 "#,
             )
-            .fetch_one(pool)
+            .fetch_one(&mut *conn)
             .await
             .map_err(|e| e.to_string())?;
             format!("APP_{:04}", next)
@@ -815,7 +809,7 @@ pub async fn create_local_item(
     .bind(&unit)
     .bind(req.notes.as_deref())
     .bind(&now)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -837,7 +831,7 @@ pub async fn create_local_item(
     .bind(desc)
     .bind(&unit)
     .bind(&now)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -849,13 +843,13 @@ pub async fn create_local_item(
     )
     .bind(&code)
     .bind(&now)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
     if section == "pecas" {
         upsert_peca_meta(
-            pool,
+            &mut *conn,
             &code,
             req.lifespan_days,
             None,
@@ -866,19 +860,18 @@ pub async fn create_local_item(
         .await?;
     }
 
-    get_item(pool, &code)
+    get_item(&mut *conn, &code)
         .await?
         .ok_or_else(|| "Item local criado, mas não listado.".to_string())
 }
 
 pub async fn create_movement(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     operator_id: Option<&str>,
     req: &CreateMovementRequest,
     allow_negative: bool,
     demand_id: Option<&str>,
 ) -> Result<AlmoxMovementRow, String> {
-    ensure_tables(pool).await?;
     let mt = req.movement_type.trim().to_lowercase();
     if !matches!(mt.as_str(), "entrada" | "saida" | "ajuste") {
         return Err("movement_type inválido. Use entrada, saida ou ajuste.".into());
@@ -926,14 +919,14 @@ pub async fn create_movement(
     let code = req.item_code.trim();
     let exists: Option<String> = sqlx::query_scalar("SELECT code FROM items WHERE code = $1")
         .bind(code)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
     if exists.is_none() {
         return Err(format!("Item {code} não encontrado."));
     }
 
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = conn.begin().await.map_err(|e| e.to_string())?;
 
     sqlx::query(
         r#"
@@ -1061,7 +1054,7 @@ pub async fn create_movement(
     let desc: Option<String> =
         sqlx::query_scalar("SELECT COALESCE(c.description, c.erp_description, i.description) FROM items i LEFT JOIN almox_item_config c ON c.item_code = i.code WHERE i.code = $1")
             .bind(code)
-            .fetch_optional(pool)
+            .fetch_optional(&mut *conn)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -1088,13 +1081,12 @@ pub async fn create_movement(
 }
 
 pub async fn list_movements(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     item_code: Option<&str>,
     from: Option<&str>,
     to: Option<&str>,
     limit: i64,
 ) -> Result<Vec<AlmoxMovementRow>, String> {
-    ensure_tables(pool).await?;
     let lim = limit.clamp(1, 500);
     let rows = sqlx::query(
         r#"
@@ -1119,7 +1111,7 @@ pub async fn list_movements(
     .bind(from)
     .bind(to)
     .bind(lim)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -1148,9 +1140,8 @@ pub async fn list_movements(
         .collect())
 }
 
-pub async fn item_stats(pool: &PgPool, code: &str) -> Result<ItemStats, String> {
-    ensure_tables(pool).await?;
-    let items = list_items(pool, false, None).await?;
+pub async fn item_stats(conn: &mut PgConnection, code: &str) -> Result<ItemStats, String> {
+    let items = list_items(&mut *conn, false, None).await?;
     let item = items
         .into_iter()
         .find(|i| i.code == code)
@@ -1164,7 +1155,7 @@ pub async fn item_stats(pool: &PgPool, code: &str) -> Result<ItemStats, String> 
         "#,
     )
     .bind(code)
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await
     .unwrap_or(0.0);
 
@@ -1176,7 +1167,7 @@ pub async fn item_stats(pool: &PgPool, code: &str) -> Result<ItemStats, String> 
         "#,
     )
     .bind(code)
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await
     .unwrap_or(0.0);
 
@@ -1199,7 +1190,7 @@ pub async fn item_stats(pool: &PgPool, code: &str) -> Result<ItemStats, String> 
         "#,
     )
     .bind(code)
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await
     .ok();
     let avg_unit_cost_30 = avg_cost_row.and_then(|r| {
@@ -1226,8 +1217,7 @@ pub async fn item_stats(pool: &PgPool, code: &str) -> Result<ItemStats, String> 
     })
 }
 
-pub async fn seed_from_erp(pool: &PgPool, code: &str, operator_id: Option<&str>) -> Result<AlmoxMovementRow, String> {
-    ensure_tables(pool).await?;
+pub async fn seed_from_erp(conn: &mut PgConnection, code: &str, operator_id: Option<&str>) -> Result<AlmoxMovementRow, String> {
     let erp: Option<f64> = sqlx::query_scalar(
         r#"
         SELECT stock_qty FROM stock_snapshots
@@ -1237,7 +1227,7 @@ pub async fn seed_from_erp(pool: &PgPool, code: &str, operator_id: Option<&str>)
         "#,
     )
     .bind(code)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -1258,14 +1248,14 @@ pub async fn seed_from_erp(pool: &PgPool, code: &str, operator_id: Option<&str>)
         content_per_pack: None,
         total_paid: None,
     };
-    create_movement(pool, operator_id, &req, false, None).await
+    create_movement(&mut *conn, operator_id, &req, false, None).await
 }
 
-pub async fn list_replenishment(pool: &PgPool) -> Result<Vec<ItemStats>, String> {
-    let items = list_items(pool, true, None).await?;
+pub async fn list_replenishment(conn: &mut PgConnection) -> Result<Vec<ItemStats>, String> {
+    let items = list_items(&mut *conn, true, None).await?;
     let mut out = Vec::new();
     for it in items.into_iter().filter(|i| i.active && i.below_min) {
-        if let Ok(s) = item_stats(pool, &it.code).await {
+        if let Ok(s) = item_stats(&mut *conn, &it.code).await {
             out.push(s);
         }
     }
@@ -1279,7 +1269,7 @@ pub async fn list_replenishment(pool: &PgPool) -> Result<Vec<ItemStats>, String>
 
 // --- Demandas de compra ---
 
-async fn load_demand(pool: &PgPool, id: &str) -> Result<PurchaseDemandRow, String> {
+async fn load_demand(conn: &mut PgConnection, id: &str) -> Result<PurchaseDemandRow, String> {
     let r = sqlx::query(
         r#"
         SELECT id, status, title, notes, created_by, created_at, updated_at, received_at,
@@ -1291,7 +1281,7 @@ async fn load_demand(pool: &PgPool, id: &str) -> Result<PurchaseDemandRow, Strin
         "#,
     )
     .bind(id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await
     .map_err(|e| e.to_string())?
     .ok_or_else(|| "Demanda não encontrada.".to_string())?;
@@ -1307,7 +1297,7 @@ async fn load_demand(pool: &PgPool, id: &str) -> Result<PurchaseDemandRow, Strin
         "#,
     )
     .bind(id)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -1353,8 +1343,7 @@ async fn load_demand(pool: &PgPool, id: &str) -> Result<PurchaseDemandRow, Strin
     })
 }
 
-pub async fn list_demands(pool: &PgPool, status: Option<&str>) -> Result<Vec<PurchaseDemandRow>, String> {
-    ensure_tables(pool).await?;
+pub async fn list_demands(conn: &mut PgConnection, status: Option<&str>) -> Result<Vec<PurchaseDemandRow>, String> {
     let ids: Vec<String> = sqlx::query_scalar(
         r#"
         SELECT id FROM almox_purchase_demands
@@ -1364,23 +1353,22 @@ pub async fn list_demands(pool: &PgPool, status: Option<&str>) -> Result<Vec<Pur
         "#,
     )
     .bind(status)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
     let mut out = Vec::new();
     for id in ids {
-        out.push(load_demand(pool, &id).await?);
+        out.push(load_demand(&mut *conn, &id).await?);
     }
     Ok(out)
 }
 
 pub async fn create_demand(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     created_by: Option<&str>,
     req: &CreateDemandRequest,
 ) -> Result<PurchaseDemandRow, String> {
-    ensure_tables(pool).await?;
     let title_ok = req.title.as_ref().map(|t| !t.trim().is_empty()).unwrap_or(false);
     if req.items.is_empty() && !title_ok {
         return Err("Informe o que precisa comprar.".into());
@@ -1397,13 +1385,13 @@ pub async fn create_demand(
         Some(custom) => {
             if let Some(pos) = custom.rfind('-') {
                 if let Ok(num) = custom[pos + 1..].parse::<i64>() {
-                    let _ = set_print_sequence(pool, num).await;
+                    let _ = set_print_sequence(&mut *conn, num).await;
                 }
             }
 
             let existing = sqlx::query("SELECT id, status FROM almox_purchase_demands WHERE tracking_code = $1 LIMIT 1")
                 .bind(custom)
-                .fetch_optional(pool)
+                .fetch_optional(&mut *conn)
                 .await
                 .ok()
                 .flatten();
@@ -1443,13 +1431,13 @@ pub async fn create_demand(
                     .bind(req.equipment_name.as_deref().map(str::trim).filter(|s| !s.is_empty()))
                     .bind(req.sector.as_deref().map(str::trim).filter(|s| !s.is_empty()))
                     .bind(req.urgency.as_deref().map(str::trim).filter(|s| !s.is_empty()))
-                    .execute(pool)
+                    .execute(&mut *conn)
                     .await
                     .map_err(|e| e.to_string())?;
 
                     let _ = sqlx::query("DELETE FROM almox_purchase_demand_items WHERE demand_id = $1")
                         .bind(&existing_id)
-                        .execute(pool)
+                        .execute(&mut *conn)
                         .await;
 
                     for it in &req.items {
@@ -1478,19 +1466,19 @@ pub async fn create_demand(
                         .bind(it.qty_requested)
                         .bind(it.unit_cost)
                         .bind(it.notes.as_deref())
-                        .execute(pool)
+                        .execute(&mut *conn)
                         .await;
                     }
 
-                    return load_demand(pool, &existing_id).await;
+                    return load_demand(&mut *conn, &existing_id).await;
                 }
             }
 
             custom.to_string()
         }
         None => {
-            let next_seq = get_print_sequence(pool).await.unwrap_or(0) + 1;
-            let _ = set_print_sequence(pool, next_seq).await;
+            let next_seq = get_print_sequence(&mut *conn).await.unwrap_or(0) + 1;
+            let _ = set_print_sequence(&mut *conn, next_seq).await;
             let year = Utc::now().format("%Y");
             format!("SOL-{}-{:04}", year, next_seq)
         }
@@ -1526,7 +1514,7 @@ pub async fn create_demand(
     .bind(req.receipt_name.as_deref().map(str::trim).filter(|s| !s.is_empty()))
     .bind(req.receipt_data.as_deref().map(str::trim).filter(|s| !s.is_empty()))
     .bind(req.receipts_json.as_deref().map(str::trim).filter(|s| !s.is_empty()))
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -1543,7 +1531,7 @@ pub async fn create_demand(
                 "SELECT code FROM items WHERE code = $1 OR TRIM(code) = $1 LIMIT 1",
             )
             .bind(code)
-            .fetch_optional(pool)
+            .fetch_optional(&mut *conn)
             .await
             .map_err(|e| e.to_string())?
         };
@@ -1575,7 +1563,7 @@ pub async fn create_demand(
         .bind(it.qty_requested)
         .bind(it.unit_cost)
         .bind(it.notes.as_deref())
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
     }
@@ -1601,7 +1589,7 @@ pub async fn create_demand(
         .bind(req.equipment_name.as_deref().unwrap_or("Manutenção Avulsa"))
         .bind(req.store_name.as_deref().map(str::trim).filter(|s| !s.is_empty()))
         .bind(&id)
-        .execute(pool)
+        .execute(&mut *conn)
         .await;
 
         for it in &req.items {
@@ -1620,20 +1608,19 @@ pub async fn create_demand(
             .bind(it.qty_requested)
             .bind(it.unit_cost)
             .bind(desc)
-            .execute(pool)
+            .execute(&mut *conn)
             .await;
         }
     }
 
-    load_demand(pool, &id).await
+    load_demand(&mut *conn, &id).await
 }
 
 pub async fn update_demand_status(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     id: &str,
     status: &str,
 ) -> Result<PurchaseDemandRow, String> {
-    ensure_tables(pool).await?;
     let st = status.trim().to_lowercase();
     if !matches!(st.as_str(), "impresso" | "aberta" | "pedida" | "recebida" | "cancelada") {
         return Err("Status inválido.".into());
@@ -1644,19 +1631,18 @@ pub async fn update_demand_status(
     .bind(id)
     .bind(&st)
     .bind(now_iso())
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
-    load_demand(pool, id).await
+    load_demand(&mut *conn, id).await
 }
 
 pub async fn update_demand(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     id: &str,
     req: &UpdateDemandRequest,
 ) -> Result<PurchaseDemandRow, String> {
-    ensure_tables(pool).await?;
-    let current = load_demand(pool, id).await?;
+    let current = load_demand(&mut *conn, id).await?;
     if current.status == "cancelada" {
         return Err("Solicitação cancelada não pode ser editada.".into());
     }
@@ -1720,7 +1706,7 @@ pub async fn update_demand(
     .bind(req.receipt_data.as_deref().map(str::trim).filter(|s| !s.is_empty()))
     .bind(req.receipts_json.as_deref().map(str::trim).filter(|s| !s.is_empty()))
     .bind(&now)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -1728,7 +1714,7 @@ pub async fn update_demand(
         if !items.is_empty() {
             let _ = sqlx::query("DELETE FROM almox_purchase_demand_items WHERE demand_id = $1")
                 .bind(id)
-                .execute(pool)
+                .execute(&mut *conn)
                 .await;
             for it in items {
                 if it.qty_requested <= 0.0 {
@@ -1740,7 +1726,7 @@ pub async fn update_demand(
                 } else {
                     sqlx::query_scalar("SELECT code FROM items WHERE code = $1 OR TRIM(code) = $1 LIMIT 1")
                         .bind(code)
-                        .fetch_optional(pool)
+                        .fetch_optional(&mut *conn)
                         .await
                         .ok()
                         .flatten()
@@ -1761,7 +1747,7 @@ pub async fn update_demand(
                 .bind(it.qty_requested)
                 .bind(it.unit_cost)
                 .bind(it.notes.as_deref())
-                .execute(pool)
+                .execute(&mut *conn)
                 .await;
             }
         }
@@ -1773,22 +1759,21 @@ pub async fn update_demand(
                 )
                 .bind(&item.id)
                 .bind(q)
-                .execute(pool)
+                .execute(&mut *conn)
                 .await
                 .map_err(|e| e.to_string())?;
             }
         }
     }
 
-    load_demand(pool, id).await
+    load_demand(&mut *conn, id).await
 }
 
 pub async fn get_item_purchase_history(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     item_code: Option<&str>,
     query: Option<&str>,
 ) -> Result<Vec<ItemPurchaseHistoryRow>, String> {
-    ensure_tables(pool).await?;
     let term = query.unwrap_or("").trim().to_lowercase();
     let code = item_code.unwrap_or("").trim().to_lowercase();
 
@@ -1815,7 +1800,7 @@ pub async fn get_item_purchase_history(
     )
     .bind(&code)
     .bind(&term)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -1846,12 +1831,11 @@ fn next_count_date(last: &str) -> String {
         .unwrap_or_else(|| Utc::now().format("%Y-%m-%d").to_string())
 }
 
-pub async fn latest_stock_count(pool: &PgPool) -> Result<StockCountStatus, String> {
-    ensure_tables(pool).await?;
+pub async fn latest_stock_count(conn: &mut PgConnection) -> Result<StockCountStatus, String> {
     let last: Option<String> = sqlx::query_scalar(
         "SELECT counted_at FROM almox_stock_counts ORDER BY counted_at DESC LIMIT 1",
     )
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
     let today = Utc::now().format("%Y-%m-%d").to_string();
@@ -1868,11 +1852,10 @@ pub async fn latest_stock_count(pool: &PgPool) -> Result<StockCountStatus, Strin
 }
 
 pub async fn apply_stock_count(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     operator_id: Option<&str>,
     req: &StockCountRequest,
 ) -> Result<StockCountResult, String> {
-    ensure_tables(pool).await?;
     if req.lines.is_empty() {
         return Err("Informe a quantidade contada dos itens.".into());
     }
@@ -1907,7 +1890,7 @@ pub async fn apply_stock_count(
                 .bind(pq)
                 .bind(line.pack_name.as_deref())
                 .bind(code)
-                .execute(pool)
+                .execute(&mut *conn)
                 .await;
             }
         }
@@ -1915,7 +1898,7 @@ pub async fn apply_stock_count(
             "SELECT COALESCE(qty_on_hand, 0) FROM almox_balances WHERE item_code = $1",
         )
         .bind(code)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await
         .map_err(|e| e.to_string())?
         .unwrap_or(0.0);
@@ -1931,7 +1914,7 @@ pub async fn apply_stock_count(
             ("entrada", diff)
         };
         create_movement(
-            pool,
+            &mut *conn,
             operator_id,
             &CreateMovementRequest {
                 item_code: code.to_string(),
@@ -1967,7 +1950,7 @@ pub async fn apply_stock_count(
     .bind(saidas)
     .bind(entradas)
     .bind(&now)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -1982,13 +1965,12 @@ pub async fn apply_stock_count(
 }
 
 pub async fn receive_demand(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     id: &str,
     operator_id: Option<&str>,
     req: &ReceiveDemandRequest,
 ) -> Result<PurchaseDemandRow, String> {
-    ensure_tables(pool).await?;
-    let demand = load_demand(pool, id).await?;
+    let demand = load_demand(&mut *conn, id).await?;
     if demand.status == "cancelada" || demand.status == "recebida" {
         return Err(format!("Demanda já está '{}'.", demand.status));
     }
@@ -2009,7 +1991,7 @@ pub async fn receive_demand(
         .bind(it.item_code.trim())
         .bind(it.qty_received)
         .bind(it.unit_cost)
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -2029,7 +2011,7 @@ pub async fn receive_demand(
             content_per_pack: None,
             total_paid: None,
         };
-        create_movement(pool, operator_id, &mv, false, Some(id)).await?;
+        create_movement(&mut *conn, operator_id, &mv, false, Some(id)).await?;
     }
 
     let now = now_iso();
@@ -2042,20 +2024,19 @@ pub async fn receive_demand(
     )
     .bind(id)
     .bind(&now)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
-    load_demand(pool, id).await
+    load_demand(&mut *conn, id).await
 }
 
 pub async fn mark_purchased(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     id: &str,
     operator_id: Option<&str>,
     req: &MarkPurchasedRequest,
 ) -> Result<PurchaseDemandRow, String> {
-    ensure_tables(pool).await?;
     let store = req.store_name.trim();
     if store.is_empty() {
         return Err("Informe a loja.".into());
@@ -2069,7 +2050,7 @@ pub async fn mark_purchased(
             return Err("Comprovante maior que 1,5 MB.".into());
         }
     }
-    let demand = load_demand(pool, id).await?;
+    let demand = load_demand(&mut *conn, id).await?;
     if demand.status == "cancelada" {
         return Err("Demanda cancelada.".into());
     }
@@ -2098,7 +2079,7 @@ pub async fn mark_purchased(
     .bind(req.purchase_value.filter(|v| *v >= 0.0))
     .bind(req.receipts_json.as_deref())
     .bind(&now)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -2127,14 +2108,14 @@ pub async fn mark_purchased(
         )
         .bind(id)
         .bind(&now)
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
-        return load_demand(pool, id).await;
+        return load_demand(&mut *conn, id).await;
     }
 
     receive_demand(
-        pool,
+        &mut *conn,
         id,
         operator_id,
         &ReceiveDemandRequest { items: pending },
@@ -2143,15 +2124,14 @@ pub async fn mark_purchased(
 }
 
 pub async fn demand_receipt(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     id: &str,
 ) -> Result<(Option<String>, Option<String>, Option<String>), String> {
-    ensure_tables(pool).await?;
     let row = sqlx::query(
         "SELECT receipt_name, receipt_data, receipts_json FROM almox_purchase_demands WHERE id = $1",
     )
     .bind(id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await
     .map_err(|e| e.to_string())?
     .ok_or_else(|| "Demanda não encontrada.".to_string())?;
@@ -2163,10 +2143,10 @@ pub async fn demand_receipt(
 }
 
 pub async fn create_demands_from_replenishment(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     created_by: Option<&str>,
 ) -> Result<PurchaseDemandRow, String> {
-    let stats = list_replenishment(pool).await?;
+    let stats = list_replenishment(&mut *conn).await?;
     if stats.is_empty() {
         return Err("Nenhum item abaixo do mínimo.".into());
     }
@@ -2174,7 +2154,7 @@ pub async fn create_demands_from_replenishment(
     for s in stats.into_iter().filter(|s| s.suggested_buy_qty > 0.0) {
         created = Some(
             create_demand(
-                pool,
+                &mut *conn,
                 created_by,
                 &CreateDemandRequest {
                     title: Some(s.item_code.clone()),
@@ -2249,7 +2229,7 @@ fn avg_interval_days(dates: &[chrono::NaiveDate]) -> Option<f64> {
     Some(gaps.iter().sum::<i64>() as f64 / gaps.len() as f64)
 }
 
-async fn equipment_cover_photo(pool: &PgPool, id: &str) -> Result<Option<String>, String> {
+async fn equipment_cover_photo(conn: &mut PgConnection, id: &str) -> Result<Option<String>, String> {
     sqlx::query_scalar(
         r#"
         SELECT photo_data FROM estoque_fotos
@@ -2259,17 +2239,17 @@ async fn equipment_cover_photo(pool: &PgPool, id: &str) -> Result<Option<String>
         "#,
     )
     .bind(id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await
     .map_err(|e| e.to_string())
 }
 
-async fn equipment_totals(pool: &PgPool, id: &str) -> Result<(f64, i64), String> {
+async fn equipment_totals(conn: &mut PgConnection, id: &str) -> Result<(f64, i64), String> {
     let spent: f64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(cost), 0)::float8 FROM estoque_manutencoes WHERE equipment_id = $1",
     )
     .bind(id)
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await
     .unwrap_or(0.0);
     let open: i64 = sqlx::query_scalar(
@@ -2279,14 +2259,14 @@ async fn equipment_totals(pool: &PgPool, id: &str) -> Result<(f64, i64), String>
         "#,
     )
     .bind(id)
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await
     .unwrap_or(0);
     Ok((spent, open))
 }
 
 async fn load_equipment_peca_stats(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     equipment_id: &str,
 ) -> Result<Vec<EquipmentPecaStat>, String> {
     let rows = sqlx::query(
@@ -2309,7 +2289,7 @@ async fn load_equipment_peca_stats(
         "#,
     )
     .bind(equipment_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -2329,7 +2309,7 @@ async fn load_equipment_peca_stats(
         "#,
     )
     .bind(equipment_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -2413,8 +2393,7 @@ fn map_equipment_row(
     }
 }
 
-pub async fn list_equipments(pool: &PgPool) -> Result<Vec<EquipmentRow>, String> {
-    ensure_tables(pool).await?;
+pub async fn list_equipments(conn: &mut PgConnection) -> Result<Vec<EquipmentRow>, String> {
     let rows = sqlx::query(
         r#"
         SELECT id, code, name, sector, status, brand, model, manufacture_year, serial_number,
@@ -2424,7 +2403,7 @@ pub async fn list_equipments(pool: &PgPool) -> Result<Vec<EquipmentRow>, String>
         ORDER BY name
         "#,
     )
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -2435,18 +2414,17 @@ pub async fn list_equipments(pool: &PgPool) -> Result<Vec<EquipmentRow>, String>
             "SELECT item_code FROM estoque_equipamento_pecas WHERE equipment_id = $1 ORDER BY item_code",
         )
         .bind(&id)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
-        let cover = equipment_cover_photo(pool, &id).await?;
-        let (spent, open) = equipment_totals(pool, &id).await?;
+        let cover = equipment_cover_photo(&mut *conn, &id).await?;
+        let (spent, open) = equipment_totals(&mut *conn, &id).await?;
         out.push(map_equipment_row(&r, pecas, cover, spent, open, vec![]));
     }
     Ok(out)
 }
 
-pub async fn get_equipment(pool: &PgPool, id: &str) -> Result<EquipmentRow, String> {
-    ensure_tables(pool).await?;
+pub async fn get_equipment(conn: &mut PgConnection, id: &str) -> Result<EquipmentRow, String> {
     let r = sqlx::query(
         r#"
         SELECT id, code, name, sector, status, brand, model, manufacture_year, serial_number,
@@ -2457,15 +2435,15 @@ pub async fn get_equipment(pool: &PgPool, id: &str) -> Result<EquipmentRow, Stri
         "#,
     )
     .bind(id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await
     .map_err(|e| e.to_string())?
     .ok_or_else(|| "Equipamento não encontrado.".to_string())?;
 
-    let peca_stats = load_equipment_peca_stats(pool, id).await?;
+    let peca_stats = load_equipment_peca_stats(&mut *conn, id).await?;
     let peca_codes: Vec<String> = peca_stats.iter().map(|p| p.item_code.clone()).collect();
-    let cover = equipment_cover_photo(pool, id).await?;
-    let (spent, open) = equipment_totals(pool, id).await?;
+    let cover = equipment_cover_photo(&mut *conn, id).await?;
+    let (spent, open) = equipment_totals(&mut *conn, id).await?;
     Ok(map_equipment_row(
         &r,
         peca_codes,
@@ -2477,7 +2455,7 @@ pub async fn get_equipment(pool: &PgPool, id: &str) -> Result<EquipmentRow, Stri
 }
 
 async fn replace_equipment_pecas(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     eid: &str,
     pecas: Option<&Vec<EquipmentPecaInput>>,
     peca_codes: Option<&Vec<String>>,
@@ -2487,7 +2465,7 @@ async fn replace_equipment_pecas(
     }
     sqlx::query("DELETE FROM estoque_equipamento_pecas WHERE equipment_id = $1")
         .bind(eid)
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -2513,7 +2491,7 @@ async fn replace_equipment_pecas(
             .bind(p.installed_at.as_deref())
             .bind(p.expected_lifespan_days)
             .bind(p.notes.as_deref())
-            .execute(pool)
+            .execute(&mut *conn)
             .await
             .map_err(|e| e.to_string())?;
         }
@@ -2531,7 +2509,7 @@ async fn replace_equipment_pecas(
             )
             .bind(eid)
             .bind(code)
-            .execute(pool)
+            .execute(&mut *conn)
             .await
             .map_err(|e| e.to_string())?;
         }
@@ -2540,11 +2518,10 @@ async fn replace_equipment_pecas(
 }
 
 pub async fn upsert_equipment(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     id: Option<&str>,
     req: &UpsertEquipmentRequest,
 ) -> Result<EquipmentRow, String> {
-    ensure_tables(pool).await?;
     if req.code.trim().is_empty() || req.name.trim().is_empty() {
         return Err("Código e nome são obrigatórios.".into());
     }
@@ -2583,7 +2560,7 @@ pub async fn upsert_equipment(
         .bind(req.next_maintenance_at.as_deref())
         .bind(req.notes.as_deref())
         .bind(&now)
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
     } else {
@@ -2614,17 +2591,17 @@ pub async fn upsert_equipment(
         .bind(req.next_maintenance_at.as_deref())
         .bind(req.notes.as_deref())
         .bind(&now)
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
     }
 
-    replace_equipment_pecas(pool, &eid, req.pecas.as_ref(), req.peca_codes.as_ref()).await?;
-    get_equipment(pool, &eid).await
+    replace_equipment_pecas(&mut *conn, &eid, req.pecas.as_ref(), req.peca_codes.as_ref()).await?;
+    get_equipment(&mut *conn, &eid).await
 }
 
 async fn load_maintenance_parts(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     maintenance_id: &str,
 ) -> Result<Vec<MaintenancePartRow>, String> {
     let rows = sqlx::query(
@@ -2640,7 +2617,7 @@ async fn load_maintenance_parts(
         "#,
     )
     .bind(maintenance_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -2699,10 +2676,9 @@ fn map_maintenance_row(r: &sqlx::postgres::PgRow, parts: Vec<MaintenancePartRow>
 }
 
 pub async fn list_maintenances(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     equipment_id: Option<&str>,
 ) -> Result<Vec<MaintenanceRow>, String> {
-    ensure_tables(pool).await?;
     let sql = r#"
         SELECT m.*, e.code AS equipment_code,
                COALESCE(e.name, m.avulsa_tipo, 'Manutenção Avulsa') AS equipment_name,
@@ -2715,21 +2691,21 @@ pub async fn list_maintenances(
     "#;
     let rows = sqlx::query(sql)
         .bind(equipment_id)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
 
     let mut out = Vec::new();
     for r in rows {
         let id: String = r.try_get("id").unwrap_or_default();
-        let parts = load_maintenance_parts(pool, &id).await?;
+        let parts = load_maintenance_parts(&mut *conn, &id).await?;
         out.push(map_maintenance_row(&r, parts));
     }
     Ok(out)
 }
 
 async fn insert_maintenance_parts(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     maintenance_id: &str,
     parts: &[MaintenancePartInput],
 ) -> Result<(), String> {
@@ -2753,7 +2729,7 @@ async fn insert_maintenance_parts(
         .bind(p.replaced.unwrap_or(true))
         .bind(p.unit_cost)
         .bind(p.notes.as_deref())
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
     }
@@ -2785,11 +2761,10 @@ fn normalize_maint_status(raw: &str) -> String {
 }
 
 pub async fn create_maintenance(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     created_by: Option<&str>,
     req: &CreateMaintenanceRequest,
 ) -> Result<MaintenanceRow, String> {
-    ensure_tables(pool).await?;
     let kind = normalize_maint_kind(&req.kind)?;
     let status = normalize_maint_status(req.status.as_deref().unwrap_or("pendente"));
     if !matches!(status.as_str(), "pendente" | "em_andamento" | "concluida") {
@@ -2840,15 +2815,15 @@ pub async fn create_maintenance(
     .bind(&now)
     .bind(req.avulsa_tipo.as_deref().filter(|s| !s.trim().is_empty()))
     .bind(req.store_name.as_deref().filter(|s| !s.trim().is_empty()))
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
     if !parts.is_empty() {
-        insert_maintenance_parts(pool, &id, &parts).await?;
+        insert_maintenance_parts(&mut *conn, &id, &parts).await?;
     } else if let Some(code) = first_code.as_deref() {
         insert_maintenance_parts(
-            pool,
+            &mut *conn,
             &id,
             &[MaintenancePartInput {
                 item_code: code.into(),
@@ -2883,14 +2858,14 @@ pub async fn create_maintenance(
                 "SELECT COALESCE(qty_on_hand, 0) FROM almox_balances WHERE item_code = $1",
             )
             .bind(&code)
-            .fetch_optional(pool)
+            .fetch_optional(&mut *conn)
             .await
             .map_err(|e| e.to_string())?
             .unwrap_or(0.0);
             let missing = (q - on_hand).max(0.0);
             if on_hand > 0.0 {
                 create_movement(
-                    pool,
+                    &mut *conn,
                     created_by,
                     &CreateMovementRequest {
                         item_code: code.clone(),
@@ -2915,7 +2890,7 @@ pub async fn create_maintenance(
             }
             if missing > 0.0 {
                 let _ = create_demand(
-                    pool,
+                    &mut *conn,
                     created_by,
                     &CreateDemandRequest {
                         title: Some(format!("Peça {code}")),
@@ -2958,30 +2933,30 @@ pub async fn create_maintenance(
             )
             .bind(eq_id)
             .bind(&now)
-            .execute(pool)
+            .execute(&mut *conn)
             .await
             .map_err(|e| e.to_string())?;
-            spawn_next_maintenance(pool, &id).await?;
+            spawn_next_maintenance(&mut *conn, &id).await?;
         } else if status == "em_andamento" {
             sqlx::query(
                 "UPDATE estoque_equipamentos SET status = 'em_manutencao', updated_at = $2 WHERE id = $1",
             )
             .bind(eq_id)
             .bind(&now)
-            .execute(pool)
+            .execute(&mut *conn)
             .await
             .map_err(|e| e.to_string())?;
         }
     }
 
-    list_maintenances(pool, req.equipment_id.as_deref().filter(|s| !s.trim().is_empty()))
+    list_maintenances(&mut *conn, req.equipment_id.as_deref().filter(|s| !s.trim().is_empty()))
         .await?
         .into_iter()
         .find(|m| m.id == id)
         .ok_or_else(|| "Manutenção criada, mas não listada.".into())
 }
 
-async fn spawn_next_maintenance(pool: &PgPool, id: &str) -> Result<(), String> {
+async fn spawn_next_maintenance(conn: &mut PgConnection, id: &str) -> Result<(), String> {
     let row = sqlx::query(
         r#"
         SELECT equipment_id, kind, recurrence_days, scheduled_at, occurred_at, routine, technician
@@ -2989,7 +2964,7 @@ async fn spawn_next_maintenance(pool: &PgPool, id: &str) -> Result<(), String> {
         "#,
     )
     .bind(id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await
     .map_err(|e| e.to_string())?
     .ok_or_else(|| "Manutenção não encontrada.".to_string())?;
@@ -3027,18 +3002,17 @@ async fn spawn_next_maintenance(pool: &PgPool, id: &str) -> Result<(), String> {
     .bind(&next)
     .bind(days)
     .bind(&now)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 pub async fn update_maintenance(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     id: &str,
     req: &UpdateMaintenanceRequest,
 ) -> Result<MaintenanceRow, String> {
-    ensure_tables(pool).await?;
     let now = now_iso();
     let status = req.status.as_deref().map(normalize_maint_status);
     if let Some(ref s) = status {
@@ -3079,14 +3053,14 @@ pub async fn update_maintenance(
     .bind(completed.as_deref())
     .bind(req.scheduled_at.as_deref())
     .bind(&now)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
     let eq_id: Option<String> =
         sqlx::query_scalar("SELECT equipment_id FROM estoque_manutencoes WHERE id = $1")
             .bind(id)
-            .fetch_optional(pool)
+            .fetch_optional(&mut *conn)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -3097,23 +3071,23 @@ pub async fn update_maintenance(
             )
             .bind(eq)
             .bind(&now)
-            .execute(pool)
+            .execute(&mut *conn)
             .await
             .map_err(|e| e.to_string())?;
-            spawn_next_maintenance(pool, id).await?;
+            spawn_next_maintenance(&mut *conn, id).await?;
         } else if status.as_deref() == Some("em_andamento") {
             sqlx::query(
                 "UPDATE estoque_equipamentos SET status = 'em_manutencao', updated_at = $2 WHERE id = $1",
             )
             .bind(eq)
             .bind(&now)
-            .execute(pool)
+            .execute(&mut *conn)
             .await
             .map_err(|e| e.to_string())?;
         }
     }
 
-    list_maintenances(pool, eq_id.as_deref())
+    list_maintenances(&mut *conn, eq_id.as_deref())
         .await?
         .into_iter()
         .find(|m| m.id == id)
@@ -3121,11 +3095,10 @@ pub async fn update_maintenance(
 }
 
 pub async fn list_fotos(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     entity_type: &str,
     entity_id: &str,
 ) -> Result<Vec<EstoqueFotoRow>, String> {
-    ensure_tables(pool).await?;
     let rows = sqlx::query(
         r#"
         SELECT id, entity_type, entity_id, photo_data, notes, created_at
@@ -3136,7 +3109,7 @@ pub async fn list_fotos(
     )
     .bind(entity_type)
     .bind(entity_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -3156,13 +3129,12 @@ pub async fn list_fotos(
 }
 
 pub async fn add_foto(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     entity_type: &str,
     entity_id: &str,
     photo_data: &str,
     notes: Option<&str>,
 ) -> Result<EstoqueFotoRow, String> {
-    ensure_tables(pool).await?;
     let id = Uuid::new_v4().to_string();
     let now = now_iso();
 
@@ -3178,7 +3150,7 @@ pub async fn add_foto(
     .bind(photo_data)
     .bind(notes)
     .bind(&now)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -3192,21 +3164,19 @@ pub async fn add_foto(
     })
 }
 
-pub async fn delete_foto(pool: &PgPool, id: &str) -> Result<(), String> {
-    ensure_tables(pool).await?;
+pub async fn delete_foto(conn: &mut PgConnection, id: &str) -> Result<(), String> {
     sqlx::query("DELETE FROM estoque_fotos WHERE id = $1")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 pub async fn get_item_consumption(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     code: &str,
 ) -> Result<AlmoxConsumptionData, String> {
-    ensure_tables(pool).await?;
 
     let local_yoy = sqlx::query(
         r#"
@@ -3219,7 +3189,7 @@ pub async fn get_item_consumption(
         "#,
     )
     .bind(code)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -3235,7 +3205,7 @@ pub async fn get_item_consumption(
         "#,
     )
     .bind(code)
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -3259,7 +3229,7 @@ pub async fn get_item_consumption(
             "#,
         )
         .bind(code)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await
         .unwrap_or_default();
 
@@ -3278,7 +3248,7 @@ pub async fn get_item_consumption(
             "#,
         )
         .bind(code)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await
         .unwrap_or_default();
 
@@ -3309,8 +3279,7 @@ pub async fn get_item_consumption(
     })
 }
 
-pub async fn get_dashboard_stats(pool: &PgPool) -> Result<AlmoxDashboardStats, String> {
-    ensure_tables(pool).await?;
+pub async fn get_dashboard_stats(conn: &mut PgConnection) -> Result<AlmoxDashboardStats, String> {
 
     let item_counts = sqlx::query(
         r#"
@@ -3328,7 +3297,7 @@ pub async fn get_dashboard_stats(pool: &PgPool) -> Result<AlmoxDashboardStats, S
         WHERE COALESCE(i.is_ignored, 0) = 0 AND COALESCE(c.active, 0) = 1
         "#
     )
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -3350,7 +3319,7 @@ pub async fn get_dashboard_stats(pool: &PgPool) -> Result<AlmoxDashboardStats, S
         FROM estoque_equipamentos
         "#
     )
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -3362,7 +3331,7 @@ pub async fn get_dashboard_stats(pool: &PgPool) -> Result<AlmoxDashboardStats, S
     let open_maintenances: i64 = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM estoque_manutencoes WHERE status IN ('pendente', 'em_andamento')"
     )
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -3375,7 +3344,7 @@ pub async fn get_dashboard_stats(pool: &PgPool) -> Result<AlmoxDashboardStats, S
         WHERE COALESCE(i.is_ignored, 0) = 0 AND COALESCE(c.active, 0) = 1
         "#
     )
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -3412,12 +3381,11 @@ pub async fn get_dashboard_stats(pool: &PgPool) -> Result<AlmoxDashboardStats, S
     })
 }
 
-pub async fn list_familias(pool: &PgPool) -> Result<Vec<AlmoxFamilia>, String> {
-    ensure_tables(pool).await?;
+pub async fn list_familias(conn: &mut PgConnection) -> Result<Vec<AlmoxFamilia>, String> {
     let rows = sqlx::query(
         "SELECT id, label, icon, color, sort_order FROM almox_familias ORDER BY sort_order ASC, label ASC",
     )
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -3433,8 +3401,7 @@ pub async fn list_familias(pool: &PgPool) -> Result<Vec<AlmoxFamilia>, String> {
         .collect())
 }
 
-pub async fn upsert_familia(pool: &PgPool, fam: &AlmoxFamilia) -> Result<AlmoxFamilia, String> {
-    ensure_tables(pool).await?;
+pub async fn upsert_familia(conn: &mut PgConnection, fam: &AlmoxFamilia) -> Result<AlmoxFamilia, String> {
     let id = fam.id.trim().to_lowercase();
     if id.is_empty() {
         return Err("Identificador da família não pode ser vazio.".into());
@@ -3460,7 +3427,7 @@ pub async fn upsert_familia(pool: &PgPool, fam: &AlmoxFamilia) -> Result<AlmoxFa
     .bind(fam.icon.as_deref())
     .bind(fam.color.as_deref())
     .bind(fam.sort_order)
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -3473,26 +3440,24 @@ pub async fn upsert_familia(pool: &PgPool, fam: &AlmoxFamilia) -> Result<AlmoxFa
     })
 }
 
-pub async fn delete_familia(pool: &PgPool, id: &str) -> Result<(), String> {
-    ensure_tables(pool).await?;
+pub async fn delete_familia(conn: &mut PgConnection, id: &str) -> Result<(), String> {
     let id = id.trim().to_lowercase();
     // Move os itens dessa família para 'outros'
     let _ = sqlx::query("UPDATE almox_item_config SET section = 'outros' WHERE section = $1")
         .bind(&id)
-        .execute(pool)
+        .execute(&mut *conn)
         .await;
 
     sqlx::query("DELETE FROM almox_familias WHERE id = $1")
         .bind(&id)
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
 
     Ok(())
 }
 
-pub async fn delete_item(pool: &PgPool, code: &str) -> Result<(), String> {
-    ensure_tables(pool).await?;
+pub async fn delete_item(conn: &mut PgConnection, code: &str) -> Result<(), String> {
     let code = code.trim();
     if code.is_empty() {
         return Err("Código do item não pode ser vazio.".into());
@@ -3501,65 +3466,64 @@ pub async fn delete_item(pool: &PgPool, code: &str) -> Result<(), String> {
     // 1. Remove fotos associadas
     let _ = sqlx::query("DELETE FROM estoque_fotos WHERE entity_type = 'item' AND entity_id = $1")
         .bind(code)
-        .execute(pool)
+        .execute(&mut *conn)
         .await;
 
     // 2. Remove meta de peças
     let _ = sqlx::query("DELETE FROM estoque_peca_meta WHERE item_code = $1")
         .bind(code)
-        .execute(pool)
+        .execute(&mut *conn)
         .await;
 
     // 3. Remove vínculos com manutenções de peças
     let _ = sqlx::query("DELETE FROM estoque_manutencao_pecas WHERE item_code = $1")
         .bind(code)
-        .execute(pool)
+        .execute(&mut *conn)
         .await;
 
     // 4. Remove lançamentos de contagem e movimentações operacionais
     let _ = sqlx::query("DELETE FROM almox_count_entries WHERE item_code = $1")
         .bind(code)
-        .execute(pool)
+        .execute(&mut *conn)
         .await;
 
     let _ = sqlx::query("DELETE FROM almox_movements WHERE item_code = $1")
         .bind(code)
-        .execute(pool)
+        .execute(&mut *conn)
         .await;
 
     let _ = sqlx::query("DELETE FROM almox_balances WHERE item_code = $1")
         .bind(code)
-        .execute(pool)
+        .execute(&mut *conn)
         .await;
 
     let _ = sqlx::query("DELETE FROM almox_purchase_demand_items WHERE item_code = $1")
         .bind(code)
-        .execute(pool)
+        .execute(&mut *conn)
         .await;
 
     // 5. Remove configuração do almoxarifado
     sqlx::query("DELETE FROM almox_item_config WHERE item_code = $1")
         .bind(code)
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
 
     // 6. Tenta excluir do cadastro geral (items). Se falhar por FK histórica, ignora o item.
-    if let Err(_) = sqlx::query("DELETE FROM items WHERE code = $1").bind(code).execute(pool).await {
-        let _ = sqlx::query("UPDATE items SET is_ignored = 1 WHERE code = $1").bind(code).execute(pool).await;
+    if let Err(_) = sqlx::query("DELETE FROM items WHERE code = $1").bind(code).execute(&mut *conn).await {
+        let _ = sqlx::query("UPDATE items SET is_ignored = 1 WHERE code = $1").bind(code).execute(&mut *conn).await;
     }
 
     Ok(())
 }
 
-pub async fn get_print_sequence(pool: &PgPool) -> Result<i64, String> {
-    ensure_tables(pool).await?;
+pub async fn get_print_sequence(conn: &mut PgConnection) -> Result<i64, String> {
     let _ = sqlx::query("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
-        .execute(pool)
+        .execute(&mut *conn)
         .await;
 
     let setting: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'almox_last_printed_slip_seq'")
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await
         .unwrap_or(None);
 
@@ -3570,7 +3534,7 @@ pub async fn get_print_sequence(pool: &PgPool) -> Result<i64, String> {
     let rows: Vec<Option<String>> = sqlx::query_scalar(
         "SELECT tracking_code FROM almox_purchase_demands WHERE tracking_code IS NOT NULL"
     )
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await
     .unwrap_or_default();
 
@@ -3588,10 +3552,9 @@ pub async fn get_print_sequence(pool: &PgPool) -> Result<i64, String> {
     Ok(from_settings.max(max_demand))
 }
 
-pub async fn set_print_sequence(pool: &PgPool, last_seq: i64) -> Result<(), String> {
-    ensure_tables(pool).await?;
+pub async fn set_print_sequence(conn: &mut PgConnection, last_seq: i64) -> Result<(), String> {
     let _ = sqlx::query("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
-        .execute(pool)
+        .execute(&mut *conn)
         .await;
 
     sqlx::query(
@@ -3599,7 +3562,7 @@ pub async fn set_print_sequence(pool: &PgPool, last_seq: i64) -> Result<(), Stri
          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
     )
     .bind(last_seq.to_string())
-    .execute(pool)
+    .execute(&mut *conn)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -3607,15 +3570,14 @@ pub async fn set_print_sequence(pool: &PgPool, last_seq: i64) -> Result<(), Stri
 }
 
 pub async fn register_printed_slips(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     start_seq: i64,
     count: i64,
     year: i32,
     created_by: Option<&str>,
 ) -> Result<Vec<PurchaseDemandRow>, String> {
-    ensure_tables(pool).await?;
     let _ = sqlx::query("ALTER TABLE almox_purchase_demands DROP CONSTRAINT IF EXISTS almox_purchase_demands_status_check")
-        .execute(pool)
+        .execute(&mut *conn)
         .await;
 
     let now = now_iso();
@@ -3629,12 +3591,12 @@ pub async fn register_printed_slips(
             "SELECT id FROM almox_purchase_demands WHERE tracking_code = $1 LIMIT 1"
         )
         .bind(&tracking_code)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await
         .unwrap_or(None);
 
         if let Some(eid) = existing {
-            if let Ok(d) = load_demand(pool, &eid).await {
+            if let Ok(d) = load_demand(&mut *conn, &eid).await {
                 result.push(d);
             }
             continue;
@@ -3654,7 +3616,7 @@ pub async fn register_printed_slips(
         .bind(created_by)
         .bind(&now)
         .bind(&tracking_code)
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -3668,15 +3630,15 @@ pub async fn register_printed_slips(
         )
         .bind(&iid)
         .bind(&id)
-        .execute(pool)
+        .execute(&mut *conn)
         .await;
 
-        if let Ok(d) = load_demand(pool, &id).await {
+        if let Ok(d) = load_demand(&mut *conn, &id).await {
             result.push(d);
         }
     }
 
-    let _ = set_print_sequence(pool, last_num).await;
+    let _ = set_print_sequence(&mut *conn, last_num).await;
     Ok(result)
 }
 
