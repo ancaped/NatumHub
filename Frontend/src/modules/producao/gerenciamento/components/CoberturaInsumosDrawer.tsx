@@ -268,7 +268,7 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
       tabs={abas}
       activeTab={aba}
       onTabChange={setAba}
-      size="xl"
+      size="lg"
       loading={loading && !dados}
       loadingText="Calculando a cobertura..."
       headerActions={

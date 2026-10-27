@@ -197,7 +197,9 @@ pub fn calculate_products(
 
         // 5. Durations (Months & Days)
         let duracao_meses = estoque_futuro_com_producao as f64 / da_for_division;
-        let duracao_dias = duracao_meses * 30.0; // Fixed 30 days as aligned
+        // Sem demanda (base/semi-acabado sem venda média) não há cobertura em dias: 999 = "sem consumo" (como nos kits),
+        // em vez de estoque / 0,0001 (centenas de milhões de dias). `duracao_meses` segue igual: os limiares usam ele.
+        let duracao_dias = if demanda_ajustada <= 0.0001 { 999.0 } else { duracao_meses * 30.0 }; // Fixed 30 days as aligned
 
         // 6. Config thresholds
         let config_ideal = config.estoque_ideal_mult;

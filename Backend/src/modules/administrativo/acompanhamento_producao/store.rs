@@ -409,20 +409,10 @@ pub async fn list_acompanhamento(
             _ => erp_code.clone(),
         };
 
-        // Sem "Unidades:" nos detalhes, o peso vem da descrição. Sem medida na descrição o peso é desconhecido:
-        // as unidades não são calculadas (0), nunca presumidas como 1 kg por unidade.
-        let mut peso_desconhecido = false;
-        let final_unidades = match unidades {
-            Some(u) => u,
-            None => match crate::core::regras_produto::peso_unitario_kg(&product_description, bases.contains(&product_code)) {
-                Some(unit_w) if kg > 0.0 => (kg / unit_w).round(),
-                Some(_) => kg,
-                None => {
-                    peso_desconhecido = kg > 0.0;
-                    0.0
-                }
-            },
-        };
+        // "Unidades:" dos detalhes do ERP vale quando passa de 1; o ERP manda 1 em lotes de vários kg (ex.: 170 kg de
+        // produto de 5 L), e aí as unidades saem de kg / peso unitário. Sem medida na descrição o peso é desconhecido.
+        let peso_unit = crate::core::regras_produto::peso_unitario_kg(&product_description, bases.contains(&product_code));
+        let (final_unidades, peso_desconhecido) = unidades_do_lote(unidades, kg, peso_unit);
 
         items.push(AcompanhamentoLoteItem {
             lote_number,
@@ -475,6 +465,20 @@ pub async fn list_acompanhamento(
 }
 
 type Tx<'a> = Transaction<'a, Postgres>;
+
+/// Unidades de um lote para exibição. O "Unidades:" dos detalhes vale quando passa de 1; senão `kg / peso unitário`
+/// arredondado. Sem nenhum dos dois marca `peso_desconhecido` (a tela mostra só os kg). Devolve (unidades, peso_desconhecido).
+fn unidades_do_lote(unidades_detalhes: Option<f64>, kg: f64, peso_unit: Option<f64>) -> (f64, bool) {
+    if let Some(u) = unidades_detalhes.filter(|u| *u > 1.0) {
+        return (u, false);
+    }
+    match peso_unit {
+        Some(w) if kg > 0.0 && w > 0.0 => ((kg / w).round(), false),
+        Some(_) => (unidades_detalhes.unwrap_or(kg), false),
+        None if kg <= 0.0 => (unidades_detalhes.unwrap_or(0.0), false),
+        None => (0.0, true),
+    }
+}
 
 fn normalizar_status(s: &str) -> String {
     match s.trim() {
@@ -3587,5 +3591,27 @@ mod tests {
         assert!(fim.is_some());
         limpar_terc(&pool, "TST-TS-").await;
         limpar_lotes(&pool, &["TST-TS-LOTE"]).await;
+    }
+}
+
+#[cfg(test)]
+mod tests_unidades {
+    use super::unidades_do_lote;
+
+    #[test]
+    fn um_do_erp_vira_kg_por_peso_unitario() {
+        // lote 15869: 170 kg de produto de 5 L, ERP mandou "Unidades: 1"
+        assert_eq!(unidades_do_lote(Some(1.0), 170.0, Some(5.0)), (34.0, false));
+        assert_eq!(unidades_do_lote(None, 60.0, Some(0.06)), (1000.0, false));
+        // quando o ERP manda as unidades de verdade, valem as dele
+        assert_eq!(unidades_do_lote(Some(990.0), 60.0, Some(0.06)), (990.0, false));
+    }
+
+    #[test]
+    fn sem_peso_unitario_nao_mostra_um_falso() {
+        assert_eq!(unidades_do_lote(Some(1.0), 170.0, None), (0.0, true));
+        assert_eq!(unidades_do_lote(None, 170.0, None), (0.0, true));
+        assert_eq!(unidades_do_lote(Some(12.0), 170.0, None), (12.0, false));
+        assert_eq!(unidades_do_lote(None, 0.0, None), (0.0, false));
     }
 }

@@ -313,6 +313,7 @@ export function PlanejamentoSemanalTab({
   // Painel lateral e busca do Banco de Demandas
   const [demandBankOpen, setDemandBankOpen] = useState(true);
   const [demandSearch, setDemandSearch] = useState('');
+  const [filaAba, setFilaAba] = useState<'todas' | 'falta'>('todas');
   const [filaDemandas, setFilaDemandas] = useState<any[]>([]);
   const [retirarFilaId, setRetirarFilaId] = useState<string | null>(null);
   const [previaAcao, setPreviaAcao] = useState<PreviaAcao | null>(null);
@@ -1213,6 +1214,13 @@ export function PlanejamentoSemanalTab({
     [demandBankOpen, demandCandidates]
   );
   const coberturaPorCandidato = useCoberturaFila(currentWeekKey, demandBankOpen, candidatosFila);
+  // Aba "Aguardando insumos": mesmo critério do selo "Falta insumo" (cobertura da fila).
+  const aguardaInsumo = (p: any): boolean => {
+    const r = coberturaPorCandidato[chaveCandidato({ codigo: String(p.codigo || ''), kg: Number(p.quantidade_kg) || 0 })];
+    return Boolean(r && r.consome && r.status === 'falta');
+  };
+  const qtdAguardandoInsumo = demandCandidates.filter(aguardaInsumo).length;
+  const demandVisiveis = filaAba === 'falta' ? demandCandidates.filter(aguardaInsumo) : demandCandidates;
 
   // Abre o modal "Vincular lote ERP" já com o número que a cobertura de insumos sugeriu.
   const handleVincularSugerido = async (ordemId: string, lote: string) => {
@@ -2906,6 +2914,20 @@ export function PlanejamentoSemanalTab({
                 </span>
               </div>
 
+              {/* Abas */}
+              <div className="flex items-center gap-1">
+                {([['todas', 'Todas', demandCandidates.length], ['falta', 'Aguardando insumos', qtdAguardandoInsumo]] as const).map(([id, rotulo, n]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setFilaAba(id)}
+                    className={`px-2.5 py-1 text-[11px] font-bold rounded-md cursor-pointer transition-colors ${filaAba === id ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100'}`}
+                  >
+                    {rotulo} ({n})
+                  </button>
+                ))}
+              </div>
+
               {/* Campo de Busca */}
               <div className="relative">
                 <Search size={13} className="absolute left-2.5 top-2.5 text-zinc-400" />
@@ -2921,12 +2943,12 @@ export function PlanejamentoSemanalTab({
 
             {/* Lista com Scroll e Dados Ricos de PCP */}
             <div className="flex-1 overflow-y-auto p-2 divide-y divide-zinc-100">
-              {demandCandidates.length === 0 ? (
+              {demandVisiveis.length === 0 ? (
                 <div className="py-8 text-center text-zinc-400 text-xs">
-                  Nenhum item pendente na fila de demandas.
+                  {filaAba === 'falta' ? 'Nenhum item da fila está aguardando insumos.' : 'Nenhum item pendente na fila de demandas.'}
                 </div>
               ) : (
-                demandCandidates.map(prod => {
+                demandVisiveis.map(prod => {
                   const efp = prod.estoque_futuro_com_producao ?? prod.estoque_futuro ?? 0;
                   const isCritico = efp < 0 || prod.status === 'critico';
                   const isProgramada = prod.is_producao_programada === 1 || prod.is_producao_programada === true;
@@ -2936,7 +2958,8 @@ export function PlanejamentoSemanalTab({
                   const qtdRecomendada = prod.producao_recomendada || 0;
                   const estoqueFisico = prod.estoque || 0;
                   const pedidosAberto = prod.pedidos_aberto || 0;
-                  const coberturaDias = prod.duracao_dias !== undefined && prod.duracao_dias !== null 
+                  // 999+ = sem consumo (sem venda média): não há cobertura em dias para mostrar
+                  const coberturaDias = prod.duracao_dias !== undefined && prod.duracao_dias !== null && Number.isFinite(Number(prod.duracao_dias)) && Number(prod.duracao_dias) < 900
                     ? Math.round(prod.duracao_dias) 
                     : null;
 
@@ -3048,12 +3071,8 @@ export function PlanejamentoSemanalTab({
                           <span>Estoque: <strong className="text-zinc-700">{estoqueFisico.toLocaleString('pt-BR')}</strong></span>
                           <span>•</span>
                           <span>Pedidos: <strong className={pedidosAberto > 0 ? "text-amber-800 font-bold" : "text-zinc-700"}>{pedidosAberto.toLocaleString('pt-BR')}</strong></span>
-                          {coberturaDias !== null && (
-                            <>
-                              <span>•</span>
-                              <span>Cobertura: <strong className="text-zinc-700">{coberturaDias}d</strong></span>
-                            </>
-                          )}
+                          <span>•</span>
+                          <span>Cobertura: <strong className="text-zinc-700">{coberturaDias !== null ? `${coberturaDias}d` : '—'}</strong></span>
                         </div>
                         <SeloCobertura
                           resultado={coberturaPorCandidato[chaveCandidato({ codigo: String(prod.codigo || ''), kg: Number(prod.quantidade_kg) || 0 })]}

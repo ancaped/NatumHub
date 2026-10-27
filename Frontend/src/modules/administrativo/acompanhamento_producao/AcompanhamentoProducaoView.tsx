@@ -78,7 +78,7 @@ const statusApagadoParaLinha = (a: StatusApagadoPrevia) => ({
 
 import { CATEGORIAS_ENVASE, CORES_PREDEFINIDAS, ORDEM_CORES_FABRICA, REMOTE_LOOKUP_TTL_MS, REMOTE_LOTES_TTL_MS, STATUS_OPTIONS, MOTIVOS_PAUSA_PADRAO, MONTH_NAMES, WEEKDAY_NAMES } from './lib/constantes';
 import { getTodayIso, parseLoteDateToIso, formatDateOnly, formatWeekdayAndDate, formatShortWeekday, formatDateTime, formatDateShort, formatDurationBetween } from './lib/datas';
-import { getLotePlanningOrdem, getLoteReator, inferCategoriaEnvase, inferCorProduto, parseProductUnitWeightKg, loteRowKey, loteMergeKey, stripLotePrefix, normalizeLoteSearch, deduplicateLotesByNumber, consolidateLotesForBatch, filterLotesBySearch, calculateStageDurations, renderCardTimelineDates, getEffectiveStatus, formatarUnidadesLote, isLoteConcluido, isLoteParcial, isLoteOcultoNoQuadro, getLoteEtapaStatus, getEffectivePrevisao, isPastEndOfDay, getLoteScheduleDateIso, isLoteDaSemana, getLoteEsperaDetails, getPrevisaoBadge } from './lib/lotes';
+import { getLotePlanningOrdem, getLoteReator, inferCategoriaEnvase, inferCorProduto, parseProductUnitWeightKg, loteRowKey, loteMergeKey, stripLotePrefix, normalizeLoteSearch, deduplicateLotesByNumber, consolidateLotesForBatch, filterLotesBySearch, calculateStageDurations, renderCardTimelineDates, getEffectiveStatus, formatarUnidadesLote, isLoteConcluido, isLoteParcial, isLoteOcultoNoQuadro, getLoteEtapaStatus, getEffectivePrevisao, isPastEndOfDay, getLoteScheduleDateIso, isLoteDaSemana, getLoteEsperaDetails, getPrevisaoBadge, rotuloLote, ehLotePlanejado, contarLotesUnicos } from './lib/lotes';
 import type { StatusHistoryEntry, AcompanhamentoLote, LoteAdiadoRegistro, TerceirizadoSolicitacao, ProgramacaoEnvaseItem, ProgramacaoRotulagemItem, KitAssemblyOrder, TabType, AcompanhamentoProducaoProps } from './lib/tipos';
 import { ColumnFilterHeader } from './lib/ColumnFilterHeader';
 import TerceirizadosSolicitacoesPainel from './TerceirizadosSolicitacoesPainel';
@@ -2650,15 +2650,14 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
 
   const renderLoteNumberBadge = (loteNum: string) => {
     if (!loteNum) return null;
-    if (loteNum.startsWith('PLAN_')) {
+    if (ehLotePlanejado(loteNum)) {
       return (
-        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 font-sans flex items-center gap-1 shadow-2xs" title="Ordem do Planejamento Semanal (PCP) aguardando vinculação de lote do ERP">
-          <span>📋 PCP</span>
-          <span className="text-amber-700 font-normal text-[9px]">(Sem Lote ERP)</span>
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 font-sans flex items-center gap-1 shadow-2xs" title="Ordem do Planejamento Semanal ainda sem lote do ERP">
+          <span>Planejado</span>
         </span>
       );
     }
-    return <span>#{loteNum}</span>;
+    return <span>{rotuloLote(loteNum)}</span>;
   };
 
   // Renderiza produtos do lote:
@@ -8836,7 +8835,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   <div className="flex items-center gap-2">
                     <Calendar className="h-4 w-4 text-amber-600 shrink-0" />
                     <span>
-                      Lote <strong>#{otherDateMatch.loteNumber}</strong> agendado na <strong>Rotulagem {otherDateMatch.tipo === 'MAQUINA' ? 'Máquina' : 'Manual'}</strong> para o dia <strong>{formatDateOnly(otherDateMatch.dataProgramada)}</strong>!
+                      Lote <strong>{rotuloLote(otherDateMatch.loteNumber)}</strong> agendado na <strong>Rotulagem {otherDateMatch.tipo === 'MAQUINA' ? 'Máquina' : 'Manual'}</strong> para o dia <strong>{formatDateOnly(otherDateMatch.dataProgramada)}</strong>!
                     </span>
                   </div>
                   <button
@@ -9366,7 +9365,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     )}
                     title="Lotes já produzidos e liberados para rotulagem"
                   >
-                    Liberados ({lotesLiberadosParaAcabamento.length})
+                    Liberados ({contarLotesUnicos(lotesLiberadosParaAcabamento)})
                   </button>
                   <button
                     type="button"
@@ -9377,7 +9376,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     )}
                     title="Todas as ordens abertas da fábrica no Hub"
                   >
-                    Todas Abertas ({todasOrdensAbertasFabrica.length})
+                    Todas Abertas ({contarLotesUnicos(todasOrdensAbertasFabrica)})
                   </button>
                 </div>
               </div>
@@ -9647,7 +9646,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   <div className="flex items-center gap-2">
                     <Calendar className="h-4 w-4 text-amber-600 shrink-0" />
                     <span>
-                      Lote <strong>#{otherDateMatch.loteNumber}</strong> agendado na <strong>{otherDateMatch.linha}</strong> para o dia <strong>{formatDateOnly(otherDateMatch.dataProgramada)}</strong>!
+                      Lote <strong>{rotuloLote(otherDateMatch.loteNumber)}</strong> agendado na <strong>{otherDateMatch.linha}</strong> para o dia <strong>{formatDateOnly(otherDateMatch.dataProgramada)}</strong>!
                     </span>
                   </div>
                   <button
@@ -10547,7 +10546,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     )}
                     title="Lotes já produzidos e liberados para envase"
                   >
-                    Liberados ({lotesLiberadosParaAcabamento.length})
+                    Liberados ({contarLotesUnicos(lotesLiberadosParaAcabamento)})
                   </button>
                   <button
                     type="button"
@@ -10558,7 +10557,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     )}
                     title="Todas as ordens abertas da fábrica no Hub"
                   >
-                    Todas Abertas ({todasOrdensAbertasFabrica.length})
+                    Todas Abertas ({contarLotesUnicos(todasOrdensAbertasFabrica)})
                   </button>
                 </div>
               </div>
@@ -10917,7 +10916,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         <div className="flex items-center justify-between gap-1 pb-2 border-b border-zinc-100">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-mono font-extrabold text-xs px-2.5 py-0.5 rounded-lg bg-zinc-900 text-white">
-                              #{lote.loteNumber}
+                              {rotuloLote(lote.loteNumber)}
                             </span>
                             {lote.erpStatus === 'EA' ? (
                               <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1">
@@ -11058,7 +11057,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         <div className="flex items-center justify-between gap-1 pb-2 border-b border-zinc-100">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-mono font-extrabold text-xs px-2.5 py-0.5 rounded-lg bg-zinc-900 text-white">
-                              #{lote.loteNumber}
+                              {rotuloLote(lote.loteNumber)}
                             </span>
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-50 text-purple-900 border border-purple-200">
                               Parcial ({pct}%)
@@ -11222,7 +11221,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                         <div className="flex items-center justify-between gap-1 pb-1.5 border-b border-zinc-100">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-mono font-extrabold text-xs px-2 py-0.5 rounded-lg bg-zinc-900 text-white">
-                              #{lote.loteNumber}
+                              {rotuloLote(lote.loteNumber)}
                             </span>
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-800 border border-zinc-200">
                               {eff}
@@ -11551,7 +11550,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             title={`${item.loteNumber} - ${item.productDescription} • ${item.quantity} un • ${item.quantityKg} kg`}
                           >
                             <span className="truncate">
-                              <strong className="font-mono mr-1">#{item.loteNumber}:</strong>
+                              <strong className="font-mono mr-1">{rotuloLote(item.loteNumber)}:</strong>
                               {item.productDescription}
                             </span>
                             <span className="font-mono text-[9px] opacity-75 shrink-0">
@@ -11617,7 +11616,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       return (
                         <tr key={loteRowKey(item)} className="hover:bg-zinc-50/80">
                           <td className="py-2.5 px-3 font-mono font-bold text-zinc-900 select-all">
-                            #{item.loteNumber}
+                            {rotuloLote(item.loteNumber)}
                           </td>
                           <td className="py-2.5 px-3">
                             <div className="font-bold text-zinc-900">{item.productDescription}</div>
@@ -11847,7 +11846,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 <PauseCircle className="h-5 w-5" />
                 <div>
                   <h3 className="font-bold text-sm text-zinc-900 flex items-center gap-1.5">
-                    <span>Pausar Lote #{pauseModalLote.loteNumber}</span>
+                    <span>Pausar Lote {rotuloLote(pauseModalLote.loteNumber)}</span>
                     <span className="text-zinc-400 font-normal">|</span>
                     <span className="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-900 border border-amber-300 font-semibold uppercase">
                       {pauseModalEtapa === 'pesagem' ? 'Pesagem' :
@@ -12193,7 +12192,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-xs font-extrabold text-zinc-900">
-                          #{candidate.loteNumber}
+                          {rotuloLote(candidate.loteNumber)}
                         </span>
                         {candidate.productCode && (
                           <span className="text-[10px] text-zinc-500 font-mono">
@@ -12723,7 +12722,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 <div className="flex items-center gap-2">
                   <History className="h-5 w-5 text-zinc-700" />
                   <h3 className="font-bold text-base text-zinc-900">
-                    Histórico do Lote #{historyModalLote.loteNumber}
+                    Histórico do Lote {rotuloLote(historyModalLote.loteNumber)}
                   </h3>
                 </div>
                 <p className="text-xs text-zinc-500 mt-0.5 truncate max-w-md">
@@ -13027,7 +13026,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     {editTerceirizadoLote.isTerceirizado ? 'Editar Lote Terceirizado' : 'Mover para Terceirizados'}
                   </h3>
                   <p className="text-xs text-zinc-500 font-mono">
-                    Lote #{editTerceirizadoLote.loteNumber} • {editTerceirizadoLote.productCode}
+                    Lote {rotuloLote(editTerceirizadoLote.loteNumber)} • {editTerceirizadoLote.productCode}
                   </p>
                 </div>
               </div>
@@ -13124,7 +13123,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 </div>
                 <div>
                   <h3 className="font-bold text-sm text-zinc-900">Colocar Envase em Espera</h3>
-                  <p className="text-xs text-zinc-500">Lote #{envaseEsperaItem.loteNumber} • {envaseEsperaItem.linha}</p>
+                  <p className="text-xs text-zinc-500">Lote {rotuloLote(envaseEsperaItem.loteNumber)} • {envaseEsperaItem.linha}</p>
                 </div>
               </div>
               <button
@@ -13339,7 +13338,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                     <div className="flex items-center gap-2">
                       <h3 className="font-extrabold text-base text-zinc-900">{info.title}</h3>
                       <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-zinc-900 text-white">
-                        #{lote.loteNumber}
+                        {rotuloLote(lote.loteNumber)}
                       </span>
                     </div>
                     <p className="text-xs text-zinc-600 font-medium line-clamp-1 mt-0.5">
@@ -13892,7 +13891,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                 </div>
                 <div>
                   <h3 className="font-bold text-sm text-zinc-900 flex items-center gap-1.5">
-                    <span>Ajustar Datas do Lote #{editTimestampsLote.loteNumber}</span>
+                    <span>Ajustar Datas do Lote {rotuloLote(editTimestampsLote.loteNumber)}</span>
                   </h3>
                   <p className="text-xs text-zinc-500 truncate max-w-sm">
                     {editTimestampsLote.productDescription}
@@ -14090,7 +14089,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
               <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-3.5 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-mono text-xs font-black px-2.5 py-1 bg-zinc-900 text-white rounded-lg shadow-2xs">
-                    #{adiarModalItem.loteNumber}
+                    {rotuloLote(adiarModalItem.loteNumber)}
                   </span>
                   {adiarModalItem.productCode && (
                     <span className="text-[11px] font-mono font-bold text-zinc-500 bg-white border border-zinc-200 px-2 py-0.5 rounded-md">
@@ -14609,7 +14608,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                         <span className="font-extrabold px-1.5 py-0.2 rounded bg-zinc-900 text-white text-[10px]">
                                           {it.ordem > 0 && it.ordem < 999 ? `${it.ordem}º` : '—'}
                                         </span>
-                                        <span className="font-bold text-zinc-900">#{it.loteNumber}</span>
+                                        <span className="font-bold text-zinc-900">{rotuloLote(it.loteNumber)}</span>
                                       </div>
                                       <div className="flex items-center gap-1 font-mono text-[10px] text-zinc-500">
                                         <span>{it.productCode}</span>
@@ -14665,7 +14664,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                             {relatorioLinhasGroups.liberados.items.map((it, idx) => (
                               <div key={it.id || idx} className="p-2 border border-zinc-200 rounded-lg text-xs bg-zinc-50/50 space-y-0.5">
                                 <div className="flex justify-between font-mono font-bold text-[11px]">
-                                  <span>#{it.loteNumber}</span>
+                                  <span>{rotuloLote(it.loteNumber)}</span>
                                   <span className="text-zinc-500">{it.productCode}</span>
                                 </div>
                                 <div className="font-semibold text-zinc-800 truncate text-[11px]">{it.productDescription}</div>
@@ -14759,7 +14758,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                               {it.ordem > 0 && it.ordem < 999 ? `${it.ordem}º` : '—'}
                             </td>
                             <td className="py-2 px-2.5 font-mono font-extrabold text-zinc-900 whitespace-nowrap">
-                              #{it.loteNumber}
+                              {rotuloLote(it.loteNumber)}
                             </td>
                             <td className="py-2 px-2 font-mono text-zinc-500 whitespace-nowrap">
                               {it.productCode}
@@ -14971,7 +14970,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                   <td style={{ padding: '3px', textAlign: 'center', fontFamily: 'monospace' }}>
                     {it.ordem > 0 && it.ordem < 999 ? `${it.ordem}º` : '—'}
                   </td>
-                  <td style={{ padding: '3px', fontFamily: 'monospace', fontWeight: 'bold', whiteSpace: 'nowrap' }}>#{it.loteNumber}</td>
+                  <td style={{ padding: '3px', fontFamily: 'monospace', fontWeight: 'bold', whiteSpace: 'nowrap' }}>{rotuloLote(it.loteNumber)}</td>
                   <td style={{ padding: '3px', fontFamily: 'monospace', color: '#52525b', whiteSpace: 'nowrap' }}>{it.productCode}</td>
                   <td style={{ padding: '3px' }}>{it.productDescription}</td>
                   <td style={{ padding: '3px', color: '#52525b', fontSize: '7.5pt', whiteSpace: 'nowrap' }}>
@@ -15077,7 +15076,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                                 {it.ordem > 0 && it.ordem < 999 ? `${it.ordem}º` : '—'}
                               </span>
                               <span style={{ fontFamily: 'monospace', fontWeight: '800', fontSize: '7.5pt', color: '#09090b' }}>
-                                #{it.loteNumber}
+                                {rotuloLote(it.loteNumber)}
                               </span>
                             </div>
                             <div style={{ fontFamily: 'monospace', fontSize: '6.5pt', color: '#52525b', display: 'flex', gap: '3px' }}>
@@ -15199,7 +15198,7 @@ export default function AcompanhamentoProducaoView({ onBack, mode = 'administrat
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
-                        <span>#{it.loteNumber}</span>
+                        <span>{rotuloLote(it.loteNumber)}</span>
                         <span style={{ color: '#64748b' }}>{it.productCode}</span>
                       </div>
                       <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: '600' }}>

@@ -2,6 +2,8 @@ import React from 'react';
 import { Calendar } from 'lucide-react';
 import type { AcompanhamentoLote, StageDurationItem, LoteEtapaStatusResult, WeekRange, LoteEsperaDetails, ProgramacaoEnvaseItem, ProgramacaoRotulagemItem } from './tipos';
 import { parseProductUnitWeightKg as parseUnitWeightKgDaMedida } from '../../../producao/lib/unitConversion';
+export { ehLotePlanejado, rotuloLote, contarLotesUnicos } from './rotuloLote';
+import { textoUnidadesLote } from './rotuloLote';
 import { formatDateOnly, formatDurationBetween, parseLoteDateToIso } from './datas';
 
 export function getLotePlanningOrdem(lote: AcompanhamentoLote): number {
@@ -909,7 +911,8 @@ export function formatarUnidadesLote(
   lote: { quantity?: number | string | null; pesoDesconhecido?: boolean } | null | undefined,
   classeUn?: string
 ): React.ReactNode {
-  if (lote?.pesoDesconhecido) return <span title="Produto sem peso na descrição">—</span>;
-  const n = Number(lote?.quantity || 0).toLocaleString('pt-BR');
+  const t = textoUnidadesLote(lote);
+  if (!t) return <span title="Produto sem peso na descrição">—</span>;
+  const n = t.aprox ? `≈ ${t.n}` : t.n;
   return classeUn ? <>{n} <span className={classeUn}>un</span></> : `${n} un`;
 }
