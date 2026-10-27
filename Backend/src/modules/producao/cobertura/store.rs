@@ -788,14 +788,31 @@ async fn carregar_equivalentes(pool: &PgPool, codigos: &[String]) -> Result<Hash
     .await
     .map_err(|e| format!("Erro ao ler itens equivalentes: {e}"))?;
     let alvo: HashSet<&String> = codigos.iter().collect();
+    Ok(montar_equivalentes(rows, Some(&alvo)))
+}
+
+/// Todos os pares de `similar_items`, para quem confere a lista inteira de lotes (uma consulta só).
+pub async fn carregar_todos_equivalentes(pool: &PgPool) -> Result<HashMap<String, Vec<String>>, String> {
+    let rows = sqlx::query(
+        "SELECT TRIM(REPLACE(item_code_a, '\"', '')) AS a, TRIM(REPLACE(item_code_b, '\"', '')) AS b FROM similar_items",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Erro ao ler itens equivalentes: {e}"))?;
+    Ok(montar_equivalentes(rows, None))
+}
+
+/// Monta o mapa nos dois sentidos; com `alvo`, só guarda as chaves pedidas.
+fn montar_equivalentes(rows: Vec<sqlx::postgres::PgRow>, alvo: Option<&HashSet<&String>>) -> HashMap<String, Vec<String>> {
+    let quer = |c: &String| alvo.map_or(true, |s| s.contains(c));
     let mut m: HashMap<String, Vec<String>> = HashMap::new();
     for r in rows {
         let a = r.get::<Option<String>, _>("a").unwrap_or_default();
         let b = r.get::<Option<String>, _>("b").unwrap_or_default();
-        if alvo.contains(&a) {
+        if quer(&a) {
             m.entry(a.clone()).or_default().push(b.clone());
         }
-        if alvo.contains(&b) {
+        if quer(&b) {
             m.entry(b).or_default().push(a);
         }
     }
@@ -803,7 +820,7 @@ async fn carregar_equivalentes(pool: &PgPool, codigos: &[String]) -> Result<Hash
         v.sort();
         v.dedup();
     }
-    Ok(m)
+    m
 }
 
 /// Última escolha do Edson sobre a origem da base, por produto (código canônico).

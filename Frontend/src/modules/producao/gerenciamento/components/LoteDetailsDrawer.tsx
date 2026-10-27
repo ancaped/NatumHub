@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch } from '../../../geral/lib/http';
 import { api } from '../../../geral/lib/api';
 import { cn } from '../../../geral/lib/utils';
+import { StatusBadge } from '../../../geral/components/ui/ReportKit';
 import { usePreviaServidor } from '../../lib/usePreviaServidor';
 
 interface LoteDetailsDrawerProps {
@@ -348,11 +349,12 @@ function LoteInicioTab({
     status === 'OK' ||
     status === 'OK (Na Base)' ||
     status === 'OK (Base)' ||
-    status === 'OK_BASE';
+    status === 'OK_BASE' ||
+    status === 'EQUIVALENT';
   const hasYieldError = details.bulk_yield_percentage < 90.0;
   const hasPesagemError = details.pesagem_items.some((item: any) => !isOkStatus(item.status));
   const hasEnvaseError = details.envase_products.some((p: any) =>
-    p.packaging_items.some((item: any) => item.status !== 'OK')
+    p.packaging_items.some((item: any) => !isOkStatus(item.status))
   );
   const hasConfError = details.conferencia_items.some((item: any) => item.status !== 'OK');
   const hasErrors = hasYieldError || hasPesagemError || hasEnvaseError || hasConfError;
@@ -696,6 +698,9 @@ function LotePesagemTab({ details, highlightInsumoCode }: { details: any; highli
                   )}
                 </td>
                 <td className="px-4 py-3 text-center">
+                  {item.status === 'EQUIVALENT' ? (
+                    <StatusBadge variante="apoio" title="Usado no lugar de um insumo planejado (equivalente cadastrado)">Equivalente</StatusBadge>
+                  ) : (
                   <span className={cn(
                     'px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border',
                     item.status === 'OK' ? 'bg-emerald-50 text-emerald-700 border-emerald-200/50' :
@@ -709,6 +714,7 @@ function LotePesagemTab({ details, highlightInsumoCode }: { details: any; highli
                      item.status === 'MISSING' ? 'Faltando' :
                      item.status === 'EXTRA' ? 'Extra' : 'Desvio'}
                   </span>
+                  )}
                 </td>
               </tr>
             ))}
@@ -789,6 +795,9 @@ function LoteEnvaseTab({ details }: { details: any }) {
                         {(item.difference ?? 0) > 0.0 ? '+' : ''}{(item.difference ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
                       </td>
                       <td className="px-4 py-2.5 text-center">
+                        {item.status === 'EQUIVALENT' ? (
+                          <StatusBadge variante="apoio" title="Usado no lugar de um item da fórmula (equivalente cadastrado)">Equivalente</StatusBadge>
+                        ) : (
                         <span className={cn(
                           'px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border',
                           item.status === 'OK' ? 'bg-emerald-50 text-emerald-700 border-emerald-200/50' :
@@ -798,6 +807,7 @@ function LoteEnvaseTab({ details }: { details: any }) {
                         )}>
                           {item.status === 'OK' ? 'OK' : (item.status === 'OK (Na Base)' || item.status === 'OK (Base)' || item.status === 'OK_BASE') ? 'Na Base' : item.status === 'MISSING' ? 'Ausente' : 'Desvio'}
                         </span>
+                        )}
                       </td>
                     </tr>
                   ))}

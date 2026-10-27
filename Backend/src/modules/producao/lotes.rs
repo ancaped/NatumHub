@@ -20,6 +20,7 @@ use crate::handlers::AppState;
 use crate::modules::geral::auth::models::AuthContext;
 use crate::modules::producao::calculo::fetch_calculation_data;
 use crate::modules::producao::{auditoria, permissao};
+use crate::modules::producao::equivalencia::{agrupar_por_equivalencia, algum_desvio, Equivalencias};
 
 // Helper cross-imports
 use crate::handlers::imports::clean_product_code;
@@ -628,6 +629,7 @@ pub async fn get_production_lotes(
         }
     }
 
+    let equivalencias = Equivalencias::carregar(pool).await;
     for lote in &mut grouped_lotes {
         let status = &lote.status;
         if status == "EA" || status == "FP" || status == "CF" {
@@ -680,6 +682,7 @@ pub async fn get_production_lotes(
                     &recipe_by_prod,
                     &batch_products,
                     base_product_codes.contains_key(p_code),
+                    &equivalencias,
                 )
                 .await;
                 if pe {
@@ -850,6 +853,7 @@ pub async fn check_lote_errors_cached(
     recipe_by_prod: &std::collections::HashMap<String, Vec<(String, String, f64, Option<f64>)>>,
     batch_products_full: &[(String, f64, String, String)],
     is_production_base: bool,
+    equiv: &Equivalencias,
 ) -> (bool, bool, bool) {
     let mut pesagem_error = false;
     let mut envase_error = false;
@@ -911,22 +915,16 @@ pub async fn check_lote_errors_cached(
     }
 
     // Sem nenhuma saída de insumo de pesagem não há o que comparar: sem dados, não desvio.
-    for (ing_code, expected_qty) in &total_expected_ingredients {
-        if pesagem_total_actual <= 0.0 {
-            break;
-        }
-        let actual_qty = *exits_map.get(ing_code).unwrap_or(&0.0);
-        let percentage_diff = if *expected_qty > 0.0 {
-            ((actual_qty - expected_qty) / expected_qty) * 100.0
-        } else {
-            0.0
-        };
-        if (actual_qty == 0.0 && *expected_qty > 0.0)
-            || (*expected_qty > 0.0 && percentage_diff.abs() > 10.0)
-        {
-            pesagem_error = true;
-            break;
-        }
+    // Esperado × real por grupo: insumo + equivalentes/trocas contam como um só.
+    let extras = equiv.extras_do_produto(product_code);
+    if pesagem_total_actual > 0.0 {
+        let real_pesagem: std::collections::HashMap<String, f64> = exits_map
+            .iter()
+            .filter(|(c, _)| c.starts_with("9.15."))
+            .map(|(c, q)| (c.clone(), *q))
+            .collect();
+        let grupos = agrupar_por_equivalencia(&total_expected_ingredients, &real_pesagem, &equiv.base, &extras);
+        pesagem_error = algum_desvio(&grupos, |_| false);
     }
 
     let packaging_recipe_items: Vec<(String, String, f64)> = recipe_items
@@ -999,42 +997,42 @@ pub async fn check_lote_errors_cached(
         .iter()
         .any(|(c, _, q)| *q > 0.0 && exits_map.get(c).copied().unwrap_or(0.0) > 0.0);
 
-    for (item_code, _, std_qty) in &packaging_recipe_items {
-        if !tem_saida_embalagem {
-            break;
-        }
-        let expected_qty = basis_units * std_qty;
-        let total_exit_qty = *exits_map.get(item_code).unwrap_or(&0.0);
-        let mut total_sharing_weight = 0.0;
-        let mut is_shared = false;
-        for (other_code, other_qty, _) in &batch_products {
-            let has_item = recipe_by_prod
-                .get(other_code)
-                .map(|r| r.iter().any(|(ic, _, _, _)| ic == item_code))
-                .unwrap_or(false);
-            if has_item {
-                total_sharing_weight += *other_qty;
-                if other_code != product_code {
-                    is_shared = true;
+    if tem_saida_embalagem {
+        let mut esperado_env: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let mut real_env: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        for (item_code, _, std_qty) in &packaging_recipe_items {
+            let total_exit_qty = *exits_map.get(item_code).unwrap_or(&0.0);
+            let mut total_sharing_weight = 0.0;
+            let mut is_shared = false;
+            for (other_code, other_qty, _) in &batch_products {
+                let has_item = recipe_by_prod
+                    .get(other_code)
+                    .map(|r| r.iter().any(|(ic, _, _, _)| ic == item_code))
+                    .unwrap_or(false);
+                if has_item {
+                    total_sharing_weight += *other_qty;
+                    if other_code != product_code {
+                        is_shared = true;
+                    }
                 }
             }
+            let actual_qty = if is_shared && total_sharing_weight > 0.0 {
+                total_exit_qty * (quantity / total_sharing_weight)
+            } else {
+                total_exit_qty
+            };
+            *esperado_env.entry(item_code.clone()).or_insert(0.0) += basis_units * std_qty;
+            real_env.insert(item_code.clone(), actual_qty);
         }
-        let actual_qty = if is_shared && total_sharing_weight > 0.0 {
-            total_exit_qty * (quantity / total_sharing_weight)
-        } else {
-            total_exit_qty
-        };
-        let percentage_diff = if expected_qty > 0.0 {
-            ((actual_qty - expected_qty) / expected_qty) * 100.0
-        } else {
-            0.0
-        };
-        if (actual_qty == 0.0 && expected_qty > 0.0)
-            || (expected_qty > 0.0 && percentage_diff.abs() > 10.0)
-        {
-            envase_error = true;
-            break;
+        // Saídas de embalagem fora da fórmula entram só para fechar o grupo de um equivalente.
+        let fracao = if total_batch_quantity > 0.0 { quantity / total_batch_quantity } else { 1.0 };
+        for (code, qty) in exits_map {
+            if !code.starts_with("9.15.") && !real_env.contains_key(code) {
+                real_env.insert(code.clone(), qty * fracao);
+            }
         }
+        let grupos = agrupar_por_equivalencia(&esperado_env, &real_env, &equiv.base, &extras);
+        envase_error = algum_desvio(&grupos, |_| false);
     }
 
     let mut unidades_conferidas = None;
@@ -1285,49 +1283,18 @@ pub async fn check_lote_errors(
     }
 
     // Sem nenhuma saída de insumo de pesagem não há o que comparar: sem dados, não desvio.
-    for (ing_code, expected_qty) in &total_expected_ingredients {
-        if pesagem_total_actual <= 0.0 {
-            break;
-        }
-        let mut actual_qty = *exits_map.get(ing_code).unwrap_or(&0.0);
-
-        if let Ok(rows) = sqlx::query(
-            "SELECT item_code_b FROM similar_items WHERE item_code_a = $1
-             UNION
-             SELECT item_code_a FROM similar_items WHERE item_code_b = $1",
-        )
-        .bind(ing_code)
-        .fetch_all(pool)
-        .await
-        {
-            for row in rows {
-                let sim_code: String = row.get(0);
-                if let Some(&qty) = exits_map.get(&sim_code) {
-                    actual_qty += qty;
-                }
-            }
-        }
-
-        if actual_qty < 0.0001 {
-            actual_qty = 0.0;
-        }
-
-        let difference = actual_qty - expected_qty;
-        let percentage_diff = if *expected_qty > 0.0 {
-            (difference / expected_qty) * 100.0
-        } else {
-            0.0
-        };
-
-        if (actual_qty == 0.0 && *expected_qty > 0.0)
-            || (*expected_qty > 0.0 && percentage_diff.abs() > 10.0)
-        {
-            let is_missing = actual_qty == 0.0 && *expected_qty > 0.0;
-            let is_in_base = is_missing && base_ingredients.contains(ing_code);
-            if !is_in_base {
-                pesagem_error = true;
-            }
-        }
+    // Esperado × real por grupo: insumo + equivalentes/trocas contam como um só.
+    let equiv = Equivalencias::carregar(pool).await;
+    let extras = equiv.extras_do_produto(product_code);
+    if pesagem_total_actual > 0.0 {
+        let real_pesagem: std::collections::HashMap<String, f64> = exits_map
+            .iter()
+            .filter(|(c, _)| c.starts_with("9.15."))
+            .map(|(c, q)| (c.clone(), *q))
+            .collect();
+        let grupos = agrupar_por_equivalencia(&total_expected_ingredients, &real_pesagem, &equiv.base, &extras);
+        // Falta de insumo que vai na base não é desvio.
+        pesagem_error = algum_desvio(&grupos, |g| g.codigos.iter().all(|c| base_ingredients.contains(c)));
     }
 
     let mut actual_units_envasadas = 0.0;
@@ -1410,50 +1377,47 @@ pub async fn check_lote_errors(
         .iter()
         .any(|(c, _, q)| *q > 0.0 && exits_map.get(c).copied().unwrap_or(0.0) > 0.0);
 
-    for (item_code, _, std_qty) in &packaging_recipe_items {
-        if !tem_saida_embalagem {
-            break;
-        }
-        let expected_qty = basis_units * std_qty;
-        let total_exit_qty = *exits_map.get(item_code).unwrap_or(&0.0);
+    if tem_saida_embalagem {
+        let mut esperado_env: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let mut real_env: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        for (item_code, _, std_qty) in &packaging_recipe_items {
+            let total_exit_qty = *exits_map.get(item_code).unwrap_or(&0.0);
 
-        let mut total_sharing_weight = 0.0;
-        let mut is_shared = false;
-        for (other_code, other_qty, _) in &batch_products {
-            let has_item: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM formulations WHERE product_code = $1 AND ingredient_code = $2",
-            )
-            .bind(other_code)
-            .bind(item_code)
-            .fetch_one(pool)
-            .await
-            .unwrap_or(0);
-            if has_item > 0 {
-                total_sharing_weight += *other_qty;
-                if other_code != product_code {
-                    is_shared = true;
+            let mut total_sharing_weight = 0.0;
+            let mut is_shared = false;
+            for (other_code, other_qty, _) in &batch_products {
+                let has_item: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM formulations WHERE product_code = $1 AND ingredient_code = $2",
+                )
+                .bind(other_code)
+                .bind(item_code)
+                .fetch_one(pool)
+                .await
+                .unwrap_or(0);
+                if has_item > 0 {
+                    total_sharing_weight += *other_qty;
+                    if other_code != product_code {
+                        is_shared = true;
+                    }
                 }
             }
+
+            let actual_qty = if is_shared && total_sharing_weight > 0.0 {
+                total_exit_qty * (quantity / total_sharing_weight)
+            } else {
+                total_exit_qty
+            };
+            *esperado_env.entry(item_code.clone()).or_insert(0.0) += basis_units * std_qty;
+            real_env.insert(item_code.clone(), actual_qty);
         }
-
-        let actual_qty = if is_shared && total_sharing_weight > 0.0 {
-            total_exit_qty * (quantity / total_sharing_weight)
-        } else {
-            total_exit_qty
-        };
-
-        let difference = actual_qty - expected_qty;
-        let percentage_diff = if expected_qty > 0.0 {
-            (difference / expected_qty) * 100.0
-        } else {
-            0.0
-        };
-
-        if (actual_qty == 0.0 && expected_qty > 0.0)
-            || (expected_qty > 0.0 && percentage_diff.abs() > 10.0)
-        {
-            envase_error = true;
+        let fracao = if total_batch_quantity > 0.0 { quantity / total_batch_quantity } else { 1.0 };
+        for (code, qty) in &exits_map {
+            if !code.starts_with("9.15.") && !real_env.contains_key(code) {
+                real_env.insert(code.clone(), qty * fracao);
+            }
         }
+        let grupos = agrupar_por_equivalencia(&esperado_env, &real_env, &equiv.base, &extras);
+        envase_error = algum_desvio(&grupos, |_| false);
     }
 
     // Mesma regra da versão em lote: o "Unidades:" do ERP só vale acima de 1 e a diferença tolerada é de 10%.
@@ -1924,6 +1888,24 @@ pub async fn get_lote_detalhes(
         }
     }
 
+    // Equivalentes (similar_items + trocas): esperado × real por grupo.
+    let equiv = Equivalencias::carregar(pool).await;
+    let extras: Vec<(String, String)> = products
+        .iter()
+        .flat_map(|(c, _, _, _, _)| equiv.extras_do_produto(c))
+        .collect();
+    let esperado_pesagem: std::collections::HashMap<String, f64> =
+        total_expected_ingredients.iter().map(|(c, (_, q))| (c.clone(), *q)).collect();
+    let real_pesagem: std::collections::HashMap<String, f64> = exits_map
+        .iter()
+        .filter(|(c, _)| c.starts_with("9.15."))
+        .map(|(c, q)| (c.clone(), *q))
+        .collect();
+    let grupos_pesagem = agrupar_por_equivalencia(&esperado_pesagem, &real_pesagem, &equiv.base, &extras);
+    let grupo_de = |grupos: &[crate::modules::producao::equivalencia::Grupo], code: &str| {
+        grupos.iter().position(|g| g.codigos.iter().any(|c| c == code))
+    };
+
     let mut pesagem_items = Vec::new();
     let mut pesagem_total_expected = 0.0;
     
@@ -1953,6 +1935,11 @@ pub async fn get_lote_detalhes(
             "DISCREPANCY"
         } else {
             "OK"
+        };
+        // Troca por equivalente: se o grupo (insumo + equivalentes) bate, o item está OK.
+        let item_status = match grupo_de(&grupos_pesagem, ing_code).map(|i| &grupos_pesagem[i]) {
+            Some(g) if (item_status == "DISCREPANCY" || item_status == "MISSING") && g.codigos.len() > 1 && !g.com_desvio() => "OK",
+            _ => item_status,
         };
 
         pesagem_items.push(PesagemItemDetail {
@@ -2003,6 +1990,9 @@ pub async fn get_lote_detalhes(
                     }
                 }
                 (expected_base_weight, "OK (Base)".to_string())
+            } else if grupo_de(&grupos_pesagem, ing_code).map_or(false, |i| grupos_pesagem[i].esperado > 0.0) {
+                // usado no lugar de um insumo planejado (equivalente/troca): não é desvio por si só
+                (0.0, "EQUIVALENT".to_string())
             } else {
                 (0.0, "UNPLANNED".to_string())
             };
@@ -2131,6 +2121,9 @@ pub async fn get_lote_detalhes(
         };
 
         let mut envase_items = Vec::new();
+        let mut esperado_env: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let mut real_env: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let mut calculados: Vec<(String, String, f64, f64)> = Vec::new();
 
         for (item_code, item_desc, std_qty) in &p_recipe_items {
             let expected_qty = basis_units * std_qty;
@@ -2161,30 +2154,69 @@ pub async fn get_lote_detalhes(
                 total_exit_qty
             };
 
+            *esperado_env.entry(item_code.clone()).or_insert(0.0) += expected_qty;
+            real_env.insert(item_code.clone(), actual_qty);
+            calculados.push((item_code.clone(), item_desc.clone(), expected_qty, actual_qty));
+        }
+
+        // Embalagem usada no lugar de outra (equivalente/troca): esperado × real por grupo.
+        let fracao = if quantity > 0.0 { *p_qty / quantity } else { 1.0 };
+        for (code, qty) in &exits_map {
+            if !code.starts_with("9.15.") && !real_env.contains_key(code) {
+                real_env.insert(code.clone(), qty * fracao);
+            }
+        }
+        let grupos_env = agrupar_por_equivalencia(&esperado_env, &real_env, &equiv.base, &extras);
+
+        for (item_code, item_desc, expected_qty, actual_qty) in &calculados {
             let difference = actual_qty - expected_qty;
-            let percentage_diff = if expected_qty > 0.0 {
+            let percentage_diff = if *expected_qty > 0.0 {
                 (difference / expected_qty) * 100.0
             } else {
                 0.0
             };
-
-            let item_status = if actual_qty == 0.0 && expected_qty > 0.0 {
+            let mut item_status = if *actual_qty == 0.0 && *expected_qty > 0.0 {
                 "MISSING"
             } else if percentage_diff.abs() > 10.0 {
                 "DISCREPANCY"
             } else {
                 "OK"
             };
-
+            if let Some(g) = grupo_de(&grupos_env, item_code).map(|i| &grupos_env[i]) {
+                if item_status != "OK" && g.codigos.len() > 1 && !g.com_desvio() {
+                    item_status = "OK";
+                }
+            }
             envase_items.push(EnvaseItemDetail {
                 packaging_code: item_code.clone(),
                 description: item_desc.clone(),
-                expected_qty,
-                actual_qty,
+                expected_qty: *expected_qty,
+                actual_qty: *actual_qty,
                 difference,
                 percentage_diff,
                 status: item_status.to_string(),
             });
+        }
+        // Equivalentes usados no lugar de um item da fórmula entram na lista como "Equivalente".
+        for g in &grupos_env {
+            if g.esperado > 0.0 {
+                for code in &g.codigos {
+                    if !esperado_env.contains_key(code) {
+                        let q = real_env.get(code).copied().unwrap_or(0.0);
+                        if q > 0.0 {
+                            envase_items.push(EnvaseItemDetail {
+                                packaging_code: code.clone(),
+                                description: nome_do_insumo(pool, code).await,
+                                expected_qty: 0.0,
+                                actual_qty: q,
+                                difference: q,
+                                percentage_diff: 0.0,
+                                status: "EQUIVALENT".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
         }
 
         let has_packaging_formula = !p_recipe_items.is_empty();
@@ -2568,6 +2600,29 @@ async fn get_ultimo_lote_impl(
 }
 
 /// Base de produção pela regra única (`e_base`): categoria, status do override ou código ".36.".
+/// Descrição de um insumo/embalagem (cadastro de itens; senão produtos).
+async fn nome_do_insumo(pool: &PgPool, codigo: &str) -> String {
+    if let Ok(Some(d)) = sqlx::query_scalar::<_, String>("SELECT description FROM items WHERE code = $1")
+        .bind(codigo)
+        .fetch_optional(pool)
+        .await
+    {
+        if !d.is_empty() {
+            return d;
+        }
+    }
+    if let Ok(Some(d)) = sqlx::query_scalar::<_, String>("SELECT descricao FROM produtos WHERE codigo = $1")
+        .bind(codigo)
+        .fetch_optional(pool)
+        .await
+    {
+        if !d.is_empty() {
+            return d;
+        }
+    }
+    "Item não cadastrado".to_string()
+}
+
 async fn produto_e_base(pool: &PgPool, codigo: &str) -> bool {
     let (cat, st): (Option<String>, Option<String>) = sqlx::query_as(
         "SELECT categoria_produto, status_produto FROM overrides_produtos WHERE codigo = $1",

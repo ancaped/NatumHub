@@ -37,6 +37,7 @@ pub mod modules {
         pub mod historico;
         pub mod permissao;
         pub mod trocas;
+        pub mod equivalencia;
         pub mod auditoria;
         pub mod insumos_classificacao;
     }
