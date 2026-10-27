@@ -21,7 +21,6 @@ export const MODULE_KEYS = {
   ESTOQUE_COLOR: 'estoque_coloracao',
   ESTOQUE_APOIO: 'estoque_apoio',
   ESTOQUE_ORDENS_MANUAIS: 'estoque_ordens_manuais',
-  ESTOQUE_PREVISAO_USO: 'estoque_previsao_uso',
   ESTOQUE_ITENS: 'estoque_itens',
   ESTOQUE_ALMOX: 'estoque_almoxarifado',
   ESTOQUE_SUPERMERCADO: 'estoque_supermercado',

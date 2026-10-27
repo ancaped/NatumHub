@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { apiJson } from '../../geral/lib/http';
 import AppLayout from '../../geral/components/layout/AppLayout';
+import { ReportTabs } from '../../geral/components/ui/ReportKit';
 import Modal from '../../geral/components/ui/Modal';
 import type { AlmoxOpsItem, Demand, Equipment, EquipmentPecaStat, Maintenance, MaintenancePart } from '../ops/types';
 
@@ -838,59 +839,21 @@ export default function EquipamentosView({
           />
         ) : (
           <>
-            {/* KPI Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200 shadow-xs space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Total no Parque</span>
-                <span className="text-xl sm:text-2xl font-black text-zinc-900">{stats.total}</span>
-              </div>
-              <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200 shadow-xs space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Operacionais / Ativos</span>
-                <span className="text-xl sm:text-2xl font-black text-emerald-600">{stats.operating}</span>
-              </div>
-              <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200 shadow-xs space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Em Manutenção</span>
-                <span className={`text-xl sm:text-2xl font-black ${stats.inMaint > 0 ? 'text-amber-600' : 'text-zinc-900'}`}>
-                  {stats.inMaint}
-                </span>
-              </div>
-              <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200 shadow-xs space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Custo Total de Manutenções</span>
-                <span className="text-xl sm:text-2xl font-black text-zinc-900">{formatMoney(stats.spent)}</span>
-              </div>
-            </div>
-
             {/* Navegação e Filtro por Família (Scroll horizontal no mobile) */}
             <div className="bg-white rounded-2xl p-3 border border-zinc-200 shadow-xs space-y-3">
-              <div className="flex items-center gap-2 overflow-x-auto scrollbar-none pb-1 -mx-1 px-1 touch-pan-x">
-                {EQUIPMENT_FAMILIES.map((fam) => {
+              <ReportTabs
+                abas={EQUIPMENT_FAMILIES.map((fam) => {
                   const Icon = fam.icon;
-                  const isSelected = selectedFamily === fam.id;
-                  const count = fam.id === 'todas' ? stats.total : stats.byFamily[fam.id] || 0;
-                  return (
-                    <button
-                      key={fam.id}
-                      type="button"
-                      onClick={() => setSelectedFamily(fam.id)}
-                      className={`shrink-0 inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
-                        isSelected
-                          ? 'bg-zinc-900 text-white border-zinc-900 shadow-xs'
-                          : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'
-                      }`}
-                    >
-                      <Icon className={`h-4 w-4 ${isSelected ? 'text-white' : 'text-zinc-500'}`} />
-                      <span>{fam.label}</span>
-                      <span
-                        className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
-                          isSelected ? 'bg-zinc-800 text-white' : 'bg-zinc-100 text-zinc-700'
-                        }`}
-                      >
-                        {count}
-                      </span>
-                    </button>
-                  );
+                  return {
+                    id: fam.id,
+                    label: fam.label,
+                    icone: <Icon size={14} />,
+                    contagem: fam.id === 'todas' ? stats.total : stats.byFamily[fam.id] || 0,
+                  };
                 })}
-              </div>
+                ativa={selectedFamily}
+                onChange={(id) => setSelectedFamily(id as typeof selectedFamily)}
+              />
 
               {/* Busca Rápida */}
               <div className="relative">

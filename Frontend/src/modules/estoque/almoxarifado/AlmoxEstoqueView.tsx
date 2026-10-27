@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { apiJson } from '../../geral/lib/http';
 import AppLayout from '../../geral/components/layout/AppLayout';
+import { ReportTabs } from '../../geral/components/ui/ReportKit';
 import ItemDrawer, {
   type ItemConfigPayload,
   type MovementPayload,
@@ -308,8 +309,9 @@ export default function AlmoxEstoqueView({ onBackToHub, initialFamily = 'todas' 
     const totalItens = items.length;
     const abaixoMin = items.filter((it) => it.belowMin).length;
     const zerados = items.filter((it) => it.qtyOnHand <= 0).length;
+    const ok = items.filter((it) => !it.belowMin && it.qtyOnHand !== 0).length;
     const totalSaldo = items.reduce((acc, it) => acc + (it.qtyOnHand || 0), 0);
-    return { totalItens, abaixoMin, zerados, totalSaldo };
+    return { totalItens, abaixoMin, zerados, ok, totalSaldo };
   }, [items]);
 
   const saveConfig = async (payload: ItemConfigPayload) => {
@@ -606,95 +608,29 @@ export default function AlmoxEstoqueView({ onBackToHub, initialFamily = 'todas' 
           />
         ) : (
           <>
-            {/* KPI Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200 shadow-xs space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Itens Cadastrados</span>
-                <span className="text-xl sm:text-2xl font-black text-zinc-900">{stats.totalItens}</span>
-              </div>
-              <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200 shadow-xs space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Abaixo do Mínimo</span>
-                <span className={`text-xl sm:text-2xl font-black ${stats.abaixoMin > 0 ? 'text-amber-600' : 'text-zinc-900'}`}>
-                  {stats.abaixoMin}
-                </span>
-              </div>
-              <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200 shadow-xs space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Itens Zerados</span>
-                <span className={`text-xl sm:text-2xl font-black ${stats.zerados > 0 ? 'text-rose-600' : 'text-zinc-900'}`}>
-                  {stats.zerados}
-                </span>
-              </div>
-              <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200 shadow-xs space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Movimentações Recentes</span>
-                <span className="text-xl sm:text-2xl font-black text-zinc-900">{familyMoves.length}</span>
-              </div>
-            </div>
-
             {/* Filter and View Toggles */}
             <div className="bg-white rounded-2xl p-3 border border-zinc-200 shadow-xs space-y-3">
+              <ReportTabs
+                abas={[
+                  { id: 'itens', label: 'Itens e Saldos', contagem: stats.totalItens },
+                  { id: 'movimentos', label: 'Histórico de Movimentos', contagem: familyMoves.length },
+                ]}
+                ativa={painel}
+                onChange={(id) => setPainel(id as typeof painel)}
+              />
+              {painel === 'itens' && (
+                <ReportTabs
+                  abas={[
+                    { id: 'todos', label: 'Todos', contagem: stats.totalItens },
+                    { id: 'abaixo', label: 'Abaixo do Mínimo', contagem: stats.abaixoMin },
+                    { id: 'zerados', label: 'Zerados', contagem: stats.zerados },
+                    { id: 'ok', label: 'Estoque OK', contagem: stats.ok },
+                  ]}
+                  ativa={filtroEstoque}
+                  onChange={(id) => setFiltroEstoque(id as typeof filtroEstoque)}
+                />
+              )}
               <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center bg-zinc-100 p-1 rounded-xl">
-                  <button
-                    type="button"
-                    onClick={() => setPainel('itens')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      painel === 'itens' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-600 hover:text-zinc-900'
-                    }`}
-                  >
-                    Itens e Saldos
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPainel('movimentos')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      painel === 'movimentos' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-600 hover:text-zinc-900'
-                    }`}
-                  >
-                    Histórico de Movimentos
-                  </button>
-                </div>
-
-                {painel === 'itens' && (
-                  <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-1">
-                    <button
-                      type="button"
-                      onClick={() => setFiltroEstoque('todos')}
-                      className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shrink-0 ${
-                        filtroEstoque === 'todos' ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
-                      }`}
-                    >
-                      Todos
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFiltroEstoque('abaixo')}
-                      className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shrink-0 ${
-                        filtroEstoque === 'abaixo' ? 'bg-amber-600 text-white border-amber-600' : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
-                      }`}
-                    >
-                      Abaixo do Mínimo {stats.abaixoMin > 0 ? `(${stats.abaixoMin})` : ''}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFiltroEstoque('zerados')}
-                      className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shrink-0 ${
-                        filtroEstoque === 'zerados' ? 'bg-rose-600 text-white border-rose-600' : 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100'
-                      }`}
-                    >
-                      Zerados {stats.zerados > 0 ? `(${stats.zerados})` : ''}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFiltroEstoque('ok')}
-                      className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shrink-0 ${
-                        filtroEstoque === 'ok' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
-                      }`}
-                    >
-                      Estoque OK
-                    </button>
-                  </div>
-                )}
-
                 <div className="relative flex-1 min-w-[14rem]">
                   <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
                   <input

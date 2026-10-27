@@ -666,8 +666,7 @@ fn build_demand_result(
     subcat_configs: &HashMap<String, TempConfig>,
     cat_parent_map: &HashMap<String, String>,
     monthly_movements: &HashMap<String, HashMap<String, f64>>,
-    total_reserved_map: &HashMap<String, f64>,
-    remaining_reserved_map: &HashMap<String, f64>,
+    reserva_calculada_map: &HashMap<String, f64>,
     last_supplier_invoice_map: &HashMap<String, String>,
     last_supplier_order_map: &HashMap<String, String>,
     period_by_config_key: &HashMap<String, i32>,
@@ -691,8 +690,11 @@ fn build_demand_result(
     let avg26: f64 = row.get(11);
     let notes: Option<String> = row.get(12);
 
-    let _total_reserved = total_reserved_map.get(&code).copied().unwrap_or(0.0);
-    let remaining_reserved = remaining_reserved_map.get(&code).copied().unwrap_or(0.0);
+    // Reserva calculada pelos lotes abertos (regra 38A); o valor do ERP fica só como informação.
+    let reserva_calculada = reserva_calculada_map
+        .get(&crate::modules::producao::cobertura::store::canon(&code))
+        .copied()
+        .unwrap_or(0.0);
 
     use chrono::Datelike;
     let now = chrono::Local::now();
@@ -801,13 +803,9 @@ fn build_demand_result(
         0.0
     };
 
-    // Preferir a reserva aberta recalculada. Lotes só se ela vier zerada.
+    // Reserva mostrada = reserva calculada pelos lotes abertos (a mesma da cobertura); a do ERP só informa.
     let reserved_qty_erp = Some(reserved_qty_imported);
-    let reserved_display = if reserved_qty_imported.abs() > 1e-9 {
-        reserved_qty_imported
-    } else {
-        remaining_reserved
-    };
+    let reserved_display = reserva_calculada;
 
     let estimated_duration_days = if daily_avg > 0.0 {
         (max_forecast / daily_avg).round()
@@ -911,7 +909,7 @@ fn build_demand_result(
         current_stock,
         reserved_qty: reserved_display,
         reserved_qty_erp,
-        reserved_qty_ordens: remaining_reserved,
+        reserved_qty_ordens: reserva_calculada,
         in_production,
         in_orders,
         sim_producao,
@@ -1027,9 +1025,10 @@ pub async fn get_demands_query(
         }
     }
 
-    let reserve_maps = crate::core::production_reserve::compute_production_reserve_maps(&pool).await;
-    let total_reserved_map = reserve_maps.total_by_ingredient;
-    let remaining_reserved_map = reserve_maps.remaining_by_ingredient;
+    // Calculada uma vez por requisição; se falhar, segue sem reserva (mostra 0) em vez de derrubar a lista.
+    let reserva_calculada_map = crate::modules::producao::cobertura::reserva::calculada_por_insumo(&pool)
+        .await
+        .unwrap_or_default();
     let manual_pending =
         crate::modules::estoque::ordens_manuais::handlers::pending_net_by_item(&pool).await;
 
@@ -1237,8 +1236,7 @@ pub async fn get_demands_query(
             &subcat_configs,
             &cat_parent_map,
             &monthly_movements,
-            &total_reserved_map,
-            &remaining_reserved_map,
+            &reserva_calculada_map,
             &last_supplier_invoice_map,
             &last_supplier_order_map,
             &period_by_config_key,

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { apiJson } from '../../geral/lib/http';
 import AppLayout from '../../geral/components/layout/AppLayout';
+import { ReportTabs } from '../../geral/components/ui/ReportKit';
 import type { AlmoxOpsItem, Equipment, Maintenance } from '../ops/types';
 import { detectEquipmentFamily, EQUIPMENT_FAMILIES } from '../equipamentos/EquipamentosView';
 
@@ -309,56 +310,21 @@ export default function AlmoxManutencoesView({ onBackToHub, initialEquipmentId, 
           </div>
         )}
 
-        {/* KPI Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200 shadow-xs space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Total de O.S.</span>
-            <span className="text-xl sm:text-2xl font-black text-zinc-900">{stats.total}</span>
-          </div>
-          <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200 shadow-xs space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">O.S. Atrasadas</span>
-            <span className={`text-xl sm:text-2xl font-black ${stats.atrasadas > 0 ? 'text-rose-600' : 'text-zinc-900'}`}>
-              {stats.atrasadas}
-            </span>
-          </div>
-          <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200 shadow-xs space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Programadas p/ Semana</span>
-            <span className="text-xl sm:text-2xl font-black text-blue-600">{stats.estaSemana}</span>
-          </div>
-          <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200 shadow-xs space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Investimento Total</span>
-            <span className="text-xl sm:text-2xl font-black text-zinc-900">{formatMoney(stats.custoTotal)}</span>
-          </div>
-        </div>
-
         {/* Filtros e Busca */}
         <div className="bg-white rounded-2xl p-3 border border-zinc-200 shadow-xs space-y-3">
+          <ReportTabs
+            abas={[
+              { id: 'todos', label: 'Todos os Tipos', contagem: rows.length },
+              ...KINDS.map((k) => ({
+                id: k.id,
+                label: k.label,
+                contagem: rows.filter((m) => (m.kind || '').toLowerCase() === k.id).length,
+              })),
+            ]}
+            ativa={filtroTipo}
+            onChange={(id) => setFiltroTipo(id as typeof filtroTipo)}
+          />
           <div className="flex flex-wrap items-center gap-2">
-            {/* Filtro por Tipo */}
-            <div className="flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5">
-              <button
-                type="button"
-                onClick={() => setFiltroTipo('todos')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shrink-0 ${
-                  filtroTipo === 'todos' ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
-                }`}
-              >
-                Todos os Tipos
-              </button>
-              {KINDS.map((k) => (
-                <button
-                  key={k.id}
-                  type="button"
-                  onClick={() => setFiltroTipo(k.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shrink-0 ${
-                    filtroTipo === k.id ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
-                  }`}
-                >
-                  {k.label}
-                </button>
-              ))}
-            </div>
-
             {/* Filtro por Família do Equipamento */}
             <div className="flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5">
               <select

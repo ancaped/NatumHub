@@ -103,6 +103,23 @@ pub fn agregar(
     DiagnosticoReserva { lotes_abertos: lotes.len(), lotes_sem_formula, insumos }
 }
 
+/// Reserva calculada por insumo (soma dos lotes abertos pela fórmula, já descontado o baixado). É a reserva
+/// que a cobertura usa e a que as telas de Estoque e Compras mostram. Chave = código canônico do insumo.
+pub async fn calculada_por_insumo(pool: &PgPool) -> Result<HashMap<String, f64>, String> {
+    let brutos = store::carregar_lotes_abertos_reserva(pool).await?;
+    let mut produtos: Vec<String> = brutos.iter().flat_map(|l| l.produtos.iter().map(|p| p.0.clone())).collect();
+    produtos.sort();
+    produtos.dedup();
+    let formulas = store::carregar_formulas(pool, &produtos).await?;
+    let mut total: HashMap<String, f64> = HashMap::new();
+    for l in store::lotes_com_reserva(brutos, &formulas) {
+        for (c, q) in l.reserva {
+            *total.entry(c).or_insert(0.0) += q;
+        }
+    }
+    Ok(total)
+}
+
 /// Carrega lotes abertos (todos, vinculados ou não), fórmulas e estoque/reserva e monta o diagnóstico.
 pub async fn gerar(pool: &PgPool, codigo: Option<&str>, limite: Option<usize>) -> Result<DiagnosticoReserva, String> {
     let codigo = codigo.map(store::canon).filter(|c| !c.is_empty());

@@ -23,7 +23,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import AppLayout from '../../geral/components/layout/AppLayout';
-import StatCard from '../../geral/components/ui/StatCard';
+import { ReportTabs } from '../../geral/components/ui/ReportKit';
 import Modal from '../../geral/components/ui/Modal';
 import { apiJson } from '../../geral/lib/http';
 import { printBlankSheets, printErpLaunchList, printSingleOrder } from './printHelpers';
@@ -711,134 +711,24 @@ export default function OrdensManuaisView({ onBackToHub }: { onBackToHub: () => 
             </div>
           )}
 
-          {/* KPI StatCards para Saídas e Entradas */}
-          {(activeTab === 'saidas' || activeTab === 'entradas') && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 shrink-0">
-              <StatCard
-                title={activeTab === 'saidas' ? 'Ordens de Saída' : 'Ordens de Entrada'}
-                value={statsOrders.total}
-                description={activeTab === 'saidas' ? 'Total cadastradas (CSI)' : 'Total cadastradas (CEI)'}
-                icon={activeTab === 'saidas' ? ArrowUpFromLine : ArrowDownToLine}
-                onClick={() => setStatusFilter('ALL')}
-                className="hover:border-zinc-400 cursor-pointer"
-              />
-              <StatCard
-                title="Abertas / Pendentes"
-                value={statsOrders.open}
-                description="Aguardando lançamento no ERP"
-                icon={Clock}
-                trend={
-                  statsOrders.open > 0
-                    ? { value: `${statsOrders.open} pendente(s)`, type: 'down' }
-                    : { value: 'Em dia', type: 'up' }
-                }
-                onClick={() => setStatusFilter('OPEN')}
-                className={`cursor-pointer ${statsOrders.open > 0 ? 'border-amber-200 bg-amber-50/30' : ''}`}
-              />
-              <StatCard
-                title="Lançadas no ERP"
-                value={statsOrders.posted}
-                description="Processadas e arquivadas"
-                icon={CheckCircle2}
-                trend={{ value: `${Math.round((statsOrders.posted / (statsOrders.total || 1)) * 100)}%`, type: 'up' }}
-                onClick={() => setStatusFilter('POSTED')}
-                className="hover:border-zinc-400 cursor-pointer"
-              />
-              <StatCard
-                title="Itens Movimentados"
-                value={fmtNum(statsOrders.totalQty)}
-                description={`${statsOrders.totalItems} linhas de insumos`}
-                icon={Boxes}
-              />
-            </div>
-          )}
-
-          {/* KPI StatCards para Folhas Físicas */}
-          {activeTab === 'registro' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 shrink-0">
-              <StatCard
-                title="Total de Folhas"
-                value={statsSheets.total}
-                description="Registros sequenciais gerados"
-                icon={ClipboardList}
-                onClick={() => setSheetStatusFilter('ALL')}
-                className="hover:border-zinc-400 cursor-pointer"
-              />
-              <StatCard
-                title="Folhas Retiradas"
-                value={statsSheets.retiradas}
-                description="Em uso físico na fábrica"
-                icon={Clock}
-                trend={
-                  statsSheets.retiradas > 0
-                    ? { value: `${statsSheets.retiradas} em uso`, type: 'down' }
-                    : { value: 'Todas conferidas', type: 'up' }
-                }
-                onClick={() => setSheetStatusFilter('retirada')}
-                className={`cursor-pointer ${statsSheets.retiradas > 0 ? 'border-amber-200 bg-amber-50/30' : ''}`}
-              />
-              <StatCard
-                title="Folhas Conferidas"
-                value={statsSheets.conferidas}
-                description="Conferidas pelo almoxarifado"
-                icon={Archive}
-                trend={{ value: 'Ok', type: 'up' }}
-                onClick={() => setSheetStatusFilter('conferida')}
-                className="hover:border-zinc-400 cursor-pointer"
-              />
-              <StatCard
-                title="Distribuição"
-                value={`${statsSheets.saidas} CSI / ${statsSheets.entradas} CEI`}
-                description="Saídas vs Entradas"
-                icon={Layers}
-              />
-            </div>
-          )}
-
           {/* ========================================================================= */}
           {/* ABA: SAÍDAS / ENTRADAS                                                    */}
           {/* ========================================================================= */}
           {(activeTab === 'entradas' || activeTab === 'saidas') && (
             <div className="flex flex-col flex-1 min-h-0 gap-3">
+              <ReportTabs
+                abas={[
+                  { id: 'ALL', label: 'Todas', contagem: statsOrders.total },
+                  { id: 'OPEN', label: 'Abertas', contagem: statsOrders.open },
+                  { id: 'POSTED', label: 'Lançadas', contagem: statsOrders.posted },
+                ]}
+                ativa={statusFilter}
+                onChange={(id) => setStatusFilter(id as typeof statusFilter)}
+              />
               {/* Barra de Filtros & Busca */}
               <div className="bg-white border border-zinc-200 p-3 rounded-2xl shadow-xs flex flex-wrap items-center justify-between gap-3 shrink-0">
                 <div className="flex flex-wrap items-center gap-2">
                   {/* Segmented status pills */}
-                  <div className="inline-flex rounded-xl border border-zinc-200 bg-zinc-100/70 p-1">
-                    <button
-                      type="button"
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        statusFilter === 'ALL'
-                          ? 'bg-white text-zinc-900 shadow-xs border border-zinc-200/60'
-                          : 'text-zinc-500 hover:text-zinc-900'
-                      }`}
-                      onClick={() => setStatusFilter('ALL')}
-                    >
-                      Todas ({statsOrders.total})
-                    </button>
-                    <button
-                      type="button"
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        statusFilter === 'OPEN'
-                          ? 'bg-white text-zinc-900 shadow-xs border border-zinc-200/60'
-                          : 'text-zinc-500 hover:text-zinc-900'
-                      }`}
-                      onClick={() => setStatusFilter('OPEN')}
-                    >
-                      Abertas ({statsOrders.open})
-                    </button>
-                    <button
-                      type="button"
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        statusFilter === 'POSTED'
-                          ? 'bg-white text-zinc-900 shadow-xs border border-zinc-200/60'
-                          : 'text-zinc-500 hover:text-zinc-900'
-                      }`}
-                      onClick={() => setStatusFilter('POSTED')}
-                    >
-                      Lançadas ({statsOrders.posted})
-                    </button>
-                  </div>
                 </div>
 
                 {/* Search Input */}
@@ -1068,44 +958,18 @@ export default function OrdensManuaisView({ onBackToHub }: { onBackToHub: () => 
           {/* ========================================================================= */}
           {activeTab === 'registro' && (
             <div className="flex flex-col flex-1 min-h-0 gap-3">
+              <ReportTabs
+                abas={[
+                  { id: 'ALL', label: 'Todas', contagem: statsSheets.total },
+                  { id: 'retirada', label: 'Retiradas', contagem: statsSheets.retiradas },
+                  { id: 'conferida', label: 'Conferidas', contagem: statsSheets.conferidas },
+                ]}
+                ativa={sheetStatusFilter}
+                onChange={(id) => setSheetStatusFilter(id as typeof sheetStatusFilter)}
+              />
               {/* Barra de Filtros & Busca */}
               <div className="bg-white border border-zinc-200 p-3 rounded-2xl shadow-xs flex flex-wrap items-center justify-between gap-3 shrink-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="inline-flex rounded-xl border border-zinc-200 bg-zinc-100/70 p-1">
-                    <button
-                      type="button"
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        sheetStatusFilter === 'ALL'
-                          ? 'bg-white text-zinc-900 shadow-xs border border-zinc-200/60'
-                          : 'text-zinc-500 hover:text-zinc-900'
-                      }`}
-                      onClick={() => setSheetStatusFilter('ALL')}
-                    >
-                      Todas ({statsSheets.total})
-                    </button>
-                    <button
-                      type="button"
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        sheetStatusFilter === 'retirada'
-                          ? 'bg-white text-zinc-900 shadow-xs border border-zinc-200/60'
-                          : 'text-zinc-500 hover:text-zinc-900'
-                      }`}
-                      onClick={() => setSheetStatusFilter('retirada')}
-                    >
-                      Retiradas ({statsSheets.retiradas})
-                    </button>
-                    <button
-                      type="button"
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        sheetStatusFilter === 'conferida'
-                          ? 'bg-white text-zinc-900 shadow-xs border border-zinc-200/60'
-                          : 'text-zinc-500 hover:text-zinc-900'
-                      }`}
-                      onClick={() => setSheetStatusFilter('conferida')}
-                    >
-                      Conferidas ({statsSheets.conferidas})
-                    </button>
-                  </div>
 
                   <select
                     className="text-xs font-bold border border-zinc-200 rounded-xl px-3 py-2 bg-white text-zinc-700 hover:border-zinc-300 focus:outline-none cursor-pointer"
