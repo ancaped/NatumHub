@@ -8,6 +8,9 @@
 //! Como o ERP funciona: o lote RESERVA os insumos ao ser aberto e dá a BAIXA real ao ser fechado; só então
 //! `nQtdeEstoque` cai. `nqtdeReserva` é a soma das reservas de todos os lotes abertos, sem detalhe por lote.
 //! Por isso o livre é `estoque - reserva`, e só as ordens que ainda NÃO estão abertas no ERP consomem.
+//!
+//! A `reserva` do livre é a CALCULADA (decisão 38A): soma, por insumo, da fórmula (base explodida, sem trocas) de
+//! todos os lotes abertos do ERP, menos o que cada lote já baixou (`lotes_baixas`). O `nqtdeReserva` do ERP está inflado e fica só em `reserva_erp` (informativo).
 
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -207,8 +210,33 @@ pub struct EstoqueItem {
     pub descricao: String,
     pub unidade: Option<String>,
     pub estoque: f64,
+    /// Reserva usada no livre: calculada pelos lotes abertos (fórmula). Ver `aplicar_reserva_calculada`.
     pub reserva: f64,
+    /// `nqtdeReserva` do ERP, só informativo (inflado; não entra na conta).
+    pub reserva_erp: f64,
     pub calibrado: bool,
+}
+
+/// Reserva de um lote por insumo = max(0, necessidade da fórmula − já baixado do lote para o insumo).
+/// O que o ERP já baixou (`lotes_baixas`) saiu do estoque; reservar de novo contaria em dobro.
+pub fn descontar_baixado(reserva: &mut HashMap<String, f64>, baixado: &HashMap<String, f64>) {
+    for (c, q) in reserva.iter_mut() {
+        *q = (*q - baixado.get(c).copied().unwrap_or(0.0)).max(0.0);
+    }
+}
+
+/// Troca a reserva do ERP pela soma, por insumo, da reserva dos lotes abertos do ERP (todos, inclusive os já
+/// vinculados a ordens do Nexus). Insumo sem lote aberto fica com reserva 0; a do ERP vai para `reserva_erp`.
+pub fn aplicar_reserva_calculada(estoque: &mut HashMap<String, EstoqueItem>, lotes_abertos: &[LoteErp]) {
+    let mut calculada: HashMap<&str, f64> = HashMap::new();
+    for l in lotes_abertos {
+        for (c, q) in &l.reserva {
+            *calculada.entry(c.as_str()).or_insert(0.0) += q;
+        }
+    }
+    for (c, e) in estoque.iter_mut() {
+        e.reserva = calculada.get(c.as_str()).copied().unwrap_or(0.0);
+    }
 }
 
 impl EstoqueItem {
@@ -628,6 +656,8 @@ pub struct ResumoInsumo {
     pub unidade: Option<String>,
     pub estoque: f64,
     pub reserva: f64,
+    /// Reserva que o ERP informa (`nqtdeReserva`), só para comparação; não entra no livre.
+    pub reserva_erp: f64,
     pub livre: f64,
     pub calibrado: bool,
     pub consumo_previsto: f64,
@@ -1126,6 +1156,7 @@ pub fn simular(e: &EntradaSimulacao) -> SaidaSimulacao {
             unidade: est.and_then(|s| s.unidade.clone()),
             estoque: est.map(|s| s.estoque).unwrap_or(0.0),
             reserva: est.map(|s| s.reserva).unwrap_or(0.0),
+            reserva_erp: est.map(|s| s.reserva_erp).unwrap_or(0.0),
             livre: est.map(|s| s.livre()).unwrap_or(0.0),
             calibrado: est.map(|s| s.calibrado).unwrap_or(false),
             consumo_previsto: consumo_previsto.get(codigo).copied().unwrap_or(0.0),
@@ -1272,7 +1303,7 @@ mod tests {
     }
 
     fn est(estoque: f64, reserva: f64) -> EstoqueItem {
-        EstoqueItem { descricao: String::new(), unidade: Some("kg".into()), estoque, reserva, calibrado: false }
+        EstoqueItem { descricao: String::new(), unidade: Some("kg".into()), estoque, reserva, reserva_erp: reserva, calibrado: false }
     }
 
     fn ordem(id: &str, data: &str, seq: i32, prod: &str, kg: f64, necs: Vec<Necessidade>) -> OrdemEntrada {
@@ -1469,6 +1500,31 @@ mod tests {
             produtos: prods.iter().map(|(c, k)| (c.to_string(), *k)).collect(),
             reserva: reserva.iter().map(|(c, q)| (c.to_string(), *q)).collect(),
         }
+    }
+
+    #[test]
+    fn baixa_do_lote_sai_da_reserva_sem_ficar_negativa() {
+        let mut r = HashMap::from([("A".to_string(), 10.0), ("B".to_string(), 10.0), ("C".to_string(), 10.0)]);
+        let baixado = HashMap::from([("A".to_string(), 4.0), ("B".to_string(), 12.0)]);
+        descontar_baixado(&mut r, &baixado);
+        assert_eq!((r["A"], r["B"], r["C"]), (6.0, 0.0, 10.0));
+    }
+
+    #[test]
+    fn reserva_calculada_soma_os_lotes_abertos_e_ignora_a_do_erp() {
+        let mut estoque: HashMap<String, EstoqueItem> = HashMap::new();
+        estoque.insert("A".into(), est(100.0, 900_000.0)); // ERP inflado
+        estoque.insert("B".into(), est(50.0, 7.0)); // nenhum lote aberto usa
+        let lotes = vec![
+            lote("1", "2026-10-01", &[("P1", 100.0)], &[("A", 30.0)]),
+            lote("2", "2026-10-02", &[("P1", 100.0)], &[("A", 20.0)]),
+        ];
+        aplicar_reserva_calculada(&mut estoque, &lotes);
+        assert_eq!(estoque["A"].reserva, 50.0);
+        assert_eq!(estoque["A"].reserva_erp, 900_000.0);
+        assert_eq!(estoque["A"].livre(), 50.0);
+        assert_eq!(estoque["B"].reserva, 0.0);
+        assert_eq!(estoque["B"].reserva_erp, 7.0);
     }
 
     #[test]

@@ -97,7 +97,9 @@ export interface ResumoInsumo {
   descricao: string;
   unidade?: string | null;
   estoque: number;
+  /** Calculada pelos lotes abertos (fórmula); a do ERP vem em reservaErp, só informativa. */
   reserva: number;
+  reservaErp?: number;
   livre: number;
   calibrado: boolean;
   consumoPrevisto: number;

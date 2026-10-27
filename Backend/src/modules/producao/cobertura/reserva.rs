@@ -60,14 +60,14 @@ pub fn agregar(
         }
     }
     let mut codigos: HashSet<&str> = calculada.keys().copied().collect();
-    codigos.extend(estoque.iter().filter(|(_, e)| e.reserva > 0.0).map(|(c, _)| c.as_str()));
+    codigos.extend(estoque.iter().filter(|(_, e)| e.reserva_erp > 0.0).map(|(c, _)| c.as_str()));
 
     let mut insumos: Vec<InsumoReserva> = codigos
         .into_iter()
         .filter(|c| codigo.map(|x| x == *c).unwrap_or(true))
         .filter_map(|c| {
             let e = estoque.get(c);
-            let reserva_erp = e.map(|e| e.reserva).unwrap_or(0.0);
+            let reserva_erp = e.map(|e| e.reserva_erp).unwrap_or(0.0);
             let calc = calculada.get(c).copied().unwrap_or(0.0);
             if reserva_erp <= 0.0 && calc <= 0.0 {
                 return None;
@@ -108,9 +108,7 @@ pub async fn gerar(pool: &PgPool, codigo: Option<&str>, limite: Option<usize>) -
     let codigo = codigo.map(store::canon).filter(|c| !c.is_empty());
     let limite = limite.unwrap_or(LIMITE_PADRAO).clamp(1, 1000);
 
-    let ini = NaiveDate::from_ymd_opt(2000, 1, 1).expect("data válida");
-    let fim = store::hoje_brasil() + chrono::Duration::days(3650);
-    let brutos = store::carregar_lotes_abertos_sem_vinculo(pool, ini, fim, true).await?;
+    let brutos = store::carregar_lotes_abertos_reserva(pool).await?;
     let mut produtos: Vec<String> = brutos.iter().flat_map(|l| l.produtos.iter().map(|p| p.0.clone())).collect();
     produtos.sort();
     produtos.dedup();
@@ -152,7 +150,7 @@ mod tests {
     }
 
     fn item(desc: &str, estoque: f64, reserva: f64) -> EstoqueItem {
-        EstoqueItem { descricao: desc.into(), unidade: Some("KG".into()), estoque, reserva, calibrado: false }
+        EstoqueItem { descricao: desc.into(), unidade: Some("KG".into()), estoque, reserva, reserva_erp: reserva, calibrado: false }
     }
 
     #[test]

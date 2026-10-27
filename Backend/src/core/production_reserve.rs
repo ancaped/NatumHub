@@ -5,7 +5,7 @@ use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 
 /// Status de lote ainda em produção ativa (PG, PP, PR, EN), não encerrado/cancelado e recente (<= 60 dias).
-const OPEN_LOTE_STATUS_SQL: &str = r#"
+pub const OPEN_LOTE_STATUS_SQL: &str = r#"
     (details LIKE '%Status: PG%' OR details LIKE '%Status: PP%' OR details LIKE '%Status: PR%' OR details LIKE '%Status: EN%')
     AND details NOT LIKE '%Status: EA%'
     AND details NOT LIKE '%Status: CF%'

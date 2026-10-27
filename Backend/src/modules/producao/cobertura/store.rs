@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::calc::{
     alocar_nfs, necessidades_do_produto, BaseFonte, BaseRef, Chegada, EntradaSimulacao, EstoqueItem, LinhaFormula,
-    LinhaPedido, LoteErp, Manual, Necessidade, OrdemEntrada, Troca, aplicar_trocas, FRACAO_RECEBIDO,
+    LinhaPedido, LoteErp, Manual, Necessidade, OrdemEntrada, Troca, aplicar_reserva_calculada, aplicar_trocas, descontar_baixado, FRACAO_RECEBIDO,
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -333,6 +333,7 @@ pub(super) async fn carregar_estoque(
                 unidade,
                 estoque: r.get::<Option<f64>, _>("estoque").unwrap_or(0.0),
                 reserva: r.get::<Option<f64>, _>("reserva").unwrap_or(0.0),
+                reserva_erp: r.get::<Option<f64>, _>("reserva").unwrap_or(0.0),
                 calibrado: false,
             },
         );
@@ -349,7 +350,7 @@ pub(super) async fn carregar_estoque(
             let code: String = r.get::<Option<String>, _>("code").unwrap_or_default();
             if let Some(stock) = r.get::<Option<f64>, _>("stock") {
                 let (descricao, unidade) = formulas.itens.get(&code).cloned().unwrap_or_default();
-                let e = out.entry(code).or_insert(EstoqueItem { descricao, unidade, estoque: 0.0, reserva: 0.0, calibrado: false });
+                let e = out.entry(code).or_insert(EstoqueItem { descricao, unidade, estoque: 0.0, reserva: 0.0, reserva_erp: 0.0, calibrado: false });
                 e.estoque = stock;
                 e.calibrado = true;
             }
@@ -359,7 +360,7 @@ pub(super) async fn carregar_estoque(
     for c in codigos {
         out.entry(c.clone()).or_insert_with(|| {
             let (descricao, unidade) = formulas.itens.get(c).cloned().unwrap_or_default();
-            EstoqueItem { descricao, unidade, estoque: 0.0, reserva: 0.0, calibrado: false }
+            EstoqueItem { descricao, unidade, estoque: 0.0, reserva: 0.0, reserva_erp: 0.0, calibrado: false }
         });
     }
     Ok(out)
@@ -581,15 +582,16 @@ pub(super) struct LoteBruto {
     numero: String,
     data: NaiveDate,
     pub(super) produtos: Vec<(String, f64)>,
+    /// Insumo (código canônico) -> quanto o ERP já baixou deste lote (`lotes_baixas`); vazio onde não se carrega.
+    baixado: HashMap<String, f64>,
 }
 
-/// Lotes abertos no ERP (sem baixa, fora de CA/EA). Com `incluir_vinculados = false`, só os que nenhuma ordem do
-/// Nexus vincula (uso da cobertura); com `true`, todos (diagnóstico da reserva do ERP).
+/// Lotes abertos no ERP sem baixa (fora de CA/EA) que nenhuma ordem do Nexus vincula: são os que ainda consomem
+/// (uso da cobertura). A reserva usa `carregar_lotes_abertos_reserva`.
 pub(super) async fn carregar_lotes_abertos_sem_vinculo(
     pool: &PgPool,
     ini: NaiveDate,
     fim: NaiveDate,
-    incluir_vinculados: bool,
 ) -> Result<Vec<LoteBruto>, String> {
     let rows = sqlx::query(
         r#"
@@ -604,15 +606,14 @@ pub(super) async fn carregar_lotes_abertos_sem_vinculo(
               SELECT 1 FROM lotes_baixas lb
               WHERE lb.nlote = (CASE WHEN sm.document_number ~ '^[0-9]{1,9}$' THEN sm.document_number::int END)
           )
-          AND ($3 OR NOT EXISTS (
+          AND NOT EXISTS (
               SELECT 1 FROM producao_planejamento_semanal pp
               WHERE TRIM(COALESCE(pp.lote_erp, '')) = sm.document_number
-          ))
+          )
         "#,
     )
     .bind(ini.format("%Y-%m-%d").to_string())
     .bind(fim.format("%Y-%m-%d").to_string())
-    .bind(incluir_vinculados)
     .fetch_all(pool)
     .await
     .map_err(|e| format!("Erro ao ler lotes do ERP: {e}"))?;
@@ -624,9 +625,60 @@ pub(super) async fn carregar_lotes_abertos_sem_vinculo(
         }
         let Some(data) = r.get::<Option<String>, _>("data").and_then(|s| parse_data(&s)) else { continue };
         let numero = r.get::<Option<String>, _>("lote").unwrap_or_default();
-        let e = m.entry(numero.clone()).or_insert(LoteBruto { numero, data, produtos: Vec::new() });
+        let e = m.entry(numero.clone()).or_insert(LoteBruto { numero, data, produtos: Vec::new(), baixado: HashMap::new() });
         e.data = e.data.min(data);
         e.produtos.push((canon(&r.get::<Option<String>, _>("produto").unwrap_or_default()), r.get::<Option<f64>, _>("kg").unwrap_or(0.0)));
+    }
+    Ok(m.into_values().collect())
+}
+
+/// Todos os lotes abertos do ERP (PG/PP/PR/EN, mesma definição de `production_reserve::OPEN_LOTE_STATUS_SQL`),
+/// com ou sem baixa e vinculados ou não a ordens do Nexus: a base da reserva calculada (decisão 38A).
+pub(super) async fn carregar_lotes_abertos_reserva(pool: &PgPool) -> Result<Vec<LoteBruto>, String> {
+    let sql = format!(
+        r#"
+        SELECT DISTINCT ON (document_number, item_code)
+               document_number AS lote, TRIM(item_code) AS produto, COALESCE(quantity, 0)::float8 AS kg,
+               SUBSTRING(COALESCE(date, '') FROM 1 FOR 10) AS data
+        FROM stock_movements
+        WHERE item_type = 'produto' AND movement_type = 'entrada'
+          AND COALESCE(document_number, '') <> '' AND details IS NOT NULL
+          AND {}
+        ORDER BY document_number, item_code, ctid DESC
+        "#,
+        crate::core::production_reserve::OPEN_LOTE_STATUS_SQL
+    );
+    let rows = sqlx::query(&sql)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Erro ao ler os lotes abertos do ERP: {e}"))?;
+    let hoje = hoje_brasil();
+    let mut m: BTreeMap<String, LoteBruto> = BTreeMap::new();
+    for r in rows {
+        let numero = r.get::<Option<String>, _>("lote").unwrap_or_default();
+        let data = r.get::<Option<String>, _>("data").and_then(|s| parse_data(&s)).unwrap_or(hoje);
+        let e = m.entry(numero.clone()).or_insert(LoteBruto { numero, data, produtos: Vec::new(), baixado: HashMap::new() });
+        e.data = e.data.min(data);
+        e.produtos.push((canon(&r.get::<Option<String>, _>("produto").unwrap_or_default()), r.get::<Option<f64>, _>("kg").unwrap_or(0.0)));
+    }
+    // O que o ERP já baixou de cada lote sai da reserva (já saiu do estoque): sem data, então o dLog lixo não pesa.
+    let numeros: Vec<i32> = m.keys().filter_map(|n| n.parse::<i32>().ok()).collect();
+    if !numeros.is_empty() {
+        let baixas = sqlx::query(
+            "SELECT nlote, TRIM(REPLACE(creferencia, '\"', '')) AS ref, SUM(COALESCE(nqtde, 0))::float8 AS qtde \
+             FROM lotes_baixas WHERE nlote = ANY($1) GROUP BY nlote, TRIM(REPLACE(creferencia, '\"', ''))",
+        )
+        .bind(&numeros)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Erro ao ler as baixas dos lotes abertos: {e}"))?;
+        for r in baixas {
+            let Some(n) = r.get::<Option<i32>, _>("nlote") else { continue };
+            if let Some(l) = m.get_mut(&n.to_string()) {
+                *l.baixado.entry(canon(&r.get::<Option<String>, _>("ref").unwrap_or_default())).or_insert(0.0) +=
+                    r.get::<Option<f64>, _>("qtde").unwrap_or(0.0);
+            }
+        }
     }
     Ok(m.into_values().collect())
 }
@@ -785,6 +837,7 @@ fn chave_grupo(o: &OrdemBanco) -> String {
 }
 
 /// Reserva de cada lote aberto do ERP por insumo, "como o ERP reservaria" (fórmula original, sem trocas).
+/// (Lotes abertos trazem `baixado` das `lotes_baixas`; o desconto evita contar em dobro o que já saiu do estoque.)
 pub(super) fn lotes_com_reserva(lotes: Vec<LoteBruto>, formulas: &Formulas) -> Vec<LoteErp> {
     lotes
         .into_iter()
@@ -797,6 +850,7 @@ pub(super) fn lotes_com_reserva(lotes: Vec<LoteBruto>, formulas: &Formulas) -> V
                     }
                 }
             }
+            descontar_baixado(&mut reserva, &l.baixado);
             LoteErp { numero: l.numero, data: l.data, produtos: l.produtos, reserva }
         })
         .collect()
@@ -820,12 +874,20 @@ pub async fn montar_contexto_ate(pool: &PgPool, semana: &str, extras: &[String],
     let mut produtos: Vec<String> = ordens_banco.iter().map(|o| o.codigo.clone()).collect();
     produtos.extend(extras.iter().map(|c| canon(c)));
 
-    let lotes_brutos = carregar_lotes_abertos_sem_vinculo(pool, ini - Duration::days(7), fim + Duration::days(7), false).await?;
+    let lotes_brutos = carregar_lotes_abertos_sem_vinculo(pool, ini - Duration::days(7), fim + Duration::days(7)).await?;
     produtos.extend(lotes_brutos.iter().flat_map(|l| l.produtos.iter().map(|p| p.0.clone())));
     produtos.sort();
     produtos.dedup();
 
-    let mut formulas = carregar_formulas(pool, &produtos).await?;
+    // Reserva calculada: fórmula de todos os lotes abertos do ERP. Os produtos deles só entram para ler as
+    // fórmulas; os insumos que importam continuam sendo os das ordens, candidatos e lotes sem vínculo.
+    let lotes_reserva = carregar_lotes_abertos_reserva(pool).await?;
+    let mut produtos_formulas = produtos.clone();
+    produtos_formulas.extend(lotes_reserva.iter().flat_map(|l| l.produtos.iter().map(|p| p.0.clone())));
+    produtos_formulas.sort();
+    produtos_formulas.dedup();
+
+    let mut formulas = carregar_formulas(pool, &produtos_formulas).await?;
 
     // Insumos envolvidos (depois da explosão e das trocas).
     let mut insumos: HashSet<String> = HashSet::new();
@@ -844,7 +906,8 @@ pub async fn montar_contexto_ate(pool: &PgPool, semana: &str, extras: &[String],
     todos.dedup();
     formulas.completar_itens(pool, &todos).await?;
 
-    let estoque = carregar_estoque(pool, &todos, &formulas).await?;
+    let mut estoque = carregar_estoque(pool, &todos, &formulas).await?;
+    aplicar_reserva_calculada(&mut estoque, &lotes_com_reserva(lotes_reserva, &formulas));
     let chegadas = carregar_chegadas(pool, &todos).await?;
     let manuais = carregar_manuais(pool, &todos).await?;
 
@@ -1086,6 +1149,39 @@ pub async fn validar(pool: &PgPool, limite: i64) -> Result<Validacao, String> {
 
 #[cfg(test)]
 mod tests {
+    /// Roda contra um Postgres de teste: `NEXUS_TEST_DATABASE_URL=... cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore = "precisa de NEXUS_TEST_DATABASE_URL"]
+    async fn lotes_abertos_da_reserva_incluem_os_ja_baixados_e_ignoram_os_fechados() {
+        let url = std::env::var("NEXUS_TEST_DATABASE_URL").expect("NEXUS_TEST_DATABASE_URL");
+        let pool = PgPool::connect(&url).await.unwrap();
+        let limpar = || sqlx::query("DELETE FROM stock_movements WHERE id LIKE 'zzres-%'").execute(&pool);
+        limpar().await.unwrap();
+        let hoje = hoje_brasil().format("%Y-%m-%d").to_string();
+        for (id, lote, st) in [
+            ("zzres-1", "ZZRES1", "PG"),
+            ("zzres-2", "ZZRES2", "PR"),
+            ("zzres-3", "ZZRES3", "EA"),
+            ("zzres-4", "ZZRES4", "EN"),
+        ] {
+            sqlx::query(
+                "INSERT INTO stock_movements (id, item_code, item_type, movement_type, quantity, date, document_number, details) \
+                 VALUES ($1, 'ZZPROD', 'produto', 'entrada', 100, $2, $3, $4)",
+            )
+            .bind(id)
+            .bind(&hoje)
+            .bind(lote)
+            .bind(format!("Status: {st} | Unidades: 10"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let r = carregar_lotes_abertos_reserva(&pool).await;
+        limpar().await.unwrap();
+        let numeros: Vec<String> = r.unwrap().into_iter().filter(|l| l.numero.starts_with("ZZRES")).map(|l| l.numero).collect();
+        assert_eq!(numeros, vec!["ZZRES1", "ZZRES2", "ZZRES4"]);
+    }
+
     use super::*;
 
     #[test]
