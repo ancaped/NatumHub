@@ -250,15 +250,16 @@ async fn get_batch_items_with_erp(
         let clean_code = item_code.replace('.', "").trim().to_string();
 
         // Consulta ERP em tempo real para verificar se o pedido foi lançado após a solicitação
+        // Nº do pedido no ERP = n_registro (n_pedido é só a sequência do dia).
         let erp_match = sqlx::query(
             "SELECT 
-                po.n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, po.d_previsao, po.c_status
+                po.n_registro AS n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, po.d_previsao, po.c_status
              FROM purchase_order_items poi
              JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
              WHERE (REPLACE(poi.c_referencia, '.', '') = $1 OR poi.c_referencia = $2)
                AND TRIM(COALESCE(po.c_status, '')) <> 'C'
                AND (po.d_pedido >= $3 OR poi.n_qtde > poi.n_chegou)
-             ORDER BY po.d_pedido DESC, po.n_pedido DESC
+             ORDER BY po.d_pedido DESC, po.n_registro DESC
              LIMIT 1"
         )
         .bind(&clean_code)
@@ -476,13 +477,13 @@ pub async fn get_active_requested_items_summary_query(
             let date_cutoff = if created_at.len() >= 10 { &created_at[..10] } else { "2020-01-01" };
 
             let erp_match = sqlx::query(
-                "SELECT po.n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, po.d_previsao
+                "SELECT po.n_registro AS n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, po.d_previsao
                  FROM purchase_order_items poi
                  JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
                  WHERE (REPLACE(poi.c_referencia, '.', '') = $1 OR poi.c_referencia = $2)
                    AND TRIM(COALESCE(po.c_status, '')) <> 'C'
                    AND (po.d_pedido >= $3 OR poi.n_qtde > poi.n_chegou)
-                 ORDER BY po.d_pedido DESC, po.n_pedido DESC
+                 ORDER BY po.d_pedido DESC, po.n_registro DESC
                  LIMIT 1"
             )
             .bind(&clean_code)

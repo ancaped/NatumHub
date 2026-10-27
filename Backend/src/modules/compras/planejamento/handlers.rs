@@ -78,6 +78,7 @@ pub async fn list_purchase_orders(
 ) -> impl IntoResponse {
     let pool = state.db.pool().clone();
 
+    // Nº do pedido no ERP = n_registro (n_pedido é só a sequência do dia).
     let mut query = "SELECT n_registro, n_pedido, d_pedido, n_cod_fornec, c_nome_f, c_usuario, c_status, c_prazo_pgto, c_prev_entrega, n_valor, d_previsao, c_email, m_observac FROM purchase_orders WHERE 1=1".to_string();
     let mut args: Vec<String> = Vec::new();
     let mut idx = 1;
@@ -112,7 +113,7 @@ pub async fn list_purchase_orders(
     if let Some(ref search) = params.search {
         if !search.trim().is_empty() {
             query.push_str(&format!(
-                " AND (c_nome_f LIKE ${} OR CAST(n_pedido AS TEXT) LIKE ${})",
+                " AND (c_nome_f LIKE ${} OR CAST(n_registro AS TEXT) LIKE ${})",
                 idx,
                 idx + 1
             ));
@@ -122,7 +123,7 @@ pub async fn list_purchase_orders(
         }
     }
 
-    query.push_str(" ORDER BY d_pedido DESC, n_pedido DESC");
+    query.push_str(" ORDER BY d_pedido DESC, n_registro DESC");
 
     let mut q = sqlx::query(&query);
     for arg in &args {
@@ -528,7 +529,7 @@ pub async fn get_item_extra_info(
     }
 
     if let Ok(rows) = sqlx::query(
-        "SELECT po.n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, poi.n_preco 
+        "SELECT po.n_registro AS n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, poi.n_preco 
          FROM purchase_order_items poi
          INNER JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
          WHERE (poi.c_referencia = $1 OR poi.c_referencia = $2)
@@ -932,7 +933,7 @@ pub async fn get_insumo_detalhes(
 
     let mut pending_orders = Vec::new();
     if let Ok(rows) = sqlx::query(
-        "SELECT po.n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, poi.n_preco 
+        "SELECT po.n_registro AS n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, poi.n_preco 
          FROM purchase_order_items poi
          INNER JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
          WHERE (poi.c_referencia = $1 OR poi.c_referencia = $2)
@@ -960,7 +961,7 @@ pub async fn get_insumo_detalhes(
 
     let mut all_orders = Vec::new();
     if let Ok(rows) = sqlx::query(
-        "SELECT po.n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, poi.n_preco 
+        "SELECT po.n_registro AS n_pedido, po.d_pedido, po.c_nome_f, poi.n_qtde, poi.n_chegou, poi.n_preco 
          FROM purchase_order_items poi
          INNER JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
          WHERE (poi.c_referencia = $1 OR poi.c_referencia = $2)

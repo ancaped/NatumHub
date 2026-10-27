@@ -698,7 +698,8 @@ pub async fn get_product_pending_orders(
 
     let mut in_transit_purchase_orders = Vec::new();
     if let Ok(rows) = sqlx::query(
-        "SELECT po.n_pedido, po.c_nome_f, po.d_previsao, poi.n_qtde, poi.n_chegou,
+        // Nº do pedido no ERP = n_registro (n_pedido é só a sequência do dia).
+        "SELECT po.n_registro AS n_pedido, po.c_nome_f, po.d_previsao, poi.n_qtde, poi.n_chegou,
                 (poi.n_qtde - poi.n_chegou) as n_pendente
          FROM purchase_order_items poi
          JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro

@@ -823,8 +823,9 @@ pub async fn get_insumos_status(
         if is_missing {
             missing_count += 1;
             let ing_clean = ing_code.replace('.', "");
+            // Nº do pedido no ERP = n_registro (n_pedido é só a sequência do dia).
             let po_query = r#"
-                SELECT po.n_pedido, po.c_nome_f, po.d_previsao, poi.n_qtde, poi.n_chegou,
+                SELECT po.n_registro AS n_pedido, po.c_nome_f, po.d_previsao, poi.n_qtde, poi.n_chegou,
                        (poi.n_qtde - poi.n_chegou) as n_pendente
                 FROM purchase_order_items poi
                 JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro

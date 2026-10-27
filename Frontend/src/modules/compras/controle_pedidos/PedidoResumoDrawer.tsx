@@ -25,8 +25,8 @@ interface Pedido {
 const fmt = (n: number) => Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 const fmtData = (d?: string | null) => (d ? d.slice(0, 10).split('-').reverse().join('/') : '—');
 
-/** Resumo de leitura de um pedido de compra (aberto direto de outras telas, pelo número do pedido). */
-export default function PedidoResumoDrawer({ nPedido, onClose }: { nPedido: number; onClose: () => void }) {
+/** Resumo de leitura de um pedido de compra (aberto direto de outras telas, pelo número do pedido no ERP). */
+export default function PedidoResumoDrawer({ nRegistro, onClose }: { nRegistro: number; onClose: () => void }) {
   const [pedido, setPedido] = useState<Pedido | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -34,11 +34,8 @@ export default function PedidoResumoDrawer({ nPedido, onClose }: { nPedido: numb
     let cancelado = false;
     (async () => {
       try {
-        const lista = await apiFetch(`/compras/pedidos?search=${nPedido}`).then((r) => (r.ok ? r.json() : []));
-        const achado = (Array.isArray(lista) ? lista : []).find((p: Pedido) => p.nPedido === nPedido);
-        if (!achado) throw new Error(`Pedido ${nPedido} não encontrado.`);
-        const det = await apiFetch(`/compras/pedidos/${achado.nRegistro}`).then((r) => (r.ok ? r.json() : null));
-        if (!det) throw new Error('Não foi possível carregar o pedido.');
+        const det = await apiFetch(`/compras/pedidos/${nRegistro}`).then((r) => (r.ok ? r.json() : null));
+        if (!det) throw new Error(`Pedido ${nRegistro} não encontrado.`);
         if (!cancelado) setPedido(det);
       } catch (e) {
         if (!cancelado) setErro(e instanceof Error ? e.message : 'Não foi possível carregar o pedido.');
@@ -47,13 +44,13 @@ export default function PedidoResumoDrawer({ nPedido, onClose }: { nPedido: numb
     return () => {
       cancelado = true;
     };
-  }, [nPedido]);
+  }, [nRegistro]);
 
   return (
     <Drawer
       onClose={onClose}
       badge="Pedido de Compra"
-      title={`Pedido #${nPedido}`}
+      title={`Pedido #${nRegistro}`}
       subtitle={pedido ? `${pedido.cNomeF || 'Fornecedor não informado'} · ${fmtData(pedido.dPedido)}` : undefined}
       size="lg"
       loading={!pedido && !erro}

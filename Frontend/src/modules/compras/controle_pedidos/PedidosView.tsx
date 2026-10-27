@@ -272,9 +272,9 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
                       {orders.map((order, index) => {
                         const badge = getStatusBadge(order.cStatus);
                         return (
-                          <tr key={`${order.nPedido}-${index}`} className="hover:bg-zinc-50/50 transition-colors">
+                          <tr key={`${order.nRegistro}-${index}`} className="hover:bg-zinc-50/50 transition-colors">
                             <td className="px-6 py-4 font-mono text-xs font-bold text-zinc-800">
-                              #{order.nPedido}
+                              #{order.nRegistro}
                             </td>
                             <td className="px-6 py-4 text-zinc-500 text-xs">{formatDate(order.dPedido)}</td>
                             <td className="px-6 py-4 font-bold text-zinc-800 max-w-[250px] truncate">
@@ -321,7 +321,7 @@ export default function PedidosView({ onBackToHub }: PedidosViewProps) {
         isOpen={Boolean(selectedOrder || drawerLoading)}
         onClose={() => setSelectedOrder(null)}
         badge="Pedido de Compra"
-        title={selectedOrder ? `Pedido #${selectedOrder.nPedido}` : 'Carregando...'}
+        title={selectedOrder ? `Pedido #${selectedOrder.nRegistro}` : 'Carregando...'}
         subtitle={selectedOrder ? `${selectedOrder.cNomeF || 'Fornecedor não informado'} · ${formatDate(selectedOrder.dPedido)}` : undefined}
         size="xl"
         loading={drawerLoading}

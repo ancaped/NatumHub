@@ -1119,10 +1119,11 @@ pub async fn get_demands_query(
 
     let mut last_supplier_order_map = std::collections::HashMap::new();
     if let Ok(rows) = sqlx::query(
-        "SELECT DISTINCT ON (poi.c_referencia) poi.c_referencia, CAST(po.n_pedido AS TEXT)
+        // Nº do pedido no ERP = n_registro (n_pedido é só a sequência do dia).
+        "SELECT DISTINCT ON (poi.c_referencia) poi.c_referencia, CAST(po.n_registro AS TEXT)
          FROM purchase_order_items poi
          JOIN purchase_orders po ON poi.n_pedido_registro = po.n_registro
-         WHERE po.n_pedido IS NOT NULL
+         WHERE po.n_registro IS NOT NULL
          ORDER BY poi.c_referencia, po.d_pedido DESC NULLS LAST, poi.id DESC",
     )
     .fetch_all(&pool)

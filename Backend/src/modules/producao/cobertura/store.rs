@@ -393,9 +393,10 @@ async fn carregar_chegadas(
         return Ok(HashMap::new());
     }
 
+    // Nº do pedido no ERP = n_registro (n_pedido é só a sequência do dia).
     let rows = sqlx::query(
         r#"
-        SELECT poi.id, po.n_pedido, po.n_cod_fornec, COALESCE(po.c_nome_f, '') AS fornecedor,
+        SELECT poi.id, po.n_registro AS n_pedido, po.n_cod_fornec, COALESCE(po.c_nome_f, '') AS fornecedor,
                po.d_pedido, po.d_previsao, REPLACE(TRIM(COALESCE(poi.c_referencia, '')), '.', '') AS ref,
                COALESCE(poi.n_qtde, 0)::float8 AS qtde, COALESCE(poi.n_chegou, 0)::float8 AS chegou
         FROM purchase_order_items poi

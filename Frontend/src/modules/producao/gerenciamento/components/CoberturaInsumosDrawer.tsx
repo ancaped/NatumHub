@@ -611,7 +611,7 @@ export default function CoberturaInsumosDrawer({ isOpen, onClose, semana, descre
           }}
         />
       )}
-      {pedido !== null && <PedidoResumoDrawer nPedido={pedido} onClose={() => setPedido(null)} />}
+      {pedido !== null && <PedidoResumoDrawer nRegistro={pedido} onClose={() => setPedido(null)} />}
     </Drawer>
   );
 }
