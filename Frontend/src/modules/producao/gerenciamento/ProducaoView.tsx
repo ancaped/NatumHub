@@ -139,15 +139,7 @@ export default function ProducaoView({
 
   // Kits Module States
   const [kits, setKits] = useState([]);
-  const [kitsStats, setKitsStats] = useState({ total: 0, montar: 0, critico: 0, aguardando: 0, ordem: 0, saudavel: 0, abundante: 0 });
   const [coloracoes, setColoracoes] = useState([]);
-  const [kitsPage, setKitsPage] = useState(1);
-  const [kitsTotalPages, setKitsTotalPages] = useState(1);
-  const [kitsTotalItems, setKitsTotalItems] = useState(0);
-  const [kitsSearch, setKitsSearch] = useState('');
-  const [kitsSelectedStatus, setKitsSelectedStatus] = useState('ALL');
-  const [kitsActiveTab, setKitsActiveTab] = useState('ALL');
-  const [expandedKits, setExpandedKits] = useState([]);
   const [uploadingKits, setUploadingKits] = useState(false);
 
   // Production History States
@@ -376,8 +368,6 @@ export default function ProducaoView({
   // === SORTING STATE ===
   const [sortField, setSortField] = useState(null); // estoque view
   const [sortDir, setSortDir] = useState('asc');
-  const [kitSortField, setKitSortField] = useState(null);
-  const [kitSortDir, setKitSortDir] = useState('asc');
   const [historySortField, setHistorySortField] = useState(null);
   const [historySortDir, setHistorySortDir] = useState('asc');
 
@@ -614,25 +604,16 @@ export default function ProducaoView({
   const fetchKits = useCallback(async () => {
     setLoading(true);
     try {
+      // A Central de Kits filtra por situação, busca e linha na própria tela: traz todos os kits de uma vez.
       const params = new URLSearchParams();
-      if (kitsSearch.trim()) params.append('search', kitsSearch.trim());
-      if (kitsActiveTab !== 'ALL') params.append('linha', kitsActiveTab);
-      if (kitsSelectedStatus !== 'ALL') params.append('status', kitsSelectedStatus);
       if (showHidden) params.append('show_hidden', 'true');
-      params.append('page', kitsPage.toString());
-      params.append('limit', limitPerPage.toString());
-      if (kitSortField) {
-        params.append('sort', kitSortField);
-        params.append('order', kitSortDir);
-      }
+      params.append('page', '1');
+      params.append('limit', '1000');
 
       const res = await apiFetch(`/kits?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         setKits(data.items || []);
-        setKitsTotalItems(data.total || 0);
-        setKitsTotalPages(data.total_pages || 1);
-        if (data.stats) setKitsStats(data.stats);
       } else {
         showToast("Erro ao buscar kits da API", "error");
       }
@@ -642,7 +623,7 @@ export default function ProducaoView({
     } finally {
       setLoading(false);
     }
-  }, [kitsSearch, kitsActiveTab, kitsSelectedStatus, kitsPage, limitPerPage, showHidden, kitSortField, kitSortDir]);
+  }, [showHidden]);
 
   useEffect(() => {
     if (currentView === 'kits') {
@@ -1005,12 +986,6 @@ export default function ProducaoView({
   const handleTabChange = (tabId) => {
     setActiveTab(tabId);
     setPage(1);
-  };
-
-  const toggleKitExpanded = (code) => {
-    setExpandedKits(prev => 
-      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
-    );
   };
 
   const gravarSettingGlobal = (chave: string, valor: number) =>
@@ -1513,10 +1488,6 @@ export default function ProducaoView({
       setCurrentView('montagem_kits');
     } else if (tabId === 'kits') {
       setCurrentView('kits');
-      setKitsActiveTab('ALL');
-      setKitsSearch('');
-      setKitsSelectedStatus('ALL');
-      setKitsPage(1);
       fetchKits();
     } else if (tabId === 'history') {
       setCurrentView('history');
@@ -1675,46 +1646,14 @@ export default function ProducaoView({
           {/* VIEW: KITS MANAGEMENT */}
           {currentView === 'kits' && (
             <KitsTab
-              kitsStats={kitsStats}
               kits={kits}
-              configs={configs}
-              kitsActiveTab={kitsActiveTab}
-              setKitsActiveTab={setKitsActiveTab}
-              kitsSearch={kitsSearch}
-              setKitsSearch={setKitsSearch}
-              kitsSelectedStatus={kitsSelectedStatus}
-              setKitsSelectedStatus={setKitsSelectedStatus}
-              kitsPage={kitsPage}
-              setKitsPage={setKitsPage}
-              kitsTotalPages={kitsTotalPages}
-              kitsTotalItems={kitsTotalItems}
-              limitPerPage={limitPerPage}
-              showHidden={showHidden}
-              kitSortField={kitSortField}
-              setKitSortField={setKitSortField}
-              kitSortDir={kitSortDir}
-              setKitSortDir={setKitSortDir}
-              onLaunchProduct={(p) => {
-                setLaunchingProduct(p);
-                setLaunchQty(p.producao_recomendada > 0 ? p.producao_recomendada : 100);
-                const today = new Date();
-                const yyyy = today.getFullYear();
-                const mm = String(today.getMonth() + 1).padStart(2, '0');
-                const dd = String(today.getDate()).padStart(2, '0');
-                setLaunchDate(`${yyyy}-${mm}-${dd}`);
-              }}
               onEditOverrides={openEditModal}
               onRefresh={fetchKits}
               loading={loading}
               tabOptions={tabOptions}
-              toggleSort={toggleSort}
-              SortIcon={SortIcon}
-              expandedKits={expandedKits}
-              toggleKitExpanded={toggleKitExpanded}
               onOpenComposition={handleOpenKitComposition}
               onToggleApenasKit={handleToggleComponentApenasKit}
               onShowDetails={fetchProductDetails}
-              diasComerciais={diasComerciais}
             />
           )}
 
